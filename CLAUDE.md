@@ -21,19 +21,19 @@ There is no test suite or linter configured.
 ## Branching & deployment
 
 - `master` is the default/production branch (**not** `main`) — only `master` triggers deployment. Do routine work on `develop` and merge into `master` when ready to publish; this is intentional, so pushes to `develop` don't go live.
-- Pushing to `master` triggers `.github/workflows/deploy.yml`, which runs `withastro/action@v3` (installs deps, runs `astro build`) and deploys `dist/` to GitHub Pages via `actions/deploy-pages@v5`. There is no separate staging environment — every push to `master` goes live immediately.
+- Pushing to `master` triggers `.github/workflows/deploy.yml`, which runs `withastro/action@v6` (installs deps, runs `astro build`) and deploys `dist/` to GitHub Pages via `actions/deploy-pages@v5`. There is no separate staging environment — every push to `master` goes live immediately.
 - The repo's GitHub Pages source is set to **"GitHub Actions"** (not the legacy branch-based Pages source), so deployment only happens through this workflow. If the workflow's `on.push.branches` trigger is ever changed, remember `master` is the branch that matters here, not `main`.
 
 ## Adding a new article
 
 Always touch two places:
-1. Create the new `.astro` file in `src/pages/knowledge/`, using `<Layout>` the same way `claude-intro.astro` does.
-2. Add or update its entry in the `articles` array in `src/pages/knowledge/index.astro`, setting `soon: false` and `href` pointing at the new file in directory-style form (e.g. `my-article/`, not `my-article.html` — see the directory-style build note below).
+1. Create the new `.astro` file in `src/pages/knowledge/`, using `<Layout>` the same way `claude-intro.astro` does. Pass `prev`/`next` (from `getAdjacentArticles(href)`, see below) and `updated="<date>"` as props instead of hand-writing a `<footer>`.
+2. Add or update its entry in the `articles` array in `src/data/articles.js`, setting `soon: false` and `href` pointing at the new file in directory-style form (e.g. `my-article/`, not `my-article.html` — see the directory-style build note below). Order in the array determines prev/next link order and reading order on the listing page — insert it where it should sit in the sequence.
 
 ## Architecture notes
 
 - **`astro.config.mjs`** sets `site` but no `base`, and relies on Astro's default `build.format: "directory"` output (e.g. `src/pages/knowledge/claude-intro.astro` → `/knowledge/claude-intro/index.html`). GitHub Pages serves directory indexes natively, so links use `href="claude-intro/"` style paths, not `.html` suffixes.
 - **`src/middleware.ts`** redirects `/` → `/index.html` but only runs under `astro dev`; it has no effect on the static production build, where GitHub Pages serves `public/index.html` directly as `dist/index.html`. Don't rely on this middleware for any production routing behavior.
-- **`src/layouts/Layout.astro`** is the shared shell for all Astro pages (blue color theme, Fira Mono font, card/tag/breadcrumb styling). New Astro content pages should use this layout via `<Layout title=... description=...>` rather than duplicating markup — see `src/pages/knowledge/claude-intro.astro` for the pattern (breadcrumb, `.tag`, `.card`, footer with a manually-written last-updated date).
-- Content in `src/pages/knowledge/` is Thai-language and hand-authored per article (no CMS/content collections). `index.astro` maintains a hardcoded `articles` array with `soon: true/false` to mark placeholder ("เร็วๆ นี้") vs. published entries — update that array when adding a new article page.
+- **`src/layouts/Layout.astro`** is the shared shell for all Astro pages (blue color theme, Sarabun font with fluid `clamp()`-based sizing controlled by the single `--scale` CSS variable, card/tag/breadcrumb/callout/references styling, a sticky "on this page" TOC auto-built from each page's `h2`s). New Astro content pages should use this layout via `<Layout title=... description=...>` rather than duplicating markup — see `src/pages/knowledge/claude-intro.astro` for the pattern. Layout also renders the prev/next article nav and the "last updated" footer itself, driven by the `prev`/`next`/`updated` props — don't hand-write a `<footer>` in article pages.
+- **`src/data/articles.js`** is the single source of truth for the knowledge article list (used by the listing page) and reading order (used by `getAdjacentArticles(href)` for prev/next links). `soon: true/false` marks placeholder ("เร็วๆ นี้") vs. published entries; only published entries count for prev/next.
 - The legacy `public/` assets (`index.html`, `script.js`, `styles.css`) are the standalone profile page kept for backward-compat links; they are not part of the Astro build pipeline and won't pick up changes to `src/layouts/Layout.astro`. This separation is intentional — don't move these files into `src/pages/` to have Astro process them unless the actual goal is to migrate the whole site off the legacy static pages.
