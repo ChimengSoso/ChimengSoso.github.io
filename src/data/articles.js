@@ -1,0 +1,42 @@
+export const articles = [
+  {
+    href: 'claude-intro/',
+    tag: 'แนะนำเบื้องต้น',
+    title: 'Claude คืออะไร ใช้ยังไง',
+    desc: 'ถ้ายังไม่รู้จัก Claude เลยสักนิด บทความนี้คือจุดเริ่มที่ไม่ควรข้าม',
+    soon: false,
+  },
+  {
+    href: 'claude-code-workflow/',
+    tag: 'Claude Code',
+    title: 'ความลับที่ทำให้ Claude Code ได้ผลจริง',
+    desc: 'แชร์สิ่งที่ทำมาแล้วจริง 7 ข้อ ตั้งแต่ Plan Mode ยัน Skill ของตัวเอง — ถ้าไม่รู้ = เสียเวลาไปอีกนาน',
+    soon: false,
+  },
+  {
+    href: '#',
+    tag: 'เร็วๆ นี้',
+    title: 'ความลับการเขียน Prompt ให้ได้ผลลัพธ์ดีขึ้น',
+    desc: 'กำลังจัดทำเนื้อหา',
+    soon: true,
+  },
+  {
+    href: '#',
+    tag: 'เร็วๆ นี้',
+    title: 'ใช้ Claude ผ่าน API แบบที่นักพัฒนาไม่ควรพลาด',
+    desc: 'กำลังจัดทำเนื้อหา',
+    soon: true,
+  },
+];
+
+// Only published (soon: false) articles count for prev/next — placeholders
+// have no real page to link to.
+export function getAdjacentArticles(href) {
+  const published = articles.filter((a) => !a.soon);
+  const index = published.findIndex((a) => a.href === href);
+  if (index === -1) return { prev: null, next: null };
+  return {
+    prev: index > 0 ? published[index - 1] : null,
+    next: index < published.length - 1 ? published[index + 1] : null,
+  };
+}
