@@ -1,3 +1,4 @@
+// @ts-ignore
 import { defineMiddleware } from 'astro:middleware';
 
 // เอาไว้ใช้แค่ตอน `npm run dev` เท่านั้น: ทำให้พิมพ์ localhost:4321 เฉยๆ
