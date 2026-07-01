@@ -2,8 +2,9 @@
 interface Props {
   title: string;
   description?: string;
+  narrow?: boolean;
 }
-const { title, description = "หมวดความรู้ของ ChimengSoso" } = Astro.props;
+const { title, description = "หมวดความรู้ของ ChimengSoso", narrow = false } = Astro.props;
 ---
 <!DOCTYPE html>
 <html lang="th">
@@ -15,9 +16,20 @@ const { title, description = "หมวดความรู้ของ Chimeng
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <style>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <style is:global>
     :root{
+      /* Single knob for overall scale on wide screens, as a multiple of the
+         16px mobile base — e.g. 1.5 means desktop tops out ~150% of mobile
+         size. Everything else below derives from this automatically. */
+      --scale: 1.5;
+      --fs-min: 16;
+      --fs-max: calc(var(--fs-min) * var(--scale));
+      --vw-min: 400;
+      --vw-max: 1600;
+      --fs-slope: calc((var(--fs-max) - var(--fs-min)) / (var(--vw-max) - var(--vw-min)) * 100);
+      --fs-intercept: calc(var(--fs-min) - (var(--vw-min) * (var(--fs-max) - var(--fs-min)) / (var(--vw-max) - var(--vw-min))));
+
       --blue: #4d72a9;
       --blue-deep: #294266;
       --blue-shadow: #163f78;
@@ -27,8 +39,18 @@ const { title, description = "หมวดความรู้ของ Chimeng
       --muted: #5a6a85;
     }
     *{margin:0;padding:0;box-sizing:border-box;}
+    html{
+      /* fluid base size: scales the whole rem-based layout with viewport width,
+         so large screens don't need manual zoom to look proportionate.
+         Bounds and slope computed from --scale above. */
+      font-size:clamp(
+        calc(var(--fs-min) * 1px),
+        calc(var(--fs-intercept) * 1px + var(--fs-slope) * 1vw),
+        calc(var(--fs-max) * 1px)
+      );
+    }
     html,body{
-      font-family:"Fira Mono", monospace;
+      font-family:"Sarabun", system-ui, sans-serif;
       background:var(--blue);
       color:var(--ink);
     }
@@ -36,62 +58,194 @@ const { title, description = "หมวดความรู้ของ Chimeng
       min-height:100vh;
       display:flex;
       justify-content:center;
-      padding:40px 16px 72px;
+      padding:2.5rem 1rem 4.5rem;
     }
     a{color:inherit;}
+    a:visited{color:inherit;}
+    code, pre, kbd{font-family:"Fira Code","Fira Mono",monospace;}
     .page{width:100%;display:flex;justify-content:center;}
+    .layout{
+      width:100%;
+      max-width:100rem;
+      display:flex;
+      gap:3.5rem;
+      align-items:flex-start;
+      justify-content:center;
+    }
     .panel{
       width:100%;
-      max-width:38rem;
+      min-width:0;
+      max-width:50rem;
       background:#ffffff;
       border-radius:22px;
       box-shadow:0 14px 28px -6px rgba(22,63,120,0.45);
-      padding:32px 30px 40px;
-      line-height:1.75;
+      padding:2.75rem 3rem 3.25rem;
+      line-height:1.8;
       animation:fadeUp .5s cubic-bezier(.16,1,.3,1) both;
+    }
+    .panel.panel-narrow{
+      max-width:34rem;
     }
     @keyframes fadeUp{
       from{opacity:0;transform:translateY(10px);}
       to{opacity:1;transform:translateY(0);}
     }
-    .breadcrumb{font-size:11px;color:var(--blue);margin-bottom:20px;letter-spacing:.2px;}
-    .breadcrumb a{text-decoration:none;color:var(--blue-deep);transition:opacity .15s;}
-    .breadcrumb a:hover{opacity:.65;}
+    .toc{
+      display:none;
+      width:15rem;
+      flex-shrink:0;
+      position:sticky;
+      top:2.5rem;
+    }
+    @media (min-width:1180px){
+      .toc.has-headings{display:block;}
+    }
+    .toc-label{
+      font-size:0.66rem;
+      font-weight:600;
+      text-transform:uppercase;
+      letter-spacing:.6px;
+      color:rgba(255,255,255,0.6);
+      margin-bottom:0.75rem;
+    }
+    .toc nav{display:flex;flex-direction:column;gap:0.125rem;}
+    .toc nav a{
+      display:block;
+      font-size:0.81rem;
+      line-height:1.5;
+      color:rgba(255,255,255,0.8);
+      text-decoration:none;
+      padding:0.3rem 0 0.3rem 0.75rem;
+      border-left:2px solid rgba(255,255,255,0.25);
+      transition:color .15s, border-color .15s;
+    }
+    .toc nav a:hover{color:#fff;border-left-color:rgba(255,255,255,0.55);}
+    .toc nav a.active{color:#fff;border-left-color:#fff;font-weight:600;}
+    .breadcrumb{
+      font-size:0.69rem;
+      color:var(--muted);
+      margin-bottom:1.25rem;
+      letter-spacing:.3px;
+      text-transform:uppercase;
+    }
+    .breadcrumb a{
+      color:var(--muted);
+      text-decoration:none;
+      border-bottom:1px solid transparent;
+      transition:color .15s, border-color .15s;
+    }
+    .breadcrumb a:hover{color:var(--blue-deep);border-bottom-color:var(--blue-soft);}
     .tag{
       display:inline-block;
-      font-size:10px;
+      font-size:0.69rem;
       background:var(--blue-deep);
       color:var(--blue-tint);
-      padding:3px 10px;
-      border-radius:20px;
+      padding:0.25rem 0.75rem;
+      border-radius:1.25rem;
       text-transform:uppercase;
       letter-spacing:.4px;
-      margin-bottom:12px;
+      margin-bottom:0.875rem;
     }
-    h1{font-size:23px;color:var(--ink);margin-bottom:6px;letter-spacing:-.2px;}
-    .subtitle{color:var(--muted);font-size:12.5px;margin-bottom:34px;}
+    h1{font-size:1.75rem;color:var(--ink);margin-bottom:0.5rem;letter-spacing:-.2px;}
+    .subtitle{color:var(--muted);font-size:0.91rem;margin-bottom:2.375rem;}
     h2{
-      font-size:14.5px;
+      font-size:1rem;
       color:var(--blue-deep);
-      margin-top:34px;
-      margin-bottom:12px;
+      margin-top:2.375rem;
+      margin-bottom:0.875rem;
       border-left:3px solid var(--blue);
-      padding-left:11px;
+      padding-left:0.75rem;
       text-transform:uppercase;
       letter-spacing:.5px;
     }
-    p{font-size:13.5px;color:#2b2a28;margin:10px 0;}
-    ul{padding-left:20px;font-size:13.5px;color:#2b2a28;}
-    li{margin:7px 0;}
+    p{font-size:0.97rem;color:#2b2a28;margin:0.75rem 0;}
+    ul{padding-left:1.375rem;font-size:0.97rem;color:#2b2a28;}
+    li{margin:0.5rem 0;}
+    strong{color:var(--blue-shadow);font-weight:700;}
+    p a, li a, .callout a{
+      color:var(--blue-shadow);
+      text-decoration:underline;
+      text-decoration-color:var(--blue-soft);
+      text-underline-offset:2px;
+    }
+    p a:hover, li a:hover, .callout a:hover{color:var(--blue-deep);}
+    .references{
+      list-style:none;
+      padding-left:0;
+      counter-reset:ref;
+    }
+    .references li{
+      counter-increment:ref;
+      position:relative;
+      padding-left:2rem;
+    }
+    .references li::before{
+      content:"[" counter(ref) "]";
+      position:absolute;
+      left:0;
+      color:var(--blue-shadow);
+      font-weight:600;
+    }
+    /* section dividers: use sparingly, only where the topic genuinely
+       shifts — not between every heading */
+    .divider{
+      border:none;
+      border-top:1px dashed var(--blue-soft);
+      margin:2.25rem 0;
+    }
+    .divider-solid{
+      border:none;
+      border-top:2px solid var(--blue-soft);
+      margin:2.75rem 0;
+    }
     .card{
       background:var(--blue-tint);
       border-radius:14px;
-      padding:16px 20px;
-      margin:14px 0;
+      padding:1.125rem 1.5rem;
+      margin:1rem 0;
     }
+    .card ul{padding-left:1.125rem;}
+    code{
+      background:var(--blue-tint);
+      color:var(--blue-shadow);
+      padding:0.125rem 0.375rem;
+      border-radius:6px;
+      font-size:0.9em;
+    }
+    pre{
+      background:#1c2536;
+      color:#e7ecf6;
+      border-radius:14px;
+      padding:1.125rem 1.25rem;
+      margin:1.125rem 0;
+      overflow-x:auto;
+      font-size:0.84rem;
+      line-height:1.7;
+    }
+    pre code{background:none;color:inherit;padding:0;font-size:1em;}
+    .callout{
+      border-radius:12px;
+      padding:1rem 1.25rem;
+      margin:1.125rem 0;
+      border-left:3px solid;
+    }
+    .callout p{margin:0;font-size:0.875rem;}
+    .callout-label{
+      font-size:0.69rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.4px;
+      margin-bottom:0.25rem;
+    }
+    .callout-tip{background:#eafaf0;border-color:#2f9e5c;}
+    .callout-tip .callout-label{color:#1f7a45;}
+    .callout-warn{background:#fdecec;border-color:#d64545;}
+    .callout-warn .callout-label{color:#b23b3b;}
+    .callout-note{background:var(--blue-tint);border-color:var(--blue);}
+    .callout-note .callout-label{color:var(--blue-deep);}
     footer{
-      margin-top:40px;
-      font-size:11px;
+      margin-top:2.5rem;
+      font-size:0.69rem;
       color:#9aa7bd;
       text-align:center;
     }
@@ -99,9 +253,52 @@ const { title, description = "หมวดความรู้ของ Chimeng
 </head>
 <body>
   <div class="page">
-    <div class="panel">
-      <slot />
+    <div class="layout">
+      <div class:list={["panel", { "panel-narrow": narrow }]}>
+        <slot />
+      </div>
+      <aside class="toc" id="page-toc">
+        <p class="toc-label">ในบทความนี้</p>
+        <nav id="toc-nav"></nav>
+      </aside>
     </div>
   </div>
+  <script>
+    const headings = Array.from(document.querySelectorAll('.panel h2'));
+    const toc = document.getElementById('page-toc');
+    const nav = document.getElementById('toc-nav');
+
+    if (toc && nav && headings.length >= 2) {
+      const used = new Set();
+      headings.forEach((h, i) => {
+        if (!h.id) {
+          let slug = h.textContent.trim().toLowerCase()
+            .replace(/[^a-z0-9ก-๙\s-]/g, '')
+            .replace(/\s+/g, '-') || `section-${i}`;
+          while (used.has(slug)) slug = `${slug}-${i}`;
+          used.add(slug);
+          h.id = slug;
+        }
+        const a = document.createElement('a');
+        a.href = `#${h.id}`;
+        a.textContent = h.textContent;
+        nav.appendChild(a);
+      });
+      toc.classList.add('has-headings');
+
+      const links = Array.from(nav.querySelectorAll('a'));
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          links.forEach((l) => l.classList.remove('active'));
+          const active = nav.querySelector(`a[href="#${entry.target.id}"]`);
+          if (active) active.classList.add('active');
+        });
+      }, { rootMargin: '-15% 0px -70% 0px' });
+      headings.forEach((h) => observer.observe(h));
+    } else if (toc) {
+      toc.remove();
+    }
+  </script>
 </body>
 </html>
