@@ -64,24 +64,22 @@
     cursor:pointer;
     box-shadow:0 10px 24px -6px rgba(22,63,120,0.55);
     animation:donate-nudge 9s ease-in-out infinite;
-    transition:width .3s cubic-bezier(.16,1,.3,1), background .15s ease, box-shadow .15s ease, transform .15s ease;
+    transition:width .3s cubic-bezier(.16,1,.3,1), background .15s ease, box-shadow .15s ease;
   }
   .donate-fab:hover,
   .donate-fab:focus-visible{
     /* Deliberately generous and fixed (not measured) -- an exact pixel-fit computed
-       from the rendered text risked subpixel rounding clipping the trailing glyph
-       (dropped ู / ย). A little empty space on the right costs nothing visually. */
+       from the rendered text risked subpixel rounding clipping the trailing glyph. */
     width:13.5rem;
     justify-content:flex-start;
     padding:0 1rem 0 0.95rem;
     background:var(--blue-shadow);
-    transform:translateY(-2px);
     box-shadow:0 14px 28px -6px rgba(22,63,120,0.65);
-    /* Fully stop the wiggle (not just pause it) -- a paused animation still overrides
-       `transform` with whatever keyframe it froze on, which silently replaced the
-       translateY(-2px) lift above with a leftover scale()/rotate() from mid-wiggle.
-       That kept the label text on a GPU-scaled compositing layer, which is almost
-       certainly what was dropping thin Thai vowel marks (สระอู) in the label. */
+    /* No `transform` here on purpose (not even a hover lift) -- animating or even just
+       setting `transform` on this element forces the label text onto its own
+       GPU-composited layer, and thin Thai vowel/tone marks (สระอู, etc.) were being
+       lost whenever that happened. Stop the wiggle outright instead of pausing it,
+       since a paused animation still overrides `transform` with its frozen keyframe. */
     animation:none;
   }
   .donate-fab-emoji{
@@ -93,16 +91,17 @@
   .donate-fab-text{
     max-width:0;
     overflow:hidden;
-    opacity:0;
     white-space:nowrap;
     margin-left:0;
-    transition:max-width .3s cubic-bezier(.16,1,.3,1), opacity .2s ease, margin-left .3s cubic-bezier(.16,1,.3,1);
+    /* No `opacity` transition either, for the same reason `transform` was dropped above --
+       opacity also promotes the text to its own compositing layer while animating.
+       Visibility is controlled purely by the max-width collapse (zero width = invisible). */
+    transition:max-width .3s cubic-bezier(.16,1,.3,1), margin-left .3s cubic-bezier(.16,1,.3,1);
   }
   .donate-fab:hover .donate-fab-text,
   .donate-fab:focus-visible .donate-fab-text{
     max-width:none;
     margin-left:0.5rem;
-    opacity:1;
   }
   @keyframes donate-nudge{
     0%, 82%, 100%{transform:scale(1) rotate(0deg);}
@@ -119,16 +118,14 @@
       width:3.1rem;
       justify-content:center;
       padding:0;
-      transform:none;
     }
-    .donate-fab:hover .donate-fab-text{max-width:0;margin-left:0;opacity:0;}
+    .donate-fab:hover .donate-fab-text{max-width:0;margin-left:0;}
   }
 
   .donate-dialog{
     position:fixed;
     top:50%;
     left:50%;
-    transform:translate(-50%, -50%);
     margin:0;
     border:none;
     border-radius:20px;
@@ -137,10 +134,25 @@
     max-height:85vh;
     overflow-y:auto;
     box-shadow:0 24px 48px -12px rgba(19,30,48,0.45);
+    opacity:1;
+    transform:translate(-50%, -50%) scale(1);
+    transition:opacity .22s ease, transform .22s cubic-bezier(.16,1,.3,1);
+  }
+  .donate-dialog.donate-dialog-enter{
+    opacity:0;
+    transform:translate(-50%, -50%) scale(0.94);
   }
   .donate-dialog::backdrop{
     background:rgba(19,30,48,0.55);
     backdrop-filter:blur(2px);
+    opacity:1;
+    transition:opacity .22s ease;
+  }
+  .donate-dialog.donate-dialog-enter::backdrop{
+    opacity:0;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .donate-dialog, .donate-dialog::backdrop{transition:none;}
   }
   .donate-form{
     position:relative;
@@ -227,7 +239,19 @@
   const fab = document.getElementById('donate-fab') as HTMLButtonElement | null;
   const dialog = document.getElementById('donate-dialog') as HTMLDialogElement | null;
 
-  fab?.addEventListener('click', () => dialog?.showModal());
+  fab?.addEventListener('click', () => {
+    if (!dialog) return;
+    dialog.showModal();
+    // Start from the "enter" (shrunk/faded) state, force a layout flush so the browser
+    // registers it as the starting point, then remove the class on the next frame to
+    // transition into the normal state -- <dialog> has no display:none-to-open transition
+    // otherwise, since it isn't rendered at all until showModal() runs.
+    dialog.classList.add('donate-dialog-enter');
+    dialog.getBoundingClientRect();
+    requestAnimationFrame(() => {
+      dialog.classList.remove('donate-dialog-enter');
+    });
+  });
 
   dialog?.addEventListener('click', (e) => {
     const rect = dialog.getBoundingClientRect();
