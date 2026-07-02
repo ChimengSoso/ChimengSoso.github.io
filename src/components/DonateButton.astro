@@ -6,8 +6,8 @@
 </button>
 
 <dialog id="donate-dialog" class="donate-dialog" aria-labelledby="donate-title">
-  <form method="dialog" class="donate-form">
-    <button type="submit" class="donate-close" aria-label="ปิดหน้าต่างนี้">&times;</button>
+  <form class="donate-form">
+    <button type="button" class="donate-close" aria-label="ปิดหน้าต่างนี้">&times;</button>
     <h2 id="donate-title" class="donate-title">เลี้ยงชาบูผมสักมื้อ 🍲</h2>
     <p class="donate-desc">
       เดิมทีปุ่มนี้ควรจะเป็น "เลี้ยงกาแฟ" ตามธรรมเนียม แต่ผมไม่ค่อยกินกาแฟ
@@ -145,19 +145,25 @@
     box-shadow:0 24px 48px -12px rgba(19,30,48,0.45);
     opacity:1;
     transform:translate(-50%, -50%) scale(1);
-    transition:opacity .22s ease, transform .22s cubic-bezier(.16,1,.3,1);
+    transition:opacity .32s ease, transform .38s cubic-bezier(.16,1,.3,1);
   }
-  .donate-dialog.donate-dialog-enter{
+  .donate-dialog.donate-dialog-enter,
+  .donate-dialog.donate-dialog-exit{
     opacity:0;
-    transform:translate(-50%, -50%) scale(0.94);
+    /* --genie-x/--genie-y (set from JS, in px) point this at the donate FAB's current
+       position, so the dialog grows out of / shrinks back into the button itself --
+       a "genie" effect like Windows minimize/maximize toward the taskbar -- instead of
+       just fading in place. Default to 0 so this never breaks if JS hasn't run yet. */
+    transform:translate(calc(-50% + var(--genie-x, 0px)), calc(-50% + var(--genie-y, 0px))) scale(0.12);
   }
   .donate-dialog::backdrop{
     background:rgba(19,30,48,0.55);
     backdrop-filter:blur(2px);
     opacity:1;
-    transition:opacity .22s ease;
+    transition:opacity .32s ease;
   }
-  .donate-dialog.donate-dialog-enter::backdrop{
+  .donate-dialog.donate-dialog-enter::backdrop,
+  .donate-dialog.donate-dialog-exit::backdrop{
     opacity:0;
   }
   @media (prefers-reduced-motion: reduce){
@@ -247,14 +253,31 @@
 <script>
   const fab = document.getElementById('donate-fab') as HTMLButtonElement | null;
   const dialog = document.getElementById('donate-dialog') as HTMLDialogElement | null;
+  const closeBtn = document.querySelector('.donate-close') as HTMLButtonElement | null;
+
+  // Points --genie-x/--genie-y (consumed by the .donate-dialog-enter/-exit transform)
+  // at the FAB's current on-screen position, so the dialog can grow out of / shrink
+  // back into the button instead of just fading in place in the center.
+  function aimGenieAtFab() {
+    if (!fab || !dialog) return;
+    const fabRect = fab.getBoundingClientRect();
+    const dialogRect = dialog.getBoundingClientRect();
+    const dx = (fabRect.left + fabRect.width / 2) - (dialogRect.left + dialogRect.width / 2);
+    const dy = (fabRect.top + fabRect.height / 2) - (dialogRect.top + dialogRect.height / 2);
+    dialog.style.setProperty('--genie-x', `${dx}px`);
+    dialog.style.setProperty('--genie-y', `${dy}px`);
+  }
 
   fab?.addEventListener('click', () => {
     if (!dialog) return;
     dialog.showModal();
-    // Start from the "enter" (shrunk/faded) state, force a layout flush so the browser
-    // registers it as the starting point, then remove the class on the next frame to
-    // transition into the normal state -- <dialog> has no display:none-to-open transition
-    // otherwise, since it isn't rendered at all until showModal() runs.
+    // showModal() renders the dialog at its final centered rect immediately, so it can
+    // be measured against the FAB here. Then: start from the "enter" (shrunk toward the
+    // FAB, faded) state, force a layout flush so the browser registers it as the
+    // starting point, then remove the class on the next frame to transition into the
+    // normal state -- <dialog> has no display:none-to-open transition otherwise, since
+    // it isn't rendered at all until showModal() runs.
+    aimGenieAtFab();
     dialog.classList.add('donate-dialog-enter');
     dialog.getBoundingClientRect();
     requestAnimationFrame(() => {
@@ -262,11 +285,30 @@
     });
   });
 
+  function closeWithAnimation() {
+    if (!dialog || !dialog.open || dialog.classList.contains('donate-dialog-exit')) return;
+    aimGenieAtFab();
+    dialog.classList.add('donate-dialog-exit');
+    dialog.addEventListener('transitionend', () => {
+      dialog.classList.remove('donate-dialog-exit');
+      dialog.close();
+    }, { once: true });
+  }
+
+  closeBtn?.addEventListener('click', closeWithAnimation);
+
+  // Esc fires 'cancel' and would otherwise close the dialog instantly with no
+  // transition -- intercept it and run the same shrink-into-the-FAB animation.
+  dialog?.addEventListener('cancel', (e) => {
+    e.preventDefault();
+    closeWithAnimation();
+  });
+
   dialog?.addEventListener('click', (e) => {
     const rect = dialog.getBoundingClientRect();
     const inside =
       e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
-    if (!inside) dialog.close();
+    if (!inside) closeWithAnimation();
   });
 
   document.querySelectorAll<HTMLButtonElement>('[data-copy-value]').forEach((btn) => {
