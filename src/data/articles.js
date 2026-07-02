@@ -10,7 +10,7 @@ export const articles = [
     href: 'claude-code-workflow/',
     tag: 'Claude Code',
     title: 'ความลับที่ทำให้ Claude Code ได้ผลจริง',
-    desc: 'แชร์สิ่งที่ทำมาแล้วจริง 7 ข้อ ตั้งแต่ Plan Mode ยัน Skill ของตัวเอง — ถ้าไม่รู้ = เสียเวลาไปอีกนาน',
+    desc: 'แชร์สิ่งที่ทำมาแล้วจริง 9 ข้อ ตั้งแต่ Plan Mode ยันปุ่มลัดที่ควรรู้ — ถ้าไม่รู้ = เสียเวลาไปอีกนาน',
     soon: false,
   },
   {
