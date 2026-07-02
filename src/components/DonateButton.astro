@@ -43,6 +43,7 @@
 
 <style>
   .donate-fab{
+    --donate-fab-expanded-width: 14rem;
     position:fixed;
     right:1.25rem;
     bottom:1.25rem;
@@ -64,32 +65,28 @@
     cursor:pointer;
     box-shadow:0 10px 24px -6px rgba(22,63,120,0.55);
     animation:donate-nudge 9s ease-in-out infinite;
-    transition:width .3s cubic-bezier(.16,1,.3,1), justify-content 0s .3s, background .15s ease, box-shadow .15s ease, transform .15s ease;
+    transition:width .3s cubic-bezier(.16,1,.3,1), background .15s ease, box-shadow .15s ease, transform .15s ease;
   }
   .donate-fab:hover,
   .donate-fab:focus-visible{
-    width:12.5rem;
+    width:var(--donate-fab-expanded-width);
     justify-content:flex-start;
-    padding-left:0.95rem;
+    padding:0 1rem 0 0.95rem;
     background:var(--blue-shadow);
     transform:translateY(-2px);
     box-shadow:0 14px 28px -6px rgba(22,63,120,0.65);
     animation-play-state:paused;
-    transition:width .3s cubic-bezier(.16,1,.3,1), background .15s ease, box-shadow .15s ease, transform .15s ease;
   }
   .donate-fab-emoji{font-size:1.3rem;line-height:1;flex-shrink:0;}
   .donate-fab-text{
-    max-width:0;
     opacity:0;
-    overflow:hidden;
     white-space:nowrap;
-    transition:max-width .3s cubic-bezier(.16,1,.3,1), opacity .2s ease, margin-left .3s cubic-bezier(.16,1,.3,1);
+    margin-left:0.5rem;
+    transition:opacity .2s ease;
   }
   .donate-fab:hover .donate-fab-text,
   .donate-fab:focus-visible .donate-fab-text{
-    max-width:9rem;
     opacity:1;
-    margin-left:0.5rem;
   }
   @keyframes donate-nudge{
     0%, 82%, 100%{transform:scale(1) rotate(0deg);}
@@ -105,10 +102,10 @@
     .donate-fab:hover{
       width:3.1rem;
       justify-content:center;
-      padding-left:0;
+      padding:0;
       transform:none;
     }
-    .donate-fab:hover .donate-fab-text{max-width:0;opacity:0;margin-left:0;}
+    .donate-fab:hover .donate-fab-text{opacity:0;}
   }
 
   .donate-dialog{
@@ -211,8 +208,38 @@
 </style>
 
 <script>
-  const fab = document.getElementById('donate-fab');
+  const fab = document.getElementById('donate-fab') as HTMLButtonElement | null;
   const dialog = document.getElementById('donate-dialog') as HTMLDialogElement | null;
+
+  // The expanded width depends on the rendered text width, which shifts with the
+  // site's fluid font-size -- measure it for real instead of guessing a fixed rem value
+  // (a guess clipped the label once the root font-size scaled up on wide viewports).
+  function measureExpandedWidth() {
+    const text = fab?.querySelector<HTMLElement>('.donate-fab-text');
+    if (!fab || !text) return;
+    const prevWidth = fab.style.width;
+    const prevTransition = fab.style.transition;
+    const prevJustify = fab.style.justifyContent;
+    const prevPadding = fab.style.padding;
+    const prevOpacity = text.style.opacity;
+    fab.style.transition = 'none';
+    fab.style.width = 'max-content';
+    fab.style.justifyContent = 'flex-start';
+    fab.style.padding = '0 1rem 0 0.95rem';
+    text.style.opacity = '1';
+    const width = fab.getBoundingClientRect().width;
+    fab.style.width = prevWidth;
+    fab.style.transition = prevTransition;
+    fab.style.justifyContent = prevJustify;
+    fab.style.padding = prevPadding;
+    text.style.opacity = prevOpacity;
+    fab.offsetHeight; // force reflow before re-enabling the transition
+    fab.style.setProperty('--donate-fab-expanded-width', `${width}px`);
+  }
+
+  measureExpandedWidth();
+  window.addEventListener('resize', measureExpandedWidth);
+  document.fonts?.ready.then(measureExpandedWidth).catch(() => {});
 
   fab?.addEventListener('click', () => dialog?.showModal());
 
