@@ -1,6 +1,9 @@
 ---
+import { ClientRouter } from 'astro:transitions';
 import ShareButtons from '../components/ShareButtons.astro';
 import DonateButton from '../components/DonateButton.astro';
+import StarfieldBackground from '../components/StarfieldBackground.astro';
+import SelfXssWarning from '../components/SelfXssWarning.astro';
 
 interface ArticleLink {
   href: string;
@@ -53,6 +56,7 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
   <meta name="twitter:title" content={title} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={ogImageUrl} />
+  <ClientRouter />
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -465,7 +469,9 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
     .site-footer-copyright a:hover{color:#fff;}
   </style>
 </head>
-<body>
+<body data-bg="plain">
+  <StarfieldBackground />
+  <SelfXssWarning />
   <div class="page">
     <div class="layout">
       <div class:list={["panel", { "panel-narrow": narrow }]}>
@@ -506,11 +512,29 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
   </footer>
   <DonateButton />
   <script>
-    const headings = Array.from(document.querySelectorAll('.panel h2'));
-    const toc = document.getElementById('page-toc');
-    const nav = document.getElementById('toc-nav');
+    // Astro's ClientRouter re-inserts this <script> tag's markup on every navigation,
+    // but the module itself only ever evaluates once (same module URL), so top-level
+    // code here would only ever run for the very first page. astro:page-load fires on
+    // every navigation (including the first), so build the TOC there instead.
+    // Kept outside buildToc so each call can disconnect the previous navigation's
+    // observer before creating a new one -- otherwise every article visit leaks an
+    // observer still watching that page's now-detached headings, and now that
+    // ClientRouter keeps the document alive across navigations, those leaks
+    // accumulate for the whole browsing session instead of being cleared by a reload.
+    let currentObserver: IntersectionObserver | null = null;
 
-    if (toc && nav && headings.length >= 2) {
+    function buildToc() {
+      currentObserver?.disconnect();
+      currentObserver = null;
+
+      const headings = Array.from(document.querySelectorAll('.panel h2'));
+      const toc = document.getElementById('page-toc');
+      const nav = document.getElementById('toc-nav');
+      if (!toc || !nav) return;
+      nav.innerHTML = '';
+      toc.classList.remove('has-headings');
+
+      if (headings.length < 2) return;
       const used = new Set();
       headings.forEach((h, i) => {
         if (!h.id) {
@@ -538,9 +562,9 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
         });
       }, { rootMargin: '-15% 0px -70% 0px' });
       headings.forEach((h) => observer.observe(h));
-    } else if (toc) {
-      toc.remove();
+      currentObserver = observer;
     }
+    document.addEventListener('astro:page-load', buildToc);
   </script>
 </body>
 </html>
