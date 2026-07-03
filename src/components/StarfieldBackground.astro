@@ -65,6 +65,13 @@
   // pinpoint; bright stars win a little more often (real bright stars bloom).
   const HALO_BASE_CHANCE = 0.55;
   const HALO_BRIGHT_BONUS = 0.9;
+  // Scintillation: the eye mostly notices twinkle on the brightest stars --
+  // dim stars flicker just as much in relative terms, but the variation falls
+  // below perception. Amplitude (and a touch of flicker speed) scales with
+  // luminosity so the standouts shimmer while the background dust holds steady.
+  const TWINKLE_MIN_AMT = 0.06;
+  const TWINKLE_BRIGHT_SCALE = 0.65;
+  const TWINKLE_BRIGHT_SPEEDUP = 0.7;
   // --- constellation links around the pointer ---
   const LINK_POINTER_RADIUS = 130;
   const LINK_DIST = 70;
@@ -127,6 +134,9 @@
     alpha: number;
     duration: number;
     startTime: number;
+    // "r,g,b" of this meteor's spectral tint -- the head burns white-hot, the
+    // trail carries the color (same palette as the fixed stars).
+    rgb: string;
   }
 
   // Expanding ring drawn when a black hole is released; power (0..1, from how
@@ -241,9 +251,9 @@
             : 0,
           color: fadedTint(spec.color, 0.25 + bright * 0.75),
           baseAlpha: 0.12 + bright * 0.42 + Math.random() * 0.1,
-          twinkleSpeed: 0.6 + Math.random() * 1.4,
+          twinkleSpeed: 0.6 + Math.random() * 1.4 + bright * TWINKLE_BRIGHT_SPEEDUP,
           twinklePhase: Math.random() * Math.PI * 2,
-          twinkleAmt: 0.25 + Math.random() * 0.35,
+          twinkleAmt: TWINKLE_MIN_AMT + bright * TWINKLE_BRIGHT_SCALE * (0.6 + Math.random() * 0.4),
           floating: false, returnAt: 0, driftVx: 0, driftVy: 0, driftTurn: 0, pulled: false,
         });
       }
@@ -339,6 +349,7 @@
       alpha: 0,
       duration: 1100 + Math.random() * 900,
       startTime: spawnAt,
+      rgb: colorStyle(pickSpectralType().color).slice(4, -1),
     });
   }
 
@@ -357,7 +368,8 @@
     const tailY = star.y - (star.vy / mag) * star.len;
     const grad = ctx.createLinearGradient(star.x, star.y, tailX, tailY);
     grad.addColorStop(0, `rgba(255,255,255,${star.alpha})`);
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.25, `rgba(${star.rgb},${star.alpha * 0.9})`);
+    grad.addColorStop(1, `rgba(${star.rgb},0)`);
     ctx.strokeStyle = grad;
     ctx.lineWidth = star.r;
     ctx.lineCap = 'round';
