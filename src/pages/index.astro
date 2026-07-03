@@ -224,6 +224,7 @@ const jsonLd = {
 
       var cycling = false;
       var randomOrder = false;
+      var frozen = false;
       var cycleIndex = 0;
       var cycleTimer = null;
 
@@ -242,7 +243,7 @@ const jsonLd = {
       }
 
       function startCycle(random) {
-        if (cycling || reduceMotion) return;
+        if (frozen || cycling || reduceMotion) return;
         cycling = true;
         randomOrder = !!random;
         cycleIndex = 0;
@@ -250,10 +251,35 @@ const jsonLd = {
       }
 
       function stopCycle() {
-        if (!cycling) return;
+        if (frozen || !cycling) return;
         cycling = false;
         clearTimeout(cycleTimer);
         cancelAnimationFrame(frameRequest);
+        scrambleTo(words[0]);
+      }
+
+      // Pin support (click-on-name easter egg): freeze halts everything and
+      // snaps to the current target word -- mid-scramble the display is junk
+      // characters, so it must land on a real word, not whatever frame the
+      // click happened to catch. While frozen, start/stop are ignored so
+      // hovering the element itself can't break the pin.
+      function freeze() {
+        frozen = true;
+        cycling = false;
+        clearTimeout(cycleTimer);
+        cancelAnimationFrame(frameRequest);
+        el.textContent = prefix + words[cycleIndex];
+      }
+
+      function unfreeze() {
+        frozen = false;
+      }
+
+      // Scramble back to the resting word (used on unpin when the pointer has
+      // already left the name, where stopCycle's !cycling guard would skip it).
+      function reset() {
+        if (frozen || cycling) return;
+        cycleIndex = 0;
         scrambleTo(words[0]);
       }
 
@@ -265,7 +291,13 @@ const jsonLd = {
 
       // Handles for triggering this element's scramble from elsewhere
       // (the name-hover easter egg below drives both elements at once).
-      return { startCycle: startCycle, stopCycle: stopCycle };
+      return {
+        startCycle: startCycle,
+        stopCycle: stopCycle,
+        freeze: freeze,
+        unfreeze: unfreeze,
+        reset: reset
+      };
     }
 
     // index.astro is not transition:persist'ed, so ClientRouter swaps in a fresh
@@ -295,14 +327,36 @@ const jsonLd = {
 
       // Hovering the name itself scrambles BOTH the handle and the role at
       // once, in random word order (hovering each element directly still
-      // cycles its own list sequentially).
+      // cycles its own list sequentially). Clicking the name pins the combo
+      // currently showing (for when a random pairing is too good to lose);
+      // clicking again unpins -- resuming the cycle if still hovering, or
+      // scrambling back to the resting words otherwise.
       var nameEl = document.querySelector('.details .name');
       if (nameEl) {
+        var pinned = false;
         nameEl.addEventListener('mouseenter', function () {
+          if (pinned) return;
           scramblers.forEach(function (s) { s.startCycle(true); });
         });
         nameEl.addEventListener('mouseleave', function () {
+          if (pinned) return;
           scramblers.forEach(function (s) { s.stopCycle(); });
+        });
+        nameEl.addEventListener('click', function (e) {
+          // Don't let the pin click double as the card's reveal-featured-link click.
+          e.stopPropagation();
+          pinned = !pinned;
+          nameEl.classList.toggle('scramble-pinned', pinned);
+          if (pinned) {
+            scramblers.forEach(function (s) { s.freeze(); });
+          } else {
+            scramblers.forEach(function (s) { s.unfreeze(); });
+            if (nameEl.matches(':hover')) {
+              scramblers.forEach(function (s) { s.startCycle(true); });
+            } else {
+              scramblers.forEach(function (s) { s.reset(); });
+            }
+          }
         });
       }
     });
