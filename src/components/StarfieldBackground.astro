@@ -36,10 +36,57 @@
   const BASE_PULL_STRENGTH = 2;
   const MAX_PULL_STRENGTH = 9;
   const PULL_RAMP_RATE = 0.004;
-  const DRIFT_JITTER = 0.01;
-  const DRIFT_DAMPING = 0.98;
+  // Freed stars glide on slow, gently curving arcs. (An earlier version added
+  // white-noise jitter to the drift every frame -- rapid direction changes
+  // read as buzzing fireflies, not celestial bodies.)
+  const DRIFT_SPEED_MIN = 0.06;
+  const DRIFT_SPEED_RANGE = 0.14;
+  const DRIFT_TURN_MAX = 0.008; // rad/frame of arc curvature
   const SCATTER_FADE_MS = 750;
-  const COLORS = ['#ffffff', '#eaf1fb', '#bcd3f8', '#8fb3e8'];
+  // Real star tints per spectral class (Mitchell Charity's blackbody->sRGB
+  // table), weighted roughly like the naked-eye sky: blue-white through warm
+  // white dominates, orange/gold K-M giants are the rare accents. `giant`
+  // classes sample brighter below -- warm stars you can actually see are
+  // giants, so they skew big, matching both astronomy and the art (warm
+  // sparks pop against the blue background).
+  const SPECTRAL_TYPES = [
+    { color: '#9bb0ff', weight: 2, giant: false }, // O -- hot blue
+    { color: '#aabfff', weight: 12, giant: false }, // B -- blue-white
+    { color: '#cad7ff', weight: 26, giant: false }, // A -- white-blue
+    { color: '#f8f7ff', weight: 25, giant: false }, // F -- white
+    { color: '#fff4ea', weight: 17, giant: false }, // G -- sunlike warm white
+    { color: '#ffd2a1', weight: 13, giant: true }, // K -- orange
+    { color: '#ffcc6f', weight: 5, giant: true }, // M -- golden orange
+  ];
+  const SPECTRAL_TOTAL = SPECTRAL_TYPES.reduce((sum, t) => sum + t.weight, 0);
+  // --- depth layers ---
+  const DEPTH_FORCE_MIN = 0.35; // how strongly the farthest stars react to forces (near stars = 1)
+  // Soft-halo lottery: odds a star gets a fuzzy glow instead of being a crisp
+  // pinpoint; bright stars win a little more often (real bright stars bloom).
+  const HALO_BASE_CHANCE = 0.55;
+  const HALO_BRIGHT_BONUS = 0.9;
+  // Scintillation: the eye mostly notices twinkle on the brightest stars --
+  // dim stars flicker just as much in relative terms, but the variation falls
+  // below perception. Amplitude (and a touch of flicker speed) scales with
+  // luminosity so the standouts shimmer while the background dust holds steady.
+  const TWINKLE_MIN_AMT = 0.06;
+  const TWINKLE_BRIGHT_SCALE = 0.65;
+  const TWINKLE_BRIGHT_SPEEDUP = 0.7;
+  // --- constellation links around the pointer ---
+  const LINK_POINTER_RADIUS = 130;
+  const LINK_DIST = 70;
+  const LINK_MAX_STARS = 40; // caps the O(n^2) pairing at ~800 segments/frame
+  // --- black hole vortex / release shockwave ---
+  const SWIRL_RATIO = 0.55; // tangential vs radial pull: stars spiral instead of falling straight in
+  const SHOCK_RADIUS = 260;
+  const SHOCK_BASE_IMPULSE = 1.6;
+  const SHOCK_MAX_IMPULSE = 4.5;
+  const SHOCK_FULL_POWER_HOLD_MS = 1800; // hold this long for a max-power bang
+  const SHOCK_DURATION_MS = 650;
+  // Stars freed from a black hole wander for a random spell, then glide home
+  // so the sky refills itself instead of thinning out over a long play session.
+  const RETURN_DELAY_MIN_MS = 2500;
+  const RETURN_DELAY_RANGE_MS = 6000;
 
   interface Particle {
     homeX: number;
@@ -49,16 +96,29 @@
     vx: number;
     vy: number;
     r: number;
+    // 0 = farthest layer (small, dim, barely reacts to forces), 1 = nearest
+    // (big, bright, full force response)
+    depth: number;
+    // 0 = crisp pinpoint; up to ~1 = big soft blur with a dim core. Fixed per
+    // star so the field mixes sharp and fuzzy lights.
+    halo: number;
     color: string;
     baseAlpha: number;
     twinkleSpeed: number;
     twinklePhase: number;
     twinkleAmt: number;
-    // Once true, the particle permanently skips spring-to-home in favor of gentle
-    // idle drift, until the next buildParticles() regenerates it fresh.
+    // While true, the particle skips spring-to-home in favor of gentle idle
+    // drift -- until `returnAt`, when the spring takes over again and glides
+    // it back to its home slot (or buildParticles() regenerates it fresh).
     floating: boolean;
+    // performance.now()-based deadline for the drift above; staggered randomly
+    // per star so a released cluster trickles home instead of snapping back.
+    returnAt: number;
     driftVx: number;
     driftVy: number;
+    // Per-frame rotation applied to the drift vector while floating, so each
+    // wanderer traces its own slow arc instead of a straight line.
+    driftTurn: number;
     // Transient per-frame marker: true while inside an active black-hole pull,
     // consumed (and promoted to `floating`) on release.
     pulled: boolean;
@@ -74,6 +134,26 @@
     alpha: number;
     duration: number;
     startTime: number;
+    // "r,g,b" of this meteor's spectral tint -- the head burns white-hot, the
+    // trail carries the color (same palette as the fixed stars).
+    rgb: string;
+  }
+
+  // Expanding ring drawn when a black hole is released; power (0..1, from how
+  // long the hole was held) scales both the ring and its push on the stars.
+  interface Shockwave {
+    x: number;
+    y: number;
+    startTime: number;
+    power: number;
+  }
+
+  // Star positions collected around the pointer each frame, used to draw the
+  // constellation web.
+  interface LinkStar {
+    x: number;
+    y: number;
+    distToPointer: number;
   }
 
   function createInitialState(canvas: HTMLCanvasElement) {
@@ -87,6 +167,7 @@
       pointer: { x: -9999, y: -9999, active: false },
       blackhole: { active: false, x: -9999, y: -9999, startTime: 0 },
       shootingStars: [] as ShootingStar[],
+      shockwaves: [] as Shockwave[],
       nextShootTime: performance.now() + 1500 + Math.random() * 3000,
       rafId: null as number | null,
       phase: 'hidden' as 'hidden' | 'interactive' | 'scattering',
@@ -122,6 +203,25 @@
     return { vx: (dx / dist) * force, vy: (dy / dist) * force };
   }
 
+  function pickSpectralType() {
+    let roll = Math.random() * SPECTRAL_TOTAL;
+    for (const t of SPECTRAL_TYPES) {
+      roll -= t.weight;
+      if (roll <= 0) return t;
+    }
+    return SPECTRAL_TYPES[SPECTRAL_TYPES.length - 1];
+  }
+
+  // The eye only registers a star's tint when it's bright -- faint stars wash
+  // out toward white. Saturation is quantized to quarter steps so the color
+  // and glow-sprite caches stay small (7 classes x <=5 levels).
+  function fadedTint(hex: string, sat: number): string {
+    const q = Math.max(0, Math.min(1, Math.round(sat * 4) / 4));
+    const n = parseInt(hex.slice(1), 16);
+    const ch = (shift: number) => Math.round(255 + (((n >> shift) & 255) - 255) * q);
+    return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
+  }
+
   function buildParticles(state: StarfieldState) {
     const particles: Particle[] = [];
     const cols = Math.ceil(state.width / SPACING) + 1;
@@ -132,15 +232,29 @@
         const stagger = (j % 2) * (SPACING / 2);
         const homeX = i * SPACING + stagger + (Math.random() - 0.5) * JITTER;
         const homeY = j * SPACING + (Math.random() - 0.5) * JITTER;
+        // Squared bias -> most stars sit in the far layers; big bright
+        // foreground stars stay rare enough to feel special.
+        const depth = Math.pow(Math.random(), 1.8);
+        const spec = pickSpectralType();
+        // Real skies are heavy-tailed: counts roughly triple per fainter
+        // magnitude step, so luminosity samples a steep power curve -- lots of
+        // pinpricks, a handful of standouts. Giant classes sample flatter
+        // (naked-eye orange stars are giants), so warm stars trend bright.
+        const lum = Math.pow(Math.random(), spec.giant ? 1.4 : 2.8);
+        const bright = 0.4 * depth + 0.6 * lum;
         particles.push({
           homeX, homeY, x: homeX, y: homeY, vx: 0, vy: 0,
-          r: 0.6 + Math.random() * 1.4,
-          color: COLORS[(Math.random() * COLORS.length) | 0],
-          baseAlpha: 0.18 + Math.random() * 0.3,
-          twinkleSpeed: 0.6 + Math.random() * 1.4,
+          depth,
+          r: 0.4 + bright * 2.4,
+          halo: Math.random() < HALO_BASE_CHANCE + bright * HALO_BRIGHT_BONUS
+            ? 0.25 + Math.random() * 0.75
+            : 0,
+          color: fadedTint(spec.color, 0.25 + bright * 0.75),
+          baseAlpha: 0.12 + bright * 0.42 + Math.random() * 0.1,
+          twinkleSpeed: 0.6 + Math.random() * 1.4 + bright * TWINKLE_BRIGHT_SPEEDUP,
           twinklePhase: Math.random() * Math.PI * 2,
-          twinkleAmt: 0.25 + Math.random() * 0.35,
-          floating: false, driftVx: 0, driftVy: 0, pulled: false,
+          twinkleAmt: TWINKLE_MIN_AMT + bright * TWINKLE_BRIGHT_SCALE * (0.6 + Math.random() * 0.4),
+          floating: false, returnAt: 0, driftVx: 0, driftVy: 0, driftTurn: 0, pulled: false,
         });
       }
     }
@@ -159,9 +273,10 @@
     buildParticles(state);
   }
 
-  // Cached per hex color (only 4 ever exist) rather than building a fresh "rgba(...)"
-  // string for every particle on every frame -- alpha is applied via ctx.globalAlpha
-  // instead, so drawing a particle never allocates a string in the hot path.
+  // Cached per hex color (7 spectral classes x <=5 tint levels, so a few dozen
+  // at most) rather than building a fresh "rgba(...)" string for every particle
+  // on every frame -- alpha is applied via ctx.globalAlpha instead, so drawing
+  // a particle never allocates a string in the hot path.
   const colorStyleCache: Record<string, string> = {};
   function colorStyle(hex: string) {
     if (!colorStyleCache[hex]) {
@@ -171,15 +286,52 @@
     return colorStyleCache[hex];
   }
 
+  // Lazily-built soft-glow sprites, one per palette color: a radial-gradient
+  // blob stamped via drawImage, which is far cheaper per star per frame than
+  // shadowBlur and lets halo size/opacity vary per star.
+  const GLOW_SPRITE_SIZE = 64;
+  const glowSpriteCache: Record<string, HTMLCanvasElement> = {};
+  function glowSprite(hex: string): HTMLCanvasElement {
+    if (!glowSpriteCache[hex]) {
+      const sprite = document.createElement('canvas');
+      sprite.width = GLOW_SPRITE_SIZE;
+      sprite.height = GLOW_SPRITE_SIZE;
+      const sctx = sprite.getContext('2d')!;
+      const half = GLOW_SPRITE_SIZE / 2;
+      const rgb = colorStyle(hex).slice(4, -1); // "r,g,b" out of "rgb(r,g,b)"
+      const grad = sctx.createRadialGradient(half, half, 0, half, half, half);
+      grad.addColorStop(0, `rgba(${rgb},1)`);
+      grad.addColorStop(0.25, `rgba(${rgb},0.55)`);
+      grad.addColorStop(1, `rgba(${rgb},0)`);
+      sctx.fillStyle = grad;
+      sctx.fillRect(0, 0, GLOW_SPRITE_SIZE, GLOW_SPRITE_SIZE);
+      glowSpriteCache[hex] = sprite;
+    }
+    return glowSpriteCache[hex];
+  }
+
+  // A star = optional soft halo + core dot. Higher halo = bigger fuzz and a
+  // dimmer core, so the field ranges from crisp pinpoints (halo 0) to soft
+  // blurry blobs (halo ~1). Leaves ctx.globalAlpha dirty -- callers reset it
+  // once after their loop.
+  function drawStar(ctx: CanvasRenderingContext2D, p: Particle, alpha: number) {
+    if (p.halo > 0) {
+      const haloR = p.r * (3 + p.halo * 5);
+      ctx.globalAlpha = alpha * (0.25 + p.halo * 0.35);
+      ctx.drawImage(glowSprite(p.color), p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
+    }
+    ctx.globalAlpha = alpha * (1 - p.halo * 0.45);
+    ctx.fillStyle = colorStyle(p.color);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawStatic(state: StarfieldState) {
     const { ctx, width, height, particles } = state;
     ctx.clearRect(0, 0, width, height);
     for (const p of particles) {
-      ctx.globalAlpha = p.baseAlpha;
-      ctx.fillStyle = colorStyle(p.color);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+      drawStar(ctx, p, p.baseAlpha);
     }
     ctx.globalAlpha = 1;
   }
@@ -197,6 +349,7 @@
       alpha: 0,
       duration: 1100 + Math.random() * 900,
       startTime: spawnAt,
+      rgb: colorStyle(pickSpectralType().color).slice(4, -1),
     });
   }
 
@@ -215,7 +368,8 @@
     const tailY = star.y - (star.vy / mag) * star.len;
     const grad = ctx.createLinearGradient(star.x, star.y, tailX, tailY);
     grad.addColorStop(0, `rgba(255,255,255,${star.alpha})`);
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.25, `rgba(${star.rgb},${star.alpha * 0.9})`);
+    grad.addColorStop(1, `rgba(${star.rgb},0)`);
     ctx.strokeStyle = grad;
     ctx.lineWidth = star.r;
     ctx.lineCap = 'round';
@@ -271,27 +425,44 @@
   }
 
   function tick(state: StarfieldState, time: number) {
-    const { ctx, width, height, particles } = state;
+    const { ctx, width, height, particles, pointer } = state;
     ctx.clearRect(0, 0, width, height);
+
+    // Hoisted out of the loop: same for every particle this frame.
+    let pullStrength = 0;
+    if (state.blackhole.active) {
+      const holdMs = performance.now() - state.blackhole.startTime;
+      pullStrength = Math.min(MAX_PULL_STRENGTH, BASE_PULL_STRENGTH + holdMs * PULL_RAMP_RATE);
+    }
+
+    // No constellation web while the black hole is engaged -- the swirl of
+    // captured stars would light up a dense tangle of lines over the vortex.
+    const linkStars: LinkStar[] = [];
+    const collectLinks = pointer.active && !state.blackhole.active && state.phase === 'interactive';
+
     for (const p of particles) {
+      // Far stars react less to every force -- the depth cue that keeps
+      // background layers calm while the foreground swirls.
+      const depthForce = DEPTH_FORCE_MIN + p.depth * (1 - DEPTH_FORCE_MIN);
+
       if (state.blackhole.active) {
-        const holdMs = performance.now() - state.blackhole.startTime;
-        const strength = Math.min(MAX_PULL_STRENGTH, BASE_PULL_STRENGTH + holdMs * PULL_RAMP_RATE);
         // Negative strength: radialForce's sign convention is positive = repel, so
         // pulling toward the black hole is the negated (attracting) case.
-        const pull = radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, PULL_RADIUS, -strength);
+        const pull = radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, PULL_RADIUS, -pullStrength);
         if (pull) {
-          p.vx += pull.vx;
-          p.vy += pull.vy;
+          // Radial pull plus a perpendicular component: stars spiral into the
+          // hole instead of falling straight in.
+          p.vx += (pull.vx - pull.vy * SWIRL_RATIO) * depthForce;
+          p.vy += (pull.vy + pull.vx * SWIRL_RATIO) * depthForce;
           p.pulled = true;
         }
       }
 
-      if (state.pointer.active) {
-        const repel = radialForce(p.x, p.y, state.pointer.x, state.pointer.y, REPEL_RADIUS, REPEL_STRENGTH, 0.01);
+      if (pointer.active) {
+        const repel = radialForce(p.x, p.y, pointer.x, pointer.y, REPEL_RADIUS, REPEL_STRENGTH, 0.01);
         if (repel) {
-          p.vx += repel.vx;
-          p.vy += repel.vy;
+          p.vx += repel.vx * depthForce;
+          p.vy += repel.vy * depthForce;
         }
       }
 
@@ -299,13 +470,20 @@
       // spring-home and floating-drift branches so a mid-flight black-hole release
       // can't leave stragglers behind during the page transition.
       if (state.phase !== 'scattering') {
+        // Drift is temporary: past its per-star deadline the spring takes
+        // over again and glides the wanderer back to its home slot.
+        if (p.floating && time >= p.returnAt) p.floating = false;
         if (p.floating) {
-          p.driftVx += (Math.random() - 0.5) * DRIFT_JITTER;
-          p.driftVy += (Math.random() - 0.5) * DRIFT_JITTER;
-          p.driftVx *= DRIFT_DAMPING;
-          p.driftVy *= DRIFT_DAMPING;
-          p.vx += p.driftVx;
-          p.vy += p.driftVy;
+          // Stately glide: the shockwave impulse in vx/vy decays under the
+          // shared friction while a slow constant-speed drift vector, rotated
+          // a hair per frame, carries the star along a smooth arc.
+          const cos = Math.cos(p.driftTurn);
+          const sin = Math.sin(p.driftTurn);
+          const rotatedVx = p.driftVx * cos - p.driftVy * sin;
+          p.driftVy = p.driftVx * sin + p.driftVy * cos;
+          p.driftVx = rotatedVx;
+          p.x += p.driftVx;
+          p.y += p.driftVy;
         } else {
           p.vx += (p.homeX - p.x) * SPRING;
           p.vy += (p.homeY - p.y) * SPRING;
@@ -319,16 +497,101 @@
 
       const twinkle = Math.sin(time * 0.001 * p.twinkleSpeed + p.twinklePhase) * p.twinkleAmt;
       const alpha = Math.max(0, Math.min(1, p.baseAlpha + twinkle));
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = colorStyle(p.color);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+
+      if (collectLinks && linkStars.length < LINK_MAX_STARS) {
+        const pdx = p.x - pointer.x;
+        const pdy = p.y - pointer.y;
+        const pd2 = pdx * pdx + pdy * pdy;
+        if (pd2 < LINK_POINTER_RADIUS * LINK_POINTER_RADIUS) {
+          linkStars.push({ x: p.x, y: p.y, distToPointer: Math.sqrt(pd2) });
+        }
+      }
+
+      drawStar(ctx, p, alpha);
     }
     ctx.globalAlpha = 1;
 
+    if (linkStars.length > 1) drawConstellationLinks(state, linkStars);
+    if (state.blackhole.active && state.phase === 'interactive') {
+      drawBlackholeVortex(state, time, pullStrength);
+    }
+    drawShockwaves(state);
     updateShootingStars(state, time);
     state.rafId = requestAnimationFrame(state.tickFrame);
+  }
+
+  // Faint web between stars near the pointer -- like sweeping a flashlight
+  // across the sky and catching constellations in the beam. Segments fade by
+  // their own length and by distance from the pointer so the web dissolves at
+  // the beam's edge instead of cutting off.
+  function drawConstellationLinks(state: StarfieldState, stars: LinkStar[]) {
+    const { ctx } = state;
+    ctx.lineWidth = 0.6;
+    ctx.strokeStyle = '#bcd3f8';
+    for (let i = 0; i < stars.length; i++) {
+      for (let j = i + 1; j < stars.length; j++) {
+        const a = stars[i];
+        const b = stars[j];
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > LINK_DIST * LINK_DIST) continue;
+        const edgeFade = 1 - Math.max(a.distToPointer, b.distToPointer) / LINK_POINTER_RADIUS;
+        const alpha = (1 - Math.sqrt(d2) / LINK_DIST) * edgeFade * 0.5;
+        if (alpha <= 0.02) continue;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // The black hole itself: a pulsing ring plus two accretion arcs spinning in
+  // opposite directions, all growing/brightening as the pull ramps up.
+  function drawBlackholeVortex(state: StarfieldState, time: number, strength: number) {
+    const { ctx, blackhole } = state;
+    const norm = strength / MAX_PULL_STRENGTH;
+    const baseR = 10 + norm * 14 + Math.sin(time * 0.006) * 1.5;
+    ctx.strokeStyle = '#bcd3f8';
+    ctx.lineWidth = 1.2;
+    ctx.globalAlpha = 0.22 + norm * 0.2;
+    ctx.beginPath();
+    ctx.arc(blackhole.x, blackhole.y, baseR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.16 + norm * 0.18;
+    const spin = time * 0.003;
+    ctx.beginPath();
+    ctx.arc(blackhole.x, blackhole.y, baseR + 7, spin, spin + 1.9);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(blackhole.x, blackhole.y, baseR + 13, -spin * 1.4, -spin * 1.4 + 1.4);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawShockwaves(state: StarfieldState) {
+    const { ctx, shockwaves } = state;
+    if (!shockwaves.length) return;
+    const now = performance.now();
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const w = shockwaves[i];
+      const progress = (now - w.startTime) / SHOCK_DURATION_MS;
+      if (progress >= 1) {
+        shockwaves.splice(i, 1);
+        continue;
+      }
+      const eased = 1 - Math.pow(1 - progress, 3); // fast start, decelerating expansion
+      ctx.globalAlpha = (1 - progress) * (0.25 + w.power * 0.3);
+      ctx.strokeStyle = '#eaf1fb';
+      ctx.lineWidth = 1.5 + (1 - progress) * 1.5;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, eased * SHOCK_RADIUS * (0.55 + w.power * 0.45), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function pauseLoop(state: StarfieldState) {
@@ -348,16 +611,40 @@
     state.canvas.classList.toggle('starfield-hidden', !visible);
   }
 
+  // Letting go of the black hole detonates it: everything nearby gets blown
+  // outward (harder the longer it was held) with an expanding ring to match,
+  // and the stars it had captured drift off untethered as before.
   function releaseBlackhole(state: StarfieldState) {
     if (!state.blackhole.active) return;
     state.blackhole.active = false;
+    const holdMs = performance.now() - state.blackhole.startTime;
+    const power = Math.min(1, holdMs / SHOCK_FULL_POWER_HOLD_MS);
+    const impulse = SHOCK_BASE_IMPULSE + power * (SHOCK_MAX_IMPULSE - SHOCK_BASE_IMPULSE);
     for (const p of state.particles) {
+      const push = radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, SHOCK_RADIUS, impulse, 0.01);
+      if (push) {
+        const depthForce = DEPTH_FORCE_MIN + p.depth * (1 - DEPTH_FORCE_MIN);
+        p.vx += push.vx * depthForce;
+        p.vy += push.vy * depthForce;
+      }
       if (p.pulled) {
         p.floating = true;
-        p.driftVx = (Math.random() - 0.5) * 0.15;
-        p.driftVy = (Math.random() - 0.5) * 0.15;
+        p.returnAt = performance.now() + RETURN_DELAY_MIN_MS + Math.random() * RETURN_DELAY_RANGE_MS;
+        // Drift roughly outward from the blast at a slow, fixed pace -- the
+        // dramatic speed comes from the decaying shock impulse, not the drift.
+        const outAngle = Math.atan2(p.y - state.blackhole.y, p.x - state.blackhole.x)
+          + (Math.random() - 0.5) * 0.8;
+        const speed = DRIFT_SPEED_MIN + Math.random() * DRIFT_SPEED_RANGE;
+        p.driftVx = Math.cos(outAngle) * speed;
+        p.driftVy = Math.sin(outAngle) * speed;
+        p.driftTurn = (Math.random() - 0.5) * 2 * DRIFT_TURN_MAX;
         p.pulled = false;
       }
+    }
+    // Under reduced motion the loop isn't running, so a queued ring would
+    // never draw (or drain) -- skip the visual, keep the physics.
+    if (!state.reduceMotion) {
+      state.shockwaves.push({ x: state.blackhole.x, y: state.blackhole.y, startTime: performance.now(), power });
     }
   }
 
