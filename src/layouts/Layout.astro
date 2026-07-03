@@ -1,6 +1,10 @@
 ---
+import { ClientRouter } from 'astro:transitions';
 import ShareButtons from '../components/ShareButtons.astro';
 import DonateButton from '../components/DonateButton.astro';
+import StarfieldBackground from '../components/StarfieldBackground.astro';
+import SelfXssWarning from '../components/SelfXssWarning.astro';
+import { footerSocialLinks } from '../data/socialLinks.js';
 
 interface ArticleLink {
   href: string;
@@ -15,6 +19,7 @@ interface Props {
   updated?: string;
   image?: string;
   type?: string;
+  noindex?: boolean;
 }
 const {
   title,
@@ -25,6 +30,7 @@ const {
   updated,
   image = "/img.jpg",
   type = "website",
+  noindex = false,
 } = Astro.props;
 const year = new Date().getFullYear();
 const canonicalUrl = Astro.url.href;
@@ -36,6 +42,7 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content={description} />
+  {noindex && <meta name="robots" content="noindex, nofollow" />}
   <title>{title}</title>
   <link rel="canonical" href={canonicalUrl} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
@@ -53,11 +60,12 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
   <meta name="twitter:title" content={title} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={ogImageUrl} />
+  <ClientRouter />
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <!-- Same font stylesheet URL as index.astro on purpose -- see the comment there. -->
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=JetBrains+Mono:wght@400;500;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style is:global>
     :root{
       /* Single knob for overall scale on wide screens, as a multiple of the
@@ -445,10 +453,14 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
     }
     .site-footer-social a{
       color:rgba(255,255,255,0.65);
-      font-size:1.1rem;
       line-height:1;
       transition:color .15s, transform .15s;
       display:inline-block;
+    }
+    .site-footer-social svg{
+      width:1.1rem;
+      height:1.1rem;
+      display:block;
     }
     .site-footer-social a:hover{color:#fff;transform:translateY(-1px);}
     .site-footer-copyright{
@@ -465,7 +477,9 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
     .site-footer-copyright a:hover{color:#fff;}
   </style>
 </head>
-<body>
+<body data-bg="plain">
+  <StarfieldBackground />
+  <SelfXssWarning />
   <div class="page">
     <div class="layout">
       <div class:list={["panel", { "panel-narrow": narrow }]}>
@@ -474,13 +488,13 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
         {(prev || next) && (
           <nav class="article-nav">
             {prev ? (
-              <a class="article-nav-prev" href={`../${prev.href}`}>
+              <a class="article-nav-prev" href={`../${prev.href}`} data-astro-prefetch="viewport">
                 <span class="article-nav-label">&larr; บทความก่อนหน้า</span>
                 <span class="article-nav-title">{prev.title}</span>
               </a>
             ) : <span />}
             {next ? (
-              <a class="article-nav-next" href={`../${next.href}`}>
+              <a class="article-nav-next" href={`../${next.href}`} data-astro-prefetch="viewport">
                 <span class="article-nav-label">บทความถัดไป &rarr;</span>
                 <span class="article-nav-title">{next.title}</span>
               </a>
@@ -497,20 +511,39 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
   </div>
   <footer class="site-footer">
     <div class="site-footer-social">
-      <a href="https://www.youtube.com/codemeng" target="_blank" rel="noopener noreferrer" aria-label="YouTube"><i class="fa fa-youtube"></i></a>
-      <a href="https://www.facebook.com/codemeng" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><i class="fa fa-facebook"></i></a>
-      <a href="https://github.com/ChimengSoso" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><i class="fa fa-github"></i></a>
-      <a href="https://www.instagram.com/chimengsoso/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><i class="fa fa-instagram"></i></a>
+      {footerSocialLinks.map((s) => (
+        <a href={s.url} target="_blank" rel="noopener noreferrer" aria-label={s.label}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d={s.iconPath} /></svg>
+        </a>
+      ))}
     </div>
-    <p class="site-footer-copyright">&copy; {year} <a href="/index.html">ChimengSoso</a> — สร้างด้วย <a href="https://astro.build" target="_blank" rel="noopener noreferrer">Astro</a></p>
+    <p class="site-footer-copyright">&copy; {year} <a href="/">ChimengSoso</a> — สร้างด้วย <a href="https://astro.build" target="_blank" rel="noopener noreferrer">Astro</a></p>
   </footer>
   <DonateButton />
   <script>
-    const headings = Array.from(document.querySelectorAll('.panel h2'));
-    const toc = document.getElementById('page-toc');
-    const nav = document.getElementById('toc-nav');
+    // Astro's ClientRouter re-inserts this <script> tag's markup on every navigation,
+    // but the module itself only ever evaluates once (same module URL), so top-level
+    // code here would only ever run for the very first page. astro:page-load fires on
+    // every navigation (including the first), so build the TOC there instead.
+    // Kept outside buildToc so each call can disconnect the previous navigation's
+    // observer before creating a new one -- otherwise every article visit leaks an
+    // observer still watching that page's now-detached headings, and now that
+    // ClientRouter keeps the document alive across navigations, those leaks
+    // accumulate for the whole browsing session instead of being cleared by a reload.
+    let currentObserver: IntersectionObserver | null = null;
 
-    if (toc && nav && headings.length >= 2) {
+    function buildToc() {
+      currentObserver?.disconnect();
+      currentObserver = null;
+
+      const headings = Array.from(document.querySelectorAll('.panel h2'));
+      const toc = document.getElementById('page-toc');
+      const nav = document.getElementById('toc-nav');
+      if (!toc || !nav) return;
+      nav.innerHTML = '';
+      toc.classList.remove('has-headings');
+
+      if (headings.length < 2) return;
       const used = new Set();
       headings.forEach((h, i) => {
         if (!h.id) {
@@ -538,9 +571,9 @@ const ogImageUrl = new URL(image, Astro.site ?? Astro.url).href;
         });
       }, { rootMargin: '-15% 0px -70% 0px' });
       headings.forEach((h) => observer.observe(h));
-    } else if (toc) {
-      toc.remove();
+      currentObserver = observer;
     }
+    document.addEventListener('astro:page-load', buildToc);
   </script>
 </body>
 </html>
