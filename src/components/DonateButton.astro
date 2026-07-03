@@ -145,29 +145,29 @@
     box-shadow:0 24px 48px -12px rgba(19,30,48,0.45);
     opacity:1;
     transform:translate(-50%, -50%) scale(1);
-    transition:opacity .32s ease, transform .38s cubic-bezier(.16,1,.3,1);
+    /* No default transition -- JS sets direction-specific easing:
+       open = decelerate (maximize feel), close = accelerate (minimize feel).
+       The inline style is cleared after each animation so nothing leaks. */
   }
   .donate-dialog.donate-dialog-enter,
   .donate-dialog.donate-dialog-exit{
     opacity:0;
-    /* --genie-x/--genie-y (set from JS, in px) point this at the donate FAB's current
-       position, so the dialog grows out of / shrinks back into the button itself --
-       a "genie" effect like Windows minimize/maximize toward the taskbar -- instead of
-       just fading in place. Default to 0 so this never breaks if JS hasn't run yet. */
-    transform:translate(calc(-50% + var(--genie-x, 0px)), calc(-50% + var(--genie-y, 0px))) scale(0.12);
+    /* --genie-x/--genie-y point the shrunk dialog at the FAB's screen position.
+       JS sets these just before each open/close so the genie origin is accurate. */
+    transform:translate(calc(-50% + var(--genie-x, 0px)), calc(-50% + var(--genie-y, 0px))) scale(0.1);
   }
   .donate-dialog::backdrop{
     background:rgba(19,30,48,0.55);
     backdrop-filter:blur(2px);
     opacity:1;
-    transition:opacity .32s ease;
+    transition:opacity .22s ease;
   }
   .donate-dialog.donate-dialog-enter::backdrop,
   .donate-dialog.donate-dialog-exit::backdrop{
     opacity:0;
   }
   @media (prefers-reduced-motion: reduce){
-    .donate-dialog, .donate-dialog::backdrop{transition:none;}
+    .donate-dialog::backdrop{transition:none;}
   }
   .donate-form{
     position:relative;
@@ -254,10 +254,8 @@
   const fab = document.getElementById('donate-fab') as HTMLButtonElement | null;
   const dialog = document.getElementById('donate-dialog') as HTMLDialogElement | null;
   const closeBtn = document.querySelector('.donate-close') as HTMLButtonElement | null;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Points --genie-x/--genie-y (consumed by the .donate-dialog-enter/-exit transform)
-  // at the FAB's current on-screen position, so the dialog can grow out of / shrink
-  // back into the button instead of just fading in place in the center.
   function aimGenieAtFab() {
     if (!fab || !dialog) return;
     const fabRect = fab.getBoundingClientRect();
@@ -271,34 +269,48 @@
   fab?.addEventListener('click', () => {
     if (!dialog) return;
     dialog.showModal();
-    // showModal() renders the dialog at its final centered rect immediately, so it can
-    // be measured against the FAB here. Then: start from the "enter" (shrunk toward the
-    // FAB, faded) state, force a layout flush so the browser registers it as the
-    // starting point, then remove the class on the next frame to transition into the
-    // normal state -- <dialog> has no display:none-to-open transition otherwise, since
-    // it isn't rendered at all until showModal() runs.
+    if (reducedMotion) return;
     aimGenieAtFab();
     dialog.classList.add('donate-dialog-enter');
-    dialog.getBoundingClientRect();
-    requestAnimationFrame(() => {
+    dialog.getBoundingClientRect(); // force layout so browser registers the enter state
+    // Double rAF: first frame fires before paint (browser hasn't committed enter state),
+    // second frame fires after -- only then is there a painted "from" state to transition
+    // away from. Single rAF skips the paint and the dialog pops straight to final.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      // Open = decelerate: bursts out of FAB quickly, settles gently into center (maximize feel).
+      // Inline style is cleared after the animation so it doesn't interfere with close.
+      dialog.style.transition = 'opacity .36s ease-out, transform .42s cubic-bezier(0,0,0.2,1)';
       dialog.classList.remove('donate-dialog-enter');
-    });
+      function onOpenEnd(e: TransitionEvent) {
+        if (e.propertyName !== 'transform') return;
+        dialog.removeEventListener('transitionend', onOpenEnd);
+        dialog.style.transition = '';
+      }
+      dialog.addEventListener('transitionend', onOpenEnd);
+    }));
   });
 
   function closeWithAnimation() {
     if (!dialog || !dialog.open || dialog.classList.contains('donate-dialog-exit')) return;
+    if (reducedMotion) { dialog.close(); return; }
     aimGenieAtFab();
+    // Close = accelerate: starts gently then rushes into the FAB (minimize feel).
+    // Duration (.25s) is slightly longer than the backdrop (.22s) so that dialog.close()
+    // is called only after the backdrop has already faded out completely.
+    dialog.style.transition = 'opacity .22s ease-in, transform .25s cubic-bezier(0.36,0,0.66,0)';
     dialog.classList.add('donate-dialog-exit');
-    dialog.addEventListener('transitionend', () => {
+    function onCloseEnd(e: TransitionEvent) {
+      if (e.propertyName !== 'transform') return;
+      dialog.removeEventListener('transitionend', onCloseEnd);
       dialog.classList.remove('donate-dialog-exit');
+      dialog.style.transition = '';
       dialog.close();
-    }, { once: true });
+    }
+    dialog.addEventListener('transitionend', onCloseEnd);
   }
 
   closeBtn?.addEventListener('click', closeWithAnimation);
 
-  // Esc fires 'cancel' and would otherwise close the dialog instantly with no
-  // transition -- intercept it and run the same shrink-into-the-FAB animation.
   dialog?.addEventListener('cancel', (e) => {
     e.preventDefault();
     closeWithAnimation();
