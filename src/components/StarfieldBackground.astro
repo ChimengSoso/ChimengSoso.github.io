@@ -8,14 +8,34 @@
      script (see updateGoldHud). -->
 <div id="gold-hud" class="gold-hud starfield-hud-hidden" aria-hidden="true">
   <span id="gold-progress" class="gold-progress"></span>
-  <span id="gold-total" class="gold-total" style="display:none">
+  <!-- The trophy is a button: once any clue is earned it opens the codex panel
+       of collected clues (pointer-events re-enabled just on this button, since
+       the HUD as a whole is pointer-events:none). -->
+  <button id="gold-total" class="gold-total" type="button" hidden aria-label="เปิดคำใบ้ที่สะสมได้">
     <span id="gold-total-pre"></span>
     <svg class="gold-trophy" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6v2H2v3c0 2.21 1.79 4 4 4 .34 0 .67-.05 1-.13A5.01 5.01 0 0 0 11 13.9V17H8v2h8v-2h-3v-3.1a5.01 5.01 0 0 0 3.87-2.9c.32.06.65.1.99.1 2.21 0 4-1.79 4-4V4h-4V2zM6 9c-1.1 0-2-.9-2-2V6h2v3zm14-2c0 1.1-.9 2-2 2V6h2v1z"/></svg>
     <span id="gold-total-num"></span>
     <span id="gold-total-post"></span>
-  </span>
+  </button>
 </div>
 <div id="gold-toast" class="gold-toast" aria-hidden="true"></div>
+
+<!-- Whispered clue: a mystical line rising at the bottom on each clue-bearing
+     trophy. pointer-events:none so it never blocks catching a star. -->
+<div id="gold-whisper" class="gold-whisper" aria-hidden="true"></div>
+
+<!-- Codex: re-openable list of clues earned so far (a fleeting whisper is easy
+     to miss). Opened by the HUD trophy button, closed by Esc / click-outside. -->
+<div id="gold-codex" class="gold-codex" hidden>
+  <div class="gold-codex-card" role="dialog" aria-modal="true" aria-label="เศษความลับจากดาวมรกต">
+    <div class="gold-codex-title">
+      <svg class="gold-trophy" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6v2H2v3c0 2.21 1.79 4 4 4 .34 0 .67-.05 1-.13A5.01 5.01 0 0 0 11 13.9V17H8v2h8v-2h-3v-3.1a5.01 5.01 0 0 0 3.87-2.9c.32.06.65.1.99.1 2.21 0 4-1.79 4-4V4h-4V2zM6 9c-1.1 0-2-.9-2-2V6h2v3zm14-2c0 1.1-.9 2-2 2V6h2v1z"/></svg>
+      <span>เศษความลับจากดาวมรกต</span>
+    </div>
+    <ol id="gold-codex-list" class="gold-codex-list"></ol>
+    <div class="gold-codex-hint">กด Esc หรือคลิกนอกกรอบเพื่อปิด</div>
+  </div>
+</div>
 
 <style>
   #bg-canvas {
@@ -64,6 +84,32 @@
     /* Muted label so gold stays a reward accent, not the whole HUD. */
     color: #aebfdb;
     font-weight: 600;
+    /* Button reset: it lives inside the pointer-events:none HUD, so re-enable
+       clicks on just this element to open the codex. */
+    pointer-events: auto;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    line-height: inherit;
+    border-radius: 5px;
+    transition: filter 0.15s ease;
+  }
+  /* display:inline-flex would otherwise override the [hidden] attribute's
+     UA display:none, leaving the button visible when it should be gone. */
+  .gold-total[hidden] {
+    display: none;
+  }
+  @media (hover: hover) {
+    .gold-total:hover {
+      filter: brightness(1.25);
+    }
+  }
+  .gold-total:focus-visible {
+    outline: 2px solid rgba(255, 210, 122, 0.7);
+    outline-offset: 2px;
   }
   #gold-total-num {
     color: #eaf1fb;
@@ -115,12 +161,118 @@
     border-color: rgba(255, 210, 122, 0.6);
   }
 
+  /* Whispered clue -- a lore line rising from the bottom, styled apart from the
+     gold HUD (cooler parchment tone) so it reads as "the gatekeeper speaks". */
+  .gold-whisper {
+    position: fixed;
+    left: 50%;
+    bottom: 12%;
+    transform: translate(-50%, 12px);
+    z-index: 6;
+    pointer-events: none;
+    max-width: min(30rem, 88vw);
+    text-align: center;
+    font-family: "Chakra Petch", system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.6;
+    color: #e7ecf6;
+    background: rgba(11, 18, 32, 0.82);
+    border: 1px solid rgba(124, 211, 252, 0.35);
+    border-radius: 10px;
+    padding: 12px 18px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.7);
+    opacity: 0;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .gold-whisper.gold-whisper-show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  .gold-codex {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(6, 10, 20, 0.72);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .gold-codex[hidden] {
+    display: none;
+  }
+  .gold-codex.is-visible {
+    opacity: 1;
+  }
+  .gold-codex-card {
+    width: min(32rem, 100%);
+    max-height: 80vh;
+    overflow-y: auto;
+    background: #141a29;
+    border: 1px solid rgba(124, 211, 252, 0.3);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem 1.4rem;
+    font-family: "Chakra Petch", system-ui, sans-serif;
+    color: #e7ecf6;
+    box-shadow: 0 20px 60px -12px rgba(0, 0, 0, 0.6);
+    transform: scale(0.95) translateY(8px);
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    /* override profile.css's body-wide user-select:none so the clues can be
+       selected/copied */
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .gold-codex.is-visible .gold-codex-card {
+    transform: scale(1) translateY(0);
+  }
+  .gold-codex-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffd27a;
+    margin-bottom: 0.9rem;
+  }
+  .gold-codex-title .gold-trophy {
+    width: 18px;
+    height: 18px;
+  }
+  .gold-codex-list {
+    margin: 0;
+    padding: 0 0 0 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .gold-codex-list :global(li) {
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .gold-codex-list :global(li.gold-codex-bonus) {
+    color: #ffd27a;
+    font-weight: 600;
+  }
+  .gold-codex-hint {
+    margin-top: 1.1rem;
+    font-size: 12px;
+    color: #5c6a85;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     #bg-canvas {
       transition: none;
     }
     .gold-hud,
-    .gold-toast {
+    .gold-toast,
+    .gold-whisper,
+    .gold-codex,
+    .gold-codex-card {
       transition: none;
     }
     .gold-pop {
@@ -130,6 +282,8 @@
 </style>
 
 <script>
+  import { loadProgress, saveProgress, PROGRESS_MAX } from '../lib/starClues';
+
   const SPACING = 32;
   const JITTER = 24;
   const SKIP_PROBABILITY = 0.22;
@@ -224,6 +378,29 @@
   // lifetime tally. One constant so the justCompletedUntil deadline and the HUD
   // refresh that ends the beat can't drift apart.
   const ROUND_CELEBRATE_MS = 2000;
+
+  // --- Phase 2: whispered clues toward the SecretConsole ---
+  // Each completed round (a trophy) advances `progress` and, on clue-bearing
+  // tiers, whispers one line that teaches the hidden console's puzzle. The
+  // ladder deliberately teaches the rules (Konami code -> "chi" username ->
+  // anagram password) without handing over a working pair -- except the tier-10
+  // dedication reward, which spells out a real worked example. `progress` is the
+  // only persisted mini-game value (localStorage); the score tally (game.total)
+  // stays in-memory. Editing it in storage only spoils your own puzzle -- the
+  // /divine-lore/ gate still verifies its own token independently.
+  const CLUES = [
+    'เจ้าเห็นแล้วสินะ… ดาวมรกตคือเศษความลับที่ร่วงจากประตูซึ่งซ่อนในความมืดของหน้านี้ เก็บให้ครบ ข้าจะกระซิบทางเข้าให้ทีละนิด',
+    "ประตูไม่มีปุ่ม มีแต่ 'บทสวด' ของนักเล่นเกมรุ่นเก่า — เริ่มจาก: ขึ้น ขึ้น ลง ลง",
+    'แล้วสานต่อ: ซ้าย ขวา ซ้าย ขวา ปิดท้ายด้วย B แล้ว A — เมื่อครบ ผู้พิทักษ์จักปรากฏ',
+    "ผู้พิทักษ์จะถามหา 'ชื่อ' ของเจ้า ชื่อที่แท้ต้องมีตัวตนของข้าซ่อนอยู่ — สามอักษร c · h · i",
+    'และกุญแจคือชื่อเดิมนั้น เพียงสลับอักษรใหม่ให้ครบทุกตัว ผู้ไขได้จักได้เห็นศาสตร์แห่งเทพ',
+  ];
+  const CLUE_RECAP = 'กุญแจอยู่ในมือเจ้าครบแล้ว — ท่องบทสวด แล้วมอบชื่อกับกุญแจแก่ผู้พิทักษ์เถิด';
+  const CLUE_BONUS = "เจ้าเพียรนัก… เอาละ ให้เห็นภาพชัด ๆ: ชื่อ 'michi' กับกุญแจ 'chimi' คืออักษรชุดเดียวกันที่สลับที่ และมี chi ครบ — จงลองด้วยชื่อของเจ้าเองเถิด";
+  const CLUE_BONUS_AT = 10; // trophy count that unlocks the worked-example reward
+  const WHISPER_MS = 7000; // clues are long -- dwell longer than an ordinary toast
+  // PROGRESS_MAX + loadProgress/saveProgress come from ../lib/starClues (shared
+  // with SecretConsole so the gatekeeper can acknowledge a star-follower).
 
   interface Particle {
     homeX: number;
@@ -351,10 +528,15 @@
       floaters: [] as Floater[],
       nextGoldTime: performance.now() + GOLD_FIRST_DELAY_MS + Math.random() * GOLD_INTERVAL_RANGE_MS,
       game: { round: 0, total: 0 } as GameState,
+      // Persisted count of completed rounds (0..PROGRESS_MAX), the single source
+      // of truth for which clues have been revealed. Survives a full refresh
+      // (unlike game.total) so the multi-session clue hunt keeps its place.
+      progress: loadProgress(),
       // performance.now() deadline for showing the "6/6" completion beat before
       // the counter collapses to the lifetime tally.
       justCompletedUntil: 0,
       toastTimer: null as ReturnType<typeof setTimeout> | null,
+      whisperTimer: null as ReturnType<typeof setTimeout> | null,
       rafId: null as number | null,
       phase: 'hidden' as 'hidden' | 'interactive' | 'scattering',
       transitionGen: 0,
@@ -762,6 +944,8 @@
       // the "+1" floating right at the star (spatial feedback beats a corner line
       // the eye isn't watching). Keep it short so it's readable at a glance.
       showToast(state, `🏆 รอบที่ ${state.game.total} สำเร็จ!`, true);
+      // Advance the persisted clue hunt and whisper the next line, if any.
+      maybeRevealClue(state);
       // Refresh just after the beat ends so "6/6" collapses to the tally.
       setTimeout(() => updateGoldHud(state), ROUND_CELEBRATE_MS + 50);
     }
@@ -781,6 +965,34 @@
     }, big ? 2600 : TOAST_MS);
   }
 
+  // A lore line rising from the bottom on a clue-bearing trophy. Dwells longer
+  // than an ordinary toast because the clues are full sentences to read.
+  function showWhisper(state: StarfieldState, text: string) {
+    if (state.phase !== 'interactive') return;
+    const el = document.getElementById('gold-whisper');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('gold-whisper-show');
+    if (state.whisperTimer) clearTimeout(state.whisperTimer);
+    state.whisperTimer = setTimeout(() => {
+      el.classList.remove('gold-whisper-show');
+    }, WHISPER_MS);
+  }
+
+  // Advance the persisted round count and whisper the matching clue, if this
+  // tier has one. Keyed off `progress` (persisted) rather than game.total
+  // (in-memory) so a refresh mid-hunt resumes at the next clue, and the tier-10
+  // reward stays reachable across sessions. Tiers 7-9 advance silently.
+  function maybeRevealClue(state: StarfieldState) {
+    if (state.progress >= PROGRESS_MAX) return;
+    state.progress++;
+    saveProgress(state.progress);
+    const p = state.progress;
+    if (p <= CLUES.length) showWhisper(state, CLUES[p - 1]);
+    else if (p === CLUES.length + 1) showWhisper(state, CLUE_RECAP);
+    else if (p === CLUE_BONUS_AT) showWhisper(state, CLUE_BONUS);
+  }
+
   // Reflects state.game into the top-left counter. Text rules are the single
   // source of truth for what the player sees (see the mini-game plan). Queries
   // the DOM fresh every call because the HUD is not transition:persist-ed --
@@ -797,7 +1009,11 @@
     const { round, total } = state.game;
     const justDone = performance.now() < state.justCompletedUntil;
 
-    if (state.phase !== 'interactive' || (!justDone && round === 0 && total === 0)) {
+    // Show the HUD if there's anything to show: an in-progress round, a session
+    // score, or -- crucially after a refresh wipes the in-memory score -- any
+    // persisted clue progress (so the trophy stays clickable to reopen the codex).
+    if (state.phase !== 'interactive'
+        || (!justDone && round === 0 && total === 0 && state.progress === 0)) {
       hud.classList.add('starfield-hud-hidden');
       return;
     }
@@ -816,13 +1032,91 @@
       : dispRound >= 3 ? '#ffd27a'
       : '#eaf1fb';
 
-    const showTotal = total >= 1 && !justDone;
-    totalEl.style.display = showTotal ? '' : 'none';
-    if (showTotal) {
-      numEl.textContent = ` ${total}`;
-      preEl.textContent = round > 0 ? ' (สะสม ' : 'สะสม ';
-      postEl.textContent = round > 0 ? ')' : '';
+    // Trophy button appears once any clue is earned (progress >= 1) so the codex
+    // is always reopenable; the "สะสม N" tally rides along only when there's a
+    // session score. Hidden during the completion beat to keep it clean.
+    const showCodexBtn = state.progress >= 1 && !justDone;
+    totalEl.hidden = !showCodexBtn;
+    if (showCodexBtn) {
+      const showNum = total >= 1;
+      numEl.textContent = showNum ? ` ${total}` : '';
+      preEl.textContent = showNum ? (round > 0 ? ' (สะสม ' : 'สะสม ') : '';
+      postEl.textContent = showNum && round > 0 ? ')' : '';
     }
+  }
+
+  // --- clue codex panel ---
+
+  // Rebuild the list from the current progress: clues 1..5, then the recap
+  // (tier 6) and the worked-example bonus (tier 10) once earned. Built with
+  // createElement, so the <li> styling is reached via :global() in the <style>
+  // block (scoped selectors don't match runtime-created nodes).
+  function renderCodexList(state: StarfieldState) {
+    const list = document.getElementById('gold-codex-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const p = state.progress;
+    const shown = Math.min(p, CLUES.length);
+    for (let i = 0; i < shown; i++) {
+      const li = document.createElement('li');
+      li.textContent = CLUES[i];
+      list.appendChild(li);
+    }
+    if (p >= CLUES.length + 1) {
+      const li = document.createElement('li');
+      li.textContent = CLUE_RECAP;
+      list.appendChild(li);
+    }
+    if (p >= CLUE_BONUS_AT) {
+      const li = document.createElement('li');
+      li.className = 'gold-codex-bonus';
+      li.textContent = CLUE_BONUS;
+      list.appendChild(li);
+    }
+  }
+
+  let codexCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function openCodex(state: StarfieldState) {
+    const overlay = document.getElementById('gold-codex');
+    if (!overlay || state.progress < 1) return;
+    if (codexCloseTimer) {
+      clearTimeout(codexCloseTimer);
+      codexCloseTimer = null;
+    }
+    renderCodexList(state);
+    overlay.hidden = false;
+    if (state.reduceMotion) {
+      overlay.classList.add('is-visible');
+    } else {
+      overlay.classList.remove('is-visible');
+      void overlay.offsetHeight; // commit the removal so the transition replays
+      overlay.classList.add('is-visible');
+    }
+  }
+
+  function closeCodex() {
+    const overlay = document.getElementById('gold-codex');
+    if (!overlay || overlay.hidden) return;
+    overlay.classList.remove('is-visible');
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      overlay.hidden = true;
+      return;
+    }
+    codexCloseTimer = setTimeout(() => {
+      overlay.hidden = true;
+      codexCloseTimer = null;
+    }, 250);
+  }
+
+  // (Re)bind the trophy button and backdrop each navigation -- the HUD/codex
+  // markup isn't transition:persist'ed, so it's rebuilt on every page-load.
+  // onclick (not addEventListener) keeps this idempotent.
+  function wireCodex(state: StarfieldState) {
+    const btn = document.getElementById('gold-total');
+    const overlay = document.getElementById('gold-codex');
+    if (btn) btn.onclick = () => openCodex(state);
+    if (overlay) overlay.onclick = (e) => { if (e.target === overlay) closeCodex(); };
   }
 
   // Radial outward burst used when leaving `/` for a plain reading page -- overwrites
@@ -1103,7 +1397,9 @@
     // in the console's input.
     window.addEventListener('pointerdown', (e) => {
       if (state.phase !== 'interactive') return;
-      if ((e.target as HTMLElement).closest?.('.profile, .secret-console-overlay')) return;
+      // Also exclude the trophy button and the codex overlay: clicking them must
+      // open/close the codex, not start a black-hole drag underneath.
+      if ((e.target as HTMLElement).closest?.('.profile, .secret-console-overlay, .gold-total, .gold-codex')) return;
       // Gold-star catch takes priority over the black hole: a click landing on a
       // gold star bags it and stops here; a miss falls through to the black hole.
       for (let i = state.goldStars.length - 1; i >= 0; i--) {
@@ -1133,6 +1429,12 @@
     });
     window.addEventListener('pointerup', () => releaseBlackhole(state));
     window.addEventListener('pointercancel', () => releaseBlackhole(state));
+
+    // Esc closes the codex if it's open (no-op otherwise). Registered once here;
+    // SecretConsole has its own independent Esc handler for its own overlay.
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeCodex();
+    });
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     window.addEventListener('resize', () => {
@@ -1165,7 +1467,9 @@
       } else {
         state.phase = 'interactive';
         setCanvasVisible(state, true);
-        if (state.reduceMotion) drawStatic(state); else { resumeLoop(state); updateGoldHud(state); }
+        wireCodex(state);
+        if (state.reduceMotion) drawStatic(state); else resumeLoop(state);
+        updateGoldHud(state);
       }
       return;
     }
@@ -1182,7 +1486,9 @@
       // Fresh grace period before the next gold star; game.round/total persist.
       state.nextGoldTime = performance.now() + GOLD_FIRST_DELAY_MS + Math.random() * GOLD_INTERVAL_RANGE_MS;
       setCanvasVisible(state, true);
-      if (state.reduceMotion) drawStatic(state); else { resumeLoop(state); updateGoldHud(state); }
+      wireCodex(state);
+      if (state.reduceMotion) drawStatic(state); else resumeLoop(state);
+      updateGoldHud(state);
     } else {
       if (state.phase !== 'interactive') return;
       state.phase = 'scattering';
@@ -1191,6 +1497,7 @@
       state.goldStars.length = 0;
       state.sparkles.length = 0;
       state.floaters.length = 0;
+      closeCodex();
       updateGoldHud(state);
       setCanvasVisible(state, false);
       const finish = () => {
