@@ -204,7 +204,7 @@
   const GOLD_INTERVAL_MIN_MS = 18000;
   const GOLD_INTERVAL_RANGE_MS = 22000; // + random 0..this between stars
   const GOLD_SPEED = 0.9; // px/frame base drift (round 0)
-  const SPEED_MAX_FACTOR = 3; // drift multiplier at the 6th catch of a round
+  const SPEED_MAX_FACTOR = 10; // drift multiplier at the 6th catch of a round
   const ROUND_TARGET = 6; // catches per round
   const GOLD_TURN_MAX = 0.004; // rad/frame arc curvature of the drift
   const GOLD_LIFE_MS = 6500; // time on screen before it fades away uncaught
@@ -220,6 +220,10 @@
   const SPARKLE_LIFE_MS = 550;
   const FLOATER_LIFE_MS = 900; // lifetime of the "+1" text
   const TOAST_MS = 1800; // ordinary catch toast dwell time
+  // How long the "6/6" completion beat holds before the counter collapses to the
+  // lifetime tally. One constant so the justCompletedUntil deadline and the HUD
+  // refresh that ends the beat can't drift apart.
+  const ROUND_CELEBRATE_MS = 2000;
 
   interface Particle {
     homeX: number;
@@ -611,6 +615,10 @@
   }
 
   function maybeSpawnGoldStar(state: StarfieldState, now: number) {
+    // Never spawn off the home page: the loop keeps ticking for ~750ms while a
+    // page transition fades out (phase 'scattering'), and a star born then would
+    // survive the array-clear in applyPageMode and reappear on the next return.
+    if (state.phase !== 'interactive') return;
     if (now < state.nextGoldTime) return;
     // Only one at a time -- keeps hit-testing unambiguous and the moment special.
     if (state.goldStars.length > 0) {
@@ -749,12 +757,13 @@
       // (justCompletedUntil) even though round is already 0 internally.
       state.game.total++;
       state.game.round = 0;
-      state.justCompletedUntil = performance.now() + 2000;
+      state.justCompletedUntil = performance.now() + ROUND_CELEBRATE_MS;
       // Only the milestone gets a corner toast -- ordinary catches are covered by
       // the "+1" floating right at the star (spatial feedback beats a corner line
       // the eye isn't watching). Keep it short so it's readable at a glance.
       showToast(state, `🏆 รอบที่ ${state.game.total} สำเร็จ!`, true);
-      setTimeout(() => updateGoldHud(state), 2050);
+      // Refresh just after the beat ends so "6/6" collapses to the tally.
+      setTimeout(() => updateGoldHud(state), ROUND_CELEBRATE_MS + 50);
     }
     updateGoldHud(state);
   }
