@@ -2,6 +2,21 @@
 ---
 <canvas id="bg-canvas" aria-hidden="true" transition:persist transition:name="starfield-canvas"></canvas>
 
+<!-- Gold-star mini-game HUD. Authored here (not created in JS) so Astro's scoped
+     styles apply, and pointer-events:none so it never blocks catching a star or
+     the black-hole drag. Hidden until the first catch; text is driven by the
+     script (see updateGoldHud). -->
+<div id="gold-hud" class="gold-hud starfield-hud-hidden" aria-hidden="true">
+  <span id="gold-progress" class="gold-progress"></span>
+  <span id="gold-total" class="gold-total" style="display:none">
+    <span id="gold-total-pre"></span>
+    <svg class="gold-trophy" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6v2H2v3c0 2.21 1.79 4 4 4 .34 0 .67-.05 1-.13A5.01 5.01 0 0 0 11 13.9V17H8v2h8v-2h-3v-3.1a5.01 5.01 0 0 0 3.87-2.9c.32.06.65.1.99.1 2.21 0 4-1.79 4-4V4h-4V2zM6 9c-1.1 0-2-.9-2-2V6h2v3zm14-2c0 1.1-.9 2-2 2V6h2v1z"/></svg>
+    <span id="gold-total-num"></span>
+    <span id="gold-total-post"></span>
+  </span>
+</div>
+<div id="gold-toast" class="gold-toast" aria-hidden="true"></div>
+
 <style>
   #bg-canvas {
     position: fixed;
@@ -17,9 +32,99 @@
   #bg-canvas.starfield-hidden {
     opacity: 0;
   }
+
+  .gold-hud {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 5;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "Chakra Petch", system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffd27a;
+    /* Dark pill keeps the gold legible on both the bright home sky and dark pages. */
+    background: rgba(11, 18, 32, 0.72);
+    border: 1px solid rgba(255, 210, 122, 0.35);
+    border-radius: 8px;
+    padding: 8px 14px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    opacity: 1;
+    transition: opacity 0.4s ease;
+  }
+  .gold-hud.starfield-hud-hidden {
+    opacity: 0;
+  }
+  .gold-total {
+    display: inline-flex;
+    align-items: center;
+    /* Muted label so gold stays a reward accent, not the whole HUD. */
+    color: #aebfdb;
+    font-weight: 600;
+  }
+  #gold-total-num {
+    color: #eaf1fb;
+    font-weight: 700;
+  }
+  .gold-trophy {
+    width: 15px;
+    height: 15px;
+    fill: #ffd27a; /* gold is the reward accent -- kept on the icons only */
+    margin: 0 3px 0 2px;
+  }
+  /* Brief scale/color pop on the "6/6" completion beat. */
+  .gold-pop {
+    display: inline-block;
+    color: #fff6d5;
+    animation: gold-pop-anim 0.5s ease;
+  }
+  @keyframes gold-pop-anim {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.45); }
+    100% { transform: scale(1); }
+  }
+
+  .gold-toast {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 5;
+    pointer-events: none;
+    font-family: "Chakra Petch", system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffd27a;
+    background: rgba(11, 18, 32, 0.72);
+    border: 1px solid rgba(255, 210, 122, 0.35);
+    border-radius: 8px;
+    padding: 8px 14px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .gold-toast.gold-toast-show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .gold-toast.gold-toast-big {
+    font-size: 15px;
+    border-color: rgba(255, 210, 122, 0.6);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     #bg-canvas {
       transition: none;
+    }
+    .gold-hud,
+    .gold-toast {
+      transition: none;
+    }
+    .gold-pop {
+      animation: none;
     }
   }
 </style>
@@ -87,6 +192,34 @@
   // so the sky refills itself instead of thinning out over a long play session.
   const RETURN_DELAY_MIN_MS = 2500;
   const RETURN_DELAY_RANGE_MS = 6000;
+
+  // --- gold-star catch mini-game ---
+  // A rare catchable gold star drifts across the upper sky; clicking it scores a
+  // point. Six catches complete a "round", each catch in a round spawning the
+  // next star faster (up to SPEED_MAX_FACTOR at the 6th) -- then the round resets
+  // and a round tally (game.total) ticks up. Progress is in-memory only: it rides
+  // the persisted canvas node across SPA navigation but resets on a full refresh
+  // (kept unhackable-by-editing-storage and low-stakes on purpose).
+  const GOLD_FIRST_DELAY_MS = 12000; // grace period after landing before the first one
+  const GOLD_INTERVAL_MIN_MS = 18000;
+  const GOLD_INTERVAL_RANGE_MS = 22000; // + random 0..this between stars
+  const GOLD_SPEED = 0.9; // px/frame base drift (round 0)
+  const SPEED_MAX_FACTOR = 3; // drift multiplier at the 6th catch of a round
+  const ROUND_TARGET = 6; // catches per round
+  const GOLD_TURN_MAX = 0.004; // rad/frame arc curvature of the drift
+  const GOLD_LIFE_MS = 6500; // time on screen before it fades away uncaught
+  const GOLD_RADIUS = 3.2;
+  const GOLD_HIT_RADIUS = 30; // generous click/tap radius (touch-friendly)
+  const GOLD_COLOR = '#ffd27a'; // reward accent: HUD ✦, trophy, and the "+1" pop
+  // The catchable star deliberately breaks the realistic (never-green) field
+  // palette -- an impossible emerald reads as special/magical, a rare thing worth
+  // chasing rather than just another background star. It trails a faint smoky tail.
+  const STAR_COLOR = '#4fe6a8'; // emerald
+  const TRAIL_MAX = 42; // trail sample points (smoky rocket tail length)
+  const SPARKLE_COUNT = 12; // burst particles per catch
+  const SPARKLE_LIFE_MS = 550;
+  const FLOATER_LIFE_MS = 900; // lifetime of the "+1" text
+  const TOAST_MS = 1800; // ordinary catch toast dwell time
 
   interface Particle {
     homeX: number;
@@ -156,6 +289,46 @@
     distToPointer: number;
   }
 
+  // A rare catchable gold star drifting on a slow arc (same drift model as freed
+  // stars). Fades in/out over its `life`; `phase` offsets its halo pulse.
+  interface GoldStar {
+    x: number;
+    y: number;
+    driftVx: number;
+    driftVy: number;
+    driftTurn: number;
+    r: number;
+    bornAt: number;
+    life: number;
+    phase: number;
+    // Recent positions (oldest -> newest) forming the smoky trail.
+    trail: { x: number; y: number }[];
+  }
+
+  // Short-lived burst dot flung out when a gold star is caught.
+  interface Sparkle {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    bornAt: number;
+  }
+
+  // A "+1" label rising and fading from a catch point, drawn on the canvas.
+  interface Floater {
+    x: number;
+    y: number;
+    text: string;
+    bornAt: number;
+  }
+
+  // In-memory mini-game progress: `round` = catches in the current round (0..5),
+  // `total` = completed rounds this session (reset on full page refresh).
+  interface GameState {
+    round: number;
+    total: number;
+  }
+
   function createInitialState(canvas: HTMLCanvasElement) {
     const state = {
       canvas,
@@ -169,6 +342,15 @@
       shootingStars: [] as ShootingStar[],
       shockwaves: [] as Shockwave[],
       nextShootTime: performance.now() + 1500 + Math.random() * 3000,
+      goldStars: [] as GoldStar[],
+      sparkles: [] as Sparkle[],
+      floaters: [] as Floater[],
+      nextGoldTime: performance.now() + GOLD_FIRST_DELAY_MS + Math.random() * GOLD_INTERVAL_RANGE_MS,
+      game: { round: 0, total: 0 } as GameState,
+      // performance.now() deadline for showing the "6/6" completion beat before
+      // the counter collapses to the lifetime tally.
+      justCompletedUntil: 0,
+      toastTimer: null as ReturnType<typeof setTimeout> | null,
       rafId: null as number | null,
       phase: 'hidden' as 'hidden' | 'interactive' | 'scattering',
       transitionGen: 0,
@@ -400,6 +582,240 @@
     }
   }
 
+  // --- gold-star mini-game ---
+
+  // Drift speed multiplier for the star spawned at the given in-round count:
+  // linear from 1x (round 0) to SPEED_MAX_FACTOR (the 6th, at round 5).
+  function difficultyFactor(round: number) {
+    return 1 + (round / (ROUND_TARGET - 1)) * (SPEED_MAX_FACTOR - 1);
+  }
+
+  function spawnOneGoldStar(state: StarfieldState) {
+    const fromLeft = Math.random() < 0.5;
+    const speed = GOLD_SPEED * difficultyFactor(state.game.round);
+    const angle = (Math.random() - 0.5) * 0.5; // near-horizontal
+    const dir = fromLeft ? 1 : -1;
+    state.goldStars.push({
+      // Bias to the upper band so it rarely hides behind the centered profile card.
+      x: fromLeft ? 0 : state.width,
+      y: state.height * (0.08 + Math.random() * 0.3),
+      driftVx: Math.cos(angle) * speed * dir,
+      driftVy: Math.sin(angle) * speed,
+      driftTurn: (Math.random() - 0.5) * 2 * GOLD_TURN_MAX,
+      r: GOLD_RADIUS,
+      bornAt: performance.now(),
+      life: GOLD_LIFE_MS,
+      phase: Math.random() * Math.PI * 2,
+      trail: [],
+    });
+  }
+
+  function maybeSpawnGoldStar(state: StarfieldState, now: number) {
+    if (now < state.nextGoldTime) return;
+    // Only one at a time -- keeps hit-testing unambiguous and the moment special.
+    if (state.goldStars.length > 0) {
+      state.nextGoldTime = now + 1500;
+      return;
+    }
+    spawnOneGoldStar(state);
+    state.nextGoldTime = now + GOLD_INTERVAL_MIN_MS + Math.random() * GOLD_INTERVAL_RANGE_MS;
+  }
+
+  function drawGoldStar(ctx: CanvasRenderingContext2D, g: GoldStar, alpha: number, pulse: number) {
+    const sprite = glowSprite(STAR_COLOR);
+    // Smoky rocket tail: faint emerald puffs along the recent path, thinning and
+    // fading toward the oldest end (t*t falloff keeps the far tail wispy).
+    const tlen = g.trail.length;
+    for (let i = 0; i < tlen; i++) {
+      const t = (i + 1) / tlen;
+      const pt = g.trail[i];
+      const rr = g.r * (1.1 + t * 2.6);
+      // Gentler taper (t^1.5) so the longer tail stays visible far back instead
+      // of vanishing right behind the head.
+      ctx.globalAlpha = alpha * Math.pow(t, 1.5) * 0.38;
+      ctx.drawImage(sprite, pt.x - rr, pt.y - rr, rr * 2, rr * 2);
+    }
+    const haloR = g.r * (5 + pulse * 3);
+    ctx.globalAlpha = alpha * 0.6 * pulse;
+    ctx.drawImage(sprite, g.x - haloR, g.y - haloR, haloR * 2, haloR * 2);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colorStyle(STAR_COLOR);
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.r * (0.9 + pulse * 0.2), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.fillStyle = '#f2fff9';
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function updateGoldStars(state: StarfieldState, time: number) {
+    maybeSpawnGoldStar(state, time);
+    const { ctx } = state;
+    for (let i = state.goldStars.length - 1; i >= 0; i--) {
+      const g = state.goldStars[i];
+      const progress = (time - g.bornAt) / g.life;
+      if (progress >= 1) {
+        state.goldStars.splice(i, 1);
+        continue;
+      }
+      // Same gently-rotating drift vector as freed stars.
+      const cos = Math.cos(g.driftTurn);
+      const sin = Math.sin(g.driftTurn);
+      const nvx = g.driftVx * cos - g.driftVy * sin;
+      g.driftVy = g.driftVx * sin + g.driftVy * cos;
+      g.driftVx = nvx;
+      g.x += g.driftVx;
+      g.y += g.driftVy;
+      g.trail.push({ x: g.x, y: g.y });
+      if (g.trail.length > TRAIL_MAX) g.trail.shift();
+      const alpha = Math.sin(progress * Math.PI); // fade in then out
+      const pulse = 0.75 + 0.25 * Math.sin(time * 0.006 + g.phase);
+      drawGoldStar(ctx, g, alpha, pulse);
+    }
+  }
+
+  function spawnSparkles(state: StarfieldState, x: number, y: number) {
+    const now = performance.now();
+    for (let i = 0; i < SPARKLE_COUNT; i++) {
+      const a = (i / SPARKLE_COUNT) * Math.PI * 2 + Math.random() * 0.5;
+      const sp = 1.5 + Math.random() * 2.5;
+      state.sparkles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, bornAt: now });
+    }
+  }
+
+  function updateSparkles(state: StarfieldState, time: number) {
+    const { ctx } = state;
+    ctx.fillStyle = colorStyle(STAR_COLOR);
+    for (let i = state.sparkles.length - 1; i >= 0; i--) {
+      const s = state.sparkles[i];
+      const progress = (time - s.bornAt) / SPARKLE_LIFE_MS;
+      if (progress >= 1) {
+        state.sparkles.splice(i, 1);
+        continue;
+      }
+      s.x += s.vx;
+      s.y += s.vy;
+      s.vx *= 0.92;
+      s.vy *= 0.92;
+      ctx.globalAlpha = 1 - progress;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 1.6 * (1 - progress) + 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function updateFloaters(state: StarfieldState, time: number) {
+    if (!state.floaters.length) return;
+    const { ctx } = state;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    for (let i = state.floaters.length - 1; i >= 0; i--) {
+      const f = state.floaters[i];
+      const progress = (time - f.bornAt) / FLOATER_LIFE_MS;
+      if (progress >= 1) {
+        state.floaters.splice(i, 1);
+        continue;
+      }
+      // Quick pop-in (grows over the first quarter) then rises and fades.
+      const pop = 1 + 0.5 * (1 - Math.min(progress * 4, 1));
+      const size = Math.round(20 * pop);
+      ctx.font = `700 ${size}px "Chakra Petch", system-ui, sans-serif`;
+      ctx.lineWidth = Math.max(2, size * 0.16);
+      const y = f.y - progress * 30;
+      ctx.globalAlpha = Math.min(1, (1 - progress) * 1.4);
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(f.text, f.x, y);
+      ctx.fillStyle = GOLD_COLOR;
+      ctx.fillText(f.text, f.x, y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function catchGoldStar(state: StarfieldState, g: GoldStar, index: number) {
+    state.goldStars.splice(index, 1);
+    spawnSparkles(state, g.x, g.y);
+    state.floaters.push({ x: g.x, y: g.y, text: '+1', bornAt: performance.now() });
+    state.game.round++;
+    if (state.game.round >= ROUND_TARGET) {
+      // Round complete: bank it and reset. Speed resets automatically because the
+      // factor is derived from `round`. The counter keeps showing "6/6" for a beat
+      // (justCompletedUntil) even though round is already 0 internally.
+      state.game.total++;
+      state.game.round = 0;
+      state.justCompletedUntil = performance.now() + 2000;
+      // Only the milestone gets a corner toast -- ordinary catches are covered by
+      // the "+1" floating right at the star (spatial feedback beats a corner line
+      // the eye isn't watching). Keep it short so it's readable at a glance.
+      showToast(state, `🏆 รอบที่ ${state.game.total} สำเร็จ!`, true);
+      setTimeout(() => updateGoldHud(state), 2050);
+    }
+    updateGoldHud(state);
+  }
+
+  function showToast(state: StarfieldState, msg: string, big: boolean) {
+    if (state.phase !== 'interactive') return;
+    const el = document.getElementById('gold-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.toggle('gold-toast-big', big);
+    el.classList.add('gold-toast-show');
+    if (state.toastTimer) clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(() => {
+      el.classList.remove('gold-toast-show');
+    }, big ? 2600 : TOAST_MS);
+  }
+
+  // Reflects state.game into the top-left counter. Text rules are the single
+  // source of truth for what the player sees (see the mini-game plan). Queries
+  // the DOM fresh every call because the HUD is not transition:persist-ed --
+  // each navigation re-creates it.
+  function updateGoldHud(state: StarfieldState) {
+    const hud = document.getElementById('gold-hud');
+    const progressEl = document.getElementById('gold-progress');
+    const totalEl = document.getElementById('gold-total');
+    const numEl = document.getElementById('gold-total-num');
+    const preEl = document.getElementById('gold-total-pre');
+    const postEl = document.getElementById('gold-total-post');
+    if (!hud || !progressEl || !totalEl || !numEl || !preEl || !postEl) return;
+
+    const { round, total } = state.game;
+    const justDone = performance.now() < state.justCompletedUntil;
+
+    if (state.phase !== 'interactive' || (!justDone && round === 0 && total === 0)) {
+      hud.classList.add('starfield-hud-hidden');
+      return;
+    }
+    hud.classList.remove('starfield-hud-hidden');
+
+    const showProgress = justDone || round > 0;
+    const dispRound = justDone ? ROUND_TARGET : round;
+    progressEl.style.display = showProgress ? '' : 'none';
+    progressEl.textContent = showProgress ? `✦ ${dispRound}/${ROUND_TARGET}` : '';
+    progressEl.classList.toggle('gold-pop', justDone);
+    // Escalation cue: the tally runs hotter as the round nears completion, so
+    // "almost there" reads from peripheral vision without parsing the number.
+    progressEl.style.color =
+      dispRound >= ROUND_TARGET ? '#fff6d5'
+      : dispRound >= 5 ? '#ff9d5c'
+      : dispRound >= 3 ? '#ffd27a'
+      : '#eaf1fb';
+
+    const showTotal = total >= 1 && !justDone;
+    totalEl.style.display = showTotal ? '' : 'none';
+    if (showTotal) {
+      numEl.textContent = ` ${total}`;
+      preEl.textContent = round > 0 ? ' (สะสม ' : 'สะสม ';
+      postEl.textContent = round > 0 ? ')' : '';
+    }
+  }
+
   // Radial outward burst used when leaving `/` for a plain reading page -- overwrites
   // velocity directly (rather than nudging it) so every particle visibly blows away from
   // center regardless of whatever spring/drift state it was previously in.
@@ -517,6 +933,9 @@
     }
     drawShockwaves(state);
     updateShootingStars(state, time);
+    updateGoldStars(state, time);
+    updateSparkles(state, time);
+    updateFloaters(state, time);
     state.rafId = requestAnimationFrame(state.tickFrame);
   }
 
@@ -676,6 +1095,18 @@
     window.addEventListener('pointerdown', (e) => {
       if (state.phase !== 'interactive') return;
       if ((e.target as HTMLElement).closest?.('.profile, .secret-console-overlay')) return;
+      // Gold-star catch takes priority over the black hole: a click landing on a
+      // gold star bags it and stops here; a miss falls through to the black hole.
+      for (let i = state.goldStars.length - 1; i >= 0; i--) {
+        const g = state.goldStars[i];
+        const dx = g.x - e.clientX;
+        const dy = g.y - e.clientY;
+        if (dx * dx + dy * dy <= GOLD_HIT_RADIUS * GOLD_HIT_RADIUS) {
+          e.preventDefault();
+          catchGoldStar(state, g, i);
+          return;
+        }
+      }
       // Dragging the black hole across the page would otherwise start the browser's
       // native text/image selection drag -- suppress it since this is a click-and-hold
       // gesture, not a selection.
@@ -725,7 +1156,7 @@
       } else {
         state.phase = 'interactive';
         setCanvasVisible(state, true);
-        if (state.reduceMotion) drawStatic(state); else resumeLoop(state);
+        if (state.reduceMotion) drawStatic(state); else { resumeLoop(state); updateGoldHud(state); }
       }
       return;
     }
@@ -739,12 +1170,19 @@
       if (state.phase === 'interactive') return;
       buildParticles(state);
       state.phase = 'interactive';
+      // Fresh grace period before the next gold star; game.round/total persist.
+      state.nextGoldTime = performance.now() + GOLD_FIRST_DELAY_MS + Math.random() * GOLD_INTERVAL_RANGE_MS;
       setCanvasVisible(state, true);
-      if (state.reduceMotion) drawStatic(state); else resumeLoop(state);
+      if (state.reduceMotion) drawStatic(state); else { resumeLoop(state); updateGoldHud(state); }
     } else {
       if (state.phase !== 'interactive') return;
       state.phase = 'scattering';
       scatterParticlesOutward(state);
+      // Clear transient mini-game entities and hide the HUD on the reading pages.
+      state.goldStars.length = 0;
+      state.sparkles.length = 0;
+      state.floaters.length = 0;
+      updateGoldHud(state);
       setCanvasVisible(state, false);
       const finish = () => {
         if (state.transitionGen !== myGen) return;
