@@ -510,8 +510,16 @@
     total: number;
   }
 
-  function createInitialState(canvas: HTMLCanvasElement) {
-    const state = {
+  // The base state shape, built without `tickFrame`. Split out from
+  // createInitialState so `StarfieldState` can be derived from *this* function
+  // (which never references `tick`) instead of from createInitialState itself.
+  // Deriving it from createInitialState is circular: tick()'s parameter is
+  // StarfieldState, so inferring createInitialState's return type requires tick,
+  // whose type requires StarfieldState... WebStorm/tsc surface that cycle as a
+  // warning on the `tick(state, t)` call (the local object is inferred without
+  // `tickFrame`, so it isn't yet a full StarfieldState).
+  function createBaseState(canvas: HTMLCanvasElement) {
+    return {
       canvas,
       ctx: canvas.getContext('2d')!,
       width: 0,
@@ -542,11 +550,22 @@
       transitionGen: 0,
       reduceMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     };
-    // Bound once per canvas lifetime instead of allocating a new closure on every
-    // requestAnimationFrame call (60/sec).
-    return Object.assign(state, { tickFrame: (t: number) => tick(state, t) });
   }
-  type StarfieldState = ReturnType<typeof createInitialState>;
+  type StarfieldState = ReturnType<typeof createBaseState> & {
+    tickFrame: (t: number) => void;
+  };
+
+  function createInitialState(canvas: HTMLCanvasElement): StarfieldState {
+    // `tickFrame` is bound once per canvas lifetime instead of allocating a new
+    // closure on every requestAnimationFrame call (60/sec). The closure captures
+    // `state` itself -- a standard recursive-closure reference; the body doesn't
+    // run during construction, so referencing `state` in its own initializer is
+    // safe.
+    const state: StarfieldState = Object.assign(createBaseState(canvas), {
+      tickFrame: (t: number) => tick(state, t),
+    });
+    return state;
+  }
   // `__starfield` is how state survives `transition:persist` across navigations --
   // the canvas DOM node is kept alive by Astro's router, but script-level closures
   // are not guaranteed to be, so everything mutable lives as a property on the node.
