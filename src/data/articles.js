@@ -20,20 +20,6 @@ export const articles = [
     desc: 'พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน',
     soon: false,
   },
-  {
-    href: '#',
-    tag: 'เร็วๆ นี้',
-    title: 'ความลับการเขียน Prompt ให้ได้ผลลัพธ์ดีขึ้น',
-    desc: 'กำลังจัดทำเนื้อหา',
-    soon: true,
-  },
-  {
-    href: '#',
-    tag: 'เร็วๆ นี้',
-    title: 'ใช้ Claude ผ่าน API แบบที่นักพัฒนาไม่ควรพลาด',
-    desc: 'กำลังจัดทำเนื้อหา',
-    soon: true,
-  },
 ];
 
 // Only published (soon: false) articles count for prev/next — placeholders
