@@ -1,0 +1,288 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getAdjacentArticles } from '../../data/articles.js';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('handoff/');
+---
+<Layout title="ส่งงานต่อข้ามแชทแบบไม่เสีย Context ด้วย /handoff | หมวดความรู้" description="พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน" prev={prev} next={next} updated="5 กรกฎาคม 2026" type="article">
+  <div class="breadcrumb"><a href="../index.html">หมวดความรู้</a> / ส่งงานต่อข้ามแชทแบบไม่เสีย Context</div>
+
+  <span class="tag">Claude Code</span>
+  <h1>ส่งงานต่อข้ามแชทแบบไม่เสีย Context</h1>
+  <p class="subtitle">พอคุยยาว ๆ จน AI เริ่มมึน การเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมดคือการเสียเวลาฟรี ๆ — มาดูวิธีส่งไม้ต่อให้ Agent ตัวใหม่รับงานได้ทันที ด้วยสกิล <code>/handoff</code> ของ Matt Pocock</p>
+
+  <p>
+    เวลาคุยกับ AI นอกจากการเขียน prompt ให้ชัดและให้บริบทครบแล้ว ยังมีอีกเรื่องที่ส่งผลกับคุณภาพงานมากกว่าที่หลายคนคิด
+    นั่นคือ<strong>การจัดการ context window</strong> — พื้นที่ความจำที่ AI ใช้เก็บทุกอย่างในบทสนทนาปัจจุบัน (บทความก่อนหน้าเรียกสั้น ๆ ว่า context)
+    ปัญหาคลาสสิกที่เจอกันคือ "ยิ่งคุยยิ่งเอ๋อ" คุยไปสักพักแล้วรู้สึกว่า AI เริ่มลืมสิ่งที่ตกลงกันไว้ ตอบวน หรือจับประเด็นพลาด
+    ทั้งที่โมเดลตัวท็อป ๆ ทุกวันนี้โฆษณาว่ารับ context ได้ถึง 1 ล้านโทเคน (token — หน่วยย่อยของข้อความที่โมเดลใช้นับความยาว)
+  </p>
+
+  <h2>ทำไม 1 ล้านโทเคนถึงยังไม่พอ</h2>
+  <p>
+    กุญแจสำคัญคือ "รับได้" กับ "ใช้ได้ดี" เป็นคนละเรื่องกัน หน้าต่าง context ไม่ได้ฉลาดเท่ากันตลอดทั้งเส้น
+    ช่วงต้น ๆ ของบทสนทนาโมเดลจดจ่อกับเนื้อหาได้แม่นที่สุด แต่พอโทเคนสะสมมากขึ้นเรื่อย ๆ ความสนใจจะเริ่มกระจายจนจับใจความหลุด
+    Matt Pocock (วิศวกร AI ที่ทำสกิลตัวนี้) อธิบายไว้ตรง ๆ ว่าพอเลยราว ๆ <strong>120,000 โทเคน</strong> เขา "รู้สึกเหมือนเข้าสู่โซนมึน (dumb zone) แล้ว"
+    แปลว่าถึงเพดานจะเขียนว่า 1 ล้าน แต่ช่วงที่ทำงานได้คุณภาพจริง ๆ มีอยู่แค่ประมาณ 120K แรกเท่านั้น
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 175" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพหน้าต่าง context: ประมาณ 120,000 โทเคนแรกเป็นโซนฉลาดที่โมเดลจดจ่อได้แม่น ส่วนที่เหลือไปจนถึง 1 ล้านโทเคนเป็นโซนมึนที่ยิ่งไกลยิ่งเบลอ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <linearGradient id="smart" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#2f9e5c"/>
+          <stop offset="1" stop-color="#57c185"/>
+        </linearGradient>
+        <linearGradient id="dumb" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#c9dcf6"/>
+          <stop offset="1" stop-color="#eef3fb"/>
+        </linearGradient>
+        <clipPath id="barclip"><rect x="40" y="60" width="640" height="50" rx="12"/></clipPath>
+      </defs>
+      <text x="40" y="38" font-size="15" font-weight="700" fill="#131e30">หน้าต่าง Context หนึ่งอัน — เพดานสูงสุด ~1,000,000 โทเคน</text>
+      <g clip-path="url(#barclip)">
+        <rect x="40" y="60" width="640" height="50" fill="url(#dumb)"/>
+        <rect x="40" y="60" width="150" height="50" fill="url(#smart)"/>
+      </g>
+      <rect x="40" y="60" width="640" height="50" rx="12" fill="none" stroke="#bcd3f8" stroke-width="1.5"/>
+      <line x1="190" y1="52" x2="190" y2="118" stroke="#294266" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <text x="115" y="90" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">โซนฉลาด</text>
+      <text x="435" y="83" font-size="13" font-weight="700" fill="#294266" text-anchor="middle">โซนมึน</text>
+      <text x="435" y="100" font-size="11" fill="#5a6a85" text-anchor="middle">ยิ่งไกลยิ่งเบลอ จับประเด็นพลาด</text>
+      <text x="190" y="140" font-size="11" fill="#5a6a85" text-anchor="middle">~120K โทเคนแรก</text>
+      <text x="680" y="140" font-size="11" fill="#5a6a85" text-anchor="end">ปลายทาง ~1M</text>
+    </svg>
+    <figcaption>ช่วงที่โมเดลจดจ่อได้แม่นจริง ๆ คือ ~120K โทเคนแรก เลยจากนั้นความแม่นจะค่อย ๆ ลดลง</figcaption>
+  </figure>
+
+  <h2>วิธีเดิมที่หลายคนใช้ (แล้วมันเสียเวลาตรงไหน)</h2>
+  <p>
+    พอ context เริ่มเต็มหรือเริ่มมึน คนส่วนใหญ่มีอยู่สองทางเลือกหลัก ๆ ซึ่งทั้งคู่ก็พอใช้ได้ แต่มีจุดอ่อนของมันอยู่
+  </p>
+  <div class="card">
+    <ul>
+      <li>
+        <strong>ใช้ <code>/compact</code></strong> — สรุปบทสนทนาที่ผ่านมาให้สั้นลงเพื่อคืนพื้นที่ แต่ยังอยู่ในแชทเดิม ต่องานเดิมได้เลย
+        ข้อจำกัดคือมันยัง "ลาก" ทุกเรื่องที่คุยมาไว้ในแชทเดียวกันหมด รวมถึงเรื่องที่ออกทะเลระหว่างทางด้วย งานเดียวจึงกินพื้นที่บวมขึ้นเรื่อย ๆ
+      </li>
+      <li>
+        <strong>เปิดแชทใหม่แล้วเริ่มทำงานต่อ</strong> — ได้ context โล่ง ๆ กลับมา แต่ต้องมานั่งเล่าเองว่า "เมื่อกี้ทำถึงไหนแล้ว ตกลงอะไรกันไว้บ้าง ไฟล์ไหนที่เกี่ยวข้อง"
+        ทุกครั้งที่ย้ายแชท เท่ากับเสียเวลาปูพื้นใหม่ทั้งหมด และถ้าเล่าตกหล่นไปนิดเดียว AI ตัวใหม่ก็ทำงานพลาดได้ทันที
+      </li>
+    </ul>
+  </div>
+  <p>
+    ขั้นตอน "ย้ายแชทแล้วเล่าใหม่" นี่แหละที่กินเวลาโดยไม่จำเป็น สกิล <code>/handoff</code> เกิดมาเพื่อตัดงานตรงนี้ทิ้งไปเลย
+  </p>
+
+  <h2><code>/handoff</code> ต่างจาก <code>/compact</code> ยังไง</h2>
+  <p>
+    สองอย่างนี้ฟังดูคล้ายกันเพราะต่างก็ "บีบสรุป" บทสนทนาเหมือนกัน แต่เป้าหมายคนละทางกันเลย
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong><code>/compact</code> = อยู่แชทเดิม</strong> — ย่อบทสนทนาลงแล้วทำงาน<strong>ต่อในแชทเดียวกัน</strong> เหมาะกับงานยาวเรื่องเดียวที่ไม่อยากตัดขาด</li>
+      <li><strong><code>/handoff</code> = ส่งต่อไปแชทใหม่</strong> — หยิบ<strong>เฉพาะส่วนที่เกี่ยวข้อง</strong>ออกมาเป็นเอกสารสรุป เพื่อให้ Agent อีกตัว (แชทใหม่) รับไปทำต่อ โดยแชทเดิมยัง "สะอาด" อยู่</li>
+    </ul>
+  </div>
+  <p>
+    ความต่างนี้เปิดทางให้ทำงานแบบ<strong>แยกสายพร้อมกันได้</strong> เช่นกำลังคุยเรื่องหลักอยู่ แล้วจู่ ๆ เจองานแยกที่ต้องทำ (เช่นต้องไป refactor โมดูลนึงก่อน)
+    แทนที่จะลากงานแยกนั้นมาถมในแชทหลักจน context บวม ก็แค่ <code>/handoff</code> ตัดเฉพาะบริบทที่เกี่ยวกับงานแยกออกไปให้อีกแชททำ
+    ส่วนแชทหลักก็ยังโฟกัสเรื่องเดิมต่อได้แบบไม่มึน — ทั้งสองแชทเลยฉลาดพร้อมกันทั้งคู่
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพการส่งงานต่อ: Session เดิมที่ context ใกล้เต็ม พิมพ์ /handoff เพื่อสร้างไฟล์ handoff.md เซฟไว้ในโฟลเดอร์ temp แล้ว Session ใหม่อ่านไฟล์นั้นเพื่อรับงานต่อโดย context ยังโล่ง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+        <clipPath id="barA"><rect x="52" y="118" width="140" height="15" rx="7.5"/></clipPath>
+        <clipPath id="barB"><rect x="528" y="118" width="140" height="15" rx="7.5"/></clipPath>
+      </defs>
+
+      <!-- Session เดิม -->
+      <rect x="30" y="48" width="185" height="118" rx="14" fill="#ecf3fc" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="122" y="78" font-size="14" font-weight="700" fill="#294266" text-anchor="middle">Session เดิม</text>
+      <text x="122" y="98" font-size="11" fill="#5a6a85" text-anchor="middle">context ใกล้เต็ม เริ่มมึน</text>
+      <g clip-path="url(#barA)">
+        <rect x="52" y="118" width="140" height="15" fill="#dceafb"/>
+        <rect x="52" y="118" width="105" height="15" fill="#57c185"/>
+        <rect x="157" y="118" width="35" height="15" fill="#e0796f"/>
+      </g>
+
+      <!-- arrow 1 -->
+      <text x="247" y="108" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">/handoff</text>
+      <line x1="220" y1="118" x2="273" y2="118" stroke="#4d72a9" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- handoff.md doc -->
+      <path d="M283 60 h108 l18 18 v92 a4 4 0 0 1 -4 4 h-122 a4 4 0 0 1 -4 -4 v-106 a4 4 0 0 1 4 -4 z" fill="#ffffff" stroke="#4d72a9" stroke-width="1.5"/>
+      <path d="M391 60 v18 h18 z" fill="#dceafb" stroke="#4d72a9" stroke-width="1.5"/>
+      <text x="350" y="112" font-size="13" font-weight="700" fill="#294266" text-anchor="middle">handoff.md</text>
+      <text x="350" y="132" font-size="10" fill="#5a6a85" text-anchor="middle">สรุปงาน + ลิงก์ไฟล์</text>
+      <text x="350" y="190" font-size="11" fill="#5a6a85" text-anchor="middle">เซฟในโฟลเดอร์ temp</text>
+
+      <!-- arrow 2 -->
+      <text x="472" y="108" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">อ่านไฟล์นี้</text>
+      <line x1="446" y1="118" x2="499" y2="118" stroke="#4d72a9" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <!-- Session ใหม่ -->
+      <rect x="505" y="48" width="185" height="118" rx="14" fill="#ecf3fc" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="597" y="78" font-size="14" font-weight="700" fill="#294266" text-anchor="middle">Session ใหม่</text>
+      <text x="597" y="98" font-size="11" fill="#5a6a85" text-anchor="middle">รู้งานครบ แต่ context โล่ง</text>
+      <g clip-path="url(#barB)">
+        <rect x="528" y="118" width="140" height="15" fill="#dceafb"/>
+        <rect x="528" y="118" width="42" height="15" fill="#57c185"/>
+      </g>
+    </svg>
+    <figcaption>พิมพ์ <code>/handoff</code> ครั้งเดียว แชทเดิมสรุปงานเป็นไฟล์ให้ แล้วแชทใหม่อ่านไฟล์นั้นเพื่อรับงานต่อทันที</figcaption>
+  </figure>
+
+  <h2>ในไฟล์ handoff มีอะไรบ้าง</h2>
+  <p>
+    หัวใจของสกิลนี้คือตัวเอกสารสรุปที่มันเขียนให้ ซึ่งไม่ได้ก๊อปบทสนทนาทั้งหมดมาแปะ แต่คัดมาเฉพาะสิ่งที่ Agent ตัวใหม่ "จำเป็นต้องรู้" เพื่อทำงานต่อ ประกอบด้วย
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>เป้าหมายของ session ใหม่</strong> — งานชิ้นถัดไปคืออะไร ต้องทำอะไรให้เสร็จ</li>
+      <li><strong>บริบทที่เกี่ยวข้อง</strong> — สิ่งที่คุย/ตัดสินใจกันไปแล้วในแชทเดิม เฉพาะส่วนที่เกี่ยวกับงานถัดไป</li>
+      <li><strong>Skills ที่ควรเรียกใช้</strong> — แนะนำว่างานนี้ควรหยิบสกิลตัวไหนมาใช้ต่อ (เช่น <code>/tdd</code> ถ้าเป็นงานที่ควรเขียน test ก่อน)</li>
+      <li><strong>ตัวชี้ไปยังไฟล์/เอกสารเดิม</strong> — ชี้เป็น path หรือ URL ไปที่ของจริง (เอกสารสเปก, plan, issue, commit, diff) <strong>แทนที่จะก๊อปเนื้อหามาซ้ำ</strong> — ประหยัด context และไม่มีข้อมูลตกรุ่น</li>
+    </ul>
+  </div>
+  <p>ลองดูตัวอย่างไฟล์ที่มันเขียนออกมา จะเห็นภาพชัดขึ้นว่าทำไมมันสั้นแต่ครบ</p>
+  <CodeBlock lang="markdown" title="handoff-rate-limit.md" code={`# Handoff: เพิ่ม rate limiting ให้ endpoint login
+
+## เป้าหมายของ session ใหม่
+ทำ middleware จำกัดจำนวน request ต่อ IP ให้ POST /api/login
+
+## บริบทที่ตกลงกันไว้แล้ว
+- ใช้ sliding window เก็บ counter ไว้ใน Redis
+- limit ที่ 5 ครั้ง ต่อ 15 นาที ต่อ 1 IP
+- ตอบ 429 พร้อม header Retry-After เมื่อเกิน
+
+## Skills ที่ควรเรียกใช้
+- /tdd — เขียน test ให้ครอบเคสเกิน limit ก่อนลงมือ
+
+## ไฟล์และอ้างอิงที่เกี่ยวข้อง (ของจริงอยู่ที่นี่)
+- สเปก: docs/rate-limit-prd.md
+- middleware เดิมให้ดูเป็นแบบ: src/middleware/auth.ts
+- Issue ต้นเรื่อง: github.com/org/repo/issues/482`} />
+  <div class="callout callout-note">
+    <p class="callout-label">โน้ต</p>
+    <p>
+      ตอนสร้างไฟล์ สกิลนี้จะ<strong>ลบข้อมูลอ่อนไหวออกให้</strong>โดยอัตโนมัติ เช่น API key, รหัสผ่าน หรือข้อมูลส่วนตัว (PII)
+      จะได้ไม่มีความลับหลุดติดไปในไฟล์ที่เอาไปส่งต่อ
+    </p>
+  </div>
+
+  <h2 class="step">พิมพ์ <code>/handoff</code> ให้มันสรุปงานให้</h2>
+  <p>
+    พอถึงจังหวะที่ context เริ่มเยอะ หรืออยากแตกงานแยกออกไป ก็แค่พิมพ์ <code>/handoff</code> ในแชทที่ทำงานอยู่
+    จะพิมพ์บอกโฟกัสของ session ถัดไปต่อท้ายไปด้วยก็ได้ เพื่อให้มันคัดบริบทมาให้ตรงงานยิ่งขึ้น เช่น
+  </p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code" code={`/handoff ทำต่อเฉพาะส่วน rate limiting ของ endpoint login`} />
+  <p>
+    Claude จะสรุปบทสนทนาปัจจุบันตามโครงด้านบน แล้วเซฟเป็นไฟล์ <code>.md</code> ไว้ใน<strong>โฟลเดอร์ชั่วคราว (temp) ของระบบ</strong> —
+    ไม่ใช่ในโฟลเดอร์โปรเจกต์ เพราะมันเป็นแค่ไฟล์ทำงานชั่วคราว ไม่ใช่เอกสารถาวรที่ต้อง commit เก็บไว้ จากนั้นจะส่ง path กลับมาให้ เช่นบน Windows
+  </p>
+  <CodeBlock lang="text" title="พาธไฟล์ที่ Claude ส่งกลับมา" code={`C:\\Users\\USER\\AppData\\Local\\Temp\\handoff-a1b2c3.md`} />
+
+  <h2 class="step">ก๊อป path ไปเปิดใน session ใหม่</h2>
+  <p>
+    เปิดแชทใหม่ขึ้นมา (หรือจะเปิดเป็นอีก session คู่ขนานไปเลยก็ได้) แล้วบอกให้มันอ่านไฟล์นั้น เอา path ที่ได้มาวางตรง ๆ
+  </p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code (session ใหม่)" code={`อ่านไฟล์ C:\\Users\\USER\\AppData\\Local\\Temp\\handoff-a1b2c3.md แล้วทำงานต่อได้เลย`} />
+  <p>
+    Agent ตัวใหม่จะอ่านสรุป เปิดไฟล์อ้างอิงที่ระบุไว้ตามต้องการ แล้วเข้าใจงานทั้งหมดทันทีโดยที่เราไม่ต้องเล่าอะไรซ้ำเลย —
+    เท่ากับได้ context โล่ง ๆ กลับมาเต็ม ๆ แต่ยังรู้เรื่องงานครบ
+  </p>
+
+  <h2 class="step">ทำงานต่อแบบ context สดใหม่</h2>
+  <p>
+    จากตรงนี้ก็ทำงานยาวต่อได้เลยเหมือนเริ่มใหม่ พองานนี้เริ่มยาวจนมึนอีกรอบ ก็แค่ <code>/handoff</code> ส่งต่ออีกทอดได้เรื่อย ๆ
+    (ในภาพจากต้นทางจะเห็นว่ามีทั้ง <code>handoff.md</code> และ <code>handoff-2.md</code> คือส่งต่อกันเป็นทอด ๆ นั่นเอง)
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับ</p>
+    <p>
+      เพราะไฟล์ handoff เป็นแค่ markdown ธรรมดา มันเลย<strong>ข้ามเครื่องมือได้</strong> ไม่ผูกกับ Claude อย่างเดียว
+      จะเอาไฟล์เดียวกันไปให้ AI ตัวอื่นอย่าง Codex หรือ Copilot CLI อ่านต่อก็ได้ เหมาะเวลาอยากได้ความเห็นที่สองจากคนละโมเดลโดยไม่ต้องเล่าเรื่องใหม่
+    </p>
+  </div>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ไฟล์อยู่ในโฟลเดอร์ temp ของระบบ ซึ่งอาจถูกล้างเมื่อไหร่ก็ได้ (เช่นตอนรีสตาร์ตเครื่อง) ถือเป็นไฟล์ใช้แล้วทิ้ง
+      ถ้าอยากเก็บสรุปงานไว้ถาวรจริง ๆ ให้ก๊อปเนื้อหาไปไว้ในโปรเจกต์เอง อย่าพึ่งพา path ใน temp ว่าจะอยู่ตลอด
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ติดตั้งสกิลนี้ยังไง</h2>
+  <p>
+    <code>/handoff</code> ไม่ได้เป็นคำสั่งที่ติดมากับ Claude Code ตั้งแต่แรก แต่เป็น<strong>สกิล</strong>ที่ Matt Pocock ทำแจกไว้ (เรื่องสกิลคืออะไร ดูได้ในบทความก่อนหน้า)
+    ติดตั้งได้ด้วยคำสั่งเดียวจาก terminal แล้วทำ setup ตามขั้นตอนสั้น ๆ
+  </p>
+  <CodeBlock lang="bash" code={`npx skills@latest add mattpocock/skills`} />
+  <p>
+    ระหว่างติดตั้งมันจะถามให้เลือกสกิลและตั้งค่า (ตรงนี้เลือก <code>/setup-matt-pocock-skills</code> ไว้ด้วย) เสร็จแล้วรันคำสั่ง setup ในแชทอีกทีเพื่อบอกค่าพื้นฐาน
+    เช่นใช้ระบบ issue อะไร (GitHub, Linear หรือไฟล์ในเครื่อง) และเก็บเอกสารไว้ที่ไหน
+  </p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code" code={`/setup-matt-pocock-skills`} />
+  <p>
+    ในชุดนี้ไม่ได้มีแค่ <code>/handoff</code> ตัวเดียว ยังมีสกิลอื่นที่ใช้คู่กันได้ดี เช่น <code>/tdd</code> (วนเขียน test ก่อนโค้ด),
+    <code>/grill-me</code> (ให้ AI ซักถามเราจนสเปกงานชัดก่อนเริ่ม) และ <code>/diagnosing-bugs</code> ลองเข้าไปดูใน repo ต้นทางได้ตามลิงก์อ้างอิง
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">โน้ต</p>
+    <p>
+      สกิลจากภายนอกก็เหมือนโค้ดจากภายนอกทั่วไป ควรดูสักนิดว่ามันสั่งให้ Claude ทำอะไรบ้างก่อนติดตั้ง โดยเฉพาะสกิลที่รันคำสั่งในเครื่องเราได้
+      ตัว <code>/handoff</code> ทำแค่สรุปบทสนทนาแล้วเขียนไฟล์ลง temp ถือว่าอ่านง่ายและปลอดภัยดี แต่นิสัยเช็คก่อนติดตั้งควรมีติดตัวไว้เสมอ
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยได้แรงบันดาลใจจากสกิลและบทความของ Matt Pocock ด้านล่าง</p>
+  <ol class="references">
+    <li>
+      <a href="https://www.aihero.dev/skills-handoff" target="_blank" rel="noopener noreferrer">"handoff: Move Context Between Agent Sessions"</a>
+      โดย Matt Pocock (AI Hero) — สืบค้นเมื่อ 5 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/mattpocock/skills/blob/main/skills/productivity/handoff/SKILL.md" target="_blank" rel="noopener noreferrer">"handoff/SKILL.md"</a>
+      — mattpocock/skills, GitHub, สืบค้นเมื่อ 5 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/mattpocock/skills" target="_blank" rel="noopener noreferrer">"mattpocock/skills — Skills for Real Engineers"</a>
+      — วิธีติดตั้งและรายการสกิลทั้งหมด, GitHub, สืบค้นเมื่อ 5 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/skills" target="_blank" rel="noopener noreferrer">"Extend Claude with skills"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 5 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>

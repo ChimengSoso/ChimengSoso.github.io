@@ -14,18 +14,18 @@ export const articles = [
     soon: false,
   },
   {
-    href: '#',
-    tag: 'เร็วๆ นี้',
-    title: 'ความลับการเขียน Prompt ให้ได้ผลลัพธ์ดีขึ้น',
-    desc: 'กำลังจัดทำเนื้อหา',
-    soon: true,
+    href: 'handoff/',
+    tag: 'Claude Code',
+    title: 'ส่งงานต่อข้ามแชทแบบไม่เสีย Context',
+    desc: 'พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน',
+    soon: false,
   },
   {
-    href: '#',
-    tag: 'เร็วๆ นี้',
-    title: 'ใช้ Claude ผ่าน API แบบที่นักพัฒนาไม่ควรพลาด',
-    desc: 'กำลังจัดทำเนื้อหา',
-    soon: true,
+    href: 'grill-and-loop/',
+    tag: 'Claude Code',
+    title: 'ให้ AI ซักจนงานชัด ด้วย /grill-me กับ /loop-me',
+    desc: 'AI ไม่ได้พังเพราะเขียนโค้ดไม่เป็น แต่เพราะเราบอกงานไม่ครบ — 2 สกิลนี้กลับด้าน ให้ AI ซักถามเราจนสเปกชัดก่อนลงมือ',
+    soon: false,
   },
 ];
 
