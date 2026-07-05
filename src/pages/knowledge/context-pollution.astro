@@ -1,0 +1,414 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getAdjacentArticles } from '../../data/articles.js';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('context-pollution/');
+---
+<Layout title="Context Pollution: เมื่อ Agent วางยาพิษใส่ context ตัวเอง | หมวดความรู้" description="นั่ง debug กับ AI นาน ๆ แล้วมันเริ่มเพี้ยน ลืมสิ่งที่ตกลงกันไว้ เพราะ Agent เอาขยะถมใส่ context ตัวเอง — มาดูว่าทำไม แล้วใช้ sub-agent กั้นห้องความเลอะยังไง" prev={prev} next={next} updated="6 กรกฎาคม 2026" type="article">
+  <div class="breadcrumb"><a href="../index.html">หมวดความรู้</a> / Context Pollution</div>
+
+  <span class="tag">Claude Code</span>
+  <h1>Context Pollution: เมื่อ Agent วางยาพิษใส่ context ตัวเอง</h1>
+  <p class="subtitle">นั่ง debug กับ Claude Code ติดกันเป็นชั่วโมง แล้วจู่ ๆ มันเริ่ม "เพี้ยน" — เสนอ library ที่ตกลงกันไปแล้วว่าไม่ใช้ ถาม path ไฟล์ที่มันเพิ่งอ่านไปเมื่อกี้ เดาชื่อ function มั่ว ๆ ทั้งที่โค้ดยังอยู่ครบ เครื่องยังแรงเท่าเดิม อาการนี้มีชื่อครับ</p>
+
+  <p>
+    ในบทความก่อน ๆ เราคุยกันเรื่อง<strong>สิ่งที่ "เราป้อนเข้าไป"</strong> ให้ AI — prompt ที่ชัด บริบทที่ครบ และการจัดการ
+    <strong>context window</strong> (พื้นที่ความจำที่ AI ใช้เก็บทุกอย่างในบทสนทนาปัจจุบัน — บทความ <a href="../handoff/">เรื่อง <code>/handoff</code></a> อธิบายไว้แล้ว)
+    แต่พอมาถึงยุคที่ AI ลงมือทำงานเองแบบ Claude Code มันคนละเกมเลย เพราะ Agent ไม่ได้รอเราป้อน context อีกต่อไป
+  </p>
+  <p>
+    <strong>มันสร้าง context ใส่ตัวเองตลอดเวลา</strong> — ทุกครั้งที่เรียกเครื่องมือ (tool) อ่านไฟล์ รัน test ที่ fail หรือ debug วนอยู่ 5 รอบ
+    ผลลัพธ์ทั้งหมดนั้นถูกอัดกลับเข้า context window ของมันเอง สะสมไปเรื่อย ๆ จนถึงจุดที่มัน "มองไม่เห็น" ของสำคัญที่จมอยู่ข้างใน
+    อาการนี้เรียกว่า <strong>Context Pollution</strong> (context เป็นพิษ)
+  </p>
+
+  <h2>Context Pollution คืออะไร</h2>
+  <p>
+    Context Pollution คือการที่ context window ค่อย ๆ ถูกถมด้วยข้อมูลที่ <strong>"สัญญาณต่ำ" (low-signal)</strong> —
+    ผลลัพธ์ tool ที่ใช้เสร็จแล้ว, error log ที่แก้ไปแล้ว, ความพยายามที่ fail, ทางตันที่เดินไปแล้วถอยกลับ —
+    จนสัญญาณที่สำคัญจริง ๆ (เช่นการตัดสินใจที่ตกลงกันไว้) จมหายไปในกองขยะ
+  </p>
+  <p>
+    ขอแตะเรื่องคำศัพท์นิดนึง — คำว่า <strong>Pollution</strong> อ่านออกเสียงว่า <strong>"พอลลูชัน"</strong> แปลตรงตัวว่า <strong>"มลพิษ"</strong>
+    (คำเดียวกับใน <i>air pollution</i> คือมลพิษทางอากาศ) เขายืมภาพของเสียที่ถูกปล่อยทิ้งจนสิ่งแวดล้อมเป็นพิษ
+    มาเรียกอาการที่ context ถูกขยะถมจนกลายเป็นพิษกับตัว Agent เองนั่นแหละ
+  </p>
+  <p>
+    ขอเทียบให้เห็นภาพ: มันเหมือน<strong>ไวท์บอร์ดในห้องประชุมที่ไม่เคยลบ</strong> ทุกไอเดียที่ลองแล้วไม่เวิร์ก ทุกตัวเลขที่ขีดฆ่า
+    ทุกลูกศรที่ลากผิด ยังค้างอยู่บนบอร์ดหมด พอประชุมไปถึงชั่วโมงที่สาม คุณมองหา "ข้อสรุปจริง ๆ" ไม่เจอ เพราะมันจมอยู่ท่ามกลางรอยขีดเขียนที่ตายไปแล้ว —
+    Agent ก็เป็นแบบนั้นเป๊ะ
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 258" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ context window ที่ถูกถมด้วยข้อมูลสัญญาณต่ำ ได้แก่ ผลลัพธ์ tool ที่เสร็จแล้ว error ที่แก้แล้ว การ debug ที่ fail และทางตันที่ถอยกลับ จนการตัดสินใจสำคัญที่เป็นของจริงถูกกลบจมอยู่ตรงกลาง" style="font-family:'Sarabun',sans-serif">
+      <text x="40" y="34" font-size="15" font-weight="700" fill="#131e30">Context window หนึ่งอัน — ยิ่งทำงานยิ่งถูกถม</text>
+      <rect x="40" y="48" width="640" height="200" rx="14" fill="#ffffff" stroke="#bcd3f8" stroke-width="1.5"/>
+
+      <!-- junk row 1 -->
+      <rect x="58" y="62" width="604" height="30" rx="8" fill="#eceff3" stroke="#d3d9e0" stroke-width="1"/>
+      <circle cx="76" cy="77" r="3.5" fill="#9aa6b8"/>
+      <text x="90" y="81" font-size="13" fill="#7a869a">การ debug ที่ fail วนไป 5 รอบ</text>
+      <!-- junk row 2 -->
+      <rect x="58" y="98" width="604" height="30" rx="8" fill="#eceff3" stroke="#d3d9e0" stroke-width="1"/>
+      <circle cx="76" cy="113" r="3.5" fill="#9aa6b8"/>
+      <text x="90" y="117" font-size="13" fill="#7a869a">error log ที่แก้ไปแล้ว</text>
+      <!-- signal row (buried) -->
+      <rect x="58" y="134" width="604" height="30" rx="8" fill="#e6f4ec" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="76" y="153" font-size="13" font-weight="700" fill="#1f7a45">✔ ของจริงที่ต้องใช้: ตกลงกันว่าใช้ library A — จมอยู่ตรงนี้</text>
+      <!-- junk row 3 -->
+      <rect x="58" y="170" width="604" height="30" rx="8" fill="#eceff3" stroke="#d3d9e0" stroke-width="1"/>
+      <circle cx="76" cy="185" r="3.5" fill="#9aa6b8"/>
+      <text x="90" y="189" font-size="13" fill="#7a869a">ผลลัพธ์ tool ที่อ่านไฟล์เสร็จไปแล้ว</text>
+      <!-- junk row 4 -->
+      <rect x="58" y="206" width="604" height="30" rx="8" fill="#eceff3" stroke="#d3d9e0" stroke-width="1"/>
+      <circle cx="76" cy="221" r="3.5" fill="#9aa6b8"/>
+      <text x="90" y="225" font-size="13" fill="#7a869a">ทางตันที่เดินไปแล้วถอยกลับ</text>
+    </svg>
+    <figcaption>สัญญาณที่สำคัญจริง ๆ (แถวสีเขียว) จมอยู่ท่ามกลางข้อมูลที่ตายไปแล้ว — Agent เลยหยิบมาใช้ไม่เจอ</figcaption>
+  </figure>
+
+  <h2>ต่างจาก Context Rot ยังไง</h2>
+  <p>
+    หลายคนเคยได้ยินคำว่า <strong>Context Rot</strong> — งานวิจัยของ Chroma ที่พบว่าโมเดลทุกตัว "แย่ลง" เมื่อ input ยาวขึ้น
+    แม้งานจะง่ายแค่ไหน (สำหรับโมเดลหน้าต่าง 1 ล้านโทเคน จะเห็นผลชัดราว ๆ 300,000–400,000 โทเคน — token คือหน่วยย่อยของข้อความที่โมเดลใช้นับความยาว)
+    ฟังดูคล้าย Context Pollution แต่จุดต่างสำคัญอยู่ที่ <strong>"ต้นตอ"</strong>
+  </p>
+  <p>
+    อีกคำที่น่าแกะ: <strong>Rot</strong> อ่านออกเสียงว่า <strong>"รอต"</strong> แปลว่า <strong>"เน่า" หรือ "ผุพัง"</strong>
+    (แบบผลไม้ที่วางทิ้งไว้นานจนเสีย) — ถ้าลากเป็นไทย ๆ Context Rot ก็คือ "คอนเท็กซ์ที่ค่อย ๆ เน่า" ยิ่งยาวยิ่งเสื่อมสภาพ
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>Context Rot</strong> = context ยาว แล้วคุณภาพตก — เป็นเรื่องของ <strong>"ความยาว"</strong></li>
+      <li><strong>Context Pollution</strong> = Agent เติมขยะใส่ context ตัวเอง จนไปกระตุ้นให้เกิด context rot — เป็นเรื่องของ <strong>"คุณภาพของสิ่งที่อยู่ข้างใน"</strong></li>
+    </ul>
+  </div>
+  <p>พูดอีกแบบ: <strong>Context Pollution คือ "ตัวการ" ส่วน Context Rot คือ "อาการ"</strong> ที่ตามมา</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 190" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพความสัมพันธ์แบบเหตุและผล: Context Pollution เป็นตัวการ คือ Agent เติมข้อมูลสัญญาณต่ำใส่ context ตัวเอง แล้วกระตุ้นให้เกิด Context Rot ซึ่งเป็นอาการ คือโมเดลจับใจความพลาดและตอบวน" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="cp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- cause box -->
+      <rect x="26" y="42" width="286" height="110" rx="14" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="169" y="72" font-size="15" font-weight="700" fill="#b23b3b" text-anchor="middle">Context Pollution</text>
+      <text x="169" y="94" font-size="12" font-weight="700" fill="#8f3030" text-anchor="middle">= ตัวการ</text>
+      <text x="169" y="120" font-size="12" fill="#5a6a85" text-anchor="middle">Agent เติมข้อมูลสัญญาณต่ำ</text>
+      <text x="169" y="138" font-size="12" fill="#5a6a85" text-anchor="middle">ใส่ context ตัวเองเรื่อย ๆ</text>
+
+      <!-- arrow -->
+      <text x="360" y="86" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">กระตุ้น</text>
+      <text x="360" y="102" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">ให้เกิด</text>
+      <line x1="320" y1="112" x2="400" y2="112" stroke="#4d72a9" stroke-width="2.5" marker-end="url(#cp-arrow)"/>
+
+      <!-- effect box -->
+      <rect x="408" y="42" width="286" height="110" rx="14" fill="#ecf3fc" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="551" y="72" font-size="15" font-weight="700" fill="#294266" text-anchor="middle">Context Rot</text>
+      <text x="551" y="94" font-size="12" font-weight="700" fill="#3a5680" text-anchor="middle">= อาการ</text>
+      <text x="551" y="120" font-size="12" fill="#5a6a85" text-anchor="middle">โมเดลจับใจความพลาด</text>
+      <text x="551" y="138" font-size="12" fill="#5a6a85" text-anchor="middle">ตอบวน คุณภาพตก</text>
+    </svg>
+    <figcaption>รักษาที่ "ความยาว" อย่างเดียวไม่พอ ต้องแก้ที่ "ต้นตอ" คือหยุด Agent ไม่ให้เติมขยะใส่ตัวเอง</figcaption>
+  </figure>
+
+  <h2>อาการที่สังเกตได้ในทางปฏิบัติ</h2>
+  <p>พอ context เป็นพิษ Agent จะเริ่มแสดงอาการที่สังเกตได้ชัด</p>
+  <div class="card">
+    <ul>
+      <li><strong>ขัดแย้งกับตัวเอง</strong> — เสนอวิธีที่ตรงข้ามกับที่เพิ่งตกลงกันไป ลืมการตัดสินใจเดิม</li>
+      <li><strong>ค้นซ้ำ/เดามั่ว</strong> — ไปค้นหาข้อมูลที่เคยมีอยู่แล้วซ้ำ เดาชื่อ function หรือ path ไฟล์มั่ว — สัญญาณว่ามันกำลัง "สร้างขึ้นใหม่" แทนที่จะ "จำได้"</li>
+      <li><strong>คำตอบยาวขึ้นแต่ห่วยลง</strong> — เต็มไปด้วย "มันก็แล้วแต่..." แบบกำปั้นทุบดิน</li>
+      <li><strong>ช้าลง</strong> — เพราะทุก response ต้องแบกต้นทุนของ context ขยะที่สะสมไว้</li>
+    </ul>
+  </div>
+  <p>
+    มีคนวัด <strong>"หนี้ context" (context debt — คำว่า <i>debt</i> อ่านว่า "เด็ท" ตัว b ไม่ออกเสียง แปลว่า "หนี้")</strong> ออกมาตรง ๆ เลย — บางเซสชันแบก context ที่ค้างอยู่ 300,000+ โทเคน
+    โดยที่แทบไม่ได้ใช้ประโยชน์ แต่ต้องจ่ายต้นทุนการประมวลผลมันทุกครั้งที่ตอบ งานวิจัย CodeDelegator (ม.ค. 2026)
+    ยังชี้ชัดว่าการใช้ Agent ตัวเดียวทำทั้ง<strong>วางแผน</strong>และ<strong>ลงมือเขียนโค้ด</strong> ทำให้เกิด context pollution
+    จาก debugging traces และความล้มเหลวระหว่างทาง ซึ่งบั่นทอนงานยาว ๆ หลายขั้น (long-horizon) โดยตรง
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ทางแก้ที่ทรงพลังที่สุด: Sub-agent</h2>
+  <p>
+    ก่อนจะไปที่ทางแก้ ต้องรู้จักตัวช่วยที่ชื่อ <strong>sub-agent</strong> (อ่านว่า <strong>"ซับเอเจนต์"</strong> — <i>sub</i> แปลว่า "ย่อย" หรือ "รอง" ลากไทย ๆ ได้ว่า "เอเจนต์ลูก" หรือผู้ช่วยตัวรอง) กันก่อน เพราะยังไม่มีบทความไหนในซีรีส์นี้เล่าเรื่องนี้ตรง ๆ
+  </p>
+  <p>
+    ภาพจำที่หลายคนมี: พอพูดถึง sub-agent ส่วนใหญ่จะนึกถึงการทำงาน<strong>แบบ parallel</strong> — แตกงานเป็นหลายตัววิ่งพร้อมกัน เร็วขึ้น
+    ซึ่งถูกครับ แต่เป็นแค่ครึ่งเดียว และอาจไม่ใช่ครึ่งที่สำคัญที่สุดด้วยซ้ำ คุณสมบัติที่ทรงพลังกว่าคือ <strong>"Context Isolation" (การกั้นห้อง context)</strong>
+  </p>
+
+  <h2 class="step">Sub-agent ทำงานยังไง</h2>
+  <p>
+    sub-agent คือ<strong>ผู้ช่วยอีกตัวที่ Agent หลัก (main agent) เรียกใช้ให้ไปทำงานย่อยชิ้นหนึ่ง</strong> จุดสำคัญคือ
+    มันมี <strong>context window แยกเป็นของตัวเอง</strong> ไปลุยงานที่ได้รับมอบหมายจนเสร็จในห้องของมันเอง
+    แล้ว<strong>ส่งกลับมาให้ main agent แค่ "สรุป" หนึ่งย่อหน้า</strong> — ไม่ลากกองขยะระหว่างทางกลับมาด้วย
+  </p>
+  <p>
+    นี่คือหัวใจที่แก้ Context Pollution ได้ตรงจุด: ความเลอะเทอะทั้งหมด — <strong>การไล่สำรวจโค้ด การลองผิดลองถูก debugging traces</strong> —
+    มันเกิดและตายอยู่ใน context ของ sub-agent ที่ทิ้งได้ ส่วน main agent รับกลับมาแค่ "คำตอบที่สะอาด" เท่านั้น
+    <strong>แม้คุณจะรัน sub-agent แค่ตัวเดียว ไม่ parallel เลย คุณก็ได้ประโยชน์เต็ม ๆ</strong>
+  </p>
+  <p>
+    เทียบให้เห็นภาพ: เหมือนคุณส่งน้องในทีมเข้าไปค้นข้อมูลหรือไล่ debug ในอีกห้องนึง แล้วให้เดินกลับมาบอกคุณแค่ "พี่ครับ คำตอบคือ X" —
+    ไม่ใช่ลากกระดาษทด กองหนังสือ และ error log ทั้งกองเข้ามาวางบนโต๊ะคุณ โต๊ะคุณเลยสะอาดอยู่เสมอ
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 336" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบสองแบบ แบบเดิม Agent ตัวเดียวแบกทุกอย่างไว้ใน context เดียว จนขยะปนของสำคัญและเริ่มมึน ส่วนแบบใช้ sub-agent ให้ sub-agent ทำงานเลอะ ๆ ใน context แยกที่ทิ้งได้ แล้วส่งกลับมาแค่คำตอบสะอาดหนึ่งย่อหน้า ทำให้ context ของ main agent สะอาดเสมอ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="cp-big" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e6b422"/>
+        </marker>
+      </defs>
+
+      <!-- ===== Section A: single agent ===== -->
+      <text x="40" y="28" font-size="15" font-weight="700" fill="#b23b3b">✗ แบบเดิม — Agent ตัวเดียวแบกทุกอย่าง</text>
+
+      <!-- agent -->
+      <rect x="40" y="46" width="132" height="66" rx="12" fill="#e0796f"/>
+      <line x1="70" y1="70" x2="82" y2="82" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <line x1="82" y1="70" x2="70" y2="82" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <line x1="128" y1="70" x2="140" y2="82" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <line x1="140" y1="70" x2="128" y2="82" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <path d="M92 100 q14 -10 28 0" fill="none" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <text x="106" y="132" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">Agent</text>
+
+      <!-- its context bar (junk heavy) -->
+      <text x="196" y="60" font-size="11" fill="#5a6a85">context ตัวเอง</text>
+      <g>
+        <clipPath id="cp-barA"><rect x="196" y="68" width="484" height="34" rx="9"/></clipPath>
+        <g clip-path="url(#cp-barA)">
+          <rect x="196" y="68" width="484" height="34" fill="#eceff3"/>
+          <rect x="196" y="68" width="150" height="34" fill="#d3d9e0"/>
+          <rect x="352" y="68" width="70" height="34" fill="#2f9e5c"/>
+          <rect x="430" y="68" width="250" height="34" fill="#d3d9e0"/>
+        </g>
+        <rect x="196" y="68" width="484" height="34" rx="9" fill="none" stroke="#c8cfd8" stroke-width="1"/>
+      </g>
+      <text x="196" y="122" font-size="12" fill="#7a869a">ขยะ (สีเทา) ปนของสำคัญ (สีเขียว) จนเริ่มมึน</text>
+
+      <line x1="40" y1="156" x2="680" y2="156" stroke="#e3e8ef" stroke-width="1.5"/>
+
+      <!-- ===== Section B: sub-agent ===== -->
+      <text x="40" y="188" font-size="15" font-weight="700" fill="#1f7a45">✓ แบบใช้ sub-agent — กั้นห้องให้ความเลอะไปตายที่อื่น</text>
+
+      <!-- main agent (clean, happy) -->
+      <rect x="40" y="212" width="132" height="66" rx="12" fill="#e0796f"/>
+      <circle cx="76" cy="238" r="3.5" fill="#3a1f1c"/>
+      <circle cx="136" cy="238" r="3.5" fill="#3a1f1c"/>
+      <path d="M92 250 q14 12 28 0" fill="none" stroke="#3a1f1c" stroke-width="3" stroke-linecap="round"/>
+      <text x="106" y="298" font-size="12" font-weight="700" fill="#294266" text-anchor="middle">Main agent</text>
+      <!-- main clean bar -->
+      <g>
+        <clipPath id="cp-barMain"><rect x="40" y="306" width="200" height="22" rx="7"/></clipPath>
+        <g clip-path="url(#cp-barMain)">
+          <rect x="40" y="306" width="200" height="22" fill="#eef3fb"/>
+          <rect x="40" y="306" width="46" height="22" fill="#2f9e5c"/>
+        </g>
+        <rect x="40" y="306" width="200" height="22" rx="7" fill="none" stroke="#bcd3f8" stroke-width="1"/>
+      </g>
+
+      <!-- clean answer arrow -->
+      <text x="352" y="230" font-size="12" font-weight="700" fill="#1f7a45" text-anchor="middle">ส่งกลับแค่คำตอบสะอาด</text>
+      <text x="352" y="246" font-size="11" fill="#5a6a85" text-anchor="middle">"คำตอบคือ X" (1 ย่อหน้า)</text>
+      <line x1="430" y1="262" x2="182" y2="262" stroke="#e6b422" stroke-width="4" marker-end="url(#cp-big)"/>
+
+      <!-- sub-agent room (dashed) -->
+      <rect x="446" y="206" width="242" height="118" rx="12" fill="#fff9ec" stroke="#e6b422" stroke-width="1.5" stroke-dasharray="6 5"/>
+      <text x="567" y="226" font-size="11" font-weight="700" fill="#8a6a12" text-anchor="middle">context แยก (ทิ้งได้)</text>
+      <!-- sub agent node -->
+      <rect x="462" y="236" width="104" height="48" rx="10" fill="#f2c14e"/>
+      <circle cx="486" cy="256" r="3" fill="#4a3a12"/>
+      <circle cx="520" cy="256" r="3" fill="#4a3a12"/>
+      <path d="M494 266 q9 8 18 0" fill="none" stroke="#4a3a12" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="514" y="300" font-size="11" font-weight="700" fill="#8a6a12" text-anchor="middle">Sub-agent</text>
+      <!-- sub junk bar -->
+      <g>
+        <clipPath id="cp-barSub"><rect x="580" y="240" width="96" height="40" rx="7"/></clipPath>
+        <g clip-path="url(#cp-barSub)">
+          <rect x="580" y="240" width="96" height="40" fill="#eceff3"/>
+          <rect x="580" y="240" width="96" height="13" fill="#d3d9e0"/>
+          <rect x="580" y="267" width="96" height="13" fill="#d3d9e0"/>
+        </g>
+        <rect x="580" y="240" width="96" height="40" rx="7" fill="none" stroke="#c8cfd8" stroke-width="1"/>
+      </g>
+    </svg>
+    <figcaption>ความเลอะทั้งหมดไปเกิดและตายใน context ของ sub-agent — main agent รับกลับมาแค่คำตอบสะอาด โต๊ะเลยไม่มีวันรก</figcaption>
+  </figure>
+
+  <p>
+    งานวิจัยของ Anthropic เรื่อง multi-agent research system ก็ยืนยันว่าสถาปัตยกรรมที่ context ถูกแยกขาดในแต่ละ sub-agent
+    ทำได้ดีกว่าระบบ single-agent อย่างมีนัยสำคัญ เพราะ context window ของแต่ละตัวถูกจัดสรรให้งานย่อยที่แคบและชัด
+    ส่วน Agent หลักโฟกัสที่การสังเคราะห์ผลลัพธ์อย่างเดียว
+  </p>
+
+  <h2 class="step">ใช้ Sub-agent ใน Claude Code ยังไง</h2>
+  <p>
+    ข่าวดีคือ Claude Code มี sub-agent แบบ built-in ติดมาให้อยู่แล้ว และ Claude จะ<strong>เรียกใช้เองอัตโนมัติ</strong>เมื่อเจองานที่เข้าข่าย
+    ตัวหลัก ๆ ที่ควรรู้จักคือ
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>Explore</strong> — เอเจนต์ค้นและอ่านโค้ด (read-only แก้ไฟล์ไม่ได้) เหมาะกับการไล่หาว่าโค้ดอยู่ตรงไหน โครงสร้างเป็นยังไง โดยไม่ทิ้งผลการค้นไว้ใน context หลัก</li>
+      <li><strong>Plan</strong> — เอเจนต์หาข้อมูลตอนอยู่ใน Plan Mode เพื่อรวบรวมบริบทก่อนเสนอแผน ให้การสำรวจไปเกิดในห้องแยก แชทหลักเลยยังอ่านอย่างเดียว</li>
+      <li><strong>general-purpose</strong> — เอเจนต์อเนกประสงค์สำหรับงานหลายขั้นที่ต้องทั้งสำรวจและลงมือแก้</li>
+    </ul>
+  </div>
+  <p>
+    ถ้าอยากสั่งเองก็ทำได้ วิธีที่ง่ายที่สุดคือ<strong>พิมพ์เป็นภาษาธรรมชาติ</strong> บอกให้ใช้ sub-agent แล้วระบุว่าอยากได้อะไรกลับมา
+    เคล็ดลับสำคัญคือ<strong>สั่งให้มันรายงานกลับมาแค่ "สรุป"</strong> ไม่ใช่ผลดิบทั้งกอง
+  </p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code" code={`ใช้ subagent ไปรัน test ทั้งชุด แล้วรายงานกลับมาแค่ test ที่ fail พร้อม error message`} />
+  <p>
+    งานที่เหมาะจะโยนให้ sub-agent คือพวกที่ "ผลลัพธ์เยอะแต่เราไม่ต้องเก็บไว้ดูซ้ำ" — รัน test, ดึง log กองโต, ไล่อ่านโค้ดทั้งโมดูล
+    ให้เนื้อดิบไปกองใน context ของ sub-agent แล้วรับกลับมาแค่ข้อสรุป
+  </p>
+  <p>
+    ถ้าอยากได้ตัวช่วยเฉพาะทางที่ใช้ซ้ำได้บ่อย ๆ ก็<strong>สร้าง sub-agent ของตัวเอง</strong>ได้ เป็นแค่ไฟล์ Markdown ในโฟลเดอร์
+    <code>.claude/agents/</code> ที่มี frontmatter บอกค่าพื้นฐาน แล้วต่อด้วย "คำสั่งประจำตัว" (system prompt) ของมัน —
+    หรือจะบอก Claude ให้เขียนไฟล์นี้ให้ก็ได้
+  </p>
+  <CodeBlock lang="yaml" title=".claude/agents/code-reviewer.md" code={`---
+name: code-reviewer
+description: รีวิวโค้ดหาปัญหาคุณภาพและความปลอดภัย ใช้หลังเพิ่งแก้โค้ดเสร็จ
+tools: Read, Grep, Glob
+model: sonnet
+---
+
+คุณคือผู้เชี่ยวชาญรีวิวโค้ด แต่ละปัญหาที่เจอ ให้อธิบายว่าผิดตรงไหน
+แล้วเสนอโค้ดที่ปรับปรุงแล้ว`} />
+  <div class="callout callout-note">
+    <p class="callout-label">โน้ต</p>
+    <p>
+      ช่อง <code>tools</code> คือการจำกัดว่า sub-agent ตัวนี้ใช้เครื่องมืออะไรได้บ้าง (ในตัวอย่างนี้อ่านได้อย่างเดียว แก้ไฟล์ไม่ได้)
+      ส่วน <code>model</code> เลือกได้ว่าจะให้รันด้วยโมเดลไหน — งานเบา ๆ ตั้งเป็นตัวเล็กที่ถูกและเร็วกว่าได้ ช่วยคุมต้นทุนไปในตัว
+    </p>
+  </div>
+
+  <h2>ข้อควรระวัง: กั้นห้อง ≠ ไม่ให้ข้อมูลอะไรเลย</h2>
+  <p>
+    Context isolation ไม่ได้แปลว่า "ส่ง sub-agent ไปแบบไม่บอกอะไรเลย" มีงานวิจัยที่พบว่า<strong>ทั้งสองสุดขั้วแย่พอ ๆ กัน</strong>
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>โยน context ให้ทั้งก้อน</strong> (รับไปทุกอย่าง) — ทำให้ context ของ sub-agent เสื่อมเร็วขึ้น กลับไปเป็น pollution เหมือนเดิม</li>
+      <li><strong>ไม่ให้อะไรเลย</strong> — sub-agent ขาดเบาะแสสำคัญที่จำเป็นต่องาน ก็ทำงานพลาด</li>
+    </ul>
+  </div>
+  <p>
+    จุดที่ดีที่สุดคือ<strong>ตัวจัดการหลัก (orchestrator) คัดเฉพาะ context ที่เกี่ยวข้องส่งให้แบบพอดี ๆ</strong> —
+    เหมือนบรีฟงานน้องให้ครบพอทำได้ แต่ไม่ต้องเทเอกสารทั้งตู้ใส่โต๊ะมัน
+    (<strong>orchestrator</strong> อ่านว่า <strong>"ออร์เคสเทรเตอร์"</strong> มาจากคำว่า <i>orchestra</i> — วงออร์เคสตรา คือคน "คุมวง" ที่จัดให้เครื่องดนตรีแต่ละชิ้นเล่นประสานกัน เทียบกับตัวที่คุมให้ sub-agent แต่ละตัวทำงานเข้าจังหวะกัน)
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ถ้ารัน sub-agent หลายตัวแล้วแต่ละตัวส่งผลลัพธ์ยาว ๆ กลับมา ตัว context หลักก็บวมได้อยู่ดี —
+      เพราะทุกคำตอบที่ sub-agent ส่งคืนจะไหลกลับเข้า context หลัก เคล็ดลับเดิมจึงสำคัญ: บอกให้มัน<strong>ส่งกลับมาแค่สรุปสั้น ๆ</strong>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ถ้ารู้ตัวว่า Context Pollution เกิดไปแล้ว — วิธีล้างพิษ</h2>
+  <p>
+    บางทีกว่าจะรู้ตัว context ก็เลอะไปแล้ว ไม่เป็นไรครับ มีเครื่องมือล้างพิษเรียงจากเบาไปหนัก
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong><code>/clear</code> — ล้างกระดานทั้งหมด เริ่มใหม่</strong> เหมาะที่สุดตอน<strong>เปลี่ยนงาน</strong> เพิ่ง debug auth เสร็จ กำลังจะไปทำ payment ต่อ? <code>/clear</code> เลย แล้วค่อยให้มันอ่านไฟล์ใหม่ ปลดล็อกโทเคนที่ค้างทั้งหมด</li>
+      <li><strong><code>/compact</code> แบบมีโฟกัส — สรุปแล้วไปต่อ</strong> ถ้ายังไม่อยากทิ้งทั้งหมด สั่งให้สรุปแบบเจาะจงได้ แม่นกว่าปล่อยให้ auto-compact ทำเอง เพราะคุณคุมได้ว่าจะเก็บอะไร</li>
+      <li><strong>เขียน <code>NOTES.md</code> ก่อนล้าง</strong> ให้ Agent จดการตัดสินใจสำคัญลงไฟล์ภายนอกก่อน แล้วค่อยล้าง — ของสำคัญอยู่ในไฟล์ ของขยะหายไปกับ context พอเริ่มใหม่ก็ให้อ่าน <code>NOTES.md</code> กลับมา</li>
+      <li><strong>ใช้ฟีเจอร์ "clear context หลัง accept plan"</strong> (เพิ่มมาต้นปี 2026) พออนุมัติแผนแล้ว Claude Code จะเสนอให้ล้าง context เพื่อเริ่มลงมือด้วยแผนที่สะอาด ไม่มีเศษการสำรวจเก่ามาดึงให้หลุดทาง</li>
+      <li><strong>ระดับ API: Context Editing</strong> ถ้าคุณ build agent เองผ่าน Claude Developer Platform มีกลยุทธ์ที่เคลียร์เนื้อผลลัพธ์ tool เก่า ๆ ทิ้ง แต่เก็บบันทึกไว้ว่าเคยเรียก — โมเดลยังรู้ว่ามันเคยใช้ tool นั้น แต่ก้อนเนื้อหาใหญ่ ๆ หายไป เป็นการล้างพิษที่เบาที่สุด</li>
+    </ul>
+  </div>
+  <p>ตัวอย่างการสั่ง <code>/compact</code> แบบเจาะจงว่าจะเก็บอะไร ทิ้งอะไร:</p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code" code={`/compact เก็บการตัดสินใจเรื่อง API design กับ DB schema ไว้ ส่วนที่ debug ทิ้งให้สรุปสั้น ๆ`} />
+  <div class="callout callout-note">
+    <p class="callout-label">โน้ต</p>
+    <p>
+      <code>/clear</code> ล้าง "ประวัติบทสนทนา" แต่ของระดับระบบ (CLAUDE.md, memory, plan ที่ทำอยู่) จะถูกใส่กลับทุกเทิร์น
+      ถ้าอยากสะอาดจริง ๆ หลังจบงานก้อนใหญ่ ให้<strong>เปิด session ใหม่ไปเลย</strong>จะชัวร์กว่าการ clear กลางทาง
+    </p>
+  </div>
+  <div class="callout callout-warn">
+    <p class="callout-label">อย่ารอ auto-compact</p>
+    <p>
+      Claude Code จะ auto-compact เองตอน context เกือบเต็ม (~95%) แต่มันเป็นการสรุปแบบสูญเสียรายละเอียด คุณอาจเสียข้อมูลที่ไม่รู้ว่าจำเป็นไป
+      เห็นข้อความ <code>[Context compacted]</code> เมื่อไหร่ แปลว่าคุณอยู่ในเซสชันที่ยาวเกินไปแล้ว ควรเป็นฝ่ายกด <code>/clear</code> เองก่อนถึงกำแพง
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">หลักการแม่</p>
+    <p>
+      ป้องกันดีกว่าล้างพิษเสมอ — แทนที่จะลุยทั้ง feature ใน session เดียว (schema แล้วต่อ API แล้วต่อ frontend)
+      ให้<strong>แตกเป็น session ละงาน</strong> แต่ละอันเริ่มด้วย context ที่ใกล้สะอาด (สกิล <a href="../handoff/"><code>/handoff</code></a> ช่วยส่งไม้ต่อระหว่าง session ได้โดยไม่เสียบริบท)
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    <strong>Context Rot</strong> คืออาการที่ context ยาวทำให้โมเดลแย่ลง — แต่ <strong>Context Pollution</strong> คือตอนที่ Agent เป็นคนเติมขยะใส่ context ตัวเองจนป่วย
+    และยาที่ดีที่สุดไม่ใช่ context window ที่ใหญ่ขึ้น แต่คือการ <strong>"กั้นห้อง" ให้ความเลอะเทอะไปตายใน sub-agent แล้วส่งกลับมาแค่คำตอบที่สะอาด</strong>
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง</p>
+  <ol class="references">
+    <li>
+      <a href="https://arxiv.org/abs/2601.14914" target="_blank" rel="noopener noreferrer">"CodeDelegator: Mitigating Context Pollution via Role Separation in Code-as-Action Agents"</a>
+      — Fei et al., arXiv:2601.14914, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents" target="_blank" rel="noopener noreferrer">"Effective context engineering for AI agents"</a>
+      — Anthropic Engineering, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://www.anthropic.com/engineering/multi-agent-research-system" target="_blank" rel="noopener noreferrer">"How we built our multi-agent research system"</a>
+      — Anthropic Engineering, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">"Create custom subagents"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://platform.claude.com/docs/en/build-with-claude/context-editing" target="_blank" rel="noopener noreferrer">"Context editing"</a>
+      — Claude Platform Docs, Anthropic, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://research.trychroma.com/context-rot" target="_blank" rel="noopener noreferrer">"Context Rot: How Increasing Input Tokens Impacts LLM Performance"</a>
+      — Chroma Research, สืบค้นเมื่อ 6 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
