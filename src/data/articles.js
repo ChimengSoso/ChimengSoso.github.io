@@ -27,6 +27,13 @@ export const articles = [
     desc: 'AI ไม่ได้พังเพราะเขียนโค้ดไม่เป็น แต่เพราะเราบอกงานไม่ครบ — 2 สกิลนี้กลับด้าน ให้ AI ซักถามเราจนสเปกชัดก่อนลงมือ',
     soon: false,
   },
+  {
+    href: 'context-pollution/',
+    tag: 'Claude Code',
+    title: 'Context Pollution: เมื่อ Agent วางยาพิษใส่ตัวเอง',
+    desc: 'นั่ง debug กับ AI นาน ๆ แล้วมันเริ่มเพี้ยน ลืมสิ่งที่ตกลงกันไว้ เพราะ Agent เอาขยะถมใส่ context ตัวเอง — มาดูว่าทำไม แล้วใช้ sub-agent กั้นห้องความเลอะยังไง',
+    soon: false,
+  },
 ];
 
 // Only published (soon: false) articles count for prev/next — placeholders
