@@ -20,6 +20,13 @@ export const articles = [
     desc: 'พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน',
     soon: false,
   },
+  {
+    href: 'grill-and-loop/',
+    tag: 'Claude Code',
+    title: 'ให้ AI ซักจนงานชัด ด้วย /grill-me กับ /loop-me',
+    desc: 'AI ไม่ได้พังเพราะเขียนโค้ดไม่เป็น แต่เพราะเราบอกงานไม่ครบ — 2 สกิลนี้กลับด้าน ให้ AI ซักถามเราจนสเปกชัดก่อนลงมือ',
+    soon: false,
+  },
 ];
 
 // Only published (soon: false) articles count for prev/next — placeholders
