@@ -14,6 +14,13 @@ export const articles = [
     soon: false,
   },
   {
+    href: 'handoff/',
+    tag: 'Claude Code',
+    title: 'ส่งงานต่อข้ามแชทแบบไม่เสีย Context',
+    desc: 'พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน',
+    soon: false,
+  },
+  {
     href: '#',
     tag: 'เร็วๆ นี้',
     title: 'ความลับการเขียน Prompt ให้ได้ผลลัพธ์ดีขึ้น',
