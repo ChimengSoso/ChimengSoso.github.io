@@ -1,21 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import sharp from 'sharp';
+import { Resvg } from '@resvg/resvg-js';
 
-// Fonts are embedded as base64 straight into the SVG so rendering is fully
-// self-contained — it does NOT depend on any font being installed on the build
-// machine (important: the production build runs on GitHub Actions/Linux).
-// Read from the source tree via cwd (= project root during `astro build`/`dev`)
-// rather than import.meta.url, because this module gets bundled into the compiled
-// endpoint under dist/ where the .ttf files don't sit next to it.
-//
-// Only the bold weight of Sarabun is embedded: librsvg reliably uses an embedded
-// @font-face for its Latin glyphs at weight 700, but falls back to a system serif
-// for the same font at weight 400 (a fontconfig per-script quirk). So the whole
-// card uses bold, and the lighter footer look comes from a smaller size + muted colour.
+// Fonts are handed to resvg as explicit buffers with system fonts disabled, so
+// rendering is byte-for-byte identical on every machine. This is deliberate: an
+// earlier version embedded the fonts as base64 @font-face and rasterised with
+// sharp/librsvg — it rendered fine locally (Windows) but the GitHub Actions/Linux
+// librsvg ignored the embedded font and Thai came out as .notdef boxes. resvg with
+// loadSystemFonts:false has no such environment dependence.
+// Read from the source tree via cwd (= project root during `astro build`/`dev`);
+// this module gets bundled into the compiled endpoint under dist/, so import.meta.url
+// would point somewhere the .ttf files don't sit next to.
 const fontDir = path.join(process.cwd(), 'src', 'og');
-const fontSarabun = fs.readFileSync(path.join(fontDir, 'Sarabun-Bold.ttf')).toString('base64');
-const fontMono = fs.readFileSync(path.join(fontDir, 'JetBrainsMono-Bold.ttf')).toString('base64');
+const sarabunBuffer = fs.readFileSync(path.join(fontDir, 'Sarabun-Bold.ttf'));
+const monoBuffer = fs.readFileSync(path.join(fontDir, 'JetBrainsMono-Bold.ttf'));
+const SARABUN = 'Sarabun';
+const MONO = 'JetBrains Mono';
 
 // Thai above/below marks (tone marks, upper/lower vowels) carry no horizontal
 // advance, so they must count as zero width when estimating a line's length.
@@ -122,17 +122,17 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         const boxW = monoWidth(text, size) + 2 * pad;
         titleEls +=
           `<rect x="${x.toFixed(1)}" y="${(baseline - size * 0.78).toFixed(1)}" width="${boxW.toFixed(1)}" height="${(size * 1.02).toFixed(1)}" rx="${(size * 0.16).toFixed(1)}" fill="#ffffff" fill-opacity="0.13"/>` +
-          `<text class="m" x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
+          `<text x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${MONO}" font-weight="700" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
         x += boxW;
         i += 1;
       } else {
-        // Coalesce consecutive normal words into one <text> so librsvg lays out
-        // their spacing exactly — manual positioning is only used at chip seams,
-        // where the small width estimate error is hidden by the chip padding.
+        // Coalesce consecutive normal words into one <text> so resvg lays out their
+        // spacing exactly — manual positioning is only used at chip seams, where the
+        // small width estimate error is hidden by the chip padding.
         const words: string[] = [];
         while (i < runs.length && !runs[i].code) words.push(runs[i++].text);
         const seg = words.join(' ');
-        titleEls += `<text class="b" x="${x.toFixed(1)}" y="${baseline.toFixed(1)}" font-size="${size}" fill="#ffffff">${escapeXml(seg)}</text>`;
+        titleEls += `<text x="${x.toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${SARABUN}" font-weight="700" font-size="${size}" fill="#ffffff">${escapeXml(seg)}</text>`;
         x += sarabunWidth(seg, size);
       }
     }
@@ -143,17 +143,11 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
     const w = sarabunWidth(tag, 28) + 64;
     tagEl =
       `<rect x="80" y="74" width="${w.toFixed(0)}" height="58" rx="29" fill="#4d72a9"/>` +
-      `<text class="b" x="${(80 + w / 2).toFixed(0)}" y="113" font-size="28" fill="#ffffff" text-anchor="middle">${escapeXml(tag)}</text>`;
+      `<text x="${(80 + w / 2).toFixed(0)}" y="113" font-family="${SARABUN}" font-weight="700" font-size="28" fill="#ffffff" text-anchor="middle">${escapeXml(tag)}</text>`;
   }
 
   const svg = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <style>
-      @font-face { font-family:'Sarabun'; font-weight:700; src:url(data:font/ttf;base64,${fontSarabun}); }
-      @font-face { font-family:'JBMono'; font-weight:700; src:url(data:font/ttf;base64,${fontMono}); }
-      .b { font-family:'Sarabun', sans-serif; font-weight:700; }
-      .m { font-family:'JBMono', monospace; font-weight:700; }
-    </style>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1b2c4a"/>
       <stop offset="1" stop-color="#0d1524"/>
@@ -168,8 +162,15 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
   <rect x="0" y="0" width="12" height="630" fill="#4d72a9"/>
   ${tagEl}
   ${titleEls}
-  <text class="b" x="80" y="560" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
+  <text x="80" y="560" font-family="${SARABUN}" font-weight="700" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
 </svg>`;
 
-  return sharp(Buffer.from(svg)).png().toBuffer();
+  const resvg = new Resvg(svg, {
+    font: {
+      loadSystemFonts: false,
+      fontBuffers: [sarabunBuffer, monoBuffer],
+      defaultFontFamily: SARABUN,
+    },
+  });
+  return resvg.render().asPng();
 }
