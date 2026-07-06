@@ -1,21 +1,41 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import sharp from 'sharp';
 
-// Fonts are embedded as base64 straight into the SVG so rendering is fully
-// self-contained — it does NOT depend on any font being installed on the build
-// machine (important: the production build runs on GitHub Actions/Linux).
-// Read from the source tree via cwd (= project root during `astro build`/`dev`)
-// rather than import.meta.url, because this module gets bundled into the compiled
-// endpoint under dist/ where the .ttf files don't sit next to it.
+// --- Font setup -------------------------------------------------------------
+// We render with sharp/librsvg because its pango+harfbuzz text stack shapes Thai
+// correctly (tone marks stack above the upper vowels). resvg was tried but its
+// shaper drops Thai mark-to-mark positioning, so ไม้เอก over สระอี disappears.
 //
-// Only the bold weight of Sarabun is embedded: librsvg reliably uses an embedded
-// @font-face for its Latin glyphs at weight 700, but falls back to a system serif
-// for the same font at weight 400 (a fontconfig per-script quirk). So the whole
-// card uses bold, and the lighter footer look comes from a smaller size + muted colour.
-const fontDir = path.join(process.cwd(), 'src', 'og');
-const fontSarabun = fs.readFileSync(path.join(fontDir, 'Sarabun-Bold.ttf')).toString('base64');
-const fontMono = fs.readFileSync(path.join(fontDir, 'JetBrainsMono-Bold.ttf')).toString('base64');
+// The catch with librsvg is font discovery: an embedded base64 @font-face works
+// on Windows but is ignored by the Linux CI's librsvg (Thai then renders as
+// .notdef boxes). So instead we point fontconfig at our own font directory via a
+// generated config, and FORCE every non-mono run to Sarabun so no system font can
+// leak in for Latin — that keeps the output identical on every machine.
+//
+// FONTCONFIG_FILE must be set before libvips (sharp) initialises fontconfig, so it
+// happens here at module load and sharp is imported lazily inside renderCard.
+const fontDir = path.join(process.cwd(), 'src', 'og').replace(/\\/g, '/');
+const cacheDir = path.join(os.tmpdir(), 'chimeng-og-fc-cache').replace(/\\/g, '/');
+fs.mkdirSync(cacheDir, { recursive: true });
+const confPath = path.join(os.tmpdir(), 'chimeng-og-fonts.conf');
+fs.writeFileSync(
+  confPath,
+  `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>${fontDir}</dir>
+  <cachedir>${cacheDir}</cachedir>
+  <match target="pattern">
+    <test name="family" compare="not_eq"><string>JetBrains Mono</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>Sarabun</string></edit>
+  </match>
+</fontconfig>`,
+);
+process.env.FONTCONFIG_FILE = confPath;
+
+const SARABUN = 'Sarabun';
+const MONO = 'JetBrains Mono';
 
 // Thai above/below marks (tone marks, upper/lower vowels) carry no horizontal
 // advance, so they must count as zero width when estimating a line's length.
@@ -122,7 +142,7 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         const boxW = monoWidth(text, size) + 2 * pad;
         titleEls +=
           `<rect x="${x.toFixed(1)}" y="${(baseline - size * 0.78).toFixed(1)}" width="${boxW.toFixed(1)}" height="${(size * 1.02).toFixed(1)}" rx="${(size * 0.16).toFixed(1)}" fill="#ffffff" fill-opacity="0.13"/>` +
-          `<text class="m" x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
+          `<text x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${MONO}" font-weight="700" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
         x += boxW;
         i += 1;
       } else {
@@ -132,7 +152,7 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         const words: string[] = [];
         while (i < runs.length && !runs[i].code) words.push(runs[i++].text);
         const seg = words.join(' ');
-        titleEls += `<text class="b" x="${x.toFixed(1)}" y="${baseline.toFixed(1)}" font-size="${size}" fill="#ffffff">${escapeXml(seg)}</text>`;
+        titleEls += `<text x="${x.toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${SARABUN}" font-weight="700" font-size="${size}" fill="#ffffff">${escapeXml(seg)}</text>`;
         x += sarabunWidth(seg, size);
       }
     }
@@ -143,17 +163,11 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
     const w = sarabunWidth(tag, 28) + 64;
     tagEl =
       `<rect x="80" y="74" width="${w.toFixed(0)}" height="58" rx="29" fill="#4d72a9"/>` +
-      `<text class="b" x="${(80 + w / 2).toFixed(0)}" y="113" font-size="28" fill="#ffffff" text-anchor="middle">${escapeXml(tag)}</text>`;
+      `<text x="${(80 + w / 2).toFixed(0)}" y="113" font-family="${SARABUN}" font-weight="700" font-size="28" fill="#ffffff" text-anchor="middle">${escapeXml(tag)}</text>`;
   }
 
   const svg = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <style>
-      @font-face { font-family:'Sarabun'; font-weight:700; src:url(data:font/ttf;base64,${fontSarabun}); }
-      @font-face { font-family:'JBMono'; font-weight:700; src:url(data:font/ttf;base64,${fontMono}); }
-      .b { font-family:'Sarabun', sans-serif; font-weight:700; }
-      .m { font-family:'JBMono', monospace; font-weight:700; }
-    </style>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#1b2c4a"/>
       <stop offset="1" stop-color="#0d1524"/>
@@ -168,8 +182,9 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
   <rect x="0" y="0" width="12" height="630" fill="#4d72a9"/>
   ${tagEl}
   ${titleEls}
-  <text class="b" x="80" y="560" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
+  <text x="80" y="560" font-family="${SARABUN}" font-weight="700" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
 </svg>`;
 
+  const { default: sharp } = await import('sharp');
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
