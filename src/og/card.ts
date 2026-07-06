@@ -1,19 +1,39 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { Resvg } from '@resvg/resvg-js';
 
-// Fonts are handed to resvg as explicit buffers with system fonts disabled, so
-// rendering is byte-for-byte identical on every machine. This is deliberate: an
-// earlier version embedded the fonts as base64 @font-face and rasterised with
-// sharp/librsvg — it rendered fine locally (Windows) but the GitHub Actions/Linux
-// librsvg ignored the embedded font and Thai came out as .notdef boxes. resvg with
-// loadSystemFonts:false has no such environment dependence.
-// Read from the source tree via cwd (= project root during `astro build`/`dev`);
-// this module gets bundled into the compiled endpoint under dist/, so import.meta.url
-// would point somewhere the .ttf files don't sit next to.
-const fontDir = path.join(process.cwd(), 'src', 'og');
-const sarabunBuffer = fs.readFileSync(path.join(fontDir, 'Sarabun-Bold.ttf'));
-const monoBuffer = fs.readFileSync(path.join(fontDir, 'JetBrainsMono-Bold.ttf'));
+// --- Font setup -------------------------------------------------------------
+// We render with sharp/librsvg because its pango+harfbuzz text stack shapes Thai
+// correctly (tone marks stack above the upper vowels). resvg was tried but its
+// shaper drops Thai mark-to-mark positioning, so ไม้เอก over สระอี disappears.
+//
+// The catch with librsvg is font discovery: an embedded base64 @font-face works
+// on Windows but is ignored by the Linux CI's librsvg (Thai then renders as
+// .notdef boxes). So instead we point fontconfig at our own font directory via a
+// generated config, and FORCE every non-mono run to Sarabun so no system font can
+// leak in for Latin — that keeps the output identical on every machine.
+//
+// FONTCONFIG_FILE must be set before libvips (sharp) initialises fontconfig, so it
+// happens here at module load and sharp is imported lazily inside renderCard.
+const fontDir = path.join(process.cwd(), 'src', 'og').replace(/\\/g, '/');
+const cacheDir = path.join(os.tmpdir(), 'chimeng-og-fc-cache').replace(/\\/g, '/');
+fs.mkdirSync(cacheDir, { recursive: true });
+const confPath = path.join(os.tmpdir(), 'chimeng-og-fonts.conf');
+fs.writeFileSync(
+  confPath,
+  `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>${fontDir}</dir>
+  <cachedir>${cacheDir}</cachedir>
+  <match target="pattern">
+    <test name="family" compare="not_eq"><string>JetBrains Mono</string></test>
+    <edit name="family" mode="assign" binding="strong"><string>Sarabun</string></edit>
+  </match>
+</fontconfig>`,
+);
+process.env.FONTCONFIG_FILE = confPath;
+
 const SARABUN = 'Sarabun';
 const MONO = 'JetBrains Mono';
 
@@ -126,9 +146,9 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         x += boxW;
         i += 1;
       } else {
-        // Coalesce consecutive normal words into one <text> so resvg lays out their
-        // spacing exactly — manual positioning is only used at chip seams, where the
-        // small width estimate error is hidden by the chip padding.
+        // Coalesce consecutive normal words into one <text> so librsvg lays out
+        // their spacing exactly — manual positioning is only used at chip seams,
+        // where the small width estimate error is hidden by the chip padding.
         const words: string[] = [];
         while (i < runs.length && !runs[i].code) words.push(runs[i++].text);
         const seg = words.join(' ');
@@ -165,12 +185,6 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
   <text x="80" y="560" font-family="${SARABUN}" font-weight="700" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
 </svg>`;
 
-  const resvg = new Resvg(svg, {
-    font: {
-      loadSystemFonts: false,
-      fontBuffers: [sarabunBuffer, monoBuffer],
-      defaultFontFamily: SARABUN,
-    },
-  });
-  return resvg.render().asPng();
+  const { default: sharp } = await import('sharp');
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }
