@@ -141,7 +141,7 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         const text = runs[i].text;
         const boxW = monoWidth(text, size) + 2 * pad;
         titleEls +=
-          `<rect x="${x.toFixed(1)}" y="${(baseline - size * 0.78).toFixed(1)}" width="${boxW.toFixed(1)}" height="${(size * 1.02).toFixed(1)}" rx="${(size * 0.16).toFixed(1)}" fill="#ffffff" fill-opacity="0.13"/>` +
+          `<rect x="${x.toFixed(1)}" y="${(baseline - size * 0.86).toFixed(1)}" width="${boxW.toFixed(1)}" height="${(size * 1.08).toFixed(1)}" rx="${(size * 0.16).toFixed(1)}" fill="#ffffff" fill-opacity="0.13"/>` +
           `<text x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${MONO}" font-weight="700" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
         x += boxW;
         i += 1;
