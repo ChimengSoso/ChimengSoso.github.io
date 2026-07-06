@@ -14,6 +14,7 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
     aria-label="แชร์บทความนี้ไปยัง Facebook"
   >
     <svg class="icon-fb" viewBox="0 0 320 512" aria-hidden="true" fill="currentColor"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"/></svg>
+    <svg class="icon-check" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
   </a>
   <button
     class="share-copy"
@@ -73,6 +74,10 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   .share-copy.copied{background:#2f9e5c;}
   .share-copy.copied .icon-link{display:none;}
   .share-copy.copied .icon-check{display:block;}
+  .share-fb .icon-check{display:none;}
+  .share-fb.shared{background:#2f9e5c;}
+  .share-fb.shared .icon-fb{display:none;}
+  .share-fb.shared .icon-check{display:block;}
 </style>
 
 <script>
@@ -149,12 +154,18 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
         const shareUrl = btn.dataset.shareUrl ?? btn.href;
         const fb = (window as WindowWithFb).FB;
         if (fb) {
-          console.log('[share] using FB.ui', { shareUrl });
+          // FB's own share dialog is cross-origin and closes itself (or lingers
+          // on a confirmation screen) beyond our control — so give the user
+          // clear feedback on *our* page instead. A truthy response with no
+          // error_code means the post went through; undefined / error_code
+          // (e.g. 4201 user-cancelled) means they backed out, so stay silent.
           fb.ui({ method: 'share', href: shareUrl }, (response) => {
-            console.log('[share] FB.ui callback response:', response);
+            const res = response as { error_code?: number } | undefined;
+            if (!res || res.error_code) return;
+            btn.classList.add('shared');
+            window.setTimeout(() => btn.classList.remove('shared'), 1600);
           });
         } else {
-          console.warn('[share] window.FB not ready at click — falling back to sharer.php');
           warm();
           sharerFallback(btn.href);
         }
