@@ -124,7 +124,22 @@ const jsonLd = {
     </div>
   </div>
   <script>
-    function initTilt(card) {
+    interface ScrambleChar {
+      from: string;
+      to: string;
+      start: number;
+      end: number;
+      char: string | null;
+    }
+    interface Scrambler {
+      startCycle: (random?: boolean) => void;
+      stopCycle: () => void;
+      freeze: () => void;
+      unfreeze: () => void;
+      reset: () => void;
+    }
+
+    function initTilt(card: HTMLElement) {
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       // Set once on enter rather than every mousemove -- .profile already carries this
       // as its resting transition in profile.css, so this only needs to reassert the
@@ -132,7 +147,7 @@ const jsonLd = {
       card.addEventListener('mouseenter', function () {
         card.style.transition = 'transform 0.12s ease, box-shadow 0.2s ease';
       });
-      card.addEventListener('mousemove', function (e) {
+      card.addEventListener('mousemove', function (e: MouseEvent) {
         const r = card.getBoundingClientRect();
         const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
         const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
@@ -146,15 +161,16 @@ const jsonLd = {
       });
     }
 
-    function initReveal(card) {
+    function initReveal(card: HTMLElement) {
       const link = card.querySelector('.featured-link');
       if (!link) return;
-      card.addEventListener('click', function (e) {
+      card.addEventListener('click', function (e: MouseEvent) {
         // Click reveals on every input type now (mouse hover only shows the teaser
         // hint via CSS -- see .reveal-hint in profile.css), so the first click
         // anywhere on the card (that isn't the link or a social icon) expands it.
-        const tappedLink = link.contains(e.target);
-        const tappedSocialIcon = e.target.closest && e.target.closest('.social-icons');
+        const target = e.target instanceof Element ? e.target : null;
+        const tappedLink = !!target && link.contains(target);
+        const tappedSocialIcon = !!target && !!target.closest('.social-icons');
         if (!card.classList.contains('revealed') && !tappedLink && !tappedSocialIcon) {
           e.preventDefault();
           card.classList.add('revealed');
@@ -162,23 +178,26 @@ const jsonLd = {
       });
     }
 
-    function initScrambleCycle(el, words, prefix) {
-      prefix = prefix || '';
+    function initScrambleCycle(el: HTMLElement, words: string[], prefix: string): Scrambler {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       const CHARS = '!<>-_\\/[]{}=+*^?#01';
 
-      function randomChar() {
+      function randomChar(): string {
         return CHARS[(Math.random() * CHARS.length) | 0];
       }
 
-      let queue = [];
+      let queue: ScrambleChar[] = [];
       let frame = 0;
-      let frameRequest = null;
-      let resolveFn = null;
+      let frameRequest: number | null = null;
+      let resolveFn: (() => void) | null = null;
 
-      function currentDisplayed() {
-        return el.textContent.slice(prefix.length);
+      function cancelFrame() {
+        if (frameRequest !== null) cancelAnimationFrame(frameRequest);
+      }
+
+      function currentDisplayed(): string {
+        return (el.textContent ?? '').slice(prefix.length);
       }
 
       function update() {
@@ -191,7 +210,7 @@ const jsonLd = {
             output += q.to;
           } else if (frame >= q.start) {
             if (!q.char || Math.random() < 0.28) q.char = randomChar();
-            output += q.char;
+            output += q.char ?? '';
           } else {
             output += q.from;
           }
@@ -205,7 +224,7 @@ const jsonLd = {
         }
       }
 
-      function scrambleTo(newText) {
+      function scrambleTo(newText: string): Promise<void> {
         const oldText = currentDisplayed();
         const length = Math.max(oldText.length, newText.length);
         queue = [];
@@ -219,9 +238,9 @@ const jsonLd = {
             char: null
           });
         }
-        cancelAnimationFrame(frameRequest);
+        cancelFrame();
         frame = 0;
-        return new Promise(function (resolve) {
+        return new Promise<void>(function (resolve) {
           resolveFn = resolve;
           update();
         });
@@ -231,9 +250,9 @@ const jsonLd = {
       let randomOrder = false;
       let frozen = false;
       let cycleIndex = 0;
-      let cycleTimer = null;
+      let cycleTimer: ReturnType<typeof setTimeout> | null = null;
 
-      function nextIndex() {
+      function nextIndex(): number {
         if (!randomOrder) return (cycleIndex + 1) % words.length;
         // random word, but never the one currently showing
         const next = (Math.random() * words.length) | 0;
@@ -247,7 +266,7 @@ const jsonLd = {
         });
       }
 
-      function startCycle(random) {
+      function startCycle(random?: boolean) {
         if (frozen || cycling || reduceMotion) return;
         cycling = true;
         randomOrder = !!random;
@@ -258,8 +277,8 @@ const jsonLd = {
       function stopCycle() {
         if (frozen || !cycling) return;
         cycling = false;
-        clearTimeout(cycleTimer);
-        cancelAnimationFrame(frameRequest);
+        if (cycleTimer !== null) clearTimeout(cycleTimer);
+        cancelFrame();
         scrambleTo(words[0]);
       }
 
@@ -271,8 +290,8 @@ const jsonLd = {
       function freeze() {
         frozen = true;
         cycling = false;
-        clearTimeout(cycleTimer);
-        cancelAnimationFrame(frameRequest);
+        if (cycleTimer !== null) clearTimeout(cycleTimer);
+        cancelFrame();
         el.textContent = prefix + words[cycleIndex];
       }
 
@@ -317,16 +336,18 @@ const jsonLd = {
       }
       // Word lists live in the frontmatter (rendered into data-scramble-words),
       // so markup, aria-labels, and this animation all share one definition.
-      const scramblers = [];
-      document.querySelectorAll('[data-scramble-words]').forEach(function (el) {
-        let words;
+      const scramblers: Scrambler[] = [];
+      document.querySelectorAll<HTMLElement>('[data-scramble-words]').forEach(function (el) {
+        const raw = el.getAttribute('data-scramble-words');
+        if (!raw) return;
+        let parsed: unknown;
         try {
-          words = JSON.parse(el.getAttribute('data-scramble-words'));
+          parsed = JSON.parse(raw);
         } catch {
           return;
         }
-        if (Array.isArray(words) && words.length) {
-          scramblers.push(initScrambleCycle(el, words, el.getAttribute('data-scramble-prefix') || ''));
+        if (Array.isArray(parsed) && parsed.length && parsed.every((w): w is string => typeof w === 'string')) {
+          scramblers.push(initScrambleCycle(el, parsed, el.getAttribute('data-scramble-prefix') || ''));
         }
       });
 
@@ -347,7 +368,7 @@ const jsonLd = {
           if (pinned) return;
           scramblers.forEach(function (s) { s.stopCycle(); });
         });
-        nameEl.addEventListener('click', function (e) {
+        nameEl.addEventListener('click', function (e: MouseEvent) {
           // Don't let the pin click double as the card's reveal-featured-link click.
           e.stopPropagation();
           pinned = !pinned;
@@ -368,9 +389,10 @@ const jsonLd = {
 
     // Registered once ever (document itself survives navigations, unlike .profile) --
     // looks up .profile fresh on every click rather than closing over a stale reference.
-    document.addEventListener('click', function (e) {
+    document.addEventListener('click', function (e: MouseEvent) {
       const card = document.querySelector('.profile');
-      if (card && !card.contains(e.target)) card.classList.remove('revealed');
+      const target = e.target instanceof Node ? e.target : null;
+      if (card && target && !card.contains(target)) card.classList.remove('revealed');
     });
   </script>
 </body>
