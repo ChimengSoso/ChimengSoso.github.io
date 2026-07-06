@@ -1,4 +1,15 @@
-export const articles = [
+export interface Article {
+  /** Directory-style path relative to /knowledge/ (e.g. 'claude-intro/', not '.html'). */
+  href: string;
+  /** Short category label shown as a pill on the card and OG image. */
+  tag: string;
+  title: string;
+  desc: string;
+  /** true = "เร็วๆ นี้" placeholder with no real page; excluded from prev/next. */
+  soon: boolean;
+}
+
+export const articles: Article[] = [
   {
     href: 'claude-intro/',
     tag: 'แนะนำเบื้องต้น',
@@ -36,9 +47,14 @@ export const articles = [
   },
 ];
 
+export interface AdjacentArticles {
+  prev: Article | null;
+  next: Article | null;
+}
+
 // Only published (soon: false) articles count for prev/next — placeholders
 // have no real page to link to.
-export function getAdjacentArticles(href) {
+export function getAdjacentArticles(href: string): AdjacentArticles {
   const published = articles.filter((a) => !a.soon);
   const index = published.findIndex((a) => a.href === href);
   if (index === -1) return { prev: null, next: null };

@@ -55,7 +55,7 @@ function sarabunChar(ch: string): number {
   return 0.55; // latin lowercase
 }
 const sarabunWidth = (text: string, size: number) =>
-  [...text].reduce((w, ch) => w + sarabunChar(ch) * size, 0);
+  Array.from(text).reduce((w, ch) => w + sarabunChar(ch) * size, 0);
 
 // JetBrains Mono is monospaced: every glyph advances 0.6em.
 const monoWidth = (text: string, size: number) => text.length * 0.6 * size;
@@ -95,7 +95,9 @@ function layout(title: string, size: number, maxWidth: number): { lines: Line[];
     }
   }
   if (runs.length) lines.push({ runs, width });
-  return { lines, maxWidth: Math.max(...lines.map((l) => l.width)) };
+  // Math.max() of an empty array is -Infinity, which would corrupt the shrink
+  // loop and centering math — guard against a blank/whitespace-only title.
+  return { lines, maxWidth: lines.length ? Math.max(...lines.map((l) => l.width)) : 0 };
 }
 
 const escapeXml = (s: string) =>

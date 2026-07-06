@@ -581,23 +581,34 @@
   // are not guaranteed to be, so everything mutable lives as a property on the node.
   type StarfieldCanvas = HTMLCanvasElement & { __starfield?: StarfieldState };
 
+  // Scratch vector reused by radialForce. This runs up to twice per particle per
+  // frame in the animation hot loop, so returning a fresh {vx,vy} each call would
+  // churn tens of thousands of short-lived objects per second through the GC.
+  // Instead radialForce writes here and returns whether a force applied; callers
+  // must read radialScratch immediately, before the next radialForce call (safe:
+  // every call site consumes it on the following line).
+  const radialScratch = { vx: 0, vy: 0 };
+
   // Force from a radial source acting on a particle at (px,py): positive `strength`
   // pushes the particle away from the source (repel), negative pulls it toward the
-  // source (attract). Returns the velocity impulse to add, or null if the particle
-  // is outside `radius` or within `minDist` of the source (avoids a jittery/undefined
+  // source (attract). On a hit, writes the velocity impulse into `radialScratch` and
+  // returns true; returns false (leaving radialScratch stale) if the particle is
+  // outside `radius` or within `minDist` of the source (avoids a jittery/undefined
   // direction when a particle sits almost exactly on top of the source).
   function radialForce(
     px: number, py: number,
     sourceX: number, sourceY: number,
     radius: number, strength: number,
     minDist = 0
-  ): { vx: number; vy: number } | null {
+  ): boolean {
     const dx = px - sourceX;
     const dy = py - sourceY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist >= radius || dist <= minDist) return null;
+    if (dist >= radius || dist <= minDist) return false;
     const force = (1 - dist / radius) * strength;
-    return { vx: (dx / dist) * force, vy: (dy / dist) * force };
+    radialScratch.vx = (dx / dist) * force;
+    radialScratch.vy = (dy / dist) * force;
+    return true;
   }
 
   function pickSpectralType() {
@@ -955,6 +966,7 @@
     ctx.globalAlpha = 1;
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'miter'; // restore the canvas default so no other stroke path inherits 'round'
   }
 
   function catchGoldStar(state: StarfieldState, g: GoldStar, index: number) {
@@ -1124,11 +1136,11 @@
     }
   }
 
-  function closeCodex() {
+  function closeCodex(state: StarfieldState) {
     const overlay = document.getElementById('gold-codex');
     if (!overlay || overlay.hidden) return;
     overlay.classList.remove('is-visible');
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (state.reduceMotion) {
       overlay.hidden = true;
       return;
     }
@@ -1145,7 +1157,7 @@
     const btn = document.getElementById('gold-total');
     const overlay = document.getElementById('gold-codex');
     if (btn) btn.onclick = () => openCodex(state);
-    if (overlay) overlay.onclick = (e) => { if (e.target === overlay) closeCodex(); };
+    if (overlay) overlay.onclick = (e) => { if (e.target === overlay) closeCodex(state); };
   }
 
   // Radial outward burst used when leaving `/` for a plain reading page -- overwrites
@@ -1196,21 +1208,20 @@
       if (state.blackhole.active) {
         // Negative strength: radialForce's sign convention is positive = repel, so
         // pulling toward the black hole is the negated (attracting) case.
-        const pull = radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, PULL_RADIUS, -pullStrength);
-        if (pull) {
+        if (radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, PULL_RADIUS, -pullStrength)) {
           // Radial pull plus a perpendicular component: stars spiral into the
           // hole instead of falling straight in.
-          p.vx += (pull.vx - pull.vy * SWIRL_RATIO) * depthForce;
-          p.vy += (pull.vy + pull.vx * SWIRL_RATIO) * depthForce;
+          const { vx, vy } = radialScratch;
+          p.vx += (vx - vy * SWIRL_RATIO) * depthForce;
+          p.vy += (vy + vx * SWIRL_RATIO) * depthForce;
           p.pulled = true;
         }
       }
 
       if (pointer.active) {
-        const repel = radialForce(p.x, p.y, pointer.x, pointer.y, REPEL_RADIUS, REPEL_STRENGTH, 0.01);
-        if (repel) {
-          p.vx += repel.vx * depthForce;
-          p.vy += repel.vy * depthForce;
+        if (radialForce(p.x, p.y, pointer.x, pointer.y, REPEL_RADIUS, REPEL_STRENGTH, 0.01)) {
+          p.vx += radialScratch.vx * depthForce;
+          p.vy += radialScratch.vy * depthForce;
         }
       }
 
@@ -1372,11 +1383,10 @@
     const power = Math.min(1, holdMs / SHOCK_FULL_POWER_HOLD_MS);
     const impulse = SHOCK_BASE_IMPULSE + power * (SHOCK_MAX_IMPULSE - SHOCK_BASE_IMPULSE);
     for (const p of state.particles) {
-      const push = radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, SHOCK_RADIUS, impulse, 0.01);
-      if (push) {
+      if (radialForce(p.x, p.y, state.blackhole.x, state.blackhole.y, SHOCK_RADIUS, impulse, 0.01)) {
         const depthForce = DEPTH_FORCE_MIN + p.depth * (1 - DEPTH_FORCE_MIN);
-        p.vx += push.vx * depthForce;
-        p.vy += push.vy * depthForce;
+        p.vx += radialScratch.vx * depthForce;
+        p.vy += radialScratch.vy * depthForce;
       }
       if (p.pulled) {
         p.floating = true;
@@ -1462,7 +1472,7 @@
     // Esc closes the codex if it's open (no-op otherwise). Registered once here;
     // SecretConsole has its own independent Esc handler for its own overlay.
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeCodex();
+      if (e.key === 'Escape') closeCodex(state);
     });
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1526,7 +1536,12 @@
       state.goldStars.length = 0;
       state.sparkles.length = 0;
       state.floaters.length = 0;
-      closeCodex();
+      // Cancel pending toast/whisper timers too -- their HUD nodes are torn down
+      // and rebuilt on navigation, so a stale timer would fire against a detached
+      // element (harmless today, but clear them for symmetry with the arrays above).
+      if (state.toastTimer) { clearTimeout(state.toastTimer); state.toastTimer = null; }
+      if (state.whisperTimer) { clearTimeout(state.whisperTimer); state.whisperTimer = null; }
+      closeCodex(state);
       updateGoldHud(state);
       setCanvasVisible(state, false);
       const finish = () => {
