@@ -7,6 +7,7 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   <a
     class="share-fb"
     href={fbShareUrl}
+    data-share-url={shareUrl}
     target="_blank"
     rel="noopener noreferrer"
     title="แชร์ไปยัง Facebook"
@@ -75,13 +76,84 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
 </style>
 
 <script>
+  // Facebook share uses the JS SDK's FB.ui share dialog (not a raw sharer.php
+  // popup) because that dialog closes itself after the user posts and fires a
+  // callback — the sharer.php popup no longer auto-closes, it redirects to the
+  // feed and lingers. The SDK is loaded lazily on the first share click so it
+  // never blocks initial page load (the site deliberately avoids external CDN
+  // scripts on load). If the SDK is blocked or fails, we fall back to the old
+  // sharer.php popup so sharing still works.
+  const FB_APP_ID = '999748286011681';
+  const FB_SDK_SRC = 'https://connect.facebook.net/th_TH/sdk.js';
+  const FB_VERSION = 'v21.0';
+
+  type FbShareParams = { method: 'share'; href: string };
+  type FacebookSdk = {
+    init(options: { appId: string; xfbml: boolean; version: string }): void;
+    ui(params: FbShareParams, callback: (response?: unknown) => void): void;
+  };
+  type WindowWithFb = Window & { FB?: FacebookSdk };
+
+  let sdkPromise: Promise<FacebookSdk> | null = null;
+
+  function loadFbSdk(): Promise<FacebookSdk> {
+    const existing = (window as WindowWithFb).FB;
+    if (existing) return Promise.resolve(existing);
+    if (sdkPromise) return sdkPromise;
+    sdkPromise = new Promise<FacebookSdk>((resolve, reject) => {
+      if (!document.getElementById('fb-root')) {
+        const root = document.createElement('div');
+        root.id = 'fb-root';
+        document.body.appendChild(root);
+      }
+      const script = document.createElement('script');
+      script.src = FB_SDK_SRC;
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      script.addEventListener('load', () => {
+        const fb = (window as WindowWithFb).FB;
+        if (!fb) {
+          reject(new Error('FB SDK loaded but window.FB is missing'));
+          return;
+        }
+        fb.init({ appId: FB_APP_ID, xfbml: false, version: FB_VERSION });
+        resolve(fb);
+      });
+      script.addEventListener('error', () => reject(new Error('FB SDK failed to load')));
+      document.head.appendChild(script);
+    });
+    return sdkPromise;
+  }
+
+  function sharerFallback(sharerUrl: string) {
+    window.open(sharerUrl, 'facebook-share', 'width=580,height=520,menubar=no,toolbar=no,location=no,status=no');
+  }
+
   // Registered once via astro:page-load (see StarfieldBackground.astro for why) so
   // the share row on every article still works after a client-side navigation.
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLAnchorElement>('.share-fb').forEach((btn) => {
+      // Warm the SDK up on hover/focus/press so it's ready by click time. The
+      // click handler must then call FB.ui *synchronously* (no await) — awaiting
+      // first loses the user-gesture activation and the browser blocks FB's popup
+      // (POPUP_MAYBE_BLOCKED). If it isn't ready yet, we open the classic sharer
+      // popup synchronously instead (also in-gesture, so not blocked).
+      const warm = () => { loadFbSdk().catch(() => {}); };
+      btn.addEventListener('pointerenter', warm);
+      btn.addEventListener('focus', warm);
+      btn.addEventListener('pointerdown', warm);
+
       btn.addEventListener('click', (e) => {
         e.preventDefault();
-        window.open(btn.href, 'facebook-share', 'width=580,height=520,menubar=no,toolbar=no,location=no,status=no');
+        const shareUrl = btn.dataset.shareUrl ?? btn.href;
+        const fb = (window as WindowWithFb).FB;
+        if (fb) {
+          fb.ui({ method: 'share', href: shareUrl }, () => {});
+        } else {
+          warm();
+          sharerFallback(btn.href);
+        }
       });
     });
 
