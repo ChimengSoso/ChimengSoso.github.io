@@ -7,14 +7,12 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   <a
     class="share-fb"
     href={fbShareUrl}
-    data-share-url={shareUrl}
     target="_blank"
     rel="noopener noreferrer"
     title="แชร์ไปยัง Facebook"
     aria-label="แชร์บทความนี้ไปยัง Facebook"
   >
     <svg class="icon-fb" viewBox="0 0 320 512" aria-hidden="true" fill="currentColor"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"/></svg>
-    <svg class="icon-check" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
   </a>
   <button
     class="share-copy"
@@ -74,64 +72,32 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   .share-copy.copied{background:#2f9e5c;}
   .share-copy.copied .icon-link{display:none;}
   .share-copy.copied .icon-check{display:block;}
-  .share-fb .icon-check{display:none;}
-  .share-fb.shared{background:#2f9e5c;}
-  .share-fb.shared .icon-fb{display:none;}
-  .share-fb.shared .icon-check{display:block;}
 </style>
 
 <script>
-  // Facebook share uses the JS SDK's FB.ui share dialog (not a raw sharer.php
-  // popup) because that dialog closes itself after the user posts and fires a
-  // callback — the sharer.php popup no longer auto-closes, it redirects to the
-  // feed and lingers. The SDK is loaded lazily on the first share click so it
-  // never blocks initial page load (the site deliberately avoids external CDN
-  // scripts on load). If the SDK is blocked or fails, we fall back to the old
-  // sharer.php popup so sharing still works.
-  const FB_APP_ID = '999748286011681';
-  const FB_SDK_SRC = 'https://connect.facebook.net/th_TH/sdk.js';
-  const FB_VERSION = 'v21.0';
-
-  type FbShareParams = { method: 'share'; href: string };
-  type FacebookSdk = {
-    init(options: { appId: string; xfbml: boolean; version: string }): void;
-    ui(params: FbShareParams, callback: (response?: unknown) => void): void;
-  };
-  type WindowWithFb = Window & { FB?: FacebookSdk };
-
-  let sdkPromise: Promise<FacebookSdk> | null = null;
-
-  function loadFbSdk(): Promise<FacebookSdk> {
-    const existing = (window as WindowWithFb).FB;
-    if (existing) return Promise.resolve(existing);
-    if (sdkPromise) return sdkPromise;
-    sdkPromise = new Promise<FacebookSdk>((resolve, reject) => {
-      if (!document.getElementById('fb-root')) {
-        const root = document.createElement('div');
-        root.id = 'fb-root';
-        document.body.appendChild(root);
-      }
-      const script = document.createElement('script');
-      script.src = FB_SDK_SRC;
-      script.async = true;
-      script.defer = true;
-      script.crossOrigin = 'anonymous';
-      script.addEventListener('load', () => {
-        const fb = (window as WindowWithFb).FB;
-        if (!fb) {
-          reject(new Error('FB SDK loaded but window.FB is missing'));
-          return;
-        }
-        fb.init({ appId: FB_APP_ID, xfbml: false, version: FB_VERSION });
-        resolve(fb);
-      });
-      script.addEventListener('error', () => reject(new Error('FB SDK failed to load')));
-      document.head.appendChild(script);
-    });
-    return sdkPromise;
-  }
-
-  function sharerFallback(sharerUrl: string) {
+  // ---------------------------------------------------------------------------
+  // Facebook share = plain sharer.php popup. Deliberately NO JS SDK.
+  //
+  // WHY (revert history — read before "improving" this):
+  //   We previously used the FB JS SDK (`FB.ui({method:'share'})`) so the share
+  //   dialog could fire a success callback (green ✓ feedback) and — the original
+  //   ask — close itself after posting. It turned out (a) FB.ui v21 does NOT
+  //   auto-close its dialog and we can't close cross-origin facebook.com chrome
+  //   ourselves, and (b) the SDK share dialog requires the FB App to be a fully
+  //   registered/verified business app; that verification lapsed, so the SDK
+  //   path broke and sharing stopped working entirely. sharer.php needs none of
+  //   that — no App ID, no SDK, no business verification — so anyone can share.
+  //   We accept losing the green ✓ success feedback (sharer.php gives no
+  //   callback) in exchange for sharing that Just Works today.
+  //
+  // TO BRING THE SDK BACK (only once the FB business/App verification is
+  // approved — the owner wants it for share analytics): see the "Reviving the
+  // Facebook share SDK" plan in CLAUDE.md. In short: restore the loadFbSdk()/
+  // FB.ui() click path + the `.share-fb.shared` green-✓ CSS + the removed
+  // <svg class="icon-check"> inside the .share-fb anchor, keeping this popup as
+  // the fallback. Git history for this file holds the full prior implementation.
+  // ---------------------------------------------------------------------------
+  function openSharePopup(sharerUrl: string) {
     window.open(sharerUrl, 'facebook-share', 'width=580,height=520,menubar=no,toolbar=no,location=no,status=no');
   }
 
@@ -139,36 +105,13 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   // the share row on every article still works after a client-side navigation.
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLAnchorElement>('.share-fb').forEach((btn) => {
-      // Warm the SDK up on hover/focus/press so it's ready by click time. The
-      // click handler must then call FB.ui *synchronously* (no await) — awaiting
-      // first loses the user-gesture activation and the browser blocks FB's popup
-      // (POPUP_MAYBE_BLOCKED). If it isn't ready yet, we open the classic sharer
-      // popup synchronously instead (also in-gesture, so not blocked).
-      const warm = () => { loadFbSdk().catch(() => {}); };
-      btn.addEventListener('pointerenter', warm);
-      btn.addEventListener('focus', warm);
-      btn.addEventListener('pointerdown', warm);
-
+      // Open the sharer.php URL as a small popup instead of a full new tab. The
+      // window.open must run synchronously inside the click (in-gesture) or the
+      // browser blocks the popup. Falls back to the anchor's default new-tab
+      // navigation if window.open is blocked/returns null.
       btn.addEventListener('click', (e) => {
         e.preventDefault();
-        const shareUrl = btn.dataset.shareUrl ?? btn.href;
-        const fb = (window as WindowWithFb).FB;
-        if (fb) {
-          // FB's own share dialog is cross-origin and closes itself (or lingers
-          // on a confirmation screen) beyond our control — so give the user
-          // clear feedback on *our* page instead. A truthy response with no
-          // error_code means the post went through; undefined / error_code
-          // (e.g. 4201 user-cancelled) means they backed out, so stay silent.
-          fb.ui({ method: 'share', href: shareUrl }, (response) => {
-            const res = response as { error_code?: number } | undefined;
-            if (!res || res.error_code) return;
-            btn.classList.add('shared');
-            window.setTimeout(() => btn.classList.remove('shared'), 1600);
-          });
-        } else {
-          warm();
-          sharerFallback(btn.href);
-        }
+        openSharePopup(btn.href);
       });
     });
 
