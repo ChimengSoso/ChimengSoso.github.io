@@ -15,9 +15,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — start Astro dev server (default port 4321)
 - `npm run build` — build static site to `dist/`
 - `npm run preview` — preview the production build locally
+- `npm run check` — run `astro check` (full TypeScript type-check across `.astro`/`.ts`, incl. `<script>` blocks) — this is what catches the type errors the editor shows but `astro build` doesn't
 - `npm run lint` — run ESLint (flat config in `eslint.config.js`: `typescript-eslint` + `eslint-plugin-astro`; `eslint . --fix` autofixes)
 
-There is no test suite. ESLint is configured but **not** wired into the build or CI — it won't fail a deploy, so run `npm run lint` manually. Likewise `tsconfig.json` (extends `astro/tsconfigs/strict`) is editor-only: `astro build` does no type-check (no `astro check`/`@astrojs/check`), so type errors don't fail the build either.
+There is no test suite. **`astro build` does NOT type-check** — it compiles and can ship type-broken code. `npm run check` is the type gate and `npm run lint` the style/`any` gate, but **neither is wired into the build or the deploy workflow** (`.github/workflows/deploy.yml` only runs `astro build`), so they won't fail a deploy — run both manually before merging to `master`. After a non-trivial TS change, run `npm run check`: it surfaces the same errors the editor (WebStorm) shows, all at once, instead of finding them one screenshot at a time. `tsconfig.json` extends `astro/tsconfigs/strict` and excludes `eslint.config.js` (no point type-checking the lint config against the app config).
 
 ## Branching & deployment
 
