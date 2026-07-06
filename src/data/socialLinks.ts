@@ -2,7 +2,14 @@
 // icons + JSON-LD sameAs) and Layout.astro (site footer). Each iconPath is a
 // single 24x24 fill-style path (Simple Icons), rendered as
 // <svg viewBox="0 0 24 24" fill="currentColor"><path d={iconPath} /></svg>.
-export const socialLinks = [
+export interface SocialLink {
+  id: string;
+  label: string;
+  url: string;
+  iconPath: string;
+}
+
+export const socialLinks: SocialLink[] = [
   {
     id: 'yt',
     label: 'YouTube',
@@ -42,6 +49,6 @@ export const socialLinks = [
 ];
 
 // The site footer (Layout.astro) shows only the main four channels.
-export const footerSocialLinks = socialLinks.filter((s) =>
-  ['yt', 'fb', 'gh', 'ig'].includes(s.id)
+export const footerSocialLinks: SocialLink[] = socialLinks.filter((s) =>
+  ['yt', 'fb', 'gh', 'ig'].includes(s.id),
 );

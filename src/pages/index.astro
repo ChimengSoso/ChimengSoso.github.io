@@ -3,7 +3,7 @@ import { ClientRouter } from 'astro:transitions';
 import StarfieldBackground from '../components/StarfieldBackground.astro';
 import SelfXssWarning from '../components/SelfXssWarning.astro';
 import SecretConsole from '../components/SecretConsole.astro';
-import { socialLinks } from '../data/socialLinks.js';
+import { socialLinks } from '../data/socialLinks';
 import '../styles/profile.css';
 
 // Single source of truth for the hover-scramble word cycles -- rendered into
@@ -29,7 +29,11 @@ const roleTitles = [
 ];
 const otherRoles = roleTitles.slice(1);
 const handleAriaLabel = `Also known as ${handleAliases.join(', ')}`;
-const roleAriaLabel = `Also professionally known as ${otherRoles.slice(0, -1).join(', ')}, and ${otherRoles[otherRoles.length - 1]}`;
+const roleAriaLabel = `Also professionally known as ${
+  otherRoles.length > 1
+    ? `${otherRoles.slice(0, -1).join(', ')}, and ${otherRoles[otherRoles.length - 1]}`
+    : otherRoles.join('')
+}`;
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -99,7 +103,7 @@ const jsonLd = {
 
       <div class="social-icons">
         {socialLinks.map((s) => (
-          <a class={`social-icon ${s.id}`} href={s.url} target="_blank" rel="noopener" aria-label={s.label}>
+          <a class={`social-icon ${s.id}`} href={s.url} target="_blank" rel="noopener noreferrer" aria-label={s.label}>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d={s.iconPath} /></svg>
           </a>
         ))}
@@ -129,9 +133,9 @@ const jsonLd = {
         card.style.transition = 'transform 0.12s ease, box-shadow 0.2s ease';
       });
       card.addEventListener('mousemove', function (e) {
-        var r = card.getBoundingClientRect();
-        var dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
-        var dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+        const r = card.getBoundingClientRect();
+        const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+        const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
         card.style.transform = 'perspective(700px) rotateY(' + (dx * 7) + 'deg) rotateX(' + (-dy * 7) + 'deg)';
         card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
         card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
@@ -143,14 +147,14 @@ const jsonLd = {
     }
 
     function initReveal(card) {
-      var link = card.querySelector('.featured-link');
+      const link = card.querySelector('.featured-link');
       if (!link) return;
       card.addEventListener('click', function (e) {
         // Click reveals on every input type now (mouse hover only shows the teaser
         // hint via CSS -- see .reveal-hint in profile.css), so the first click
         // anywhere on the card (that isn't the link or a social icon) expands it.
-        var tappedLink = link.contains(e.target);
-        var tappedSocialIcon = e.target.closest && e.target.closest('.social-icons');
+        const tappedLink = link.contains(e.target);
+        const tappedSocialIcon = e.target.closest && e.target.closest('.social-icons');
         if (!card.classList.contains('revealed') && !tappedLink && !tappedSocialIcon) {
           e.preventDefault();
           card.classList.add('revealed');
@@ -160,28 +164,28 @@ const jsonLd = {
 
     function initScrambleCycle(el, words, prefix) {
       prefix = prefix || '';
-      var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-      var CHARS = '!<>-_\\/[]{}=+*^?#01';
+      const CHARS = '!<>-_\\/[]{}=+*^?#01';
 
       function randomChar() {
         return CHARS[(Math.random() * CHARS.length) | 0];
       }
 
-      var queue = [];
-      var frame = 0;
-      var frameRequest = null;
-      var resolveFn = null;
+      let queue = [];
+      let frame = 0;
+      let frameRequest = null;
+      let resolveFn = null;
 
       function currentDisplayed() {
         return el.textContent.slice(prefix.length);
       }
 
       function update() {
-        var output = '';
-        var complete = 0;
-        for (var i = 0; i < queue.length; i++) {
-          var q = queue[i];
+        let output = '';
+        let complete = 0;
+        for (let i = 0; i < queue.length; i++) {
+          const q = queue[i];
           if (frame >= q.end) {
             complete++;
             output += q.to;
@@ -202,11 +206,11 @@ const jsonLd = {
       }
 
       function scrambleTo(newText) {
-        var oldText = currentDisplayed();
-        var length = Math.max(oldText.length, newText.length);
+        const oldText = currentDisplayed();
+        const length = Math.max(oldText.length, newText.length);
         queue = [];
-        for (var i = 0; i < length; i++) {
-          var start = Math.floor(Math.random() * 20);
+        for (let i = 0; i < length; i++) {
+          const start = Math.floor(Math.random() * 20);
           queue.push({
             from: oldText[i] || '',
             to: newText[i] || '',
@@ -223,16 +227,16 @@ const jsonLd = {
         });
       }
 
-      var cycling = false;
-      var randomOrder = false;
-      var frozen = false;
-      var cycleIndex = 0;
-      var cycleTimer = null;
+      let cycling = false;
+      let randomOrder = false;
+      let frozen = false;
+      let cycleIndex = 0;
+      let cycleTimer = null;
 
       function nextIndex() {
         if (!randomOrder) return (cycleIndex + 1) % words.length;
         // random word, but never the one currently showing
-        var next = (Math.random() * words.length) | 0;
+        const next = (Math.random() * words.length) | 0;
         return next === cycleIndex ? (next + 1) % words.length : next;
       }
 
@@ -306,19 +310,19 @@ const jsonLd = {
     // the first load too) re-runs this for whichever .profile is currently in the DOM,
     // instead of a plain top-level script binding once to the very first one ever seen.
     document.addEventListener('astro:page-load', function () {
-      var card = document.querySelector('.profile');
+      const card = document.querySelector('.profile');
       if (card) {
         initTilt(card);
         initReveal(card);
       }
       // Word lists live in the frontmatter (rendered into data-scramble-words),
       // so markup, aria-labels, and this animation all share one definition.
-      var scramblers = [];
+      const scramblers = [];
       document.querySelectorAll('[data-scramble-words]').forEach(function (el) {
-        var words;
+        let words;
         try {
           words = JSON.parse(el.getAttribute('data-scramble-words'));
-        } catch (err) {
+        } catch {
           return;
         }
         if (Array.isArray(words) && words.length) {
@@ -332,9 +336,9 @@ const jsonLd = {
       // currently showing (for when a random pairing is too good to lose);
       // clicking again unpins -- resuming the cycle if still hovering, or
       // scrambling back to the resting words otherwise.
-      var nameEl = document.querySelector('.details .name');
+      const nameEl = document.querySelector('.details .name');
       if (nameEl) {
-        var pinned = false;
+        let pinned = false;
         nameEl.addEventListener('mouseenter', function () {
           if (pinned) return;
           scramblers.forEach(function (s) { s.startCycle(true); });
@@ -365,7 +369,7 @@ const jsonLd = {
     // Registered once ever (document itself survives navigations, unlike .profile) --
     // looks up .profile fresh on every click rather than closing over a stale reference.
     document.addEventListener('click', function (e) {
-      var card = document.querySelector('.profile');
+      const card = document.querySelector('.profile');
       if (card && !card.contains(e.target)) card.classList.remove('revealed');
     });
   </script>

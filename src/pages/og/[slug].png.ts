@@ -1,6 +1,6 @@
 import type { APIRoute, GetStaticPaths } from 'astro';
-import { articles } from '../../data/articles.js';
-import { renderCard } from '../../og/card';
+import { articles } from '../../data/articles';
+import { renderCard, type CardInput } from '../../og/card';
 
 // One share card per published article, plus the /knowledge listing page.
 // Slug matches the article's directory-style href (e.g. 'grill-and-loop/' -> 'grill-and-loop').
@@ -15,8 +15,8 @@ export const getStaticPaths: GetStaticPaths = () => {
   return items;
 };
 
-export const GET: APIRoute = async ({ props }) => {
-  const png = await renderCard({ title: props.title as string, tag: props.tag as string });
+export const GET: APIRoute<CardInput> = async ({ props }) => {
+  const png = await renderCard({ title: props.title, tag: props.tag });
   return new Response(new Uint8Array(png), {
     headers: {
       'Content-Type': 'image/png',
