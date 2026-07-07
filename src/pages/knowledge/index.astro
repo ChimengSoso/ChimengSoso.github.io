@@ -1,6 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import { articles } from '../../data/articles';
+import { articles, type Article } from '../../data/articles';
 
 // Split a title/description into segments so the template can render slash-command tokens
 // (e.g. /grill-me, /handoff) as inline-code chips — matching the article page, breadcrumb,
@@ -8,6 +8,29 @@ import { articles } from '../../data/articles';
 // template below. Odd-index segments are the captured tokens.
 const splitCommands = (text: string) => text.split(/(\/[a-zA-Z0-9-]+)/g);
 const isCommand = (seg: string) => /^\/[a-zA-Z0-9-]+$/.test(seg);
+
+// Group articles by their tag, preserving the array order (which is the intended reading
+// sequence). First-seen tag order becomes the section order: intro → core skills → takes.
+interface Group { tag: string; items: Article[]; }
+const groups: Group[] = [];
+for (const a of articles) {
+  const g = groups.find((x) => x.tag === a.tag);
+  if (g) g.items.push(a);
+  else groups.push({ tag: a.tag, items: [a] });
+}
+
+// Abbreviate the Thai month so the card meta line stays short (e.g. "1 กรกฎาคม 2026" → "1 ก.ค. 2026").
+const MONTH_ABBR: Record<string, string> = {
+  'มกราคม': 'ม.ค.', 'กุมภาพันธ์': 'ก.พ.', 'มีนาคม': 'มี.ค.', 'เมษายน': 'เม.ย.',
+  'พฤษภาคม': 'พ.ค.', 'มิถุนายน': 'มิ.ย.', 'กรกฎาคม': 'ก.ค.', 'สิงหาคม': 'ส.ค.',
+  'กันยายน': 'ก.ย.', 'ตุลาคม': 'ต.ค.', 'พฤศจิกายน': 'พ.ย.', 'ธันวาคม': 'ธ.ค.',
+};
+const shortDate = (d: string) => {
+  const [day, month, year] = d.split(' ');
+  return `${day} ${MONTH_ABBR[month] ?? month} ${year}`;
+};
+
+const publishedCount = articles.filter((a) => !a.soon).length;
 ---
 <Layout title="หมวดความรู้ | ChimengSoso" description="ความลับจากสายพัฒนาที่แชร์ไว้ตรงนี้ — ถ้าไม่รู้ไว้ก่อนคือพลาด" narrow>
   <a class="back" href="/" data-astro-prefetch="viewport">
@@ -15,17 +38,40 @@ const isCommand = (seg: string) => /^\/[a-zA-Z0-9-]+$/.test(seg);
     กลับหน้าโปรไฟล์
   </a>
   <h1>หมวดความรู้</h1>
-  <div class="sub">ความลับจากสายพัฒนาที่แชร์ไว้ตรงนี้ — ถ้าไม่รู้ไว้ก่อนคือพลาด</div>
+  <div class="sub">ความลับจากสายพัฒนาที่แชร์ไว้ตรงนี้ — ถ้าไม่รู้ไว้ก่อนคือพลาด · {publishedCount} บทความ</div>
 
-  <div class="list">
-    {articles.map((a, i) => (
-      <a class={`item ${a.soon ? 'soon' : ''}`} href={a.href} style={`animation-delay:${i * 60}ms`} data-astro-prefetch={a.soon ? undefined : 'viewport'}>
-        <span class="tag">{a.tag}</span>
-        <h3>{splitCommands(a.title).map((seg) => isCommand(seg) ? <code>{seg}</code> : seg)}</h3>
-        <p>{splitCommands(a.desc).map((seg) => isCommand(seg) ? <code>{seg}</code> : seg)}</p>
-      </a>
-    ))}
-  </div>
+  {groups.map((group, gi) => (
+    <section class="group">
+      <h2 class="group-title">
+        {group.tag}
+        <span class="group-count">{group.items.length}</span>
+      </h2>
+      <div class="list">
+        {group.items.map((a, i) => (
+          <a class={`item ${a.soon ? 'soon' : ''}`} href={a.href} style={`animation-delay:${(gi * 3 + i) * 55}ms`} data-astro-prefetch={a.soon ? undefined : 'viewport'}>
+            <h3>{splitCommands(a.title).map((seg) => isCommand(seg) ? <code>{seg}</code> : seg)}</h3>
+            <p>{splitCommands(a.desc).map((seg) => isCommand(seg) ? <code>{seg}</code> : seg)}</p>
+            <div class="meta">
+              {a.soon ? (
+                <span class="badge-soon">เร็วๆ นี้</span>
+              ) : (
+                <Fragment>
+                  {a.readingMinutes && (
+                    <span class="rt">
+                      <svg class="rt-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6.3"/><path stroke-linecap="round" d="M8 4.5V8l2.4 1.6"/></svg>
+                      อ่าน {a.readingMinutes} นาที
+                    </span>
+                  )}
+                  {a.date && <span class="date">{shortDate(a.date)}</span>}
+                </Fragment>
+              )}
+              <span class="go" aria-hidden="true">อ่านต่อ<svg class="go-arrow" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708"/></svg></span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
 </Layout>
 
 <style>
@@ -57,14 +103,41 @@ const isCommand = (seg: string) => /^\/[a-zA-Z0-9-]+$/.test(seg);
     color:#4d72a9;
     font-size:12px;
     margin-top:6px;
-    margin-bottom:24px;
+    margin-bottom:22px;
   }
-  .list{display:flex;flex-direction:column;gap:12px;}
+
+  /* Category section: a small sticky-feeling label groups related articles so the four
+     "Claude Code" cards read as one cluster instead of four repeated pills. */
+  .group{margin-bottom:22px;}
+  .group-title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    font-weight:700;
+    color:#294266;
+    text-transform:uppercase;
+    letter-spacing:0.6px;
+    margin-bottom:10px;
+    padding-bottom:7px;
+    border-bottom:1px solid #dbe6f8;
+  }
+  .group-count{
+    font-size:10px;
+    font-weight:600;
+    color:#5a6a85;
+    background:#eaf1fc;
+    border-radius:20px;
+    padding:1px 8px;
+    letter-spacing:0;
+  }
+
+  .list{display:flex;flex-direction:column;gap:9px;}
   .item{
     display:block;
-    border:1px solid #bcd3f8;
-    border-radius:14px;
-    padding:15px 18px;
+    border:1px solid #cfdff7;
+    border-radius:12px;
+    padding:13px 15px;
     text-decoration:none;
     color:#131e30;
     opacity:0;
@@ -77,21 +150,12 @@ const isCommand = (seg: string) => /^\/[a-zA-Z0-9-]+$/.test(seg);
   }
   .item:hover{
     border-color:#4d72a9;
-    background:#ecf3fc;
+    background:#f2f7fe;
     transform:translateY(-2px);
     box-shadow:0 8px 16px -6px rgba(22,63,120,0.25);
   }
-  .item .tag{
-    display:inline-block;
-    font-size:10px;
-    background:#294266;
-    color:#ecf3fc;
-    padding:2px 9px;
-    border-radius:20px;
-    text-transform:uppercase;
-    margin-bottom:8px;
-  }
-  .item h3{font-size:14px;margin-bottom:4px;}
+  .item h3{font-size:14px;margin-bottom:4px;line-height:1.5;}
+  .item p{font-size:12px;color:#5a6a85;line-height:1.65;margin-bottom:9px;}
   /* Slash-command tokens in a title or description show as inline-code chips (matches the
      article page, breadcrumb, and OG card). */
   .item h3 code,
@@ -104,6 +168,58 @@ const isCommand = (seg: string) => /^\/[a-zA-Z0-9-]+$/.test(seg);
     padding:0.02em 0.3em;
     border-radius:5px;
   }
-  .item p{font-size:12px;color:#5a6a85;}
-  .item.soon{opacity:0.45 !important;pointer-events:none;}
+
+  /* Meta row: reading time (the primary scan anchor) + publish date, with a "read more"
+     affordance that slides in on hover so each card signals it's tappable. */
+  .meta{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:11px;
+    color:#7183a1;
+  }
+  .rt{display:inline-flex;align-items:center;gap:4px;font-weight:600;color:#4d72a9;}
+  .rt-icon{width:12px;height:12px;flex-shrink:0;}
+  .date{position:relative;padding-left:11px;}
+  .date::before{content:'·';position:absolute;left:2px;color:#a9b8d0;}
+  .badge-soon{
+    font-weight:600;
+    color:#8a97ad;
+    background:#eef1f6;
+    border-radius:20px;
+    padding:1px 9px;
+  }
+  .go{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    margin-left:auto;
+    font-weight:600;
+    color:#4d72a9;
+    opacity:0;
+    transform:translateX(-4px);
+    transition:opacity .18s ease, transform .18s ease;
+  }
+  .go-arrow{
+    width:14px;
+    height:14px;
+    flex-shrink:0;
+    transition:transform .15s ease;
+  }
+  .item:hover .go{opacity:1;transform:translateX(0);}
+  /* Mirror of .back-arrow's hover nudge — the chevron slides toward its own direction (right). */
+  .item:hover .go-arrow{transform:translateX(3px);}
+  .item.soon{opacity:0.5 !important;pointer-events:none;}
+  .item.soon .go{display:none;}
+
+  /* Touch devices can't hover, so always show the read-more cue there. */
+  @media (hover: none){
+    .go{opacity:1;transform:none;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .item{animation:none;opacity:1;}
+    .item:hover{transform:none;}
+    .go, .go-arrow{transition:none;}
+    .item:hover .go-arrow{transform:none;}
+  }
 </style>
