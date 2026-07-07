@@ -140,9 +140,14 @@
     let dotY: number[] = [];
     let active = false;
     let lastSel = -1;
+    // Cached at drag-start so the pointermove path never reads layout (getBoundingClientRect)
+    // right after a scrollTo -- that read-after-write per move is what stutters on long pages.
+    let headTops: number[] = [];
+    let railTop = 0;
+    let pendingY: number | null = null;
+    let rafId = 0;
 
     const railH = () => rail.clientHeight;
-    const headingTop = (h: HTMLElement) => h.getBoundingClientRect().top + window.scrollY;
 
     function layout() {
       // Anchor the rail's right edge to the article card's right edge, so it always sits
@@ -158,6 +163,8 @@
       const top = (railH() - clusterH) / 2;
       dotY = headings.map((_, i) => top + i * gap);
       dots.forEach((d, i) => { d.style.top = `${dotY[i]}px`; });
+      headTops = headings.map((h) => h.getBoundingClientRect().top + window.scrollY);
+      railTop = rail.getBoundingClientRect().top;
     }
 
     function draw(cy: number): number {
@@ -187,12 +194,11 @@
     }
 
     function pick(clientY: number, dragging: boolean) {
-      const rect = rail.getBoundingClientRect();
-      const sel = draw(clientY - rect.top);
+      const sel = draw(clientY - railTop);
       if (sel === lastSel) return;
       lastSel = sel;
       if (navigator.vibrate) navigator.vibrate(6);
-      const top = Math.max(0, headingTop(headings[sel]) - HEAD_OFFSET);
+      const top = Math.max(0, headTops[sel] - HEAD_OFFSET);
       if (dragging || reduce) {
         // Instant while scrubbing (keeps up with the finger) and for reduced-motion.
         // Can't rely on ScrollToOptions behavior:'auto' -- per spec that follows CSS, and
@@ -218,11 +224,21 @@
       e.preventDefault();
     }
     function onMove(e: PointerEvent) {
-      if (active) pick(e.clientY, true);
+      if (!active) return;
+      // Coalesce moves to one scroll+draw per frame -- pointermove can fire far faster than
+      // the display refreshes, and doing a full scroll on each is what makes it stutter.
+      pendingY = e.clientY;
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        if (pendingY !== null) pick(pendingY, true);
+      });
     }
     function onUp() {
       if (!active) return;
       active = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+      pendingY = null;
       rail.classList.remove('active');
       label.style.opacity = '0';
     }
