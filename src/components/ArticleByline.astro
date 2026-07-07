@@ -1,0 +1,69 @@
+---
+interface Props {
+  /** Original publish date, Thai-formatted (e.g. "1 กรกฎาคม 2026"). */
+  published: string;
+  /** Last-updated date; omitted or equal to `published` shows only the publish date. */
+  updated?: string;
+}
+const { published, updated } = Astro.props;
+const showUpdated = updated && updated !== published;
+---
+<p class="article-meta">
+  <span class="part">เผยแพร่ {published}</span>{showUpdated && (
+    <Fragment>{' '}<span class="sep" aria-hidden="true">·</span>{' '}<span class="part">อัปเดตล่าสุด {updated}</span></Fragment>
+  )}
+</p>
+
+<style>
+  /* Rendered in the right-hand column of .article-head's grid (see Layout). text-align:right
+     pins the date to the right edge; when the column is too narrow for one line the date
+     wraps to two lines inside its column. */
+  .article-meta{
+    font-size:0.75rem;
+    color:var(--muted);
+    letter-spacing:.2px;
+    text-align:right;
+    /* On small phones .article-head is a single grid column, so the date sits on its own
+       line; margin-left:auto keeps it right within that column. */
+    margin:0 0 0 auto;
+  }
+  /* From 480px up the grid gives the date its own column already at the right edge, so the
+     auto margin isn't needed. */
+  @media (min-width:480px){
+    .article-meta{ margin-left:0; }
+  }
+  /* Keep each date on one line — only the " · " separator may wrap. */
+  .article-meta .part{ white-space:nowrap; }
+  /* The " · " separator only makes sense when both dates share one line. The script
+     below adds .stacked once they wrap onto separate lines, and then it's hidden.
+     (The surrounding spaces stay, so the two dates can still wrap apart.) */
+  .article-meta.stacked .sep{ display:none; }
+</style>
+
+<script>
+  // Hide the " · " separator when the two dates wrap onto separate lines (pure CSS
+  // can't detect wrapping). Always measure with the separator visible so the decision
+  // is stable and doesn't flicker.
+  function syncBylines() {
+    const metas = document.querySelectorAll<HTMLElement>('.article-meta');
+    metas.forEach((meta) => {
+      const parts = meta.querySelectorAll<HTMLElement>('.part');
+      if (parts.length < 2) return;
+      meta.classList.remove('stacked'); // measure in the full (separator shown) state
+      const firstTop = parts[0].getBoundingClientRect().top;
+      const lastTop = parts[parts.length - 1].getBoundingClientRect().top;
+      meta.classList.toggle('stacked', Math.abs(lastTop - firstTop) > 1);
+    });
+  }
+
+  // Defer to the next frame so the measurement runs after layout has settled —
+  // measuring synchronously on astro:page-load reads the pre-wrap (one-line) layout.
+  function schedule() {
+    requestAnimationFrame(syncBylines);
+  }
+
+  document.addEventListener('astro:page-load', schedule);
+  window.addEventListener('resize', schedule);
+  // Webfonts change how Thai text wraps, so re-check once they're ready.
+  document.fonts?.ready.then(schedule);
+</script>
