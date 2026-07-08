@@ -256,6 +256,8 @@ const ogImageUrl = new URL(image ?? derivedOgImage ?? "/img.jpg", Astro.site ?? 
       padding-left:0.75rem;
       text-transform:uppercase;
       letter-spacing:.5px;
+      /* Keep TOC anchor jumps clear of the top edge; must match TOC_OFFSET in the script. */
+      scroll-margin-top:96px;
     }
     h2.step{counter-increment:step;}
     h2.step::before{content:"[" counter(step) "] ";}
@@ -533,13 +535,13 @@ const ogImageUrl = new URL(image ?? derivedOgImage ?? "/img.jpg", Astro.site ?? 
           <nav class="article-nav">
             {prev ? (
               <a class="article-nav-prev" href={`../${prev.href}`} data-astro-prefetch="viewport">
-                <span class="article-nav-label">&larr; บทความก่อนหน้า</span>
+                <span class="article-nav-label">{"< "} บทความก่อนหน้า</span>
                 <span class="article-nav-title">{prev.title}</span>
               </a>
             ) : <span />}
             {next ? (
               <a class="article-nav-next" href={`../${next.href}`} data-astro-prefetch="viewport">
-                <span class="article-nav-label">บทความถัดไป &rarr;</span>
+                <span class="article-nav-label">บทความถัดไป {" >"}</span>
                 <span class="article-nav-title">{next.title}</span>
               </a>
             ) : <span />}
@@ -574,11 +576,14 @@ const ogImageUrl = new URL(image ?? derivedOgImage ?? "/img.jpg", Astro.site ?? 
     // observer still watching that page's now-detached headings, and now that
     // ClientRouter keeps the document alive across navigations, those leaks
     // accumulate for the whole browsing session instead of being cleared by a reload.
-    let currentObserver: IntersectionObserver | null = null;
+    let cleanupToc: (() => void) | null = null;
+    // Distance from the viewport top where a heading is considered "current". Must match the
+    // headings' scroll-margin-top so a clicked heading lands exactly on this line.
+    const TOC_OFFSET = 96;
 
     function buildToc() {
-      currentObserver?.disconnect();
-      currentObserver = null;
+      cleanupToc?.();
+      cleanupToc = null;
 
       const headings = Array.from(document.querySelectorAll('.panel h2'));
       const toc = document.getElementById('page-toc');
@@ -589,9 +594,17 @@ const ogImageUrl = new URL(image ?? derivedOgImage ?? "/img.jpg", Astro.site ?? 
 
       if (headings.length < 2) return;
       const used = new Set();
+      // The TOC label is the heading's text minus any element marked data-toc-ignore
+      // (e.g. the article-count badge on the /knowledge listing's group headings).
+      const tocLabel = (h: Element) => {
+        const clone = h.cloneNode(true) as Element;
+        clone.querySelectorAll('[data-toc-ignore]').forEach((n) => n.remove());
+        return (clone.textContent ?? '').trim();
+      };
       headings.forEach((h, i) => {
+        const label = tocLabel(h);
         if (!h.id) {
-          let slug = h.textContent.trim().toLowerCase()
+          let slug = label.toLowerCase()
             .replace(/[^a-z0-9ก-๙\s-]/g, '')
             .replace(/\s+/g, '-') || `section-${i}`;
           while (used.has(slug)) slug = `${slug}-${i}`;
@@ -600,22 +613,47 @@ const ogImageUrl = new URL(image ?? derivedOgImage ?? "/img.jpg", Astro.site ?? 
         }
         const a = document.createElement('a');
         a.href = `#${h.id}`;
-        a.textContent = h.textContent;
+        a.textContent = label;
         nav.appendChild(a);
       });
       toc.classList.add('has-headings');
 
       const links = Array.from(nav.querySelectorAll('a'));
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          links.forEach((l) => l.classList.remove('active'));
-          const active = nav.querySelector(`a[href="#${entry.target.id}"]`);
-          if (active) active.classList.add('active');
-        });
-      }, { rootMargin: '-15% 0px -70% 0px' });
-      headings.forEach((h) => observer.observe(h));
-      currentObserver = observer;
+      const setActive = (id: string) => {
+        links.forEach((l) => l.classList.toggle('active', l.getAttribute('href') === `#${id}`));
+      };
+      // Highlight the last heading whose top has scrolled at/above the offset line. This
+      // (unlike a narrow detection band) can highlight the very first heading, works when
+      // the content is too short to scroll a lower heading into a band, and doesn't skip
+      // headings. At the bottom of the page the last heading always wins so tail sections
+      // that can't reach the line still activate.
+      const syncActive = () => {
+        const scrollBottom = window.scrollY + window.innerHeight;
+        const atBottom = scrollBottom >= document.documentElement.scrollHeight - 2;
+        let current = headings[0];
+        if (atBottom) {
+          current = headings[headings.length - 1];
+        } else {
+          for (const h of headings) {
+            if (h.getBoundingClientRect().top - TOC_OFFSET <= 1) current = h;
+            else break;
+          }
+        }
+        if (current?.id) setActive(current.id);
+      };
+      // Clicking a link highlights it right away — the smooth scroll settles a moment later
+      // and syncActive confirms the same heading (its scroll-margin-top lands it on the line).
+      links.forEach((l) => l.addEventListener('click', () => {
+        const id = (l.getAttribute('href') ?? '').slice(1);
+        if (id) setActive(id);
+      }));
+      window.addEventListener('scroll', syncActive, { passive: true });
+      window.addEventListener('resize', syncActive, { passive: true });
+      syncActive();
+      cleanupToc = () => {
+        window.removeEventListener('scroll', syncActive);
+        window.removeEventListener('resize', syncActive);
+      };
     }
     document.addEventListener('astro:page-load', buildToc);
   </script>
