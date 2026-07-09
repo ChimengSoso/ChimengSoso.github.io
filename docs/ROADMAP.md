@@ -12,7 +12,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 ---
 
-## 1. [ ] Centralize article dates in `articles.ts` (do this first)
+## 1. [x] Centralize article dates in `articles.ts` (do this first) — `30892e2`
 
 **Why:** Publish/updated dates are currently hand-written Thai strings duplicated across `articles.ts` (`date`), each article page (`<ArticleByline published=... updated=...>` **and** the `updated` Layout prop), plus an ad-hoc `MONTH_ABBR` map in `src/pages/knowledge/index.astro`. Every new article multiplies the drift risk, and nothing machine-readable exists for JSON-LD/RSS (items 2–3).
 
@@ -24,7 +24,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** listing meta rows and article bylines render the exact same strings as before (compare against git HEAD in the preview).
 
-## 2. [x] Article structured data + OG article metadata (needs #1)
+## 2. [x] Article structured data + OG article metadata (needs #1) — `1a3ba2d`
 
 **Why:** Knowledge pages have OG tags but no JSON-LD; the home page already ships a `Person` JSON-LD, articles deserve `BlogPosting` for rich results.
 
@@ -32,13 +32,13 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** build, then run one built article HTML through Google's Rich Results test (or schema.org validator) after deploy; confirm no double-JSON-LD on non-article pages.
 
-## 3. [x] RSS feed (`@astrojs/rss`) — DEPENDENCY, ask first (needs #1)
+## 3. [x] RSS feed (`@astrojs/rss`) — DEPENDENCY, ask first (needs #1) — `e56a696`
 
 **Steps:** add `@astrojs/rss`; new `src/pages/rss.xml.ts` reading published entries from `articles.ts` (title, `desc` as description, `pubDate` from `dateISO`, link = `/knowledge/<href>`); `<link rel="alternate" type="application/rss+xml">` in `Layout.astro` head (and `index.astro` for symmetry); optionally a footer link. Site URL comes from `astro.config.mjs` `site`.
 
 **Verify:** `dist/rss.xml` validates (W3C feed validator), item count = published articles, URLs directory-style with trailing slash.
 
-## 4. [x] Self-host fonts — DEPENDENCY, ask first
+## 4. [x] Self-host fonts — DEPENDENCY, ask first — `6768842`
 
 **Why:** Removes the render-blocking Google Fonts CSS *and* the only remaining third-party data flow (would let the Google Fonts paragraph in the privacy policy be deleted).
 
@@ -46,7 +46,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** in preview, `preview_network` shows zero requests to `fonts.googleapis.com`/`fonts.gstatic.com`; Thai glyphs + tone marks render in Sarabun (check the donate FAB label, which is sensitive to font metrics); `/` ↔ article navigation still swaps instantly.
 
-## 5. [ ] Privacy-friendly analytics — needs an owner decision first
+## 5. [x] Privacy-friendly analytics — needs an owner decision first — `ad1e85a`
 
 **Why:** Owner wants share/traffic stats (see the FB SDK revival notes in CLAUDE.md) without a cookie banner. Options: GoatCounter (free, no cookies), Plausible (paid), Cloudflare Web Analytics (free, needs DNS on CF). Ask the owner which; create the account with them.
 
