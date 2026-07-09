@@ -24,7 +24,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** listing meta rows and article bylines render the exact same strings as before (compare against git HEAD in the preview).
 
-## 2. [ ] Article structured data + OG article metadata (needs #1)
+## 2. [x] Article structured data + OG article metadata (needs #1)
 
 **Why:** Knowledge pages have OG tags but no JSON-LD; the home page already ships a `Person` JSON-LD, articles deserve `BlogPosting` for rich results.
 
@@ -32,7 +32,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** build, then run one built article HTML through Google's Rich Results test (or schema.org validator) after deploy; confirm no double-JSON-LD on non-article pages.
 
-## 3. [ ] RSS feed (`@astrojs/rss`) — DEPENDENCY, ask first (needs #1)
+## 3. [x] RSS feed (`@astrojs/rss`) — DEPENDENCY, ask first (needs #1)
 
 **Steps:** add `@astrojs/rss`; new `src/pages/rss.xml.ts` reading published entries from `articles.ts` (title, `desc` as description, `pubDate` from `dateISO`, link = `/knowledge/<href>`); `<link rel="alternate" type="application/rss+xml">` in `Layout.astro` head (and `index.astro` for symmetry); optionally a footer link. Site URL comes from `astro.config.mjs` `site`.
 
