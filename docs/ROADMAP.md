@@ -38,7 +38,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **Verify:** `dist/rss.xml` validates (W3C feed validator), item count = published articles, URLs directory-style with trailing slash.
 
-## 4. [ ] Self-host fonts — DEPENDENCY, ask first
+## 4. [x] Self-host fonts — DEPENDENCY, ask first
 
 **Why:** Removes the render-blocking Google Fonts CSS *and* the only remaining third-party data flow (would let the Google Fonts paragraph in the privacy policy be deleted).
 
