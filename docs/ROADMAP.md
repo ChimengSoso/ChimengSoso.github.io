@@ -61,3 +61,17 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 - **Related-articles block** beyond prev/next (needs tags richer than the current 3).
 - **Local copy of the Shannon portrait** in claude-intro (currently hotlinks Wikimedia; download to `public/knowledge/` with attribution kept in the caption/references).
 - **FB JS SDK revival** — blocked on Meta business verification; full plan already in CLAUDE.md (ShareButtons section). Do not attempt before the owner confirms verification is approved.
+
+## 7. [ ] Scaling to hundreds/thousands of articles (long-term — nothing to do now)
+
+**Context:** The site is **SSG, not client-side rendering** — every article is prerendered to its own `.html` at build (`build.format: "directory"`) and served as a static file by GitHub Pages. So a reader opening one article never loads the others; **per-page runtime performance is flat regardless of article count**. `<ClientRouter />` only prefetches + swaps DOM on navigation; it does not render the whole site on the client. This item exists so the real (build-time and listing-page) bottlenecks aren't mistaken for a runtime problem later.
+
+**Storage is not the near-term concern.** GitHub Pages soft-caps the *published* site at ~1 GB; a rough estimate is ~150–300 MB per 1,000 articles (HTML ~50 KB/page + one OG PNG ~30–80 KB/page + assets), so published size only gets tight around ~3,000–5,000+ articles. The thing that bloats *first* is **git history from images in `public/knowledge/`** — committed images stay in history even after deletion. Mitigation (adopt as a habit, no code change needed): compress images before commit (WebP/AVIF, resize to display size); only consider an external image host/CDN if per-article imagery gets heavy.
+
+**Actual bottlenecks, in the order they'll bite (all build-time or listing-page, none affect an end reader mid-article):**
+1. **`/knowledge` listing DOM** (~200–300+ articles): every card's HTML lives in one page → large DOM, slower first paint. **Fix = paginate** the listing (or split per-tag into separate pages). This is the first thing that will actually be felt — do this one first when the time comes.
+2. **`npm run build` time**: grows linearly, dominated by OG-image generation (`src/pages/og/[slug].png.ts` rasterises an SVG via sharp per article). **Fix = cache/lazy-gen OG images** so unchanged articles aren't re-rasterised every build.
+3. **`rss.xml`**: one entry per published article in a single file; cap it to the most recent N when it gets large.
+4. **Search/filter** (see the parked "Tag filter or search" note): once scrolling hundreds of cards is impractical, a client-side filter/search over `articles.ts` beats an ever-longer listing.
+
+**When to actually start:** none of this is warranted at the current ~6 articles. Revisit item 1 (pagination) around low-hundreds; the rest as each threshold above is reached.
