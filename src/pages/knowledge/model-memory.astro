@@ -1,0 +1,282 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ArticleByline from '../../components/ArticleByline.astro';
+import { getAdjacentArticles, getArticle } from '../../data/articles';
+import { formatThaiDate } from '../../lib/dates';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('model-memory/');
+const article = getArticle('model-memory/')!;
+const published = formatThaiDate(article.dateISO!);
+const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefined;
+---
+<Layout title="ติดอาวุธให้ Claude ตอนที่ 1: เลือกโมเดล + วางระบบความจำ | หมวดความรู้" description="จ่ายค่าโมเดลแรงมาเต็ม ๆ แต่ใช้เกียร์ 2 ตลอดทาง แถมสอนเท่าไหร่ก็ไม่จำ — บทแรกของซีรีส์ 'ติดอาวุธ' ว่าด้วยการจับคู่โมเดลให้ถูกงาน แล้ววางความจำเป็นชั้น Hot / Cold / learning.md ให้ AI เลิกลืม" prev={prev} next={next} type="article" dateISO={article.dateISO} updatedISO={article.updatedISO} headline={article.title}>
+  <div class="article-head">
+    <div class="breadcrumb"><a href="../">หมวดความรู้</a> / ติดอาวุธให้ Claude (1)</div>
+    <ArticleByline published={published} updated={updated} />
+  </div>
+
+  <span class="tag">Claude Code</span>
+  <h1>ติดอาวุธให้ Claude ตอนที่ 1: เลือกโมเดล + วางระบบความจำ</h1>
+  <p class="subtitle">ซื้อรถแรงมาแล้วแต่ขับเกียร์ 2 ตลอดทาง — หลายคนใช้ Claude แบบนั้นโดยไม่รู้ตัว บทแรกของซีรีส์นี้ขอจูน "ฐาน" สองอย่างก่อน คือเลือกโมเดลให้ถูกงาน แล้ววางระบบความจำให้ AI เลิกลืม</p>
+
+  <p>
+    เคยไหมครับ จ่ายค่าแพ็กเกจ Claude มาเต็ม ๆ ใช้ทุกวัน แต่ลึก ๆ ก็รู้สึกว่า "มันน่าจะได้มากกว่านี้นะ" — บิลค่า token ก็บาน
+    คำตอบก็ยาวเกินจำเป็น สอนอะไรไปเดี๋ยวก็ลืม อาการทั้งหมดนี้เหมือน<strong>ซื้อรถแรงมาแล้วขับเกียร์ 2 ตลอดทาง</strong> —
+    เครื่องแรงอยู่ แต่ของรอบคันยังไม่ได้จูนสักอย่าง
+  </p>
+  <p>
+    ในบทความก่อน ๆ ของซีรีส์นี้ เราคุยกันเรื่อง "วิธีสั่งงาน" AI มาเยอะแล้ว — เขียน prompt ให้ชัด, ให้ AI ซักเราจนสเปกนิ่ง (<a href="../grill-and-loop/"><code>/grill-me</code></a>),
+    กั้นห้อง context ด้วย <a href="../context-pollution/">sub-agent</a>, ส่งไม้ต่อข้ามแชทด้วย <a href="../handoff/"><code>/handoff</code></a>
+    คราวนี้ขอเปลี่ยนมุมมาเล่าเรื่อง<strong>การ "จูนรอบคัน" ให้ตัว Claude เอง</strong> เพราะตัวโมเดลเก่ง ๆ อย่างเดียวยังไม่พอ
+    คนที่ใช้ AI ได้คุ้มที่สุดมักไม่ใช่คนที่พิมพ์เก่งกว่า แต่เป็นคนที่<strong>ตั้งค่ารอบตัวมันได้ถูกจุด</strong>
+  </p>
+  <p>
+    เรื่อง "จูนรอบคัน" นี่มีของให้เล่าเยอะ ผมเลยขอแบ่งเป็น <strong>สองตอน</strong> ตอนแรก (บทนี้) ขอโฟกัสสองเรื่องที่เป็น "ฐาน" ก่อน —
+    <strong>เลือกโมเดลให้ถูกงาน</strong> กับ <strong>วางระบบความจำ</strong> ให้ AI เลิกลืม เพราะสองอย่างนี้ทำให้ Claude คุ้มขึ้นทันทีโดยยังไม่ต้องติดตั้งอะไรเพิ่มเลย
+    ส่วนพวก "ของเสริม" นอกกล่อง (ต่อมือให้คุมเบราว์เซอร์ สแกนช่องโหว่ ลดโทเคน ฯลฯ) ยกไปเล่าใน <a href="../claude-toolbox/">ตอนที่ 2</a>
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">เครดิตวัตถุดิบ</p>
+    <p>
+      ไอเดียหลายอย่างในบทความนี้เรียบเรียงจากที่คนในวงการแชร์กัน — ขอบคุณ<a href="https://www.facebook.com/share/p/1BixYB9gqY/" target="_blank" rel="noopener noreferrer">โพสต์สรุปประสบการณ์ของคุณ Supadej Suthiphongkanasai</a>
+      ที่เล่าเรื่องการเลือกโมเดลและวางระบบความจำไว้ เป็นวัตถุดิบตั้งต้น ผมเอามาตรวจสอบ เรียบเรียงใหม่ และเสริมข้อมูลปัจจุบันให้อีกที
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>อาวุธ 1 — เลือกโมเดลให้ถูกงาน</h2>
+  <p>
+    Claude มีหลายรุ่น เรียงจากเบาไปหนักคร่าว ๆ คือ <strong>Haiku</strong> (เร็ว/ถูก)<span class="arw">➔</span><strong>Sonnet</strong> (สมดุล)<span class="arw">➔</span><strong>Opus</strong> (แรง/ฉลาด เอาไว้งานหนัก)<span class="arw">➔</span><strong>Fable</strong> (แรงสุด/แพงสุด — ราคาราว 2 เท่าของ Opus เก็บไว้เฉพาะงานยาว ๆ ยาก ๆ ที่ Opus เอาไม่ค่อยอยู่จริง ๆ)
+    ความเข้าใจผิดที่พบบ่อยคือ "ก็เลือกตัวแรงสุดไว้ก่อนสิ ดีที่สุดนี่นา" — ซึ่งเปลืองทั้งเงินและเวลาโดยไม่จำเป็น
+    เหมือนจ้างสถาปนิกมานั่งถ่ายเอกสาร มันทำได้แหละ แต่มันเกินตัวงาน
+  </p>
+  <p>
+    หัวใจคือ<strong>จับคู่ "ชนิดงาน" กับ "รุ่นโมเดล"</strong> ให้พอดี งานยิ่ง "กลไก" (<i>mechanical</i> — ทำตามขั้นตอนตายตัว ไม่ต้องใช้วิจารณญาณ) และตัดสินใจน้อย ยิ่งใช้รุ่นเล็กได้
+    งานยิ่งต้องคิดลึก ตัดสินใจเยอะ หรือเดิมพันสูง (เช่นตรวจงานคนอื่น) ค่อยขยับขึ้นรุ่นใหญ่
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพจับคู่ชนิดงานกับรุ่นโมเดล สามระดับ ระดับล่างงานกลไกเช่นค้นหา ดึงข้อมูล crawl ใช้ Haiku เพราะเร็วและถูก ระดับกลางงานหลักเช่นเขียนโค้ด เขียนข้อความ สรุป ใช้ Sonnet ระดับบนงานคิดหนักเช่นวางแผน ตรวจทาน แก้บั๊กยาก ใช้ Opus หรือ Fable ลูกศรด้านข้างบอกว่ายิ่งขึ้นบนยิ่งฉลาดแต่แพงและช้ากว่า" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="tb-up" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+      <!-- axis -->
+      <line x1="34" y1="222" x2="34" y2="26" stroke="#4d72a9" stroke-width="2.5" marker-end="url(#tb-up)"/>
+      <text x="24" y="20" font-size="11" fill="#5a6a85" text-anchor="middle">ฉลาดขึ้น</text>
+      <text x="24" y="238" font-size="11" fill="#5a6a85" text-anchor="middle">ถูก/เร็ว</text>
+
+      <!-- tier: Haiku -->
+      <rect x="60" y="170" width="620" height="52" rx="12" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="86" y="192" font-size="15" font-weight="700" fill="#294266">Haiku</text>
+      <text x="86" y="211" font-size="11" fill="#7a869a">เร็ว &amp; ถูกสุด</text>
+      <text x="230" y="192" font-size="13" fill="#3a5680">ค้นหา · ดึง/แปลงข้อมูล · crawl เว็บ · จัดรูปแบบ · งานซ้ำ ๆ ที่ตัดสินใจน้อย</text>
+      <text x="230" y="211" font-size="11.5" fill="#7a869a">งาน "แรงงาน" ที่ผลลัพธ์ตายตัว — จ่ายแพงไปก็ไม่ได้ดีขึ้น</text>
+
+      <!-- tier: Sonnet -->
+      <rect x="60" y="106" width="620" height="52" rx="12" fill="#e8f0fb" stroke="#a9c6f2" stroke-width="1.5"/>
+      <text x="86" y="128" font-size="15" font-weight="700" fill="#294266">Sonnet</text>
+      <text x="86" y="147" font-size="11" fill="#7a869a">ตัวหลักในชีวิตจริง</text>
+      <text x="230" y="128" font-size="13" fill="#3a5680">เขียนโค้ด · เขียน/สรุปข้อความ · รีแฟกเตอร์ทั่วไป</text>
+      <text x="230" y="147" font-size="11.5" fill="#7a869a">งาน 70–80% ในแต่ละวันจบที่รุ่นนี้ คุ้มที่สุด</text>
+
+      <!-- tier: Opus/Fable -->
+      <rect x="60" y="42" width="620" height="52" rx="12" fill="#e3ecfa" stroke="#8fb4ee" stroke-width="1.5"/>
+      <text x="86" y="64" font-size="15" font-weight="700" fill="#294266">Opus ➔ Fable</text>
+      <text x="86" y="83" font-size="11" fill="#7a869a">เก็บไว้ตอนสำคัญ</text>
+      <text x="230" y="64" font-size="13" fill="#3a5680">วางแผนสถาปัตยกรรม · ตรวจทาน · แก้บั๊กยาก · เป็นที่ปรึกษา</text>
+      <text x="230" y="83" font-size="11.5" fill="#7a869a">งาน "คิดพลาดแล้วเสียหาย" — Opus เอาอยู่เกือบหมด, Fable (แพงกว่า ~2 เท่า) ไว้งานยาก/ยาวสุด</text>
+    </svg>
+    <figcaption>ยิ่งงานกลไกยิ่งลงรุ่นเล็กได้ ยิ่งงานเดิมพันสูงยิ่งขยับขึ้นรุ่นใหญ่ — เป้าหมายคือ "พอดีงาน" ไม่ใช่ "แรงสุดไว้ก่อน"</figcaption>
+  </figure>
+
+  <p>
+    เคล็ดที่กำลังฮิตในช่วงนี้คือ <strong>"ให้คนละรุ่นทำกับตรวจ"</strong> — ใช้ Sonnet ลุยเขียนโค้ดหรือร่างเนื้อหาให้เสร็จก่อน
+    แล้วค่อยสลับไปให้รุ่นแรงกว่า (Opus หรือ Fable) มาสวมบทบาท "หัวหน้าที่พิถีพิถัน" คอยตรวจทาน หาช่องโหว่ หรือรีวิว
+    ข้อดีคือมุมมองที่มาตรวจเป็นคนละหัว ไม่ใช่ตัวที่เพิ่งเขียนมาปกป้องงานตัวเอง มักเจอจุดพลาดที่ตัวเขียนมองข้าม
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">โยงกับของเดิม</p>
+    <p>
+      หลักการนี้ต่อยอดกับเรื่อง <a href="../context-pollution/">sub-agent</a> ได้ตรง ๆ — เวลาแตกงานให้ sub-agent
+      คุณกำหนดโมเดลของแต่ละตัวแยกกันได้ (ช่อง <code>model</code> ในไฟล์ agent) เช่นให้ตัวที่ไป "ค้นและอ่านโค้ด" ใช้ Haiku
+      ส่วนตัวที่ "ตัดสินใจสถาปัตยกรรม" ใช้ Opus แค่นี้ก็คุมต้นทุนได้อีกชั้นโดยไม่ต้องทำเอง ในหน้าแชทก็สลับสด ๆ ได้ด้วยคำสั่ง <code>/model</code>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>อาวุธ 2 — วางระบบความจำ Hot / Cold / learning.md</h2>
+  <p>
+    "สอน AI เท่าไหร่มันก็ไม่จำ" เป็นเสียงบ่นที่ได้ยินบ่อย ปัญหาส่วนหนึ่งอยู่ที่ <strong>memory</strong> (ความจำระยะยาวที่โหลดเข้ามาทุกครั้งที่เริ่มงานใหม่)
+    ถูกใช้ผิดวิธี หลายคนสั่งให้จำโน่นจำนี่ปนกันมั่วไปหมด จนพอเปิดงานใหม่ทีเดียว memory ก็บวมกินพื้นที่ context ไปเยอะแล้วตั้งแต่ยังไม่ทันสั่งอะไร
+    (ทำไม context เต็มแล้วถึงแย่ อ่านได้ในบทความ <a href="../context-pollution/">Context Pollution</a>)
+  </p>
+  <p>
+    ทางที่เป็นระบบกว่าคือ<strong>แยกความจำเป็นชั้น ๆ</strong> แบ่งเป็น <strong>Hot</strong> (อ่านว่า <strong>"ฮอต"</strong> แปลว่า <strong>"ร้อน"</strong>) กับ <strong>Cold</strong> (อ่านว่า <strong>"โคลด์"</strong> แปลว่า <strong>"เย็น"</strong>)
+    — คู่คำนี้ยืมมาจากวงการจัดเก็บข้อมูล ที่แยกข้อมูล "ร้อน" ที่ถูกเรียกใช้บ่อยไว้ใกล้มือ กับข้อมูล "เย็น" ที่นาน ๆ แตะทีไว้ในคลังลึก ๆ ที่ถูกกว่า
+  </p>
+  <div class="card">
+    <ul>
+      <li>
+        <strong>Hot Memory (ความจำร้อน)</strong> — ของที่ใช้ "เฉพาะงานรอบนี้" เป็นความจำต่อโปรเจกต์ (per-project)
+        เหมือนสมองที่เพิ่งเคลียร์ให้โฟกัสงานตรงหน้าอย่างเดียว ไม่แบกเรื่องโปรเจกต์อื่นมาให้รก
+      </li>
+      <li>
+        <strong>Cold Memory (ความจำเย็น)</strong> — คลังระยะยาวที่เก็บทุกอย่างแบบละเอียด รวมถึง log ว่าวัน ๆ ทำอะไรกับโปรเจกต์ไหน
+        เหมือนสมุดจดที่ไม่ได้เปิดตลอด แต่เปิดค้นได้เมื่อต้องการ — ทำงานก็คิดในสมอง (Hot) ไป พอต้องการรายละเอียดค่อยเปิดสมุด (Cold) ไม่ต้องเทสมุดทั้งเล่มใส่หัวตลอดเวลา
+      </li>
+    </ul>
+  </div>
+  <p>
+    หลายคนใช้แอปจดโน้ตอย่าง Obsidian เป็น Cold Memory เพราะมันเก็บเป็นไฟล์ Markdown ธรรมดาในเครื่องเรา ให้ AI อ่าน-เขียนได้ตรง ๆ แล้วยัง backup ขึ้น cloud ได้ด้วย
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 232" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพระบบความจำสามส่วน กล่องซ้าย Hot Memory คือความจำร้อนต่อโปรเจกต์ที่โหลดตอนเริ่มงานเพื่อโฟกัส กล่องขวา Cold Memory คือคลังระยะยาวใน Obsidian ที่เปิดค้นเมื่อต้องการ มีลูกศรสองทางระหว่างกันคือจบงานแล้วสรุปลง Cold และดึงรายละเอียดจาก Cold มาใช้ ด้านล่างมีแถบ learning.md คือบันทึกบทเรียนความผิดพลาดที่อ่านก่อนเริ่มทุกครั้ง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="tb-a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+      <!-- hot -->
+      <rect x="34" y="30" width="286" height="104" rx="14" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="177" y="58" font-size="15" font-weight="700" fill="#b23b3b" text-anchor="middle">Hot Memory</text>
+      <text x="177" y="80" font-size="12" fill="#8f3030" text-anchor="middle">ความจำร้อน · ต่อโปรเจกต์</text>
+      <text x="177" y="102" font-size="11.5" fill="#5a6a85" text-anchor="middle">โหลดตอนเริ่มงาน เพื่อโฟกัส</text>
+      <text x="177" y="120" font-size="11.5" fill="#5a6a85" text-anchor="middle">งานเดียว ไม่แบกเรื่องอื่น</text>
+
+      <!-- cold -->
+      <rect x="400" y="30" width="286" height="104" rx="14" fill="#ecf3fc" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="543" y="58" font-size="15" font-weight="700" fill="#294266" text-anchor="middle">Cold Memory</text>
+      <text x="543" y="80" font-size="12" fill="#3a5680" text-anchor="middle">คลังระยะยาว · Obsidian</text>
+      <text x="543" y="102" font-size="11.5" fill="#5a6a85" text-anchor="middle">เก็บละเอียด + log งานทุกวัน</text>
+      <text x="543" y="120" font-size="11.5" fill="#5a6a85" text-anchor="middle">เปิดค้นเมื่อต้องการ</text>
+
+      <!-- arrows between -->
+      <text x="360" y="66" font-size="11" fill="#5a6a85" text-anchor="middle">จบงาน➔สรุปลง</text>
+      <line x1="322" y1="72" x2="398" y2="72" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tb-a2)"/>
+      <text x="360" y="104" font-size="11" fill="#5a6a85" text-anchor="middle">ดึงรายละเอียด</text>
+      <line x1="398" y1="110" x2="322" y2="110" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tb-a2)"/>
+
+      <!-- learning.md -->
+      <rect x="34" y="160" width="652" height="52" rx="12" fill="#fff7e6" stroke="#e6b422" stroke-width="1.5"/>
+      <text x="60" y="182" font-size="15" font-weight="700" fill="#8a6a12">learning.md</text>
+      <text x="60" y="201" font-size="11.5" fill="#8a6a12">บันทึก "พลาดตรงไหน แก้ยังไง" — ตั้งให้อ่านก่อนเริ่มทุกครั้ง เพื่อไม่พลาดซ้ำ</text>
+    </svg>
+    <figcaption>Hot = สมองโฟกัสงานนี้ · Cold = สมุดจดระยะยาว · learning.md = สมุดบันทึกบทเรียน คนละหน้าที่กัน อย่าเอามากองรวมกัน</figcaption>
+  </figure>
+
+  <h2 class="step">ไฟล์ learning.md — ให้ AI จำ "บทเรียน" ไม่ใช่แค่ "ข้อมูล"</h2>
+  <p>
+    ส่วนที่ผมชอบที่สุดในแนวคิดนี้คือไฟล์เล็ก ๆ ชื่อ <code>learning.md</code> วิธีใช้คือเขียนกติกาไว้ใน <code>CLAUDE.md</code> ของทุกโปรเจกต์ว่า
+    <strong>"ถ้าทำอะไรพลาดแล้วแก้ได้แล้ว ให้จดความผิดพลาดนั้น + วิธีแก้ ลงไฟล์นี้ด้วย และให้อ่านไฟล์นี้ทุกครั้งก่อนเริ่มงาน"</strong>
+    ผลคือ AI จะค่อย ๆ สะสม "บทเรียน" ของมันเอง แล้วไม่เดินลงหลุมเดิมซ้ำ ๆ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">คนใช้ Claude Code น่าจะคุ้น</p>
+    <p>
+      ไอเดีย <code>learning.md</code> ก็คือญาติสนิทของหัวข้อ "Gotchas learned the hard way" ที่หลายคนเขียนไว้ท้าย <code>CLAUDE.md</code> นั่นเอง —
+      บทเรียนที่ควรจดก็แบบ "เคยเผลอให้ AI แก้ไฟล์ที่ระบบสร้างให้อัตโนมัติ พอสั่ง build ทีงานที่แก้หายเกลี้ยง เลยจดไว้ว่าห้ามแตะไฟล์ในโฟลเดอร์ที่ถูก generate เอง"
+      ต่างกันแค่จะแยกเป็นไฟล์ <code>learning.md</code> หรือรวมไว้ใน <code>CLAUDE.md</code> เลยก็ได้ตามถนัด
+    </p>
+  </div>
+  <p>
+    และเพราะ Cold Memory เก็บเป็นไฟล์ในเครื่อง ข้อดีที่ตามมาคือมัน <strong>backup ได้</strong> — ต่อให้เครื่องพังหรือ session หาย
+    "ประสบการณ์" ที่ AI สั่งสมมากับเราก็ยังอยู่ ยกกลับมาใช้ต่อได้เหมือนเดิม เหมือนย้ายสมองของทีมงานขึ้นที่ปลอดภัยไว้
+  </p>
+
+  <h2 class="step">แล้วลงมือจริงต้องทำอะไร?</h2>
+  <p>
+    คำถามที่ค้างหลังอ่านจบคือ "เข้าใจ concept แล้ว แต่ต้องนั่งสั่งเองทุกครั้งไหม?" — ขอเคลียร์ก่อนว่าสามชั้นนี้เป็น<strong>ไฟล์คนละไฟล์ คนละหน้าที่</strong> ไม่ใช่ยัดรวมไว้ที่เดียว
+    และมี 2 ทางให้เลือก: ใช้ระบบ memory ที่ Claude Code มีในตัว (อัตโนมัติสุด) หรือจัดไฟล์เองแบบมือ (ใช้ได้กับทุก agent และตรงกับที่โพสต์ต้นทางทำ)
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ทางลัด: Claude Code จำให้เองได้แล้ว (auto memory)</p>
+    <p>
+      Claude Code รุ่นใหม่ (ตั้งแต่ v2.1.59) มีระบบ <strong>auto memory</strong> ที่ทำงานใกล้เคียงแนวคิด Hot/Cold นี้แบบสำเร็จรูป — มันจดสิ่งที่เรียนรู้ (คำสั่ง build, แพตเทิร์น, บทเรียน) ลงไฟล์ในเครื่องให้เอง
+      โดยมีไฟล์สารบัญ <code>MEMORY.md</code> ที่โหลดตอนเริ่มงาน (เฉพาะส่วนหัว) ส่วนรายละเอียดแตกเป็นไฟล์ย่อยที่เปิดอ่าน<strong>เฉพาะตอนต้องใช้</strong> — ก็คือภาพ Hot (สารบัญ) / Cold (ไฟล์ย่อย on-demand) นั่นเอง
+      การกระทำเหลือแค่พิมพ์ <code>/memory</code> เพื่อดู/เปิด-ปิด และเวลาอยากให้จำอะไรก็บอก "จำไว้ว่า…" (เปิดใช้เป็นค่าเริ่มต้นอยู่แล้ว)
+    </p>
+  </div>
+  <p>
+    ส่วนถ้าอยากคุมเอง ใช้ agent ที่ไม่มี auto memory หรือทำแบบ tool-agnostic ตามโพสต์ต้นทาง ก็จัด <strong>3 ไฟล์แยก</strong> ตามนี้:
+  </p>
+  <p><strong>สเต็ป 1 (Hot) — <code>CLAUDE.md</code> ต่อโปรเจกต์ จัดให้ผอม</strong> ไฟล์นี้ Claude Code auto-load ทุก session อยู่แล้ว หน้าที่เราคือกันไม่ให้มันบวม เก็บเฉพาะเรื่องของโปรเจกต์นี้</p>
+  <p><strong>สเต็ป 2 (learning.md) — เป็นไฟล์แยก แล้ว "เชื่อม" ให้โหลดจริง</strong> จุดที่คนมักพลาดคือแค่เขียนใน <code>CLAUDE.md</code> ว่า "ให้อ่าน learning.md" ซึ่งเป็นแค่คำเตือน ไม่การันตีว่าจะอ่าน — วิธีที่ชัวร์กว่าคือใช้ <strong>import</strong> ที่ Claude Code รองรับ: ใส่บรรทัด <code>@learning.md</code> ใน <code>CLAUDE.md</code> มันจะดึงไฟล์เข้า context ตอนเริ่มงานจริง ๆ แล้วเขียนกติกาการจดกำกับไว้ด้วย</p>
+  <CodeBlock lang="markdown" title="ใน CLAUDE.md — import ไฟล์บทเรียน + วางกติกา" code={`# ...ส่วนอื่น ๆ ของ CLAUDE.md...
+
+# ดึง learning.md เข้ามาทุกครั้งที่เริ่มงาน
+# (อย่าใส่ backtick คร่อม \`@learning.md\` ไม่งั้นมันจะกลายเป็นข้อความเฉย ๆ ไม่ import)
+@learning.md
+
+## กติกาการจดบทเรียน
+- เมื่อแก้บั๊ก/ปัญหาที่ "ไม่ตรงไปตรงมา" สำเร็จ ให้ต่อท้าย learning.md หนึ่งย่อหน้า:
+  (1) อาการ (2) สาเหตุจริง (3) วิธีแก้ (4) วิธีกันไม่ให้เกิดซ้ำ
+- เขียนกระชับ ต่อท้ายเท่านั้น อย่าลบบทเรียนเก่า`} />
+  <p>(อีกทางที่ได้ผลพอกันคือวางไฟล์ไว้ใน <code>.claude/rules/</code> ซึ่ง Claude Code โหลดให้อัตโนมัติทั้งไฟล์ทุก session — เลือกอย่างใดอย่างหนึ่ง ไม่ต้องทำทั้งคู่)</p>
+  <p><strong>สเต็ป 3 (Cold) — คลังระยะยาว (เช่น Obsidian) ปล่อยเป็น on-demand</strong> ชั้นนี้<strong>อย่า import</strong> เข้า <code>CLAUDE.md</code> เพราะจะลาก context ให้บวมทุกครั้งที่เปิดงาน — ตั้งใจให้มันเปิดเฉพาะตอนต้องใช้: จบงานใหญ่ค่อยสั่ง "สรุปลง vault ที่ <code>&lt;path&gt;</code>" กลับมาทำต่อค่อยสั่ง "อ่าน <code>&lt;path&gt;</code> ก่อน" ถ้าอยากให้ดึงเองอัตโนมัติต้องต่อด้วย hook หรือ MCP ของ Obsidian</p>
+  <div class="callout callout-note">
+    <p class="callout-label">สรุปว่าต้อง manual แค่ไหน</p>
+    <p>
+      <strong>Hot</strong> (<code>CLAUDE.md</code>) auto-load อยู่แล้ว แค่จัดให้ผอม · <strong>learning.md</strong> เชื่อมด้วย <code>@import</code> หรือ <code>.claude/rules/</code> ครั้งเดียวจบ แล้วอ่าน/จดเองตามกติกา ·
+      <strong>Cold</strong> ยังต้องสั่งเป็นครั้งคราว (จนกว่าจะต่อ hook/MCP) — หรือถ้าขี้เกียจตั้งเอง เปิด <strong>auto memory</strong> ในตัวก็ครอบเกือบทั้งหมดให้อัตโนมัติ
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว (ตอนที่ 1)</h2>
+  <p>
+    ก่อนจะไปหา "ของเสริม" ให้จูนสองอย่างที่เป็นฐานก่อน — <strong>เลือกโมเดลให้พอดีงาน (ไม่ใช่แรงสุดไว้ก่อน) แล้วจัดความจำเป็นชั้น Hot / Cold / learning.md</strong>
+    แค่นี้ Claude ก็ทำงานคุ้มขึ้นเยอะ ทั้งประหยัดเงินและ<strong>เลิกลืมสิ่งที่เราสอน</strong> โดยยังไม่ต้องติดตั้งอะไรเพิ่มเลยสักตัว
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">อ่านต่อ ตอนที่ 2</p>
+    <p>
+      พอฐานแน่นแล้ว <a href="../claude-toolbox/">ตอนที่ 2: ของเสริมนอกกล่องที่ควรมี</a> จะพาไปต่อ "มือ-เท้า" ให้ Claude —
+      คุมเบราว์เซอร์ด้วย Playwright MCP, สแกนช่องโหว่ด้วย Trivy, ลดโทเคนด้วย Caveman/Ponytail และจัดสายพานงานทั้งเส้นด้วยชุดสกิลของ Matt Pocock
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง</p>
+  <ol class="references">
+    <li>
+      <a href="https://www.facebook.com/share/p/1BixYB9gqY/" target="_blank" rel="noopener noreferrer">โพสต์สรุปเทคนิคใช้ Claude (agent harness, Hot/Cold memory, learning.md, การเลือกโมเดล)</a>
+      — Supadej Suthiphongkanasai, Facebook, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">"Create custom subagents (การตั้งค่า model ต่อ sub-agent)"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/memory" target="_blank" rel="noopener noreferrer">"Manage Claude's memory (ลำดับชั้น CLAUDE.md, การ import ด้วย @path, auto memory)"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
