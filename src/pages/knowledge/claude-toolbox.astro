@@ -1,0 +1,587 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ArticleByline from '../../components/ArticleByline.astro';
+import { getAdjacentArticles, getArticle } from '../../data/articles';
+import { formatThaiDate } from '../../lib/dates';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('claude-toolbox/');
+const article = getArticle('claude-toolbox/')!;
+const published = formatThaiDate(article.dateISO!);
+const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefined;
+---
+<Layout title="ติดอาวุธให้ Claude: เลือกโมเดล จัดความจำ และของเสริมที่ควรมี | หมวดความรู้" description="แค่โมเดลเก่งอย่างเดียวไม่พอ — เลือกโมเดลให้ถูกงาน วางระบบความจำแบบ Hot กับ Cold แล้วเสริมด้วยเครื่องมือที่คนใช้จริงเขาแอบเสริมกัน" prev={prev} next={next} type="article" dateISO={article.dateISO} updatedISO={article.updatedISO} headline={article.title}>
+  <div class="article-head">
+    <div class="breadcrumb"><a href="../">หมวดความรู้</a> / ติดอาวุธให้ Claude</div>
+    <ArticleByline published={published} updated={updated} />
+  </div>
+
+  <span class="tag">Claude Code</span>
+  <h1>ติดอาวุธให้ Claude: เลือกโมเดล จัดความจำ และของเสริมที่ควรมี</h1>
+  <p class="subtitle">ซื้อรถแรงมาแล้วแต่ขับเกียร์ 2 ตลอดทาง — หลายคนใช้ Claude แบบนั้นโดยไม่รู้ตัว บทความนี้รวม "ของเสริม" ที่คนใช้จริงเขาแอบติดกัน ตั้งแต่การเลือกโมเดลให้ถูกงาน ระบบความจำ ไปจนถึงเครื่องมือเสริมนอกกล่อง</p>
+
+  <p>
+    เคยไหมครับ จ่ายค่าแพ็กเกจ Claude มาเต็ม ๆ ใช้ทุกวัน แต่ลึก ๆ ก็รู้สึกว่า "มันน่าจะได้มากกว่านี้นะ" — บิลค่า token ก็บาน
+    คำตอบก็ยาวเกินจำเป็น สอนอะไรไปเดี๋ยวก็ลืม แถมโค้ดที่ได้บางทีก็เขียนเผื่อซะเวอร์จนต้องมานั่งรื้อ อาการทั้งหมดนี้เหมือน<strong>ซื้อรถแรงมาแล้วขับเกียร์ 2 ตลอดทาง</strong> —
+    เครื่องแรงอยู่ แต่ของรอบคันยังไม่ได้จูนสักอย่าง
+  </p>
+  <p>
+    ในบทความก่อน ๆ ของซีรีส์นี้ เราคุยกันเรื่อง "วิธีสั่งงาน" AI มาเยอะแล้ว — เขียน prompt ให้ชัด, ให้ AI ซักเราจนสเปกนิ่ง (<a href="../grill-and-loop/"><code>/grill-me</code></a>),
+    กั้นห้อง context ด้วย <a href="../context-pollution/">sub-agent</a>, ส่งไม้ต่อข้ามแชทด้วย <a href="../handoff/"><code>/handoff</code></a>
+    คราวนี้ขอเปลี่ยนมุมมาเล่าเรื่อง<strong>"ของ" ที่เอามาติดตั้งเสริม</strong>กันบ้าง เพราะตัวโมเดลเก่ง ๆ อย่างเดียวยังไม่พอ
+    คนที่ใช้ AI ได้คุ้มที่สุดมักไม่ใช่คนที่พิมพ์เก่งกว่า แต่เป็นคนที่<strong>ประกอบเครื่องมือรอบตัวมันได้ถูกจุด</strong>
+  </p>
+  <p>
+    ก่อนจะไปดูของ ขอปูภาพให้ตรงกันนิดนึง สองปีก่อนเราใช้ AI แบบ "สมอง + ตา + หู + ปาก" — มันคิดเก่ง อ่านเก่ง คุยเก่ง
+    แต่ไม่มี "มือ-เท้า" ให้ลงมือทำอะไรจริง ๆ ยุคนี้เปลี่ยนไป เพราะมีสิ่งที่เรียกว่า <strong>agent harness</strong>
+    (<strong>harness</strong> อ่านว่า <strong>"ฮาร์เนส"</strong> แปลว่า <strong>"สายรัด/เครื่องพันตัว"</strong> — คำเดียวกับสายรัดนิรภัยตอนปีนเขา
+    หรือเครื่องเทียมม้าลากรถ เขายืมภาพ "โครงที่สวมเข้ากับตัว แล้วต่อของใช้งานเข้าไป" มาเรียกชั้นที่หุ้มโมเดลไว้แล้วยื่นเครื่องมือให้มันหยิบใช้)
+    เจ้า harness นี่แหละที่ใส่มือ-เท้าให้ AI จนมันเปิดไฟล์ รันคำสั่ง ต่อ service ภายนอกได้เอง — Claude Code กับ Claude Cowork ก็คือ harness คนละแบบ
+    (รายละเอียดว่าแต่ละตัวคืออะไร <a href="../claude-intro/">บทความแรก</a> เล่าไว้แล้ว บทความนี้จะโฟกัสที่ "แล้วเราติดอะไรเสริมมันได้บ้าง")
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">เครดิตวัตถุดิบ</p>
+    <p>
+      ไอเดียหลายอย่างในบทความนี้เรียบเรียงจากที่คนในวงการแชร์กัน — ขอบคุณโพสต์สรุปประสบการณ์ของคุณ Supadej Suthiphongkanasai
+      และคำแนะนำเรื่องเครื่องมือ CLI จากรุ่นพี่ในทีม เป็นวัตถุดิบตั้งต้น ผมเอามาตรวจสอบ เรียบเรียงใหม่ และเสริมข้อมูลปัจจุบันให้อีกที
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>อาวุธ 1 — เลือกโมเดลให้ถูกงาน</h2>
+  <p>
+    Claude มีหลายรุ่น เรียงจากเบาไปหนักคร่าว ๆ คือ <strong>Haiku</strong> (เร็ว/ถูก) → <strong>Sonnet</strong> (สมดุล) → <strong>Opus</strong> และ <strong>Fable</strong> (แรงสุด/แพงสุด)
+    ความเข้าใจผิดที่พบบ่อยคือ "ก็เลือกตัวแรงสุดไว้ก่อนสิ ดีที่สุดนี่นา" — ซึ่งเปลืองทั้งเงินและเวลาโดยไม่จำเป็น
+    เหมือนจ้างสถาปนิกมานั่งถ่ายเอกสาร มันทำได้แหละ แต่มันเกินตัวงาน
+  </p>
+  <p>
+    หัวใจคือ<strong>จับคู่ "ชนิดงาน" กับ "รุ่นโมเดล"</strong> ให้พอดี งานยิ่ง "กลไก" (<i>mechanical</i> — ทำตามขั้นตอนตายตัว ไม่ต้องใช้วิจารณญาณ) และตัดสินใจน้อย ยิ่งใช้รุ่นเล็กได้
+    งานยิ่งต้องคิดลึก ตัดสินใจเยอะ หรือเดิมพันสูง (เช่นตรวจงานคนอื่น) ค่อยขยับขึ้นรุ่นใหญ่
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพจับคู่ชนิดงานกับรุ่นโมเดล สามระดับ ระดับล่างงานกลไกเช่นค้นหา ดึงข้อมูล crawl ใช้ Haiku เพราะเร็วและถูก ระดับกลางงานหลักเช่นเขียนโค้ด เขียนข้อความ สรุป ใช้ Sonnet ระดับบนงานคิดหนักเช่นวางแผน ตรวจทาน แก้บั๊กยาก ใช้ Opus หรือ Fable ลูกศรด้านข้างบอกว่ายิ่งขึ้นบนยิ่งฉลาดแต่แพงและช้ากว่า" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="tb-up" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+      <!-- axis -->
+      <line x1="34" y1="222" x2="34" y2="26" stroke="#4d72a9" stroke-width="2.5" marker-end="url(#tb-up)"/>
+      <text x="24" y="20" font-size="11" fill="#5a6a85" text-anchor="middle">ฉลาดขึ้น</text>
+      <text x="24" y="238" font-size="11" fill="#5a6a85" text-anchor="middle">ถูก/เร็ว</text>
+
+      <!-- tier: Haiku -->
+      <rect x="60" y="170" width="620" height="52" rx="12" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="86" y="192" font-size="15" font-weight="700" fill="#294266">Haiku</text>
+      <text x="86" y="211" font-size="11" fill="#7a869a">เร็ว &amp; ถูกสุด</text>
+      <text x="230" y="192" font-size="13" fill="#3a5680">ค้นหา · ดึง/แปลงข้อมูล · crawl เว็บ · จัดรูปแบบ · งานซ้ำ ๆ ที่ตัดสินใจน้อย</text>
+      <text x="230" y="211" font-size="11.5" fill="#7a869a">งาน "แรงงาน" ที่ผลลัพธ์ตายตัว — จ่ายแพงไปก็ไม่ได้ดีขึ้น</text>
+
+      <!-- tier: Sonnet -->
+      <rect x="60" y="106" width="620" height="52" rx="12" fill="#e8f0fb" stroke="#a9c6f2" stroke-width="1.5"/>
+      <text x="86" y="128" font-size="15" font-weight="700" fill="#294266">Sonnet</text>
+      <text x="86" y="147" font-size="11" fill="#7a869a">ตัวหลักในชีวิตจริง</text>
+      <text x="230" y="128" font-size="13" fill="#3a5680">เขียนโค้ด · เขียน/สรุปข้อความ · รีแฟกเตอร์ทั่วไป</text>
+      <text x="230" y="147" font-size="11.5" fill="#7a869a">งาน 70–80% ในแต่ละวันจบที่รุ่นนี้ คุ้มที่สุด</text>
+
+      <!-- tier: Opus/Fable -->
+      <rect x="60" y="42" width="620" height="52" rx="12" fill="#e3ecfa" stroke="#8fb4ee" stroke-width="1.5"/>
+      <text x="86" y="64" font-size="15" font-weight="700" fill="#294266">Opus / Fable</text>
+      <text x="86" y="83" font-size="11" fill="#7a869a">เก็บไว้ตอนสำคัญ</text>
+      <text x="230" y="64" font-size="13" fill="#3a5680">วางแผนสถาปัตยกรรม · ตรวจทาน · แก้บั๊กยาก · เป็นที่ปรึกษา</text>
+      <text x="230" y="83" font-size="11.5" fill="#7a869a">งานที่ "คิดพลาดแล้วเสียหาย" — ยอมจ่ายแพงเพื่อความชัวร์</text>
+    </svg>
+    <figcaption>ยิ่งงานกลไกยิ่งลงรุ่นเล็กได้ ยิ่งงานเดิมพันสูงยิ่งขยับขึ้นรุ่นใหญ่ — เป้าหมายคือ "พอดีงาน" ไม่ใช่ "แรงสุดไว้ก่อน"</figcaption>
+  </figure>
+
+  <p>
+    เคล็ดที่กำลังฮิตในช่วงนี้คือ <strong>"ให้คนละรุ่นทำกับตรวจ"</strong> — ใช้ Sonnet ลุยเขียนโค้ดหรือร่างเนื้อหาให้เสร็จก่อน
+    แล้วค่อยสลับไปให้รุ่นแรงกว่า (Opus หรือ Fable) มาสวมบทบาท "หัวหน้าที่พิถีพิถัน" คอยตรวจทาน หาช่องโหว่ หรือรีวิว
+    ข้อดีคือมุมมองที่มาตรวจเป็นคนละหัว ไม่ใช่ตัวที่เพิ่งเขียนมาปกป้องงานตัวเอง มักเจอจุดพลาดที่ตัวเขียนมองข้าม
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">โยงกับของเดิม</p>
+    <p>
+      หลักการนี้ต่อยอดกับเรื่อง <a href="../context-pollution/">sub-agent</a> ได้ตรง ๆ — เวลาแตกงานให้ sub-agent
+      คุณกำหนดโมเดลของแต่ละตัวแยกกันได้ (ช่อง <code>model</code> ในไฟล์ agent) เช่นให้ตัวที่ไป "ค้นและอ่านโค้ด" ใช้ Haiku
+      ส่วนตัวที่ "ตัดสินใจสถาปัตยกรรม" ใช้ Opus แค่นี้ก็คุมต้นทุนได้อีกชั้นโดยไม่ต้องทำเอง ในหน้าแชทก็สลับสด ๆ ได้ด้วยคำสั่ง <code>/model</code>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>อาวุธ 2 — วางระบบความจำ Hot / Cold / learning.md</h2>
+  <p>
+    "สอน AI เท่าไหร่มันก็ไม่จำ" เป็นเสียงบ่นที่ได้ยินบ่อย ปัญหาส่วนหนึ่งอยู่ที่ <strong>memory</strong> (ความจำระยะยาวที่โหลดเข้ามาทุกครั้งที่เริ่มงานใหม่)
+    ถูกใช้ผิดวิธี หลายคนสั่งให้จำโน่นจำนี่ปนกันมั่วไปหมด จนพอเปิดงานใหม่ทีเดียว memory ก็บวมกินพื้นที่ context ไปเยอะแล้วตั้งแต่ยังไม่ทันสั่งอะไร
+    (ทำไม context เต็มแล้วถึงแย่ อ่านได้ในบทความ <a href="../context-pollution/">Context Pollution</a>)
+  </p>
+  <p>
+    ทางที่เป็นระบบกว่าคือ<strong>แยกความจำเป็นชั้น ๆ</strong> แบ่งเป็น <strong>Hot</strong> (อ่านว่า <strong>"ฮอต"</strong> แปลว่า <strong>"ร้อน"</strong>) กับ <strong>Cold</strong> (อ่านว่า <strong>"โคลด์"</strong> แปลว่า <strong>"เย็น"</strong>)
+    — คู่คำนี้ยืมมาจากวงการจัดเก็บข้อมูล ที่แยกข้อมูล "ร้อน" ที่ถูกเรียกใช้บ่อยไว้ใกล้มือ กับข้อมูล "เย็น" ที่นาน ๆ แตะทีไว้ในคลังลึก ๆ ที่ถูกกว่า
+  </p>
+  <div class="card">
+    <ul>
+      <li>
+        <strong>Hot Memory (ความจำร้อน)</strong> — ของที่ใช้ "เฉพาะงานรอบนี้" เป็นความจำต่อโปรเจกต์ (per-project)
+        เหมือนสมองที่เพิ่งเคลียร์ให้โฟกัสงานตรงหน้าอย่างเดียว ไม่แบกเรื่องโปรเจกต์อื่นมาให้รก
+      </li>
+      <li>
+        <strong>Cold Memory (ความจำเย็น)</strong> — คลังระยะยาวที่เก็บทุกอย่างแบบละเอียด รวมถึง log ว่าวัน ๆ ทำอะไรกับโปรเจกต์ไหน
+        เหมือนสมุดจดที่ไม่ได้เปิดตลอด แต่เปิดค้นได้เมื่อต้องการ — ทำงานก็คิดในสมอง (Hot) ไป พอต้องการรายละเอียดค่อยเปิดสมุด (Cold) ไม่ต้องเทสมุดทั้งเล่มใส่หัวตลอดเวลา
+      </li>
+    </ul>
+  </div>
+  <p>
+    หลายคนใช้แอปจดโน้ตอย่าง Obsidian เป็น Cold Memory เพราะมันเก็บเป็นไฟล์ Markdown ธรรมดาในเครื่องเรา ให้ AI อ่าน-เขียนได้ตรง ๆ แล้วยัง backup ขึ้น cloud ได้ด้วย
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 232" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพระบบความจำสามส่วน กล่องซ้าย Hot Memory คือความจำร้อนต่อโปรเจกต์ที่โหลดตอนเริ่มงานเพื่อโฟกัส กล่องขวา Cold Memory คือคลังระยะยาวใน Obsidian ที่เปิดค้นเมื่อต้องการ มีลูกศรสองทางระหว่างกันคือจบงานแล้วสรุปลง Cold และดึงรายละเอียดจาก Cold มาใช้ ด้านล่างมีแถบ learning.md คือบันทึกบทเรียนความผิดพลาดที่อ่านก่อนเริ่มทุกครั้ง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="tb-a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+      <!-- hot -->
+      <rect x="34" y="30" width="286" height="104" rx="14" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="177" y="58" font-size="15" font-weight="700" fill="#b23b3b" text-anchor="middle">Hot Memory</text>
+      <text x="177" y="80" font-size="12" fill="#8f3030" text-anchor="middle">ความจำร้อน · ต่อโปรเจกต์</text>
+      <text x="177" y="102" font-size="11.5" fill="#5a6a85" text-anchor="middle">โหลดตอนเริ่มงาน เพื่อโฟกัส</text>
+      <text x="177" y="120" font-size="11.5" fill="#5a6a85" text-anchor="middle">งานเดียว ไม่แบกเรื่องอื่น</text>
+
+      <!-- cold -->
+      <rect x="400" y="30" width="286" height="104" rx="14" fill="#ecf3fc" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="543" y="58" font-size="15" font-weight="700" fill="#294266" text-anchor="middle">Cold Memory</text>
+      <text x="543" y="80" font-size="12" fill="#3a5680" text-anchor="middle">คลังระยะยาว · Obsidian</text>
+      <text x="543" y="102" font-size="11.5" fill="#5a6a85" text-anchor="middle">เก็บละเอียด + log งานทุกวัน</text>
+      <text x="543" y="120" font-size="11.5" fill="#5a6a85" text-anchor="middle">เปิดค้นเมื่อต้องการ</text>
+
+      <!-- arrows between -->
+      <text x="360" y="66" font-size="10.5" fill="#5a6a85" text-anchor="middle">จบงาน→สรุปลง</text>
+      <line x1="322" y1="72" x2="398" y2="72" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tb-a2)"/>
+      <text x="360" y="104" font-size="10.5" fill="#5a6a85" text-anchor="middle">ดึงรายละเอียด</text>
+      <line x1="398" y1="110" x2="322" y2="110" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tb-a2)"/>
+
+      <!-- learning.md -->
+      <rect x="34" y="160" width="652" height="52" rx="12" fill="#fff7e6" stroke="#e6b422" stroke-width="1.5"/>
+      <text x="60" y="182" font-size="14" font-weight="700" fill="#8a6a12">learning.md</text>
+      <text x="60" y="201" font-size="11.5" fill="#8a6a12">บันทึก "พลาดตรงไหน แก้ยังไง" — ตั้งให้อ่านก่อนเริ่มทุกครั้ง เพื่อไม่พลาดซ้ำ</text>
+    </svg>
+    <figcaption>Hot = สมองโฟกัสงานนี้ · Cold = สมุดจดระยะยาว · learning.md = สมุดบันทึกบทเรียน คนละหน้าที่กัน อย่าเอามากองรวมกัน</figcaption>
+  </figure>
+
+  <h2 class="step">ไฟล์ learning.md — ให้ AI จำ "บทเรียน" ไม่ใช่แค่ "ข้อมูล"</h2>
+  <p>
+    ส่วนที่ผมชอบที่สุดในแนวคิดนี้คือไฟล์เล็ก ๆ ชื่อ <code>learning.md</code> วิธีใช้คือเขียนกติกาไว้ใน <code>CLAUDE.md</code> ของทุกโปรเจกต์ว่า
+    <strong>"ถ้าทำอะไรพลาดแล้วแก้ได้แล้ว ให้จดความผิดพลาดนั้น + วิธีแก้ ลงไฟล์นี้ด้วย และให้อ่านไฟล์นี้ทุกครั้งก่อนเริ่มงาน"</strong>
+    ผลคือ AI จะค่อย ๆ สะสม "บทเรียน" ของมันเอง แล้วไม่เดินลงหลุมเดิมซ้ำ ๆ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">คนใช้ Claude Code น่าจะคุ้น</p>
+    <p>
+      ไอเดีย <code>learning.md</code> ก็คือญาติสนิทของหัวข้อ "Gotchas learned the hard way" ที่หลายคนเขียนไว้ท้าย <code>CLAUDE.md</code> นั่นเอง —
+      บทเรียนที่ควรจดก็แบบ "เคยเผลอให้ AI แก้ไฟล์ที่ระบบสร้างให้อัตโนมัติ พอสั่ง build ทีงานที่แก้หายเกลี้ยง เลยจดไว้ว่าห้ามแตะไฟล์ในโฟลเดอร์ที่ถูก generate เอง"
+      ต่างกันแค่จะแยกเป็นไฟล์ <code>learning.md</code> หรือรวมไว้ใน <code>CLAUDE.md</code> เลยก็ได้ตามถนัด
+    </p>
+  </div>
+  <p>
+    และเพราะ Cold Memory เก็บเป็นไฟล์ในเครื่อง ข้อดีที่ตามมาคือมัน <strong>backup ได้</strong> — ต่อให้เครื่องพังหรือ session หาย
+    "ประสบการณ์" ที่ AI สั่งสมมากับเราก็ยังอยู่ ยกกลับมาใช้ต่อได้เหมือนเดิม เหมือนย้ายสมองของทีมงานขึ้นที่ปลอดภัยไว้
+  </p>
+
+  <hr class="divider" />
+
+  <h2>อาวุธ 3 — เครื่องมือเสริมที่คนใช้จริงเขาแอบเสริมกัน</h2>
+  <p>
+    ทีนี้ถึงพระเอกของบทความ — "ของเสริม" นอกกล่องที่เอามาต่อกับ Claude Code ได้ ผมคัดมา 4 ตัวที่ตอบโจทย์คนละด้าน
+    ตั้งแต่ต่อมือให้คุมเบราว์เซอร์ ยันปรับนิสัยการตอบให้ประหยัดขึ้น
+  </p>
+
+  <h2 class="step">Playwright MCP — ต่อมือให้ Claude คุมเบราว์เซอร์</h2>
+  <p>
+    <strong>Playwright</strong> (อ่านว่า <strong>"เพลย์ไรต์"</strong> แปลตรงตัวว่า "นักเขียนบทละคร") คือเครื่องมือคุมเบราว์เซอร์อัตโนมัติของ Microsoft
+    ฝั่งที่เอามาต่อกับ AI ได้มีให้เลือก<strong>สองทาง</strong>: <code>playwright-cli</code> (ให้ AI สั่งงานผ่านบรรทัดคำสั่ง) กับ <strong>Playwright MCP</strong> (ต่อเป็นชุดเครื่องมือให้ AI หยิบใช้เอง)
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">เลือกทางไหนดี</p>
+    <p>
+      สองทางนี้<strong>ยังใช้ได้ทั้งคู่ ไม่มีตัวไหนถูกเลิกทำ</strong> — ฝั่ง Playwright เองแนะนำว่า CLI เหมาะกับสายประหยัด context
+      (ไม่ต้องยัดรายการ tool ทั้งชุดเข้า context ของ AI) ส่วน <strong>MCP เหมาะกับงานโต้ตอบต่อเนื่อง</strong>ที่ AI ต้องจำสถานะเบราว์เซอร์ข้ามหลายจังหวะ
+      เช่นเปิดหน้า → กรอกฟอร์ม → เช็คผล → วนแก้ ซึ่งเป็นงานแบบที่เรากำลังจะทำในหัวข้อนี้พอดี บทความนี้เลยพาไปทาง MCP
+    </p>
+  </div>
+  <p>
+    <strong>MCP</strong> (Model Context Protocol) คือมาตรฐานที่ให้ Claude ต่อกับเครื่องมือภายนอกเป็นระบบ
+    (<a href="../claude-code-workflow/">บทความ Claude Code workflow</a> อธิบายเรื่อง MCP ไว้ละเอียดแล้ว) พอต่อ Playwright ผ่าน MCP
+    Claude จะได้ "มือ" ชุดใหม่ทันที — เปิดหน้าเว็บ คลิก พิมพ์ กรอกฟอร์ม แคปหน้าจอ อ่าน console ได้เอง เหมาะมากเวลาให้มันทดสอบเว็บที่เพิ่งเขียน
+    แล้วรายงานกลับว่าปุ่มไหนพัง ติดตั้งด้วยคำสั่งเดียว
+  </p>
+  <CodeBlock lang="bash" title="ต่อ Playwright MCP เข้ากับ Claude Code" code={`# ติดตั้งเบราว์เซอร์ก่อนหนึ่งครั้ง
+npx playwright install
+
+# ลงทะเบียน MCP server เข้ากับ Claude Code
+claude mcp add playwright -s user -- npx @playwright/mcp@latest`} />
+
+  <p>ต่อเสร็จแล้ว วงจรการใช้ก็เหมือนมี "น้องเทสเตอร์" ในทีม: <strong>เราสั่งเป็นภาษาคน → Claude ลงมือกดจริงในเบราว์เซอร์ → รายงานกลับ + แคปหน้าจอ → เจอบั๊กก็แก้แล้วทดสอบซ้ำ</strong></p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงจรการใช้ Playwright MCP เริ่มจากเราสั่งเป็นภาษาคนเช่นทดสอบหน้า login ส่งให้ Claude ที่ต่อ Playwright MCP ซึ่งจะเลือกเรียกเครื่องมือเอง ทั้ง navigate type click และ screenshot ไปสั่งงานเบราว์เซอร์จริงให้เปิดหน้า กรอกฟอร์ม คลิกปุ่ม และแคปหน้าจอ แล้วผลลัพธ์กับภาพหน้าจอวนกลับมาให้ Claude สรุป ถ้าเจอบั๊กก็แก้โค้ดแล้วทดสอบซ้ำ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="pw-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- box 1: you -->
+      <rect x="24" y="40" width="188" height="94" rx="14" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="118" y="72" font-size="14" font-weight="700" fill="#294266" text-anchor="middle">คุณสั่งภาษาคน</text>
+      <text x="118" y="95" font-size="11" fill="#7a869a" text-anchor="middle">"ทดสอบหน้า login</text>
+      <text x="118" y="112" font-size="11" fill="#7a869a" text-anchor="middle">ให้หน่อย"</text>
+
+      <!-- arrow 1 -->
+      <text x="238" y="80" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">สั่งงาน</text>
+      <line x1="212" y1="87" x2="264" y2="87" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#pw-arr)"/>
+
+      <!-- box 2: claude + mcp -->
+      <rect x="266" y="40" width="188" height="94" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.5"/>
+      <text x="360" y="60" font-size="13.5" font-weight="700" fill="#8a6a12" text-anchor="middle">Claude + Playwright MCP</text>
+      <text x="360" y="82" font-size="11" fill="#5a6a85" text-anchor="middle">เลือกเรียก tool เอง:</text>
+      <text x="360" y="100" font-size="11" fill="#5a6a85" text-anchor="middle">navigate · type · click</text>
+      <text x="360" y="118" font-size="11" fill="#5a6a85" text-anchor="middle">screenshot · อ่าน console</text>
+
+      <!-- arrow 2 -->
+      <text x="480" y="80" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">ลงมือ</text>
+      <line x1="454" y1="87" x2="506" y2="87" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#pw-arr)"/>
+
+      <!-- box 3: real browser -->
+      <rect x="508" y="40" width="188" height="94" rx="14" fill="#e6f4ec" stroke="#8fc7a6" stroke-width="1.5"/>
+      <text x="602" y="72" font-size="14" font-weight="700" fill="#1f7a45" text-anchor="middle">เบราว์เซอร์จริง</text>
+      <text x="602" y="95" font-size="11" fill="#5a6a85" text-anchor="middle">เปิดหน้า · กรอกฟอร์ม</text>
+      <text x="602" y="112" font-size="11" fill="#5a6a85" text-anchor="middle">คลิกปุ่ม · แคปหน้าจอ</text>
+
+      <!-- loop back -->
+      <path d="M602 134 L602 206 L118 206 L118 138" fill="none" stroke="#4d72a9" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#pw-arr)"/>
+      <text x="360" y="228" font-size="12" font-weight="700" fill="#3a5680" text-anchor="middle">ผล + ภาพหน้าจอกลับมาหา Claude → เจอบั๊กก็แก้โค้ดแล้วทดสอบซ้ำ</text>
+    </svg>
+    <figcaption>เราคุยกับ Claude เป็นภาษาคน ส่วน Playwright MCP คือ "มือ" ที่ไปกดจริงในเบราว์เซอร์ แล้วส่งผล + ภาพกลับมา</figcaption>
+  </figure>
+
+  <p><strong>สเต็ป 1 — เช็คว่าต่อติดแล้ว</strong> พิมพ์ <code>/mcp</code> ในเซสชัน ควรเห็น <code>playwright</code> อยู่ในลิสต์และสถานะเป็น connected</p>
+  <p><strong>สเต็ป 2 — สั่งงานเป็นภาษาคน</strong> ไม่ต้องบอกทีละ tool ว่า "navigate ไปหน้านี้ แล้ว click ปุ่มนี้" — บอกเป้าหมายรวม ๆ แล้ว Claude จะเลือกเรียก tool เองตามลำดับ ลองสมมติว่าเราเพิ่งเขียนหน้า login แล้วอยากเช็คว่ามัน validate ถูกไหม:</p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code (ตัวอย่างของเล่น: ทดสอบหน้า login)" code={`ช่วยเปิด http://localhost:3000/login ให้หน่อย
+กรอกอีเมล "test@bad" กับรหัสผ่านมั่ว ๆ แล้วกดปุ่ม "เข้าสู่ระบบ"
+เช็คว่ามันขึ้นข้อความ error สีแดงไหม ถ้าไม่ขึ้นบอกด้วยว่าพังตรงไหน แล้วแคปหน้าจอมาให้ดู`} />
+  <p><strong>สเต็ป 3 — อ่านผล แล้ววนแก้ในเทิร์นเดียว</strong> Claude จะเล่าให้ฟังว่ากดอะไรไปบ้างและเจออะไร พร้อมภาพหน้าจอ ถ้ามันบอกว่า "กรอกผิดแล้วไม่ขึ้น error เลย" เราสั่งต่อได้ทันทีว่า "งั้นแก้ให้มัน validate ด้วย แล้วทดสอบซ้ำ" — ครบวงจรตรวจ-แก้-ตรวจในที่เดียว</p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ทำไมถึงเข้าคู่กับ Claude ได้ดี</p>
+    <p>
+      เพราะมันเปลี่ยน Claude จากคนที่ "เขียนโค้ดแล้วเดาว่าน่าจะทำงาน" เป็นคนที่ "เปิดดูของจริงแล้วยืนยัน" ได้เอง —
+      เหมือนติดตากับมือให้มันไปทดสอบเว็บแทนเรา โดยเราไม่ต้องนั่งคลิกเองทีละหน้า
+    </p>
+  </div>
+
+  <h2 class="step">Trivy — ยามเฝ้าช่องโหว่ความปลอดภัย</h2>
+  <p>
+    <strong>Trivy</strong> (อ่านว่า <strong>"ทริวี่"</strong>) คือเครื่องมือสแกนความปลอดภัยแบบโอเพนซอร์สจากค่าย Aqua Security
+    มันไล่หา <strong>ช่องโหว่ (vulnerability)</strong> ในไลบรารีที่โปรเจกต์เราใช้, การตั้งค่าที่ไม่ปลอดภัย, ไปจนถึง <strong>secret</strong> (พวก API key หรือรหัสผ่าน) ที่เผลอหลุดเข้าไปในโค้ด
+    จุดเด่นคือเป็นไฟล์เดียวจบ ไม่ต้องตั้งฐานข้อมูลอะไรให้ยุ่งยาก สั่งทีเดียวมันโหลดฐานข้อมูลช่องโหว่มาเทียบให้เอง
+  </p>
+  <p>ลงง่ายสุดคือผ่าน package manager ที่เครื่องมีอยู่แล้ว เลือกบรรทัดตามระบบของคุณ (หรือถ้าไม่อยากลงในเครื่อง จะรันผ่าน Docker เลยก็ได้):</p>
+  <CodeBlock lang="bash" title="ติดตั้ง Trivy" code={`# macOS หรือ Linux — ผ่าน Homebrew
+brew install trivy
+
+# Windows — ผ่าน winget
+winget install -e --id AquaSecurity.Trivy
+
+# ไม่อยากติดตั้ง? รันผ่าน Docker ได้เลย
+docker run --rm -v "$PWD:/src" aquasec/trivy fs /src`} />
+  <p>ติดตั้งเสร็จแล้ว วิธีใช้จริงเป็นวงจรสั้น ๆ: <strong>สแกน → อ่านผล → ให้ Claude แก้ → สแกนซ้ำจนเคลียร์</strong></p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 244" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงจรการใช้ Trivy เริ่มจากโปรเจกต์ของเรา ส่งให้ Trivy สแกน ได้รายงานผลที่แยกเป็นช่องโหว่ CVE ในไลบรารี secret ที่หลุด และ config ที่เสี่ยง จากนั้นส่งรายงานให้ Claude อ่านแล้วไล่แก้ทีละจุด ทั้งอัปเดตไลบรารี ถอด secret และปรับ config แล้ววนกลับไปสแกนซ้ำจนไม่เหลือช่องโหว่ระดับ HIGH หรือ CRITICAL" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="tv-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- box 1: project -->
+      <rect x="24" y="40" width="188" height="94" rx="14" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="118" y="80" font-size="14" font-weight="700" fill="#294266" text-anchor="middle">โปรเจกต์ของเรา</text>
+      <text x="118" y="102" font-size="11" fill="#7a869a" text-anchor="middle">โค้ด + ไลบรารีที่ใช้</text>
+
+      <!-- arrow 1 -->
+      <text x="238" y="80" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">สแกน</text>
+      <line x1="212" y1="87" x2="264" y2="87" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tv-arr)"/>
+
+      <!-- box 2: report -->
+      <rect x="266" y="40" width="188" height="94" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.5"/>
+      <text x="360" y="62" font-size="14" font-weight="700" fill="#8a6a12" text-anchor="middle">รายงานผล</text>
+      <text x="282" y="84" font-size="11" fill="#5a6a85">• ช่องโหว่ (CVE) ในไลบรารี</text>
+      <text x="282" y="102" font-size="11" fill="#5a6a85">• secret ที่เผลอหลุด</text>
+      <text x="282" y="120" font-size="11" fill="#5a6a85">• config ที่เสี่ยง</text>
+
+      <!-- arrow 2 -->
+      <text x="480" y="80" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">อ่านผล</text>
+      <line x1="454" y1="87" x2="506" y2="87" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#tv-arr)"/>
+
+      <!-- box 3: claude fixes -->
+      <rect x="508" y="40" width="188" height="94" rx="14" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="602" y="72" font-size="14" font-weight="700" fill="#b23b3b" text-anchor="middle">Claude ไล่แก้</text>
+      <text x="602" y="94" font-size="10.5" fill="#5a6a85" text-anchor="middle">อัป lib · ถอด secret</text>
+      <text x="602" y="111" font-size="10.5" fill="#5a6a85" text-anchor="middle">· ปรับ config ที่เสี่ยง</text>
+
+      <!-- loop back -->
+      <path d="M602 134 L602 206 L118 206 L118 138" fill="none" stroke="#4d72a9" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#tv-arr)"/>
+      <text x="360" y="228" font-size="12" font-weight="700" fill="#3a5680" text-anchor="middle">สแกนซ้ำจนไม่เหลือช่องโหว่ระดับ HIGH / CRITICAL</text>
+    </svg>
+    <figcaption>Trivy เป็นคน "ตรวจเจอ" ส่วน Claude เป็นคน "ไล่แก้" แล้ววนสแกนซ้ำจนสะอาด — ได้ทั้งเครื่องสแกนมืออาชีพและช่างซ่อมในทีมเดียว</figcaption>
+  </figure>
+
+  <p><strong>สเต็ป 1 — สแกนทั้งโปรเจกต์</strong> ชี้ Trivy ไปที่โฟลเดอร์โปรเจกต์ มันจะไล่อ่านไฟล์ล็อกของ dependency, ไฟล์ตั้งค่า และเนื้อโค้ด แล้วสรุปเป็นตาราง จัดระดับความรุนแรงตั้งแต่ LOW ไปจนถึง CRITICAL</p>
+  <CodeBlock lang="bash" title="สแกนทั้งโฟลเดอร์" code={`trivy fs .`} />
+  <p>ตัวอย่างสิ่งที่มันฟ้องกลับมา (ของเล่น): สมมติโปรเจกต์เราใช้ <code>lodash</code> เวอร์ชันเก่า Trivy จะขึ้นบรรทัดประมาณว่า —</p>
+  <CodeBlock lang="text" title="ตัวอย่างผลจาก Trivy" code={`lodash  4.17.20  →  CVE-2021-23337  [HIGH]  Prototype Pollution
+                     แก้: อัปเป็น 4.17.21`} />
+  <p><strong>สเต็ป 2 — กรองเอาเฉพาะที่ต้องรีบแก้</strong> ครั้งแรกที่สแกนมักเจอเป็นร้อยบรรทัดจนท้อ ตัดให้เหลือเฉพาะระดับอันตรายก่อน จะได้โฟกัสถูกจุด</p>
+  <CodeBlock lang="bash" title="เอาเฉพาะระดับ HIGH กับ CRITICAL" code={`trivy fs --severity HIGH,CRITICAL .`} />
+  <p><strong>สเต็ป 3 — เซฟผลเป็นไฟล์ แล้วให้ Claude ไล่แก้</strong> สั่ง Trivy พ่นผลเป็น JSON ลงไฟล์ แล้วบอก Claude ให้อ่านไฟล์นั้นแล้วแก้ทีละจุด — วิธีนี้ดีกว่าก๊อปผลยาว ๆ ยัดใส่แชทเอง (ไม่เปลือง context ด้วย)</p>
+  <CodeBlock lang="bash" title="เซฟผลเป็นไฟล์ JSON" code={`trivy fs -f json -o trivy-report.json .`} />
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code" code={`อ่าน trivy-report.json แล้วไล่แก้เฉพาะช่องโหว่ระดับ HIGH กับ CRITICAL ทีละจุด บอกด้วยว่าแต่ละจุดแก้อะไรและทำไม`} />
+  <p><strong>สเต็ป 4 — สแกนซ้ำ</strong> พอ Claude แก้เสร็จก็รัน <code>trivy fs .</code> ใหม่ ถ้าไม่เหลือ HIGH/CRITICAL แล้วก็ถือว่าผ่านรอบนั้น วนแบบนี้จนสะอาด</p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ใช้คู่กับ /security-review</p>
+    <p>
+      Claude Code เองก็มีสกิล <code>/security-review</code> ในตัวสำหรับรีวิวโค้ดที่เพิ่งแก้ ใช้เสริมกันได้ —
+      <strong>Trivy เก่งเรื่องสแกน dependency/config/secret ที่ "รู้จักช่องโหว่อยู่แล้ว"</strong> ส่วน <strong><code>/security-review</code> เก่งเรื่องหาช่องโหว่เชิงตรรกะในโค้ดที่เราเพิ่งเขียนเอง</strong>
+      คนละมุมกัน จับคู่กันแล้วครอบคลุมกว่า
+    </p>
+  </div>
+
+  <h2 class="step">Caveman &amp; Ponytail — คู่หูสายลดพลังงาน</h2>
+  <p>
+    สองตัวนี้เป็น <strong>skill</strong> แบบโอเพนซอร์สฟรี (ชุดคำสั่งเสริมนิสัยให้ agent — ถ้ายังไม่รู้จักว่าสกิลคืออะไร แวะอ่าน <a href="../grill-and-loop/">บทความ <code>/grill-me</code></a> ได้)
+    ที่แนวคิดฮาแต่ได้ผลจริง ทั้งคู่ตั้งใจ "ลด" คนละอย่าง ตัวหนึ่งลดคำพูด อีกตัวลดโค้ด
+  </p>
+  <p>
+    <strong>Caveman</strong> (อ่านว่า <strong>"เคฟแมน"</strong> แปลว่า <strong>"มนุษย์ถ้ำ"</strong>) แก้ปัญหาที่ Claude ชอบตอบยาวสวยหรูเกินจำเป็น
+    ด้วยการสั่งให้มันพูดห้วน ๆ แบบมนุษย์ถ้ำ ตัดคำเชื่อมคำขยายทิ้ง เก็บแต่เนื้อ — แต่จะ<strong>ไม่ยุ่งกับโค้ด คำสั่ง หรือ error</strong> (ส่วนที่ห้ามเพี้ยน)
+    ผลคือประหยัด output token เฉลี่ยราว 65% ผู้เขียนถึงกับตั้งสโลแกนว่า <i>"why use many token when few token do trick"</i> (จะใช้หลายโทเคนทำไม ถ้าน้อยโทเคนก็เอาอยู่)
+    หน้าตาคำตอบก็ประมาณนี้:
+  </p>
+  <CodeBlock lang="text" title="คำตอบปกติ (verbose)" code={`Great question! I've gone ahead and fixed the bug. The issue was that
+the function wasn't handling the null case, so I added a guard clause
+at the top. I also added a couple of tests so it won't regress in the
+future. Let me know if you'd like me to walk through any part!`} />
+  <CodeBlock lang="text" title="คำตอบแบบ Caveman (เนื้อเท่าเดิม)" code={`Bug fixed. Was null case. Added guard + 2 tests. Done.`} />
+  <p>เนื้อความสำคัญเท่ากันเป๊ะ (แก้บั๊ก เพราะเคสค่าว่าง เพิ่ม guard + เทสต์) แต่จำนวนคำต่างกันหลายเท่า — นี่แหละที่มาของการประหยัด output token ราว 65%:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบความยาวคำตอบ แถบบนคือคำตอบปกติยาวเต็มความกว้างคิดเป็นราวร้อยเปอร์เซ็นต์ของ output token แถบล่างคือคำตอบแบบ Caveman สั้นราวสามสิบห้าเปอร์เซ็นต์ ส่วนที่หายไปราวหกสิบห้าเปอร์เซ็นต์คือ output token ที่ประหยัดได้ หมายเหตุว่าลดเฉพาะ output ส่วน input และ reasoning เท่าเดิม" style="font-family:'Sarabun',sans-serif">
+      <text x="20" y="63" font-size="12.5" font-weight="700" fill="#294266">คำตอบปกติ</text>
+      <rect x="190" y="45" width="490" height="30" rx="7" fill="#d3d9e0"/>
+      <text x="202" y="65" font-size="12" fill="#5a6a85">~100% output token</text>
+
+      <text x="20" y="123" font-size="12.5" font-weight="700" fill="#1f7a45">แบบ Caveman</text>
+      <rect x="190" y="105" width="171" height="30" rx="7" fill="#6bbf8a"/>
+      <text x="203" y="125" font-size="12" font-weight="700" fill="#12492b">~35%</text>
+      <rect x="365" y="105" width="315" height="30" rx="7" fill="none" stroke="#9aa6b8" stroke-width="1.3" stroke-dasharray="5 4"/>
+      <text x="522" y="125" font-size="12" font-weight="700" fill="#7a869a" text-anchor="middle">ตัดออก ~65% (ที่ประหยัดได้)</text>
+
+      <text x="190" y="165" font-size="11" fill="#7a869a">* ลดเฉพาะ output token — input กับ reasoning เท่าเดิม</text>
+    </svg>
+    <figcaption>เนื้อความเท่ากัน แต่ Caveman ตัดคำฟุ่มเฟือยทิ้ง เหลือ output แค่ราว 1 ใน 3</figcaption>
+  </figure>
+
+  <p>วิธีใช้ก็ตรงไปตรงมา:</p>
+  <p><strong>สเต็ป 1 — ติดตั้ง</strong> บน Claude Code ลงเป็น plugin ได้ด้วยคำสั่งเดียว (repo ทางการ: <a href="https://github.com/juliusbrussee/caveman" target="_blank" rel="noopener noreferrer">github.com/juliusbrussee/caveman</a> — มีวิธีลงบน agent อื่นและสคริปต์ติดตั้งอัตโนมัติให้ด้วย)</p>
+  <CodeBlock lang="bash" title="ติดตั้ง Caveman บน Claude Code (รันใน terminal)" code={`claude plugin marketplace add JuliusBrussee/caveman && claude plugin install caveman@caveman`} />
+  <p><strong>สเต็ป 2 — ใช้ได้เลยตั้งแต่ข้อความแรก</strong> Caveman วางฮุคไว้ให้ Claude ตอบห้วนอัตโนมัติ ไม่ต้องพิมพ์สั่งซ้ำทุกครั้ง แค่ถามงานตามปกติ คำตอบก็จะกระชับลงเอง (โค้ด/คำสั่ง/error ยังเต็มเหมือนเดิม)</p>
+  <p><strong>สเต็ป 3 — สลับโหมดชั่วคราว</strong> บน Claude Code การเปิด/ปิดไม่ใช่ slash command — แต่<strong>พิมพ์เป็นข้อความธรรมดาในแชท</strong>ได้ตอนไหนก็ได้ อยากให้กลับไปตอบเต็มก็พิมพ์ <code>normal mode</code> แล้วพอจะให้ห้วนอีกครั้งก็พิมพ์ <code>talk like caveman</code></p>
+  <CodeBlock lang="text" title="พิมพ์เป็นข้อความปกติในแชท (ไม่ใช่ /command)" code={`normal mode          ← กลับไปตอบเต็มแบบปกติ
+talk like caveman    ← ให้กลับมาห้วนแบบมนุษย์ถ้ำอีกครั้ง`} />
+  <p><strong>สเต็ป 4 — ดูว่าประหยัดไปเท่าไหร่</strong> มันมีคำสั่งเสริมให้เช็คยอดที่เซฟได้และบีบไฟล์ memory ให้เล็กลง (สองตัวนี้เป็น slash command จริง)</p>
+  <CodeBlock lang="bash" title="คำสั่งเสริมของ Caveman" code={`/caveman-stats      # นับ token ที่ประหยัดได้ แล้วโชว์บน statusline
+/caveman-compress   # เขียนไฟล์ memory (เช่น CLAUDE.md) ให้กระชับลง`} />
+
+  <div class="callout callout-warn">
+    <p class="callout-label">อ่านตัวเล็กก่อนตัดสินใจ</p>
+    <p>
+      Caveman ลดเฉพาะ <strong>output token</strong> (คำที่ AI พ่นออกมา) เท่านั้น ส่วน input กับ reasoning token ไม่ได้ลด
+      แถมตัวสกิลเองยังกินเพิ่ม ~1–1.5k token ต่อเทิร์นด้วย เหมาะกับคนที่คุยเยอะจน output บาน แต่ถ้าอยากได้คำอธิบายเต็ม ๆ ไว้เรียนภาษาอังกฤษจาก Claude ก็สั่งปิดหรือไม่ใช้ก็ได้
+    </p>
+  </div>
+  <p>
+    ส่วน <strong>Ponytail</strong> (อ่านว่า <strong>"โพนีเทล"</strong> แปลว่า <strong>"ผมหางม้า"</strong> — ทรงที่รวบให้เรียบกระชับ เข้ากับสิ่งที่มันทำพอดี)
+    สั่งให้ AI "คิดแบบซีเนียร์ที่ขี้เกียจที่สุดในทีม" ภายใต้คติที่ว่า <i>"โค้ดที่ดีที่สุดคือโค้ดที่คุณไม่ต้องเขียน"</i>
+    ก่อนจะเขียนอะไร มันจะไล่บันไดตัดสินใจลงมาทีละขั้น แล้วหยุดที่ขั้นแรกที่พองาน
+  </p>
+  <div class="card">
+    <ul>
+      <li>ไม่ต้องทำเลยได้ไหม? (หลักการ <strong>YAGNI</strong> — ย่อจาก <i>You Aren't Gonna Need It</i> แปลว่า "เดี๋ยวก็ไม่ได้ใช้หรอก" อย่าเพิ่งสร้างเผื่อ)</li>
+      <li>ใช้ของที่ภาษาโปรแกรมมีให้อยู่แล้ว (stdlib) ได้ไหม?</li>
+      <li>ใช้ความสามารถที่แพลตฟอร์มมีในตัวได้ไหม?</li>
+      <li>ใช้ dependency ที่ลงไว้อยู่แล้วได้ไหม?</li>
+      <li>ถ้าเลี่ยงไม่ได้จริง ๆ ค่อยเขียน — และเขียนให้น้อยที่สุดที่พองาน</li>
+    </ul>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพบันไดตัดสินใจของ Ponytail หกขั้นเรียงจากบนลงล่าง ขั้นหนึ่งไม่ต้องทำเลยตามหลัก YAGNI ขั้นสองใช้ stdlib ของภาษา ขั้นสามใช้ความสามารถที่แพลตฟอร์มมีในตัว ขั้นสี่ใช้ dependency ที่ลงไว้แล้ว ขั้นห้าเขียนเองแบบสั้นที่สุดเช่นหนึ่งบรรทัด ขั้นหกเขียนเต็มเป็นทางเลือกสุดท้าย โดยไล่ลงจากบนแล้วหยุดขั้นแรกที่พองาน ตัวอย่างงานเช็คเลขคู่หยุดที่ขั้นห้า" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="pony-down" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+      <text x="30" y="28" font-size="14" font-weight="700" fill="#131e30">บันไดตัดสินใจของ Ponytail — ไล่ลงจากบน หยุดขั้นแรกที่พองาน</text>
+
+      <line x1="52" y1="52" x2="52" y2="268" stroke="#4d72a9" stroke-width="2.5" marker-end="url(#pony-down)"/>
+
+      <!-- r1 -->
+      <rect x="86" y="46" width="474" height="32" rx="9" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.3"/>
+      <circle cx="104" cy="62" r="10" fill="#4d72a9"/><text x="104" y="66" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+      <text x="126" y="66" font-size="12.5" fill="#294266">ไม่ต้องทำเลยได้ไหม? (YAGNI)</text>
+      <!-- r2 -->
+      <rect x="86" y="86" width="474" height="32" rx="9" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.3"/>
+      <circle cx="104" cy="102" r="10" fill="#4d72a9"/><text x="104" y="106" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+      <text x="126" y="106" font-size="12.5" fill="#294266">ใช้ stdlib ของภาษาได้ไหม?</text>
+      <!-- r3 -->
+      <rect x="86" y="126" width="474" height="32" rx="9" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.3"/>
+      <circle cx="104" cy="142" r="10" fill="#4d72a9"/><text x="104" y="146" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+      <text x="126" y="146" font-size="12.5" fill="#294266">ใช้ของที่แพลตฟอร์มมีในตัวได้ไหม?</text>
+      <!-- r4 -->
+      <rect x="86" y="166" width="474" height="32" rx="9" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.3"/>
+      <circle cx="104" cy="182" r="10" fill="#4d72a9"/><text x="104" y="186" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+      <text x="126" y="186" font-size="12.5" fill="#294266">ใช้ dependency ที่ลงไว้แล้วได้ไหม?</text>
+      <!-- r5 highlight -->
+      <rect x="86" y="206" width="474" height="32" rx="9" fill="#e6f4ec" stroke="#2f9e5c" stroke-width="1.8"/>
+      <circle cx="104" cy="222" r="10" fill="#2f9e5c"/><text x="104" y="226" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+      <text x="126" y="226" font-size="12.5" font-weight="700" fill="#1f7a45">เขียนเองแบบสั้นสุด (เช่น 1 บรรทัด)</text>
+      <text x="572" y="226" font-size="12" font-weight="700" fill="#1f7a45">← หยุด!</text>
+      <!-- r6 grey -->
+      <rect x="86" y="246" width="474" height="32" rx="9" fill="#eceff3" stroke="#d3d9e0" stroke-width="1.3"/>
+      <circle cx="104" cy="262" r="10" fill="#9aa6b8"/><text x="104" y="266" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">6</text>
+      <text x="126" y="266" font-size="12.5" fill="#9aa6b8">เขียนเต็ม ๆ (ทางเลือกสุดท้าย) — ไม่ต้องลงมาถึง</text>
+    </svg>
+    <figcaption>งานง่าย ๆ อย่าง "เช็คเลขคู่" จบตั้งแต่ขั้น 5 — Ponytail คอยเบรกไม่ให้ AI เผลอลงไปเขียนเต็มแบบขั้น 6</figcaption>
+  </figure>
+
+  <p>เห็นภาพชัดสุดตอนลองงานของเล่นง่าย ๆ เช่น "เขียนฟังก์ชันเช็คว่าเลขเป็นเลขคู่ไหม" — AI ที่ไม่ถูกเบรกมักเขียนเผื่อจนเกินงาน (รองรับค่าติดลบ, ทำ cache, ห่อเป็น class) ส่วน Ponytail จะหยุดที่คำตอบที่พอดี:</p>
+  <CodeBlock lang="js" title="ไม่มี Ponytail — เขียนเผื่อเกินงาน" code={`class NumberChecker {
+  constructor(options = {}) {
+    this.allowNegative = options.allowNegative ?? true;
+    this.cache = new Map();
+  }
+  isEven(n) {
+    if (this.cache.has(n)) return this.cache.get(n);
+    const result = Math.abs(n) % 2 === 0;
+    this.cache.set(n, result);
+    return result;
+  }
+}`} />
+  <CodeBlock lang="js" title="มี Ponytail — พอดีงาน" code={`const isEven = (n) => n % 2 === 0;`} />
+
+  <p>
+    ผลที่วัดได้คือโค้ดน้อยลงเฉลี่ยราว 54% ฟังดูน่าใช้ แต่รุ่นพี่ที่แนะนำมาก็เตือนไว้ตรง ๆ ว่า<strong>ระวังโค้ดสั้นเกินจนกลับมาอ่านทีหลังแล้วงง</strong>
+    ความกระชับกับความอ่านง่ายบางทีก็สวนกัน ลองแล้วชั่งเอาเองว่าพอดีตรงไหน
+  </p>
+  <p><strong>วิธีลง</strong> บน Claude Code ก็เป็น plugin เหมือนกัน แต่คราวนี้เป็นคำสั่ง <code>/plugin</code> ที่<strong>พิมพ์ในแชท ไม่ใช่ terminal</strong> — คำสั่งในแชทรับได้ทีละคำสั่ง เลยต่อกันด้วย <code>&amp;&amp;</code> แบบฝั่ง Caveman (ที่ติดตั้งจาก terminal) ไม่ได้ ต้องส่งสองบรรทัดแยกกัน (เพิ่ม marketplace ก่อน แล้วค่อย install) ติดตั้งแล้วปรับความเข้มได้ด้วย <code>/ponytail lite</code> · <code>/ponytail full</code> · <code>/ponytail ultra</code> และปิดด้วย <code>/ponytail off</code> — repo ทางการ: <a href="https://github.com/DietrichGebert/ponytail" target="_blank" rel="noopener noreferrer">github.com/DietrichGebert/ponytail</a></p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude Code (ส่งทีละบรรทัด)" code={`/plugin marketplace add DietrichGebert/ponytail
+/plugin install ponytail@ponytail`} />
+  <div class="callout callout-tip">
+    <p class="callout-label">เกร็ด</p>
+    <p>
+      ปรัชญาของ Ponytail จริง ๆ แล้วใกล้เคียงกับสกิล <code>/simplify</code> ที่คอยไล่หาโอกาสตัดโค้ดให้เรียบง่ายขึ้น —
+      แนวคิด "อย่าเขียนถ้าไม่จำเป็น" เป็นภูมิปัญญาเก่าแก่ของสายซอฟต์แวร์ที่แค่ถูกห่อใหม่ให้ AI ทำตามได้อัตโนมัติเท่านั้นเอง
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>แล้วสกิลสาย grill / handoff ล่ะ?</h2>
+  <p>
+    ในโลกสกิลยังมีตัวที่ต่อยอดจากที่เราเคยเล่าไปแล้วอีก — Matt Pocock (คนเดียวกับที่ทำ <a href="../grill-and-loop/"><code>/grill-me</code></a> และ <a href="../handoff/"><code>/handoff</code></a>)
+    มีสกิลรุ่นพี่ของ grill ชื่อ <strong>grill-with-docs</strong> ที่ต่างตรง<strong>มันเขียนบทสรุปการซักถามลงไฟล์เอกสาร</strong> (เช่น <code>CONTEXT.md</code>) ระหว่างคุยไปด้วย
+    พอ grill เสร็จ บริบทของงานเลยชัดและถูกบันทึกไว้ให้ทั้งเราและ AI เห็นตรงกัน ไม่หลุดประเด็นภายหลัง
+  </p>
+  <p>
+    ส่วนจุดอ่อนหนึ่งของ <a href="../handoff/"><code>/handoff</code></a> — คือบางทีพอ context ใกล้เต็มเราก็ดัน<strong>ลืมสั่ง handoff</strong> เอง
+    เจ้าของโพสต์ต้นทางที่ให้เครดิตไว้ต้นบทความแก้ปัญหานี้ด้วยการ<strong>ทำสกิลของตัวเองชื่อ "handoff-guard"</strong> ที่คอยสั่ง handoff ให้อัตโนมัติเมื่อ context แตะเพดานที่ตั้งไว้
+    (ตัวนี้เป็นของทำเองยังไม่ได้เผยแพร่เป็นสกิลสาธารณะ) ถ้ายังไม่อยากลงมือทำเอง วิธีบ้าน ๆ ที่พอถูไถได้คือหมั่นดู <code>/context</code>
+    แล้วสั่ง <code>/handoff</code> เองก่อน context จะแตะโซนอันตราย (จะลงลึกในอนาคตถ้ามีคนสนใจ — บทความนี้ขอแค่ชี้ทางไว้ก่อน)
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">หลักการเลือกของเสริม</p>
+    <p>
+      ของพวกนี้มีขึ้นทุกวัน อย่าไล่ติดทุกตัวจนรก — เลือกจาก "จุดเจ็บ" ของตัวเองก่อน คุมเบราว์เซอร์ไม่ได้? เอา Playwright MCP
+      กลัวช่องโหว่หลุด? เอา Trivy บิลค่า token บานเพราะคำตอบยาว? ลอง Caveman โค้ดรกเพราะเขียนเกิน? ลอง Ponytail แก้ทีละจุดเจ็บ ไม่ใช่ลงมากองไว้เฉย ๆ
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    คนที่ใช้ Claude ได้คุ้มไม่ใช่คนที่มีโมเดลแรงสุด แต่คือคนที่ <strong>เลือกโมเดลให้พอดีงาน จัดความจำเป็นชั้น ๆ (Hot/Cold/learning.md) แล้วประกอบเครื่องมือรอบตัวให้ถูกจุด</strong> —
+    ตัวโมเดลคือสมอง ส่วนที่เหลือคือมือ เท้า และสมุดจด ที่เราเป็นคนเลือกใส่ให้มันเอง
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง (ค่าตัวเลขเป็นค่าที่ผู้พัฒนาแต่ละเครื่องมือรายงานไว้)</p>
+  <ol class="references">
+    <li>
+      <a href="https://github.com/juliusbrussee/caveman" target="_blank" rel="noopener noreferrer">"caveman — Claude Code skill that cuts tokens by talking like caveman"</a>
+      — Julius Brussee, GitHub, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/DietrichGebert/ponytail" target="_blank" rel="noopener noreferrer">"ponytail — Makes your AI agent think like the laziest senior dev in the room"</a>
+      — Dietrich Gebert, GitHub, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/aquasecurity/trivy" target="_blank" rel="noopener noreferrer">"Trivy — Find vulnerabilities, misconfigurations, secrets, SBOM in containers, Kubernetes, code repositories, clouds and more"</a>
+      — Aqua Security, GitHub, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://playwright.dev/docs/getting-started-mcp" target="_blank" rel="noopener noreferrer">"Playwright MCP"</a>
+      — Playwright Docs, Microsoft, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/microsoft/playwright-cli" target="_blank" rel="noopener noreferrer">"playwright-cli — Playwright CLI vs Playwright MCP"</a>
+      — Microsoft, GitHub (ข้อเปรียบเทียบ CLI กับ MCP ในหัวข้อ README ชื่อเดียวกัน), สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/mattpocock/skills" target="_blank" rel="noopener noreferrer">"mattpocock/skills — handoff, grill-with-docs และสกิลอื่น ๆ"</a>
+      — Matt Pocock, GitHub, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">"Create custom subagents (การตั้งค่า model ต่อ sub-agent)"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 10 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>

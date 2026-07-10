@@ -64,6 +64,15 @@ export const articles: Article[] = [
     soon: false,
   },
   {
+    href: 'claude-toolbox/',
+    tag: 'Claude Code',
+    title: 'ติดอาวุธให้ Claude: เลือกโมเดล จัดความจำ และของเสริมที่ควรมี',
+    desc: 'แค่โมเดลเก่งอย่างเดียวไม่พอ — เลือกโมเดลให้ถูกงาน วางระบบความจำแบบ Hot กับ Cold แล้วเสริมด้วยเครื่องมือที่คนใช้จริงเขาแอบเสริมกัน',
+    dateISO: '2026-07-10',
+    readingMinutes: 11,
+    soon: false,
+  },
+  {
     href: 'ai-taste/',
     tag: 'มุมมอง',
     title: 'ถ้า AI เก่งขนาดนี้ แล้วเราจะอยู่ไปทำไม',
