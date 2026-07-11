@@ -97,8 +97,13 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
   // <svg class="icon-check"> inside the .share-fb anchor, keeping this popup as
   // the fallback. Git history for this file holds the full prior implementation.
   // ---------------------------------------------------------------------------
-  function openSharePopup(sharerUrl: string) {
-    window.open(sharerUrl, 'facebook-share', 'width=580,height=520,menubar=no,toolbar=no,location=no,status=no');
+  function openSharePopup(sharerUrl: string): Window | null {
+    const popup = window.open(sharerUrl, 'facebook-share', 'width=580,height=520,menubar=no,toolbar=no,location=no,status=no');
+    // Sever the reverse handle so the opened page can never navigate this tab
+    // (window.open's feature string has no rel="noopener" equivalent that still
+    // returns the handle we need for the blocked-popup fallback below).
+    if (popup) popup.opener = null;
+    return popup;
   }
 
   // Registered once via astro:page-load (see StarfieldBackground.astro for why) so
@@ -107,11 +112,11 @@ const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComp
     document.querySelectorAll<HTMLAnchorElement>('.share-fb').forEach((btn) => {
       // Open the sharer.php URL as a small popup instead of a full new tab. The
       // window.open must run synchronously inside the click (in-gesture) or the
-      // browser blocks the popup. Falls back to the anchor's default new-tab
-      // navigation if window.open is blocked/returns null.
+      // browser blocks the popup. preventDefault only on success, so a blocked
+      // popup falls back to the anchor's own target="_blank" navigation instead
+      // of the click silently doing nothing.
       btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        openSharePopup(btn.href);
+        if (openSharePopup(btn.href)) e.preventDefault();
       });
     });
 
