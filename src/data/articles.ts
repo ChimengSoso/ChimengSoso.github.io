@@ -39,7 +39,7 @@ export const articles: Article[] = [
   {
     href: 'handoff/',
     tag: 'Claude Code',
-    title: 'ส่งงานต่อข้ามแชทแบบไม่เสีย Context',
+    title: 'ส่งงานต่อข้ามแชทแบบไม่เสีย Context ด้วย /handoff',
     desc: 'พอแชทยาวจน AI เริ่มเอ๋อ อย่าเพิ่งเปิดแชทใหม่แล้วเล่าใหม่ทั้งหมด — สกิล /handoff สรุปงานให้ Agent ตัวใหม่รับช่วงต่อได้ใน 3 ขั้นตอน',
     dateISO: '2026-07-05',
     readingMinutes: 6,
@@ -70,7 +70,7 @@ export const articles: Article[] = [
     desc: 'จ่ายค่าโมเดลแรงมาเต็ม ๆ แต่ใช้เกียร์ 2 ตลอดทาง แถมสอนเท่าไหร่ก็ไม่จำ — จับคู่โมเดลให้ถูกงาน แล้ววางความจำเป็นชั้น Hot / Cold / learning.md ให้ AI เลิกลืม',
     dateISO: '2026-07-11',
     updatedISO: '2026-07-12',
-    readingMinutes: 13,
+    readingMinutes: 15,
     soon: false,
   },
   {
@@ -80,7 +80,7 @@ export const articles: Article[] = [
     desc: 'ตัวโมเดลเก่งอย่างเดียวยังไม่พอ — รวม "ของเสริม" นอกกล่องที่คนใช้จริงแอบติดกัน ตั้งแต่คุมเบราว์เซอร์ สแกนช่องโหว่ ยันสกิลลดโทเคนและจัดสายพานงาน',
     dateISO: '2026-07-11',
     updatedISO: '2026-07-12',
-    readingMinutes: 24,
+    readingMinutes: 21,
     soon: false,
   },
   {
