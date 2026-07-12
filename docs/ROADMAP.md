@@ -56,10 +56,10 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 ## 6. [ ] Parked / later
 
-- **Tag filter or search on `/knowledge`** — revisit at ~10+ articles; premature at 6.
+- **Tag filter or search on `/knowledge`** — revisit at ~10+ articles; premature at 9 (site now has 9 published articles — close to this threshold, flag to owner but no action needed yet).
 - **Dark mode** — large: the whole card design assumes a white surface; needs a full palette pass + `prefers-color-scheme` + the OG cards stay light.
 - **Related-articles block** beyond prev/next (needs tags richer than the current 3).
-- **Local copy of the Shannon portrait** in claude-intro (currently hotlinks Wikimedia; download to `public/knowledge/` with attribution kept in the caption/references).
+- ~~**Local copy of the Shannon portrait** in claude-intro (currently hotlinks Wikimedia; download to `public/knowledge/` with attribution kept in the caption/references).~~ Done — `public/knowledge/claude-shannon.webp`.
 - **FB JS SDK revival** — blocked on Meta business verification; full plan already in CLAUDE.md (ShareButtons section). Do not attempt before the owner confirms verification is approved.
 
 ## 7. [ ] Scaling to hundreds/thousands of articles (long-term — nothing to do now)
@@ -74,4 +74,4 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 3. **`rss.xml`**: one entry per published article in a single file; cap it to the most recent N when it gets large.
 4. **Search/filter** (see the parked "Tag filter or search" note): once scrolling hundreds of cards is impractical, a client-side filter/search over `articles.ts` beats an ever-longer listing.
 
-**When to actually start:** none of this is warranted at the current ~6 articles. Revisit item 1 (pagination) around low-hundreds; the rest as each threshold above is reached.
+**When to actually start:** none of this is warranted at the current ~9 articles. Revisit item 1 (pagination) around low-hundreds; the rest as each threshold above is reached.
