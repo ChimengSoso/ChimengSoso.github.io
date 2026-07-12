@@ -809,9 +809,89 @@ export const gradeOf = (score: number): string =>
 
   <p>
     ปิดท้ายด้วยจุดอ่อนหนึ่งของ <a href="../handoff/"><code>/handoff</code></a> ที่ยังเจอกันบ่อยแม้ไม่ได้ใช้ wayfinder — คือบางทีพอ context ใกล้เต็มเราก็ดัน<strong>ลืมสั่ง handoff</strong> เอง
-    มีนักพัฒนาบางคนแก้ปัญหานี้ด้วยการ<strong>ทำสกิลของตัวเองชื่อ "handoff-guard"</strong> ที่คอยสั่ง handoff ให้อัตโนมัติเมื่อ context แตะเพดานที่ตั้งไว้
-    (ตัวนี้เป็นของทำเองยังไม่ได้เผยแพร่เป็นสกิลสาธารณะ) ถ้ายังไม่อยากลงมือทำเอง วิธีบ้าน ๆ ที่พอถูไถได้คือหมั่นดู <code>/context</code>
-    แล้วสั่ง <code>/handoff</code> เองก่อน context จะแตะโซนอันตราย
+    วิธีบ้าน ๆ ที่พอถูไถได้คือหมั่นดู <code>/context</code> (คำสั่งดูว่า context เหลือที่ว่างเท่าไหร่) แล้วสั่ง <code>/handoff</code> เองก่อนจะแตะโซนอันตราย —
+    แต่ถ้าขี้เกียจคอยจ้อง เราต่อ "ของเสริม" ที่กันลืมให้ตัวเองได้เลย ซึ่งพอดีเป็นตัวอย่างสอนคราฟต์ที่ดีมาก
+  </p>
+
+  <hr class="divider" />
+
+  <h2 class="step">โบนัส: คราฟต์ของเสริมเอง — ประกอบ <code>/context</code> + <code>/handoff</code> เป็น "handoff-guard"</h2>
+  <p>
+    ของเสริมที่ "พอดีจุดเจ็บเรา" ที่สุด บ่อยครั้งคือตัวที่เราต่อเอง — และมันไม่ได้ยากอย่างที่คิด
+    เป้าหมายตรงนี้คือรวมไอเดียของ <code>/context</code> (ดูพื้นที่เหลือ) กับ <code>/handoff</code> (จดส่งไม้ต่อ) ให้กลายเป็นตัวช่วยชื่อ <strong>handoff-guard</strong> ที่กันเราลืม ทำได้ 2 ระดับ ไล่จากง่ายไปออโต้:
+  </p>
+
+  <p><strong>ระดับ 1 — มัดรวมเป็น "สกิล" ที่เราพิมพ์เรียกเอง</strong> สกิลใน Claude Code จริง ๆ ก็คือ<strong>โฟลเดอร์หนึ่งใบที่มีไฟล์ <code>SKILL.md</code></strong> ข้างในมี 2 ส่วน: ส่วนหัว (frontmatter) บอกว่าสกิลนี้ทำอะไร/ใช้ตอนไหน กับเนื้อ markdown ที่เป็นคำสั่งให้ Claude ทำตาม — <strong>ชื่อโฟลเดอร์กลายเป็นชื่อคำสั่งที่เราพิมพ์</strong> (โฟลเดอร์ <code>handoff-guard</code> ก็เรียกด้วย <code>/handoff-guard</code>) เท่านี้ก็ได้สกิลใหม่แล้ว:</p>
+  <CodeBlock lang="markdown" title="~/.claude/skills/handoff-guard/SKILL.md" code={`---
+description: ร่างไฟล์ handoff สรุปสถานะงานปัจจุบัน ใช้ตอนใกล้จบเซสชันยาว ๆ หรือก่อน context จะเต็ม/โดน compact
+---
+
+## สถานะ ณ ตอนนี้
+
+!\`git status --short\`
+!\`git log --oneline -5\`
+
+## หน้าที่
+
+เขียนไฟล์ HANDOFF.md ให้เซสชันถัดไปหยิบทำต่อได้ทันที ครอบ 3 หัวข้อ:
+1. รอบนี้ทำอะไรเสร็จไปแล้ว (อ้างไฟล์/คอมมิตจริงจากด้านบน)
+2. ค้างอะไรอยู่ และสเต็ปถัดไปคืออะไร
+3. กับดัก/ข้อควรระวังที่เจอระหว่างทาง
+เขียนสั้น กระชับ พอให้เปิดเซสชันใหม่แล้วไปต่อได้โดยไม่ต้องเล่าใหม่`} />
+  <p>
+    เกร็ดที่ทำให้มันคมคือบรรทัด <code>!`git ...`</code> ข้างบน — เครื่องหมาย <code>!</code> หน้า backtick สั่งให้ Claude Code <strong>รันคำสั่ง shell นั้นก่อน แล้วเอา "ผลลัพธ์จริง" ยัดแทนที่บรรทัดนั้น</strong> ตั้งแต่ยังไม่ทันส่งให้โมเดลอ่าน (เรียกว่า dynamic context injection) — สกิลเลยได้เห็นสถานะ git ของจริง ไม่ใช่เดาเอา
+    <strong>ข้อจำกัดที่ต้องรู้:</strong> สกิลแบบนี้<strong>ไม่ได้เด้งเองตอน context เต็ม</strong> — เราต้องพิมพ์ <code>/handoff-guard</code> เรียกเอง (หรือปล่อยให้ Claude เรียกให้เมื่อ description ตรงกับสิ่งที่เรากำลังคุย) ถ้าอยากให้ "ออโต้จริง" ต้องขยับไประดับ 2
+  </p>
+
+  <p><strong>ระดับ 2 — ให้มันเด้งเองด้วย hook <code>PreCompact</code></strong> ตัวที่ยิงงานให้อัตโนมัติตาม "เหตุการณ์" คือ <strong>hook</strong> (เคยเล่าไว้ในบท <a href="../claude-code-workflow/">Claude Code workflow</a> พร้อมตัวอย่าง settings.json แล้ว) — ระดับนี้เราต่อเอง <strong>3 สเต็ป</strong> และต้องเข้าใจก่อนว่า hook มัน<strong>รันสคริปต์ ไม่ได้ "พิมพ์ <code>/handoff</code>" ลงในเซสชันให้</strong> เพราะงั้นเราต้องเขียนสคริปต์ที่ทำ handoff แทนขึ้นมาเอง</p>
+
+  <p><strong>สเต็ป 1 — เขียนสคริปต์</strong> วางไฟล์ shell ไว้ที่ <code>.claude/hooks/handoff-guard.sh</code> พอ hook ยิง Claude Code จะโยน JSON ของเซสชัน (มี <code>transcript_path</code> = ที่อยู่ของบทสนทนาทั้งเซสชัน, <code>cwd</code>, ฯลฯ) เข้ามาทาง <strong>stdin</strong> เราก็งัดค่าที่ต้องใช้ออกด้วย <code>jq</code> แล้วเขียนไฟล์ handoff เอง:</p>
+  <CodeBlock lang="bash" title=".claude/hooks/handoff-guard.sh" code={`#!/usr/bin/env bash
+# Claude Code ยิงสคริปต์นี้ก่อน auto-compact แล้วส่ง JSON มาทาง stdin
+
+input=$(cat)                                     # อ่าน JSON ทั้งก้อนจาก stdin
+transcript=$(echo "$input" | jq -r '.transcript_path')
+
+{
+  echo "# HANDOFF — $(date '+%Y-%m-%d %H:%M')"
+  echo
+  echo "## สถานะ git ล่าสุด"
+  git status --short
+  echo
+  echo "## 5 คอมมิตล่าสุด"
+  git log --oneline -5
+  echo
+  echo "## transcript เต็มของเซสชันนี้ (ให้ session ใหม่อ่านต่อ)"
+  echo "$transcript"
+} > HANDOFF.md`} />
+  <p>อันนี้เป็นเวอร์ชันเก็บ snapshot ดิบ ๆ (git + ที่อยู่ transcript) — ถ้าอยากได้<strong>สรุปเป็นภาษาคน</strong> ก็ให้สคริปต์เรียก <code>claude -p</code> (โหมด headless ที่รัน Claude แบบไม่เปิดแชท) มาอ่าน transcript แล้วสรุปลง <code>HANDOFF.md</code> แทนบล็อก <code>git</code> ด้านบนได้เลย</p>
+
+  <p><strong>สเต็ป 2 — ลงทะเบียน hook</strong> ตรงนี้ตอบคำถามที่หลายคนสงสัย: <strong>ต้องเขียน JSON เองไหม? — ใช่ครับ</strong> เมนู <code>/hooks</code> ใน Claude Code <strong>ดูได้อย่างเดียว แก้ไม่ได้</strong> เราต้องเปิดไฟล์ <code>.claude/settings.json</code> ใส่บล็อกนี้เอง (หรือจะบอก Claude ให้เขียนให้ก็ได้) โดยเลือก event เป็น <code>PreCompact</code> — จังหวะที่ Claude Code ยิง<strong>ก่อนบีบอัด context</strong> (ตอน <a href="../context-pollution/">auto-compact ที่ context เกือบเต็ม</a>) — และเลือก <strong>matcher</strong> เองว่าจะให้ทำงานตอนไหน: <code>auto</code> = เฉพาะตอนมันบีบอัดเอง (ที่เราอยากได้), หรือ <code>manual</code> = ตอนเราสั่ง <code>/compact</code> เอง</p>
+  <CodeBlock lang="json" title=".claude/settings.json" code={`{
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          { "type": "command", "command": "\${CLAUDE_PROJECT_DIR}/.claude/hooks/handoff-guard.sh" }
+        ]
+      }
+    ]
+  }
+}`} />
+  <p><strong>สเต็ป 3 — ทำให้สคริปต์รันได้</strong> อย่าลืมเปิดสิทธิ์ execute ให้ไฟล์ ไม่งั้น hook จะยิงแล้วรันไม่ออก:</p>
+  <CodeBlock lang="bash" title="รันครั้งเดียวใน terminal" code={`chmod +x .claude/hooks/handoff-guard.sh`} />
+  <p>
+    ครบสามสเต็ปแล้ววงจรจะเดินเองทั้งหมด: <strong>context เกือบเต็ม<span class="arw">➔</span>Claude Code เตรียม auto-compact<span class="arw">➔</span>ยิง <code>PreCompact</code><span class="arw">➔</span>รัน <code>handoff-guard.sh</code><span class="arw">➔</span>ได้ <code>HANDOFF.md</code> ติดมือ</strong> ก่อนบทสนทนาจะโดนสรุปทิ้ง — เปิดเซสชันใหม่ก็ชี้ให้ Claude อ่าน <code>HANDOFF.md</code> ต่อได้เลย ไม่มีวันลืม handoff อีก
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวังก่อนต่ออะไรที่รันสคริปต์เอง</p>
+    <p>
+      ทั้งสกิลที่มีบรรทัด <code>!`...`</code> และ hook ที่ชี้ไปสคริปต์ <strong>คือโค้ดที่จะรันแทนเราจริง ๆ</strong> — เปิดไฟล์ <code>SKILL.md</code> / สคริปต์ <code>.sh</code> อ่านให้เห็นก่อนว่ามันสั่งอะไร โดยเฉพาะของที่ก๊อปมาจากคนอื่น อย่าเพิ่งวางใจเพราะชื่อฟังดูไม่มีพิษภัย
+    </p>
+  </div>
+  <p>
+    นี่แหละหัวใจของ "ของเสริมนอกกล่อง" ทั้งบท — พอเข้าใจว่า<strong>สกิล (สิ่งที่เราพิมพ์เรียก) กับ hook (สิ่งที่ระบบยิงให้เอง) ต่อกันยังไง</strong> เราก็ประกอบเครื่องมือที่พอดีจุดเจ็บของตัวเองขึ้นมาได้ ไม่ต้องรอใครทำมาให้
   </p>
 
   <div class="callout callout-note">
@@ -877,6 +957,18 @@ export const gradeOf = (score: number): string =>
     <li>
       <a href="https://github.com/mattpocock/skills/blob/main/docs/engineering/grill-with-docs.md" target="_blank" rel="noopener noreferrer">"grill-with-docs — เอกสารสกิล (glossary ที่ CONTEXT.md + ADR ที่ docs/adr/, สร้างแบบ lazy)"</a>
       — Matt Pocock, GitHub, สืบค้นเมื่อ 11 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/atlassian/atlassian-mcp-server" target="_blank" rel="noopener noreferrer">"Atlassian MCP Server — ต่อ Jira/Confluence เข้ากับ Claude ผ่าน OAuth 2.1 หรือ API token"</a>
+      — Atlassian, GitHub, สืบค้นเมื่อ 11 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/skills" target="_blank" rel="noopener noreferrer">"Extend Claude with skills — โครงสร้าง SKILL.md, ที่อยู่ .claude/skills/, dynamic context injection"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 11 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://code.claude.com/docs/en/hooks" target="_blank" rel="noopener noreferrer">"Hooks reference — event PreCompact, matcher auto/manual, รูปแบบ settings.json"</a>
+      — Claude Code Docs, Anthropic, สืบค้นเมื่อ 11 กรกฎาคม 2026
     </li>
     <li>
       <a href="https://www.facebook.com/photo/?fbid=1720583982344371&amp;set=a.662566858146094" target="_blank" rel="noopener noreferrer">"wayfinder สกิลใหม่ แก้ปัญหาที่ grill-me ทำไม่ได้ (Context Smart/Dump Zone)"</a>
