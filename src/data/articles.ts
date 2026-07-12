@@ -69,7 +69,8 @@ export const articles: Article[] = [
     title: 'ติดอาวุธให้ Claude ตอนที่ 1: เลือกโมเดล + วางระบบความจำ',
     desc: 'จ่ายค่าโมเดลแรงมาเต็ม ๆ แต่ใช้เกียร์ 2 ตลอดทาง แถมสอนเท่าไหร่ก็ไม่จำ — จับคู่โมเดลให้ถูกงาน แล้ววางความจำเป็นชั้น Hot / Cold / learning.md ให้ AI เลิกลืม',
     dateISO: '2026-07-11',
-    readingMinutes: 9,
+    updatedISO: '2026-07-12',
+    readingMinutes: 13,
     soon: false,
   },
   {
