@@ -101,6 +101,15 @@ export const articles: Article[] = [
     readingMinutes: 18,
     soon: false,
   },
+  {
+    href: 'ai-persistence/',
+    tag: 'มุมมอง',
+    title: 'AI ช่วยให้งานเสร็จ แต่แอบเอาอะไรไปจากเรา',
+    desc: 'แชร์กันว่อนว่า "ใช้ AI แล้วโง่ลง" แต่ไม่มีใครเล่าวิธีทดลอง — พาดู 3 การทดลองจริงของ CMU, Oxford, MIT, UCLA คนพันกว่าคน แล้วดูว่าตัวเลขไหนน่ากลัวจริง (สปอยล์: ไม่ใช่ตัวที่แชร์กัน)',
+    dateISO: '2026-07-14',
+    readingMinutes: 9,
+    soon: false,
+  },
 ];
 
 export interface AdjacentArticles {
