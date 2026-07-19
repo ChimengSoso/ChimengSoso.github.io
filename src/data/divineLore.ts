@@ -13,6 +13,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'icpc-warmup-2026/',
+    tag: 'เฉลยโจทย์แข่ง',
+    title: 'ICPC 2026 ไทย — สรุปโจทย์ + เฉลยแบบเข้าใจง่าย',
+    desc: 'เล่าและเฉลยโจทย์รอบย่อย ICPC 2026 แบบเข้าใจง่าย',
+    dateISO: '2026-07-19',
+    readingMinutes: 17,
+  },
+  {
     href: 'global-workspace/',
     tag: 'บันทึกวิจัย',
     title: 'Anthropic ส่องเห็น "ห้องคิดกลาง" ในหัว AI ได้แล้ว',
