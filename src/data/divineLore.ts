@@ -15,7 +15,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
   {
     href: 'icpc-warmup-2026/',
     tag: 'เฉลยโจทย์แข่ง',
-    title: 'ICPC 2026 ไทย — สรุปโจทย์ + เฉลยแบบเข้าใจง่าย',
+    title: 'ICPC 2026 ไทย รอบย่อย — สรุปโจทย์ + เฉลยแบบเข้าใจง่าย',
     desc: 'เล่าและเฉลยโจทย์รอบย่อย ICPC 2026 แบบเข้าใจง่าย',
     dateISO: '2026-07-19',
     readingMinutes: 17,
