@@ -1,0 +1,512 @@
+<title>AI Team Room — multi-agent chat prototype</title>
+<style>
+  :root {
+    /* neutrals — slate with a violet-blue bias, chosen not defaulted */
+    --bg: #f4f5fa;
+    --surface: #ffffff;
+    --surface-2: #eef0f7;
+    --line: #dcdfeb;
+    --ink: #1c2030;
+    --ink-2: #4a5069;
+    --ink-3: #7d8398;
+    /* role accents */
+    --lead: #d99413;
+    --lead-soft: #fbf1dc;
+    --dev: #2f7fd4;
+    --dev-soft: #e3eefb;
+    --qa: #8a5cf0;
+    --qa-soft: #efe8fd;
+    --you: #2c3140;
+    --you-soft: #e7e9f0;
+    /* semantic */
+    --ok: #1f9d6b;
+    --ok-soft: #e0f4ec;
+    --bad: #d84a56;
+    --bad-soft: #fbe6e8;
+    --shadow: 0 1px 2px rgba(24,28,48,.06), 0 8px 24px rgba(24,28,48,.06);
+    --radius: 14px;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Leelawadee UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10121b;
+      --surface: #191c28;
+      --surface-2: #1f2331;
+      --line: #2c3142;
+      --ink: #e9ebf4;
+      --ink-2: #b0b5c9;
+      --ink-3: #7a8098;
+      --lead-soft: #35290f;
+      --dev-soft: #14263c;
+      --qa-soft: #241a3d;
+      --you: #c7ccdb;
+      --you-soft: #23283a;
+      --ok-soft: #113228;
+      --bad-soft: #35171b;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f5fa; --surface: #ffffff; --surface-2: #eef0f7; --line: #dcdfeb;
+    --ink: #1c2030; --ink-2: #4a5069; --ink-3: #7d8398;
+    --lead-soft:#fbf1dc; --dev-soft:#e3eefb; --qa-soft:#efe8fd; --you:#2c3140; --you-soft:#e7e9f0;
+    --ok-soft:#e0f4ec; --bad-soft:#fbe6e8;
+    --shadow: 0 1px 2px rgba(24,28,48,.06), 0 8px 24px rgba(24,28,48,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #10121b; --surface: #191c28; --surface-2: #1f2331; --line: #2c3142;
+    --ink: #e9ebf4; --ink-2: #b0b5c9; --ink-3: #7a8098;
+    --lead-soft:#35290f; --dev-soft:#14263c; --qa-soft:#241a3d; --you:#c7ccdb; --you-soft:#23283a;
+    --ok-soft:#113228; --bad-soft:#35171b;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .app {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  /* ---- shell ---- */
+  .shell {
+    display: grid;
+    grid-template-columns: 248px minmax(0,1fr) 340px;
+    gap: 14px;
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 18px;
+    align-items: start;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  /* ---- topbar ---- */
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+  }
+  .room-mark {
+    width: 38px; height: 38px; border-radius: 11px;
+    background: linear-gradient(135deg, var(--dev), var(--qa));
+    display: grid; place-items: center;
+    color: #fff; font-weight: 700; font-size: 18px;
+    flex: none;
+  }
+  .room-title { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+  .room-sub { font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+  .topbar .spacer { flex: 1; }
+  .phase-pill {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--ok);
+    background: var(--ok-soft); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+    padding: 5px 10px; border-radius: 999px; font-weight: 600;
+  }
+  .stack { display: flex; }
+  .stack .av { margin-left: -8px; border: 2px solid var(--surface); }
+
+  /* ---- avatars ---- */
+  .av {
+    width: 30px; height: 30px; border-radius: 9px;
+    display: grid; place-items: center;
+    font-size: 15px; flex: none;
+  }
+  .av.lead { background: var(--lead-soft); color: var(--lead); }
+  .av.dev  { background: var(--dev-soft);  color: var(--dev); }
+  .av.qa   { background: var(--qa-soft);   color: var(--qa); }
+  .av.you  { background: var(--you-soft);  color: var(--you); }
+
+  /* ---- roster ---- */
+  .roster { padding: 16px; position: sticky; top: 18px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 600;
+    margin: 0 0 12px;
+  }
+  .role { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; }
+  .role + .role { border-top: 1px dashed var(--line); }
+  .role .meta { min-width: 0; }
+  .role .name { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .role .desc { font-size: 11.5px; color: var(--ink-3); line-height: 1.45; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.on  { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .dot.idle{ background: var(--ink-3); }
+  .role-tag {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+    text-transform: uppercase; padding: 2px 6px; border-radius: 5px; font-weight: 600;
+  }
+  .role-tag.lead { background: var(--lead-soft); color: var(--lead); }
+  .role-tag.dev  { background: var(--dev-soft);  color: var(--dev); }
+  .role-tag.qa   { background: var(--qa-soft);   color: var(--qa); }
+  .role-tag.you  { background: var(--you-soft);  color: var(--you); }
+
+  .legend-note {
+    margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line);
+    font-size: 11px; color: var(--ink-3); line-height: 1.5;
+  }
+
+  /* ---- channel ---- */
+  .channel { padding: 8px 20px 22px; }
+  .divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 20px 0 6px; color: var(--ink-3);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  }
+  .divider::before, .divider::after { content:""; height:1px; background: var(--line); flex:1; }
+
+  .msg { display: flex; gap: 12px; padding: 12px 0; }
+  .msg .body { min-width: 0; flex: 1; }
+  .msg .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  .msg .who { font-weight: 650; font-size: 13.5px; }
+  .msg .when { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .msg .text { font-size: 13.5px; color: var(--ink-2); }
+  .msg .text strong { color: var(--ink); font-weight: 600; }
+
+  /* human anchored right — the one human among agents */
+  .msg.you { flex-direction: row-reverse; }
+  .msg.you .body { display: flex; flex-direction: column; align-items: flex-end; }
+  .msg.you .head { flex-direction: row-reverse; }
+  .msg.you .bubble {
+    background: var(--you); color: #fff; border-radius: 13px 13px 4px 13px;
+    padding: 10px 14px; font-size: 13.5px; max-width: 80%;
+  }
+  :root[data-theme="dark"] .msg.you .bubble { color: #14161f; }
+  @media (prefers-color-scheme: dark) { .msg.you .bubble { color:#14161f; } }
+  :root[data-theme="light"] .msg.you .bubble { color:#fff; }
+
+  /* left accent rail encodes the speaking role */
+  .card {
+    border: 1px solid var(--line); border-radius: 12px;
+    background: var(--surface-2); padding: 12px 14px; margin-top: 8px;
+  }
+  .card.lead { border-left: 3px solid var(--lead); }
+  .card.dev  { border-left: 3px solid var(--dev); }
+  .card.qa   { border-left: 3px solid var(--qa); }
+
+  .crit { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+  .crit li { display: flex; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .crit li::before { content: "▸"; color: var(--lead); flex: none; }
+
+  pre.code {
+    margin: 8px 0 0; background: #0f1420; color: #d7e0f0;
+    border-radius: 10px; padding: 13px 15px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.55;
+    border: 1px solid #1d2740;
+  }
+  .code .k { color: #7db4ff; } .code .s { color: #9ad19a; } .code .c { color: #6b7590; } .code .f { color: #e0b060; }
+
+  .verdict {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+    padding: 5px 11px; border-radius: 8px; letter-spacing: .03em;
+  }
+  .verdict.bad { background: var(--bad-soft); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+  .verdict.ok  { background: var(--ok-soft);  color: var(--ok);  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+  .verdict.ask { background: var(--lead-soft); color: var(--lead); border: 1px solid color-mix(in srgb, var(--lead) 35%, transparent); }
+  .qcard .crit li::before { content: "?"; color: var(--lead); font-weight: 700; font-family: var(--mono); }
+  .qcard .crit li { color: var(--ink); font-weight: 500; }
+
+  .fix { font-family: var(--mono); font-size: 12px; }
+  .fix .was { color: var(--bad); text-decoration: line-through; }
+  .fix .now { color: var(--ok); }
+
+  .thread-link {
+    display: inline-flex; align-items: center; gap: 7px; margin-top: 9px;
+    font-size: 12px; font-weight: 600; color: var(--qa);
+    background: var(--qa-soft); border: 1px solid color-mix(in srgb, var(--qa) 25%, transparent);
+    padding: 6px 11px; border-radius: 999px; cursor: pointer; text-decoration: none;
+  }
+  .thread-link .rd { font-family: var(--mono); font-size: 11px; }
+
+  .handoff { border-left: 3px solid var(--lead); }
+  .handoff .h-title { font-weight: 650; font-size: 13.5px; margin-bottom: 8px; display:flex; align-items:center; gap:7px;}
+  .handoff dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12.5px; }
+  .handoff dt { color: var(--ink-3); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+  .handoff dd { margin: 0; color: var(--ink-2); }
+
+  /* ---- thread rail ---- */
+  .rail-col { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 18px; }
+  .thread { padding: 16px; }
+  .thread-head { display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
+  .thread-head .t { font-size: 13.5px; font-weight: 650; }
+  .branch-note { font-size: 11px; color: var(--ink-3); margin-bottom: 14px; line-height:1.5; }
+  .tmsg { padding: 11px 0; border-top: 1px solid var(--line); }
+  .tmsg .th { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .tmsg .th .who { font-size: 12.5px; font-weight: 600; }
+  .tmsg .th .rn { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .tmsg .tc { font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+  .typing { display: flex; gap: 8px; align-items: center; padding: 11px 0; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
+  .typing .bounce span { display:inline-block; width:5px; height:5px; border-radius:50%; background: var(--ink-3); margin-right:3px; animation: b 1.2s infinite; }
+  .typing .bounce span:nth-child(2){ animation-delay:.15s; } .typing .bounce span:nth-child(3){ animation-delay:.3s; }
+  @keyframes b { 0%,60%,100%{ transform: translateY(0); opacity:.4;} 30%{ transform: translateY(-4px); opacity:1;} }
+
+  @media (prefers-reduced-motion: reduce) { .typing .bounce span { animation: none; } }
+
+  /* ---- responsive ---- */
+  @media (max-width: 1080px) {
+    .shell { grid-template-columns: 1fr; }
+    .roster { position: static; }
+    .rail-col { position: static; order: 3; }
+  }
+</style>
+
+<div class="app">
+  <div class="shell">
+
+    <!-- TOP BAR -->
+    <header class="panel topbar">
+      <div class="room-mark">#</div>
+      <div>
+        <div class="room-title">build-room · formatThousands()</div>
+        <div class="room-sub">4 members · orchestrated run wf_74c6db27</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="phase-pill">● delivered</span>
+      <div class="stack">
+        <div class="av lead" title="Team Lead">👑</div>
+        <div class="av dev" title="Dev">⌨</div>
+        <div class="av qa" title="QA">✓</div>
+        <div class="av you" title="You">◆</div>
+      </div>
+    </header>
+
+    <!-- ROSTER / ROLE DESIGN -->
+    <aside class="panel roster">
+      <p class="eyebrow">Team roster</p>
+
+      <div class="role">
+        <div class="av you">◆</div>
+        <div class="meta">
+          <div class="name"><span class="dot idle"></span> You (Chi) <span class="role-tag you">stakeholder</span></div>
+          <div class="desc">Sets the goal, receives the handoff. The only human — anchored right.</div>
+        </div>
+      </div>
+
+      <div class="role">
+        <div class="av lead">👑</div>
+        <div class="meta">
+          <div class="name"><span class="dot on"></span> Team Lead <span class="role-tag lead">orchestrator</span></div>
+          <div class="desc">Turns the goal into a spec + acceptance criteria, delegates, hands off. Never writes code.</div>
+        </div>
+      </div>
+
+      <div class="role">
+        <div class="av dev">⌨</div>
+        <div class="meta">
+          <div class="name"><span class="dot on"></span> Dev <span class="role-tag dev">builder</span></div>
+          <div class="desc">Implements to the brief. Ships, then revises against QA feedback.</div>
+        </div>
+      </div>
+
+      <div class="role">
+        <div class="av qa">✓</div>
+        <div class="meta">
+          <div class="name"><span class="dot on"></span> QA <span class="role-tag qa">reviewer</span></div>
+          <div class="desc">Traces the code by hand, approves or rejects with concrete failing inputs.</div>
+        </div>
+      </div>
+
+      <p class="legend-note"><strong style="color:var(--ink-2)">Reading the room:</strong> each role owns a colour + glyph, carried on its avatar, name tag, and the left rail of its cards. Agents post left; you post right. Side-conversations split into threads →<br><br>A <span style="color:var(--lead);font-weight:600">⁇ needs your decision</span> card means the team hit an ambiguity they refuse to guess on, and bounced it back to you before building.</p>
+    </aside>
+
+    <!-- MAIN CHANNEL -->
+    <main class="panel channel">
+
+      <div class="divider">Kickoff</div>
+
+      <div class="msg you">
+        <div class="av you">◆</div>
+        <div class="body">
+          <div class="head"><span class="who">You</span> <span class="when">09:01</span></div>
+          <div class="bubble">อยากได้ฟังก์ชัน <code>formatThousands(n)</code> ใส่ comma คั่นหลักพันหน่อย</div>
+        </div>
+      </div>
+
+      <div class="divider">Phase 0 · Clarify</div>
+
+      <div class="msg">
+        <div class="av lead">👑</div>
+        <div class="body">
+          <div class="head"><span class="who">Team Lead</span> <span class="role-tag lead">orchestrator</span> <span class="when">09:02</span></div>
+          <div class="text">โจทย์ยังกว้างอยู่ ถ้าผมเดาเองแล้ว Dev กับ QA เดาคนละทาง งานจะเพี้ยน — ผมคุยกับ QA มาแล้ว มี <strong>3 จุดที่ต้องให้พี่ตัดสิน</strong> ก่อนเริ่ม</div>
+          <div class="card lead qcard">
+            <span class="verdict ask">⁇ NEEDS YOUR DECISION</span>
+            <ul class="crit" style="margin-top:10px">
+              <li>เลข<strong>ติดลบ</strong> กับ<strong>ทศนิยม</strong> ต้องรองรับไหม? หรือแค่จำนวนเต็มบวก</li>
+              <li>ตัวเลขใหญ่มากที่ JS เขียนเป็น exponential (<code>1e21</code> → "1e+21") เอายังไง?</li>
+              <li>รับ input เป็น <code>string</code> ด้วยไหม หรือเฉพาะ <code>number</code></li>
+            </ul>
+          </div>
+          <a class="thread-link" href="#thread-clarify"><span>⎇</span> ที่มา: QA ↔ Lead คุยกันก่อนถาม <span class="rd">2 msgs</span></a>
+        </div>
+      </div>
+
+      <div class="msg you">
+        <div class="av you">◆</div>
+        <div class="body">
+          <div class="head"><span class="who">You</span> <span class="when">09:03</span></div>
+          <div class="bubble">1) รองรับทั้งติดลบและทศนิยม · 2) เลขใหญ่เกิน 1e21 ยังไม่ต้องรองรับ ถือว่า out of scope · 3) รับเฉพาะ <code>number</code> พอ</div>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="av lead">👑</div>
+        <div class="body">
+          <div class="head"><span class="who">Team Lead</span> <span class="role-tag lead">orchestrator</span> <span class="when">09:03</span></div>
+          <div class="text">เคลียร์แล้ว ✓ ล็อกสเปกตามนี้ ทุกคนตีความตรงกันแล้วค่อยเริ่ม</div>
+        </div>
+      </div>
+
+      <div class="divider">Phase 1 · Plan</div>
+
+      <div class="msg">
+        <div class="av lead">👑</div>
+        <div class="body">
+          <div class="head"><span class="who">Team Lead</span> <span class="role-tag lead">orchestrator</span> <span class="when">09:03</span></div>
+          <div class="text">ตามที่ตกลงกับพี่ ขอแตกเป็นสเปกส่งให้ Dev เกณฑ์ตรวจรับที่ QA จะใช้มี 5 ข้อ:</div>
+          <div class="card lead">
+            <ul class="crit">
+              <li><code>formatThousands(1234567)</code> → <strong>"1,234,567"</strong> และ <code>0</code> → "0"</li>
+              <li>เลขติดลบ เครื่องหมายอยู่หน้า: <code>-1234</code> → "-1,234"</li>
+              <li>ทศนิยม group เฉพาะส่วนจำนวนเต็ม: <code>1234.5678</code> → "1,234.5678"</li>
+              <li>เลขติดลบ+ทศนิยม: <code>-1234567.89</code> → "-1,234,567.89"</li>
+              <li>เป็น ES module, pure function, มี inline <code>console.assert</code> ครบทุกเคส รันไม่มี fail</li>
+            </ul>
+          </div>
+          <div class="text" style="margin-top:8px">@Dev เริ่มได้เลย — ห้ามใช้ <code>toLocaleString</code> (ผลต่างตาม locale) เขียน grouping เอง</div>
+        </div>
+      </div>
+
+      <div class="divider">Phase 2 · Build ↔ QA</div>
+
+      <div class="msg">
+        <div class="av qa">✓</div>
+        <div class="body">
+          <div class="head"><span class="who">QA</span> <span class="role-tag qa">reviewer</span> <span class="when">09:04</span></div>
+          <div class="text">Dev ส่งร่างแรกมาแล้วผมตรวจให้ — <strong>ตีกลับ</strong> เจอบั๊กจริง 1 จุด + เทสต์ไม่ครบ</div>
+          <div class="card qa" style="margin-top:8px">
+            <span class="verdict bad">✗ REJECTED · round 1</span>
+            <div class="fix" style="margin-top:10px">
+              <code>formatThousands(1234.5678)</code><br>
+              คืน <span class="was">"1,234.5,678"</span> → ควรเป็น <span class="now">"1,234.5678"</span>
+            </div>
+            <div class="text" style="margin-top:9px; font-size:12px">regex <code>\B(?=(\d{3})+(?!\d))</code> ไปหั่นส่วนทศนิยมด้วย ทุก input ที่ทศนิยม 4 หลักขึ้นไปพัง · และ assert มีแค่เคสจำนวนเต็มบวก</div>
+          </div>
+          <a class="thread-link" href="#thread"><span>⎇</span> ดูบทสนทนา Dev ↔ QA <span class="rd">2 rounds</span></a>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="av dev">⌨</div>
+        <div class="body">
+          <div class="head"><span class="who">Dev</span> <span class="role-tag dev">builder</span> <span class="when">09:05</span></div>
+          <div class="text">แก้แล้ว — แยกเครื่องหมายด้วย <code>Math.abs</code> และ <code>split(".")</code> ก่อน ใส่ comma เฉพาะส่วนจำนวนเต็ม:</div>
+<pre class="code"><span class="k">export function</span> <span class="f">formatThousands</span>(n) {
+  <span class="k">const</span> negative = n &lt; <span class="s">0</span>;
+  <span class="k">const</span> [intPart, fracPart] = Math.abs(n).toString().split(<span class="s">"."</span>);
+  <span class="k">const</span> grouped = intPart.replace(<span class="s">/\B(?=(\d{3})+(?!\d))/g</span>, <span class="s">","</span>);
+  <span class="k">const</span> body = fracPart === undefined ? grouped : <span class="s">`${grouped}.${fracPart}`</span>;
+  <span class="k">return</span> negative ? <span class="s">`-${body}`</span> : body;
+}</pre>
+        </div>
+      </div>
+
+      <div class="msg">
+        <div class="av qa">✓</div>
+        <div class="body">
+          <div class="head"><span class="who">QA</span> <span class="role-tag qa">reviewer</span> <span class="when">09:06</span></div>
+          <div class="text">ไล่ทั้ง 5 input ด้วยมือ ตรงเป๊ะทุกเคส เครื่องหมายลบและทศนิยมไม่พังแล้ว</div>
+          <div style="margin-top:8px"><span class="verdict ok">✓ APPROVED · round 2</span></div>
+        </div>
+      </div>
+
+      <div class="divider">Phase 3 · Handoff</div>
+
+      <div class="msg">
+        <div class="av lead">👑</div>
+        <div class="body">
+          <div class="head"><span class="who">Team Lead</span> <span class="role-tag lead">orchestrator</span> <span class="when">09:06</span></div>
+          <div class="card handoff">
+            <div class="h-title">📦 ส่งมอบงาน · formatThousands()</div>
+            <dl>
+              <dt>สร้างอะไร</dt><dd>ฟังก์ชันใส่ comma คั่นหลักพัน รองรับเลขติดลบ ทศนิยม และศูนย์</dd>
+              <dt>ผ่าน QA</dt><dd>ผ่าน ✓ ครบทั้ง 5 เคส</dd>
+              <dt>ใช้กี่รอบ</dt><dd>2 รอบ — รอบแรกบั๊กทศนิยม รอบสองแก้เรียบร้อย</dd>
+              <dt>ข้อควรระวัง</dt><dd>ยังเป็นโค้ดสาธิต (inline assert) ถ้าใช้จริงควรคลุม <code>NaN</code>/<code>BigInt</code>/string เพิ่ม</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- THREAD RAIL (side-chats) -->
+    <div class="rail-col">
+
+    <aside class="panel thread" id="thread-clarify">
+      <div class="thread-head">
+        <div class="av lead">⎇</div>
+        <div class="t">Thread · QA ↔ Lead</div>
+      </div>
+      <p class="branch-note">ก่อนถามพี่ QA กับ Lead เช็คกันเองก่อนว่า requirement ตรงไหนตีความได้หลายแบบ — คัดมาเฉพาะที่ตัดสินเองไม่ได้ ค่อยเด้งขึ้นถามมนุษย์</p>
+
+      <div class="tmsg">
+        <div class="th"><div class="av qa" style="width:24px;height:24px;font-size:12px">✓</div><span class="who">QA</span><span class="rn">clarify</span></div>
+        <div class="tc">โจทย์บอกแค่ "คั่นหลักพัน" ผมเทสต์ยังไงถ้าไม่รู้ว่าเลขติดลบ/ทศนิยม/เลขใหญ่ควรออกมาแบบไหน? เดาเองเดี๋ยวตรวจผิดเกณฑ์</div>
+      </div>
+
+      <div class="tmsg">
+        <div class="th"><div class="av lead" style="width:24px;height:24px;font-size:12px">👑</div><span class="who">Lead</span><span class="rn">clarify</span></div>
+        <div class="tc">จริง 3 จุดนี้ผมก็เดาไม่ได้เหมือนกัน ไม่เดาแล้ว เด้งขึ้นถาม Chi ตรงๆ ดีกว่า เดี๋ยวสรุปเป็นคำถามให้</div>
+      </div>
+
+      <div class="typing"><div class="av you" style="width:20px;height:20px;font-size:10px">◆</div><span>escalated to you · answered 09:03</span></div>
+    </aside>
+
+    <aside class="panel thread" id="thread">
+      <div class="thread-head">
+        <div class="av qa">⎇</div>
+        <div class="t">Thread · Dev ↔ QA</div>
+      </div>
+      <p class="branch-note">แตกจาก Phase 2 — สองตัวนี้คุยกันเองในลูป feedback จนกว่างานจะผ่าน หัวหน้าเห็นแค่บทสรุป ไม่ต้องลงมาคุมทุกข้อความ</p>
+
+      <div class="tmsg">
+        <div class="th"><div class="av dev" style="width:24px;height:24px;font-size:12px">⌨</div><span class="who">Dev</span><span class="rn">round 1</span></div>
+        <div class="tc">ส่งร่างเร็วก่อน: <code>String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",")</code> — เคสจำนวนเต็มผ่าน</div>
+      </div>
+
+      <div class="tmsg">
+        <div class="th"><div class="av qa" style="width:24px;height:24px;font-size:12px">✓</div><span class="who">QA</span><span class="rn">round 1</span></div>
+        <div class="tc"><span style="color:var(--bad);font-weight:600">✗ ตีกลับ</span> — <code>1234.5678</code> ออกมาเป็น <code>1,234.5,678</code> regex หั่นทศนิยมด้วย แก้ก่อนแล้วเพิ่มเทสต์ให้ครบ 5 เคสด้วย</div>
+      </div>
+
+      <div class="tmsg">
+        <div class="th"><div class="av dev" style="width:24px;height:24px;font-size:12px">⌨</div><span class="who">Dev</span><span class="rn">round 2</span></div>
+        <div class="tc">แยกส่วนก่อน group ด้วย <code>Math.abs</code>+<code>split(".")</code> แล้ว ทศนิยมไม่โดนแตะ ส่งใหม่</div>
+      </div>
+
+      <div class="tmsg">
+        <div class="th"><div class="av qa" style="width:24px;height:24px;font-size:12px">✓</div><span class="who">QA</span><span class="rn">round 2</span></div>
+        <div class="tc"><span style="color:var(--ok);font-weight:600">✓ ผ่าน</span> — 5/5 เคสตรงเป๊ะ ปิด thread ส่งขึ้นห้องหลัก</div>
+      </div>
+
+      <div class="typing"><div class="av qa" style="width:20px;height:20px;font-size:10px">✓</div><span>thread closed</span><span class="bounce" style="margin-left:auto"><span></span><span></span><span></span></span></div>
+    </aside>
+
+    </div><!-- /rail-col -->
+
+  </div>
+</div>

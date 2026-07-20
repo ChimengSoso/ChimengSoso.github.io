@@ -1,0 +1,1208 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const pyA = `import sys
+L = int(sys.stdin.read())
+# ปักเข็มกลางไม้ พื้นที่น้อยสุด = (L/2)^2 * pi
+# โจทย์ให้ตอบเป็นหน่วยของ pi เลยตอบแค่ k = (L//2)**2
+print((L // 2) ** 2)`;
+
+const pyB = `import sys
+a, b, c, d = map(int, sys.stdin.read().split())
+# หารปัดลง (// ใน Python) แล้วเอาตัวที่น้อยสุด = คอขวด
+print(min(a // 3, b // 1, c // 2, d // 4))`;
+
+const pyC = `import sys
+K = int(sys.stdin.read())
+# ก้าว x->x+1 ใช้พลังงาน 2**(x+1) และต้องเหลือสำรอง 1 หน่วย
+# ก้าวจะทำได้เมื่อ 2**(x+1) <= K-1 (เดินสะสมจนก้าวถัดไปจ่ายไม่ไหว)
+towns = 0
+while (1 << (towns + 1)) <= K - 1:
+    towns += 1
+print(towns)`;
+
+const pyD = `import sys
+data = sys.stdin.buffer.read().split()
+N, M = int(data[0]), int(data[1])
+grid = [data[2 + i].decode() for i in range(N)]
+
+# ขีด 1 ขีดตรงกับตัวอักษรบนกริดไหม (ใช้ตารางเทียบด้านบน)
+def ok_seg(x0, yt, kind):
+    if not (0 <= x0 < M and 0 <= yt < 2 * N):   # หลุดขอบ = ไม่มีขีด
+        return False
+    r = yt // 2                      # yt คือครึ่งแถว แถวจริง = yt // 2
+    if yt % 2 == 0:                  # yt คู่ = ครึ่งบน
+        ch = '>' if kind == '\\\\' else '<'
+    else:                            # yt คี่ = ครึ่งล่าง
+        ch = '>' if kind == '/' else '<'
+    return grid[r][x0] == ch
+
+# ring ขนาด s รอบศูนย์กลาง (X,Y) มีครบทุกขีดไหม (4 ด้าน ด้านละ s ขีด)
+def ring_ok(X, Y, s):
+    for i in range(s):
+        segs = ((X-s+i, Y-i-1, '/'), (X+i, Y-s+i, '\\\\'),        # ด้าน A, B
+                (X+s-i-1, Y+i, '/'), (X-i-1, Y+s-i-1, '\\\\'))    # ด้าน C, D
+        for (x0, yt, kind) in segs:
+            if not ok_seg(x0, yt, kind):
+                return False
+    return True
+
+ans = 0
+for X in range(M + 1):
+    for Y in range(2 * N + 1):       # Y ยาว 2N เพราะ 1 ช่อง = 2 ครึ่ง
+        s = 1
+        while ring_ok(X, Y, s):      # ซ้อนไปเรื่อย ๆ จนวงขาด
+            s += 1
+        ans += s - 1                 # ซ้อนได้ (s-1) ชั้น = glyph (s-1) อัน
+print(ans)`;
+
+const pyE = `import sys
+data = sys.stdin.buffer.read().split()
+n = int(data[0]); A = data[1].decode()
+if '0' not in A or '1' not in A:            # มีสัญลักษณ์เดียวล้วน
+    print(1); print(A[0]); print('R' * (n - 1))
+else:
+    s1 = 2 if '11' in A else 1
+    s0 = 2 if '00' in A else 1
+    # วางบล็อกให้ช่องแรก (index 0) ตรงกับ A[0]
+    B = ('1'*s1 + '0'*s0) if A[0] == '1' else ('0'*s0 + '1'*s1)
+    M = len(B); pos = 0; moves = []
+    for t in range(1, n):
+        r, l = (pos + 1) % M, (pos - 1) % M  # เพื่อนบ้านขวา/ซ้าย (วนได้)
+        if B[r] == A[t]: pos = r; moves.append('R')  # เดินโลภ ไปฝั่งที่บิตตรง
+        else:            pos = l; moves.append('L')
+    print(M); print(B); print(''.join(moves))`;
+
+const pyF = `import sys
+A, B = map(int, sys.stdin.read().split())
+S = A + B
+lo, hi = B, S - 1
+cnt, i = 0, 1
+while i * i <= S:            # วนหาตัวหารถึงแค่รากของ S ก็พอ
+    if S % i == 0:
+        j = S // i           # ตัวหารมาเป็นคู่ (i, S//i)
+        if lo <= i <= hi: cnt += 1
+        if j != i and lo <= j <= hi: cnt += 1   # กันนับซ้ำตอน S เป็นกำลังสองพอดี
+    i += 1
+print(cnt)`;
+
+const pyG = `import sys
+data = sys.stdin.buffer.read().split()
+n = int(data[0]); idx = 1
+colors = [set() for _ in range(n + 1)]   # colors[v] = เซตสีของเส้นที่ต่อกับจุด v
+for _ in range(n - 1):
+    u, v, c = int(data[idx]), int(data[idx+1]), int(data[idx+2]); idx += 3
+    colors[u].add(c); colors[v].add(c)
+# ผลรวมจำนวนสีต่างกันของทุกจุด ลบด้วยจำนวนเส้น (n-1)
+print(sum(len(s) for s in colors) - (n - 1))`;
+---
+<DivineLoreLayout title="ICPC 2026 ไทย: สรุปโจทย์ + เฉลยแบบเข้าใจง่าย | บันทึกศาสตร์แห่งเทพ" description="ไล่โจทย์รอบย่อย ICPC 2026 (กลาง เหนือ ตะวันออก) เล่าเหมือนเพื่อนเล่า พร้อมคำใบ้ สูตรลัด และเฉลยโค้ดในกล่องพับ">
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+  </nav>
+  <p class="tag">เฉลยโจทย์แข่ง</p>
+  <h1>ICPC 2026 ไทย: สรุปโจทย์ + เฉลยแบบเข้าใจง่าย</h1>
+  <p class="subtitle">
+    รวมโจทย์ 7 ข้อจากรอบย่อย ICPC 2026 Thailand (Central, Northern &amp; Eastern Regions) ที่ผมนั่งไล่แกะทีละข้อ ตั้งใจเล่าแบบ "เพื่อนเล่าให้ฟัง" ไม่ต้องอ่านโจทย์ต้นฉบับก็ตามได้ แต่ละข้อจะให้ <strong>คำใบ้และไอเดีย</strong>ก่อน แล้วเก็บ <strong>เฉลยโค้ด</strong>ไว้ในกล่องพับ (กดเองเมื่อพร้อม) จะได้ลองคิดก่อนแอบดู
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เกี่ยวกับงานนี้</p>
+    <p>
+      รอบย่อยครั้งนี้พิเศษตรงที่เป็นปีแรกที่มหาวิทยาลัยเชียงใหม่ (มช.) เป็นเจ้าภาพจัด ICPC และเป็นครั้งแรกที่ประเทศไทยจัดในรูปแบบ "รอบย่อย" (sub-regional) บทความนี้จึงเขียนขึ้นเป็น editorial ฉบับเล่าง่ายหลังงานจบ ไล่แกะโจทย์ทีละข้อให้คนทั่วไปอ่านตามได้โดยไม่ต้องมีพื้นการแข่งมาก่อน
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>ICPC</strong> อ่านว่า <strong>"ไอ-ซี-พี-ซี"</strong> ย่อจาก <i>International Collegiate Programming Contest</i> แปลว่า <strong>"การแข่งเขียนโปรแกรมระดับมหาวิทยาลัยนานาชาติ"</strong> เป็นรายการแข่งเขียนโปรแกรมแก้โจทย์อัลกอริทึมที่เก่าแก่และใหญ่ที่สุดในโลก ทีมละ 3 คน ใช้คอมเครื่องเดียว
+    </p>
+    <p>
+      <strong>Editorial</strong> อ่านว่า <strong>"เอดิทอเรียล"</strong> แปลตรงตัวว่า "บทบรรณาธิการ" แต่ในวงการแข่งโปรแกรมมันคือ <strong>"เฉลยอย่างเป็นทางการ"</strong> ที่อธิบายวิธีคิดของแต่ละข้อ บทความนี้ก็คือ editorial ฉบับเล่าง่ายของผมเองครับ
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>A · Holy Circle Talisman: ไม้หมุนเป็นวง</h2>
+  <p>
+    มีไม้ตรงยาว <code>L</code> หน่วย ทาหมึกทั้งอัน เอาเข็มปักที่จุดไหนก็ได้บนไม้ แล้วหมุนครบ 1 รอบ หมึกจะติดเป็นวง โจทย์ถามหา <strong>พื้นที่หมึกที่น้อยที่สุด</strong>
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> จำนวนเต็ม <code>L</code> หนึ่งตัว (ความยาวไม้)</li>
+      <li><strong>ขอบเขต:</strong> <code>2 ≤ L ≤ 500</code> และ <strong>L เป็นเลขคู่เสมอ</strong></li>
+      <li><strong>เอาต์พุต:</strong> ตอบพื้นที่ "เป็นหน่วยของ π" คือถ้าพื้นที่น้อยสุด = <code>k·π</code> ให้พิมพ์แค่จำนวนเต็ม <code>k</code></li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>ปักเข็มแบ่งไม้เป็นสองแขนยาว <code>a</code> กับ <code>b</code> (โดย <code>a + b = L</code>) พอหมุนครบรอบ แขนแต่ละข้างกวาดเป็นวงกลม รวมกันได้ <strong>แผ่นวงกลมเต็ม</strong> รัศมี = แขนที่ยาวกว่า → อยากให้พื้นที่น้อยสุด ต้องทำให้แขนยาวสุด "สั้นที่สุด" จะปักตรงไหนดี?</p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ไม้ยาว L ปักเข็มตรงกลาง หมุนครบรอบกลายเป็นแผ่นวงกลมรัศมี L หารสอง">
+      <circle cx="320" cy="110" r="86" fill="rgba(74,222,128,0.08)" stroke="#2f9e5c" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <line x1="234" y1="110" x2="406" y2="110" stroke="#e7ecf6" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="320" cy="110" r="6" fill="#e0b400" stroke="#0d1220" stroke-width="1.5"/>
+      <text x="320" y="98" fill="#e0b400" font-size="12" text-anchor="middle" font-weight="700">เข็ม (กลาง)</text>
+      <text x="278" y="128" fill="#9aa7bd" font-size="12" text-anchor="middle">L/2</text>
+      <text x="362" y="128" fill="#9aa7bd" font-size="12" text-anchor="middle">L/2</text>
+      <line x1="320" y1="110" x2="320" y2="24" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="3 3"/>
+      <text x="330" y="60" fill="#4ade80" font-size="12">รัศมี = L/2</text>
+      <text x="320" y="212" fill="#9aa7bd" font-size="12" text-anchor="middle">หมุนครบรอบ → แผ่นวงกลมเต็ม พื้นที่ = π·(L/2)<tspan baseline-shift="super" font-size="9">2</tspan></text>
+    </svg>
+    <figcaption>ปักกลางไม้แล้วหมุน ได้วงกลมรัศมี L/2 เล็กที่สุด (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <p>
+    <strong>ปักตรงกลางพอดี</strong> (<code>a = b = L/2</code>) พื้นที่จึงน้อยสุด = <code>(L/2)<sup>2</sup>·π</code> ตามรูปแบบเอาต์พุตข้างบน เราตอบแค่ <strong>k = (L/2)<sup>2</sup></strong> และมาถึงตรงนี้จะเห็นว่ากฎ "L เป็นเลขคู่" มีไว้ทำไม เพราะมันทำให้ <code>L/2</code> ลงตัว k เลยออกมาเป็นจำนวนเต็มเป๊ะ
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT (L)</th><th>OUTPUT (k)</th></tr></thead>
+    <tbody>
+      <tr><td>4</td><td>4</td></tr>
+      <tr><td>10</td><td>25</td></tr>
+      <tr><td>500</td><td>62500</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">* ตัวอย่างสมมติเพื่อประกอบความเข้าใจ</p>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyA} lang="python" />
+      <ul class="notes">
+        <li>อ่าน <code>L</code> เข้ามาแล้วปริ้นต์ <code>(L//2)**2</code> ตรง ๆ</li>
+        <li><code>//</code> คือหารปัดลง ส่วน <code>** 2</code> คือยกกำลังสอง เพราะ L เป็นเลขคู่ หารสองจึงลงตัวเสมอ</li>
+        <li><strong>Big-O:</strong> <code>O(1)</code> คำนวณจากสูตรตรง ๆ ไม่มีลูปเลย</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>B · Painting: ปั๊มแสตมป์ทำภาพ</h2>
+  <p>
+    การบ้านวิชาศิลปะ: ทำภาพให้ได้มากที่สุด แต่ครูรับเฉพาะภาพที่มีของครบเป๊ะ ๆ ต่อ 1 ภาพ คือ <strong>3 วงกลม, 1 สามเหลี่ยม, 2 สี่เหลี่ยม, 4 เส้น</strong> (ขาดหรือเกินแม้แต่ชิ้นเดียวไม่รับ) เราขี้เกียจเลยใช้แสตมป์ปั๊ม แต่แสตมป์แต่ละแบบใช้ได้จำกัด: วงกลม <code>A</code> ครั้ง, สามเหลี่ยม <code>B</code> ครั้ง, สี่เหลี่ยม <code>C</code> ครั้ง, เส้น <code>D</code> ครั้ง แล้วถามว่าทำภาพครบชุดได้สูงสุดกี่ภาพ
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดเดียว มีจำนวนเต็ม 4 ตัว <code>A B C D</code> (จำนวนครั้งของแสตมป์ วงกลม/สามเหลี่ยม/สี่เหลี่ยม/เส้น)</li>
+      <li><strong>ขอบเขต:</strong> <code>0 ≤ A, B, C, D ≤ 10<sup>18</sup></code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัว = จำนวนภาพครบชุดสูงสุดที่ทำได้</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>เรื่อง "ทุกรูปต้องเป็นรูปทึบ ห้ามเอาเส้นไปวาดรูปอื่น" เป็นแค่น้ำจิ้ม ไม่มีลูกเล่นซ่อน ลองคิดว่า 1 ภาพกินของแต่ละอย่างกี่ชิ้น แล้วแสตมป์ตัวไหนจะ "หมดก่อน" (คอขวด)?</p>
+  </div>
+  <p>
+    ในเมื่อ 1 ภาพกินวงกลม 3, สามเหลี่ยม 1, สี่เหลี่ยม 2, เส้น 4 จำนวนภาพที่แต่ละแสตมป์ "จ่ายไหว" คือ <code>A÷3, B÷1, C÷2, D÷4</code> (ปัดลง) ตัวที่น้อยที่สุดคือคอขวด:
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">สูตร</p>
+    <p><strong>คำตอบ = <code>min(A÷3, B÷1, C÷2, D÷4)</code></strong> (หารปัดลงทั้งหมด)</p>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT (A B C D)</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>3 1 2 4</td><td>1</td></tr>
+      <tr><td>10 20 30 40</td><td>3</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">ตัวอย่างจากโจทย์ · แถวสอง: min(10÷3, 20÷1, 30÷2, 40÷4) = min(3, 20, 15, 10) = 3 (วงกลมคือคอขวด)</p>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyB} lang="python" />
+      <ul class="notes">
+        <li><code>//</code> คือ "หารปัดลง" (integer division) เช่น <code>10 // 3</code> = 3</li>
+        <li>ค่าถึง 10<sup>18</sup> แต่ Python ใช้ int ใหญ่ไม่จำกัดอยู่แล้ว ไม่ต้องกลัวล้น</li>
+        <li><strong>Big-O:</strong> <code>O(1)</code> แค่หา <code>min</code> ของ 4 ค่า</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>C · Addition: เพิ่มกำลังทีละเมือง</h2>
+  <p>
+    มีค่าพลังงาน <code>Fₙ</code> สำหรับ N เมือง โดย <code>F₀ = 1</code>, <code>F₁ = 3</code> และ <code>Fₓ = 3·F₍ₓ₋₁₎ − 2·F₍ₓ₋₂₎</code> เครื่องเพิ่มกำลังได้ทีละเมือง ค่าใช้จ่ายก้าว x→x+1 คือ <code>F₍ₓ₊₁₎ − Fₓ</code> และมีเครื่องปั่นไฟผลิตได้ <code>K</code> หน่วยต่อก้าว (ต้องเหลือสำรอง ≥ 1) แล้วถามว่าไปได้สูงสุดกี่เมือง
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> ค่า <code>K</code> (พลังงานที่เครื่องปั่นไฟจ่ายได้ต่อการเพิ่มกำลัง 1 ก้าว)</li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเมืองสูงสุดที่จ่ายไฟครบได้</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>สูตร recurrence ที่ดูยุ่งนี้ ลองแทนค่า F₀, F₁, F₂, F₃… ดูสัก 4–5 ตัว แล้วจะสังเกตเห็นแพตเทิร์น มันคือลำดับที่ "โตเท่าตัว" ซ่อนอยู่</p>
+  </div>
+  <p>
+    แก้ recurrence ได้เป็น <strong>F<sub>x</sub> = 2<sup>(x+1)</sup> − 1</strong> ดังนั้นค่าใช้จ่ายก้าว x→x+1 = <strong>2<sup>(x+1)</sup></strong> (คือ 2, 4, 8, 16, …)
+  </p>
+  <div class="card">
+    <p>ไล่ทีละก้าว ค่าใช้จ่ายเป็นเลขยกกำลังสองที่โตเท่าตัวทุกครั้ง:</p>
+    <ul>
+      <li>0→1 เมือง ใช้ 2</li>
+      <li>1→2 เมือง ใช้ 4</li>
+      <li>2→3 เมือง ใช้ 8 …</li>
+    </ul>
+  </div>
+  <p>
+    เพราะต้องเหลือสำรอง 1 หน่วย พลังงานที่ใช้จ่ายจริงต่อก้าวจึงเหลือแค่ <code>K−1</code> และแต่ละก้าวต้องจ่ายไหวทีละก้าว ไม่ใช่รวมกัน เช่น K = 6 ใช้จ่ายจริงได้ก้าวละไม่เกิน 5 ก้าว 0→1 (ใช้ 2) กับ 1→2 (ใช้ 4) ผ่าน แต่ 2→3 ใช้ 8 เกิน 5 เลยหยุด ได้ <strong>2 เมือง</strong> ส่วน K = 2 ใช้จ่ายจริงได้แค่ 1 ก้าวแรกก็ใช้ 2 เกินแล้ว จึงได้ <strong>0 เมือง</strong>
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT (K)</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>2</td><td>0</td></tr>
+      <tr><td>6</td><td>2</td></tr>
+      <tr><td>100</td><td>6</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">* K=2 ให้ผลเป็น 0 ตามที่โจทย์ระบุ ส่วน K=100 ใช้จ่ายจริงได้ 99 ก้าวแพงสุดคือ 2<sup>6</sup>=64 ยังไหว แต่ 2<sup>7</sup>=128 เกิน จึงได้ 6 เมือง</p>
+  <div class="callout callout-note">
+    <p class="callout-label">จุดต้องระวัง</p>
+    <p>คำว่า "ต้องเหลือสำรอง ≥ 1" ทำให้พลังงานที่ใช้ได้จริงต่อก้าวคือ <code>K−1</code> ไม่ใช่ <code>K</code> เต็ม ถ้าลืมจุดนี้เคสขอบอย่าง K=2 จะพลาด (ที่ถูกคือ 0 ไม่ใช่ 1)</p>
+  </div>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyC} lang="python" />
+      <ul class="notes">
+        <li><code>1 &lt;&lt; (towns + 1)</code> คือ <code>2**(towns+1)</code> (เลื่อนบิต เร็วกว่ายกกำลัง)</li>
+        <li>เดินเพิ่มเมืองไปเรื่อย ๆ ตราบใดที่ก้าวถัดไปยังจ่ายไหวภายใต้ <code>K−1</code></li>
+        <li><strong>Big-O:</strong> <code>O(log K)</code> ลูปเพิ่มทีละเมือง แต่ <code>2<sup>towns</sup></code> โตเท่าตัวทุกรอบ จำนวนรอบจึงราว <code>log₂K</code></li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>D · Diamond Glyph: เพชรบนกำแพงหิน</h2>
+  <p>
+    กำแพงสลักด้วย <code>&lt;</code> และ <code>&gt;</code> เต็มไปหมด ตัวอักษรพวกนี้จริง ๆ คือ "ขีดเฉียง" ที่ประกอบกันเป็นเพชรซ้อน ๆ (glyph) โจทย์ถามว่ามี glyph ทั้งหมดกี่อัน โดย glyph tier <code>k</code> คือเพชร (ring) ขนาด 1, 2, …, k ซ้อนศูนย์กลางเดียวกันครบทุกวง
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p><strong>glyph</strong> อ่านว่า <strong>"กลิฟ"</strong> แปลว่า <strong>"รูปอักขระหรือสัญลักษณ์ที่แกะสลัก"</strong> มาจากภาษากรีก <i>glyphē</i> ที่แปลว่า "การแกะสลัก" ในวงการฟอนต์ glyph หมายถึงรูปหน้าตาของตัวอักษรหนึ่งตัว โจทย์นี้ยืมคำมาเรียกลายเพชรซ้อนที่สลักบนกำแพง</p>
+  </div>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกมี <code>N M</code> (ขนาดกริด) จากนั้นอีก <code>N</code> บรรทัด แต่ละบรรทัดเป็นสตริงยาว <code>M</code> ประกอบด้วย <code>&lt;</code> และ <code>&gt;</code></li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ N, M ≤ 70</code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัว = จำนวนเพชร (glyph) ทั้งหมดในกริด</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้ที่ยากที่สุดของข้อนี้</p>
+    <p><strong>1 ช่องมีขีดเฉียง 2 ขีด</strong> (ครึ่งบน + ครึ่งล่าง) ไม่ใช่ขีดเดียว! ตัว <code>&gt;</code> กับ <code>&lt;</code> ต่างกันแค่ "วางขีด <code>／</code> กับ <code>＼</code> สลับครึ่งบน-ล่างกัน" ดูภาพข้างล่างแล้วจะเก็ต</p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 520 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ช่องซ้ายเป็นตัวมากกว่า ครึ่งบนขีดเฉียงลงขวา ครึ่งล่างขีดเฉียงขึ้นขวา ช่องขวาเป็นตัวน้อยกว่า วางสลับครึ่งกัน">
+      <text x="260" y="26" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">1 ช่อง สูง 2 หน่วย · ครึ่งบน (yt คู่) + ครึ่งล่าง (yt คี่)</text>
+      <!-- cell '>' -->
+      <rect x="90" y="46" width="120" height="150" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <line x1="90" y1="121" x2="210" y2="121" stroke="#3a4666" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <line x1="96" y1="52" x2="204" y2="121" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+      <line x1="204" y1="121" x2="96" y2="190" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+      <text x="132" y="92" fill="#dff5e6" font-size="17" text-anchor="middle" font-weight="700">＼</text>
+      <text x="132" y="170" fill="#dff5e6" font-size="17" text-anchor="middle" font-weight="700">／</text>
+      <text x="150" y="230" fill="#e7ecf6" font-size="20" text-anchor="middle" font-weight="700">คือตัว &gt;</text>
+      <!-- cell '<' -->
+      <rect x="310" y="46" width="120" height="150" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <line x1="310" y1="121" x2="430" y2="121" stroke="#3a4666" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <line x1="424" y1="52" x2="316" y2="121" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+      <line x1="316" y1="121" x2="424" y2="190" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+      <text x="388" y="92" fill="#dff5e6" font-size="17" text-anchor="middle" font-weight="700">／</text>
+      <text x="388" y="170" fill="#dff5e6" font-size="17" text-anchor="middle" font-weight="700">＼</text>
+      <text x="370" y="230" fill="#e7ecf6" font-size="20" text-anchor="middle" font-weight="700">คือตัว &lt;</text>
+      <!-- half labels -->
+      <text x="260" y="90" fill="#9aa7bd" font-size="11" text-anchor="middle">ครึ่งบน</text>
+      <text x="260" y="168" fill="#9aa7bd" font-size="11" text-anchor="middle">ครึ่งล่าง</text>
+    </svg>
+    <figcaption>ตัว <code>&gt;</code> = บน <code>＼</code> / ล่าง <code>／</code> ส่วน <code>&lt;</code> = บน <code>／</code> / ล่าง <code>＼</code> วางขีดสลับครึ่งกัน (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <p>
+    พลิกกลับกัน: ถ้าเจอขีดหนึ่งขีด อยากรู้ว่ามันมาจากตัวไหน ต้องดู 2 อย่าง คือ <strong>ชนิดขีด</strong> (<code>／</code> หรือ <code>＼</code>) และ <strong>อยู่ครึ่งไหน</strong> (บน/ล่าง) ตามตารางนี้ (นี่คือหัวใจของฟังก์ชัน <code>ok_seg</code> ในโค้ด):
+  </p>
+  <table class="lookup">
+    <thead>
+      <tr><th>ขีดที่เจอ</th><th>ครึ่งบน (yt คู่)</th><th>ครึ่งล่าง (yt คี่)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>／</code></td><td><code>&lt;</code></td><td><code>&gt;</code></td></tr>
+      <tr><td><code>＼</code></td><td><code>&gt;</code></td><td><code>&lt;</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    เพชรเล็กสุด (ring ขนาด 1) เกิดจาก <code>&lt;&gt;</code> ต่อกันในแถวเดียว (หรือบล็อก 2×2 แนวตั้ง) วิธีนับคือไปยืนทุกจุดศูนย์กลาง แล้วดูว่า ring ซ้อนต่อเนื่องจากขนาด 1 ได้ถึงชั้นไหน (เรียกว่า <code>T</code>) ถ้าได้ถึง <code>T</code> ก็จะมี glyph tier 1..T = <strong>T อัน</strong> ที่จุดนั้น
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">สูตรรวม</p>
+    <p><strong>คำตอบ = ผลรวม <code>T</code> ของทุกจุดศูนย์กลาง</strong> โดย <code>T</code> = จำนวน ring ต่อเนื่องเริ่มจากขนาด 1 ที่มีครบ</p>
+  </div>
+  <p>
+    การเช็ก ring ขนาด <code>s</code> ก็คือไล่ 4 ด้านของเพชร ด้านละ <code>s</code> ขีด แต่ละขีดแปลงเป็นช่องบนกริดแล้วเทียบตามตารางด้านบน ถ้าครบทุกขีดคือ ring มีจริง ภาพนี้คือ 4 ด้านที่โค้ดเดินเก็บทีละขีด:
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เพชรศูนย์กลาง XY สี่ด้าน แต่ละด้านเดินทีละขีดตามดัชนี i ด้าน A ซ้ายไปบน ด้าน B บนไปขวา ด้าน C ขวาไปล่าง ด้าน D ล่างไปซ้าย">
+      <g stroke-width="5" fill="none" stroke-linecap="round">
+        <path d="M160 175 L215 130" stroke="#d64545"/><path d="M215 130 L270 85" stroke="#d64545"/>
+        <path d="M270 85 L325 130" stroke="#6ea8ff"/><path d="M325 130 L380 175" stroke="#6ea8ff"/>
+        <path d="M380 175 L325 220" stroke="#4ade80"/><path d="M325 220 L270 265" stroke="#4ade80"/>
+        <path d="M270 265 L215 220" stroke="#e0b400"/><path d="M215 220 L160 175" stroke="#e0b400"/>
+      </g>
+      <circle cx="270" cy="175" r="4" fill="#e7ecf6"/>
+      <text x="280" y="188" fill="#e7ecf6" font-size="12">ศูนย์กลาง (X, Y)</text>
+      <g fill="#1c2536" stroke="#2a3350" stroke-width="2">
+        <circle cx="270" cy="85" r="5"/><circle cx="380" cy="175" r="5"/><circle cx="270" cy="265" r="5"/><circle cx="160" cy="175" r="5"/>
+      </g>
+      <text x="150" y="150" fill="#f08b8b" font-size="12" text-anchor="end">A ／</text>
+      <text x="392" y="150" fill="#9ec6ff" font-size="12">B ＼</text>
+      <text x="392" y="210" fill="#7fe0a6" font-size="12">C ／</text>
+      <text x="150" y="210" fill="#e0c445" font-size="12" text-anchor="end">D ＼</text>
+      <text x="270" y="292" fill="#9aa7bd" font-size="11" text-anchor="middle">4 ด้าน ด้านละ s ขีด วน i = 0 … s−1 เก็บทีละขีด</text>
+    </svg>
+    <figcaption>ring คือเพชรสี่ด้าน โค้ดเดินเลาะขอบทีละด้านด้วยดัชนี <code>i</code> (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <p>
+    ลองกับตัวอย่างจริงของโจทย์ (กริด 4×5) กดปุ่มด้านล่างดูทีละสเต็ป จะเห็นเลยว่าตัว <code>&lt;</code>／<code>&gt;</code> แต่ละตัวแตกเป็นขีดเฉียงยังไง แล้วขีดพวกนั้นประกอบกันเป็นเพชร tier 1 ห้าอัน และซ้อนต่อเป็น tier 2 อีกหนึ่ง รวม 5 + 1 = 6:
+  </p>
+
+  <figure class="diagram glyph-anim" data-step="1" data-caps={JSON.stringify([
+    'สเต็ป 1/4 · กริดจริง 4×5 เต็มไปด้วยตัว < และ >',
+    'สเต็ป 2/4 · ตัวอักษรแตกเป็นขีดเฉียง (1 ช่อง = 2 ขีด)',
+    'สเต็ป 3/4 · เพชร tier 1 โผล่ 5 อัน (เขียว)',
+    'สเต็ป 4/4 · เพชร tier 2 ซ้อนอีก 1 อัน (เหลืองประ) → 5 + 1 = 6',
+  ])}>
+    <div class="glyph-stage">
+      <svg viewBox="0 0 272 216" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="สไลด์โชว์ 4 สเต็ป จากกริดตัวอักษรมากกว่าน้อยกว่า แตกเป็นขีดเฉียง เป็นเพชร tier 1 ห้าอัน และเพชร tier 2 หนึ่งอัน">
+      <!-- chars -->
+      <g class="ga-chars" font-family="'Fira Code','Fira Mono',monospace" font-size="22" font-weight="700" text-anchor="middle" fill="#cdd6ea">
+        <text x="48" y="42" dy="0.35em">&lt;</text><text x="92" y="42" dy="0.35em">&gt;</text><text x="136" y="42" dy="0.35em">&lt;</text><text x="180" y="42" dy="0.35em">&lt;</text><text x="224" y="42" dy="0.35em">&gt;</text>
+        <text x="48" y="86" dy="0.35em">&lt;</text><text x="92" y="86" dy="0.35em">&lt;</text><text x="136" y="86" dy="0.35em">&gt;</text><text x="180" y="86" dy="0.35em">&gt;</text><text x="224" y="86" dy="0.35em">&gt;</text>
+        <text x="48" y="130" dy="0.35em">&gt;</text><text x="92" y="130" dy="0.35em">&gt;</text><text x="136" y="130" dy="0.35em">&lt;</text><text x="180" y="130" dy="0.35em">&lt;</text><text x="224" y="130" dy="0.35em">&lt;</text>
+        <text x="48" y="174" dy="0.35em">&gt;</text><text x="92" y="174" dy="0.35em">&gt;</text><text x="136" y="174" dy="0.35em">&lt;</text><text x="180" y="174" dy="0.35em">&gt;</text><text x="224" y="174" dy="0.35em">&lt;</text>
+      </g>
+      <!-- segments -->
+      <g class="ga-segs" stroke="#5b6b93" stroke-width="3" stroke-linecap="round">
+        <line x1="26" y1="42" x2="70" y2="20"/><line x1="26" y1="42" x2="70" y2="64"/><line x1="70" y1="20" x2="114" y2="42"/><line x1="70" y1="64" x2="114" y2="42"/>
+        <line x1="114" y1="42" x2="158" y2="20"/><line x1="114" y1="42" x2="158" y2="64"/><line x1="158" y1="42" x2="202" y2="20"/><line x1="158" y1="42" x2="202" y2="64"/>
+        <line x1="202" y1="20" x2="246" y2="42"/><line x1="202" y1="64" x2="246" y2="42"/><line x1="26" y1="86" x2="70" y2="64"/><line x1="26" y1="86" x2="70" y2="108"/>
+        <line x1="70" y1="86" x2="114" y2="64"/><line x1="70" y1="86" x2="114" y2="108"/><line x1="114" y1="64" x2="158" y2="86"/><line x1="114" y1="108" x2="158" y2="86"/>
+        <line x1="158" y1="64" x2="202" y2="86"/><line x1="158" y1="108" x2="202" y2="86"/><line x1="202" y1="64" x2="246" y2="86"/><line x1="202" y1="108" x2="246" y2="86"/>
+        <line x1="26" y1="108" x2="70" y2="130"/><line x1="26" y1="152" x2="70" y2="130"/><line x1="70" y1="108" x2="114" y2="130"/><line x1="70" y1="152" x2="114" y2="130"/>
+        <line x1="114" y1="130" x2="158" y2="108"/><line x1="114" y1="130" x2="158" y2="152"/><line x1="158" y1="130" x2="202" y2="108"/><line x1="158" y1="130" x2="202" y2="152"/>
+        <line x1="202" y1="130" x2="246" y2="108"/><line x1="202" y1="130" x2="246" y2="152"/><line x1="26" y1="152" x2="70" y2="174"/><line x1="26" y1="196" x2="70" y2="174"/>
+        <line x1="70" y1="152" x2="114" y2="174"/><line x1="70" y1="196" x2="114" y2="174"/><line x1="114" y1="174" x2="158" y2="152"/><line x1="114" y1="174" x2="158" y2="196"/>
+        <line x1="158" y1="152" x2="202" y2="174"/><line x1="158" y1="196" x2="202" y2="174"/><line x1="202" y1="174" x2="246" y2="152"/><line x1="202" y1="174" x2="246" y2="196"/>
+      </g>
+      <!-- tier 1 diamonds -->
+      <g class="ga-tier1" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="2.5" stroke-linejoin="round">
+        <polygon points="70,20 114,42 70,64 26,42"/>
+        <polygon points="114,64 158,86 114,108 70,86"/>
+        <polygon points="114,130 158,152 114,174 70,152"/>
+        <polygon points="158,152 202,174 158,196 114,174"/>
+        <polygon points="202,20 246,42 202,64 158,42"/>
+      </g>
+      <!-- tier 2 diamond -->
+      <g class="ga-tier2">
+        <polygon points="114,42 202,86 114,130 26,86" fill="none" stroke="#e0b400" stroke-width="3" stroke-linejoin="round" stroke-dasharray="7 5"/>
+      </g>
+      </svg>
+    </div>
+    <p class="glyph-cap" role="status" aria-live="polite">สเต็ป 1/4</p>
+    <div class="glyph-controls">
+      <button type="button" class="ga-prev" aria-label="สเต็ปก่อนหน้า">‹ ก่อนหน้า</button>
+      <span class="ga-dots" role="tablist" aria-label="เลือกสเต็ป">
+        <button type="button" aria-label="สเต็ป 1"></button>
+        <button type="button" aria-label="สเต็ป 2"></button>
+        <button type="button" aria-label="สเต็ป 3"></button>
+        <button type="button" aria-label="สเต็ป 4"></button>
+      </span>
+      <button type="button" class="ga-next" aria-label="สเต็ปถัดไป">ถัดไป ›</button>
+      <button type="button" class="ga-play" aria-pressed="false">▶ เล่นอัตโนมัติ</button>
+    </div>
+    <figcaption>สไลด์โชว์: ตัวอักษร → ขีดเฉียง → เพชร tier 1 (5 อัน เขียว) → เพชร tier 2 (1 อัน เหลืองประ) = 6 (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>4 5<br>&lt;&gt;&lt;&lt;&gt;<br>&lt;&lt;&gt;&gt;&gt;<br>&gt;&gt;&lt;&lt;&lt;<br>&gt;&gt;&lt;&gt;&lt;</td><td>6</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">* ตัวอย่างจากโจทย์ · มีเพชรเล็ก (ring ขนาด 1) 5 จุด และหนึ่งในนั้นซ้อนได้ถึง ring ขนาด 2 → 5 + 1 = 6</p>
+
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyD} lang="python" />
+      <ul class="notes">
+        <li><strong>ทำไม <code>Y</code> ถึงวิ่งถึง <code>2N</code>?</strong> เพราะ 1 ช่องมี 2 ขีด (บน/ล่าง) เลยให้ความสูงช่องละ 2 หน่วย โดย <code>yt</code> คู่ = ครึ่งบน, คี่ = ครึ่งล่าง (ดู diagram + ตารางด้านบน)</li>
+        <li><strong>ตัวแปร <code>segs</code> คืออะไร?</strong> คือ 4 ขีดของ ring (ด้านละ 1 ขีดต่อรอบ <code>i</code>) ตำแหน่งมาจากการเดินเลาะ 4 ด้านตามภาพเพชรด้านบน</li>
+        <li><strong><code>ans += s - 1</code>:</strong> ถ้าที่จุดนี้ซ้อน ring ได้ถึงขนาด s−1 (ขนาด s วงแรกที่ขาด) ก็แปลว่ามี glyph tier 1 ถึง s−1 = รวม s−1 อัน</li>
+        <li><strong>ทำไมต้องมีลูป <code>i</code> ในเมื่อ <code>s</code> ก็ลูปนอกอยู่แล้ว?</strong> เพราะ <code>s</code> กับ <code>i</code> วัดคนละอย่าง: <code>s</code> คือ <strong>ขนาดของวง</strong> (รัศมี) ส่วน <code>i</code> คือ <strong>เดินไล่ตรวจทีละขีดไปตามด้านของวงนั้น</strong> วงขนาด <code>s</code> มี 4 ด้าน ด้านละ <code>s</code> ขีด รวม <code>4·s</code> ขีด ถ้าตัด <code>i</code> ออกจะตรวจแค่ขีดตรงมุม ไม่ตรวจกลางด้าน วงที่ "แหว่งกลางด้าน" จะหลุดผ่าน นับเพชรเกิน คำตอบพัง ลองกดสไลด์ดูว่าพอ <code>s</code> โตขึ้น <code>i</code> ต้องตรวจกี่ขีด:</li>
+      </ul>
+
+      <figure class="diagram glyph-anim" data-step="1" data-caps={JSON.stringify([
+        's = 1 → ด้านละ 1 ขีด → i ตรวจ 4 × 1 = 4 ขีด',
+        's = 2 → ด้านละ 2 ขีด → i ตรวจ 4 × 2 = 8 ขีด',
+        's = 3 → ด้านละ 3 ขีด → i ตรวจ 4 × 3 = 12 ขีด',
+        's = 4 → ด้านละ 4 ขีด → i ตรวจ 4 × 4 = 16 ขีด',
+      ])}>
+        <div class="glyph-stage">
+          <svg viewBox="0 0 340 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="วงเพชรโตขึ้นทีละขนาด s เท่ากับ 1 ถึง 4 แต่ละวงประกอบจากขีดสั้น ด้านละ s ขีด จุดสีคือขีดที่ลูป i ต้องตรวจ ยิ่งวงใหญ่ยิ่งมีขีดมาก">
+          <circle cx="170" cy="150" r="3" fill="#e7ecf6"/>
+      <g class="rk-step rk-s1">
+        <g stroke="#4ade80" stroke-width="4" stroke-linecap="round">
+          <line x1="140" y1="150" x2="170" y2="120"/>
+          <line x1="170" y1="120" x2="200" y2="150"/>
+          <line x1="200" y1="150" x2="170" y2="180"/>
+          <line x1="170" y1="180" x2="140" y2="150"/>
+        </g>
+        <g fill="#0d1220" stroke="#4ade80" stroke-width="2">
+          <circle cx="140" cy="150" r="4"/>
+          <circle cx="170" cy="120" r="4"/>
+          <circle cx="200" cy="150" r="4"/>
+          <circle cx="170" cy="180" r="4"/>
+        </g>
+        <g fill="#e0b400">
+          <circle cx="170" cy="120" r="5"/>
+          <circle cx="200" cy="150" r="5"/>
+          <circle cx="170" cy="180" r="5"/>
+          <circle cx="140" cy="150" r="5"/>
+        </g>
+      </g>
+      <g class="rk-step rk-s2">
+        <g stroke="#4ade80" stroke-width="4" stroke-linecap="round">
+          <line x1="110" y1="150" x2="140" y2="120"/>
+          <line x1="140" y1="120" x2="170" y2="90"/>
+          <line x1="170" y1="90" x2="200" y2="120"/>
+          <line x1="200" y1="120" x2="230" y2="150"/>
+          <line x1="230" y1="150" x2="200" y2="180"/>
+          <line x1="200" y1="180" x2="170" y2="210"/>
+          <line x1="170" y1="210" x2="140" y2="180"/>
+          <line x1="140" y1="180" x2="110" y2="150"/>
+        </g>
+        <g fill="#0d1220" stroke="#4ade80" stroke-width="2">
+          <circle cx="110" cy="150" r="4"/>
+          <circle cx="140" cy="120" r="4"/>
+          <circle cx="170" cy="90" r="4"/>
+          <circle cx="200" cy="120" r="4"/>
+          <circle cx="230" cy="150" r="4"/>
+          <circle cx="200" cy="180" r="4"/>
+          <circle cx="170" cy="210" r="4"/>
+          <circle cx="140" cy="180" r="4"/>
+        </g>
+        <g fill="#e0b400">
+          <circle cx="170" cy="90" r="5"/>
+          <circle cx="230" cy="150" r="5"/>
+          <circle cx="170" cy="210" r="5"/>
+          <circle cx="110" cy="150" r="5"/>
+        </g>
+      </g>
+      <g class="rk-step rk-s3">
+        <g stroke="#4ade80" stroke-width="4" stroke-linecap="round">
+          <line x1="80" y1="150" x2="110" y2="120"/>
+          <line x1="110" y1="120" x2="140" y2="90"/>
+          <line x1="140" y1="90" x2="170" y2="60"/>
+          <line x1="170" y1="60" x2="200" y2="90"/>
+          <line x1="200" y1="90" x2="230" y2="120"/>
+          <line x1="230" y1="120" x2="260" y2="150"/>
+          <line x1="260" y1="150" x2="230" y2="180"/>
+          <line x1="230" y1="180" x2="200" y2="210"/>
+          <line x1="200" y1="210" x2="170" y2="240"/>
+          <line x1="170" y1="240" x2="140" y2="210"/>
+          <line x1="140" y1="210" x2="110" y2="180"/>
+          <line x1="110" y1="180" x2="80" y2="150"/>
+        </g>
+        <g fill="#0d1220" stroke="#4ade80" stroke-width="2">
+          <circle cx="80" cy="150" r="4"/>
+          <circle cx="110" cy="120" r="4"/>
+          <circle cx="140" cy="90" r="4"/>
+          <circle cx="170" cy="60" r="4"/>
+          <circle cx="200" cy="90" r="4"/>
+          <circle cx="230" cy="120" r="4"/>
+          <circle cx="260" cy="150" r="4"/>
+          <circle cx="230" cy="180" r="4"/>
+          <circle cx="200" cy="210" r="4"/>
+          <circle cx="170" cy="240" r="4"/>
+          <circle cx="140" cy="210" r="4"/>
+          <circle cx="110" cy="180" r="4"/>
+        </g>
+        <g fill="#e0b400">
+          <circle cx="170" cy="60" r="5"/>
+          <circle cx="260" cy="150" r="5"/>
+          <circle cx="170" cy="240" r="5"/>
+          <circle cx="80" cy="150" r="5"/>
+        </g>
+      </g>
+      <g class="rk-step rk-s4">
+        <g stroke="#4ade80" stroke-width="4" stroke-linecap="round">
+          <line x1="50" y1="150" x2="80" y2="120"/>
+          <line x1="80" y1="120" x2="110" y2="90"/>
+          <line x1="110" y1="90" x2="140" y2="60"/>
+          <line x1="140" y1="60" x2="170" y2="30"/>
+          <line x1="170" y1="30" x2="200" y2="60"/>
+          <line x1="200" y1="60" x2="230" y2="90"/>
+          <line x1="230" y1="90" x2="260" y2="120"/>
+          <line x1="260" y1="120" x2="290" y2="150"/>
+          <line x1="290" y1="150" x2="260" y2="180"/>
+          <line x1="260" y1="180" x2="230" y2="210"/>
+          <line x1="230" y1="210" x2="200" y2="240"/>
+          <line x1="200" y1="240" x2="170" y2="270"/>
+          <line x1="170" y1="270" x2="140" y2="240"/>
+          <line x1="140" y1="240" x2="110" y2="210"/>
+          <line x1="110" y1="210" x2="80" y2="180"/>
+          <line x1="80" y1="180" x2="50" y2="150"/>
+        </g>
+        <g fill="#0d1220" stroke="#4ade80" stroke-width="2">
+          <circle cx="50" cy="150" r="4"/>
+          <circle cx="80" cy="120" r="4"/>
+          <circle cx="110" cy="90" r="4"/>
+          <circle cx="140" cy="60" r="4"/>
+          <circle cx="170" cy="30" r="4"/>
+          <circle cx="200" cy="60" r="4"/>
+          <circle cx="230" cy="90" r="4"/>
+          <circle cx="260" cy="120" r="4"/>
+          <circle cx="290" cy="150" r="4"/>
+          <circle cx="260" cy="180" r="4"/>
+          <circle cx="230" cy="210" r="4"/>
+          <circle cx="200" cy="240" r="4"/>
+          <circle cx="170" cy="270" r="4"/>
+          <circle cx="140" cy="240" r="4"/>
+          <circle cx="110" cy="210" r="4"/>
+          <circle cx="80" cy="180" r="4"/>
+        </g>
+        <g fill="#e0b400">
+          <circle cx="170" cy="30" r="5"/>
+          <circle cx="290" cy="150" r="5"/>
+          <circle cx="170" cy="270" r="5"/>
+          <circle cx="50" cy="150" r="5"/>
+        </g>
+      </g>
+          </svg>
+        </div>
+        <p class="glyph-cap" role="status" aria-live="polite">s = 1</p>
+        <div class="glyph-controls">
+          <button type="button" class="ga-prev" aria-label="วงเล็กลง">‹ s เล็กลง</button>
+          <span class="ga-dots" role="tablist" aria-label="เลือกขนาดวง">
+            <button type="button" aria-label="s = 1"></button>
+            <button type="button" aria-label="s = 2"></button>
+            <button type="button" aria-label="s = 3"></button>
+            <button type="button" aria-label="s = 4"></button>
+          </span>
+          <button type="button" class="ga-next" aria-label="วงใหญ่ขึ้น">s ใหญ่ขึ้น ›</button>
+          <button type="button" class="ga-play" aria-pressed="false">▶ เล่นอัตโนมัติ</button>
+        </div>
+        <figcaption>จุดทองคือ 4 มุมของวง จุดเขียวคือขีดที่ลูป <code>i</code> ไล่ตรวจ วงยิ่งใหญ่ (<code>s</code> มาก) จำนวนขีดที่ต้องตรวจยิ่งเพิ่มเป็น <code>4·s</code> (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+      </figure>
+      <ul class="notes">
+        <li><strong>Big-O:</strong> จุดศูนย์กลางมี <code>O(N·M)</code> จุด แต่ละจุดไล่ ring ลึกสุดราว <code>min(N,M)</code> ชั้น ชั้น <code>s</code> ตรวจ <code>4·s</code> ขีด กรณีแย่สุดจึงราว <code>O(N·M·min(N,M)²)</code> แต่จริง ๆ ring มักขาดเร็วมาก และ <code>N,M ≤ 70</code> เลยทันสบาย</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>E · Binary String Creation: สร้างสตริงวงกลม</h2>
+  <p>
+    ให้สตริงเลขฐานสอง <code>A</code> ยาว <code>N</code> ต้องสร้าง <strong>สตริงวงกลม <code>B</code> ที่สั้นที่สุด</strong> พร้อมลำดับการเดินซ้าย/ขวาบนวง เพื่อให้เดินเก็บตัวอักษรมาต่อกันได้เท่ากับ <code>A</code>
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code>, บรรทัดสองคือสตริงฐานสอง <code>A</code> ยาว <code>N</code></li>
+      <li><strong>ขอบเขต:</strong> <code>2 ≤ N ≤ 2·10<sup>5</sup></code></li>
+      <li><strong>เอาต์พุต:</strong> ตอบ <strong>3 บรรทัด</strong> ตาม format โจทย์ คือ (1) <code>M</code> ความยาวของ B, (2) สตริง <code>B</code> (ต้อง B[0] = A[0]), (3) สตริงยาว <code>N−1</code> ของตัว <code>L</code>/<code>R</code> บอกทิศเดินแต่ละก้าว และถ้ามีหลายคำตอบ ตอบอันไหนก็ได้</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>มอง <code>B</code> เป็น "บล็อกของเลขเหมือนกันสลับกันไป" แล้วสังเกตว่าบล็อกขนาด 2 ช่อง (เช่น <code>11</code>) เด้งซ้าย-ขวาไปมา อ่านเลขซ้ำได้ไม่จำกัด → run ยาวแค่ไหนก็ใช้แค่ 2 ช่องพอ!</p>
+  </div>
+  <p>
+    เพราะมีแค่สองสัญลักษณ์ 0/1 จึงใช้แค่ 2 บล็อกก็พอเสมอ → ความยาว <code>M</code> น้อยสุดมีแค่ 1–4:
+  </p>
+  <div class="card">
+    <ul>
+      <li><code>A</code> ตัวเดียวล้วน (เช่น <code>1111</code>) → M = <strong>1</strong></li>
+      <li>M = <code>s₀ + s₁</code> เมื่อมีทั้ง 0 และ 1 โดย</li>
+      <li><code>s₁</code> = 2 ถ้ามี <code>11</code> ใน A ไม่งั้น = 1</li>
+      <li><code>s₀</code> = 2 ถ้ามี <code>00</code> ใน A ไม่งั้น = 1</li>
+    </ul>
+  </div>
+  <p>
+    เช่น A = <code>1101</code> (มี <code>11</code> ไม่มี <code>00</code>) → M = 2+1 = <strong>3</strong>
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>4<br>1101</td><td>3<br>101<br>LLR</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">ตัวอย่างจากโจทย์ · มีหลายคำตอบที่ถูกได้ (เช่นโค้ดข้างล่างอาจได้ B=<code>110</code> เดิน <code>RRR</code> ซึ่งก็ถูก)</p>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyE} lang="python" />
+      <ul class="notes">
+        <li><strong>ทำไมเดินโลภแล้วไม่มีทางตัน?</strong> เพราะบล็อกใหญ่สุดแค่ 2 ช่อง จากช่องไหนก็ตามบนวง เพื่อนบ้านจะมีบิตที่เราต้องการเสมอ (ช่องเดี่ยว ๆ ตัวถัดไปก็เป็นอีกบิตพอดีตามนิยาม s)</li>
+        <li><code>(pos + 1) % M</code> / <code>(pos - 1) % M</code> คือ "เดินขวา/ซ้ายบนวง" ตัว <code>%</code> ทำให้วนกลับหัวท้ายได้</li>
+        <li>โจทย์บอก "ตอบอันไหนก็ได้ถ้ามีหลายคำตอบ" เลยเลือก R ก่อนเมื่อทั้งสองฝั่งตรงได้ ไม่ผิด</li>
+        <li><strong>Big-O:</strong> <code>O(N)</code> สร้างบล็อกยาวไม่เกิน 4 แล้วเดินเก็บ move ทีละก้าว <code>N−1</code> ครั้ง</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>F · Quantum Counter: ตัวนับควอนตัม</h2>
+  <p>
+    เครื่องนับ alpha เริ่มที่ <code>A</code>, omega เริ่มที่ <code>B</code> ทุกวินาที alpha ลด 1 และ omega เพิ่ม 1 เกิด "wormhole" เมื่อ <strong>alpha หารด้วย omega ลงตัว</strong> (นับตอนเริ่มต้นด้วย) หยุดเมื่อตัวใดตัวหนึ่งเป็น 0 แล้วถามว่าเกิด wormhole กี่ครั้ง
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดเดียว มีจำนวนเต็ม 2 ตัว <code>A</code> และ <code>B</code> (ค่าเริ่มต้นของ alpha และ omega)</li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ A, B ≤ 10<sup>12</sup></code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัว = จำนวน wormhole ที่เกิดขึ้น</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>ที่เวลา t: alpha = <code>A − t</code>, omega = <code>B + t</code> ลองตั้งตัวแปรใหม่ <code>d = B + t</code> (ค่า omega) แล้วเขียน <code>A − t</code> ในรูปของ <code>d</code> ดู แล้วเงื่อนไขหารลงตัวจะยุบง่ายขึ้นเยอะ</p>
+  </div>
+  <p>
+    ดูก่อนว่าแต่ละวินาทีเกิดอะไร: <strong>alpha ลดลงทีละ 1</strong> (A → A−1 → A−2 → …) ส่วน <strong>omega เพิ่มขึ้นทีละ 1</strong> (B → B+1 → …) และจะเกิด wormhole ณ วินาทีที่ <strong>omega หาร alpha ลงตัว</strong>
+  </p>
+  <p>
+    <strong>ทำไม t เริ่มที่ 0 และจบที่ A−1?</strong> t = 0 คือวินาทีแรกสุด (สถานะเริ่มต้น alpha = A, omega = B) เวลาติดลบไม่ได้จึงเริ่มที่ 0 · ส่วน alpha = <code>A − t</code> ต้องเหลืออย่างน้อย 1 พอถึง <code>t = A−1</code> จะได้ alpha = 1 คือวินาทีสุดท้ายที่ยังมี alpha เหลือ ถัดไปอีกวินาที (<code>t = A</code>) alpha = 0 หมดเวลาพอดี ดังนั้น t วิ่งได้ <code>0, 1, …, A−1</code> รวม A วินาที
+  </p>
+  <p>
+    ทีนี้ตั้ง <code>d = omega = B + t</code> พอ t ไล่จาก 0 ถึง A−1 ค่า <code>d</code> ก็ <strong>กวาดครบทุกจำนวนเต็มตั้งแต่ <code>B</code> ถึง <code>B + (A−1) = S − 1</code></strong> พอดี (ทีละค่า ไม่ซ้ำ ไม่ขาด เมื่อ <code>S = A + B</code>) และเพราะ <code>alpha = A − t = (A + B) − d = S − d</code> เงื่อนไข "<code>d</code> หาร alpha" จึงเท่ากับ "<code>d</code> หาร <code>S − d</code>" ในเมื่อ <code>d</code> หารตัวมันเองอยู่แล้ว ก็เหลือแค่ <strong><code>d</code> หาร <code>S</code></strong>
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">หัวใจของข้อนี้</p>
+    <p>เงื่อนไขหารลงตัวที่ดูยุ่ง ยุบเหลือแค่: <strong><code>d</code> เป็นตัวหารของ <code>S = A + B</code></strong> ที่อยู่ในช่วง <code>[B, S−1]</code> · <strong>คำตอบ = จำนวนตัวหารของ <code>S</code> ในช่วงนั้น</strong></p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 618 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เส้นจำนวน d กวาดจาก 5 ถึง 17 ตามเวลา t เท่ากับ 0 ถึง 12 จุดเขียวที่ d เท่ากับ 6 และ 9 คือค่าที่หาร 18 ลงตัว เกิด wormhole">
+      <text x="309" y="28" fill="#9aa7bd" font-size="12" text-anchor="middle">ตัวอย่าง A=13, B=5, S=18 · <tspan fill="#e7ecf6">d = B + t</tspan> กวาดจาก 5 ถึง 17 (t = 0…12)</text>
+      <line x1="35" y1="95" x2="583" y2="95" stroke="#5b6b93" stroke-width="2"/>
+      <circle cx="45" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="45" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">5</text>
+      <text x="45" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=0</text>
+      <circle cx="89" cy="95" r="11" fill="rgba(74,222,128,0.18)" stroke="#4ade80" stroke-width="2"/>
+      <text x="89" y="123" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">6</text>
+      <text x="89" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=1</text>
+      <circle cx="133" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="133" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">7</text>
+      <text x="133" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=2</text>
+      <circle cx="177" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="177" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">8</text>
+      <text x="177" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=3</text>
+      <circle cx="221" cy="95" r="11" fill="rgba(74,222,128,0.18)" stroke="#4ade80" stroke-width="2"/>
+      <text x="221" y="123" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">9</text>
+      <text x="221" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=4</text>
+      <circle cx="265" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="265" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">10</text>
+      <text x="265" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=5</text>
+      <circle cx="309" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="309" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">11</text>
+      <text x="309" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=6</text>
+      <circle cx="353" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="353" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">12</text>
+      <text x="353" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=7</text>
+      <circle cx="397" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="397" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">13</text>
+      <text x="397" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=8</text>
+      <circle cx="441" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="441" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">14</text>
+      <text x="441" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=9</text>
+      <circle cx="485" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="485" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">15</text>
+      <text x="485" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=10</text>
+      <circle cx="529" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="529" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">16</text>
+      <text x="529" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=11</text>
+      <circle cx="573" cy="95" r="5" fill="#1c2536" stroke="#3a4666" stroke-width="2"/>
+      <text x="573" y="123" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="400">17</text>
+      <text x="573" y="75" fill="#6b7793" font-size="10" text-anchor="middle">t=12</text>
+      <text x="309" y="152" fill="#7fe0a6" font-size="11" text-anchor="middle">จุดเขียว = d ที่หาร S=18 ลงตัว (6 และ 9) → 2 wormhole</text>
+    </svg>
+    <figcaption>เวลา t เดินไปข้างหน้า ค่า <code>d = B+t</code> เลื่อนไปทางขวาทีละก้าว ครบทุกค่าใน <code>[B, S−1]</code> เราแค่ถามว่าค่าไหน "หาร S ลงตัว" (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <p>ตารางไล่ทีละวินาทีของตัวอย่างเดียวกัน (A=13, B=5, S=18) แถวเขียวคือวินาทีที่เกิด wormhole:</p>
+  <table class="trace">
+    <thead><tr><th>t</th><th>alpha = A−t</th><th>omega = d = B+t</th><th>d หาร S=18 ?</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>13</td><td>5</td><td>·</td></tr>
+      <tr class="hit"><td>1</td><td>12</td><td>6</td><td>หารลงตัว → wormhole</td></tr>
+      <tr><td>2</td><td>11</td><td>7</td><td>·</td></tr>
+      <tr><td>3</td><td>10</td><td>8</td><td>·</td></tr>
+      <tr class="hit"><td>4</td><td>9</td><td>9</td><td>หารลงตัว → wormhole</td></tr>
+      <tr><td>5</td><td>8</td><td>10</td><td>·</td></tr>
+      <tr><td>6</td><td>7</td><td>11</td><td>·</td></tr>
+      <tr><td>7</td><td>6</td><td>12</td><td>·</td></tr>
+      <tr><td>8</td><td>5</td><td>13</td><td>·</td></tr>
+      <tr><td>9</td><td>4</td><td>14</td><td>·</td></tr>
+      <tr><td>10</td><td>3</td><td>15</td><td>·</td></tr>
+      <tr><td>11</td><td>2</td><td>16</td><td>·</td></tr>
+      <tr><td>12</td><td>1</td><td>17</td><td>·</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">alpha ไล่ลง 13→1, omega (=d) ไล่ขึ้น 5→17 ครบช่วง [5,17] มีแค่ d=6 กับ d=9 ที่หาร 18 ลงตัว จึงได้ 2</p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT (A B)</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>13 5</td><td>2</td></tr>
+      <tr><td>138 6</td><td>10</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">ตัวอย่างจากโจทย์ · แถวแรก: S=18 ตัวหาร &#123;1,2,3,6,9,18&#125; ที่อยู่ในช่วง [5,17] คือ 6 กับ 9 → 2</p>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyF} lang="python" />
+      <ul class="notes">
+        <li><strong>ทำไมวนแค่ถึง <code>√S</code>?</strong> ตัวหารมักมาเป็นคู่ <code>i</code> กับ <code>S÷i</code> โดยตัวหนึ่งจะ ≤ √S เสมอ เจอ <code>i</code> ก็ได้ <code>S//i</code> ฟรี → S ถึง 2×10<sup>12</sup> แต่ √S แค่ ~1.4 ล้าน ทันเวลา</li>
+        <li><code>j != i</code> กันเคส <code>S</code> เป็นกำลังสองพอดี (เช่น 144 = 12×12) ไม่ให้นับตัวกลางซ้ำ</li>
+        <li><strong>Big-O:</strong> <code>O(√S)</code> วนหาตัวหารถึงแค่รากของ <code>S</code> (มากสุดราว 1.4 ล้านรอบ)</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>G · Painting the NFTree: ต้นไม้ทาสี</h2>
+  <p>
+    มีต้นไม้ราก 1 แต่ละเส้นมี "สีที่อยากได้" หนึ่งครั้งการทา (operation) เลือกสี <code>c</code> เลือกจุด <code>v</code> แล้วไล่ทาเส้นลงลูก ๆ ที่ยังไม่ทาลงไปเรื่อย ๆ ด้วยสี <code>c</code> เดียวกัน พูดง่าย ๆ คือ <strong>ทา "ก้อนเส้นที่ต่อกันเป็นก้อนเดียว สีเดียวกัน" ได้ทีเดียว</strong> ถามหาจำนวนครั้งที่น้อยที่สุด
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> (จำนวนจุด) จากนั้นอีก <code>N−1</code> บรรทัด แต่ละบรรทัดมี <code>u v c</code> = เส้นระหว่างจุด u กับ v ที่อยากได้สี c · เส้นทั้งหมดประกอบเป็นต้นไม้ราก 1</li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ N ≤ 2·10<sup>5</sup></code> และ <code>1 ≤ u, v, c ≤ N</code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัว = จำนวนครั้งการทาที่น้อยที่สุด</li>
+    </ul>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">คำใบ้</p>
+    <p>เพราะแต่ละเส้นถูกทาครั้งเดียว คำตอบก็คือ "จำนวนก้อนสีเดียวที่เส้นติดกัน" ก้อนหนึ่งทาทีเดียวจบ ส่วนก้อนคนละสี/ไม่ติดกันทารวมกันไม่ได้ ลองนับก้อนดู</p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 560 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้จากเทสต์เคสแรก 7 จุด เส้นสี 1 แดงสามเส้นติดกันเป็นก้อนเดียว เส้นสี 2 น้ำเงินสองเส้นแยกกันเป็นสองก้อน เส้นสี 7 ทองหนึ่งเส้น รวมสี่ก้อน">
+      <!-- edges -->
+      <g stroke-width="5" fill="none" stroke-linecap="round">
+        <line x1="280" y1="40" x2="185" y2="120" stroke="#d64545"/>
+        <line x1="280" y1="40" x2="410" y2="120" stroke="#6ea8ff"/>
+        <line x1="185" y1="120" x2="110" y2="205" stroke="#d64545"/>
+        <line x1="185" y1="120" x2="270" y2="205" stroke="#d64545"/>
+        <line x1="110" y1="205" x2="95" y2="290" stroke="#6ea8ff"/>
+        <line x1="270" y1="205" x2="270" y2="290" stroke="#e0b400"/>
+      </g>
+      <!-- edge color labels (คอลัมน์ที่ 3 ของอินพุต) -->
+      <g font-size="12" font-weight="700" text-anchor="middle" stroke="#0d1220" stroke-width="3" paint-order="stroke">
+        <text x="222" y="74" fill="#f08b8b">1</text>
+        <text x="356" y="74" fill="#9ec6ff">2</text>
+        <text x="135" y="160" fill="#f08b8b">1</text>
+        <text x="242" y="158" fill="#f08b8b">1</text>
+        <text x="86" y="245" fill="#9ec6ff">2</text>
+        <text x="288" y="250" fill="#e0c445">7</text>
+      </g>
+      <!-- nodes -->
+      <g fill="#1c2536" stroke="#2a3350" stroke-width="2">
+        <circle cx="280" cy="40" r="15"/><circle cx="185" cy="120" r="15"/><circle cx="410" cy="120" r="15"/>
+        <circle cx="110" cy="205" r="15"/><circle cx="270" cy="205" r="15"/><circle cx="95" cy="290" r="15"/><circle cx="270" cy="290" r="15"/>
+      </g>
+      <g fill="#e7ecf6" font-size="13" text-anchor="middle" font-weight="700">
+        <text x="280" y="45">1</text><text x="185" y="125">2</text><text x="410" y="125">3</text>
+        <text x="110" y="210">4</text><text x="270" y="210">5</text><text x="95" y="295">6</text><text x="270" y="295">7</text>
+      </g>
+      <!-- legend -->
+      <g font-size="12">
+        <line x1="110" y1="348" x2="142" y2="348" stroke="#d64545" stroke-width="5" stroke-linecap="round"/>
+        <text x="152" y="352" fill="#f08b8b">สี 1 (แดง): เส้น 1-2, 2-4, 2-5 ติดกัน = 1 ก้อน</text>
+        <line x1="110" y1="376" x2="142" y2="376" stroke="#6ea8ff" stroke-width="5" stroke-linecap="round"/>
+        <text x="152" y="380" fill="#9ec6ff">สี 2 (น้ำเงิน): เส้น 1-3 กับ 4-6 แยกกัน = 2 ก้อน</text>
+        <line x1="110" y1="404" x2="142" y2="404" stroke="#e0b400" stroke-width="5" stroke-linecap="round"/>
+        <text x="152" y="408" fill="#e0c445">สี 7 (ทอง): เส้น 5-7 = 1 ก้อน → รวม 4 ก้อน</text>
+      </g>
+    </svg>
+    <figcaption>ต้นไม้จากเทสต์เคสแรก (N=7) เลขบนเส้นคือ "สี" ของเส้น (คอลัมน์ที่ 3 ของอินพุต) สังเกตว่าสี 2 (น้ำเงิน) โผล่ 2 ที่ที่ไม่ติดกัน เลยนับเป็น 2 ก้อน รวมทั้งหมด 4 ก้อน (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <p>
+    แทนที่จะไล่ union หาก้อน มีสูตรลัดสวย ๆ: ในต้นไม้ ก้อนสีเดียวที่มี <code>k</code> เส้นจะมี <code>k+1</code> จุด พอจัดพีชคณิตด้วยการนับสองทางแบบกฎจับมือ (พิสูจน์เต็ม ๆ ในกล่องด้านล่าง) มันยุบเหลือ:
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">สูตรลัด</p>
+    <p><strong>คำตอบ = (ผลรวมจำนวนสีที่ต่างกันรอบทุกจุด) − (N − 1)</strong></p>
+  </div>
+  <details class="expander">
+    <summary>ทำไมสูตรลัดถึงถูก (พิสูจน์ด้วยการนับสองทาง / กฎจับมือ)</summary>
+    <div class="expander-body">
+      <p><strong>จุดยากของข้อนี้:</strong> ไม่ได้อยู่ที่โค้ด แต่อยู่ที่การ "มองออก" ว่าจำนวนก้อน ที่ปกติต้องใช้ union-find ไล่หา เขียนเป็นสูตรปิดสั้น ๆ ได้ ผ่านการนับสองทางแบบกฎจับมือ นี่คือที่มาทีละสเต็ป</p>
+      <p><strong>ตั้งต้น:</strong> ต้นไม้มี <code>N</code> จุด, <code>N−1</code> เส้น ทุกเส้นมีสีเดียว "ก้อน" คือกลุ่มเส้นสีเดียวกันที่ติดกัน คำตอบ = จำนวนก้อนรวมทุกสี</p>
+      <p><strong>สเต็ป 1 · คิดทีละสี:</strong> หยิบเฉพาะเส้นสี <code>c</code> มากองรวมกัน เพราะต้นไม้ไม่มีวงรอบ (cycle) เส้นชุดย่อยก็ไม่มีวงรอบ จึงเป็น "ป่า" (forest) และในป่า ก้อนที่มี <code>e</code> เส้นจะมี <code>e+1</code> จุดเสมอ ให้ <code>V<sub>c</sub></code> = จำนวนจุดที่มีเส้นสี <code>c</code> แตะ และ <code>e<sub>c</sub></code> = จำนวนเส้นสี <code>c</code> จะได้ <strong>จำนวนก้อนสี <code>c</code> = V<sub>c</sub> − e<sub>c</sub></strong> (เพราะรวมทุกก้อน: Σ(e+1) = Σe + จำนวนก้อน = จำนวนจุดทั้งหมดที่สีนั้นแตะ)</p>
+      <p><strong>สเต็ป 2 · บวกทุกสี:</strong> คำตอบ = Σ<sub>c</sub>(V<sub>c</sub> − e<sub>c</sub>) = (Σ<sub>c</sub> V<sub>c</sub>) − (Σ<sub>c</sub> e<sub>c</sub>)</p>
+      <p><strong>สเต็ป 3 · พจน์ขวาง่าย:</strong> <code>Σ<sub>c</sub> e<sub>c</sub> = N−1</code> เพราะทุกเส้นถูกนับที่สีของมันเพียงสีเดียว รวมทุกสีก็คือจำนวนเส้นทั้งหมด</p>
+      <p><strong>สเต็ป 4 · หัวใจ นับสองทาง:</strong> <code>Σ<sub>c</sub> V<sub>c</sub></code> คือการนับ "คู่ (จุด, สี) ที่จุดนั้นมีเส้นสีนั้นแตะ" โดยไล่ทีละสี แต่ของกองเดียวกันนี้ ถ้าไล่ทีละจุดแทน จะได้ <code>Σ<sub>v</sub> distinct(v)</code> เมื่อ <code>distinct(v)</code> = จำนวนสีต่างกันรอบจุด <code>v</code> ของกองเดียวกันนับสองทางย่อมเท่ากัน จึงได้ <strong>Σ<sub>c</sub> V<sub>c</sub> = Σ<sub>v</sub> distinct(v)</strong></p>
+      <p>(นี่คือหลักเดียวกับกฎจับมือคลาสสิก <code>Σ<sub>v</sub> deg(v) = 2·E</code> ที่นับ "ปลายเส้น" สองทาง เพียงแต่เรานับคู่ (จุด, สี) แทนปลายเส้น)</p>
+      <p><strong>รวมร่าง:</strong> คำตอบ = <code>Σ<sub>v</sub> distinct(v) − (N−1)</code> ตรงกับสูตรลัดเป๊ะ</p>
+      <p><strong>ตรวจกับตัวอย่าง (เทสต์แรก N=7):</strong> เส้น 1-2, 2-4, 2-5 เป็นสี 1, เส้น 1-3 กับ 4-6 เป็นสี 2, เส้น 5-7 เป็นสี 7</p>
+      <ul class="notes">
+        <li>นับสีต่างรอบแต่ละจุด: จุด1 = &#123;1,2&#125; → 2, จุด2 = &#123;1&#125; → 1, จุด3 = &#123;2&#125; → 1, จุด4 = &#123;1,2&#125; → 2, จุด5 = &#123;1,7&#125; → 2, จุด6 = &#123;2&#125; → 1, จุด7 = &#123;7&#125; → 1 รวม = 10</li>
+        <li>คำตอบ = 10 − (7−1) = 10 − 6 = <strong>4</strong> ตรงกับเอาต์พุต</li>
+        <li>เช็กอีกทางด้วยการนับก้อนตรง ๆ: สี 1 ได้ 1 ก้อน (V=4, e=3 → 4−3=1), สี 2 ได้ 2 ก้อน (V=4, e=2 → 4−2=2), สี 7 ได้ 1 ก้อน (V=2, e=1 → 2−1=1) รวม 4 ก้อน ตรงกัน</li>
+      </ul>
+    </div>
+  </details>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>INPUT</th><th>OUTPUT</th></tr></thead>
+    <tbody>
+      <tr><td>7<br>1 2 1<br>1 3 2<br>2 4 1<br>2 5 1<br>4 6 2<br>5 7 7</td><td>4</td></tr>
+      <tr><td>5<br>1 2 1<br>1 3 1<br>2 4 1<br>3 5 1</td><td>1</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">* ตัวอย่างจากโจทย์ · เทสต์แรกตรงกับรูปด้านบน (สี 2 มี 2 ก้อนแยกกัน จึงได้ 4) ส่วนเทสต์สองทุกเส้นเป็นสีเดียวกันและเชื่อมกันทั้งต้น เลยรวมเป็นก้อนเดียว = 1</p>
+  <details class="expander">
+    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <div class="expander-body">
+      <CodeBlock code={pyG} lang="python" />
+      <ul class="notes">
+        <li>ใช้ <code>set()</code> ต่อจุด เพื่อเก็บ "สีที่ต่างกัน" สีซ้ำที่จุดเดียวกันจะถูกยุบอัตโนมัติ</li>
+        <li><code>len(colors[v])</code> คือจำนวนสีต่างที่จุด v พอบวกทุกจุดแล้วลบจำนวนเส้น ก็ได้จำนวนก้อนพอดี (ดูวิธีพิสูจน์แบบละเอียดในกล่อง "ทำไมสูตรลัดถึงถูก" ด้านบน)</li>
+        <li><strong>Big-O:</strong> <code>O(N)</code> อ่าน <code>N−1</code> เส้น ใส่ <code>set</code> ต่อจุด (เฉลี่ยต่อครั้ง <code>O(1)</code>) แล้วบวก <code>len</code> ของทุกจุด</li>
+      </ul>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>ปิดท้าย</h2>
+  <p>
+    สังเกตแพตเทิร์นร่วมของโจทย์ชุดนี้ไหมครับ บางข้อง่ายตรง ๆ (เช่น B แค่หาคอขวด) แต่ข้อที่ดูโหด เกือบทุกข้อ "ก้าวแรก" คือการ <strong>ทำสูตรที่ดูยุ่งให้ยุบเป็นของง่าย</strong>: recurrence กลายเป็นเลขยกกำลัง (C), เงื่อนไขหารลงตัวกลายเป็นนับตัวหาร (F), การทาสีกลายเป็นนับก้อน (G), สตริงวงกลมกลายเป็นบล็อกไม่กี่ตัว (E) พอมองเห็นโครงสร้างที่ซ่อนอยู่ โค้ดที่เหลือก็สั้นนิดเดียว นั่นแหละคือเสน่ห์ของโจทย์แข่งครับ
+  </p>
+
+  <hr class="divider" />
+
+  <ol class="references">
+    <li>ICPC 2026 Thailand (Central, Northern &amp; Eastern Regions) โจทย์ต้นฉบับ A–G เรียบเรียงและเฉลยด้วยคำของผู้เขียนเอง ส่วน diagram ทั้งหมดวาดขึ้นใหม่ประกอบบทความ</li>
+  </ol>
+</DivineLoreLayout>
+
+<style>
+  /* กล่องพับเฉลย */
+  .expander{
+    border:1px solid #2a3350;
+    border-radius:12px;
+    margin:1.1rem 0;
+    background:rgba(28,37,54,0.45);
+    overflow:hidden;
+  }
+  .expander > summary{
+    cursor:pointer;
+    padding:0.7rem 1rem;
+    font-weight:700;
+    font-size:0.9rem;
+    color:var(--dl-emerald-bright);
+    list-style:none;
+  }
+  .expander > summary::-webkit-details-marker{display:none;}
+  .expander > summary::before{content:"▸  ";color:var(--dl-muted);}
+  .expander[open] > summary::before{content:"▾  ";color:var(--dl-muted);}
+  .expander[open] > summary{border-bottom:1px solid #2a3350;}
+  .expander-body{padding:0.5rem 1rem 0.35rem;}
+  .expander-body .notes{padding-left:1.25rem;margin:0.25rem 0 0.6rem;}
+  .expander-body .notes li{font-size:0.86rem;color:var(--dl-muted);margin:0.4rem 0;}
+  .expander-body .notes strong{color:var(--dl-emerald-bright);}
+  .expander-body .notes code{font-size:0.85em;}
+  /* ตารางเทียบขีด -> ตัวอักษร (ข้อ D) */
+  table.lookup{
+    width:100%;
+    border-collapse:collapse;
+    margin:1rem 0;
+    font-size:0.9rem;
+  }
+  table.lookup th, table.lookup td{
+    border:1px solid #2a3350;
+    padding:0.5rem 0.75rem;
+    text-align:center;
+  }
+  table.lookup th{
+    background:#1c2536;
+    color:var(--dl-emerald-bright);
+    font-weight:700;
+  }
+  table.lookup td:first-child{color:var(--dl-muted);}
+  /* ตารางไล่ทีละสเต็ป (ข้อ F) */
+  table.trace{
+    width:100%;
+    border-collapse:collapse;
+    margin:0.8rem 0 0.35rem;
+    font-size:0.8rem;
+  }
+  table.trace th, table.trace td{
+    border:1px solid var(--dl-border);
+    padding:0.32rem 0.6rem;
+    text-align:center;
+  }
+  table.trace th{
+    background:#1c2536;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.72rem;
+    letter-spacing:0.03em;
+  }
+  table.trace td{
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#cdd6ea;
+  }
+  table.trace tr.hit td{
+    background:rgba(74,222,128,0.12);
+    color:var(--dl-emerald-bright);
+    font-weight:700;
+  }
+  /* บล็อกสรุป อินพุต/ขอบเขต/เอาต์พุต */
+  .spec ul{margin:0.4rem 0 0;padding-left:1.2rem;}
+  .spec li{font-size:0.86rem;color:var(--dl-ink);margin:0.35rem 0;line-height:1.5;}
+  .spec li strong{color:var(--dl-gold);}
+  /* ตารางตัวอย่าง INPUT / OUTPUT (สไตล์กล่อง EXAMPLE ของโจทย์แข่ง) */
+  table.io{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    margin:1rem 0 0.35rem;
+    font-size:0.86rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    overflow:hidden;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  table.io caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.2em;
+    font-size:0.7rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.io th, table.io td{
+    padding:0.55rem 0.85rem;
+    text-align:left;
+    vertical-align:top;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.io th + th, table.io td + td{border-left:1px solid var(--dl-border);}
+  table.io tbody tr:last-child td{border-bottom:none;}
+  /* หัวคอลัมน์ = ป้ายเงียบ ๆ ไม่แย่งความเด่นจากข้อมูล */
+  table.io th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.7rem;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    width:50%;
+  }
+  table.io td{
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#e7ecf6;
+    line-height:1.75;
+    letter-spacing:0.12em;
+  }
+  /* ช่อง OUTPUT = คำตอบ ให้เด่นด้วยสีเขียว (payoff ของ example) */
+  table.io td + td{
+    color:var(--dl-emerald-bright);
+    font-weight:700;
+  }
+  .io-note{font-size:0.78rem;color:var(--dl-muted);margin:0.15rem 0 0;}
+  /* เลขยกกำลัง/ตัวห้อย ไม่ให้ดันระยะบรรทัด */
+  sup, sub{line-height:0;font-size:0.72em;}
+  /* สไลด์โชว์เพชร (ข้อ D) */
+  .glyph-anim .glyph-stage svg{
+    width:100%;
+    max-width:430px;
+    height:auto;
+    display:block;
+    margin:0 auto;
+  }
+  .glyph-anim :global(.ga-chars),
+  .glyph-anim :global(.ga-segs),
+  .glyph-anim :global(.ga-tier1),
+  .glyph-anim :global(.ga-tier2){transition:opacity 0.5s ease;}
+  .glyph-anim :global(.ga-segs),
+  .glyph-anim :global(.ga-tier1),
+  .glyph-anim :global(.ga-tier2){opacity:0;}
+  .glyph-anim :global(.ga-chars){opacity:1;}
+  .glyph-anim[data-step="2"] :global(.ga-chars){opacity:0.16;}
+  .glyph-anim[data-step="2"] :global(.ga-segs){opacity:1;}
+  .glyph-anim[data-step="3"] :global(.ga-chars){opacity:0.16;}
+  .glyph-anim[data-step="3"] :global(.ga-segs){opacity:0.55;}
+  .glyph-anim[data-step="3"] :global(.ga-tier1){opacity:1;}
+  .glyph-anim[data-step="4"] :global(.ga-chars){opacity:0.16;}
+  .glyph-anim[data-step="4"] :global(.ga-segs){opacity:0.5;}
+  .glyph-anim[data-step="4"] :global(.ga-tier1){opacity:1;}
+  .glyph-anim[data-step="4"] :global(.ga-tier2){opacity:1;}
+  /* สไลด์โชว์ ring_ok: วง s = 1..4 (ข้อ D) */
+  .glyph-anim :global(.rk-step){opacity:0;transition:opacity 0.45s ease;}
+  .glyph-anim[data-step="1"] :global(.rk-s1){opacity:1;}
+  .glyph-anim[data-step="2"] :global(.rk-s2){opacity:1;}
+  .glyph-anim[data-step="3"] :global(.rk-s3){opacity:1;}
+  .glyph-anim[data-step="4"] :global(.rk-s4){opacity:1;}
+  .glyph-cap{
+    text-align:center;
+    font-size:0.86rem;
+    color:var(--dl-ink);
+    min-height:1.4em;
+    margin:0.7rem 0 0.2rem;
+  }
+  .glyph-controls{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:0.5rem;
+    flex-wrap:wrap;
+    margin-top:0.3rem;
+  }
+  .glyph-controls button{
+    font:inherit;
+    cursor:pointer;
+    background:rgba(28,37,54,0.6);
+    color:var(--dl-ink);
+    border:1px solid var(--dl-border);
+    border-radius:8px;
+    padding:0.32rem 0.7rem;
+    font-size:0.82rem;
+    line-height:1;
+  }
+  .glyph-controls button:hover{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .glyph-controls button:disabled{opacity:0.4;cursor:default;}
+  .glyph-controls .ga-dots{display:inline-flex;gap:0.4rem;align-items:center;}
+  .glyph-controls .ga-dots button{
+    width:11px;
+    height:11px;
+    padding:0;
+    border-radius:50%;
+    background:var(--dl-border);
+  }
+  .glyph-controls .ga-dots button[aria-current="true"]{
+    background:var(--dl-emerald-bright);
+    border-color:var(--dl-emerald-bright);
+  }
+  @media (prefers-reduced-motion: reduce){
+    .glyph-anim :global(.ga-chars),
+    .glyph-anim :global(.ga-segs),
+    .glyph-anim :global(.ga-tier1),
+    .glyph-anim :global(.ga-tier2),
+    .glyph-anim :global(.rk-step){transition:none;}
+  }
+</style>
+
+<script>
+  (function () {
+    function initOne(fig: HTMLElement): void {
+      if (fig.dataset.wired === '1') return;
+      const capEl = fig.querySelector<HTMLElement>('.glyph-cap');
+      const prev = fig.querySelector<HTMLButtonElement>('.ga-prev');
+      const next = fig.querySelector<HTMLButtonElement>('.ga-next');
+      const play = fig.querySelector<HTMLButtonElement>('.ga-play');
+      const dots = Array.from(fig.querySelectorAll<HTMLButtonElement>('.ga-dots button'));
+      if (!capEl || !prev || !next || !play || dots.length === 0) return;
+
+      const parsed: unknown = JSON.parse(fig.dataset.caps || '[]');
+      const caps: string[] = Array.isArray(parsed)
+        ? (parsed as unknown[]).filter((c): c is string => typeof c === 'string')
+        : [];
+      const TOTAL = dots.length;
+      if (caps.length !== TOTAL) return;
+      fig.dataset.wired = '1';
+
+      let step = 1;
+      let timer: number | null = null;
+
+      function render(): void {
+        fig.dataset.step = String(step);
+        capEl!.textContent = caps[step - 1];
+        prev!.disabled = step === 1 && timer === null;
+        next!.disabled = step === TOTAL && timer === null;
+        dots.forEach((d, i) => d.setAttribute('aria-current', i + 1 === step ? 'true' : 'false'));
+      }
+      function go(s: number): void {
+        step = Math.max(1, Math.min(TOTAL, s));
+        render();
+      }
+      function stop(): void {
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+          play!.textContent = '▶ เล่นอัตโนมัติ';
+          play!.setAttribute('aria-pressed', 'false');
+        }
+        render();
+      }
+      function start(): void {
+        timer = window.setInterval(() => {
+          step = step >= TOTAL ? 1 : step + 1;
+          render();
+        }, 1700);
+        play!.textContent = '⏸ หยุด';
+        play!.setAttribute('aria-pressed', 'true');
+        render();
+      }
+
+      prev.addEventListener('click', () => { stop(); go(step - 1); });
+      next.addEventListener('click', () => { stop(); go(step + 1); });
+      dots.forEach((d, i) => d.addEventListener('click', () => { stop(); go(i + 1); }));
+      play.addEventListener('click', () => { if (timer === null) { start(); } else { stop(); } });
+
+      render();
+    }
+
+    function initAll(): void {
+      document.querySelectorAll<HTMLElement>('.glyph-anim').forEach(initOne);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initAll);
+    } else {
+      initAll();
+    }
+  })();
+</script>
