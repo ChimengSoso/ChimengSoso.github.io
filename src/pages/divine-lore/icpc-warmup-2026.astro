@@ -22,7 +22,8 @@ while (1 << (towns + 1)) <= K - 1:
     towns += 1
 print(towns)`;
 
-const pyD = `import sys
+// โซลูชัน 1 — คิดตรง ๆ: ทุกจุดศูนย์กลาง ไล่ซ้อน ring จนวงขาด แล้วบวกจำนวนชั้น
+const pyD1 = `import sys
 data = sys.stdin.read().split()
 N, M = int(data[0]), int(data[1])
 grid = [data[2 + i] for i in range(N)]
@@ -55,6 +56,36 @@ for X in range(M + 1):
         while ring_ok(X, Y, s):      # ซ้อนไปเรื่อย ๆ จนวงขาด
             s += 1
         ans += s - 1                 # ซ้อนได้ (s-1) ชั้น = glyph (s-1) อัน
+print(ans)`;
+
+// โซลูชัน 2 — เขียนใหม่จากศูนย์: รู้ว่า glyph มีแค่ ring 1 (2 ลาย) + ring 2 (1 ลาย) จับลายตัวอักษรตรง ๆ
+const pyD2 = `import sys
+data = sys.stdin.read().split()
+N, M = int(data[0]), int(data[1])
+g = [data[2 + i] for i in range(N)]
+
+def at(r, c):                 # นอกกริด = ช่องว่าง (ไม่แมตช์ลายไหนเลย)
+    return g[r][c] if 0 <= r < N and 0 <= c < M else '.'
+
+ans = 0
+for r in range(N):
+    for c in range(M):
+        # ---- glyph tier 1 : ring ขนาด 1 มี 2 ลาย ----
+        # ลายนอน  <>   (เพชรเล็กคั่นระหว่างสองช่อง)
+        if at(r, c) == '<' and at(r, c+1) == '>':
+            ans += 1
+        # ลายตั้ง  ><    (บล็อก 2x2)
+        #          ><
+        if at(r, c) == '>' and at(r, c+1) == '<' and at(r+1, c) == '>' and at(r+1, c+1) == '<':
+            ans += 1
+        # ---- glyph tier 2 : มีลายเดียว ยึด (r,c) ที่ '<' ซ้ายสุดของแถวกลาง ----
+        #   . > < .
+        #   < < > >
+        #   . > < .
+        if (at(r, c) == '<' and at(r, c+1) == '<' and at(r, c+2) == '>' and at(r, c+3) == '>'
+                and at(r-1, c+1) == '>' and at(r-1, c+2) == '<'
+                and at(r+1, c+1) == '>' and at(r+1, c+2) == '<'):
+            ans += 1
 print(ans)`;
 
 const pyE = `import sys
@@ -498,10 +529,10 @@ const runFile = `python solution.py < in.txt`;
   </table>
 
   <p>
-    เพชรเล็กสุด (ring ขนาด 1) เกิดจาก <code>&lt;&gt;</code> ต่อกันในแถวเดียว (หรือบล็อก 2×2 แนวตั้ง) วิธีนับคือไปยืนทุกจุดศูนย์กลาง แล้วดูว่า ring ซ้อนต่อเนื่องจากขนาด 1 ได้ถึงชั้นไหน (เรียกว่า <code>T</code>) ถ้าได้ถึง <code>T</code> ก็จะมี glyph tier 1..T = <strong>T อัน</strong> ที่จุดนั้น
+    <strong>แนวคิดที่ 1 — คิดตรง ๆ: ไล่ซ้อนจนวงขาด.</strong> เพชรเล็กสุด (ring ขนาด 1) เกิดจาก <code>&lt;&gt;</code> ต่อกันในแถวเดียว (หรือบล็อก 2×2 แนวตั้ง) วิธีที่นึกออกก่อนตอนแข่งคือไปยืนทุกจุดศูนย์กลาง แล้วลองซ้อน ring ขนาด 1, 2, 3, … ต่อกันไปเรื่อย ๆ จนวงแรกที่ขาด นับว่าซ้อนต่อเนื่องได้กี่ชั้น (เรียกว่า <code>T</code>) ถ้าได้ถึง <code>T</code> ก็จะมี glyph tier 1..T = <strong>T อัน</strong> ที่จุดนั้น — ยังไม่ต้องรู้ว่า <code>T</code> ลึกได้แค่ไหน เพราะ <code>N, M ≤ 70</code> ยังไงก็ทัน
   </p>
   <div class="callout callout-tip">
-    <p class="callout-label">สูตรรวม</p>
+    <p class="callout-label">สูตรรวม (แนวคิดที่ 1)</p>
     <p><strong>คำตอบ = ผลรวม <code>T</code> ของทุกจุดศูนย์กลาง</strong> โดย <code>T</code> = จำนวน ring ต่อเนื่องเริ่มจากขนาด 1 ที่มีครบ</p>
   </div>
   <p>
@@ -590,6 +621,66 @@ const runFile = `python solution.py < in.txt`;
     </div>
     <figcaption>สไลด์โชว์: ตัวอักษร → ขีดเฉียง → เพชร tier 1 (5 อัน เขียว) → เพชร tier 2 (1 อัน เหลืองประ) = 6 (diagram วาดประกอบโดยผู้เขียน)</figcaption>
   </figure>
+
+  <hr class="divider" />
+
+  <p>
+    ตรงนี้มีข้อสังเกตที่พลิกทั้งข้อ: ในตัวอย่างข้างบน ซ้อนได้แค่ tier 2 <strong>ไม่ใช่เรื่องบังเอิญ — มันซ้อนเกิน 2 ไม่ได้เลยไม่ว่ากริดจะเป็นยังไง</strong> ลองถามว่า ถ้าอยากได้ glyph tier 3 (ต้องมี ring 1, 2, 3 ซ้อนศูนย์กลางเดียวกันครบ) จะเป็นไปได้ไหม?
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ข้อสังเกต: ทำไม <code>T</code> ไม่มีทางเกิน 2</p>
+    <p>
+      กุญแจอยู่ที่ <strong>1 ช่องเป็นตัวอักษรได้ตัวเดียว</strong> และตัวนั้นบังคับ "ขีดครึ่งบน" กับ "ขีดครึ่งล่าง" ให้เป็น <strong>ขีดตรงข้ามกันเสมอ</strong> (<code>&gt;</code> = บน <code>＼</code>/ล่าง <code>／</code>, <code>&lt;</code> = บน <code>／</code>/ล่าง <code>＼</code>) — ไม่มีตัวไหนที่ทั้งสองครึ่งเป็นขีดชนิดเดียวกัน ทีนี้ถ้าลองวางกรอบ ring 2 กับ ring 3 ให้ศูนย์กลางเดียวกันแล้วไล่พิกัดจริง จะเจอ <strong>4 ช่องที่ทั้งสองวงพาดผ่านพร้อมกัน</strong> โดย ring 2 ไปลงครึ่งหนึ่งของช่อง ส่วน ring 3 ไปลงอีกครึ่ง — แล้วทั้งคู่ดันสั่ง "ขีดชนิดเดียวกัน" (เช่น <code>＼</code> ทั้งคู่) คนละครึ่ง ซึ่งเป็นตัวอักษรที่ไม่มีจริง <strong>ring 2 กับ ring 3 จึงอยู่ศูนย์กลางเดียวกันไม่ได้เด็ดขาด</strong> — พอ ring 2 มี ring 3 ก็ถูกตัดทิ้งอัตโนมัติ
+    </p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ช่องซ้ายคือสิ่งที่ ring 2 กับ ring 3 สั่งพร้อมกัน คือครึ่งบนและครึ่งล่างเป็นขีดเฉียงลงขวาทั้งคู่ ส่วนสองช่องขวาคือตัวอักษรที่มีจริงคือมากกว่าและน้อยกว่า ซึ่งครึ่งบนล่างเป็นขีดตรงข้ามกันเสมอ จึงไม่มีตัวไหนตรงกับที่สั่ง">
+      <text x="130" y="26" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">ring 2 + ring 3 สั่งช่องเดียวกัน</text>
+      <text x="450" y="26" fill="#9aa7bd" font-size="13" text-anchor="middle" font-weight="700">แต่ตัวอักษรที่มีจริงมีแค่ 2 ตัว</text>
+
+      <!-- panel 1: the impossible demand -->
+      <rect x="70" y="52" width="120" height="150" rx="8" fill="rgba(214,69,69,0.10)" stroke="#d64545" stroke-width="2"/>
+      <line x1="70" y1="127" x2="190" y2="127" stroke="#3a4666" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <line x1="78" y1="58" x2="182" y2="127" stroke="#d64545" stroke-width="6" stroke-linecap="round"/>
+      <line x1="78" y1="127" x2="182" y2="196" stroke="#6ea8ff" stroke-width="6" stroke-linecap="round"/>
+      <text x="200" y="92" fill="#f08b8b" font-size="11">ring 3 ขอครึ่งบน <tspan font-size="19" fill="#e6b800" font-weight="700">＼</tspan></text>
+      <text x="200" y="170" fill="#9ec6ff" font-size="11">ring 2 ขอครึ่งล่าง <tspan font-size="19" fill="#e6b800" font-weight="700">＼</tspan></text>
+      <text x="130" y="224" fill="#e7ecf6" font-size="12" text-anchor="middle" font-weight="700">บน <tspan font-size="19" fill="#e6b800">＼</tspan> · ล่าง <tspan font-size="19" fill="#e6b800">＼</tspan></text>
+      <text x="130" y="244" fill="#f08b8b" font-size="12.5" text-anchor="middle" font-weight="700">→ ไม่มีตัวอักษรแบบนี้</text>
+
+      <text x="320" y="135" fill="#e0b400" font-size="30" text-anchor="middle" font-weight="700">≠</text>
+
+      <!-- panel 2: real '>' -->
+      <rect x="390" y="52" width="120" height="150" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <line x1="390" y1="127" x2="510" y2="127" stroke="#3a4666" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <line x1="398" y1="58" x2="502" y2="127" stroke="#e6b800" stroke-width="6" stroke-linecap="round"/>
+      <line x1="502" y1="127" x2="398" y2="196" stroke="#5ec8c0" stroke-width="6" stroke-linecap="round"/>
+      <text x="450" y="224" fill="#cdd6ea" font-size="12" text-anchor="middle" font-weight="700">บน <tspan font-size="19" fill="#e6b800">＼</tspan> · ล่าง <tspan font-size="19" fill="#5ec8c0">／</tspan></text>
+      <text x="450" y="245" fill="#e7ecf6" font-size="15" text-anchor="middle" font-weight="700">คือตัว &gt;</text>
+
+      <!-- panel 3: real '<' -->
+      <rect x="520" y="52" width="120" height="150" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <line x1="520" y1="127" x2="640" y2="127" stroke="#3a4666" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <line x1="632" y1="58" x2="528" y2="127" stroke="#5ec8c0" stroke-width="6" stroke-linecap="round"/>
+      <line x1="528" y1="127" x2="632" y2="196" stroke="#e6b800" stroke-width="6" stroke-linecap="round"/>
+      <text x="580" y="224" fill="#cdd6ea" font-size="12" text-anchor="middle" font-weight="700">บน <tspan font-size="19" fill="#5ec8c0">／</tspan> · ล่าง <tspan font-size="19" fill="#e6b800">＼</tspan></text>
+      <text x="580" y="245" fill="#e7ecf6" font-size="15" text-anchor="middle" font-weight="700">คือตัว &lt;</text>
+    </svg>
+    <figcaption>ตัวอักษรจริงมีครึ่งบน-ล่างเป็นขีดตรงข้ามเสมอ แต่ ring 2 กับ ring 3 ที่ศูนย์กลางเดียวกันสั่งให้ทั้งสองครึ่งเป็นขีดชนิดเดียวกัน — จึงซ้อนพร้อมกันไม่ได้ tier เลยตันที่ 2 (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โน้ต: "วาดเพชรเดี่ยว ๆ ขนาด 3" กับ "ซ้อนถึง tier 3" คนละเรื่อง</p>
+    <p>
+      เพชร<strong>เดี่ยว ๆ</strong> ขนาด 3 วาดด้วย <code>&lt;&gt;</code> ได้อยู่ (กรอบ 12 ขีดปิดสนิทไม่ชนกัน) สิ่งที่เป็นไปไม่ได้คือการ<strong>ซ้อน</strong> ring 3 เข้ากับ ring 2 ที่จุดเดียวกัน แต่เพราะ glyph tier 3 <strong>บังคับ</strong>ว่าต้องมี ring 1, 2, 3 ครบ เพชรเดี่ยวขนาด 3 ที่ไม่มีวงเล็กซ้อนอยู่จึงนับเป็น glyph ไม่ได้ (<code>T</code> เริ่มนับจาก 1 พอขาดวงในก็หยุด) ผลคือ <strong>ทุกจุดให้ <code>T</code> ได้แค่ 0, 1, หรือ 2 เท่านั้น</strong>
+    </p>
+  </div>
+
+  <p>
+    <strong>แนวคิดที่ 2 — รู้ทันแล้วก็หยุดที่ 2.</strong> พอรู้ว่า <code>T ≤ 2</code> เสมอ ก็ไม่ต้องไล่ซ้อนแบบไม่รู้จบอีก แค่เช็กทุกจุดว่ามี <strong>ring 1</strong> ไหม (มี = +1) แล้วมี <strong>ring 2</strong> ต่อไหม (มี = +1 อีก) จบ — ไม่ต้องแตะ ring 3 ขึ้นไปเลย โค้ดสั้นลงและ Big-O แน่นอนขึ้น (เทียบกันในกล่องเฉลยด้านล่าง)
+  </p>
+
     </div>
   </div>
 
@@ -603,9 +694,10 @@ const runFile = `python solution.py < in.txt`;
   <p class="io-note">* ตัวอย่างจากโจทย์ · มีเพชรเล็ก (ring ขนาด 1) 5 จุด และหนึ่งในนั้นซ้อนได้ถึง ring ขนาด 2 → 5 + 1 = 6</p>
 
   <details class="expander">
-    <summary>เฉลยโค้ด + คำอธิบาย</summary>
+    <summary>เฉลยโค้ด (2 โซลูชัน) + คำอธิบาย</summary>
     <div class="expander-body">
-      <CodeBlock code={pyD} lang="python" />
+      <p><strong>โซลูชัน 1 — ไล่ซ้อนจนวงขาด (คิดตรง ๆ ตอนแข่ง)</strong> ทุกจุดศูนย์กลางลองซ้อน ring ขนาด 1, 2, 3, … จนวงแรกที่ขาด แล้วบวกจำนวนชั้นที่ซ้อนได้</p>
+      <CodeBlock code={pyD1} lang="python" />
       <ul class="notes">
         <li><strong>ทำไม <code>Y</code> ถึงวิ่งถึง <code>2N</code>?</strong> เพราะ 1 ช่องมี 2 ขีด (บน/ล่าง) เลยให้ความสูงช่องละ 2 หน่วย โดย <code>yt</code> คู่ = ครึ่งบน, คี่ = ครึ่งล่าง (ดู diagram + ตารางด้านบน)</li>
         <li><strong>ตัวแปร <code>segs</code> คืออะไร?</strong> คือ 4 ขีดของ ring (ด้านละ 1 ขีดต่อรอบ <code>i</code>) ตำแหน่งมาจากการเดินเลาะ 4 ด้านตามภาพเพชรด้านบน</li>
@@ -767,7 +859,17 @@ const runFile = `python solution.py < in.txt`;
         <figcaption>จุดทองคือ 4 มุมของวง จุดเขียวคือขีดที่ลูป <code>i</code> ไล่ตรวจ วงยิ่งใหญ่ (<code>s</code> มาก) จำนวนขีดที่ต้องตรวจยิ่งเพิ่มเป็น <code>4·s</code> (diagram วาดประกอบโดยผู้เขียน)</figcaption>
       </figure>
       <ul class="notes">
-        <li><strong>Big-O:</strong> จุดศูนย์กลางมี <code>O(N·M)</code> จุด แต่ละจุดไล่ ring ลึกสุดราว <code>min(N,M)</code> ชั้น ชั้น <code>s</code> ตรวจ <code>4·s</code> ขีด กรณีแย่สุดจึงราว <code>O(N·M·min(N,M)²)</code> แต่จริง ๆ ring มักขาดเร็วมาก และ <code>N,M ≤ 70</code> เลยทันสบาย</li>
+        <li><strong>Big-O (โซลูชัน 1):</strong> จุดศูนย์กลางมี <code>O(N·M)</code> จุด ถ้า<strong>ยังไม่รู้</strong>ว่าซ้อนลึกได้แค่ไหน ต้องเผื่อกรณีแย่สุดว่าแต่ละจุดไล่ ring ได้ถึง <code>min(N,M)</code> ชั้น ชั้น <code>s</code> ตรวจ <code>4·s</code> ขีด รวมเป็น <code>O(N·M·min(N,M)²)</code> — ตัวเลขดูน่ากลัวแต่ <code>N,M ≤ 70</code> ก็ยังทันสบาย โค้ดนี้เลยผ่านทั้งที่ "ไม่รู้" ว่าจริง ๆ ring ขาดที่ชั้น 3 เสมอ (มันพึ่งให้ข้อมูลตัดวงให้เอง)</li>
+      </ul>
+
+      <hr class="divider" />
+
+      <p><strong>โซลูชัน 2 — เขียนใหม่จากศูนย์ เพราะรู้ตั้งแต่แรกว่าเพดานคือ tier 2</strong> ถ้าเดินเข้าห้องแข่งโดยรู้อยู่แล้วว่า glyph มีได้แค่ ring 1 (2 ลาย) กับ ring 2 (1 ลาย) ก็ไม่ต้องมีเครื่อง <code>ring_ok</code> ทั่วไปให้ยุ่งเลย — วนทุกช่องแล้ว "จับลายตัวอักษร" ตรง ๆ 3 ลาย แล้วนับรวม: <code>&lt;&gt;</code> แนวนอน (ring 1), บล็อก 2×2 ที่เป็น <code>&gt;&lt;</code> ซ้อนสองแถว (ring 1 อีกลาย), และแม่แบบ 3 แถวของ tier 2 ที่พิสูจน์ไว้ข้างบน จบในโปรแกรมเดียวที่สั้นกว่าครึ่ง</p>
+      <CodeBlock code={pyD2} lang="python" />
+      <ul class="notes">
+        <li><strong>ทำไมนับแค่นี้ถึงครบ:</strong> ทุก <code>&lt;&gt;</code> แนวนอน = glyph tier 1 หนึ่งอัน (รวมวงในของ tier 2 ที่ก็เป็น <code>&lt;&gt;</code> อยู่แล้ว), บล็อกตั้ง = tier 1 อีกลาย, ส่วนแม่แบบ tier 2 คือ glyph วงนอกที่บวกเพิ่ม — จุดที่เป็น tier 2 จึงถูกนับ 2 พอดี (วงใน 1 + วงนอก 1) เท่ากับที่โซลูชัน 1 บวก <code>T = 2</code></li>
+        <li><strong>Big-O (โซลูชัน 2):</strong> <code>O(N·M)</code> เป๊ะ ๆ — วนทุกช่องครั้งเดียว แต่ละช่องเทียบตัวอักษรจำนวนคงที่ (อย่างมากราว 10 ช่อง) ไม่มีลูปตามขนาดวง ไม่มี <code>min(N,M)</code> โผล่ในสูตรอีก เพดานนี้<strong>การันตีด้วยการพิสูจน์</strong> ไม่ได้พึ่งว่าอินพุตจะตัดวงให้เองเหมือนโซลูชัน 1</li>
+        <li><strong>สองแบบให้ผลตรงกัน:</strong> ผมลองไล่เทียบผลสองโค้ดกับกริดสุ่มหลายพันแบบ (และกริดเล็กแบบครบทุกความเป็นไปได้) แล้วตรงกันทุกอัน — โซลูชัน 1 เขียนไวกว่าเพราะไม่ต้องคิดอะไรมาก ส่วนโซลูชัน 2 คือเวอร์ชัน "รู้ของจริง" ที่เขียนพอดีกับที่โจทย์เป็น</li>
       </ul>
     </div>
   </details>
