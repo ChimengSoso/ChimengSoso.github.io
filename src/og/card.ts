@@ -109,10 +109,25 @@ const escapeXml = (s: string) =>
 export interface CardInput {
   title: string;
   tag?: string;
+  /** 'knowledge' (blue, default) or 'divine' (emerald/dark vault theme for /divine-lore). */
+  theme?: 'knowledge' | 'divine';
 }
 
+// Palette per section so the share card matches the page it links to.
+const THEMES = {
+  knowledge: {
+    g0: '#1b2c4a', g1: '#0d1524', bar: '#4d72a9', tag: '#4d72a9',
+    chipText: '#d7e4ff', footer: 'ChimengSoso.github.io · หมวดความรู้', footerFill: '#9fb4d4',
+  },
+  divine: {
+    g0: '#15271d', g1: '#0b0f1a', bar: '#2f9e5c', tag: '#2f9e5c',
+    chipText: '#c7f5da', footer: 'ChimengSoso.github.io · บันทึกลับ', footerFill: '#7fce9f',
+  },
+} as const;
+
 // Renders a 1200x630 branded share card (Facebook/Twitter og:image size) as PNG.
-export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
+export async function renderCard({ title, tag, theme }: CardInput): Promise<Buffer> {
+  const th = THEMES[theme ?? 'knowledge'];
   const maxWidth = 1040;
 
   // Start big; shrink until the title fits within 3 lines and no line overflows.
@@ -144,7 +159,7 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
         const boxW = monoWidth(text, size) + 2 * pad;
         titleEls +=
           `<rect x="${x.toFixed(1)}" y="${(baseline - size * 0.86).toFixed(1)}" width="${boxW.toFixed(1)}" height="${(size * 1.08).toFixed(1)}" rx="${(size * 0.16).toFixed(1)}" fill="#ffffff" fill-opacity="0.13"/>` +
-          `<text x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${MONO}" font-weight="700" font-size="${size}" fill="#d7e4ff">${escapeXml(text)}</text>`;
+          `<text x="${(x + pad).toFixed(1)}" y="${baseline.toFixed(1)}" font-family="${MONO}" font-weight="700" font-size="${size}" fill="${th.chipText}">${escapeXml(text)}</text>`;
         x += boxW;
         i += 1;
       } else {
@@ -164,15 +179,15 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
   if (tag) {
     const w = sarabunWidth(tag, 28) + 64;
     tagEl =
-      `<rect x="80" y="74" width="${w.toFixed(0)}" height="58" rx="29" fill="#4d72a9"/>` +
+      `<rect x="80" y="74" width="${w.toFixed(0)}" height="58" rx="29" fill="${th.tag}"/>` +
       `<text x="${(80 + w / 2).toFixed(0)}" y="113" font-family="${SARABUN}" font-weight="700" font-size="28" fill="#ffffff" text-anchor="middle">${escapeXml(tag)}</text>`;
   }
 
   const svg = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1b2c4a"/>
-      <stop offset="1" stop-color="#0d1524"/>
+      <stop offset="0" stop-color="${th.g0}"/>
+      <stop offset="1" stop-color="${th.g1}"/>
     </linearGradient>
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
@@ -181,10 +196,10 @@ export async function renderCard({ title, tag }: CardInput): Promise<Buffer> {
   <circle cx="978" cy="92" r="2" fill="#ffffff" opacity="0.3"/>
   <circle cx="1140" cy="118" r="2.5" fill="#ffffff" opacity="0.45"/>
   <circle cx="1068" cy="322" r="2" fill="#ffffff" opacity="0.3"/>
-  <rect x="0" y="0" width="12" height="630" fill="#4d72a9"/>
+  <rect x="0" y="0" width="12" height="630" fill="${th.bar}"/>
   ${tagEl}
   ${titleEls}
-  <text x="80" y="560" font-family="${SARABUN}" font-weight="700" font-size="30" fill="#9fb4d4">ChimengSoso.github.io · หมวดความรู้</text>
+  <text x="80" y="560" font-family="${SARABUN}" font-weight="700" font-size="30" fill="${th.footerFill}">${escapeXml(th.footer)}</text>
 </svg>`;
 
   const { default: sharp } = await import('sharp');
