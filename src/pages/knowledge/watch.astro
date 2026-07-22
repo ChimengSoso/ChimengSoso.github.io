@@ -1,0 +1,369 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ArticleByline from '../../components/ArticleByline.astro';
+import { getAdjacentArticles, getArticle } from '../../data/articles';
+import { formatThaiDate } from '../../lib/dates';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('watch/');
+const article = getArticle('watch/')!;
+const published = formatThaiDate(article.dateISO!);
+const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefined;
+---
+<Layout title={`${article.title} | หมวดความรู้`} description={article.desc} prev={prev} next={next} type="article" dateISO={article.dateISO} updatedISO={article.updatedISO} headline={article.title}>
+  <div class="article-head">
+    <div class="breadcrumb"><a href="../">หมวดความรู้</a> / ทำให้ Claude ดูวิดีโอเป็น ด้วย <code>/watch</code></div>
+    <ArticleByline published={published} updated={updated} />
+  </div>
+
+  <span class="tag">Claude Code</span>
+  <h1>ทำให้ Claude ดูวิดีโอเป็น ด้วย <code>/watch</code> (แถมให้มันตัดต่อด้วย)</h1>
+  <p class="subtitle">Claude เปิดโปรเจกต์ อ่านโค้ด รันสคริปต์ ค้นเว็บได้หมด — แต่มีงานนึงที่มันทำไม่ได้มาตลอด คือ "ดูวิดีโอ" มาดูปลั๊กอินตัวเดียวที่ทำให้มันดูคลิปจริง เห็นทั้งภาพและเสียง แล้วต่อยอดไปถึงให้มันลงมือตัดต่อแทนเรา</p>
+
+  <p>
+    ลองนึกภาพ — คุณเจอคลิปยูทูบสอนตั้งค่าอะไรสักอย่างยาว 40 นาที ขี้เกียจนั่งดูเอง เลยวางลิงก์ให้ Claude
+    แล้วสั่งว่า "สรุปให้หน่อยว่าคลิปนี้บอกให้ตั้งค่าอะไรบ้าง" คำตอบที่ได้ฟังดูเข้าท่ามาก… จนคุณเปิดดูจริงแล้วพบว่ามันมั่วครึ่งนึง
+  </p>
+  <p>
+    ที่เป็นแบบนี้เพราะ<strong>มันไม่เคยเห็นคลิปนั้นเลยแม้แต่เฟรมเดียว</strong> สิ่งที่มันทำได้จริงคือเดาเนื้อหาจากชื่อคลิป
+    ไม่ก็ไปดึง<strong>คำบรรยาย (caption)</strong> มาอ่าน ซึ่งมีแค่ "บทพูด" ไม่ได้บอกว่าบนจอกำลังเกิดอะไรขึ้น
+    คลิปที่คนพิมพ์โค้ดโชว์เงียบ ๆ ไม่พูดสักคำ มันก็จบเห่ — เพราะไม่มีเสียงให้อ่าน และมันก็มองจอไม่เห็นอยู่ดี
+  </p>
+
+  <hr class="divider" />
+
+  <h2>/watch — คำสั่งเดียวที่ทำให้มัน "เห็น" จริง</h2>
+  <p>
+    มีปลั๊กอินโอเพนซอร์สชื่อ <strong>claude-video</strong> ที่เพิ่มคำสั่ง <code>/watch</code>
+    (<strong>อ่านว่า "ว็อตช์"</strong> แปลตรง ๆ ว่า "ดู/เฝ้าดู" — ชื่อคำสั่งบอกสิ่งที่มันทำเป๊ะ ๆ) เข้ามาแก้ข้อจำกัดนี้พอดี
+    ตัวมันดังเปรี้ยงในเดือนกรกฎาคม 2026 ขึ้นอันดับ 1 GitHub Trending และมีคนกดดาวไปหลายพันในเวลาไม่กี่วัน
+  </p>
+  <p>วิธีใช้ตรงไปตรงมา — พิมพ์ <code>/watch</code> ตามด้วยลิงก์หรือไฟล์วิดีโอ แล้วต่อด้วยคำถามที่อยากรู้:</p>
+  <CodeBlock lang="text" title="รูปแบบการเรียกใช้ /watch" code={`/watch <ลิงก์หรือไฟล์วิดีโอ> <คำถามที่อยากรู้>
+
+# ดูคลิปยูทูบแล้วถามเจาะจุด
+/watch https://youtu.be/xxxxxxxx สรุปหัวข้อสำคัญให้หน่อย
+
+# ดูไฟล์ในเครื่อง เจาะเฉพาะช่วง 2:15–2:45
+/watch ~/clip.mp4 --start 2:15 --end 2:45 ตรงนี้โปรแกรมมันพังเพราะอะไร`} />
+  <p>
+    คราวนี้มันดูคลิปนั้น<strong>จริง ๆ</strong> — เห็นทั้งภาพบนจอและรู้ว่าในคลิปพูดอะไร แล้วค่อยตอบจากสิ่งที่เห็นและได้ยิน
+    ไม่ใช่เดาจากชื่อไฟล์อีกต่อไป
+  </p>
+
+  <hr class="divider" />
+
+  <h2>เบื้องหลัง: มันไม่ได้เปิดดูทั้งคลิป</h2>
+  <p>
+    ตรงนี้คือจุดที่คนเข้าใจผิดกันเยอะ — พอบอกว่า "Claude ดูคลิปได้แล้ว" เรามักนึกว่ามันนั่งดูเฟรมต่อเฟรมเหมือนเรากดเพลย์
+    ความจริงมันทำแบบนั้นไม่ได้ และไม่ควรทำด้วย เพราะคลิปสั้น ๆ คลิปเดียวมีเป็น<strong>หมื่นเฟรม</strong>
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>frame</strong> (<strong>อ่านว่า "เฟรม"</strong> แปลว่า "ภาพนิ่งหนึ่งภาพ") คือภาพนิ่งหนึ่งใบในวิดีโอ
+      คลิปคือเฟรมนิ่งหลายพันใบเรียงต่อกันแล้วฉายเร็ว ๆ (ปกติ 24–30 เฟรมต่อวินาที) จนตาเราเห็นเป็นภาพเคลื่อนไหว
+      คลิป 40 นาทีจึงมีราว 60,000 เฟรม — ถ้าเก็บหมดแล้วส่งให้ Claude ก็ได้ภาพซ้ำ ๆ กันเป็นร้อยเป็นพัน เปลืองเปล่า ๆ
+    </p>
+  </div>
+  <p>
+    มันเลยไม่ดึงทุกเฟรม แต่เลือกเฉพาะ<strong>เฟรมช่วงที่ภาพเปลี่ยนจริง</strong> เช่น ตอนสไลด์เปลี่ยน มุมกล้องเปลี่ยน หรือมีข้อความใหม่ขึ้นจอ
+    เทคนิคนี้เรียกว่า <strong>scene-change detection</strong> (<strong>"ซีนเชนจ์"</strong> = ตรวจจับจังหวะที่ภาพเปลี่ยนฉาก) —
+    ถ้าสองเฟรมติดกันหน้าตาแทบเหมือนกัน มันก็ทิ้งใบซ้ำไป เก็บไว้แค่ใบที่ "ต่างจริง"
+    เหมือนเราเปิดหนังสือดู<strong>สารบัญ</strong>แทนการอ่านทุกหน้า — ได้ใจความครบโดยไม่ต้องกวาดทุกบรรทัด
+  </p>
+  <p>
+    ส่วน "เสียง" ในคลิป มันดึง<strong>คำบรรยาย (caption)</strong> ที่ติดมากับคลิปมาก่อนถ้ามี — ฟรีและเร็ว
+    ถ้าคลิปไหนไม่มี caption มันถึงจะถอดเสียงเองด้วย <strong>Whisper</strong> (<strong>"วิสเปอร์"</strong> แปลว่า "กระซิบ" — เป็นโมเดลถอดเสียงเป็นข้อความ)
+    ได้ออกมาเป็น <strong>transcript</strong> (<strong>"ทรานสคริปต์"</strong> = บทพูดที่ถอดเป็นข้อความ) พร้อมกำกับไว้ด้วยว่านาทีไหนพูดอะไร
+    สุดท้ายมันส่ง<strong>ทั้งภาพและบทพูด</strong>ให้ Claude อ่านพร้อมกัน — โมเดลเลยตอบจากสิ่งที่เห็นและได้ยินจริง
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพอธิบายว่า watch เลือกเฟรมยังไง เริ่มจากคลิปเต็มที่มีหลายหมื่นเฟรมส่วนใหญ่หน้าตาซ้ำกัน ผ่านกล่องกรองด้วย scene-change detection ที่ตัดเฟรมซ้ำทิ้ง เหลือเฉพาะเฟรมที่ภาพเปลี่ยนจริงราวห้าสิบใบ พร้อมแถบ transcript ที่ถอดเสียงเป็นข้อความกำกับนาที แล้วส่งทั้งภาพที่คัดแล้วและบทพูดเข้าให้ Claude อ่านพร้อมกัน" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="wa-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- box 1: full clip -->
+      <rect x="24" y="44" width="176" height="96" rx="14" fill="#eceff3" stroke="#c3cbd6" stroke-width="1.5"/>
+      <text x="112" y="74" font-size="15" font-weight="700" fill="#5a6a85" text-anchor="middle">คลิปเต็ม</text>
+      <text x="112" y="97" font-size="11" fill="#9aa6b8" text-anchor="middle">~60,000 เฟรม</text>
+      <text x="112" y="114" font-size="11" fill="#9aa6b8" text-anchor="middle">ส่วนใหญ่หน้าตาซ้ำกัน</text>
+
+      <!-- arrow 1 -->
+      <text x="228" y="82" font-size="11" font-weight="700" fill="#294266" text-anchor="middle">กรอง</text>
+      <line x1="200" y1="90" x2="252" y2="90" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#wa-arr)"/>
+
+      <!-- box 2: scene-change filter -->
+      <rect x="254" y="44" width="188" height="96" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.5"/>
+      <text x="348" y="72" font-size="14" font-weight="700" fill="#8a6a12" text-anchor="middle">scene-change</text>
+      <text x="348" y="90" font-size="14" font-weight="700" fill="#8a6a12" text-anchor="middle">detection</text>
+      <text x="348" y="112" font-size="11" fill="#5a6a85" text-anchor="middle">ตัดเฟรมซ้ำทิ้ง</text>
+      <text x="348" y="128" font-size="11" fill="#5a6a85" text-anchor="middle">เก็บเฉพาะที่ภาพเปลี่ยน</text>
+
+      <!-- arrow 2 -->
+      <text x="468" y="82" font-size="11" font-weight="700" fill="#294266" text-anchor="middle">เหลือ</text>
+      <line x1="442" y1="90" x2="494" y2="90" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#wa-arr)"/>
+
+      <!-- box 3: kept frames + transcript -->
+      <rect x="496" y="44" width="200" height="96" rx="14" fill="#e6f4ec" stroke="#8fc7a6" stroke-width="1.5"/>
+      <text x="596" y="70" font-size="15" font-weight="700" fill="#1f7a45" text-anchor="middle">~50 เฟรมที่ต่างจริง</text>
+      <text x="596" y="92" font-size="11" fill="#5a6a85" text-anchor="middle">+ transcript ถอดเสียง</text>
+      <text x="596" y="109" font-size="11" fill="#5a6a85" text-anchor="middle">0:00 · 0:42 · 1:37 …</text>
+      <text x="596" y="126" font-size="11" fill="#5a6a85" text-anchor="middle">(กำกับนาทีที่พูด)</text>
+
+      <!-- merge into Claude -->
+      <path d="M596 140 L596 200 L348 200 L348 214" fill="none" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#wa-arr)"/>
+      <path d="M112 140 L112 200 L340 200" fill="none" stroke="#4d72a9" stroke-width="2.2" stroke-dasharray="6 5"/>
+      <rect x="266" y="214" width="164" height="30" rx="9" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.3"/>
+      <text x="348" y="234" font-size="12.5" font-weight="700" fill="#294266" text-anchor="middle">Claude อ่านภาพ + บทพูด</text>
+    </svg>
+    <figcaption>หมื่นเฟรมเหลือห้าสิบ — Claude ไม่ได้ดูทุกเฟรม มันดูเฉพาะจังหวะที่ภาพเปลี่ยนบวกกับบทพูด ก็พอเข้าใจทั้งคลิป</figcaption>
+  </figure>
+
+  <div class="callout callout-note">
+    <p class="callout-label">มีปุ่มปรับ "ประหยัด ↔ ละเอียด"</p>
+    <p>
+      claude-video ให้เลือก "โหมด" ความละเอียดได้ด้วย <code>--detail</code> — จากถอดแต่บทพูดล้วน ไปจนถึงกวาดภาพแบบไม่จำกัด
+      ยิ่งละเอียดยิ่งเก็บภาพเยอะ (และแพงขึ้น) ค่าตัวเลขด้านล่างเป็นค่าที่ผู้พัฒนารายงานไว้ใน README:
+    </p>
+  </div>
+  <table class="modes">
+    <thead>
+      <tr><th>โหมด (<code>--detail</code>)</th><th>เก็บภาพจาก</th><th>เพดานเฟรม</th><th>เวลาดึง</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>transcript</code></td><td>บทพูดอย่างเดียว</td><td>0 ภาพ</td><td>~4.5 วิ</td></tr>
+      <tr><td><code>efficient</code></td><td>keyframe</td><td>50</td><td>~0.5 วิ</td></tr>
+      <tr><td><code>balanced</code></td><td>scene-change</td><td>100</td><td>~21 วิ</td></tr>
+      <tr><td><code>token-burner</code></td><td>scene-change</td><td>ไม่จำกัด</td><td>~21 วิ</td></tr>
+    </tbody>
+  </table>
+  <p class="modes-note">
+    (<strong>keyframe</strong> = "คีย์เฟรม" คือเฟรมสำคัญที่เป็นตัวแทนช่วงนั้น ๆ วิธีนี้เร็วเพราะไม่ต้องไล่เทียบทุกเฟรม
+    ส่วน scene-change ช้ากว่าเพราะต้องเดินดูทั้งคลิปเพื่อจับจังหวะที่ภาพเปลี่ยน แต่ได้ภาพที่ตรงจุดกว่า)
+  </p>
+
+  <hr class="divider" />
+
+  <h2>พอมันดูคลิปเป็น งานที่เคยต้องนั่งดูเองก็โยนให้มันได้</h2>
+  <p>เมื่อ Claude เห็นภาพในคลิปจริง ๆ งานหลายอย่างที่แต่ก่อนต้องเสียเวลานั่งเปิดดูเองก็ส่งต่อให้มันทำแทนได้:</p>
+  <div class="card">
+    <ul>
+      <li><strong>แกะฮุกคลิปไวรัล</strong> — อยากรู้ว่าคลิปที่คนแชร์กันเปิดเรื่องด้วย<strong>ฮุก (hook</strong> = ช่วงเปิดคลิปที่ตรึงคนไม่ให้เลื่อนผ่าน<strong>)</strong> แบบไหน สั่งให้มันไล่ดูช่วงต้นคลิป แล้ววิเคราะห์ว่าเขาวางโครงเล่าเรื่องยังไง</li>
+      <li><strong>สรุปคลิปยาวที่ไม่มีเวลาดู</strong> — คลิปชั่วโมงนึง สั่งให้สรุปหัวข้อสำคัญ ได้ใจความเร็วกว่านั่งดูเองแบบเร่งความเร็วสองเท่า</li>
+      <li><strong>ตัดคำโฆษณาออก</strong> — คลิปเปิดตัวฟีเจอร์ใหม่ที่โม้ว่าเปลี่ยนโลก สั่งให้ไล่ดูทั้งคลิปแล้วสรุปว่ามีอะไรใหม่จริงบ้าง โดยตัดคำขายของทิ้ง</li>
+      <li><strong>หาจุดที่โปรแกรมพัง</strong> — คลิปอัดหน้าจอตอนโปรแกรมเจ๊ง ถามว่ามันพังตรงไหน มันจะไล่ดูจนเจอเฟรมที่เริ่มมีปัญหา บ่อยครั้งเจอต้นเหตุตั้งแต่ยังไม่ทันเปิดไฟล์โค้ดดูด้วยซ้ำ</li>
+    </ul>
+  </div>
+  <p>
+    และมันไม่ได้ดูแค่ยูทูบ — เบื้องหลังใช้เครื่องมือชื่อ <strong>yt-dlp</strong> (<strong>"วายที-ดีแอลพี"</strong> โปรแกรมดาวน์โหลดวิดีโอ)
+    ที่รองรับแหล่งวิดีโอเป็นร้อยเว็บ ทั้ง TikTok, Instagram, X รวมถึง<strong>ไฟล์วิดีโอในเครื่อง</strong>เอง (<code>.mp4</code>, <code>.mov</code>, <code>.mkv</code>, <code>.webm</code>)
+    ครีเอเตอร์เลยเอาไปแกะโครงคลิป TikTok ของคู่แข่งได้ตรง ๆ ว่าเขาวางจังหวะเล่าเรื่องยังไง คลิปไหนยอดวิวพุ่งก็ดูได้เลยว่าส่วนไหนทำได้ดี
+    โดยไม่ต้องมานั่งเปิดดูเองซ้ำสิบรอบ
+  </p>
+
+  <hr class="divider" />
+
+  <h2>เรื่องต้องรู้ก่อนลอง: ค่าใช้จ่ายคิดตาม "จำนวนภาพ" ไม่ใช่ความยาวคลิป</h2>
+  <p>
+    นี่คือจุดที่เซอร์ไพรส์คนส่วนใหญ่ — <strong>ต้นทุนของ <code>/watch</code> ไม่ได้ขึ้นกับว่าคลิปยาวกี่นาที แต่ขึ้นกับว่ามันดึงมากี่เฟรม</strong>
+    เพราะทุกเฟรมที่ส่งให้ Claude นับเป็น "หนึ่งรูป" และรูปกินโทเคนตามพื้นที่ภาพ (สูตรของ Anthropic คือ กว้าง × สูง ÷ 750 —
+    ที่ความละเอียดเริ่มต้น 512px เฟรมหนึ่งตกราว 197 โทเคน) ดึงเฟรมมาเยอะ ค่าใช้จ่ายก็สูงตาม
+  </p>
+  <p>
+    ผลที่ตามมาแบบทวนสัญชาตญาณคือ <strong>คลิปนิ่ง ๆ ยาว 49 นาทีอาจถูกกว่าคลิปหวือหวา 3 นาที</strong> —
+    เพราะคลิปอัดหน้าจอนิ่ง ๆ ภาพแทบไม่เปลี่ยน scene-change เลยคัดมาแค่ ~50 ภาพก็ครอบคลุมตั้งแต่ต้นจนจบ
+    ส่วนคลิปตัดต่อรัว ๆ ภาพเปลี่ยนทุกวินาที กลับดึงเฟรมมาเพียบ
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับประหยัด</p>
+    <p>
+      ถ้าคลิปยาวแต่คุณสนใจแค่บางช่วง ใส่ <code>--start</code> กับ <code>--end</code> บอกให้มันดูเฉพาะช่วงเวลาที่กำหนด
+      ประหยัดทั้งเวลาและเงิน หรือจะลดเพดานเฟรมด้วย <code>--max-frames</code> ก็ได้ และถ้าอยากได้แค่บทพูดไม่เอาภาพเลย ก็ <code>--detail transcript</code>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2 class="step">ติดตั้ง — สองบรรทัดก็เสร็จ</h2>
+  <p>
+    ติดตั้งไม่ยากอย่างที่กลัว บน <strong>Claude Code</strong> (โปรแกรมที่ใช้พิมพ์สั่งงาน Claude บนเครื่องเรา) แค่เพิ่ม marketplace แล้ว install
+    — พิมพ์สองบรรทัดนี้ในแชท (ส่งทีละบรรทัด):
+  </p>
+  <CodeBlock lang="text" title="ติดตั้งบน Claude Code (พิมพ์ในแชท)" code={`/plugin marketplace add bradautomates/claude-video
+/plugin install watch@claude-video`} />
+  <p>
+    เครื่องมือ AI สายโค้ดตัวอื่นอย่าง Codex, Cursor, Gemini CLI (และอีก 50+ ตัว) ก็ลงได้ด้วยคำสั่งเดียวใน terminal
+    ครั้งแรกที่ใช้ มันจะติดตั้ง yt-dlp กับ <strong>ffmpeg</strong> ให้อัตโนมัติ (Whisper จะใช้ก็ต่อเมื่อคลิปไม่มี caption เท่านั้น):
+  </p>
+  <CodeBlock lang="bash" title="ติดตั้งบน agent อื่น (รันใน terminal)" code={`npx skills add bradautomates/claude-video -g`} />
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวังก่อนติดตั้ง</p>
+    <p>
+      ปลั๊กอินจากภายนอกก็เหมือนโค้ดจากภายนอก — ควรเปิดไฟล์ <code>SKILL.md</code> ของมันดูสักนิดว่ามันสั่งให้ Claude ทำอะไรบ้างก่อนติดตั้ง
+      โดยเฉพาะตัวที่ต้องดาวน์โหลดไฟล์จากเน็ตและรันคำสั่งในเครื่องเราแบบนี้
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ต่อยอด: /watch ให้มัน "ดูเป็น" — แต่ Claude ยัง "ตัดต่อเป็น" ด้วย</h2>
+  <p>
+    <code>/watch</code> เก่งเรื่องให้ Claude <strong>อ่าน</strong>วิดีโอ (เอาคลิปเข้ามาเป็นข้อมูล) แต่ถ้าถามว่า Claude ช่วยงาน<strong>ตัดต่อ</strong>วิดีโอได้ไหม
+    คำตอบคือได้ และมันเป็นคนละทิศทางกันพอดี — อันหนึ่งคือ "ดูเข้ามา" อีกอันคือ "สร้างออกไป"
+  </p>
+  <p>
+    หัวใจที่ต้องเข้าใจก่อนคือ <strong>Claude ไม่ได้ลากไทม์ไลน์ตัดต่อไฟล์เอง</strong> มันทำตัวเป็น "คนคุมวง" ที่เขียนและสั่งรันคำสั่งของโปรแกรมชื่อ
+    <strong>FFmpeg</strong> ให้ต่างหาก
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>FFmpeg</strong> (<strong>อ่านว่า "เอฟเอฟ-เอ็มเพ็ก"</strong> ย่อจาก <i>Fast Forward MPEG</i>) คือโปรแกรมสายคอมมานด์ไลน์ที่เป็นเหมือน
+      <strong>"มีดพับสวิสของงานวิดีโอ"</strong> — ตัดคลิป รวมคลิป ย่อขนาด บีบไฟล์ แปลงฟอร์แมต ใส่ซับ เร่ง/หน่วงความเร็ว ทำได้เกือบหมดด้วยคำสั่งบรรทัดเดียว
+      เครื่องมือตัดต่อดัง ๆ เบื้องหลังหลายตัวก็เรียกใช้ FFmpeg นี่แหละ ปัญหาเดียวคือคำสั่งมันจำยากและพารามิเตอร์เยอะมาก — ซึ่งเป็นงานที่ Claude ถนัด
+    </p>
+  </div>
+  <p>
+    พูดง่าย ๆ คือเราคุยกับ Claude เป็นภาษาคน ("ตัดเอาช่วง 30 วินาทีแรกออก แล้วย่อความละเอียดเหลือ 720p") แล้วมันแปลงเป็นคำสั่ง FFmpeg
+    ที่ถูกต้องให้ พร้อมรันให้เลย เราไม่ต้องไปจำว่า <code>-ss</code>, <code>-vf scale</code>, <code>-c:v</code> คืออะไร มุมมองที่คนใช้จริงสรุปตรงกันคือ:
+  </p>
+  <p class="pull">คุณค่าของ AI กับงานวิดีโอไม่ได้อยู่ที่การ "เจน" คลิปทั้งอันขึ้นมาใหม่ — แต่อยู่ที่การ "บีบอัดและจัดโครง" ฟุตเทจจริงที่เรามีอยู่แล้ว</p>
+  <p>
+    ไปป์ไลน์ที่คนทำจริงมักวางแบบนี้: Claude ช่วยแปลงสคริปต์หรือไอเดียเป็น<strong>รายการช็อต (shot list) และไทม์ไลน์คร่าว ๆ</strong> →
+    เขียนคำสั่ง FFmpeg ไล่ตัด-รวม-ย่อ-บีบไฟล์เป็นชุด (batch) → แล้วสั่งรันเรนเดอร์ออกมาเป็นไฟล์สุดท้าย
+    งานซ้ำ ๆ อย่างตัดหัวท้ายคลิปทั้งโฟลเดอร์ หรือแปลงฟอร์แมตหลายสิบไฟล์ให้เหมือนกัน กลายเป็นสั่งทีเดียวจบ
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงจรวิดีโอครบสองทิศทาง ทิศบนคือขาเข้า วิดีโอถูก watch แปลงเป็นเฟรมบวกทรานสคริปต์ ส่งให้ Claude เข้าใจเนื้อหา ทิศล่างคือขาออก Claude เขียนคำสั่ง FFmpeg แล้วรันออกมาเป็นวิดีโอใหม่ที่ตัดต่อแล้ว โดยกล่อง Claude อยู่ตรงกลางเป็นศูนย์กลางทั้งอ่านและสร้าง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="vc-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- center: Claude -->
+      <rect x="290" y="74" width="140" height="52" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.8"/>
+      <text x="360" y="98" font-size="15" font-weight="700" fill="#8a6a12" text-anchor="middle">Claude</text>
+      <text x="360" y="116" font-size="10.5" fill="#5a6a85" text-anchor="middle">ทั้งอ่านและสร้าง</text>
+
+      <!-- top row: input (watch) -->
+      <rect x="24" y="28" width="168" height="48" rx="12" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="108" y="49" font-size="13.5" font-weight="700" fill="#294266" text-anchor="middle">วิดีโอ (ขาเข้า)</text>
+      <text x="108" y="66" font-size="10.5" fill="#7a869a" text-anchor="middle">ยูทูบ · TikTok · ไฟล์</text>
+
+      <text x="245" y="40" font-size="11" font-weight="700" fill="#3a5680" text-anchor="middle">/watch</text>
+      <text x="245" y="54" font-size="9.5" fill="#7a869a" text-anchor="middle">เฟรม + transcript</text>
+      <line x1="192" y1="60" x2="286" y2="82" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#vc-arr)"/>
+
+      <!-- bottom row: output (ffmpeg) -->
+      <line x1="434" y1="118" x2="528" y2="140" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#vc-arr)"/>
+      <text x="478" y="112" font-size="11" font-weight="700" fill="#3a5680" text-anchor="middle">คำสั่ง FFmpeg</text>
+      <text x="478" y="126" font-size="9.5" fill="#7a869a" text-anchor="middle">ตัด · รวม · เรนเดอร์</text>
+      <rect x="530" y="124" width="168" height="48" rx="12" fill="#e6f4ec" stroke="#8fc7a6" stroke-width="1.5"/>
+      <text x="614" y="145" font-size="13.5" font-weight="700" fill="#1f7a45" text-anchor="middle">วิดีโอใหม่ (ขาออก)</text>
+      <text x="614" y="162" font-size="10.5" fill="#5a6a85" text-anchor="middle">ตัดต่อเสร็จแล้ว</text>
+    </svg>
+    <figcaption>/watch ให้ Claude "ตา" ไว้ดู ส่วน FFmpeg ให้มัน "มือ" ไว้ตัด — อ่านกับสร้าง คนละทิศแต่ต่อกันเป็นวงเดียว</figcaption>
+  </figure>
+
+  <p>
+    จุดที่สวยที่สุดคือตอนสองฝั่งนี้มาบรรจบกัน: ใช้ <code>/watch</code> ดูคลิปคู่แข่งหรือฟุตเทจดิบเพื่อ<strong>เข้าใจ</strong>ว่าอะไรเวิร์ก
+    แล้วสั่ง Claude ให้ใช้ FFmpeg <strong>ลงมือตัด</strong>คลิปของเราตามนั้น — ครบวงจร "ดู → คิด → ตัด" ในเครื่องมือเดียว
+  </p>
+  <p>
+    และ FFmpeg เป็นแค่ประตูบานแรกของฝั่ง "ตัดต่อ" — Claude ยังคุมโปรแกรมตัดต่อจริงอย่าง CapCut หรือ Premiere Pro ได้ด้วย
+    ซึ่งลงลึกกว่านี้มาก <a href="../video-editing/">บทความถัดไป</a>พาไปติดตั้งและลองทีละเส้นทาง พร้อมข้อควรระวังที่ต้องรู้ก่อนเปิดประตูให้มัน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อก่อน Claude ได้แค่เดาเนื้อหาจากชื่อคลิป วันนี้มันดูเป็น (ผ่าน <code>/watch</code> ที่คัดเฉพาะเฟรมสำคัญบวกบทพูด)
+    และตัดต่อเป็น (ผ่านการคุม FFmpeg) — <strong>วิดีโอเลิกเป็นกล่องดำสำหรับ AI ไปแล้ว</strong>
+  </p>
+  <p>
+    ครั้งหน้าที่เจอคลิปที่อยากรู้ว่าข้างในมีอะไร ลองใช้ <code>/watch</code> ให้มันดูสักคลิป ถามหนึ่งคำถามที่อยากรู้
+    แล้วเทียบกับตอนที่มันได้แค่เดาจากชื่อคลิป — คุณจะเห็นเองว่าคำตอบมันต่างกันแค่ไหน
+  </p>
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง (ค่าตัวเลขเฟรม/เวลา/โทเคนเป็นค่าที่ผู้พัฒนารายงานไว้ใน README ณ วันสืบค้น อาจเปลี่ยนได้ตามเวอร์ชัน)</p>
+  <ol class="references">
+    <li>
+      <a href="https://github.com/bradautomates/claude-video" target="_blank" rel="noopener noreferrer">"claude-video — /watch downloads, extracts frames, transcribes, hands it all to Claude (README: detail modes, flags, token formula, install)"</a>
+      — Brad Bonanno, GitHub, สืบค้นเมื่อ 22 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://vibecodingthailand.com/blog/claude-video-watch" target="_blank" rel="noopener noreferrer">"/watch ทำให้ Claude ดูวิดีโอได้ — เห็นภาพบนจอและได้ยินเสียง ไม่ได้เดาจากชื่อคลิป"</a>
+      — Vibe Coding Thailand, สืบค้นเมื่อ 22 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://www.clixie.ai/blog/claude-code-video-editing" target="_blank" rel="noopener noreferrer">"Claude Code + video editing — Claude เป็น orchestration layer เขียน/รันคำสั่ง FFmpeg (ingest, trim, render)"</a>
+      — Clixie AI, สืบค้นเมื่อ 22 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://cutback.video/blog/claude-for-video-editing-in-2026-what-works-what-breaks-and-the-real-pipeline" target="_blank" rel="noopener noreferrer">"Claude for video editing in 2026 — the real pipeline (the value is compression, not generation)"</a>
+      — Cutback / Selects, สืบค้นเมื่อ 22 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://ffmpeg.org/about.html" target="_blank" rel="noopener noreferrer">"About FFmpeg — เครื่องมือ command-line สำหรับ record/convert/stream วิดีโอและเสียง"</a>
+      — FFmpeg, สืบค้นเมื่อ 22 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* detail-mode comparison table */
+  table.modes {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.3rem 0 0.5rem;
+    font-size: 0.92rem;
+  }
+  table.modes th,
+  table.modes td {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--blue-soft);
+    text-align: left;
+  }
+  table.modes thead th {
+    background: #eef3fb;
+    color: var(--blue-deep);
+    font-weight: 700;
+  }
+  table.modes tbody tr:nth-child(even) { background: #f7faff; }
+  table.modes code { font-size: 0.86em; }
+  .modes-note {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+  @media (max-width: 480px) {
+    table.modes { font-size: 0.82rem; }
+    table.modes th, table.modes td { padding: 0.4rem 0.45rem; }
+  }
+</style>
