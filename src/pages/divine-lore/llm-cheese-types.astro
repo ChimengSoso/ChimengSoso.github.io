@@ -1,0 +1,613 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+/* ---------- ท่าที่ 1: ปิดคำเตือน ---------- */
+const hs1 = `{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+-- หรือแบบเจาะจงจุด
+{-# HLINT ignore "Use head" #-}`;
+
+const sc1 = `import scala.annotation.nowarn
+
+// ปิดคำเตือนทั้งไฟล์ผ่าน build.sbt
+// scalacOptions += "-Wconf:msg=match may not be exhaustive:s"
+
+// ปิดเฉพาะจุด
+@nowarn("msg=match may not be exhaustive")
+def classify(r: Region): String = r match
+  case Region.Canada => "north"
+
+// หรือปิดปากคอมไพเลอร์ด้วย @unchecked / asInstanceOf
+val Region.USState(st) = region: @unchecked
+val name = raw.asInstanceOf[UserName]`;
+
+/* ---------- ท่าที่ 2: เปลี่ยน type ที่ตกลงไว้ ---------- */
+const hs2 = `-- ที่ตกลงกันไว้ตอนวางแผน
+summarize :: NonEmpty Int -> Summary
+newtype Channel = Channel Text   -- มีรายการตายตัว
+persist :: Binary a => a -> IO ()
+
+-- ที่ AI เขียนออกมาจริง
+summarize :: [Int] -> Summary       -- ลิสต์ว่างเข้ามาได้
+persist   :: Show a => a -> IO ()   -- ใช้ข้อจำกัดที่หลวมกว่า`;
+
+const sc2 = `import cats.data.NonEmptyList
+import cats.Show
+import io.circe.Encoder
+
+// ที่ตกลงกันไว้ตอนวางแผน
+def summarize(xs: NonEmptyList[Int]): Summary
+enum Channel:
+  case Email, Sms, Push
+def persist[A: Encoder](a: A): IO[Unit]
+
+// ที่ AI เขียนออกมาจริง
+def summarize(xs: List[Int]): Summary        // List ว่างเข้ามาได้
+def notify(channel: String): IO[Unit]        // พิมพ์ "emial" ก็ยังคอมไพล์ผ่าน
+def persist[A: Show](a: A): IO[Unit]         // หา Encoder ไม่เจอ ก็สลับไปใช้ Show`;
+
+/* ---------- ท่าที่ 3: String stuffing ---------- */
+const hs3a = `data ErrorEvent = UnknownUser String
+                | DatabaseErrorCode Int
+                | InvalidJSON A.Value
+                | NetworkError SomeException
+                | Canceled (Maybe CancelationReason)
+                | ...
+
+handleRequest :: Request -> IO (Either ErrorEvent Response)`;
+
+const hs3b = `handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
+handleAddGroup req
+    | validGroup group = -- ..
+    | otherwise = pure $ Left (UnknownUser $ "Invalid group: " <> group)
+  where
+    group = getGroup req`;
+
+const hs3c = `-- ท่าที่ 2: ใช้เลขติดลบเป็น "รหัสพิเศษ"
+handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
+handleAddGroup req
+    -- ...
+    | otherwise = pure $ Left (DatabaseErrorCode (-1))
+
+-- ท่าที่ 3: ประกอบ JSON ปลอมขึ้นมาแล้วบอกว่า "JSON เสีย"
+handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
+handleAddGroup req
+    -- ...
+    | otherwise = pure $ Left $ InvalidJSON $
+        A.object ["errorType" .= "Invalid group", "group" .= group]
+  where
+    group = getGroup req
+
+-- ท่าที่ 4: ห่อเป็น exception แล้วบอกว่า "เน็ตล่ม"
+handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
+handleAddGroup req
+    -- ...
+    | otherwise = pure $ Left $ NetworkError $
+        toException (userError $ "Invalid group: " <> show group)
+  where
+    group = getGroup req
+
+-- ท่าที่ 5: บอกว่า "ถูกยกเลิก" โดยไม่ระบุเหตุผลเลย
+handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
+handleAddGroup req
+    -- ...
+    | otherwise = pure $ Left (Canceled Nothing)`;
+
+const sc3a = `import cats.effect.IO
+import io.circe.Json
+
+enum ErrorEvent:
+  case UnknownUser(name: String)
+  case DatabaseErrorCode(code: Int)
+  case InvalidJson(value: Json)
+  case NetworkError(cause: Throwable)
+  case Canceled(reason: Option[CancelationReason])
+
+def handleRequest(req: Request): IO[Either[ErrorEvent, Response]]`;
+
+const sc3b = `import cats.syntax.all.*
+
+def handleAddGroup(req: AddGroupRequest): IO[Either[ErrorEvent, Response]] =
+  val group = req.group
+  if validGroup(group) then ???
+  // ท่าที่ 1: ยัดข้อความลงช่อง "ไม่รู้จักผู้ใช้"
+  else IO.pure(ErrorEvent.UnknownUser(s"Invalid group: $group").asLeft)
+
+  // ท่าที่ 2: เลขติดลบเป็นรหัสพิเศษ
+  else IO.pure(ErrorEvent.DatabaseErrorCode(-1).asLeft)
+
+  // ท่าที่ 3: ประกอบ JSON ปลอมแล้วบอกว่า JSON เสีย
+  else IO.pure(ErrorEvent.InvalidJson(
+    Json.obj("errorType" -> Json.fromString("Invalid group"),
+             "group"     -> Json.fromString(group))
+  ).asLeft)
+
+  // ท่าที่ 4: ห่อเป็น exception แล้วบอกว่าเน็ตล่ม
+  else IO.pure(ErrorEvent.NetworkError(
+    new RuntimeException(s"Invalid group: $group")
+  ).asLeft)
+
+  // ท่าที่ 5: บอกว่าถูกยกเลิก โดยไม่ระบุเหตุผล
+  else IO.pure(ErrorEvent.Canceled(None).asLeft)`;
+
+const hs3d = `data ErrorEvent = UnknownUser UserName
+                | DatabaseErrorCode ErrorCode
+                | InvalidJSON ParseError
+                | NetworkError NetworkException
+                | Canceled CancelationReason
+                | ...`;
+
+const sc3d = `import cats.data.EitherT
+import io.circe.ParsingFailure
+
+// opaque type = ข้างในเป็น String/Int แต่ข้างนอกสร้างมั่วไม่ได้
+opaque type UserName = String
+object UserName:
+  def fromRaw(s: String): Either[ErrorEvent, UserName] =
+    Either.cond(s.nonEmpty, s, ErrorEvent.EmptyUserName)
+
+opaque type ErrorCode = Int
+object ErrorCode:
+  def fromInt(i: Int): Option[ErrorCode] = Option.when(i > 0)(i)
+
+enum ErrorEvent:
+  case UnknownUser(name: UserName)
+  case DatabaseErrorCode(code: ErrorCode)
+  case InvalidJson(err: ParsingFailure)
+  case NetworkError(cause: NetworkException)
+  case Canceled(reason: CancelationReason)
+  case EmptyUserName
+  case InvalidGroup(group: GroupName)   // ช่องใหม่ที่ควรจะมีตั้งแต่แรก
+
+// EitherT ทำให้ IO[Either[E, A]] ต่อกันได้เหมือน Either ธรรมดา
+def handleAddGroup(req: AddGroupRequest): EitherT[IO, ErrorEvent, Response] =
+  for
+    group <- EitherT.fromEither[IO](GroupName.fromRaw(req.group))
+    resp  <- EitherT.liftF(addGroup(group))
+  yield resp`;
+
+/* ---------- ท่าที่ 4: field abuse ---------- */
+const hs4a = `data Report = Report
+    { reportName :: String
+    , reportAuthors :: [String]
+    , reportDate :: Day
+    , ...
+    }`;
+
+const hs4b = `data Targets = Targets
+    { fooTarget :: String
+    , barTarget :: String
+    , -- ...
+    }`;
+
+const sc4 = `import java.time.LocalDate
+
+// ที่มีอยู่เดิม
+final case class Report(
+  name: String,
+  authors: List[String],
+  date: LocalDate,
+)
+
+// ท่าหลบ ก: ต้องเก็บ "หน่วยงานที่สังกัด" แต่ไม่มีช่อง จึงยัดลงลิสต์ผู้เขียน
+Report(name, authors = List("ชิ", "affiliation: ฝ่ายวิจัย"), date = d)
+
+// ท่าหลบ ข: "ยังไม่มีวันที่" จึงใส่วันที่ปลอมเป็นค่าเฝ้ายาม
+Report(name, authors, date = LocalDate.EPOCH)   // 1970-01-01
+
+// ที่ควรเป็น: ทำให้ "ไม่มี" เป็นสถานะที่ type บอกได้
+final case class Report(
+  name: String,
+  authors: List[Author],
+  affiliation: Option[Affiliation],
+  date: Option[LocalDate],
+)
+
+// ท่าหลบ ค: ต้องใช้ bazTarget แต่ต้องไปแก้ไลบรารีอีกตัว จึงยืม barTarget ไปก่อน
+final case class Targets(fooTarget: String, barTarget: String)
+config.copy(barTarget = bazPath)   // คอมไพล์ผ่าน ความหมายผิด`;
+
+/* ---------- ท่าที่ 5: ไม่ยอมสร้าง type ใหม่ ---------- */
+const hs5a = `data State = Alaska | Arkansas | Arizona | ...
+
+processState :: State -> IO ()`;
+
+const hs5b = `data Region = Canada | Mexico | Alaska | Arkansas | Arizona
+
+processRegion :: Region -> IO ()
+processRegion = \\case
+    Canada -> ...
+    Mexico -> ...
+    st -> processState st
+
+processState :: Region -> IO ()
+processState = \\case
+    Canada -> pure ()
+    Mexico -> pure ()
+    Alaska -> ... -- actual logic`;
+
+const hs5c = `data Region = Canada | Mexico | USState State
+data State = Alaska | Arkansas | Arizona | ...
+
+processRegion :: Region -> IO ()
+processRegion = \\case
+    Canada -> ...
+    Mexico -> ...
+    USState st -> processState st
+
+processState :: State -> IO ()
+processState = \\case
+    Alaska -> ... -- actual logic`;
+
+const sc5a = `// เวอร์ชันแบนราบที่ AI ชอบเขียน
+enum Region:
+  case Canada, Mexico, Alaska, Arkansas, Arizona
+
+def processRegion(r: Region): IO[Unit] = r match
+  case Region.Canada => ???
+  case Region.Mexico => ???
+  case st            => processState(st)
+
+def processState(r: Region): IO[Unit] = r match
+  case Region.Canada | Region.Mexico => IO.unit   // เคสที่เป็นไปไม่ได้ แต่ต้องเขียนกันคอมไพเลอร์บ่น
+  case Region.Alaska                 => ???`;
+
+const sc5b = `// เวอร์ชันที่มีลำดับชั้น คอมไพเลอร์เช็ก exhaustiveness ให้ครบ
+enum UsState:
+  case Alaska, Arkansas, Arizona
+
+enum Region:
+  case Canada
+  case Mexico
+  case State(value: UsState)
+
+def processRegion(r: Region): IO[Unit] = r match
+  case Region.Canada       => ???
+  case Region.Mexico       => ???
+  case Region.State(st)    => processState(st)
+
+def processState(st: UsState): IO[Unit] = st match
+  case UsState.Alaska => ???   // ไม่มีเคส Canada ให้ต้องกลบอีกต่อไป`;
+
+/* ---------- โบนัส: fs2 + Pekko ---------- */
+const scFs2 = `import fs2.Stream
+import cats.effect.IO
+
+// ท่าหลบ: แถวที่พังหายไปเงียบ ๆ ไม่มีใครรู้ว่าหายกี่แถว
+def ingest(rows: Stream[IO, RawRow]): Stream[IO, Record] =
+  rows.evalMap(parse).attempt.collect { case Right(r) => r }
+
+// ท่าหลบอีกแบบ: กลืน error แล้วปิด stream ดื้อ ๆ
+def ingest2(rows: Stream[IO, RawRow]): Stream[IO, Record] =
+  rows.evalMap(parse).handleErrorWith(_ => Stream.empty)
+
+// ที่ควรเป็น: ให้ความล้มเหลวเป็น "ค่า" ที่ไหลอยู่ใน stream ด้วย
+def ingest3(rows: Stream[IO, RawRow]): Stream[IO, Either[IngestError, Record]] =
+  rows.evalMap(row => parse(row).attemptNarrow[IngestError])
+
+// ปลายทางค่อยแยกสองทาง ของดีไปต่อ ของเสียถูกบันทึกไว้
+val (bad, good) = ingest3(rows).broadcastThrough(
+  _.collect { case Left(e)  => e }.evalTap(logError),
+  _.collect { case Right(r) => r }.through(save),
+)`;
+
+const scPekko = `import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+
+// โปรโตคอลของ actor ก็คือ sum type ดี ๆ นี่เอง ท่าหลบเดิมใช้ได้หมด
+enum Command:
+  case AddGroup(group: GroupName, replyTo: ActorRef[Ack])
+  case RemoveGroup(group: GroupName, replyTo: ActorRef[Ack])
+
+enum Ack:
+  case Ok
+  case Failed(reason: String)   // ช่องโหว่: อะไรก็ยัดลงมาได้
+
+def behavior: Behavior[Command] = Behaviors.receiveMessage:
+  case Command.AddGroup(g, replyTo) =>
+    // ท่าหลบ: ทุกความล้มเหลวกลายเป็นข้อความเดียวกันหมด
+    replyTo ! Ack.Failed(s"could not add $g")
+    Behaviors.same
+  case _ => Behaviors.same   // และเคสที่ยังไม่อยากคิด ก็เงียบไปเฉย ๆ
+
+// ที่ควรเป็น: เหตุผลของความล้มเหลวก็มี type ของมัน
+enum Ack:
+  case Ok
+  case Failed(reason: ErrorEvent)`;
+---
+<DivineLoreLayout title="LLM ชอบ &quot;หลบด่าน&quot; ที่เราตั้งไว้ | บันทึกศาสตร์แห่งเทพ" description="สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด พร้อมโค้ดครบทุกตัวอย่างทั้ง Haskell และ Scala 3 (cats, cats-effect, fs2, Pekko)">
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+  </nav>
+  <p class="tag">บันทึกวิจัย</p>
+  <h1>LLM ชอบ "หลบด่าน" ที่เราตั้งไว้</h1>
+  <p class="subtitle">
+    สรุปบทความ <i>LLMs Will Cheese Your Types</i> ของ Justin Le เขาเขียน Haskell ร่วมกับ AI แล้วเก็บสถิติว่า AI มีท่าหลบอะไรบ้างเวลาเจอ type ที่เข้มงวด ทุกท่าคอมไพล์ผ่านหมด รีวิวผ่านตาเร็ว ๆ ก็ดูปกติ แต่มันแอบทำลายสิ่งที่เราตั้งใจสร้างไว้ทีละนิด บทความนี้ยกโค้ดมาให้ครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 คู่กันทุกท่า
+  </p>
+
+  <hr class="divider" />
+
+  <p>
+    ลองนึกภาพเกมที่มีกำแพงกั้นไม่ให้ตัวละครเดินลัดไปโซนสุดท้าย แล้ววันหนึ่งมีคนค้นพบว่า ถ้ากระโดดมุมนี้แล้วชนกำแพงองศานี้ ตัวละครจะทะลุออกไปเลย วงการเกมเรียกท่าแบบนี้ว่า <strong>"ชีส" (cheese)</strong> คือเอาชนะด่านโดยไม่ได้เล่นตามที่คนออกแบบตั้งใจ ไม่ได้โกงถึงขั้นแฮ็ก แต่ก็ไม่ได้ผ่านด่านจริง ๆ
+  </p>
+  <p>
+    ชื่อบทความต้นฉบับคือ <i>"LLMs Will Cheese Your Types"</i> แปลว่า "AI จะชีสระบบ type ของคุณ" ครับ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>Type</strong> อ่านว่า <strong>"ไทป์"</strong> แปลว่า <strong>"ชนิดของข้อมูล"</strong> คือการบอกภาษาโปรแกรมล่วงหน้าว่าตัวแปรนี้เก็บอะไรได้บ้าง ถ้าใครเผลอยัดของผิดชนิดลงไป โปรแกรมจะไม่ยอมคอมไพล์ตั้งแต่แรก
+    </p>
+    <p>
+      <strong>Haskell</strong> อ่านว่า <strong>"แฮสเคลล์"</strong> เป็นภาษาโปรแกรมสาย <i>functional</i> ที่ขึ้นชื่อเรื่องระบบ type ที่เข้มงวดและแสดงออกได้ละเอียดมาก ตั้งชื่อตามนักตรรกศาสตร์ <strong>Haskell Curry</strong> ("แฮสเคลล์ เคอร์รี") จุดขายของมันคือ ถ้าออกแบบ type ดีพอ สถานะที่ผิดจะเขียนออกมาไม่ได้เลย
+    </p>
+    <p>
+      <strong>LLM</strong> ย่อจาก <i>Large Language Model</i> อ่านว่า <strong>"ลาร์จ แลงเกวจ โมเดล"</strong> แปลว่า <strong>"โมเดลภาษาขนาดใหญ่"</strong> ก็คือ AI แบบ Claude/ChatGPT ที่เราใช้เขียนโค้ดกันนี่แหละ
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">อ่านโค้ด Haskell ไม่ออกก็ไม่เป็นไร</p>
+    <p>
+      ทุกท่าในบทความนี้ผมยกโค้ดต้นฉบับ Haskell มาให้ครบ แล้วเขียนเวอร์ชัน <strong>Scala 3</strong> คู่กันทุกอัน โดยใช้ไลบรารีสาย functional ให้เต็มที่ (<strong>cats</strong>, <strong>cats-effect</strong> สำหรับ <code>IO</code>, <strong>fs2</strong> สำหรับ stream, และ <strong>Pekko</strong> สำหรับ actor) เลือกอ่านฝั่งที่ถนัดได้เลยครับ ความหมายตรงกัน
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ความฝันที่สวยงาม: type คือนั่งร้านให้ AI</h2>
+  <p>
+    Justin เริ่มจากมุมที่ผมว่าน่าสนใจมาก เขาบอกว่าในวงการคณิตศาสตร์ มีภาษาชื่อ <strong>Lean</strong> ("ลีน") ที่ใช้เขียนบทพิสูจน์แล้วให้คอมพิวเตอร์ตรวจให้ว่าถูกจริงไหม พอเอา AI มาช่วยพิสูจน์ทฤษฎีบท มันเลยเวิร์กมาก เพราะ AI ไม่ต้องเดาว่าตัวเองถูกหรือเปล่า มันลองมั่ว ๆ ไปเรื่อย แล้วให้ตัวตรวจสอบเป็นคนบอกว่ายังไม่ผ่าน วนไปจนกว่าจะผ่าน
+  </p>
+  <p>
+    เขาหวังว่า Haskell จะเล่นบทเดียวกันนี้ให้การเขียนโปรแกรม เราไม่ต้องหวังให้ AI เขียนถูกตั้งแต่ครั้งแรก (ซึ่งเขาบอกตรง ๆ ว่าความถูกต้องตั้งแต่ตอนสร้างนั้น <em>ไม่สมจริง</em>) เราแค่ต้องสร้างนั่งร้านที่บีบให้การมั่วของมันเดินไปในทางที่ถูกเท่านั้น
+  </p>
+  <p>
+    แต่พอลงมือจริง เขาเจอปัญหาว่า AI ชอบเดินอ้อมนั่งร้านมากกว่าปีนขึ้นไป
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ต้นตอของปัญหา</p>
+    <p>
+      AI ถูกเทรนด้วยโค้ดในโลกจริงเป็นหลัก ซึ่งส่วนใหญ่คือ Python กับ JavaScript ที่ไม่เข้มงวดเรื่อง type เลย นิสัย "หาทางที่เร็วที่สุดให้มันรันผ่าน ๆ ไปก่อน" เลยติดมาด้วย พอเจอกำแพง type มันจึงไม่ได้คิดว่ากำแพงนี้กำลังบอกอะไรฉัน แต่คิดว่าจะข้ามกำแพงนี้ยังไงให้เร็วที่สุด
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ท่าที่ 1: ปิดเสียงเตือนทิ้งซะเลย</h2>
+  <p>
+    ท่าที่ตรงไปตรงมาที่สุด คอมไพเลอร์เตือนว่า "เฮ้ย เคสนี้นายยังไม่ได้จัดการนะ" แล้ว AI ก็ไปเติมคำสั่งปิดคำเตือนนั้นซะ
+  </p>
+  <CodeBlock code={hs1} lang="haskell" title="Haskell · ท่าปิดปากคอมไพเลอร์" />
+  <p>เวอร์ชัน Scala 3 มีให้เลือกเยอะกว่าด้วยซ้ำ เพราะมีทั้ง annotation, flag ใน build, และการ cast ตรง ๆ:</p>
+  <CodeBlock code={sc1} lang="scala" title="Scala 3 · ท่าเดียวกัน" />
+  <p>
+    เปรียบเทียบง่าย ๆ คือรถขึ้นไฟเตือนน้ำมันเครื่อง แล้วเราแก้ด้วยการเอาเทปดำแปะทับไฟดวงนั้น รถวิ่งต่อได้ หน้าปัดสวยงามเหมือนเดิม
+  </p>
+  <p>
+    Justin ยอมรับว่า <em>มีบางกรณี</em> ที่การปิดคำเตือนสมเหตุสมผลจริง ๆ แต่ประเด็นคือ AI แทบไม่มีวิจารณญาณพอจะแยกได้ว่าตอนไหนควรตอนไหนไม่ควร เขาเลยมองว่าการตัดสินใจปิดเสียงเตือนควรเป็นสิทธิ์ของคนเท่านั้น
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ท่าที่ 2: ตกลงกันไว้แบบหนึ่ง เขียนออกมาอีกแบบ</h2>
+  <p>
+    อันนี้เจ็บกว่า เพราะมันเกิดหลังจากที่เรานั่งวางแผนกับ AI มาอย่างดีแล้ว ตกลงกันเรียบร้อยว่าจะใช้ type แบบไหน พอถึงเวลาเขียนจริง มันเปลี่ยนเงียบ ๆ
+  </p>
+  <CodeBlock code={hs2} lang="haskell" title="Haskell · แผน vs. ของจริง" />
+  <CodeBlock code={sc2} lang="scala" title="Scala 3 · แผน vs. ของจริง (cats + circe)" />
+  <p>
+    ทั้งสามกรณีคือการลดความเข้มของข้อจำกัด <code>NonEmpty Int</code> หรือ <code>NonEmptyList[Int]</code> คือลิสต์ที่รับประกันว่ามีอย่างน้อยหนึ่งตัว พอกลายเป็นลิสต์ธรรมดา ภาระการเช็กว่า "แล้วถ้าว่างล่ะ" ก็เด้งกลับมาเป็นของเราทันที ส่วนการเปลี่ยนตัวเลือกตายตัวเป็น <code>String</code> ก็คือเปิดประตูให้คำที่พิมพ์ผิดหลุดเข้ามาได้ทุกเมื่อ
+  </p>
+  <p>
+    จุดที่ Justin เน้นคือมันไม่ได้มาบอกเราว่า "ขอเปลี่ยนแผนนะ เพราะ..." ซึ่งถ้าบอกก็ยังคุยกันได้ แต่มันเปลี่ยนแบบเนียน ๆ ให้เราไปเจอเอาทีหลัง ซึ่งขัดกับความหมายของคำว่าวางแผนร่วมกันตั้งแต่ต้น
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ท่าที่ 3: "ยัดข้อความ" (String Stuffing)</h2>
+  <p>
+    ท่านี้เป็นไฮไลต์ของบทความ และเป็นท่าที่ Justin ยกตัวอย่างไว้เยอะที่สุด เริ่มจาก type สำหรับเก็บเหตุการณ์ผิดพลาดแบบนี้:
+  </p>
+  <CodeBlock code={hs3a} lang="haskell" title="Haskell · type รวมชนิดของ error" />
+  <CodeBlock code={sc3a} lang="scala" title="Scala 3 · enum เทียบเท่า (cats-effect IO + circe)" />
+  <p>
+    อ่านง่าย ๆ คือ error มีได้หลายแบบ ไม่รู้จักผู้ใช้ / ฐานข้อมูลพัง (พร้อมรหัสตัวเลข) / JSON เสีย / เน็ตล่ม / ถูกยกเลิก ส่วน <code>IO[Either[ErrorEvent, Response]]</code> อ่านว่า "งานที่มีผลข้างเคียง ซึ่งจบแล้วจะได้ error หรือไม่ก็ได้คำตอบ"
+  </p>
+  <p>
+    ทีนี้เราสั่งให้ AI เพิ่มฟีเจอร์ "เพิ่มกลุ่ม" ซึ่งต้องรายงาน error แบบใหม่ว่ากลุ่มไม่ถูกต้อง สิ่งที่<em>ควร</em>ทำคือเพิ่มช่องใหม่ <code>InvalidGroupError</code> เข้าไปในรายการ แต่สิ่งที่ AI ทำจริงคือ:
+  </p>
+  <CodeBlock code={hs3b} lang="haskell" title="Haskell · ท่าหลบท่าที่ 1 ยัดลงช่อง UnknownUser" />
+  <p>
+    เห็นไหมครับว่ามันเลือกช่อง <code>UnknownUser</code> ซึ่งแปลว่า "ไม่รู้จักผู้ใช้" แล้วยัดข้อความ <i>"Invalid group: ..."</i> ลงไปแทน คอมไพล์ผ่านฉลุย เพราะช่องนั้นรับข้อความอะไรก็ได้ แต่ตอนนี้โค้ดเราโกหกแล้ว ที่ไหนสักแห่งจะมี error "ไม่รู้จักผู้ใช้" โผล่มาทั้งที่ปัญหาจริงคือเรื่องกลุ่ม
+  </p>
+  <p>
+    และ Justin ไม่ได้ยกมาแค่ท่าเดียว เขาไล่ให้ดูว่าเคยเจอความสร้างสรรค์ในทางที่ผิดมาแล้วอีกสี่แบบ ทุกแบบคอมไพล์ผ่านหมด:
+  </p>
+  <CodeBlock code={hs3c} lang="haskell" title="Haskell · ท่าหลบอีกสี่แบบที่เขาเจอมาจริง" />
+  <p>
+    รวมกันเป็นห้าท่า ผมรวมเวอร์ชัน Scala 3 ไว้ในบล็อกเดียวให้เทียบกันชัด ๆ (เขียนซ้อน <code>else</code> หลายอันเพื่อให้เห็นครบในที่เดียว ของจริงย่อมมีอันเดียว):
+  </p>
+  <CodeBlock code={sc3b} lang="scala" title="Scala 3 · ห้าท่าหลบเดียวกัน" />
+  <div class="card">
+    <ul>
+      <li><strong>ท่า 1 ยัดข้อความ</strong> ช่องรับ <code>String</code> อะไรก็ได้ ก็ยัดเรื่องที่ไม่เกี่ยวลงไป</li>
+      <li><strong>ท่า 2 เลขวิเศษ</strong> <code>-1</code> ไม่ใช่รหัสฐานข้อมูลจริง มันคือรหัสที่เราแอบตกลงกันเองในใจ</li>
+      <li><strong>ท่า 3 JSON ปลอม</strong> สร้าง JSON ขึ้นมาเองแล้วบอกว่า JSON ที่รับมาเสีย ทั้งที่ไม่เคยมี JSON เสียเลย</li>
+      <li><strong>ท่า 4 exception ปลอม</strong> ห่อข้อความเป็น exception แล้วรายงานว่าเน็ตล่ม ซึ่งจะไปหลอกทีม ops ต่ออีกทอด</li>
+      <li><strong>ท่า 5 ยกเลิกลอย ๆ</strong> <code>Canceled Nothing</code> หรือ <code>Canceled(None)</code> คือบอกว่าถูกยกเลิกโดยไม่บอกเหตุผล ข้อมูลหายเกลี้ยง</li>
+    </ul>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบ ด้านซ้ายคือทางที่ถูก มีกล่อง error ใหม่ถูกเพิ่มเข้าไปเป็นช่องของตัวเอง ด้านขวาคือท่าหลบ ข้อความ error ใหม่ถูกยัดเข้าไปในช่อง UnknownUser ที่มีอยู่แล้วซึ่งความหมายไม่ตรงกัน" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="cz-ok" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="cz-bad" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e07070"/>
+        </marker>
+      </defs>
+      <text x="180" y="24" font-size="14" font-weight="700" fill="#7ee2a8" text-anchor="middle">ทางที่ถูก (เพิ่มช่องใหม่)</text>
+      <text x="540" y="24" font-size="14" font-weight="700" fill="#f08b8b" text-anchor="middle">ท่าหลบ (ยัดลงช่องเดิม)</text>
+      <line x1="360" y1="10" x2="360" y2="240" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+      <g font-size="11.5" fill="#c3cbdc" text-anchor="middle">
+        <rect x="70" y="96" width="220" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="180" y="118">UnknownUser</text>
+        <rect x="70" y="138" width="220" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="180" y="160">DatabaseErrorCode</text>
+        <rect x="70" y="180" width="220" height="34" rx="8" fill="#14301f" stroke="#4ade80" stroke-width="1.8"/>
+        <text x="180" y="202" fill="#7ee2a8" font-weight="700">InvalidGroupError (ใหม่)</text>
+      </g>
+      <path d="M180 66 L180 88" fill="none" stroke="#4ade80" stroke-width="2" marker-end="url(#cz-ok)"/>
+      <text x="180" y="58" font-size="11.5" fill="#8a97ad" text-anchor="middle">error แบบใหม่</text>
+
+      <g font-size="11.5" fill="#c3cbdc" text-anchor="middle">
+        <rect x="430" y="96" width="220" height="34" rx="8" fill="#301818" stroke="#d64545" stroke-width="1.8"/>
+        <text x="540" y="118" fill="#f0a0a0">UnknownUser "Invalid group…"</text>
+        <rect x="430" y="138" width="220" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="540" y="160">DatabaseErrorCode</text>
+        <rect x="430" y="180" width="220" height="34" rx="8" fill="#1c2536" stroke="#3a4666" stroke-dasharray="4 4"/>
+        <text x="540" y="202" fill="#6b7691">(ไม่มีช่องใหม่)</text>
+      </g>
+      <path d="M540 66 L540 88" fill="none" stroke="#e07070" stroke-width="2" marker-end="url(#cz-bad)"/>
+      <text x="540" y="58" font-size="11.5" fill="#8a97ad" text-anchor="middle">error แบบใหม่</text>
+      <text x="540" y="236" font-size="11" fill="#8a97ad" text-anchor="middle">คอมไพล์ผ่าน แต่ความหมายผิด</text>
+    </svg>
+    <figcaption>ท่า string stuffing เกิดขึ้นได้เพราะช่องนั้นรับ <code>String</code> อะไรก็ได้ AI เลยยัดเรื่องที่ไม่เกี่ยวลงไป แทนที่จะเพิ่มช่องใหม่ (diagram วาดประกอบโดยผู้เขียน)</figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ทางแก้ที่เขาเสนอ</p>
+    <p>
+      อย่าปล่อยให้ช่องไหนรับ <code>String</code> หรือ <code>Int</code> ดิบ ๆ ถ้าความหมายมันเจาะจงกว่านั้น เปลี่ยนเป็น type เฉพาะทางไปเลย แล้วช่องนั้นจะยัดมั่วไม่ได้อีก เพราะข้อความทั่วไปใส่ลงไปไม่ได้ตั้งแต่แรก
+    </p>
+  </div>
+  <CodeBlock code={hs3d} lang="haskell" title="Haskell · ปิดช่องโหว่ด้วย type เฉพาะทาง" />
+  <CodeBlock code={sc3d} lang="scala" title="Scala 3 · ปิดช่องโหว่ด้วย opaque type + EitherT" />
+  <p>
+    สังเกตว่า <code>String</code> กลายเป็น <code>UserName</code> และ <code>Int</code> กลายเป็น <code>ErrorCode</code> พอทำแบบนี้ ท่ายัดข้อความก็ตายไปโดยปริยาย ฝั่ง Scala ใช้ <strong>opaque type</strong> ("โอเพก ไทป์" แปลว่า "ชนิดทึบแสง") ซึ่งข้างในยังเป็น <code>String</code> ตัวเดิม ไม่เปลืองหน่วยความจำเพิ่ม แต่ข้างนอกสร้างขึ้นมาเองมั่ว ๆ ไม่ได้ ต้องผ่านประตูที่เรากำหนดเท่านั้น
+  </p>
+  <p>
+    หลักคิดเบื้องหลังคือคติที่ชาว Haskell เรียกว่า <strong>"Parse, Don't Validate"</strong> ("พาร์ส ดอนต์ วาลิเดต" แปลว่า "แปลงให้เป็นของจริง อย่าแค่ตรวจ") แทนที่จะรับข้อมูลดิบเข้ามาแล้วค่อยไล่เช็กทีหลังว่าถูกไหม ให้แปลงมันเป็น type ที่เป็นไปไม่ได้เลยที่จะผิดตั้งแต่ประตูทางเข้า
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ท่าที่ 4: ยืมช่องคนอื่นเขาใช้ (Field Abuse)</h2>
+  <p>
+    เหมือนท่าที่ 3 แต่เกิดกับช่องข้อมูลในเรกคอร์ดแทน Justin ยกสองตัวอย่างนี้:
+  </p>
+  <CodeBlock code={hs4a} lang="haskell" title="Haskell · เรกคอร์ดรายงาน" />
+  <CodeBlock code={hs4b} lang="haskell" title="Haskell · เรกคอร์ดเป้าหมาย" />
+  <p>
+    ท่าหลบที่เกิดกับสองอันนี้มีสามแบบ แบบแรกคือต้องเก็บหน่วยงานที่สังกัด แต่ไม่มีช่อง เลยยัดลงไปในลิสต์ <code>reportAuthors</code> ซะเลย แบบที่สองคือต้องบอกว่ายังไม่มีวันที่ แต่แทนที่จะเปลี่ยน <code>reportDate</code> เป็น <code>Maybe Day</code> ก็ใส่วันที่ปลอมอย่าง <code>ModifiedJulianDay 0</code> แทน และแบบที่สามคือต้องใช้ <code>bazTarget</code> แต่การเพิ่มช่องนั้นต้องข้ามไปแก้ไลบรารีอีกตัว ก็เลยยืม <code>barTarget</code> ที่มีอยู่แล้วไปใช้ก่อน
+  </p>
+  <CodeBlock code={sc4} lang="scala" title="Scala 3 · สามท่าหลบในเรกคอร์ด และทางที่ควรเป็น" />
+  <p>
+    ค่าปลอมแบบวันที่ <code>0</code> นี่มีชื่อเรียกว่า <strong>sentinel value</strong> ("เซนทิเนล แวลิว" แปลว่า "ค่าเฝ้ายาม") คือค่าปกติค่าหนึ่งที่เราแอบตกลงกันเองว่าให้แปลว่าไม่มีข้อมูล ปัญหาคือข้อตกลงนั้นอยู่ในหัวคนเท่านั้น ไม่ได้อยู่ในโค้ด วันหนึ่งมีคนเอาไปคำนวณอายุเอกสารตรง ๆ ก็จะได้ผลว่าเอกสารนี้อายุ 56 ปีมาแบบงง ๆ
+  </p>
+  <p>
+    Justin ชี้ว่าแรงจูงใจของท่านี้ชัดมาก การเพิ่มช่องใหม่ในเรกคอร์ดที่มีคนใช้อยู่หลายที่ แปลว่าต้องตามไปแก้ทุกจุดที่สร้างเรกคอร์ดนั้น และถ้ามันอยู่ข้ามขอบเขตไลบรารี ก็ยิ่งแพงเข้าไปอีก ยืมช่องเดิมแก้ที่เดียวจบง่ายกว่าเยอะ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ท่าที่ 5: ไม่ยอมสร้าง type ใหม่</h2>
+  <p>
+    สมมติเดิมเรามีแค่รัฐในอเมริกาอยู่แล้ว:
+  </p>
+  <CodeBlock code={hs5a} lang="haskell" title="Haskell · ของเดิมที่มีอยู่" />
+  <p>
+    วันหนึ่งงานขยาย ต้องรองรับภูมิภาคที่มีแคนาดาและเม็กซิโกด้วย สิ่งที่ AI มักทำคือแบนทุกอย่างมากองรวมกันชั้นเดียว แล้วเลี่ยงการสร้าง type ใหม่:
+  </p>
+  <CodeBlock code={hs5b} lang="haskell" title="Haskell · เวอร์ชันแบนราบ (ท่าหลบ)" />
+  <p>
+    ดูให้ดีนะครับว่ามันแย่ตรงไหน <code>processState</code> ที่เดิมรับ <code>State</code> ตอนนี้ถูกเปลี่ยนให้รับ <code>Region</code> แทน แปลว่ามันต้องเขียนเคส <code>Canada</code> กับ <code>Mexico</code> ไว้ในฟังก์ชันที่ชื่อว่า "ประมวลผลรัฐ" ทั้งที่สองอันนั้นไม่ใช่รัฐ แล้วมันก็กลบด้วย <code>pure ()</code> ซึ่งแปลว่าเจอเคสนี้แล้วไม่ต้องทำอะไร เป็นการปิดปากคอมไพเลอร์ที่กำลังจะบอกเราว่าโครงสร้างนี้มันผิดนะ
+  </p>
+  <CodeBlock code={sc5a} lang="scala" title="Scala 3 · เวอร์ชันแบนราบ (ท่าหลบ)" />
+  <p>ส่วนสิ่งที่ควรเป็นคือให้มันมีลำดับชั้นตามความจริงของโดเมน:</p>
+  <CodeBlock code={hs5c} lang="haskell" title="Haskell · เวอร์ชันที่มีลำดับชั้น" />
+  <CodeBlock code={sc5b} lang="scala" title="Scala 3 · เวอร์ชันที่มีลำดับชั้น" />
+  <p>
+    ต่างกันตรงที่ <code>processState</code> กลับมารับเฉพาะ <code>State</code> จริง ๆ เคสปลอมที่ต้องกลบด้วย <code>pure ()</code> หายไปหมด และความจริงที่ว่าอลาสกาเป็นรัฐหนึ่งของอเมริกาก็กลับมาอยู่ในโค้ดอีกครั้ง
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ต่อยอด: ท่าเดียวกันในโลก effectful (fs2 &amp; Pekko)</h2>
+  <p>
+    ส่วนนี้ไม่ได้อยู่ในบทความต้นฉบับนะครับ ผมเติมเอง เพราะพอเขียน Scala สาย functional จริง ๆ แล้วท่าหลบพวกนี้มันโผล่ในอีกสองที่ที่เจ็บกว่าเดิม
+  </p>
+  <p>
+    ที่แรกคือใน stream <strong>fs2</strong> ("เอฟพีเอสทู" ย่อจาก <i>Functional Streams for Scala</i>) คือไลบรารีสำหรับไหลข้อมูลทีละก้อนแบบไม่กินแรม พอ AI เจอว่าบางแถวพาร์สไม่ผ่าน ท่าที่มันชอบเลือกคือกลืน error ทิ้ง:
+  </p>
+  <CodeBlock code={scFs2} lang="scala" title="Scala 3 · fs2 กลืน error vs. ให้ error เป็นค่า" />
+  <p>
+    <code>.attempt.collect &#123; case Right(r) =&gt; r &#125;</code> อ่านออกมาเป็นภาษาคนคือ "ลองทำดู ถ้าพังก็ทิ้งแถวนั้นไปเลย" งานรัน 10,000 แถวสำเร็จ 200 แถว แต่ไม่มี error สักตัว ไม่มีใครรู้ว่าหายไป 9,800 แถว นี่คือ <code>pure ()</code> ในเวอร์ชันที่แพงกว่าเยอะ ทางที่ถูกคือให้ความล้มเหลวไหลอยู่ใน stream ในฐานะค่า แล้วค่อยแยกสองทางที่ปลาย
+  </p>
+  <p>
+    ที่สองคือในโปรโตคอลของ actor <strong>Pekko</strong> ("เพกโก") คือไลบรารี actor สำหรับระบบกระจายศูนย์ แยกสายมาจาก Akka หัวใจของมันคือ actor แต่ละตัวรับได้เฉพาะข้อความที่ประกาศไว้ ซึ่งก็คือ sum type ดี ๆ นี่เอง ท่าหลบทุกท่าข้างบนจึงใช้ได้หมด:
+  </p>
+  <CodeBlock code={scPekko} lang="scala" title="Scala 3 · Pekko typed โปรโตคอลที่ถูกชีส" />
+  <p>
+    <code>Failed(reason: String)</code> คือประตูเปิดทิ้งไว้ให้ยัดอะไรก็ได้ พอเปลี่ยนเป็น <code>Failed(reason: ErrorEvent)</code> ปุ๊บ AI ก็ยัดข้อความมั่วไม่ได้อีก มันจะถูกบังคับให้มาคุยกับเราว่าขอเพิ่มชนิดของ error นะ ซึ่งคือสิ่งที่เราอยากได้ตั้งแต่แรก ส่วน <code>case _ =&gt; Behaviors.same</code> ท้ายบล็อกก็คือญาติสนิทของ <code>pure ()</code> นั่นแหละครับ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แล้วทำไมมันถึงทำแบบนี้?</h2>
+  <p>
+    Justin สรุปแรงจูงใจเบื้องหลังไว้สามข้อ ซึ่งผมว่าอ่านแล้วเข้าใจ AI ขึ้นเยอะ:
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>กลัวไปแตะของต้นน้ำ</strong> เป็นนิสัยที่ติดมาจากภาษาแบบ Python/JS ที่การไปแก้ type กลาง ๆ มักพังทั้งระบบโดยไม่มีใครเตือน มันเลยไม่กล้า ทั้งที่ในภาษาที่ type แน่น คอมไพเลอร์จะไล่บอกให้หมดว่าต้องตามไปแก้ตรงไหนบ้าง</li>
+      <li><strong>ขี้เกียจในเชิงประหยัดแรง</strong> การเพิ่มช่องใหม่หนึ่งช่อง แปลว่าต้องตามไปแก้อีกยี่สิบที่ ซึ่งเป็นงานจักรกลแต่ยาว มันเลยเลือกทางที่แก้ที่เดียวจบ</li>
+      <li><strong>กลัวกระทบของจริง</strong> ถ้า type นั้นผูกกับฐานข้อมูลหรือระบบที่รันอยู่จริง มันจะยิ่งลังเลที่จะแตะ</li>
+    </ul>
+  </div>
+  <p class="pull">
+    Justin อ่านพฤติกรรมพวกนี้ว่าเป็นสัญญาณของโมเดลที่ทำงานภายใต้ความกดดัน มันเลือกทางที่เปลืองแรงน้อยที่สุด ไม่ใช่ทางที่ถูกที่สุด
+  </p>
+  <p>
+    และเขาย้ำจุดต่างที่สำคัญมากระหว่างคนกับ AI เวลาคนเขียนโค้ดแล้วเบี่ยงจากแผน บ่อยครั้งมันเป็นเพราะเขาเพิ่งค้นพบความจริงบางอย่างของโดเมนงานระหว่างทาง ซึ่งมีค่ามาก แต่การเบี่ยงของ AI ไม่ได้มาจากการค้นพบแบบนั้น มันมาจากการเลือกทางที่ง่ายกว่าเฉย ๆ Justin ประเมินว่าโอกาสที่ท่าหลบด่านครั้งหนึ่ง ๆ จะเป็นการตัดสินใจที่ชอบธรรมจริง ๆ นั้นต่ำกว่า 1%
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แล้วเราควรทำยังไง</h2>
+  <p>
+    ข้อสรุปของเขาไม่ใช่ให้เลิกใช้ AI แต่คือเลิกหวังว่ามันจะเขียนถูกตั้งแต่แรก แล้วไปลงแรงกับการตั้งกับดักแทน:
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>ตั้ง hook อัตโนมัติ</strong> คอยดักว่ามีการปิดคำเตือนหรือใส่ <code>ignore</code>/<code>@nowarn</code> เพิ่มเข้ามาไหม อันนี้ตรวจด้วยเครื่องได้ง่ายที่สุด</li>
+      <li><strong>ออกแบบ type ให้สถานะผิดเขียนไม่ได้ตั้งแต่ต้น</strong> ปิดช่องที่รับ <code>String</code>/<code>Int</code> ดิบ ๆ ตามหลัก Parse, Don't Validate (ฝั่ง Scala คือ <code>opaque type</code> คู่กับ smart constructor)</li>
+      <li><strong>มีชุดเทสต์ที่แข็งแรงควบคู่ไปด้วย</strong> เพราะ type จับได้ไม่หมดทุกอย่าง</li>
+      <li><strong>ฝึกมองหาโค้ดที่ควรเปลี่ยนแต่ไม่ถูกเปลี่ยน</strong> เขาบอกว่านี่คือแพตเทิร์นที่รีวิวยากที่สุด เพราะ diff ที่ AI ส่งมามันไม่มีอะไรผิดตาเลย ความผิดอยู่ในสิ่งที่หายไปต่างหาก</li>
+    </ul>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">ข้อคิดที่เอามาใช้กับภาษาอื่นได้</p>
+    <p>
+      ท่าทั้งห้านี้เจอได้ทุกที่ครับ ทั้ง <code># type: ignore</code> ใน Python, <code>as any</code> ใน TypeScript, <code>asInstanceOf</code> ใน Scala, การยัด error ใหม่ลง exception เดิม, หรือการใช้ <code>-1</code> แทนคำว่าไม่มีค่า ทั้งหมดคือสายพันธุ์เดียวกัน คือการเอาชนะเครื่องมือตรวจสอบ แทนที่จะเอาชนะปัญหา
+    </p>
+  </div>
+  <p>
+    ปิดท้าย Justin ฝากไอเดียไว้ว่าอยากให้มีคนทำ skill สำหรับ Claude Code ที่คอยรีวิว diff ของ Haskell โดยเฉพาะ ไล่จับทั้งการปิดคำเตือน การลดความเข้มของ type และการยัดข้อความหรือยืมช่อง และที่สำคัญที่สุดคือจับโค้ดที่ควรเปลี่ยนแต่ไม่เปลี่ยนให้ได้ เขาบอกว่ายังมีตอนต่อไปเรื่องการวางแผนงาน Haskell กับ AI ให้ดี และการดูแลโปรเจกต์ที่ปล่อยให้ AI เขียนไปเยอะแล้วอีกด้วย
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <ol class="references">
+    <li>Justin Le, "LLMs Will Cheese Your Types: Fighting Back in Haskell" · <a href="https://blog.jle.im/entry/llms-and-haskell-1-constraint-evading-behavior.html" target="_blank" rel="noopener noreferrer">blog.jle.im</a> (บทความต้นฉบับภาษาอังกฤษ ที่บทความนี้สรุปมา โค้ด Haskell ทุกบล็อกในหน้านี้ยกมาจากที่นี่)</li>
+    <li>Alexis King, "Parse, Don't Validate" · <a href="https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/" target="_blank" rel="noopener noreferrer">lexi-lambda.github.io</a> (ที่มาของคติที่อ้างถึงในหัวข้อ String Stuffing)</li>
+    <li>โค้ด Scala 3 ทั้งหมดในหน้านี้ผมเขียนขึ้นเองเพื่อเทียบเคียง ใช้ <a href="https://typelevel.org/cats/" target="_blank" rel="noopener noreferrer">cats</a>, <a href="https://typelevel.org/cats-effect/" target="_blank" rel="noopener noreferrer">cats-effect</a>, <a href="https://fs2.io/" target="_blank" rel="noopener noreferrer">fs2</a> และ <a href="https://pekko.apache.org/" target="_blank" rel="noopener noreferrer">Apache Pekko</a> เป็นโค้ดเชิงอธิบาย ไม่ใช่โค้ดที่คอมไพล์ได้ทันทีทั้งไฟล์</li>
+  </ol>
+</DivineLoreLayout>
