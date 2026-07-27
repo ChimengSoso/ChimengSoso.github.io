@@ -1,0 +1,463 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ArticleByline from '../../components/ArticleByline.astro';
+import { getAdjacentArticles, getArticle } from '../../data/articles';
+import { formatThaiDate } from '../../lib/dates';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const { prev, next } = getAdjacentArticles('video-editing/');
+const article = getArticle('video-editing/')!;
+const published = formatThaiDate(article.dateISO!);
+const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefined;
+---
+<Layout title={`${article.title} | หมวดความรู้`} description={article.desc} prev={prev} next={next} type="article" dateISO={article.dateISO} updatedISO={article.updatedISO} headline={article.title}>
+  <div class="article-head">
+    <div class="breadcrumb"><a href="../">หมวดความรู้</a> / ให้ Claude ตัดต่อวิดีโอแทนเรา</div>
+    <ArticleByline published={published} updated={updated} />
+  </div>
+
+  <span class="tag">Claude Code</span>
+  <h1>ให้ Claude ตัดต่อวิดีโอแทนเรา: FFmpeg, CapCut หรือคุม Premiere สด ๆ</h1>
+  <p class="subtitle">คลิปพูดหน้ากล้อง 10 นาที ใช้เวลาตัดเป็นชั่วโมง — แล้ววันหนึ่งก็เห็นคนในเน็ตพิมพ์สั่ง AI ให้ตัดแทนทั้งคลิป มันทำได้จริงแค่ไหน? บทความนี้พาลงลึก 3 เส้นทางจริงพร้อมวิธีติดตั้ง เทียบจุดแข็ง-จุดเสี่ยงทีละทาง และอนาคตที่เพิ่งเปิดประตูเมื่อเดือนที่แล้ว</p>
+
+  <p>
+    ใครเคยตัดคลิปเองจะรู้ — ถ่าย 10 นาที แต่ตัดเป็น<strong>ชั่วโมง</strong> นั่งไล่หาช่วงเงียบ ลบเทคที่พูดผิดแล้วอัดใหม่
+    ลากซับให้ตรงปาก ทำเสร็จรอบนึงก็เจออีกจุด วนไปจนตาลาย งาน "ถ่าย" กลายเป็นส่วนที่สั้นที่สุดของการทำคลิป
+  </p>
+  <p>
+    แล้ววันหนึ่งคุณก็เห็นคลิปในเน็ต — คนพิมพ์ข้อความสั่ง AI ว่า "ตัดช่วงเงียบออก ใส่ซับ แล้วเซฟเข้า CapCut ให้หน่อย"
+    บางคนไปไกลกว่านั้น สั่ง Premiere Pro ให้ลงมือ<strong>บนไทม์ไลน์จริงต่อหน้าต่อตา</strong> คำถามที่ผุดขึ้นทันทีคือ:
+    ของพวกนี้ทำได้จริง หรือตัดต่อคลิปมาโชว์?
+  </p>
+  <p>
+    คำตอบคือ<strong>ทำได้จริง — แต่ไม่ได้ทำแบบที่ภาพในหัวเราคิด</strong> และแต่ละวิธีมีข้อแลกเปลี่ยนที่ต่างกันมาก
+    บทความนี้จะพาไล่ทีละเส้นทาง แบบที่อ่านจบแล้วลงมือตามได้เลย
+  </p>
+
+  <hr class="divider" />
+
+  <h2>หลักข้อเดียวที่ต้องเข้าใจก่อน: Claude จับเมาส์ไม่ได้</h2>
+  <p>
+    ใน<a href="../watch/">บทความ <code>/watch</code></a> เราสรุปไว้ว่า Claude ไม่ได้ลากไทม์ไลน์เอง
+    มันเป็น "คนคุมวง" ที่สั่งงานเครื่องมืออื่นอีกที คำถามสำคัญเวลาเลือกวิธีจึงไม่ใช่ "Claude ตัดเก่งไหม" แต่คือ
+    <strong>"เราจะให้มันคุยกับอะไร"</strong> — ซึ่งมีให้เลือก 3 เส้นทาง ที่คุมได้ลึกขึ้นเรื่อย ๆ และแลกมาด้วยความยุ่งยากที่มากขึ้นเรื่อย ๆ เช่นกัน
+  </p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสามเส้นทางที่ Claude ใช้ตัดต่อวิดีโอ กล่อง Claude อยู่ซ้าย มีลูกศรสามเส้นไปหาสามกล่องขวา เส้นบนไปกล่อง FFmpeg คือเขียนคำสั่งจัดการไฟล์ตรง ได้ไฟล์ผลลัพธ์เลย เส้นกลางไปกล่องดราฟต์ CapCut คือเขียนไฟล์โปรเจกต์ให้เราเปิดเก็บงานต่อใน CapCut เส้นล่างไปกล่อง Premiere Pro คือส่งคำสั่งคุมโปรแกรมที่เปิดอยู่ให้ลงมือบนไทม์ไลน์สด" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ve-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- Claude box -->
+      <rect x="24" y="112" width="150" height="76" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.8"/>
+      <text x="99" y="146" font-size="15" font-weight="700" fill="#8a6a12" text-anchor="middle">Claude</text>
+      <text x="99" y="166" font-size="10.5" fill="#5a6a85" text-anchor="middle">แปลงภาษาคนเป็นคำสั่ง</text>
+
+      <!-- lane 1: FFmpeg -->
+      <text x="280" y="42" font-size="11" font-weight="700" fill="#3a5680" text-anchor="middle">เขียนคำสั่งจัดการไฟล์ตรง</text>
+      <line x1="174" y1="130" x2="416" y2="66" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#ve-arr)"/>
+      <rect x="420" y="28" width="276" height="62" rx="12" fill="#e6f4ec" stroke="#8fc7a6" stroke-width="1.5"/>
+      <text x="558" y="53" font-size="13.5" font-weight="700" fill="#1f7a45" text-anchor="middle">เส้นทาง 1: FFmpeg</text>
+      <text x="558" y="74" font-size="10.5" fill="#5a6a85" text-anchor="middle">ตัด-รวม-เรนเดอร์จบในตัว ได้ไฟล์เลย</text>
+
+      <!-- lane 2: CapCut draft -->
+      <text x="280" y="136" font-size="11" font-weight="700" fill="#3a5680" text-anchor="middle">เขียนไฟล์ดราฟต์โปรเจกต์</text>
+      <line x1="174" y1="150" x2="416" y2="150" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#ve-arr)"/>
+      <rect x="420" y="119" width="276" height="62" rx="12" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="558" y="144" font-size="13.5" font-weight="700" fill="#294266" text-anchor="middle">เส้นทาง 2: ดราฟต์ CapCut</text>
+      <text x="558" y="165" font-size="10.5" fill="#5a6a85" text-anchor="middle">วางโครงให้ แล้วเราเปิด CapCut เก็บงานต่อ</text>
+
+      <!-- lane 3: Premiere live -->
+      <text x="280" y="262" font-size="11" font-weight="700" fill="#3a5680" text-anchor="middle">ส่งคำสั่งคุมโปรแกรมที่เปิดอยู่</text>
+      <line x1="174" y1="170" x2="416" y2="234" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#ve-arr)"/>
+      <rect x="420" y="210" width="276" height="62" rx="12" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="558" y="235" font-size="13.5" font-weight="700" fill="#b23b3b" text-anchor="middle">เส้นทาง 3: Premiere Pro สด ๆ</text>
+      <text x="558" y="256" font-size="10.5" fill="#5a6a85" text-anchor="middle">ลงมือบนไทม์ไลน์จริงต่อหน้าต่อตา</text>
+    </svg>
+    <figcaption>สามเส้นทางต่างกันที่ "Claude คุยกับอะไร" — ยิ่งลงลึกใกล้โปรแกรมตัดต่อจริงเท่าไหร่ ยิ่งคุมได้ละเอียด แต่ก็ยิ่งต้องเปิดประตูเครื่องเราให้มันมากขึ้น</figcaption>
+  </figure>
+
+  <hr class="divider" />
+
+  <h2 class="step">เส้นทาง 1: FFmpeg — สายตรง เร็วสุด แต่ไม่มีหน้าจอให้เก็บงาน</h2>
+  <p>
+    เส้นทางนี้เล่าไว้แล้วใน<a href="../watch/">บทความ <code>/watch</code></a> เลยขอสรุปสั้น ๆ — Claude เขียนคำสั่ง <strong>FFmpeg</strong>
+    (มีดพับสวิสของงานวิดีโอ) แล้วรันให้เลย เหมาะสุดกับงานที่<strong>บอกเป็นกฎได้ชัด</strong>: ตัดหัวท้าย แปลงฟอร์แมต บีบไฟล์
+    รวมคลิป หรือทำซ้ำกับไฟล์ทั้งโฟลเดอร์ (batch) — งานพวกนี้จบใน terminal ได้ไฟล์ผลลัพธ์เลย ไม่ต้องเปิดโปรแกรมตัดต่อสักตัว
+  </p>
+  <p>
+    จุดอ่อนก็ตรงไปตรงมา: <strong>ไม่มีไทม์ไลน์ให้เราเก็บงานต่อ</strong> ถ้าผลออกมาไม่ถูกใจ ต้องสั่งใหม่ทั้งคำสั่ง
+    และงานที่ต้องใช้ "สายตา" ตัดสิน (จังหวะเป๊ะ ๆ, สีสวยไหม, ซับตรงอารมณ์หรือเปล่า) จะวนแก้กันเหนื่อย
+    พองานเริ่มเป็นงานประณีต เราเลยอยากได้เส้นทางที่ปลายทางเป็น<strong>โปรแกรมตัดต่อจริง</strong> — และนั่นคือสองเส้นทางถัดไป
+  </p>
+
+  <hr class="divider" />
+
+  <h2 class="step">เส้นทาง 2: CapCut — ให้ Claude เขียน "ดราฟต์" แล้วเราเปิดเก็บงานต่อ</h2>
+  <p>
+    CapCut ไม่มีช่องทางทางการให้โปรแกรมภายนอกสั่งงาน สิ่งที่ชุมชนค้นพบคือ —
+    โปรเจกต์ CapCut แท้จริงแล้วเป็นแค่<strong>โฟลเดอร์ที่มีไฟล์ JSON บรรยายว่าไทม์ไลน์มีอะไรบ้าง</strong>
+    วางคลิปไหนตรงไหน ซับขึ้นวินาทีที่เท่าไหร่ ใครเขียนไฟล์นี้เป็น ก็เท่ากับ "จัดไทม์ไลน์" ได้โดยไม่ต้องแตะโปรแกรมเลย
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>draft</strong> (<strong>อ่านว่า "ดราฟต์"</strong> แปลว่า "ฉบับร่าง") คือชื่อที่ CapCut ใช้เรียกไฟล์โปรเจกต์ของมัน —
+      ตัวดราฟต์ไม่ใช่วิดีโอ แต่เป็น "พิมพ์เขียว" บอกว่าคลิปไหนวางตรงไหน ส่วนการค้นพบวิธีเขียนไฟล์นี้เองทั้งที่ CapCut ไม่เคยเปิดสเปก
+      เรียกว่า <strong>reverse engineering</strong> (<strong>"รีเวิร์สเอนจิเนียริง"</strong> = วิศวกรรมย้อนกลับ — แกะของสำเร็จเพื่อเข้าใจว่าข้างในประกอบยังไง
+      เหมือนแกะนาฬิกาดูเฟือง) จำสองคำนี้ไว้ เพราะทั้งจุดแข็งและจุดเสี่ยงของเส้นทางนี้มาจากมันทั้งคู่
+    </p>
+  </div>
+
+  <h3>ติดตั้ง: สองชิ้นประกอบกัน</h3>
+  <p>
+    ชุดที่คนใช้กันแพร่หลายคือ <strong>VectCutAPI</strong> (ตัวจริงที่เขียนดราฟต์ — โอเพนซอร์ส Apache-2.0) ประกบกับ
+    <strong>capcut-mcp-server-extended</strong> (สะพาน MCP ที่ทำให้ Claude เรียกใช้มันได้ — ถ้ายังไม่คุ้นกับ MCP
+    <a href="../claude-code-workflow/">บทความ Claude Code workflow</a> อธิบายไว้แล้ว) ลำดับติดตั้งเป็นแบบนี้:
+  </p>
+  <p><strong>สเต็ป 1 — รัน VectCutAPI ก่อน</strong> (ต้องมี Python) ตัวนี้จะเปิดรอรับคำสั่งอยู่ที่พอร์ต 9001:</p>
+  <CodeBlock lang="bash" title="ติดตั้งและรัน VectCutAPI (รันใน terminal)" code={`git clone https://github.com/sun-guannan/VectCutAPI.git
+cd VectCutAPI
+pip install -r requirements.txt
+
+# ก่อนรัน: คัดลอก config.json.example เป็น config.json
+# แล้วเลือก draft_profile ให้ตรงกับแอปที่ใช้ (เช่น capcut_legacy)
+python capcut_server.py   # เปิดรออยู่ที่ http://localhost:9001`} />
+  <p><strong>สเต็ป 2 — ลงสะพาน MCP</strong> (ต้องมี Node.js 18+):</p>
+  <CodeBlock lang="bash" title="ติดตั้ง capcut-mcp-server-extended (รันใน terminal)" code={`git clone https://github.com/MigueDuque/capcut-mcp-server-extended
+cd capcut-mcp-server-extended
+npm install
+npm run build`} />
+  <p><strong>สเต็ป 3 — บอก Claude ว่าสะพานอยู่ไหน</strong> เพิ่มลง config (ฝั่ง Claude Desktop คือไฟล์ <code>claude_desktop_config.json</code> — บน Windows อยู่ที่ <code>%APPDATA%\Claude\</code> ส่วน Claude Code ใช้ <code>claude mcp add</code> ชี้ไปที่ไฟล์เดียวกันนี้ได้):</p>
+  <CodeBlock lang="json" title="claude_desktop_config.json" code={`{
+  "mcpServers": {
+    "capcut": {
+      "command": "node",
+      "args": ["C:/path/to/capcut-mcp-server-extended/dist/index.js"],
+      "env": { "CAPCUT_API_URL": "http://localhost:9001" }
+    }
+  }
+}`} />
+  <p><strong>สเต็ป 4 — สั่งงานเป็นภาษาคน</strong> เครื่องมือที่ได้มามีราว 11 ตัว (สร้างดราฟต์, เพิ่มวิดีโอ/เสียง/ข้อความ/ซับ/เอฟเฟกต์/สติกเกอร์/คีย์เฟรม, เซฟดราฟต์) ตัวอย่างคำสั่งจริง:</p>
+  <CodeBlock lang="text" title="พิมพ์ใน Claude" code={`สร้างโปรเจกต์จาก C:/clips/recording.mp4
+ใส่ซับสีขาวขอบดำที่ล่างจอ ฟอนต์หนา ขนาดใหญ่อ่านง่ายบนมือถือ
+เปิดเรื่องด้วยข้อความชื่อคลิปค้าง 2 วินาที แล้วเซฟเป็นดราฟต์ CapCut`} />
+  <p>
+    ผลลัพธ์คือโฟลเดอร์ดราฟต์ (ขึ้นต้นด้วย <code>dfd_</code>) ที่ต้อง<strong>คัดลอกไปวางในโฟลเดอร์ดราฟต์ของ CapCut</strong>
+    แล้วเปิดแอปขึ้นมา — โปรเจกต์จะโผล่ในหน้ารายการให้กดเข้าไปเก็บงานต่อได้เหมือนโปรเจกต์ที่เราสร้างเอง
+    <strong>การเรนเดอร์ไฟล์จริงเกิดใน CapCut</strong> ไม่ใช่ใน API (มุมดี: ได้ใช้เอนจินเรนเดอร์ของแอปเต็ม ๆ)
+  </p>
+
+  <h3>กรณีศึกษาที่เส้นทางนี้เฉิดฉาย: คลิปพูดหน้ากล้อง</h3>
+  <p>
+    มีอีกตัวที่แก้ปัญหาเฉพาะทางได้น่าทึ่ง — <strong>capcut-ai-editor</strong> (บ้างเรียก SmartCut) สำหรับคลิป
+    <strong>talking head</strong> (<strong>"ทอล์กกิงเฮด"</strong> แปลตรงตัวว่า "หัวที่พูดได้" — ศัพท์วงการทีวีที่หมายถึงคลิปคนนั่งพูดหน้ากล้องเฉย ๆ)
+    วิธีใช้ฉลาดมาก เพราะมันยืมของที่ CapCut ทำให้ฟรีอยู่แล้วมาเป็นวัตถุดิบ:
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>1. อัดคลิปแล้วโยนเข้า CapCut</strong> — กดให้มันเจนซับอัตโนมัติ (ฟีเจอร์ที่มีในตัวอยู่แล้ว)</li>
+      <li><strong>2. ปิด CapCut</strong> — เพราะเดี๋ยวมันจะไปแก้ไฟล์โปรเจกต์ตรง ๆ (แก้ไฟล์ตอนแอปเปิดอยู่ = ข้อมูลชนกัน)</li>
+      <li><strong>3. สั่ง Claude</strong>: "Smart cut โปรเจกต์ 'Podcast Episode 5' ให้หน่อย"</li>
+      <li><strong>4. มันอ่านซับเพื่อ "มองเห็น" จังหวะพูด</strong> — ช่องว่างระหว่างซับที่เกิน 1 วินาที = ช่วงเงียบ ตัดทิ้ง; ประโยคที่ขึ้นต้นซ้ำ ๆ กัน = พูดผิดแล้วอัดใหม่ เก็บเฉพาะเทคสุดท้าย</li>
+      <li><strong>5. เปิด CapCut กลับมา</strong> — ไทม์ไลน์ถูกตัดเรียบร้อย เก็บงานละเอียดต่อได้เลย</li>
+    </ul>
+  </div>
+  <p>
+    สังเกตไหมครับว่านี่คือไอเดียเดียวกับที่ <code>/watch</code> ใช้ transcript แทนการดูทุกเฟรม —
+    <strong>ไม่ต้องให้ AI "ดู" วิดีโอเลยก็ตัดได้ ถ้ามีข้อมูลตัวแทนที่บอกจังหวะพูดอยู่แล้ว</strong> ซับคือแผนที่ของเสียง และแผนที่ก็พอสำหรับงานนี้
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง — มันแก้โปรเจกต์ทับของเดิม</p>
+    <p>
+      เอกสารของ capcut-ai-editor บอกตรง ๆ ว่ามันแก้โปรเจกต์ <strong>ทับที่เดิมโดยไม่สำรองให้</strong> (in-place, no backup)
+      ก่อนสั่ง smart cut ให้กด duplicate โปรเจกต์ใน CapCut เก็บต้นฉบับไว้ก่อนเสมอ — นี่คือธรรมชาติของเครื่องมือสาย reverse engineering:
+      มันไม่ผ่านด่านตรวจของแอป จึงไม่มีตาข่ายนิรภัยของแอปด้วย
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2 class="step">เส้นทาง 3: Premiere Pro — คุมโปรแกรมจริงสด ๆ ต่อหน้าต่อตา</h2>
+  <p>
+    เส้นทางนี้คือตัวที่เห็นแล้วร้องว้าวในคลิปโชว์ — พิมพ์สั่งในแชท แล้วเห็น Premiere ที่เปิดอยู่<strong>ลงมือเอง</strong>:
+    คลิปถูกวางลงแทร็ก เอฟเฟกต์ถูกใส่ ซีเควนซ์ถูก export ต่างจากฝั่ง CapCut ตรงที่ไม่ต้องปิดแอปแล้วแอบแก้ไฟล์
+    เพราะ Adobe มีช่องทางสคริปต์ในตัวอยู่แล้ว ชุมชนแค่เอา MCP ไปต่อหัวให้ Claude เรียกใช้ได้
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>CEP</strong> (<strong>อ่านว่า "ซีอีพี"</strong> ย่อจาก <i>Common Extensibility Platform</i>) คือระบบ "แผงเสริม" (panel)
+      ที่ Adobe เปิดให้นักพัฒนาเขียนหน้าต่างเล็ก ๆ ไปฝังในโปรแกรมของตัวเองได้ ส่วน <strong>ExtendScript</strong>
+      (<strong>"เอ็กซ์เทนด์สคริปต์"</strong>) คือภาษาสคริปต์เก่าแก่ของ Adobe (หน้าตาเป็น JavaScript ยุคโบราณ)
+      ที่ใช้สั่งงานเกือบทุกปุ่มในโปรแกรมได้ — สองตัวนี้คือ "ประตูหลังบ้านแบบทางการ" ที่มีมานานก่อนยุค AI นับสิบปี
+    </p>
+  </div>
+  <p>
+    ตัวที่เอกสารละเอียดสุดคือ <strong>premiere-pro-mcp</strong> ของ leancoderkavy (รองรับ Premiere 2020–2026, มีเครื่องมือให้ Claude 269 ตัว
+    ครอบคลุมตั้งแต่จัดโปรเจกต์ ตัดไทม์ไลน์ คีย์เฟรม ใส่เอฟเฟกต์ ยัน export) โครงการทำนองเดียวกันมีอีกหลายตัว
+    บางตัวโฆษณาว่ามีเป็นพันเครื่องมือ — ตัวเลขพวกนั้นผมยังไม่เห็นใครยืนยันว่าใช้ได้ครบจริง เลือกตัวที่เอกสารตรงไปตรงมาดีกว่า
+  </p>
+  <p>เส้นทางของคำสั่งหนึ่งประโยคเดินทางแบบนี้:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเส้นทางคำสั่งจาก Claude ไปถึง Premiere Pro เริ่มจาก Claude ส่งคำสั่งให้ MCP server ที่เป็นโปรแกรม Node บนเครื่องเรา ตัว server แปลงเป็นสคริปต์ ExtendScript วางไว้ในโฟลเดอร์กลาง แล้ว CEP panel ที่ฝังอยู่ใน Premiere คอยมาหยิบสคริปต์ไปรันในโปรแกรม เสร็จแล้วส่งผลลัพธ์เป็น JSON วนกลับเส้นประไปหา Claude เพื่อรายงานว่าทำอะไรสำเร็จ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="pp-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+      </defs>
+
+      <!-- box 1: Claude -->
+      <rect x="24" y="52" width="150" height="84" rx="14" fill="#fff7e6" stroke="#e6b422" stroke-width="1.8"/>
+      <text x="99" y="88" font-size="14.5" font-weight="700" fill="#8a6a12" text-anchor="middle">Claude</text>
+      <text x="99" y="110" font-size="10.5" fill="#5a6a85" text-anchor="middle">"วาง B-roll ลง V2"</text>
+
+      <!-- arrow 1 -->
+      <text x="207" y="82" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">MCP</text>
+      <line x1="174" y1="94" x2="238" y2="94" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#pp-arr)"/>
+
+      <!-- box 2: MCP server -->
+      <rect x="240" y="52" width="180" height="84" rx="14" fill="#eef3fb" stroke="#bcd3f8" stroke-width="1.5"/>
+      <text x="330" y="80" font-size="13.5" font-weight="700" fill="#294266" text-anchor="middle">MCP server (Node)</text>
+      <text x="330" y="101" font-size="10.5" fill="#5a6a85" text-anchor="middle">แปลงเป็นสคริปต์ ExtendScript</text>
+      <text x="330" y="118" font-size="10.5" fill="#5a6a85" text-anchor="middle">วางไว้ในโฟลเดอร์กลาง</text>
+
+      <!-- arrow 2 -->
+      <text x="453" y="82" font-size="10.5" font-weight="700" fill="#294266" text-anchor="middle">หยิบไปรัน</text>
+      <line x1="420" y1="94" x2="484" y2="94" stroke="#4d72a9" stroke-width="2.2" marker-end="url(#pp-arr)"/>
+
+      <!-- box 3: CEP panel in Premiere -->
+      <rect x="486" y="52" width="210" height="84" rx="14" fill="#fbecea" stroke="#e0a9a2" stroke-width="1.5"/>
+      <text x="591" y="80" font-size="13.5" font-weight="700" fill="#b23b3b" text-anchor="middle">CEP panel ใน Premiere</text>
+      <text x="591" y="101" font-size="10.5" fill="#5a6a85" text-anchor="middle">คอยเช็คโฟลเดอร์กลาง แล้วรันสคริปต์</text>
+      <text x="591" y="118" font-size="10.5" fill="#5a6a85" text-anchor="middle">ในโปรแกรมจริง — ไทม์ไลน์ขยับ</text>
+
+      <!-- loop back -->
+      <path d="M591 136 L591 180 L99 180 L99 140" fill="none" stroke="#4d72a9" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#pp-arr)"/>
+      <text x="345" y="200" font-size="11.5" font-weight="700" fill="#3a5680" text-anchor="middle">ผลลัพธ์ (JSON) เด้งกลับไปให้ Claude รายงานว่าทำอะไรสำเร็จ / ติดตรงไหน</text>
+    </svg>
+    <figcaption>คำสั่งภาษาคนถูกแปลงเป็นสคริปต์ แล้ว "แผงเสริม" ที่ฝังใน Premiere เป็นคนหยิบไปรัน — Claude ไม่เคยแตะโปรแกรมตรง ๆ เลยสักจังหวะ แต่เห็นผลจริงบนไทม์ไลน์</figcaption>
+  </figure>
+
+  <h3>ติดตั้ง: ต้องเปิด "โหมดนักพัฒนา" ของ Adobe ก่อน</h3>
+  <p>
+    ขั้นแรกที่ทุกตัวในสายนี้ต้องทำเหมือนกันคือ — panel ของชุมชนไม่ได้ผ่านการเซ็นรับรองจาก Adobe
+    ต้องเปิดให้ Premiere ยอมรัน <strong>extension แบบ unsigned</strong> ผ่านค่าที่ชื่อ <code>PlayerDebugMode</code> (เดี๋ยวเรากลับมาคุยเรื่องนี้ในหัวข้อความปลอดภัย เพราะมันไม่ใช่แค่ติ๊กถูกเฉย ๆ):
+  </p>
+  <CodeBlock lang="text" title="เปิดโหมด unsigned extension" code={`# Windows — เพิ่มค่าใน Registry (ทำซ้ำกับ CSXS.9 ถึง CSXS.14 ตามเวอร์ชัน)
+HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.12
+  → สร้างค่า PlayerDebugMode ชนิด REG_SZ (string) = 1
+
+# macOS — รันใน terminal (ทำซ้ำกับ CSXS.9 ถึง CSXS.14)
+defaults write com.adobe.CSXS.12 PlayerDebugMode 1`} />
+  <p>
+    จากนั้นติดตั้งตัว server + วาง panel ลงโฟลเดอร์ extension ของ CEP (บางโปรเจกต์อย่าง Adobe-Premiere-Pro-MCP ของ antipaster
+    มีสคริปต์ <code>install.bat</code> จัดการทุกอย่างให้ทีเดียว รวมถึงตั้งค่า Claude ให้เสร็จ) แล้วเช็คว่าต่อติด:
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>1.</strong> เปิด Premiere Pro → เมนู <strong>Window → Extensions → MCP Bridge</strong></li>
+      <li><strong>2.</strong> รอ panel ขึ้นสถานะ <strong>Connected</strong></li>
+      <li><strong>3.</strong> เปิด Claude แล้วพิมพ์ <code>/mcp</code> เช็คว่าเห็น server อยู่ในลิสต์</li>
+      <li><strong>4.</strong> สั่งงานได้เลย — เป็นภาษาคนทั้งประโยค ไม่ต้องรู้ชื่อ tool สักตัว</li>
+    </ul>
+  </div>
+  <CodeBlock lang="text" title="ตัวอย่างคำสั่งจริง (พิมพ์ใน Claude)" code={`เอาคลิป B-roll ทั้งหมดวางลงแทร็ก V2
+ใส่ cross dissolve คั่นระหว่างคลิป ปรับสีให้กลืนกับ A-roll
+เสร็จแล้ว export เป็น 1080p ProRes ให้หน่อย`} />
+  <p>
+    ประโยคเดียวข้างบนนี้ Claude จะแตกเป็นการเรียก tool ต่อกันเป็นชุด — วางคลิป, ใส่ทรานสิชัน, ปรับสี, export —
+    แล้วรายงานกลับทีละขั้นว่าสำเร็จหรือติดอะไร นี่คือความ "ว้าว" ที่เห็นในคลิปโชว์ และมันของจริง
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ของจริงไม่ได้ราบรื่นร้อยเปอร์เซ็นต์</p>
+    <p>
+      เอกสารของ premiere-pro-mcp เองยอมรับว่าใน Premiere บางเวอร์ชัน (เช่น 26.3) คำสั่งแก้โครงสร้างไทม์ไลน์บางตัว
+      <strong>"เงียบหาย" — โปรแกรมรับคำสั่งแต่ไม่ทำจริง</strong> จน tool ต้องเช็คสถานะซ้ำหลังสั่งทุกครั้งเพื่อจับอาการนี้
+      และทรานสิชันบางแบบก็ใช้ไม่ได้ในบางรุ่น เพราะ Adobe ไม่เคยสัญญาว่า API ภายในพวกนี้จะนิ่ง —
+      นี่คือราคาของการต่อท่อเข้ากับช่องทางที่เจ้าของบ้านไม่ได้ตั้งใจเปิดให้ AI ใช้ตั้งแต่แรก
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>วางสามเส้นทางเทียบกัน: งานเดียวกัน เดินคนละแบบ</h2>
+  <p>
+    เพื่อให้เห็น trade-off ชัด ๆ ลองใช้โจทย์เดียวกัน — <strong>"คลิปพูดหน้ากล้อง 10 นาที ตัดช่วงเงียบ ใส่ซับ แล้วได้ไฟล์พร้อมโพสต์"</strong> —
+    เดินผ่านทั้งสามเส้นทาง:
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>FFmpeg:</strong> Claude ใช้ฟิลเตอร์ตรวจความเงียบของเสียงหาช่วงตัด แล้วตัด-ต่อ-เรนเดอร์จบในคำสั่งชุดเดียว เร็วสุดและอัตโนมัติสุด — แต่ซับที่ได้เป็นแบบเบสิก และถ้าจังหวะตัดเพี้ยนสักจุด ต้องรื้อสั่งใหม่ ไม่มีไทม์ไลน์ให้เขยิบมือ</li>
+      <li><strong>CapCut:</strong> ให้แอปเจนซับก่อน แล้ว smart cut อ่านซับตัดช่วงเงียบ/เทคซ้ำให้ เปิดแอปกลับมาเก็บงาน — ได้สมดุลดีสุดสำหรับครีเอเตอร์: AI ทำงานหยาบ 80% เราเก็บงานละเอียด 20% บนหน้าจอที่คุ้นมือ</li>
+      <li><strong>Premiere:</strong> สั่งเป็นขั้น ๆ บนไทม์ไลน์จริง คุมละเอียดสุดและต่อยอดเป็นงานโปรได้เลย — แต่ตั้งค่าเยอะสุด และต้องเฝ้าดูเพราะบางคำสั่งเงียบหาย เหมาะเมื่องานประณีตคุ้มค่าการลงทุน</li>
+    </ul>
+  </div>
+
+  <table class="cmp">
+    <thead>
+      <tr><th></th><th>FFmpeg</th><th>ดราฟต์ CapCut</th><th>Premiere สด</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>คุมได้ละเอียดแค่ไหน</td><td>ระดับคำสั่ง/กฎ</td><td>ระดับโครงไทม์ไลน์</td><td>ลึกเกือบทุกปุ่ม</td></tr>
+      <tr><td>เก็บงานต่อด้วยมือ</td><td>ไม่มีหน้าจอ</td><td>เปิดแอปเก็บต่อได้</td><td>อยู่บนไทม์ไลน์จริง</td></tr>
+      <tr><td>ติดตั้งยาก</td><td>แทบไม่ต้อง</td><td>ปานกลาง (2 ชิ้น)</td><td>เยอะสุด (แก้ Registry)</td></tr>
+      <tr><td>ความเปราะ</td><td>นิ่งมาก (FFmpeg เสถียร)</td><td>เสี่ยงพังเมื่อ CapCut อัปเดต</td><td>บางคำสั่งเงียบหายบางรุ่น</td></tr>
+      <tr><td>ช่องทางที่ใช้</td><td>ทางการ (โปรแกรมเปิด)</td><td>reverse engineering</td><td>ทางการแต่ unsigned</td></tr>
+      <tr><td>เหมาะกับ</td><td>งาน batch/กฎชัด</td><td>ครีเอเตอร์สายคลิปสั้น</td><td>งานตัดต่อจริงจัง</td></tr>
+    </tbody>
+  </table>
+
+  <hr class="divider" />
+
+  <h2>ความปลอดภัย: ยิ่งคุมได้ลึก ยิ่งต้องเปิดประตูกว้าง</h2>
+  <p>
+    ถึงหัวข้อที่ผมอยากให้อ่านช้าที่สุดในบทความ สังเกตแพตเทิร์นจากตารางข้างบน — <strong>อำนาจกับความเสี่ยงมาคู่กันเสมอ</strong>
+    ยิ่งเส้นทางไหนให้ Claude คุมได้ลึก เรายิ่งต้องเปิดประตูเครื่องเราให้กว้างขึ้นเท่านั้น และประตูพวกนี้ไม่ได้เปิดเฉพาะให้ Claude:
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง — 4 ข้อก่อนติดตั้งของสายนี้</p>
+    <p>
+      <strong>1) <code>PlayerDebugMode</code> เปิดทั้งเครื่อง ไม่ใช่เฉพาะตัวที่เราลง</strong> — พอตั้งค่านี้ Adobe ทุกตัวในเครื่องจะยอมรัน
+      panel แบบ unsigned <em>ตัวไหนก็ได้</em> จากใครก็ได้ เท่ากับปิดด่านตรวจลายเซ็นถาวร ใช้เสร็จโปรเจกต์แล้วควรตั้งกลับเป็น 0
+    </p>
+    <p>
+      <strong>2) MCP server คือประตูที่ใครเคาะก็เปิด</strong> — เอกสาร premiere-pro-mcp เตือนเองว่า
+      "โปรแกรมใดก็ตามที่ต่อถึง MCP server ได้ ก็สั่ง Premiere ได้" ไม่ใช่แค่ Claude ตัวที่ออกแบบดีจะแบ่งระดับสิทธิ์ให้เลือกเปิด
+      (เช่นค่าเริ่มต้นปิด tool ที่รันสคริปต์อิสระ <code>execute_extendscript</code> ไว้ ต้องตั้งค่า capability เปิดเอง) —
+      ก่อนลงตัวไหน เช็คว่ามันมีกลไกแบบนี้ไหม ถ้าเอกสารไม่พูดเรื่องสิทธิ์เลย นั่นคือสัญญาณเตือน
+    </p>
+    <p>
+      <strong>3) เครื่องมือสาย reverse engineering ไม่มีตาข่ายนิรภัย</strong> — แก้ไฟล์ทับโดยไม่สำรอง, พังเงียบ ๆ
+      เมื่อแอปอัปเดตโครงสร้างไฟล์ใหม่ (CapCut ไม่เคยสัญญาว่าดราฟต์เวอร์ชันหน้าจะหน้าตาเดิม) — สำรองก่อนเสมอ และอย่าใช้กับโปรเจกต์เดียวที่มี
+    </p>
+    <p>
+      <strong>4) ทั้งหมดคือโค้ดจากคนแปลกหน้า</strong> — กฎเดียวกับที่ย้ำใน<a href="../watch/">บท <code>/watch</code></a>:
+      เปิด README/โค้ดดูก่อนว่ามันทำอะไร โปรเจกต์พวกนี้อายุไม่กี่เดือนและเปลี่ยนมือได้ ดาวเยอะไม่ใช่ใบรับประกัน
+    </p>
+  </div>
+  <p>
+    ฟังดูน่ากลัว แต่ประเด็นไม่ใช่ "อย่าใช้" — ประเด็นคือ<strong>ให้รู้ว่ากำลังแลกอะไร</strong> ใช้กับเครื่องงาน/โปรเจกต์ที่สำรองแล้ว
+    เปิดสิทธิ์เท่าที่งานต้องใช้ และปิดประตูเมื่อเลิกใช้ เท่านี้ก็เล่นของพวกนี้ได้อย่างรู้เท่าทัน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>แล้วอนาคตล่ะ? ประตูบานทางการเพิ่งเปิดเมื่อเดือนที่แล้ว</h2>
+  <p>
+    ทั้งสามเส้นทางที่เล่ามา มีจุดร่วมหนึ่งอย่าง — เป็นของที่<strong>ชุมชนสร้างกันเอง</strong>บนช่องทางที่เจ้าของโปรแกรมไม่ได้ตั้งใจเปิดให้ AI
+    แต่สัญญาณล่าสุดบอกว่าเจ้าของบ้านกำลังจะเปิดประตูเอง: <strong>18 มิถุนายน 2026</strong> Adobe เปิดตัว
+    <strong>AI Assistant ตระกูล Firefly</strong> (<strong>อ่านว่า "ไฟร์ฟลาย"</strong> แปลว่า "หิ่งห้อย" — ชื่อแบรนด์ AI ของ Adobe)
+    เป็น public beta ใน Premiere Pro, Photoshop, Illustrator — agent ทางการที่สั่งงานหลายขั้นได้เอง
+  </p>
+  <p>
+    ฝั่ง Premiere มันทำงานที่มือตัดต่อเกลียดที่สุดให้: จัดฟุตเทจลง bin, เปลี่ยนชื่อคลิปเป็นชุด, ปักมาร์กเกอร์จุดสำคัญ,
+    แฟล็กคำถามในคลิปสัมภาษณ์ ไปจนถึง<strong>ประกอบ rough cut แรกลงไทม์ไลน์ให้</strong> — สังเกตว่านี่คืองานประเภทเดียวกับที่
+    MCP ของชุมชนพยายามทำอยู่พอดี ต่างแค่คราวนี้ไม่ต้องแก้ Registry ไม่ต้องลง panel เถื่อน เพราะมันมากับตัวโปรแกรมเลย
+  </p>
+  <p class="pull">สิ่งที่ชุมชนต้องแฮ็กเข้าประตูหลังเมื่อวาน กำลังกลายเป็นฟีเจอร์หน้าบ้านของวันพรุ่งนี้ — และช่องว่างระหว่างสองวันนั้นแหละ คือพื้นที่ของคนที่ลงมือลองก่อน</p>
+  <p>
+    มองไปข้างหน้าอีกนิด: ฝั่ง CapCut เองก็มีเงื่อนงำว่ากำลังไปทางเดียวกัน (ทีม VectCutAPI ระบุว่าโมดูล agent
+    และ cloud rendering ของตัวเอง "ยังไม่เปิดซอร์ส" — แปลว่ามีของอยู่หลังม่าน) ภาพที่กำลังก่อตัวคือ
+    <strong>โปรแกรมตัดต่อทุกค่ายจะมี agent ในตัว</strong> แบบเดียวกับที่วันนี้ทุกค่ายมีปุ่ม auto-subtitle
+    งานลากเมาส์ซ้ำ ๆ จะหายไปเรื่อย ๆ เหลือแต่งานที่ต้องใช้ "ตา" กับ "รสนิยม" ตัดสิน —
+    ซึ่งถ้าคุณอ่าน<a href="../ai-taste/">บทความเรื่อง taste</a> มาแล้ว จะรู้ว่านั่นไม่ใช่ข่าวร้ายของคนตัดต่อเลย
+    มันคือการย้ายคุณค่าจากมือไปอยู่ที่สายตา
+  </p>
+
+  <hr class="divider" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    Claude ตัดต่อวิดีโอได้จริงตั้งแต่วันนี้ — เลือกเส้นทางตามงาน: <strong>FFmpeg</strong> เมื่อกฎชัดและอยากจบไว,
+    <strong>ดราฟต์ CapCut</strong> เมื่ออยากให้ AI ทำงานหยาบแล้วเราเก็บละเอียด, <strong>Premiere MCP</strong> เมื่องานโปรคุ้มค่าตั้งค่า —
+    และไม่ว่าทางไหน จำแพตเทิร์นเดียวกันไว้: <strong>ยิ่งคุมลึก ยิ่งเปิดประตูกว้าง สำรองก่อน เปิดสิทธิ์เท่าที่ใช้ ปิดเมื่อเลิก</strong>
+  </p>
+
+  <h2>แหล่งอ้างอิง</h2>
+  <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง (จำนวนเครื่องมือ/พฤติกรรมของแต่ละโปรเจกต์เป็นค่าตามเอกสาร ณ วันสืบค้น อาจเปลี่ยนตามเวอร์ชัน)</p>
+  <ol class="references">
+    <li>
+      <a href="https://github.com/sun-guannan/VectCutAPI" target="_blank" rel="noopener noreferrer">"VectCutAPI — API server สร้างดราฟต์ CapCut/Jianying (draft_profile, โฟลเดอร์ dfd_, เรนเดอร์ในแอป)"</a>
+      — sun-guannan, GitHub, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/MigueDuque/capcut-mcp-server-extended" target="_blank" rel="noopener noreferrer">"capcut-mcp-server-extended — สะพาน MCP ต่อ Claude เข้ากับ VectCutAPI (11 tools + presets)"</a>
+      — MigueDuque, GitHub, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/mrbuslov/capcut-ai-editor" target="_blank" rel="noopener noreferrer">"capcut-ai-editor (SmartCut) — ตัดช่วงเงียบ/เทคซ้ำจากซับอัตโนมัติของ CapCut (in-place, no backup)"</a>
+      — mrbuslov, GitHub, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/leancoderkavy/premiere-pro-mcp" target="_blank" rel="noopener noreferrer">"premiere-pro-mcp — 269 tools ผ่าน CEP/ExtendScript, PlayerDebugMode, capability gating, known issues 26.3"</a>
+      — leancoderkavy, GitHub, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://github.com/antipaster/Adobe-Premiere-Pro-MCP" target="_blank" rel="noopener noreferrer">"Adobe-Premiere-Pro-MCP — install.bat, MCP Bridge panel, สถาปัตยกรรม WebSocket/CEP"</a>
+      — antipaster, GitHub, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://news.adobe.com/news/2026/06/adobe-unveils-major-expansion" target="_blank" rel="noopener noreferrer">"Adobe Unveils Major Expansion of Creative Agent Across Firefly and Creative Cloud Apps" (public beta 18 มิ.ย. 2026)</a>
+      — Adobe Newsroom, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+    <li>
+      <a href="https://venturebeat.com/technology/adobes-new-firefly-ai-assistant-wants-to-run-photoshop-premiere-illustrator-and-more-from-one-prompt" target="_blank" rel="noopener noreferrer">"Adobe's new Firefly AI Assistant wants to run Photoshop, Premiere, Illustrator and more from one prompt"</a>
+      — VentureBeat, สืบค้นเมื่อ 23 กรกฎาคม 2026
+    </li>
+  </ol>
+</Layout>
+
+<style>
+  figure.diagram { margin: 1.5rem 0; }
+  figure.diagram svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #ffffff;
+    border: 1px solid var(--blue-soft);
+    border-radius: 14px;
+    padding: 0.5rem 0.25rem;
+  }
+  figure.diagram figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* three-route comparison table */
+  table.cmp {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.3rem 0 0.5rem;
+    font-size: 0.9rem;
+  }
+  table.cmp th,
+  table.cmp td {
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--blue-soft);
+    text-align: left;
+    vertical-align: top;
+  }
+  table.cmp thead th {
+    background: #eef3fb;
+    color: var(--blue-deep);
+    font-weight: 700;
+  }
+  table.cmp tbody td:first-child {
+    font-weight: 700;
+    color: var(--blue-deep);
+    background: #f7faff;
+    white-space: nowrap;
+  }
+  @media (max-width: 560px) {
+    table.cmp { display: block; overflow-x: auto; font-size: 0.8rem; }
+    table.cmp th, table.cmp td { padding: 0.4rem 0.45rem; }
+    table.cmp tbody td:first-child { white-space: normal; }
+  }
+</style>
