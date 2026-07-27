@@ -13,6 +13,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'options-101/',
+    tag: 'บันทึกการเงิน',
+    title: 'Options 101: หุ้นอยู่ที่เดิม เราก็ขาดทุนได้',
+    desc: 'สรุป Webull Master Class ตอน Zero to Options Trader แบบละเอียด พร้อมภาพ payoff ทุกท่า ตั้งแต่ Call/Put, Covered Call, Cash Secured Put ไปจนถึงการหาโซนราคาด้วย Reverse DCF',
+    dateISO: '2026-07-27',
+    readingMinutes: 22,
+  },
+  {
     href: 'llm-cheese-types/',
     tag: 'บันทึกวิจัย',
     title: 'LLM ชอบ "หลบด่าน" ที่เราตั้งไว้',
