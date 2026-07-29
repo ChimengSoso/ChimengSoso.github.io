@@ -1,6 +1,7 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import CodeTabs from '../../components/CodeTabs.astro';
 
 /* ---------- ท่าที่ 1: ปิดคำเตือน ---------- */
 const hs1 = `{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
@@ -24,12 +25,14 @@ val name = raw.asInstanceOf[UserName]`;
 /* ---------- ท่าที่ 2: เปลี่ยน type ที่ตกลงไว้ ---------- */
 const hs2 = `-- ที่ตกลงกันไว้ตอนวางแผน
 summarize :: NonEmpty Int -> Summary
-newtype Channel = Channel Text   -- มีรายการตายตัว
+data Channel = Email | Sms | Push    -- ตัวเลือกตายตัว
+notify :: Channel -> IO ()           -- รับเฉพาะช่องที่มีจริง
 persist :: Binary a => a -> IO ()
 
 -- ที่ AI เขียนออกมาจริง
-summarize :: [Int] -> Summary       -- ลิสต์ว่างเข้ามาได้
-persist   :: Show a => a -> IO ()   -- ใช้ข้อจำกัดที่หลวมกว่า`;
+summarize :: [Int] -> Summary        -- ลิสต์ว่างเข้ามาได้
+notify   :: Text -> IO ()            -- พิมพ์ "emial" ก็ยังคอมไพล์ผ่าน
+persist  :: Show a => a -> IO ()     -- ใช้ข้อจำกัดที่หลวมกว่า`;
 
 const sc2 = `import cats.data.NonEmptyList
 import cats.Show
@@ -39,6 +42,7 @@ import io.circe.Encoder
 def summarize(xs: NonEmptyList[Int]): Summary
 enum Channel:
   case Email, Sms, Push
+def notify(channel: Channel): IO[Unit]       // รับเฉพาะช่องที่มีจริง
 def persist[A: Encoder](a: A): IO[Unit]
 
 // ที่ AI เขียนออกมาจริง
@@ -63,13 +67,13 @@ handleAddGroup req
   where
     group = getGroup req`;
 
-const hs3c = `-- ท่าที่ 2: ใช้เลขติดลบเป็น "รหัสพิเศษ"
+const hs3c = `-- มุกที่ 2: ใช้เลขติดลบเป็น "รหัสพิเศษ"
 handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
 handleAddGroup req
     -- ...
     | otherwise = pure $ Left (DatabaseErrorCode (-1))
 
--- ท่าที่ 3: ประกอบ JSON ปลอมขึ้นมาแล้วบอกว่า "JSON เสีย"
+-- มุกที่ 3: ประกอบ JSON ปลอมขึ้นมาแล้วบอกว่า "JSON เสีย"
 handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
 handleAddGroup req
     -- ...
@@ -78,7 +82,7 @@ handleAddGroup req
   where
     group = getGroup req
 
--- ท่าที่ 4: ห่อเป็น exception แล้วบอกว่า "เน็ตล่ม"
+-- มุกที่ 4: ห่อเป็น exception แล้วบอกว่า "เน็ตล่ม"
 handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
 handleAddGroup req
     -- ...
@@ -87,11 +91,17 @@ handleAddGroup req
   where
     group = getGroup req
 
--- ท่าที่ 5: บอกว่า "ถูกยกเลิก" โดยไม่ระบุเหตุผลเลย
+-- มุกที่ 5: บอกว่า "ถูกยกเลิก" โดยไม่ระบุเหตุผลเลย
 handleAddGroup :: AddGroupRequest -> IO (Either ErrorEvent Response)
 handleAddGroup req
     -- ...
     | otherwise = pure $ Left (Canceled Nothing)`;
+
+// รวม hs3b (มุกที่ 1) กับ hs3c (มุกที่ 2-5) เป็นบล็อกเดียว หน้าต่างเดียว
+const hs3dodge = `-- มุกที่ 1: ยัดข้อความลงช่อง UnknownUser
+${hs3b}
+
+${hs3c}`;
 
 const sc3a = `import cats.effect.IO
 import io.circe.Json
@@ -110,24 +120,24 @@ const sc3b = `import cats.syntax.all.*
 def handleAddGroup(req: AddGroupRequest): IO[Either[ErrorEvent, Response]] =
   val group = req.group
   if validGroup(group) then ???
-  // ท่าที่ 1: ยัดข้อความลงช่อง "ไม่รู้จักผู้ใช้"
+  // มุกที่ 1: ยัดข้อความลงช่อง "ไม่รู้จักผู้ใช้"
   else IO.pure(ErrorEvent.UnknownUser(s"Invalid group: $group").asLeft)
 
-  // ท่าที่ 2: เลขติดลบเป็นรหัสพิเศษ
+  // มุกที่ 2: เลขติดลบเป็นรหัสพิเศษ
   else IO.pure(ErrorEvent.DatabaseErrorCode(-1).asLeft)
 
-  // ท่าที่ 3: ประกอบ JSON ปลอมแล้วบอกว่า JSON เสีย
+  // มุกที่ 3: ประกอบ JSON ปลอมแล้วบอกว่า JSON เสีย
   else IO.pure(ErrorEvent.InvalidJson(
     Json.obj("errorType" -> Json.fromString("Invalid group"),
              "group"     -> Json.fromString(group))
   ).asLeft)
 
-  // ท่าที่ 4: ห่อเป็น exception แล้วบอกว่าเน็ตล่ม
+  // มุกที่ 4: ห่อเป็น exception แล้วบอกว่าเน็ตล่ม
   else IO.pure(ErrorEvent.NetworkError(
     new RuntimeException(s"Invalid group: $group")
   ).asLeft)
 
-  // ท่าที่ 5: บอกว่าถูกยกเลิก โดยไม่ระบุเหตุผล
+  // มุกที่ 5: บอกว่าถูกยกเลิก โดยไม่ระบุเหตุผล
   else IO.pure(ErrorEvent.Canceled(None).asLeft)`;
 
 const hs3d = `data ErrorEvent = UnknownUser UserName
@@ -180,6 +190,13 @@ const hs4b = `data Targets = Targets
     , -- ...
     }`;
 
+// รวมสองเรกคอร์ดเป็นบล็อกเดียว หน้าต่างเดียว
+const hs4records = `-- เรกคอร์ดรายงาน
+${hs4a}
+
+-- เรกคอร์ดเป้าหมาย
+${hs4b}`;
+
 const sc4 = `import java.time.LocalDate
 
 // ที่มีอยู่เดิม
@@ -189,11 +206,17 @@ final case class Report(
   date: LocalDate,
 )
 
-// ท่าหลบ ก: ต้องเก็บ "หน่วยงานที่สังกัด" แต่ไม่มีช่อง จึงยัดลงลิสต์ผู้เขียน
+// มุกที่ 1: ต้องเก็บ "หน่วยงานที่สังกัด" แต่ไม่มีช่อง จึงยัดลงลิสต์ผู้เขียน
 Report(name, authors = List("ชิ", "affiliation: ฝ่ายวิจัย"), date = d)
 
-// ท่าหลบ ข: "ยังไม่มีวันที่" จึงใส่วันที่ปลอมเป็นค่าเฝ้ายาม
+// มุกที่ 2: "ยังไม่มีวันที่" จึงใส่วันที่ปลอมเป็นค่าเฝ้ายาม
 Report(name, authors, date = LocalDate.EPOCH)   // 1970-01-01
+
+// มุกที่ 3: ต้องใช้ bazTarget แต่ต้องไปแก้ไลบรารีอีกตัว จึงยืม barTarget ไปก่อน
+final case class Targets(fooTarget: String, barTarget: String)
+config.copy(barTarget = bazPath)   // คอมไพล์ผ่าน ความหมายผิด`;
+
+const sc4fix = `import java.time.LocalDate
 
 // ที่ควรเป็น: ทำให้ "ไม่มี" เป็นสถานะที่ type บอกได้
 final case class Report(
@@ -201,16 +224,17 @@ final case class Report(
   authors: List[Author],
   affiliation: Option[Affiliation],
   date: Option[LocalDate],
-)
-
-// ท่าหลบ ค: ต้องใช้ bazTarget แต่ต้องไปแก้ไลบรารีอีกตัว จึงยืม barTarget ไปก่อน
-final case class Targets(fooTarget: String, barTarget: String)
-config.copy(barTarget = bazPath)   // คอมไพล์ผ่าน ความหมายผิด`;
+)`;
 
 /* ---------- ท่าที่ 5: ไม่ยอมสร้าง type ใหม่ ---------- */
 const hs5a = `data State = Alaska | Arkansas | Arizona | ...
 
 processState :: State -> IO ()`;
+
+const sc5orig = `enum State:
+  case Alaska, Arkansas, Arizona
+
+def processState(s: State): IO[Unit]`;
 
 const hs5b = `data Region = Canada | Mexico | Alaska | Arkansas | Arizona
 
@@ -279,9 +303,9 @@ def ingest(rows: Stream[IO, RawRow]): Stream[IO, Record] =
 
 // ท่าหลบอีกแบบ: กลืน error แล้วปิด stream ดื้อ ๆ
 def ingest2(rows: Stream[IO, RawRow]): Stream[IO, Record] =
-  rows.evalMap(parse).handleErrorWith(_ => Stream.empty)
+  rows.evalMap(parse).handleErrorWith(_ => Stream.empty)`;
 
-// ที่ควรเป็น: ให้ความล้มเหลวเป็น "ค่า" ที่ไหลอยู่ใน stream ด้วย
+const scFs2fix = `// ที่ควรเป็น: ให้ความล้มเหลวเป็น "ค่า" ที่ไหลอยู่ใน stream ด้วย
 def ingest3(rows: Stream[IO, RawRow]): Stream[IO, Either[IngestError, Record]] =
   rows.evalMap(row => parse(row).attemptNarrow[IngestError])
 
@@ -308,14 +332,227 @@ def behavior: Behavior[Command] = Behaviors.receiveMessage:
     // ท่าหลบ: ทุกความล้มเหลวกลายเป็นข้อความเดียวกันหมด
     replyTo ! Ack.Failed(s"could not add $g")
     Behaviors.same
-  case _ => Behaviors.same   // และเคสที่ยังไม่อยากคิด ก็เงียบไปเฉย ๆ
+  case _ => Behaviors.same   // และเคสที่ยังไม่อยากคิด ก็เงียบไปเฉย ๆ`;
 
-// ที่ควรเป็น: เหตุผลของความล้มเหลวก็มี type ของมัน
+const scPekkoFix = `// ที่ควรเป็น: เหตุผลของความล้มเหลวก็มี type ของมัน
 enum Ack:
   case Ok
   case Failed(reason: ErrorEvent)`;
+
+/* ========== TypeScript (Effect-TS) ========== */
+// หมายเหตุ: ในโค้ด TS ฝั่งนี้ \${...} ที่เป็น literal ต้อง escape เป็น \\${...}
+// เพราะไฟล์นี้ใช้ template literal ของ Astro อยู่แล้ว
+
+const ts1 = `// ปิดทั้งไฟล์
+// @ts-nocheck
+// หรือเจาะจงบรรทัดเดียว
+// @ts-expect-error
+const region = classify(raw)
+
+// หรือ cast ปิดปาก type checker ตรง ๆ
+const name = raw as UserName
+const anything = raw as any`;
+
+const ts2 = `import { Data } from "effect"
+import type { Effect } from "effect"
+
+// ที่ตกลงกันไว้ตอนวางแผน
+type NonEmptyArray<A> = readonly [A, ...A[]]
+declare function summarize(xs: NonEmptyArray<number>): Summary
+type Channel = "Email" | "Sms" | "Push"          // ตัวเลือกตายตัว
+declare function notify(channel: Channel): Effect.Effect<void>
+declare function persist<A extends Encodable>(a: A): Effect.Effect<void>
+
+// ที่ AI เขียนออกมาจริง
+declare function summarize(xs: number[]): Summary            // อาเรย์ว่างเข้ามาได้
+declare function notify(channel: string): Effect.Effect<void>   // "emial" ก็ยังผ่าน
+declare function persist(a: unknown): Effect.Effect<void>       // ข้อจำกัดหลุดหมด`;
+
+const ts3a = `import { Data } from "effect"
+import type { Effect } from "effect"
+
+type ErrorEvent = Data.TaggedEnum<{
+  UnknownUser: { readonly name: string }
+  DatabaseErrorCode: { readonly code: number }
+  InvalidJson: { readonly value: unknown }
+  NetworkError: { readonly cause: Error }
+  Canceled: { readonly reason: CancelationReason | null }
+}>
+const { UnknownUser, DatabaseErrorCode, InvalidJson, NetworkError, Canceled } =
+  Data.taggedEnum<ErrorEvent>()
+
+declare function handleRequest(req: Request): Effect.Effect<Response, ErrorEvent>`;
+
+const ts3dodge = `import { Effect } from "effect"
+
+// มุกที่ 1: ยัดข้อความลงช่อง UnknownUser
+const handleAddGroup = (req: AddGroupRequest): Effect.Effect<Response, ErrorEvent> =>
+  validGroup(group)
+    ? doAddGroup(group)
+    : Effect.fail(UnknownUser({ name: \`Invalid group: \${group}\` }))
+
+// มุกที่ 2: เลขติดลบเป็นรหัสพิเศษ
+Effect.fail(DatabaseErrorCode({ code: -1 }))
+
+// มุกที่ 3: ประกอบ JSON ปลอมแล้วบอกว่า JSON เสีย
+Effect.fail(InvalidJson({ value: { errorType: "Invalid group", group } }))
+
+// มุกที่ 4: ห่อเป็น exception แล้วบอกว่าเน็ตล่ม
+Effect.fail(NetworkError({ cause: new Error(\`Invalid group: \${group}\`) }))
+
+// มุกที่ 5: บอกว่าถูกยกเลิก โดยไม่ระบุเหตุผล
+Effect.fail(Canceled({ reason: null }))`;
+
+const ts3d = `import { Brand, Data } from "effect"
+
+// branded type = ข้างในเป็น string แต่สร้างมั่วไม่ได้ ต้องผ่านประตูที่กำหนด
+type UserName = string & Brand.Brand<"UserName">
+const UserName = Brand.refined<UserName>(
+  (s) => s.length > 0,
+  (s) => Brand.error("ชื่อผู้ใช้ว่างไม่ได้"),
+)
+
+type ErrorCode = number & Brand.Brand<"ErrorCode">
+const ErrorCode = Brand.refined<ErrorCode>(
+  (n) => n > 0,
+  (n) => Brand.error("รหัสต้องเป็นบวก"),
+)
+
+type ErrorEvent = Data.TaggedEnum<{
+  UnknownUser: { readonly name: UserName }
+  DatabaseErrorCode: { readonly code: ErrorCode }
+  InvalidJson: { readonly err: ParseError }
+  NetworkError: { readonly cause: NetworkException }
+  Canceled: { readonly reason: CancelationReason }
+  EmptyUserName: {}
+  InvalidGroup: { readonly group: GroupName }   // ช่องใหม่ที่ควรมีตั้งแต่แรก
+}>`;
+
+const ts4 = `// ที่มีอยู่เดิม
+interface Report {
+  readonly name: string
+  readonly authors: readonly string[]
+  readonly date: Date
+}
+
+// มุกที่ 1: ต้องเก็บหน่วยงานที่สังกัด แต่ไม่มีช่อง จึงยัดลงลิสต์ผู้เขียน
+const r1: Report = { name, authors: ["ชิ", "affiliation: ฝ่ายวิจัย"], date: d }
+
+// มุกที่ 2: "ยังไม่มีวันที่" จึงใส่วันที่ปลอมเป็นค่าเฝ้ายาม
+const r2: Report = { name, authors, date: new Date(0) }   // 1970-01-01
+
+// มุกที่ 3: ต้องใช้ bazTarget แต่ต้องไปแก้ไลบรารีอีกตัว จึงยืม barTarget ไปก่อน
+const cfg: Targets = { ...config, barTarget: bazPath }    // คอมไพล์ผ่าน ความหมายผิด`;
+
+const ts4fix = `import { Option } from "effect"
+
+// ที่ควรเป็น: ทำ "ไม่มี" ให้เป็นสถานะที่ type บอกได้
+interface Report {
+  readonly name: string
+  readonly authors: readonly Author[]
+  readonly affiliation: Option.Option<Affiliation>
+  readonly date: Option.Option<Date>
+}`;
+
+const ts5a = `type State = "Alaska" | "Arkansas" | "Arizona"
+
+declare function processState(s: State): Effect.Effect<void>`;
+
+const ts5dodge = `// เวอร์ชันแบนราบที่ AI ชอบเขียน
+type Region = "Canada" | "Mexico" | "Alaska" | "Arkansas" | "Arizona"
+
+const processRegion = (r: Region): Effect.Effect<void> => {
+  switch (r) {
+    case "Canada": return todo()
+    case "Mexico": return todo()
+    default: return processState(r)   // r ยังเป็น Region ไม่ใช่ State
+  }
+}
+
+const processState = (r: Region): Effect.Effect<void> => {
+  switch (r) {
+    case "Canada":
+    case "Mexico": return Effect.void   // เคสที่เป็นไปไม่ได้ แต่ต้องเขียนกันคอมไพเลอร์บ่น
+    case "Alaska": return todo()
+    // ...
+  }
+}`;
+
+const ts5fix = `import { Data } from "effect"
+
+// เวอร์ชันที่มีลำดับชั้น เช็ก exhaustiveness ให้ครบ
+type UsState = "Alaska" | "Arkansas" | "Arizona"
+
+type Region = Data.TaggedEnum<{
+  Canada: {}
+  Mexico: {}
+  State: { readonly value: UsState }
+}>
+const { Canada, Mexico, State, $match } = Data.taggedEnum<Region>()
+
+const processRegion = $match({
+  Canada: () => todo(),
+  Mexico: () => todo(),
+  State: ({ value }) => processState(value),
+})
+
+const processState = (st: UsState): Effect.Effect<void> => {
+  switch (st) {
+    case "Alaska": return todo()   // ไม่มีเคส Canada ให้ต้องกลบอีกต่อไป
+    // ...
+  }
+}`;
+
+const tsFs2 = `import { Stream, Effect } from "effect"
+
+// ท่าหลบ: แถวที่พังหายไปเงียบ ๆ ไม่มีใครรู้ว่าหายกี่แถว
+const ingest = (rows: Stream.Stream<RawRow>): Stream.Stream<Record> =>
+  rows.pipe(
+    Stream.mapEffect((row) => Effect.option(parse(row))),
+    Stream.filterMap((o) => o),          // ทิ้งแถวที่พาร์สไม่ผ่านเงียบ ๆ
+  )
+
+// ท่าหลบอีกแบบ: กลืน error แล้วปิด stream ดื้อ ๆ
+const ingest2 = (rows: Stream.Stream<RawRow>): Stream.Stream<Record> =>
+  rows.pipe(Stream.mapEffect(parse), Stream.catchAll(() => Stream.empty))`;
+
+const tsFs2fix = `import { Stream, Effect, Either } from "effect"
+
+// ที่ควรเป็น: ให้ความล้มเหลวเป็น "ค่า" ที่ไหลอยู่ใน stream ด้วย
+const ingest3 = (
+  rows: Stream.Stream<RawRow>,
+): Stream.Stream<Either.Either<Record, IngestError>> =>
+  rows.pipe(Stream.mapEffect((row) => Effect.either(parse(row))))
+
+// ปลายทางค่อยแยกสองทาง ของดีไปต่อ ของเสียถูกบันทึกไว้
+const good = ingest3(rows).pipe(Stream.filterMap(Either.getRight))
+const bad = ingest3(rows).pipe(Stream.filterMap(Either.getLeft))`;
+
+const tsPekko = `import { Data } from "effect"
+
+// โปรโตคอลของ actor ก็คือ discriminated union ดี ๆ นี่เอง ท่าหลบเดิมใช้ได้หมด
+type Command = Data.TaggedEnum<{
+  AddGroup: { readonly group: GroupName; readonly replyTo: Reply<Ack> }
+  RemoveGroup: { readonly group: GroupName; readonly replyTo: Reply<Ack> }
+}>
+
+type Ack = Data.TaggedEnum<{
+  Ok: {}
+  Failed: { readonly reason: string }   // ช่องโหว่: อะไรก็ยัดลงมาได้
+}>
+const { Ok, Failed } = Data.taggedEnum<Ack>()
+
+// ท่าหลบ: ทุกความล้มเหลวกลายเป็นข้อความเดียวกันหมด
+const onAddGroup = (g: GroupName, replyTo: Reply<Ack>) =>
+  replyTo(Failed({ reason: \`could not add \${g}\` }))`;
+
+const tsPekkoFix = `// ที่ควรเป็น: เหตุผลของความล้มเหลวก็มี type ของมัน
+type Ack = Data.TaggedEnum<{
+  Ok: {}
+  Failed: { readonly reason: ErrorEvent }
+}>`;
 ---
-<DivineLoreLayout title="LLM ชอบ &quot;หลบด่าน&quot; ที่เราตั้งไว้ | บันทึกศาสตร์แห่งเทพ" description="สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด พร้อมโค้ดครบทุกตัวอย่างทั้ง Haskell และ Scala 3 (cats, cats-effect, fs2, Pekko)">
+<DivineLoreLayout title="LLM ชอบ &quot;หลบด่าน&quot; ที่เราตั้งไว้ | บันทึกศาสตร์แห่งเทพ" description="สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด พร้อมโค้ดครบทุกตัวอย่างทั้ง Haskell, Scala 3 (cats, cats-effect, fs2, Pekko) และ TypeScript (Effect-TS)">
   <nav class="dl-nav">
     <a href="../">
       <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
@@ -325,7 +562,7 @@ enum Ack:
   <p class="tag">บันทึกวิจัย</p>
   <h1>LLM ชอบ "หลบด่าน" ที่เราตั้งไว้</h1>
   <p class="subtitle">
-    สรุปบทความ <i>LLMs Will Cheese Your Types</i> ของ Justin Le เขาเขียน Haskell ร่วมกับ AI แล้วเก็บสถิติว่า AI มีท่าหลบอะไรบ้างเวลาเจอ type ที่เข้มงวด ทุกท่าคอมไพล์ผ่านหมด รีวิวผ่านตาเร็ว ๆ ก็ดูปกติ แต่มันแอบทำลายสิ่งที่เราตั้งใจสร้างไว้ทีละนิด บทความนี้ยกโค้ดมาให้ครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 คู่กันทุกท่า
+    สรุปบทความ <i>LLMs Will Cheese Your Types</i> ของ Justin Le เขาเขียน Haskell ร่วมกับ AI แล้วเก็บสถิติว่า AI มีท่าหลบอะไรบ้างเวลาเจอ type ที่เข้มงวด ทุกท่าคอมไพล์ผ่านหมด รีวิวผ่านตาเร็ว ๆ ก็ดูปกติ แต่มันแอบทำลายสิ่งที่เราตั้งใจสร้างไว้ทีละนิด บทความนี้ยกโค้ดมาให้ครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 และ TypeScript คู่กันทุกท่า
   </p>
 
   <hr class="divider" />
@@ -351,7 +588,19 @@ enum Ack:
   <div class="callout callout-tip">
     <p class="callout-label">อ่านโค้ด Haskell ไม่ออกก็ไม่เป็นไร</p>
     <p>
-      ทุกท่าในบทความนี้ผมยกโค้ดต้นฉบับ Haskell มาให้ครบ แล้วเขียนเวอร์ชัน <strong>Scala 3</strong> คู่กันทุกอัน โดยใช้ไลบรารีสาย functional ให้เต็มที่ (<strong>cats</strong>, <strong>cats-effect</strong> สำหรับ <code>IO</code>, <strong>fs2</strong> สำหรับ stream, และ <strong>Pekko</strong> สำหรับ actor) เลือกอ่านฝั่งที่ถนัดได้เลยครับ ความหมายตรงกัน
+      ทุกท่าในบทความนี้ผมยกโค้ดต้นฉบับ Haskell มาให้ครบ แล้วเขียนเวอร์ชัน <strong>Scala 3</strong> กับ <strong>TypeScript</strong> คู่กันทุกอัน ทุกฝั่งใช้ไลบรารีสาย functional ให้เต็มที่ (Scala ใช้ <strong>cats</strong> / <strong>cats-effect</strong> สำหรับ <code>IO</code>, <strong>fs2</strong> สำหรับ stream, <strong>Pekko</strong> สำหรับ actor ; TypeScript ใช้ <strong>Effect-TS</strong> ที่มี <code>Effect</code>, <code>Stream</code>, <code>Data</code>, <code>Brand</code> ครบ) โค้ดแต่ละท่าอยู่ในกล่องที่มีแท็บให้กดสลับ Haskell / Scala / TypeScript เลือกอ่านฝั่งที่ถนัดได้เลยครับ ความหมายตรงกัน
+    </p>
+    <p>
+      อีกอย่าง ในโค้ดจะเจอเครื่องหมายย่อโค้ดอยู่บ่อย ๆ ฝั่ง Haskell ใช้ <code>...</code> ฝั่ง Scala ใช้ <code>???</code> ส่วน TypeScript ใช้ <code>todo()</code> หรือ <code>// ...</code> ทั้งหมดแปลว่า "ตรงนี้มีโค้ดจริงอยู่ แต่ผมย่อไว้ให้ดูสั้น" ไม่ต้องไปงงกับมันครับ
+    </p>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">Justin ใช้ AI ตัวไหน</p>
+    <p>
+      ในบทความ Justin อ้างถึง <strong>Claude</strong> โดยตรง และเอ่ยถึงรุ่น <strong>Opus 4.8</strong> ตอนพูดเรื่องการวางโครงโดเมน แต่เขาไม่ได้ประกาศชัดว่าโค้ดตัวอย่างทุกอันมาจากรุ่นเดียวกัน ส่วนใหญ่พูดกลาง ๆ ว่า "LLMs" หรือ "frontier models" ที่น่าคิดคือขนาด Opus 4.8 ซึ่งเป็นรุ่นเรือธง ก็ยังเจอท่าหลบพวกนี้
+    </p>
+    <p>
+      เพราะงั้นอ่านบทความนี้ในฐานะประสบการณ์และความเห็นของ Justin (บวกกับฝั่ง Scala ที่ผมเจอเอง) ไม่ใช่กฎตายตัว ถ้าเอาไปลองซ้ำกับโมเดลหรือเวอร์ชันอื่น ผลอาจต่างออกไปได้
     </p>
   </div>
 
@@ -380,9 +629,18 @@ enum Ack:
   <p>
     ท่าที่ตรงไปตรงมาที่สุด คอมไพเลอร์เตือนว่า "เฮ้ย เคสนี้นายยังไม่ได้จัดการนะ" แล้ว AI ก็ไปเติมคำสั่งปิดคำเตือนนั้นซะ
   </p>
-  <CodeBlock code={hs1} lang="haskell" title="Haskell · ท่าปิดปากคอมไพเลอร์" />
-  <p>เวอร์ชัน Scala 3 มีให้เลือกเยอะกว่าด้วยซ้ำ เพราะมีทั้ง annotation, flag ใน build, และการ cast ตรง ๆ:</p>
-  <CodeBlock code={sc1} lang="scala" title="Scala 3 · ท่าเดียวกัน" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs1} lang="haskell" title="ท่าปิดปากคอมไพเลอร์" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc1} lang="scala" title="ท่าเดียวกัน (มีให้เลือกหลายวิธี)" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts1} lang="typescript" title="ท่าเดียวกัน (มีให้เลือกหลายวิธี)" />
+    </Fragment>
+  </CodeTabs>
+  <p>ฝั่ง Scala 3 ยิ่งมีให้เลือกเยอะกว่าด้วยซ้ำ เพราะมีทั้ง annotation, flag ใน build, และการ cast ตรง ๆ กดแท็บ Scala ดูได้เลยครับ</p>
   <p>
     เปรียบเทียบง่าย ๆ คือรถขึ้นไฟเตือนน้ำมันเครื่อง แล้วเราแก้ด้วยการเอาเทปดำแปะทับไฟดวงนั้น รถวิ่งต่อได้ หน้าปัดสวยงามเหมือนเดิม
   </p>
@@ -396,10 +654,22 @@ enum Ack:
   <p>
     อันนี้เจ็บกว่า เพราะมันเกิดหลังจากที่เรานั่งวางแผนกับ AI มาอย่างดีแล้ว ตกลงกันเรียบร้อยว่าจะใช้ type แบบไหน พอถึงเวลาเขียนจริง มันเปลี่ยนเงียบ ๆ
   </p>
-  <CodeBlock code={hs2} lang="haskell" title="Haskell · แผน vs. ของจริง" />
-  <CodeBlock code={sc2} lang="scala" title="Scala 3 · แผน vs. ของจริง (cats + circe)" />
   <p>
-    ทั้งสามกรณีคือการลดความเข้มของข้อจำกัด <code>NonEmpty Int</code> หรือ <code>NonEmptyList[Int]</code> คือลิสต์ที่รับประกันว่ามีอย่างน้อยหนึ่งตัว พอกลายเป็นลิสต์ธรรมดา ภาระการเช็กว่า "แล้วถ้าว่างล่ะ" ก็เด้งกลับมาเป็นของเราทันที ส่วนการเปลี่ยนตัวเลือกตายตัวเป็น <code>String</code> ก็คือเปิดประตูให้คำที่พิมพ์ผิดหลุดเข้ามาได้ทุกเมื่อ
+    ขอปูฉากก่อน สมมติเรากำลังทำระบบที่มีสามงานเล็ก ๆ งานแรก <code>summarize</code> สรุปรายงานจากตัวเลขชุดหนึ่ง เราตกลงกันว่ามันต้องมีตัวเลขอย่างน้อยหนึ่งตัว (ลิสต์ว่างสรุปอะไรไม่ได้) เลยใช้ type ที่ชื่อ <code>NonEmpty</code> การันตีตรงนี้ งานที่สอง <code>notify</code> ยิงแจ้งเตือนออกไปตามช่องทางที่มีจริงเท่านั้น (อีเมล / SMS / push) เลยทำ <code>Channel</code> เป็นตัวเลือกตายตัว งานที่สาม <code>persist</code> เซฟข้อมูลลงที่เก็บ เราตกลงว่ารับเฉพาะชนิดที่แปลงเป็นไบนารีได้ (<code>Binary</code>) จะได้เขียนลงไฟล์ได้จริง สามข้อนี้คือ "แผน" ที่เราคุยกับ AI ไว้ ทีนี้มาดูว่าพอเขียนจริงมันเป็นยังไง
+  </p>
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs2} lang="haskell" title="แผน vs. ของจริง" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc2} lang="scala" title="แผน vs. ของจริง (cats + circe)" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts2} lang="typescript" title="แผน vs. ของจริง (Effect-TS)" />
+    </Fragment>
+  </CodeTabs>
+  <p>
+    ทั้งสามกรณีคือการลดความเข้มของข้อจำกัด <code>NonEmpty Int</code> หรือ <code>NonEmptyList[Int]</code> คือลิสต์ที่รับประกันว่ามีอย่างน้อยหนึ่งตัว พอกลายเป็นลิสต์ธรรมดา ภาระการเช็กว่า "แล้วถ้าว่างล่ะ" ก็เด้งกลับมาเป็นของเราทันที การเปลี่ยน <code>Channel</code> ที่เป็นตัวเลือกตายตัวให้กลายเป็น <code>String</code> ก็คือเปิดประตูให้คำที่พิมพ์ผิดอย่าง <i>"emial"</i> หลุดเข้ามาได้ทุกเมื่อ ส่วน <code>persist</code> ที่ลดจาก <code>Binary</code> เหลือ <code>Show</code> ก็คือแอบเปลี่ยนวิธีเซฟข้อมูลไปเป็นคนละอย่างเงียบ ๆ
   </p>
   <p>
     จุดที่ Justin เน้นคือมันไม่ได้มาบอกเราว่า "ขอเปลี่ยนแผนนะ เพราะ..." ซึ่งถ้าบอกก็ยังคุยกันได้ แต่มันเปลี่ยนแบบเนียน ๆ ให้เราไปเจอเอาทีหลัง ซึ่งขัดกับความหมายของคำว่าวางแผนร่วมกันตั้งแต่ต้น
@@ -409,35 +679,46 @@ enum Ack:
 
   <h2>ท่าที่ 3: "ยัดข้อความ" (String Stuffing)</h2>
   <p>
-    ท่านี้เป็นไฮไลต์ของบทความ และเป็นท่าที่ Justin ยกตัวอย่างไว้เยอะที่สุด เริ่มจาก type สำหรับเก็บเหตุการณ์ผิดพลาดแบบนี้:
+    ท่านี้เป็นไฮไลต์ของบทความ และเป็นท่าที่ Justin ยกตัวอย่างไว้เยอะที่สุด ลองนึกภาพว่าเรากำลังทำเซิร์ฟเวอร์ที่คอยรับคำขอ (request) เข้ามาทำงาน เวลาอะไรพัง มันต้องตอบให้ได้ว่าพังเพราะอะไร เราเลยมี type ตัวหนึ่งชื่อ <code>ErrorEvent</code> ที่รวบรวม "ชนิดของความผิดพลาด" ที่เป็นไปได้ทั้งหมดไว้ในที่เดียว หน้าตาแบบนี้:
   </p>
-  <CodeBlock code={hs3a} lang="haskell" title="Haskell · type รวมชนิดของ error" />
-  <CodeBlock code={sc3a} lang="scala" title="Scala 3 · enum เทียบเท่า (cats-effect IO + circe)" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs3a} lang="haskell" title="type รวมชนิดของ error" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc3a} lang="scala" title="enum เทียบเท่า (cats-effect IO + circe)" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts3a} lang="typescript" title="discriminated union เทียบเท่า (Effect-TS)" />
+    </Fragment>
+  </CodeTabs>
   <p>
     อ่านง่าย ๆ คือ error มีได้หลายแบบ ไม่รู้จักผู้ใช้ / ฐานข้อมูลพัง (พร้อมรหัสตัวเลข) / JSON เสีย / เน็ตล่ม / ถูกยกเลิก ส่วน <code>IO[Either[ErrorEvent, Response]]</code> อ่านว่า "งานที่มีผลข้างเคียง ซึ่งจบแล้วจะได้ error หรือไม่ก็ได้คำตอบ"
   </p>
   <p>
-    ทีนี้เราสั่งให้ AI เพิ่มฟีเจอร์ "เพิ่มกลุ่ม" ซึ่งต้องรายงาน error แบบใหม่ว่ากลุ่มไม่ถูกต้อง สิ่งที่<em>ควร</em>ทำคือเพิ่มช่องใหม่ <code>InvalidGroupError</code> เข้าไปในรายการ แต่สิ่งที่ AI ทำจริงคือ:
+    ทีนี้เราสั่งให้ AI เพิ่มฟีเจอร์ "เพิ่มกลุ่ม" ซึ่งต้องรายงาน error แบบใหม่ว่ากลุ่มไม่ถูกต้อง สิ่งที่<em>ควร</em>ทำคือเพิ่มช่องใหม่ <code>InvalidGroupError</code> เข้าไปในรายการ แต่สิ่งที่ AI ทำจริงมีอยู่ถึงห้ามุก ทุกมุกคอมไพล์ผ่านหมด ฝั่ง Haskell ผมยกมาให้ครบทุกมุก ส่วนฝั่ง Scala รวบไว้บล็อกเดียว (เขียนซ้อน <code>else</code> หลายอันเพื่อให้เห็นครบในที่เดียว ของจริงย่อมมีอันเดียว):
   </p>
-  <CodeBlock code={hs3b} lang="haskell" title="Haskell · ท่าหลบท่าที่ 1 ยัดลงช่อง UnknownUser" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs3dodge} lang="haskell" title="ห้ามุกยัดข้อความ ที่เขาเจอมาจริง" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc3b} lang="scala" title="ห้ามุกเดียวกัน" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts3dodge} lang="typescript" title="ห้ามุกเดียวกัน (Effect-TS)" />
+    </Fragment>
+  </CodeTabs>
   <p>
-    เห็นไหมครับว่ามันเลือกช่อง <code>UnknownUser</code> ซึ่งแปลว่า "ไม่รู้จักผู้ใช้" แล้วยัดข้อความ <i>"Invalid group: ..."</i> ลงไปแทน คอมไพล์ผ่านฉลุย เพราะช่องนั้นรับข้อความอะไรก็ได้ แต่ตอนนี้โค้ดเราโกหกแล้ว ที่ไหนสักแห่งจะมี error "ไม่รู้จักผู้ใช้" โผล่มาทั้งที่ปัญหาจริงคือเรื่องกลุ่ม
+    มุกแรกมันเลือกช่อง <code>UnknownUser</code> ซึ่งแปลว่า "ไม่รู้จักผู้ใช้" แล้วยัดข้อความ <i>"Invalid group: ..."</i> ลงไปแทน คอมไพล์ผ่านฉลุย เพราะช่องนั้นรับข้อความอะไรก็ได้ แต่ตอนนี้โค้ดเราโกหกแล้ว ที่ไหนสักแห่งจะมี error "ไม่รู้จักผู้ใช้" โผล่มาทั้งที่ปัญหาจริงคือเรื่องกลุ่ม และ Justin ก็ไม่ได้เจอแค่มุกเดียว เขาไล่อีกสี่มุกที่เคยเจอมาจริง สรุปทั้งห้ามุก:
   </p>
-  <p>
-    และ Justin ไม่ได้ยกมาแค่ท่าเดียว เขาไล่ให้ดูว่าเคยเจอความสร้างสรรค์ในทางที่ผิดมาแล้วอีกสี่แบบ ทุกแบบคอมไพล์ผ่านหมด:
-  </p>
-  <CodeBlock code={hs3c} lang="haskell" title="Haskell · ท่าหลบอีกสี่แบบที่เขาเจอมาจริง" />
-  <p>
-    รวมกันเป็นห้าท่า ผมรวมเวอร์ชัน Scala 3 ไว้ในบล็อกเดียวให้เทียบกันชัด ๆ (เขียนซ้อน <code>else</code> หลายอันเพื่อให้เห็นครบในที่เดียว ของจริงย่อมมีอันเดียว):
-  </p>
-  <CodeBlock code={sc3b} lang="scala" title="Scala 3 · ห้าท่าหลบเดียวกัน" />
   <div class="card">
     <ul>
-      <li><strong>ท่า 1 ยัดข้อความ</strong> ช่องรับ <code>String</code> อะไรก็ได้ ก็ยัดเรื่องที่ไม่เกี่ยวลงไป</li>
-      <li><strong>ท่า 2 เลขวิเศษ</strong> <code>-1</code> ไม่ใช่รหัสฐานข้อมูลจริง มันคือรหัสที่เราแอบตกลงกันเองในใจ</li>
-      <li><strong>ท่า 3 JSON ปลอม</strong> สร้าง JSON ขึ้นมาเองแล้วบอกว่า JSON ที่รับมาเสีย ทั้งที่ไม่เคยมี JSON เสียเลย</li>
-      <li><strong>ท่า 4 exception ปลอม</strong> ห่อข้อความเป็น exception แล้วรายงานว่าเน็ตล่ม ซึ่งจะไปหลอกทีม ops ต่ออีกทอด</li>
-      <li><strong>ท่า 5 ยกเลิกลอย ๆ</strong> <code>Canceled Nothing</code> หรือ <code>Canceled(None)</code> คือบอกว่าถูกยกเลิกโดยไม่บอกเหตุผล ข้อมูลหายเกลี้ยง</li>
+      <li><strong>มุก 1 ยัดข้อความ</strong> ช่องรับ <code>String</code> อะไรก็ได้ ก็ยัดเรื่องที่ไม่เกี่ยวลงไป</li>
+      <li><strong>มุก 2 เลขวิเศษ</strong> <code>-1</code> ไม่ใช่รหัสฐานข้อมูลจริง มันคือรหัสที่เราแอบตกลงกันเองในใจ</li>
+      <li><strong>มุก 3 JSON ปลอม</strong> สร้าง JSON ขึ้นมาเองแล้วบอกว่า JSON ที่รับมาเสีย ทั้งที่ไม่เคยมี JSON เสียเลย</li>
+      <li><strong>มุก 4 exception ปลอม</strong> ห่อข้อความเป็น exception แล้วรายงานว่าเน็ตล่ม ซึ่งจะไปหลอกทีม ops ต่ออีกทอด</li>
+      <li><strong>มุก 5 ยกเลิกลอย ๆ</strong> <code>Canceled Nothing</code> หรือ <code>Canceled(None)</code> คือบอกว่าถูกยกเลิกโดยไม่บอกเหตุผล ข้อมูลหายเกลี้ยง</li>
     </ul>
   </div>
 
@@ -481,61 +762,141 @@ enum Ack:
     <figcaption>ท่า string stuffing เกิดขึ้นได้เพราะช่องนั้นรับ <code>String</code> อะไรก็ได้ AI เลยยัดเรื่องที่ไม่เกี่ยวลงไป แทนที่จะเพิ่มช่องใหม่ (diagram วาดประกอบโดยผู้เขียน)</figcaption>
   </figure>
 
-  <div class="callout callout-tip">
-    <p class="callout-label">ทางแก้ที่เขาเสนอ</p>
-    <p>
-      อย่าปล่อยให้ช่องไหนรับ <code>String</code> หรือ <code>Int</code> ดิบ ๆ ถ้าความหมายมันเจาะจงกว่านั้น เปลี่ยนเป็น type เฉพาะทางไปเลย แล้วช่องนั้นจะยัดมั่วไม่ได้อีก เพราะข้อความทั่วไปใส่ลงไปไม่ได้ตั้งแต่แรก
-    </p>
-  </div>
-  <CodeBlock code={hs3d} lang="haskell" title="Haskell · ปิดช่องโหว่ด้วย type เฉพาะทาง" />
-  <CodeBlock code={sc3d} lang="scala" title="Scala 3 · ปิดช่องโหว่ด้วย opaque type + EitherT" />
   <p>
-    สังเกตว่า <code>String</code> กลายเป็น <code>UserName</code> และ <code>Int</code> กลายเป็น <code>ErrorCode</code> พอทำแบบนี้ ท่ายัดข้อความก็ตายไปโดยปริยาย ฝั่ง Scala ใช้ <strong>opaque type</strong> ("โอเพก ไทป์" แปลว่า "ชนิดทึบแสง") ซึ่งข้างในยังเป็น <code>String</code> ตัวเดิม ไม่เปลืองหน่วยความจำเพิ่ม แต่ข้างนอกสร้างขึ้นมาเองมั่ว ๆ ไม่ได้ ต้องผ่านประตูที่เรากำหนดเท่านั้น
+    ลองหยุดคิดก่อนสักครู่ ถ้าเป็นเรา จะปิดช่องโหว่นี้ยังไงให้ AI ยัดข้อความมั่วไม่ได้อีก พอมีคำตอบในใจแล้วค่อยกดดูวิธีที่ Justin เสนอ
   </p>
-  <p>
-    หลักคิดเบื้องหลังคือคติที่ชาว Haskell เรียกว่า <strong>"Parse, Don't Validate"</strong> ("พาร์ส ดอนต์ วาลิเดต" แปลว่า "แปลงให้เป็นของจริง อย่าแค่ตรวจ") แทนที่จะรับข้อมูลดิบเข้ามาแล้วค่อยไล่เช็กทีหลังว่าถูกไหม ให้แปลงมันเป็น type ที่เป็นไปไม่ได้เลยที่จะผิดตั้งแต่ประตูทางเข้า
-  </p>
+  <details class="expander">
+    <summary>ดูวิธีแก้: ปิดช่องโหว่ด้วย type เฉพาะทาง</summary>
+    <div class="expander-body">
+      <div class="callout callout-tip">
+        <p class="callout-label">ทางแก้ที่เขาเสนอ</p>
+        <p>
+          อย่าปล่อยให้ช่องไหนรับ <code>String</code> หรือ <code>Int</code> ดิบ ๆ ถ้าความหมายมันเจาะจงกว่านั้น เปลี่ยนเป็น type เฉพาะทางไปเลย แล้วช่องนั้นจะยัดมั่วไม่ได้อีก เพราะข้อความทั่วไปใส่ลงไปไม่ได้ตั้งแต่แรก
+        </p>
+      </div>
+      <CodeTabs>
+        <Fragment slot="haskell">
+          <CodeBlock code={hs3d} lang="haskell" title="ปิดช่องโหว่ด้วย type เฉพาะทาง" />
+        </Fragment>
+        <Fragment slot="scala">
+          <CodeBlock code={sc3d} lang="scala" title="ปิดช่องโหว่ด้วย opaque type + EitherT" />
+        </Fragment>
+        <Fragment slot="typescript">
+          <CodeBlock code={ts3d} lang="typescript" title="ปิดช่องโหว่ด้วย branded type (Effect-TS)" />
+        </Fragment>
+      </CodeTabs>
+      <p>
+        สังเกตว่า <code>String</code> กลายเป็น <code>UserName</code> และ <code>Int</code> กลายเป็น <code>ErrorCode</code> พอทำแบบนี้ ท่ายัดข้อความก็ตายไปโดยปริยาย ฝั่ง Scala ใช้ <strong>opaque type</strong> ("โอเพก ไทป์" แปลว่า "ชนิดทึบแสง") ซึ่งข้างในยังเป็น <code>String</code> ตัวเดิม ไม่เปลืองหน่วยความจำเพิ่ม แต่ข้างนอกสร้างขึ้นมาเองมั่ว ๆ ไม่ได้ ต้องผ่านประตูที่เรากำหนดเท่านั้น
+      </p>
+      <p>
+        หลักคิดเบื้องหลังคือคติที่ชาว Haskell เรียกว่า <strong>"Parse, Don't Validate"</strong> ("พาร์ส ดอนต์ วาลิเดต" แปลว่า "แปลงให้เป็นของจริง อย่าแค่ตรวจ") แทนที่จะรับข้อมูลดิบเข้ามาแล้วค่อยไล่เช็กทีหลังว่าถูกไหม ให้แปลงมันเป็น type ที่เป็นไปไม่ได้เลยที่จะผิดตั้งแต่ประตูทางเข้า
+      </p>
+    </div>
+  </details>
 
   <hr class="divider-solid" />
 
   <h2>ท่าที่ 4: ยืมช่องคนอื่นเขาใช้ (Field Abuse)</h2>
   <p>
-    เหมือนท่าที่ 3 แต่เกิดกับช่องข้อมูลในเรกคอร์ดแทน Justin ยกสองตัวอย่างนี้:
+    ก่อนเข้าโค้ด ขอปูก่อนว่าทำไมเรื่องนี้ถึงสำคัญ <strong>เรกคอร์ด</strong> (record) คือ type ที่จับหลายช่องข้อมูลมามัดรวมเป็นก้อนเดียว เช่น "รายงาน" หนึ่งฉบับก็มีชื่อ มีผู้เขียน มีวันที่ อยู่ในก้อนเดียวกัน หัวใจของการออกแบบเรกคอร์ดให้ดีคือ "แต่ละช่องต้องเก็บของที่ตรงกับความหมายของมัน" ช่องผู้เขียนก็มีแต่ผู้เขียน ช่องวันที่ก็มีแต่วันที่ พอกติกานี้แน่น เวลาอ่านโค้ดเราถึงเชื่อสิ่งที่ช่องบอกได้ ท่าที่ 4 คือการทำลายกติกานี้เงียบ ๆ
   </p>
-  <CodeBlock code={hs4a} lang="haskell" title="Haskell · เรกคอร์ดรายงาน" />
-  <CodeBlock code={hs4b} lang="haskell" title="Haskell · เรกคอร์ดเป้าหมาย" />
   <p>
-    ท่าหลบที่เกิดกับสองอันนี้มีสามแบบ แบบแรกคือต้องเก็บหน่วยงานที่สังกัด แต่ไม่มีช่อง เลยยัดลงไปในลิสต์ <code>reportAuthors</code> ซะเลย แบบที่สองคือต้องบอกว่ายังไม่มีวันที่ แต่แทนที่จะเปลี่ยน <code>reportDate</code> เป็น <code>Maybe Day</code> ก็ใส่วันที่ปลอมอย่าง <code>ModifiedJulianDay 0</code> แทน และแบบที่สามคือต้องใช้ <code>bazTarget</code> แต่การเพิ่มช่องนั้นต้องข้ามไปแก้ไลบรารีอีกตัว ก็เลยยืม <code>barTarget</code> ที่มีอยู่แล้วไปใช้ก่อน
+    มันเหมือนท่าที่ 3 แต่ย้ายจากช่องใน error type มาเป็นช่องข้อมูลในเรกคอร์ดแทน Justin ยกสองเรกคอร์ดนี้ ฝั่ง Haskell โชว์แค่หน้าตาเรกคอร์ด ส่วนท่าหลบผมยกเป็นฝั่ง Scala:
   </p>
-  <CodeBlock code={sc4} lang="scala" title="Scala 3 · สามท่าหลบในเรกคอร์ด และทางที่ควรเป็น" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs4records} lang="haskell" title="สองเรกคอร์ดที่โดนยืมช่อง" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc4} lang="scala" title="สามมุกในเรกคอร์ด" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts4} lang="typescript" title="สามมุกในเรกคอร์ด (TypeScript)" />
+    </Fragment>
+  </CodeTabs>
+  <p>
+    ท่าหลบที่เกิดกับสองอันนี้มีสามมุก มุกแรกคือต้องเก็บหน่วยงานที่สังกัด แต่ไม่มีช่อง เลยยัดลงไปในลิสต์ <code>reportAuthors</code> ซะเลย มุกที่สองคือต้องบอกว่ายังไม่มีวันที่ แต่แทนที่จะเปลี่ยน <code>reportDate</code> เป็น <code>Maybe Day</code> ก็ใส่วันที่ปลอมอย่าง <code>ModifiedJulianDay 0</code> แทน และมุกที่สามคือต้องใช้ <code>bazTarget</code> แต่การเพิ่มช่องนั้นต้องข้ามไปแก้ไลบรารีอีกตัว ก็เลยยืม <code>barTarget</code> ที่มีอยู่แล้วไปใช้ก่อน
+  </p>
   <p>
     ค่าปลอมแบบวันที่ <code>0</code> นี่มีชื่อเรียกว่า <strong>sentinel value</strong> ("เซนทิเนล แวลิว" แปลว่า "ค่าเฝ้ายาม") คือค่าปกติค่าหนึ่งที่เราแอบตกลงกันเองว่าให้แปลว่าไม่มีข้อมูล ปัญหาคือข้อตกลงนั้นอยู่ในหัวคนเท่านั้น ไม่ได้อยู่ในโค้ด วันหนึ่งมีคนเอาไปคำนวณอายุเอกสารตรง ๆ ก็จะได้ผลว่าเอกสารนี้อายุ 56 ปีมาแบบงง ๆ
   </p>
   <p>
     Justin ชี้ว่าแรงจูงใจของท่านี้ชัดมาก การเพิ่มช่องใหม่ในเรกคอร์ดที่มีคนใช้อยู่หลายที่ แปลว่าต้องตามไปแก้ทุกจุดที่สร้างเรกคอร์ดนั้น และถ้ามันอยู่ข้ามขอบเขตไลบรารี ก็ยิ่งแพงเข้าไปอีก ยืมช่องเดิมแก้ที่เดียวจบง่ายกว่าเยอะ
   </p>
+  <details class="expander">
+    <summary>ดูวิธีแก้: ทำ "ไม่มี" ให้เป็นสถานะที่ type บอกได้</summary>
+    <div class="expander-body">
+      <p>
+        แทนที่จะยืมช่องเดิมหรือใส่ค่าเฝ้ายาม ให้เพิ่มช่องที่สื่อความหมายตรง ๆ (เช่น <code>affiliation</code>) และทำให้ "ยังไม่มีค่า" กลายเป็น <code>Option</code> ที่ type มองเห็น พอเป็นแบบนี้ คนที่หยิบเรกคอร์ดไปใช้ต่อจะถูกบังคับให้เผื่อกรณี "ไม่มีวันที่" เสมอ ยัดวันที่ปลอมเข้ามาไม่ได้อีก:
+      </p>
+      <CodeTabs>
+        <Fragment slot="scala">
+          <CodeBlock code={sc4fix} lang="scala" title="ที่ควรเป็น (Option บอกว่า &quot;อาจไม่มี&quot;)" />
+        </Fragment>
+        <Fragment slot="typescript">
+          <CodeBlock code={ts4fix} lang="typescript" title="ที่ควรเป็น (Option บอกว่า &quot;อาจไม่มี&quot;)" />
+        </Fragment>
+      </CodeTabs>
+    </div>
+  </details>
 
   <hr class="divider-solid" />
 
   <h2>ท่าที่ 5: ไม่ยอมสร้าง type ใหม่</h2>
   <p>
+    ท่านี้ตัวอย่างเป็นเรื่องเขตแดนในอเมริกาเหนือ ขอปูความรู้ก่อนสักนิดจะได้ตามทัน <i>Alaska</i>, <i>Arkansas</i>, <i>Arizona</i> พวกนี้คือ "รัฐ" ของสหรัฐอเมริกา ส่วน <i>Canada</i> กับ <i>Mexico</i> เป็น "ประเทศ" คนละชั้นกัน (ประเทศใหญ่กว่ารัฐ) จุดที่ต้องจับตาคือพอโค้ดเอาประเทศกับรัฐมากองปนกันในระดับเดียวกัน ความจริงข้อนี้จะหายไป
+  </p>
+  <p>
     สมมติเดิมเรามีแค่รัฐในอเมริกาอยู่แล้ว:
   </p>
-  <CodeBlock code={hs5a} lang="haskell" title="Haskell · ของเดิมที่มีอยู่" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs5a} lang="haskell" title="ของเดิมที่มีอยู่" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc5orig} lang="scala" title="ของเดิมที่มีอยู่" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts5a} lang="typescript" title="ของเดิมที่มีอยู่" />
+    </Fragment>
+  </CodeTabs>
   <p>
     วันหนึ่งงานขยาย ต้องรองรับภูมิภาคที่มีแคนาดาและเม็กซิโกด้วย สิ่งที่ AI มักทำคือแบนทุกอย่างมากองรวมกันชั้นเดียว แล้วเลี่ยงการสร้าง type ใหม่:
   </p>
-  <CodeBlock code={hs5b} lang="haskell" title="Haskell · เวอร์ชันแบนราบ (ท่าหลบ)" />
+  <CodeTabs>
+    <Fragment slot="haskell">
+      <CodeBlock code={hs5b} lang="haskell" title="เวอร์ชันแบนราบ (ท่าหลบ)" />
+    </Fragment>
+    <Fragment slot="scala">
+      <CodeBlock code={sc5a} lang="scala" title="เวอร์ชันแบนราบ (ท่าหลบ)" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={ts5dodge} lang="typescript" title="เวอร์ชันแบนราบ (ท่าหลบ)" />
+    </Fragment>
+  </CodeTabs>
   <p>
-    ดูให้ดีนะครับว่ามันแย่ตรงไหน <code>processState</code> ที่เดิมรับ <code>State</code> ตอนนี้ถูกเปลี่ยนให้รับ <code>Region</code> แทน แปลว่ามันต้องเขียนเคส <code>Canada</code> กับ <code>Mexico</code> ไว้ในฟังก์ชันที่ชื่อว่า "ประมวลผลรัฐ" ทั้งที่สองอันนั้นไม่ใช่รัฐ แล้วมันก็กลบด้วย <code>pure ()</code> ซึ่งแปลว่าเจอเคสนี้แล้วไม่ต้องทำอะไร เป็นการปิดปากคอมไพเลอร์ที่กำลังจะบอกเราว่าโครงสร้างนี้มันผิดนะ
+    ดูให้ดีนะครับว่ามันแย่ตรงไหน <code>processState</code> ที่เดิมรับ <code>State</code> ตอนนี้ถูกเปลี่ยนให้รับ <code>Region</code> แทน แปลว่ามันต้องเขียนเคส <code>Canada</code> กับ <code>Mexico</code> ไว้ในฟังก์ชันที่ชื่อว่า "ประมวลผลรัฐ" ทั้งที่แคนาดากับเม็กซิโกเป็นประเทศ ไม่ใช่รัฐ แล้วมันก็กลบด้วย <code>pure ()</code> ซึ่งแปลว่าเจอเคสนี้แล้วไม่ต้องทำอะไร เป็นการปิดปากคอมไพเลอร์ที่กำลังจะบอกเราว่าโครงสร้างนี้มันผิดนะ
   </p>
-  <CodeBlock code={sc5a} lang="scala" title="Scala 3 · เวอร์ชันแบนราบ (ท่าหลบ)" />
-  <p>ส่วนสิ่งที่ควรเป็นคือให้มันมีลำดับชั้นตามความจริงของโดเมน:</p>
-  <CodeBlock code={hs5c} lang="haskell" title="Haskell · เวอร์ชันที่มีลำดับชั้น" />
-  <CodeBlock code={sc5b} lang="scala" title="Scala 3 · เวอร์ชันที่มีลำดับชั้น" />
-  <p>
-    ต่างกันตรงที่ <code>processState</code> กลับมารับเฉพาะ <code>State</code> จริง ๆ เคสปลอมที่ต้องกลบด้วย <code>pure ()</code> หายไปหมด และความจริงที่ว่าอลาสกาเป็นรัฐหนึ่งของอเมริกาก็กลับมาอยู่ในโค้ดอีกครั้ง
-  </p>
+  <details class="expander">
+    <summary>ดูวิธีแก้: ให้มีลำดับชั้นตามความจริงของโดเมน</summary>
+    <div class="expander-body">
+      <p>ส่วนสิ่งที่ควรเป็นคือให้มันมีลำดับชั้นตามความจริงของโดเมน แยกให้ชัดว่า "รัฐ" เป็นของที่ซ้อนอยู่ใต้ระดับ "ภูมิภาค" อีกที:</p>
+      <CodeTabs>
+        <Fragment slot="haskell">
+          <CodeBlock code={hs5c} lang="haskell" title="เวอร์ชันที่มีลำดับชั้น" />
+        </Fragment>
+        <Fragment slot="scala">
+          <CodeBlock code={sc5b} lang="scala" title="เวอร์ชันที่มีลำดับชั้น" />
+        </Fragment>
+        <Fragment slot="typescript">
+          <CodeBlock code={ts5fix} lang="typescript" title="เวอร์ชันที่มีลำดับชั้น" />
+        </Fragment>
+      </CodeTabs>
+      <p>
+        ต่างกันตรงที่ <code>processState</code> กลับมารับเฉพาะ <code>State</code> จริง ๆ เคสปลอมที่ต้องกลบด้วย <code>pure ()</code> หายไปหมด และความจริงที่ว่าอลาสกาเป็นรัฐหนึ่งของอเมริกาก็กลับมาอยู่ในโค้ดอีกครั้ง
+      </p>
+    </div>
+  </details>
 
   <hr class="divider-solid" />
 
@@ -546,17 +907,57 @@ enum Ack:
   <p>
     ที่แรกคือใน stream <strong>fs2</strong> ("เอฟพีเอสทู" ย่อจาก <i>Functional Streams for Scala</i>) คือไลบรารีสำหรับไหลข้อมูลทีละก้อนแบบไม่กินแรม พอ AI เจอว่าบางแถวพาร์สไม่ผ่าน ท่าที่มันชอบเลือกคือกลืน error ทิ้ง:
   </p>
-  <CodeBlock code={scFs2} lang="scala" title="Scala 3 · fs2 กลืน error vs. ให้ error เป็นค่า" />
+  <CodeTabs>
+    <Fragment slot="scala">
+      <CodeBlock code={scFs2} lang="scala" title="fs2 กลืน error ทิ้ง (ท่าหลบ)" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={tsFs2} lang="typescript" title="Effect Stream กลืน error ทิ้ง (ท่าหลบ)" />
+    </Fragment>
+  </CodeTabs>
   <p>
     <code>.attempt.collect &#123; case Right(r) =&gt; r &#125;</code> อ่านออกมาเป็นภาษาคนคือ "ลองทำดู ถ้าพังก็ทิ้งแถวนั้นไปเลย" งานรัน 10,000 แถวสำเร็จ 200 แถว แต่ไม่มี error สักตัว ไม่มีใครรู้ว่าหายไป 9,800 แถว นี่คือ <code>pure ()</code> ในเวอร์ชันที่แพงกว่าเยอะ ทางที่ถูกคือให้ความล้มเหลวไหลอยู่ใน stream ในฐานะค่า แล้วค่อยแยกสองทางที่ปลาย
   </p>
+  <details class="expander">
+    <summary>ดูวิธีแก้: ให้ error เป็นค่าที่ไหลอยู่ใน stream</summary>
+    <div class="expander-body">
+      <CodeTabs>
+        <Fragment slot="scala">
+          <CodeBlock code={scFs2fix} lang="scala" title="ให้ error เป็นค่า แล้วแยกสองทางที่ปลาย" />
+        </Fragment>
+        <Fragment slot="typescript">
+          <CodeBlock code={tsFs2fix} lang="typescript" title="ให้ error เป็นค่า แล้วแยกสองทางที่ปลาย" />
+        </Fragment>
+      </CodeTabs>
+    </div>
+  </details>
   <p>
     ที่สองคือในโปรโตคอลของ actor <strong>Pekko</strong> ("เพกโก") คือไลบรารี actor สำหรับระบบกระจายศูนย์ แยกสายมาจาก Akka หัวใจของมันคือ actor แต่ละตัวรับได้เฉพาะข้อความที่ประกาศไว้ ซึ่งก็คือ sum type ดี ๆ นี่เอง ท่าหลบทุกท่าข้างบนจึงใช้ได้หมด:
   </p>
-  <CodeBlock code={scPekko} lang="scala" title="Scala 3 · Pekko typed โปรโตคอลที่ถูกชีส" />
+  <CodeTabs>
+    <Fragment slot="scala">
+      <CodeBlock code={scPekko} lang="scala" title="Pekko typed โปรโตคอลที่ถูกชีส" />
+    </Fragment>
+    <Fragment slot="typescript">
+      <CodeBlock code={tsPekko} lang="typescript" title="โปรโตคอล actor ที่ถูกชีส (Effect-TS)" />
+    </Fragment>
+  </CodeTabs>
   <p>
     <code>Failed(reason: String)</code> คือประตูเปิดทิ้งไว้ให้ยัดอะไรก็ได้ พอเปลี่ยนเป็น <code>Failed(reason: ErrorEvent)</code> ปุ๊บ AI ก็ยัดข้อความมั่วไม่ได้อีก มันจะถูกบังคับให้มาคุยกับเราว่าขอเพิ่มชนิดของ error นะ ซึ่งคือสิ่งที่เราอยากได้ตั้งแต่แรก ส่วน <code>case _ =&gt; Behaviors.same</code> ท้ายบล็อกก็คือญาติสนิทของ <code>pure ()</code> นั่นแหละครับ
   </p>
+  <details class="expander">
+    <summary>ดูวิธีแก้: ให้เหตุผลความล้มเหลวมี type ของมัน</summary>
+    <div class="expander-body">
+      <CodeTabs>
+        <Fragment slot="scala">
+          <CodeBlock code={scPekkoFix} lang="scala" title="ที่ควรเป็น (Ack.Failed ถือ ErrorEvent)" />
+        </Fragment>
+        <Fragment slot="typescript">
+          <CodeBlock code={tsPekkoFix} lang="typescript" title="ที่ควรเป็น (Failed ถือ ErrorEvent)" />
+        </Fragment>
+      </CodeTabs>
+    </div>
+  </details>
 
   <hr class="divider-solid" />
 
@@ -609,5 +1010,6 @@ enum Ack:
     <li>Justin Le, "LLMs Will Cheese Your Types: Fighting Back in Haskell" · <a href="https://blog.jle.im/entry/llms-and-haskell-1-constraint-evading-behavior.html" target="_blank" rel="noopener noreferrer">blog.jle.im</a> (บทความต้นฉบับภาษาอังกฤษ ที่บทความนี้สรุปมา โค้ด Haskell ทุกบล็อกในหน้านี้ยกมาจากที่นี่)</li>
     <li>Alexis King, "Parse, Don't Validate" · <a href="https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/" target="_blank" rel="noopener noreferrer">lexi-lambda.github.io</a> (ที่มาของคติที่อ้างถึงในหัวข้อ String Stuffing)</li>
     <li>โค้ด Scala 3 ทั้งหมดในหน้านี้ผมเขียนขึ้นเองเพื่อเทียบเคียง ใช้ <a href="https://typelevel.org/cats/" target="_blank" rel="noopener noreferrer">cats</a>, <a href="https://typelevel.org/cats-effect/" target="_blank" rel="noopener noreferrer">cats-effect</a>, <a href="https://fs2.io/" target="_blank" rel="noopener noreferrer">fs2</a> และ <a href="https://pekko.apache.org/" target="_blank" rel="noopener noreferrer">Apache Pekko</a> เป็นโค้ดเชิงอธิบาย ไม่ใช่โค้ดที่คอมไพล์ได้ทันทีทั้งไฟล์</li>
+    <li>โค้ด TypeScript ทั้งหมดผมเขียนเองเช่นกัน ใช้ <a href="https://effect.website/" target="_blank" rel="noopener noreferrer">Effect-TS</a> (โมดูล <code>Effect</code>, <code>Stream</code>, <code>Data.taggedEnum</code>, <code>Brand</code>, <code>Option</code>, <code>Either</code>) เป็นโค้ดเชิงอธิบาย เน้นให้เห็นแพตเทิร์นเดียวกัน ไม่ใช่โค้ดที่คอมไพล์ได้ทันทีทั้งไฟล์</li>
   </ol>
 </DivineLoreLayout>
