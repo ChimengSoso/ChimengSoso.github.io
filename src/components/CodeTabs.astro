@@ -1,0 +1,143 @@
+---
+// Browser-tab-style wrapper around one or more <CodeBlock>s per language.
+// Reader clicks between language tabs; each tab can hold a different number of
+// code blocks. State is per-widget and independent: switching one CodeTabs never
+// affects another on the page. Tabs are driven by which named slots are actually
+// provided (haskell / scala / typescript, in that fixed order), so a widget with
+// only two languages renders two tabs and one with three renders three. Usage:
+//   <CodeTabs>
+//     <Fragment slot="haskell"><CodeBlock ... /></Fragment>
+//     <Fragment slot="scala"><CodeBlock ... /></Fragment>
+//     <Fragment slot="typescript"><CodeBlock ... /></Fragment>
+//   </CodeTabs>
+const ALL_TABS = [
+  { slot: 'haskell', label: 'Haskell' },
+  { slot: 'scala', label: 'Scala 3' },
+  { slot: 'typescript', label: 'TypeScript' },
+] as const;
+const tabs = ALL_TABS.filter((t) => Astro.slots.has(t.slot));
+---
+<div class="code-tabs" data-code-tabs>
+  <div class="ct-bar">
+    <span class="ct-dots" aria-hidden="true">
+      <span class="ct-dot ct-dot-red"></span>
+      <span class="ct-dot ct-dot-yellow"></span>
+      <span class="ct-dot ct-dot-green"></span>
+    </span>
+    <div class="ct-tabs" role="tablist" aria-label="เลือกภาษาโค้ด">
+      {tabs.map((t, i) => (
+        <button
+          class={`ct-tab${i === 0 ? ' is-active' : ''}`}
+          type="button"
+          role="tab"
+          aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? undefined : -1}
+          data-ct-tab={i}
+        >{t.label}</button>
+      ))}
+    </div>
+  </div>
+  {tabs.map((t, i) => (
+    <div class={`ct-panel${i === 0 ? ' is-active' : ''}`} role="tabpanel" data-ct-panel={i} hidden={i !== 0}>
+      {t.slot === 'haskell' && <slot name="haskell" />}
+      {t.slot === 'scala' && <slot name="scala" />}
+      {t.slot === 'typescript' && <slot name="typescript" />}
+    </div>
+  ))}
+</div>
+
+<style>
+  .code-tabs{
+    margin:1.125rem 0;
+    border:1px solid #2a3350;
+    border-radius:14px;
+    overflow:hidden;
+    background:#141a29;
+  }
+  .ct-bar{
+    display:flex;
+    align-items:center;
+    gap:.75rem;
+    padding:.5rem .75rem 0 .9rem;
+    background:#141a29;
+    /* Consistent divider under the whole tab strip, for every widget/tab, so the
+       tab bar always reads as separated from the code content below. */
+    border-bottom:1px solid #2a3350;
+  }
+  .ct-dots{display:flex;gap:6px;flex-shrink:0;padding-bottom:.5rem;}
+  .ct-dot{width:11px;height:11px;border-radius:50%;display:block;}
+  .ct-dot-red{background:#ff5f56;}
+  .ct-dot-yellow{background:#ffbd2e;}
+  .ct-dot-green{background:#27c93f;}
+  .ct-tabs{display:flex;gap:.25rem;}
+  .ct-tab{
+    background:none;
+    border:1px solid transparent;
+    border-bottom:none;
+    color:#7b869c;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:.74rem;
+    padding:.4rem .85rem;
+    border-radius:8px 8px 0 0;
+    cursor:pointer;
+    transition:color .15s, background .15s, border-color .15s;
+  }
+  .ct-tab:hover{color:#e7ecf6;}
+  .ct-tab.is-active{
+    color:#e7ecf6;
+    background:#1c2536;
+    border-color:#2a3350;
+  }
+  .ct-tab:focus-visible{outline:2px solid #4d72a9;outline-offset:2px;}
+  /* Nest the CodeBlock windows seamlessly inside the tab frame: drop their own
+     margin/rounding/outer border so the whole thing reads as one browser window
+     whose body swaps per tab. Their inner header (traffic-lights + label) stays,
+     which conveniently doubles as a per-block title inside the active tab. */
+  .ct-panel :global(.code-window){
+    margin:0;
+    border:none;
+    border-radius:0;
+  }
+  /* The tab bar is the single window chrome now, so the nested CodeBlock's own
+     traffic-light dots are redundant (double dots) -- hide them. Keep its label
+     (a per-block sub-caption) and copy button. */
+  .ct-panel :global(.code-window-dots){display:none;}
+  .ct-panel :global(.code-window-label){margin-left:0;}
+</style>
+
+<script>
+  // Registered on astro:page-load (ClientRouter is site-wide) so the tabs keep
+  // working after client-side navigation, not just on first hard load.
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-code-tabs]').forEach((root) => {
+      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-ct-tab]'));
+      const panels = Array.from(root.querySelectorAll<HTMLElement>('[data-ct-panel]'));
+
+      const select = (index: number) => {
+        tabs.forEach((tab, i) => {
+          const active = i === index;
+          tab.classList.toggle('is-active', active);
+          tab.setAttribute('aria-selected', active ? 'true' : 'false');
+          tab.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel, i) => {
+          const active = i === index;
+          panel.classList.toggle('is-active', active);
+          panel.hidden = !active;
+        });
+      };
+
+      tabs.forEach((tab, i) => {
+        tab.addEventListener('click', () => select(i));
+        tab.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+          e.preventDefault();
+          const dir = e.key === 'ArrowRight' ? 1 : -1;
+          const next = (i + dir + tabs.length) % tabs.length;
+          select(next);
+          tabs[next].focus();
+        });
+      });
+    });
+  });
+</script>
