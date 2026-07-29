@@ -24,9 +24,9 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     href: 'llm-cheese-types/',
     tag: 'บันทึกวิจัย',
     title: 'LLM ชอบ "หลบด่าน" ที่เราตั้งไว้',
-    desc: 'สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด ยกโค้ดมาครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 (cats, cats-effect, fs2, Pekko) คู่กันทุกท่า',
+    desc: 'สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด ยกโค้ดมาครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 (cats, cats-effect, fs2, Pekko) และ TypeScript (Effect-TS) คู่กันทุกท่า',
     dateISO: '2026-07-26',
-    readingMinutes: 15,
+    readingMinutes: 18,
   },
   {
     href: 'icpc-warmup-2026/',
