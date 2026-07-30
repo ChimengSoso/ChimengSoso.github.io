@@ -1,0 +1,175 @@
+---
+// ภาพ diagram ที่แตะแล้วขยายเต็มจอได้ (lightbox)
+// ใช้คู่กับ .dgm-scroll เดิม: จอกว้างเห็นเต็ม จอแคบปัดดูได้ และถ้ายังเล็กไปก็แตะขยาย
+interface Props {
+  /** ข้อความใต้ภาพ */
+  caption: string;
+  /** ป้ายบอกผู้ใช้ว่าแตะแล้วเกิดอะไร (ค่าเริ่มต้นพอสำหรับภาพทั่วไป) */
+  openLabel?: string;
+}
+const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro.props;
+---
+<figure class="diagram zdgm">
+  <div class="zdgm-frame">
+    <div class="dgm-scroll">
+      <slot />
+    </div>
+    <button type="button" class="zdgm-open" aria-label={openLabel}>
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+        <path d="M6 1H2.5A1.5 1.5 0 0 0 1 2.5V6h1V2.5a.5.5 0 0 1 .5-.5H6zm4 0h3.5A1.5 1.5 0 0 1 15 2.5V6h-1V2.5a.5.5 0 0 0-.5-.5H10zM6 15H2.5A1.5 1.5 0 0 1 1 13.5V10h1v3.5a.5.5 0 0 0 .5.5H6zm4 0h3.5a1.5 1.5 0 0 0 1.5-1.5V10h-1v3.5a.5.5 0 0 1-.5.5H10z"/>
+      </svg>
+      <span>ขยาย</span>
+    </button>
+  </div>
+  <figcaption>{caption}</figcaption>
+
+  <div class="zdgm-overlay" hidden>
+    <div class="zdgm-stage" role="dialog" aria-modal="true" aria-label={caption}>
+      <div class="zdgm-canvas"></div>
+      <p class="zdgm-cap">{caption}</p>
+      <button type="button" class="zdgm-close" aria-label="ปิดภาพขยาย">
+        <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
+          <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</figure>
+
+<style>
+  .zdgm-frame{position:relative;}
+  /* svg มาจาก <slot> จึงถือ scope id ของหน้าที่เรียกใช้ ไม่ใช่ของคอมโพเนนต์นี้
+     ต้อง :global ไม่งั้นกฎไม่ติด (ดูหัวข้อ scoped style ใน CLAUDE.md) */
+  .dgm-scroll{overflow-x:auto;}
+  @media (max-width: 640px){
+    .dgm-scroll :global(svg){min-width:520px;}
+  }
+
+  .zdgm-open{
+    position:absolute;
+    right:8px;
+    bottom:8px;
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:5px 10px;
+    border:1px solid var(--dl-border);
+    border-radius:999px;
+    background:rgba(12,18,28,0.86);
+    color:var(--dl-muted);
+    font-family:"Chakra Petch", sans-serif;
+    font-size:0.72rem;
+    cursor:pointer;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .zdgm-open svg{width:12px;height:12px;}
+  .zdgm-open:hover,
+  .zdgm-open:focus-visible{
+    color:var(--dl-emerald-bright);
+    border-color:var(--dl-emerald);
+  }
+
+  .zdgm-overlay{
+    position:fixed;
+    inset:0;
+    z-index:120;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:1rem;
+    background:rgba(4,8,14,0.92);
+  }
+  .zdgm-overlay[hidden]{display:none;}
+
+  .zdgm-stage{
+    position:relative;
+    width:100%;
+    max-width:1100px;
+    max-height:92vh;
+    overflow:auto;
+    background:var(--dl-panel, #111a27);
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    padding:2.4rem 1rem 1rem;
+  }
+  .zdgm-canvas :global(svg){
+    width:100%;
+    height:auto;
+    min-width:560px;
+  }
+  .zdgm-cap{
+    margin:0.8rem 0 0;
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-muted);
+    text-align:center;
+  }
+  .zdgm-close{
+    position:absolute;
+    top:8px;
+    right:8px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:30px;
+    height:30px;
+    border:1px solid var(--dl-border);
+    border-radius:8px;
+    background:transparent;
+    color:var(--dl-ink);
+    cursor:pointer;
+  }
+  .zdgm-close svg{width:16px;height:16px;}
+  .zdgm-close:hover,
+  .zdgm-close:focus-visible{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+
+  @media (prefers-reduced-motion: reduce){
+    .zdgm-open{transition:none;}
+  }
+</style>
+
+<script>
+  // ทุก init ต้องอยู่ใน astro:page-load เพราะ ClientRouter สลับ DOM ทั้งหน้า
+  document.addEventListener('astro:page-load', () => {
+    const figures = document.querySelectorAll<HTMLElement>('.zdgm');
+
+    figures.forEach((fig) => {
+      const openBtn = fig.querySelector<HTMLButtonElement>('.zdgm-open');
+      const overlay = fig.querySelector<HTMLElement>('.zdgm-overlay');
+      const canvas = fig.querySelector<HTMLElement>('.zdgm-canvas');
+      const closeBtn = fig.querySelector<HTMLButtonElement>('.zdgm-close');
+      const source = fig.querySelector<SVGSVGElement>('.dgm-scroll svg');
+      if (!openBtn || !overlay || !canvas || !closeBtn || !source) return;
+
+      const close = () => {
+        overlay.hidden = true;
+        canvas.replaceChildren();
+        // คืน overlay กลับที่เดิม เพื่อให้ ClientRouter/DOM ของหน้าไม่เพี้ยน
+        fig.appendChild(overlay);
+        document.body.style.overflow = '';
+        openBtn.focus();
+      };
+
+      const open = () => {
+        const clone = source.cloneNode(true) as SVGSVGElement;
+        clone.removeAttribute('style');
+        canvas.replaceChildren(clone);
+        // .panel ของ DivineLoreLayout มี transform ซึ่งกลายเป็น containing block
+        // ของ position:fixed ทำให้ overlay ไม่เต็มจอ จึงต้องย้ายไปแปะที่ body
+        document.body.appendChild(overlay);
+        overlay.hidden = false;
+        document.body.style.overflow = 'hidden';
+        closeBtn.focus();
+      };
+
+      openBtn.addEventListener('click', open);
+      closeBtn.addEventListener('click', close);
+      overlay.addEventListener('click', (e: MouseEvent) => {
+        if (e.target === overlay) close();
+      });
+      document.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && !overlay.hidden) close();
+      });
+    });
+  });
+</script>

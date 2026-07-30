@@ -13,12 +13,20 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'rich-people-mortgage/',
+    tag: 'บันทึกการเงิน',
+    title: 'คนรวยก็กู้ซื้อบ้าน: แกะดอกเบี้ยทีละบาท',
+    desc: 'เกร็ดการเงินชิ้นแรก แกะโพสต์ยอดนิยมเรื่องมหาเศรษฐีที่ยังกู้แบงก์ซื้อบ้าน ว่าดอกเบี้ยลดต้นลดดอกทำงานยังไง ประวัติของ Buffett, Zuckerberg, Musk, Griffin, Jay-Z จริงแค่ไหน ทำไมจุดคุ้มทุนคืออัตราดอกเบี้ยพอดี และส่วนไหนของวิธีคิดนี้ใช้ในไทยไม่ได้เลย',
+    dateISO: '2026-07-30',
+    readingMinutes: 16,
+  },
+  {
     href: 'options-101/',
     tag: 'บันทึกการเงิน',
     title: 'Options 101: หุ้นอยู่ที่เดิม เราก็ขาดทุนได้',
     desc: 'สรุป Webull Master Class ตอน Zero to Options Trader แบบละเอียด พร้อมภาพ payoff ทุกท่า ตั้งแต่ Call/Put, Covered Call, Cash Secured Put ไปจนถึงการหาโซนราคาด้วย Reverse DCF',
     dateISO: '2026-07-27',
-    readingMinutes: 22,
+    readingMinutes: 29,
   },
   {
     href: 'llm-cheese-types/',
