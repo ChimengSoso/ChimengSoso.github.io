@@ -515,6 +515,10 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         <input type="range" data-in="fee" min="0" max="2" step="0.05" value="0.65" aria-label="ค่าธรรมเนียมต่อสัญญา (ดอลลาร์)">
       </label>
       <label class="sizer-field">
+        <span>ราคาใช้สิทธิ์ (strike) · <b data-lbl="strike">$150</b></span>
+        <input type="range" data-in="strike" min="5" max="500" step="5" value="150" aria-label="ราคาใช้สิทธิ์ strike (ดอลลาร์)">
+      </label>
+      <label class="sizer-field">
         <span>เรตเงินบาท (บาทต่อดอลลาร์) · <b data-lbl="rate">฿33.50</b></span>
         <input type="range" data-in="rate" min="28" max="40" step="0.25" value="33.5" aria-label="เรตแปลงเงินบาท (บาทต่อดอลลาร์)">
       </label>
@@ -538,7 +542,14 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         <span class="sizer-answer-sub" data-answer-sub></span>
       </div>
     </div>
-    <p class="sizer-note">ตัวเลขนี้ช่วยให้เห็นภาพ ไม่ใช่คำแนะนำการลงทุน สำหรับการซื้อ option หนึ่งไม้ เงินที่เสี่ยงจริงคือค่า premium บวกค่าธรรมเนียมเท่านั้น ราคาหุ้นกับ strike ไปฝังอยู่ในค่า premium แล้ว</p>
+    <p class="sizer-note">ตัวเลขนี้ช่วยให้เห็นภาพ ไม่ใช่คำแนะนำการลงทุน สำหรับการซื้อ option หนึ่งไม้ เงินที่เสี่ยงจริงคือค่า premium บวกค่าธรรมเนียมเท่านั้น</p>
+
+    <div class="sizer-exercise">
+      <p class="sizer-ex-title">เงินก้อนที่สอง: ถ้าจะรับหุ้นเข้าพอร์ตจริง</p>
+      <div class="sizer-row"><span>เตรียมไว้ซื้อหุ้นที่ strike (× 100 × สัญญา)</span><b data-out="exercise">$15,000</b></div>
+      <div class="sizer-row sizer-baht"><span>คิดเป็นเงินบาท</span><b data-out="exercisethb">฿502,500</b></div>
+      <p class="sizer-note">ก้อนนี้ไม่ใช่เงินที่หายไป เพราะเราได้หุ้นมูลค่าใกล้เคียงกันกลับมา มันคือเงินสดที่ต้องมีพร้อมตอนใช้สิทธิ์ Call เพื่อซื้อหุ้น หรือตอนโดนใช้สิทธิ์ Put (short put) เพื่อรับหุ้น ถ้าเป็นการซื้อ option ทั่วไปแล้วขายสิทธิ์ทิ้งก่อนหมดอายุ ก็ไม่ต้องเตรียมก้อนนี้เลย</p>
+    </div>
   </div>
 
   <style>
@@ -568,6 +579,9 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
     .sizer-answer.tier-danger { border-color: #b23b3b; background: #2b1616; color: #f08b8b; }
     .sizer-answer.tier-danger .sizer-answer-sub { color: #d98f8f; }
     .sizer-note { font-size: 0.8rem; color: #7d8aa0; margin: 0.7rem 0 0; line-height: 1.5; }
+    .sizer-exercise { margin-top: 1rem; border-top: 1px dashed #2a3450; padding-top: 0.9rem; }
+    .sizer-ex-title { font-weight: 700; color: #8fb3e0; margin: 0 0 0.55rem; font-size: 0.95rem; }
+    .sizer-exercise .sizer-row b { color: #8fb3e0; }
     @media (prefers-reduced-motion: reduce) { .sizer-mode { transition: none; } }
   </style>
 
@@ -583,7 +597,8 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
       const pctEl = get('pct');
       const portEl = get('port');
       const rateEl = get('rate');
-      if (!premiumEl || !contractsEl || !feeEl || !pctEl || !portEl || !rateEl) return;
+      const strikeEl = get('strike');
+      if (!premiumEl || !contractsEl || !feeEl || !pctEl || !portEl || !rateEl || !strikeEl) return;
 
       const usd0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
       const usd2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -611,18 +626,23 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         const contracts = Number(contractsEl.value);
         const fee = Number(feeEl.value);
         const rate = Number(rateEl.value);
+        const strike = Number(strikeEl.value);
         const premiumTotal = premium * 100 * contracts;
         const feeTotal = fee * contracts;
         const risk = premiumTotal + feeTotal;
+        const exercise = strike * 100 * contracts;
 
         setLbl('premium', `$${premium}`);
         setLbl('contracts', String(contracts));
         setLbl('fee', `$${usd2.format(fee)}`);
+        setLbl('strike', `$${strike}`);
         setLbl('rate', `฿${usd2.format(rate)}`);
         setOut('premium', `$${usd2.format(premiumTotal)}`);
         setOut('fee', `$${usd2.format(feeTotal)}`);
         setOut('risk', `$${usd2.format(risk)}`);
         setOut('riskthb', baht(risk, rate));
+        setOut('exercise', `$${usd0.format(exercise)}`);
+        setOut('exercisethb', baht(exercise, rate));
 
         if (!answer || !ansLabel || !ansValue || !ansSub) return;
 
@@ -652,7 +672,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         }
       };
 
-      [premiumEl, contractsEl, feeEl, pctEl, portEl, rateEl].forEach((el) => {
+      [premiumEl, contractsEl, feeEl, pctEl, portEl, rateEl, strikeEl].forEach((el) => {
         el.addEventListener('input', recompute);
       });
 
