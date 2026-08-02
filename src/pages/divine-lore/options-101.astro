@@ -1,6 +1,63 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+// โมเดล Reverse DCF สำหรับมินิเกม (แบบง่าย: FCFF margin คงที่ ไม่ใส่ช่วง cash burn ต้นทาง)
+// ตรึงกับหมุดที่บทความระบุ: EV 37,000 ล้าน ที่ราคา ~66, รายได้ฐาน 680 ล้าน
+// โมเดล flat นี้ให้ CAGR ~42% ที่ราคา 66 ส่วนโมเดลเต็มที่รวมช่วงขาดทุนต้นทางได้ ~45% (ดูกล่องอ่านด้วยวิจารณญาณ)
+// cross-check แล้วกับสคริปต์ทิ้งใน scratchpad (/tmp/rdcf3.mjs)
+const RDCF = { rev0: 680, wacc: 0.10, tg: 0.04, years: 10, margin: 0.20, priceRef: 66, evRef: 37000 };
+type RdcfRow = { year: number; rev: number; fcff: number; pv: number };
+type RdcfResult = { rows: RdcfRow[]; opPv: number; tvPv: number; total: number; cagr: number; rev10: number };
+
+function rdcfEvForG(g: number): number {
+  let pv = 0;
+  let fcffN = 0;
+  for (let t = 1; t <= RDCF.years; t++) {
+    const rev = RDCF.rev0 * Math.pow(1 + g, t);
+    const fcff = rev * RDCF.margin;
+    pv += fcff / Math.pow(1 + RDCF.wacc, t);
+    if (t === RDCF.years) fcffN = fcff;
+  }
+  const tv = (fcffN * (1 + RDCF.tg)) / (RDCF.wacc - RDCF.tg);
+  return pv + tv / Math.pow(1 + RDCF.wacc, RDCF.years);
+}
+function rdcfSolveG(ev: number): number {
+  let lo = 0;
+  let hi = 3;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (rdcfEvForG(mid) < ev) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+function rdcfEvOfPrice(price: number): number {
+  return RDCF.evRef * (price / RDCF.priceRef);
+}
+function rdcfCompute(price: number): RdcfResult {
+  const ev = rdcfEvOfPrice(price);
+  const g = rdcfSolveG(ev);
+  const rows: RdcfRow[] = [];
+  let opPv = 0;
+  let fcffN = 0;
+  for (let t = 1; t <= RDCF.years; t++) {
+    const rev = RDCF.rev0 * Math.pow(1 + g, t);
+    const fcff = rev * RDCF.margin;
+    const pv = fcff / Math.pow(1 + RDCF.wacc, t);
+    opPv += pv;
+    if (t === RDCF.years) fcffN = fcff;
+    rows.push({ year: t, rev, fcff, pv });
+  }
+  const tv = (fcffN * (1 + RDCF.tg)) / (RDCF.wacc - RDCF.tg);
+  const tvPv = tv / Math.pow(1 + RDCF.wacc, RDCF.years);
+  return { rows, opPv, tvPv, total: opPv + tvPv, cagr: g, rev10: RDCF.rev0 * Math.pow(1 + g, RDCF.years) };
+}
+const rdcfFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+const rdcfInit = rdcfCompute(RDCF.priceRef);
+// pre-render สูงสุด 20 แถว (สคริปต์จะซ่อน/โชว์ตามจำนวนปี) กันปัญหา scoped CSS ไม่จับ <tr> ที่ JS สร้างเอง
+const RDCF_MAXYEARS = 20;
+const rdcfSlots: (RdcfRow | null)[] = Array.from({ length: RDCF_MAXYEARS }, (_, i) => rdcfInit.rows[i] ?? null);
 ---
 <DivineLoreLayout title="Options 101: หุ้นอยู่ที่เดิม เราก็ขาดทุนได้ | บันทึกศาสตร์แห่งเทพ" description="สรุป Webull Master Class ตอน Zero to Options Trader แบบละเอียด พร้อมภาพ payoff ทุกท่า ตั้งแต่ Call/Put, Covered Call, Cash Secured Put ไปจนถึงการหาโซนราคาด้วย Reverse DCF">
   <nav class="dl-nav">
@@ -595,6 +652,28 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
     .sizer-ex-title { font-weight: 700; color: #8fb3e0; margin: 0 0 0.55rem; font-size: 0.95rem; }
     .sizer-exercise .sizer-row b { color: #8fb3e0; }
     @media (prefers-reduced-motion: reduce) { .sizer-mode { transition: none; } }
+
+    .rdcf { margin: 1.5rem 0; padding: 1rem 1.1rem 1.2rem; border: 1px solid #2a3450; border-radius: 14px; background: #141b29; }
+    .rdcf-slider { margin-bottom: 1rem; }
+    .rdcf .sizer-modes { margin-bottom: 1rem; }
+    .rdcf [data-rpanel][hidden] { display: none; }
+    .rdcf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+    .rdcf-grid label { display: grid; gap: 0.25rem; font-size: 0.78rem; color: #9aa7bd; }
+    .rdcf-grid input { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid #3a4666; border-radius: 8px; background: #1c2536; color: #e6ebf5; font: inherit; font-size: 0.9rem; }
+    .rdcf table.amo tr[hidden] { display: none; }
+    .rdcf-ev { border-top: 1px solid #2a3450; padding-top: 0.9rem; }
+    .rdcf figure.tbl { margin: 1rem 0 0.4rem; overflow-x: auto; background: #10161f; border: 1px solid #2a3450; border-radius: 12px; }
+    .rdcf figure.tbl figcaption { padding: 0.6rem 1rem 0.9rem; font-size: 0.78rem; color: #7d8aa0; text-align: center; line-height: 1.5; }
+    .rdcf table.amo { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .rdcf table.amo caption { caption-side: top; font-family: "JetBrains Mono", monospace; font-size: 0.64rem; text-transform: uppercase; letter-spacing: .5px; color: #e0b400; padding: 0.8rem 0.9rem 0.6rem; text-align: left; }
+    .rdcf table.amo th, .rdcf table.amo td { padding: 0.42rem 0.9rem; text-align: right; border-top: 1px solid #2a3450; white-space: nowrap; }
+    .rdcf table.amo th { color: #9aa7bd; font-weight: 600; font-size: 0.74rem; }
+    .rdcf table.amo th:first-child, .rdcf table.amo td:first-child { text-align: left; }
+    .rdcf table.amo td { font-variant-numeric: tabular-nums; letter-spacing: .2px; color: #c3cbdc; }
+    .rdcf table.amo td.hot { color: #f0c860; }
+    .rdcf table.amo td.cool { color: #4ade80; }
+    .rdcf table.amo tfoot td { font-weight: 600; }
+    .rdcf table.amo tr.tie { background: rgba(224,180,0,0.09); }
   </style>
 
   <script>
@@ -706,6 +785,204 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         });
       });
 
+      recompute();
+    });
+  </script>
+
+  <script>
+    document.addEventListener('astro:page-load', () => {
+      const root = document.querySelector<HTMLElement>('[data-rdcf]');
+      if (!root) return;
+      const body = root.querySelector<HTMLElement>('[data-rbody]');
+      const verdict = root.querySelector<HTMLElement>('[data-rverdict]');
+      if (!body || !verdict) return;
+
+      type Params = { rev0: number; wacc: number; tg: number; years: number; margin: number; priceRef: number; evRef: number; price: number };
+      type Verdict = { tier: 'ok' | 'warn' | 'danger'; label: string };
+      const RKLB = { rev0: 680, wacc: 0.10, tg: 0.04, years: 10, margin: 0.20, priceRef: 66, evRef: 37000 };
+      const MAXROWS = 20;
+      const fmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
+      const evForG = (g: number, p: Params): number => {
+        let pv = 0;
+        let fcffN = 0;
+        for (let t = 1; t <= p.years; t++) {
+          const rev = p.rev0 * Math.pow(1 + g, t);
+          const fcff = rev * p.margin;
+          pv += fcff / Math.pow(1 + p.wacc, t);
+          if (t === p.years) fcffN = fcff;
+        }
+        const tv = (fcffN * (1 + p.tg)) / (p.wacc - p.tg);
+        return pv + tv / Math.pow(1 + p.wacc, p.years);
+      };
+      const solveG = (ev: number, p: Params): number => {
+        let lo = 0;
+        let hi = 5;
+        for (let i = 0; i < 200; i++) {
+          const mid = (lo + hi) / 2;
+          if (evForG(mid, p) < ev) lo = mid;
+          else hi = mid;
+        }
+        return (lo + hi) / 2;
+      };
+      const setOut = (name: string, text: string) => {
+        const el = root.querySelector<HTMLElement>(`[data-rout="${name}"]`);
+        if (el) el.textContent = text;
+      };
+      const setCell = (name: string, text: string) => {
+        const el = body.querySelector<HTMLElement>(`[data-rcell="${name}"]`);
+        if (el) el.textContent = text;
+      };
+      const num = (sel: string): number => {
+        const el = root.querySelector<HTMLInputElement>(sel);
+        return el ? Number(el.value) : NaN;
+      };
+
+      const noteRklb = 'แถบสีในแท็บนี้คือโซนที่คุณเอิร์ธตีจากสามมุมมอง (เทคนิค นักวิเคราะห์ implied path) ไม่ใช่เกณฑ์ที่เครื่องคิดจาก CAGR ส่วนตัว EV สมมติแบบง่ายว่าขยับตามราคาเป็นสัดส่วน (ตรึงราคา 66 เท่ากับ EV 37B) และตัดช่วงที่บริษัทยัง burn cash ปีแรก ๆ ออก ตัวเลขจึงเป็นภาพคร่าว ๆ ไว้เห็นกลไก ไม่ใช่ราคาชี้เป็นชี้ตาย';
+      const noteCustom = 'แท็บนี้ใช้โมเดลเดียวกัน (margin คงที่ ไม่ใส่ช่วง burn cash) เกณฑ์สีเทียบอัตราโตที่ถูกบังคับกับ "อัตราโตที่คุณเชื่อว่าไหว" ที่กรอกไว้ ต่ำกว่าคือเขียว เกินไปนิดคือเหลือง เกินไปมากคือแดง ตัวเลขไว้เทียบสัมพัทธ์เพื่อเห็นภาพ ไม่ใช่คำแนะนำซื้อขาย';
+
+      const showInvalid = (msg: string) => {
+        verdict.className = 'sizer-answer tier-danger';
+        setOut('cagr', '?');
+        setOut('ev', '?');
+        const sub = root.querySelector<HTMLElement>('[data-rout="zone"]');
+        if (sub) sub.textContent = msg;
+      };
+
+      const render = (p: Params, colorFn: (cagr: number) => Verdict) => {
+        const ok = [p.rev0, p.wacc, p.tg, p.years, p.margin, p.priceRef, p.evRef, p.price].every((v) => Number.isFinite(v));
+        if (!ok || p.wacc <= p.tg || p.rev0 <= 0 || p.years < 1 || p.priceRef <= 0 || p.evRef <= 0 || p.margin <= 0) {
+          showInvalid('ตรวจค่าอินพุต: WACC ต้องมากกว่าอัตราโตปลายทาง และทุกช่องต้องเป็นบวก');
+          return;
+        }
+        const ev = p.evRef * (p.price / p.priceRef);
+        const g = solveG(ev, p);
+
+        let opPv = 0;
+        let fcffN = 0;
+        for (let t = 1; t <= MAXROWS; t++) {
+          const rowEl = body.querySelector<HTMLElement>(`[data-rrow="${t}"]`);
+          if (t > p.years) {
+            if (rowEl) rowEl.hidden = true;
+            continue;
+          }
+          if (rowEl) rowEl.hidden = false;
+          const rev = p.rev0 * Math.pow(1 + g, t);
+          const fcff = rev * p.margin;
+          const pv = fcff / Math.pow(1 + p.wacc, t);
+          opPv += pv;
+          if (t === p.years) fcffN = fcff;
+          setCell(`rev-${t}`, fmt.format(rev));
+          setCell(`fcff-${t}`, fmt.format(fcff));
+          setCell(`pv-${t}`, fmt.format(pv));
+        }
+        const tv = (fcffN * (1 + p.tg)) / (p.wacc - p.tg);
+        const tvPv = tv / Math.pow(1 + p.wacc, p.years);
+        const total = opPv + tvPv;
+        const rev10 = p.rev0 * Math.pow(1 + g, p.years);
+
+        setOut('ev', `$${(total / 1000).toFixed(1)}B`);
+        setOut('cagr', `${(g * 100).toFixed(1)}%`);
+        setOut('years', String(p.years));
+        setOut('marginhead', String(Math.round(p.margin * 100)));
+        setOut('oppv', fmt.format(opPv));
+        setOut('tvpv', fmt.format(tvPv));
+        setOut('totalm', fmt.format(total));
+
+        const v = colorFn(g);
+        verdict.className = v.tier === 'ok' ? 'sizer-answer' : v.tier === 'warn' ? 'sizer-answer tier-warn' : 'sizer-answer tier-danger';
+        setOut('zone', `${v.label} · รายได้ต้องไปแตะราว $${(rev10 / 1000).toFixed(1)}B ใน ${p.years} ปี`);
+      };
+
+      const priceEl = root.querySelector<HTMLInputElement>('[data-rin="price"]');
+      const cPriceEl = root.querySelector<HTMLInputElement>('[data-cin="price"]');
+
+      const renderRklb = () => {
+        if (!priceEl) return;
+        const price = Number(priceEl.value);
+        const lbl = root.querySelector<HTMLElement>('[data-rlbl="price"]');
+        if (lbl) lbl.textContent = `$${price}`;
+        const rklbColor = (): Verdict =>
+          price <= 50
+            ? { tier: 'ok', label: 'กล้าซื้อ (โซนของคุณเอิร์ธ)' }
+            : price <= 66
+              ? { tier: 'warn', label: 'เริ่มแพง (โซนของคุณเอิร์ธ)' }
+              : { tier: 'danger', label: 'ต้องพึ่งปาฏิหาริย์ (โซนของคุณเอิร์ธ)' };
+        render({ ...RKLB, price }, rklbColor);
+        setOut('note', noteRklb);
+      };
+
+      const renderCustom = () => {
+        const price = num('[data-cin="price"]');
+        const clbl = root.querySelector<HTMLElement>('[data-clbl="price"]');
+        if (clbl) clbl.textContent = `$${price}`;
+        const believable = num('[data-cin="believable"]') / 100;
+        const believeColor = (g: number): Verdict => {
+          if (!(believable > 0)) return { tier: 'warn', label: 'ใส่อัตราโตที่เชื่อว่าไหวก่อน' };
+          if (g <= believable) return { tier: 'ok', label: 'เชื่อได้ (ต่ำกว่าที่คุณเชื่อว่าไหว)' };
+          if (g <= believable * 1.25) return { tier: 'warn', label: 'เริ่มตึง (เกินที่เชื่อไปนิด)' };
+          return { tier: 'danger', label: 'ต้องพึ่งปาฏิหาริย์ (เกินที่เชื่อไปไกล)' };
+        };
+        render(
+          {
+            rev0: num('[data-cin="rev0"]'),
+            wacc: num('[data-cin="wacc"]') / 100,
+            tg: num('[data-cin="tg"]') / 100,
+            years: Math.round(num('[data-cin="years"]')),
+            margin: num('[data-cin="margin"]') / 100,
+            priceRef: num('[data-cin="curPrice"]'),
+            evRef: num('[data-cin="curEv"]'),
+            price,
+          },
+          believeColor,
+        );
+        setOut('note', noteCustom);
+      };
+
+      let mode: 'rklb' | 'custom' = 'rklb';
+      const recompute = () => {
+        if (mode === 'rklb') renderRklb();
+        else renderCustom();
+      };
+
+      const syncRange = () => {
+        const cur = num('[data-cin="curPrice"]');
+        if (!cPriceEl || !Number.isFinite(cur) || cur <= 0) return;
+        cPriceEl.min = String(Math.max(1, Math.round(cur * 0.5)));
+        cPriceEl.max = String(Math.round(cur * 1.5));
+        const val = Number(cPriceEl.value);
+        if (val < Number(cPriceEl.min) || val > Number(cPriceEl.max)) cPriceEl.value = String(Math.round(cur));
+      };
+
+      if (priceEl) priceEl.addEventListener('input', renderRklb);
+      root.querySelectorAll<HTMLInputElement>('[data-cin]').forEach((el) => {
+        el.addEventListener('input', () => {
+          if (el.dataset.cin === 'curPrice') syncRange();
+          renderCustom();
+        });
+      });
+
+      const btns = root.querySelectorAll<HTMLButtonElement>('.sizer-mode');
+      const panels = root.querySelectorAll<HTMLElement>('[data-rpanel]');
+      btns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const m = btn.dataset.rmode;
+          if (m !== 'rklb' && m !== 'custom') return;
+          mode = m;
+          btns.forEach((b) => {
+            const on = b === btn;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-selected', String(on));
+          });
+          panels.forEach((pl) => {
+            pl.hidden = pl.dataset.rpanel !== mode;
+          });
+          if (mode === 'custom') syncRange();
+          recompute();
+        });
+      });
+
+      syncRange();
       recompute();
     });
   </script>
@@ -1161,7 +1438,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
   </p>
 
   <ZoomableDiagram caption="Reverse DCF ไม่ได้ตอบว่าหุ้นควรราคาเท่าไหร่ แต่ตอบว่าถ้าจะซื้อที่ราคานี้ เราต้องเชื่ออะไรบ้าง ซึ่งเป็นคำถามที่ตรวจสอบตัวเองได้ง่ายกว่ามาก (diagram วาดประกอบโดยผู้เขียน)">
-    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบทิศทางของ DCF กับ Reverse DCF แถวบน DCF ปกติ เริ่มจากสมมติฐานการเติบโตที่เราใส่เอง แล้วได้ผลลัพธ์เป็นมูลค่าที่ควรจะเป็น แถวล่าง Reverse DCF เริ่มจากราคาตลาดวันนี้ แล้วถอดกลับออกมาเป็นอัตราการเติบโตที่บริษัทถูกบังคับให้ต้องทำให้ได้" style="font-family:'Sarabun',sans-serif">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบทิศทางของ DCF กับ Reverse DCF แถวบน DCF ปกติ เริ่มจากสมมติฐานการเติบโตที่เราใส่เอง แล้วได้ผลลัพธ์เป็นมูลค่าที่ควรจะเป็น แถวล่าง Reverse DCF เริ่มจากมูลค่าตลาดวันนี้ แล้วถอดกลับออกมาเป็นอัตราการเติบโตที่บริษัทถูกบังคับให้ต้องทำให้ได้" style="font-family:'Sarabun',sans-serif">
       <defs>
         <marker id="rv-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
@@ -1181,7 +1458,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 
       <text x="60" y="162" font-size="12.5" font-weight="700" fill="#e0b400">Reverse DCF</text>
       <rect x="430" y="174" width="230" height="52" rx="10" fill="#1c2536" stroke="#3a4666"/>
-      <text x="545" y="196" font-size="11.5" fill="#c3cbdc" text-anchor="middle">ใส่ราคาตลาดวันนี้</text>
+      <text x="545" y="196" font-size="11.5" fill="#c3cbdc" text-anchor="middle">ใส่มูลค่าตลาดวันนี้</text>
       <text x="545" y="214" font-size="11" fill="#8a97ad" text-anchor="middle">EV 37B</text>
       <line x1="420" y1="200" x2="300" y2="200" stroke="#e0b400" stroke-width="2" marker-end="url(#rv-arrow-g)"/>
       <rect x="60" y="174" width="230" height="52" rx="10" fill="#2b2410" stroke="#e0b400"/>
@@ -1191,10 +1468,10 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
   </ZoomableDiagram>
 
   <p>
-    วิธีคิดของ Reverse DCF ใช้ได้กับหุ้นตัวไหนก็ตาม ขอแค่จำสี่จังหวะนี้ไว้ครับ หนึ่ง เอา <strong>ราคาตลาดวันนี้ (EV)</strong> ตั้งเป็นโจทย์ที่ล็อกไว้ สอง <strong>ล็อกสมมติฐานที่เหลือ</strong> ให้อยู่ในระดับที่เรารับได้ เช่น WACC มาร์จิ้นปลายทาง จำนวนปีที่ยอมให้โตแรง สาม <strong>แก้ย้อนกลับ</strong> หาว่าต้องโตปีละกี่เปอร์เซ็นต์ โมเดลถึงจะปั้นมูลค่าออกมาเท่ากับราคาตลาดพอดี สี่ เอาอัตราโตที่ได้มา<strong>ถามตัวเองว่ามันสมเหตุสมผลไหม</strong> ในเมื่อราคาเป็นตัวตั้ง คำตอบสุดท้ายจึงไม่ใช่ "หุ้นควรราคาเท่าไหร่" แต่เป็น "ถ้าจะซื้อที่ราคานี้ เราต้องเชื่อว่าบริษัทโตได้แค่ไหน"
+    วิธีคิดของ Reverse DCF ใช้ได้กับหุ้นตัวไหนก็ตาม ขอแค่จำสี่จังหวะนี้ไว้ครับ หนึ่ง เอา <strong>มูลค่าตลาดวันนี้ (EV)</strong> ตั้งเป็นโจทย์ที่ล็อกไว้ สอง <strong>ล็อกสมมติฐานที่เหลือ</strong> ให้อยู่ในระดับที่เรารับได้ เช่น WACC มาร์จิ้นปลายทาง จำนวนปีที่ยอมให้โตแรง สาม <strong>แก้ย้อนกลับ</strong> หาว่าต้องโตปีละกี่เปอร์เซ็นต์ โมเดลถึงจะปั้นมูลค่าออกมาเท่ากับมูลค่าตลาดพอดี สี่ เอาอัตราโตที่ได้มา<strong>ถามตัวเองว่ามันสมเหตุสมผลไหม</strong> ในเมื่อราคาเป็นตัวตั้ง คำตอบสุดท้ายจึงไม่ใช่ "หุ้นควรราคาเท่าไหร่" แต่เป็น "ถ้าจะซื้อที่ราคานี้ เราต้องเชื่อว่าบริษัทโตได้แค่ไหน"
   </p>
   <p>
-    พอเอาสูตรนี้มาใส่ตัวเลขของ RKLB ผลลัพธ์ที่ได้คือ ราคาช่วงนั้นบังคับให้บริษัทต้องเติบโตราว <strong>45% ต่อปี ติดต่อกัน 10 ปี</strong> ซึ่งแปลว่ารายได้ต้องไปแตะ 28 ถึง 29 พันล้านดอลลาร์ จากฐานวันนี้ที่ 680 ล้าน
+    พอเอาสูตรนี้มาใส่ตัวเลขของ RKLB ผลลัพธ์ที่ได้คือ ราคาช่วงนั้นบังคับให้บริษัทต้องเติบโตราว <strong>45% ต่อปี (CAGR) ติดต่อกัน 10 ปี</strong> ซึ่งแปลว่ารายได้ต้องไปแตะ 28 ถึง 29 พันล้านดอลลาร์ จากฐานวันนี้ที่ 680 ล้าน
   </p>
   <p>
     ลองแยกให้เห็นชัดว่าอะไรเป็นอะไร ตัวแรกคือ <strong>EV ที่เป็นโจทย์ล็อกตายตัว</strong> เพราะเป็นราคาที่ตลาดตั้งไว้จริง เราแตะมันไม่ได้ ส่วนอีกสี่ตัวข้างล่างคือ <strong>ปุ่มที่เราหมุนเอง</strong> แต่ละปุ่มไม่ได้เป็นแค่พารามิเตอร์แห้ง ๆ มันคือความเชื่ออย่างหนึ่งที่เราเซ็นชื่อรับรองไปด้วย พอล็อกโจทย์แล้วหมุนสี่ปุ่มนี้ให้อยู่ในระดับที่รับได้ โมเดลก็จะคายตัวเลขที่หกออกมาให้ นั่นคืออัตราการเติบโตที่ราคานี้เรียกร้อง
@@ -1203,7 +1480,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
     <summary>กางดู: สมมติฐานห้าตัวแบบละเอียด (EV, WACC, FCFF, ระยะเวลา, terminal growth)</summary>
     <div class="expander-body">
       <p>
-        <strong>EV 37 พันล้าน</strong> คือราคาที่ตลาดตั้งไว้วันนี้ ตัวนี้ไม่ใช่สมมติฐาน แต่คือโจทย์ที่เราเอาเข้าไปถอด ถ้าราคาหุ้นเปลี่ยน คำตอบทั้งหมดก็เปลี่ยนตาม
+        <strong>EV 37 พันล้าน</strong> คือมูลค่าที่ตลาดตั้งไว้วันนี้ ตัวนี้ไม่ใช่สมมติฐาน แต่คือโจทย์ที่เราเอาเข้าไปถอด ถ้าราคาหุ้นเปลี่ยน คำตอบทั้งหมดก็เปลี่ยนตาม
       </p>
       <p>
         <strong>WACC 10%</strong> ("แว็ก" ย่อจาก <i>Weighted Average Cost of Capital</i> แปลว่าต้นทุนเงินทุนเฉลี่ย) คืออัตราที่ใช้ลดค่าเงินอนาคต แปลเป็นภาษาคนคือเราเรียกร้องผลตอบแทนอย่างน้อยปีละ 10% ถึงจะยอมเอาเงินมาลงตรงนี้ ถ้าตั้งต่ำกว่านี้ ตัวเลขจะสวยขึ้นทันทีโดยที่ธุรกิจไม่ได้ดีขึ้นเลย
@@ -1220,7 +1497,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
     </div>
   </details>
   <p>
-    อ่านรวมกันแล้วจะเห็นว่าสมมติฐานชุดนี้ค่อนไปทางเข้าข้างบริษัทแทบทุกช่อง ซึ่งทำให้ตัวเลข 45% ที่ได้ออกมายิ่งน่ากลัว เพราะมันคือเพดานที่ต่ำที่สุดแล้ว
+    อ่านรวมกันแล้วจะเห็นว่าสมมติฐานชุดนี้ค่อนไปทางเข้าข้างบริษัทแทบทุกช่อง ซึ่งทำให้ตัวเลข 45% ที่ได้ออกมายิ่งน่ากลัว เพราะ 45% นี้คือ<strong>ค่าต่ำสุดที่ราคานี้เรียกร้อง</strong>แล้ว ในเมื่อเราใจดีกับบริษัทเต็มที่ทุกช่อง ถ้าลองเปลี่ยนไปใส่สมมติฐานที่สมจริงกว่า (โหดกับบริษัทกว่านี้) อัตราโตที่ถูกบังคับก็จะยิ่งพุ่งสูงเกิน 45% ขึ้นไปอีก
   </p>
   <div class="callout callout-warn">
     <p class="callout-label">จุดที่ต้องเน้น</p>
@@ -1245,7 +1522,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 
   <h2>โซนราคาที่เรากล้าซื้อ</h2>
   <p>
-    ตลาดหุ้นอเมริกาขึ้นด้วยความคาดหวังส่วนหนึ่งเสมอ เราจึงต้องตัดสินใจเองว่าตรงไหนที่สมเหตุสมผลสำหรับเรา วิธีที่คุณเอิร์ธใช้คือเอาสามมุมมองมาวางซ้อนบนเส้นราคาเดียวกัน แล้วดูว่าช่วงไหนที่ทั้งสามเห็นตรงกันว่าน่าซื้อ สามมุมมองนั้นคือ ราคาเชิงเทคนิค มุมมองรวมของนักวิเคราะห์ และเส้นทางที่ราคาตลาดกำลังบอกเป็นนัย (implied path) ซึ่งตัวหลังนี้ก็คือ<strong>ผลของ Reverse DCF ที่เราเพิ่งถอดกันไป</strong>นั่นเอง ไม่ใช่เครื่องมือใหม่แต่อย่างใด
+    ตลาดหุ้นอเมริกาขึ้นด้วยความคาดหวังส่วนหนึ่งเสมอ เราจึงต้องตัดสินใจเองว่าตรงไหนที่สมเหตุสมผลสำหรับเรา วิธีที่คุณเอิร์ธใช้คือเอาสามมุมมองมาวางซ้อนบนเส้นราคาเดียวกัน แล้วดูว่าช่วงไหนที่ทั้งสามเห็นตรงกันว่าน่าซื้อ สามมุมมองนั้นคือ ราคาเชิงเทคนิค มุมมองรวมของนักวิเคราะห์ และเส้นทางที่ตลาดกำลังบอกเป็นนัย (implied path) ซึ่งตัวหลังนี้ก็คือ<strong>ผลของ Reverse DCF ที่เราเพิ่งถอดกันไป</strong>นั่นเอง ไม่ใช่เครื่องมือใหม่แต่อย่างใด
   </p>
   <ZoomableDiagram caption="ราคาเดียวกัน แต่คนละความหมาย: ยิ่งซื้อแพง ยิ่งต้องเชื่อว่าบริษัทจะโตแบบไม่มีสะดุด โซนเขียวคือช่วงที่ทั้งสามมุมมองทับกันว่าพอเป็นไปได้จริงโดยไม่ต้องพึ่งปาฏิหาริย์ (diagram วาดประกอบโดยผู้เขียน)">
     <svg viewBox="0 0 720 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เส้นราคาของ RKLB จากสี่สิบถึงแปดสิบดอลลาร์ ช่วงสี่สิบถึงห้าสิบเป็นโซนเขียวที่กล้าซื้อเพราะไม่ต้องพึ่งปาฏิหาริย์ ช่วงห้าสิบถึงหกสิบหกเป็นโซนกลางที่เริ่มแพง ช่วงหกสิบหกขึ้นไปเป็นโซนแดงที่ต้องเชื่อว่าบริษัทโตแรงไม่มีสะดุด ราคาตอนนี้อยู่ราวหกสิบหกซึ่งอยู่ปลายโซนกลางติดโซนแดง" style="font-family:'Sarabun',sans-serif">
@@ -1282,6 +1559,112 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
   <p>
     อ่านภาพนี้แล้วจะเห็นว่า ถ้าซื้อที่ 70 แปลว่าเราต้องเชื่อว่าบริษัทจะโตแรงมากแบบไม่มีสะดุด แต่ถ้าซื้อได้แถว 50 หรือ 40 จะนับเป็นโซนที่ไม่ต้องพึ่งปาฏิหาริย์และพอจะเป็นไปได้จริงมากขึ้น
   </p>
+  <p>
+    แต่โซนพวกนี้ไม่ได้เสกมาลอย ๆ มันคือผลของ Reverse DCF ที่ลากราคาเข้าไปแล้วถอดกลับออกมาเป็นอัตราโตที่ถูกบังคับ ลองเลื่อนราคาเองในเครื่องข้างล่างดูครับ จะเห็นทั้งอัตราโตที่ราคานั้นเรียกร้อง และตารางที่กางให้ดูว่าเงินสดแต่ละปีถูกคิดลดกลับมารวมเป็นมูลค่ากิจการวันนี้ยังไง
+  </p>
+
+  <details class="expander">
+    <summary>ลองเอง: ถอด Reverse DCF สด ๆ (ราคา → อัตราโตที่ถูกบังคับ)</summary>
+    <div class="expander-body">
+  <div class="callout callout-note">
+    <p class="callout-label">เบื้องหลังเครื่องนี้: "ย้อนกลับ" คือเดาแล้วไล่ ไม่ใช่แก้สมการ</p>
+    <p>
+      พอได้ยินคำว่าแก้ย้อนกลับ หลายคนนึกว่ามีสูตรที่กดอัตราโต g ออกมาตรง ๆ แต่จริง ๆ ไม่มีครับ ค่า g มันฝังอยู่ในรายได้ที่ทบกันสิบปีบวกกับมูลค่าปลายทาง พันกันจนดึงออกมาเดี่ยว ๆ ด้วยพีชคณิตไม่ได้
+    </p>
+    <p>
+      วิธีที่ทำจริงคือ <strong>เดา g มาสักค่า คิด DCF ไปข้างหน้า แล้วดูว่ามูลค่าที่ได้เกินหรือขาดจาก EV เป้าหมาย ถ้าเกินก็ลด g ถ้าขาดก็เพิ่ม แล้ววนซ้ำจนตรง</strong> เครื่องข้างล่างทำแบบนี้ให้ทุกครั้งที่คุณขยับราคา มันไล่แบบแบ่งครึ่งช่วงที่เป็นไปได้ไปเรื่อย ๆ (วิธีนี้เรียก <i>binary search</i> แปลว่าค้นแบบแบ่งครึ่ง) จนล็อกค่า g ที่ทำให้ยอดรวมท้ายตารางเท่ากับ EV ด้านบนพอดี เพราะงั้นบรรทัดสุดท้ายในตารางถึงตรงกับ EV เสมอ นั่นคือเงื่อนไขที่มันกำลังไล่หา
+    </p>
+  </div>
+  <div class="rdcf" data-rdcf>
+    <div class="sizer-modes" role="tablist" aria-label="เลือกหุ้นที่จะลอง">
+      <button type="button" class="sizer-mode is-active" data-rmode="rklb" role="tab" aria-selected="true">RKLB (จากคลาส)</button>
+      <button type="button" class="sizer-mode" data-rmode="custom" role="tab" aria-selected="false">หุ้นของคุณ</button>
+    </div>
+
+    <div data-rpanel="rklb">
+      <label class="sizer-field rdcf-slider">
+        <span>ราคาหุ้น RKLB · <b data-rlbl="price">$66</b></span>
+        <input type="range" data-rin="price" min="40" max="80" step="1" value="66" aria-label="ราคาหุ้น RKLB (ดอลลาร์)">
+      </label>
+    </div>
+
+    <div data-rpanel="custom" hidden>
+      <div class="rdcf-grid">
+        <label>รายได้ฐานปีนี้ (ล้าน$)<input type="number" data-cin="rev0" value="680" min="1" step="10"></label>
+        <label>ราคาหุ้นตอนนี้ ($)<input type="number" data-cin="curPrice" value="66" min="0.1" step="0.5"></label>
+        <label>EV ที่ราคานั้น (ล้าน$)<input type="number" data-cin="curEv" value="37000" min="1" step="100"></label>
+        <label>WACC (%)<input type="number" data-cin="wacc" value="10" min="1" max="30" step="0.5"></label>
+        <label>margin ปลายทาง (%)<input type="number" data-cin="margin" value="20" min="1" max="60" step="1"></label>
+        <label>โตปลายทาง (%)<input type="number" data-cin="tg" value="4" min="0" max="8" step="0.5"></label>
+        <label>จำนวนปีโตแรง<input type="number" data-cin="years" value="10" min="3" max="20" step="1"></label>
+        <label>อัตราโตที่คุณเชื่อว่าไหว (%/ปี)<input type="number" data-cin="believable" value="40" min="1" max="200" step="1"></label>
+      </div>
+      <label class="sizer-field rdcf-slider">
+        <span>ราคาที่อยากลอง · <b data-clbl="price">$66</b></span>
+        <input type="range" data-cin="price" min="33" max="99" step="1" value="66" aria-label="ราคาที่อยากลอง (ดอลลาร์)">
+      </label>
+    </div>
+
+    <div class="sizer-row rdcf-ev"><span>มูลค่ากิจการ (EV) ที่ราคานี้</span><b data-rout="ev">${(rdcfInit.total / 1000).toFixed(1)}B</b></div>
+    <div class="sizer-answer tier-warn" data-rverdict aria-live="polite">
+      <div class="sizer-answer-main">อัตราโตที่ถูกบังคับ ≈ <b class="sizer-answer-value" data-rout="cagr">{(rdcfInit.cagr * 100).toFixed(1)}%</b> ต่อปี ติดกัน <span data-rout="years">10</span> ปี</div>
+      <span class="sizer-answer-sub" data-rout="zone">เริ่มแพง (โซนของคุณเอิร์ธ) · รายได้ต้องไปแตะราว ${(rdcfInit.rev10 / 1000).toFixed(1)}B ใน 10 ปี</span>
+    </div>
+
+    <figure class="tbl">
+      <table class="amo">
+        <caption>กางการคิดลดปีต่อปี · ที่ราคานี้ (หน่วยล้านดอลลาร์)</caption>
+        <thead>
+          <tr><th>ปีที่</th><th>รายได้</th><th>เงินสดอิสระ (<span data-rout="marginhead">20</span>%)</th><th>คิดลดกลับเป็นวันนี้</th></tr>
+        </thead>
+        <tbody data-rbody>
+          {rdcfSlots.map((r, i) => (
+            <tr data-rrow={i + 1} hidden={i >= rdcfInit.rows.length}>
+              <td>{i + 1}</td>
+              <td data-rcell={`rev-${i + 1}`}>{r ? rdcfFmt.format(r.rev) : ''}</td>
+              <td data-rcell={`fcff-${i + 1}`}>{r ? rdcfFmt.format(r.fcff) : ''}</td>
+              <td class="cool" data-rcell={`pv-${i + 1}`}>{r ? rdcfFmt.format(r.pv) : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr><td colspan="3">รวมเงินสดช่วงโตแรง (คิดลดแล้ว)</td><td class="cool" data-rout="oppv">{rdcfFmt.format(rdcfInit.opPv)}</td></tr>
+          <tr><td colspan="3">มูลค่าช่วงปลายทาง (terminal value) คิดลดแล้ว</td><td class="hot" data-rout="tvpv">{rdcfFmt.format(rdcfInit.tvPv)}</td></tr>
+          <tr class="tie"><td colspan="3">รวมเป็นมูลค่ากิจการวันนี้ (EV)</td><td data-rout="totalm">{rdcfFmt.format(rdcfInit.total)}</td></tr>
+        </tfoot>
+      </table>
+      <figcaption>สังเกตว่ามูลค่าเกือบทั้งก้อนมาจากบรรทัดสีทอง (terminal value) ที่อยู่ปลายทาง ส่วนที่จับต้องได้ช่วงต้นแทบไม่มีน้ำหนักเลย นี่คือเหตุผลว่าทำไมหุ้นเติบโตถึงเสี่ยง เพราะเรากำลังจ่ายเงินวันนี้ให้กับอนาคตที่ยังไม่เกิด</figcaption>
+    </figure>
+
+    <p class="sizer-note" data-rout="note">แถบสีในแท็บนี้คือโซนที่คุณเอิร์ธตีจากสามมุมมอง (เทคนิค นักวิเคราะห์ implied path) ไม่ใช่เกณฑ์ที่เครื่องคิดจาก CAGR ส่วนตัว EV สมมติแบบง่ายว่าขยับตามราคาเป็นสัดส่วน (ตรึงราคา 66 เท่ากับ EV 37B) และตัดช่วงที่บริษัทยัง burn cash ปีแรก ๆ ออก ตัวเลขจึงเป็นภาพคร่าว ๆ ไว้เห็นกลไก ไม่ใช่ราคาชี้เป็นชี้ตาย</p>
+  </div>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">อ่านด้วยวิจารณญาณ</p>
+    <p>
+      ที่ราคา 66 เครื่องนี้จะขึ้นราว <strong>42% ต่อปี</strong> ส่วนในเนื้อบทความคุณเอิร์ธได้ <strong>45% ต่อปี</strong> ต่างกันเพราะโมเดลง่าย ๆ ในเกมนี้ตัดช่วงที่ RKLB ยังขาดทุนหนักในปีต้น ๆ ออก พอใส่ช่วง burn cash กลับเข้าไป อัตราโตที่ถูกบังคับก็ขยับขึ้นเป็น 45% ทั้งสองเลขบอกเรื่องเดียวกันคือ ราคานี้เรียกร้องให้บริษัทโต <strong>40 กว่าเปอร์เซ็นต์ทุกปีติดกันสิบปี</strong> ซึ่งเป็นของยากมากไม่ว่าจะนับแบบไหน
+    </p>
+  </div>
+    </div>
+  </details>
+
+  <p>
+    พอมีแท็บ "หุ้นของคุณ" แล้ว คำถามที่ว่า "หุ้นตัวนี้ตอนนี้กล้าซื้อรึยัง" ก็ลองเองได้กับหุ้นตัวไหนก็ได้ ขอสรุปเป็นขั้นตอนใช้ซ้ำได้ โดยแยกให้ชัดว่าตรงไหนคือการคำนวณ ตรงไหนคือการเอาความเห็นคนอื่นมาทาบ เพราะจุดที่ทำให้บทเรียนนี้ดูเหมือนเสกตัวเลข คือมันไม่เคยบอกว่ามีแค่แกนเดียวที่คำนวณได้จริง
+  </p>
+  <div class="card">
+    <p><strong>ขั้นที่ 1 (คำนวณได้):</strong> เปิดแท็บ "หุ้นของคุณ" ใส่รายได้ล่าสุด ราคาปัจจุบันกับ EV ที่ราคานั้น แล้วอ่านค่า <strong>อัตราโตที่ถูกบังคับ</strong> ออกมา นี่คือแกน implied path แกนเดียวที่เป็นเลขล้วน ๆ</p>
+    <p><strong>ขั้นที่ 2 (ตัดสินว่าเชื่อได้ไหม):</strong> เอาอัตราโตนั้นไปเทียบว่าบริษัทเคยโตเท่านี้ไหมในอดีต และมีใครในกลุ่มเดียวกันเคยทำต่อเนื่องยาว ๆ ได้ไหม บิ๊กเทคที่เก่งสุดยังทำได้ราว 40% ต่อปีในทศวรรษทอง ถ้าตัวเลขที่ถูกบังคับสูงกว่าสถิติที่ดีที่สุดเท่าที่เคยมี แปลว่าราคากำลังขอปาฏิหาริย์</p>
+    <p><strong>ขั้นที่ 3 (ทาบความเห็นนักวิเคราะห์):</strong> เปิดดู price target ในแอปโบรกหรือเว็บการเงิน ดูช่วงต่ำกลางสูง แล้วดูว่าราคาปัจจุบันอยู่ตรงไหนของช่วงนั้น ตรงนี้เป็นความเห็นคนอื่น ไม่ใช่การคำนวณของเรา</p>
+    <p><strong>ขั้นที่ 4 (ทาบราคาเชิงเทคนิค):</strong> ดูกราฟหาแนวรับที่ราคาเคยเด้งซ้ำ ๆ เผื่อเป็นจุดที่คนหมู่มากจับตาไว้เข้าซื้อ อันนี้ก็เป็นการตีความ ไม่ใช่สูตร</p>
+    <p><strong>ขั้นที่ 5 (โซนกล้าซื้อ):</strong> คือช่วงราคาที่อัตราโตยังพอเชื่อได้ (ขั้น 2) และไม่ได้ยืนสูงกว่าที่นักวิเคราะห์กับแนวรับบอกไว้พร้อมกัน จุดที่ทั้งหมดพอใจตรงกันนั่นแหละคือโซนเขียว</p>
+  </div>
+  <div class="callout callout-note">
+    <p class="callout-label">จุดที่บทความก่อนหน้านี้ไม่ได้บอก</p>
+    <p>
+      สามแกนนี้ไม่มีสูตรวิเศษที่รวมเป็นเลขเดียว มีแค่ขั้น 1 ถึง 2 ที่เป็นการคำนวณจริง อีกสองแกนคือความเห็นของคนอื่นที่เราหยิบมาทาบดูว่าสมเหตุสมผลไหม การ "ทับกัน" จึงคือเอาช่วงราคาที่แต่ละแกนพอใจมาวางบนเส้นเดียวแล้วมองด้วยตา ที่สำคัญคือทั้งหมดนี้ตอบแค่ว่า <strong>ราคานี้เรียกร้องอะไร</strong> ไม่ได้ตอบว่า <strong>ต้องซื้อไหม</strong> อันนั้นยังเป็นการตัดสินใจของคุณเอง และย้ำว่าบันทึกนี้ไม่ใช่คำแนะนำการลงทุน
+    </p>
+  </div>
+
   <p>
     สมมติเรากล้าและเชื่อที่ราคา 50 ดอลลาร์ ปัญหาถัดมาคือคำถามที่ทุกคนเจอ: แล้วมันจะลงมาจริงไหม และถ้าไม่ลงล่ะ
   </p>
