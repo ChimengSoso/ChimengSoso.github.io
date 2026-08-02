@@ -514,6 +514,10 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         <span>ค่าธรรมเนียมต่อสัญญา · <b data-lbl="fee">$0.65</b></span>
         <input type="range" data-in="fee" min="0" max="2" step="0.05" value="0.65" aria-label="ค่าธรรมเนียมต่อสัญญา (ดอลลาร์)">
       </label>
+      <label class="sizer-field">
+        <span>เรตเงินบาท (บาทต่อดอลลาร์) · <b data-lbl="rate">฿33.50</b></span>
+        <input type="range" data-in="rate" min="28" max="40" step="0.25" value="33.5" aria-label="เรตแปลงเงินบาท (บาทต่อดอลลาร์)">
+      </label>
       <label class="sizer-field" data-when="port">
         <span>สัดส่วนเสี่ยงที่ยอมรับ · <b data-lbl="pct">2%</b></span>
         <input type="range" data-in="pct" min="1" max="5" step="0.5" value="2" aria-label="สัดส่วนเสี่ยงต่อพอร์ตที่ยอมรับ (เปอร์เซ็นต์)">
@@ -528,6 +532,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
       <div class="sizer-row"><span>ค่า premium ทั้งก้อน (× 100 × สัญญา)</span><b data-out="premium">$600.00</b></div>
       <div class="sizer-row"><span>ค่าธรรมเนียม</span><b data-out="fee">$0.65</b></div>
       <div class="sizer-row sizer-risk"><span>เงินที่เสี่ยงจริง (ขาดทุนสูงสุด)</span><b data-out="risk">$600.65</b></div>
+      <div class="sizer-row sizer-baht"><span>คิดเป็นเงินบาท</span><b data-out="riskthb">฿20,122</b></div>
       <div class="sizer-answer" data-answer aria-live="polite">
         <div class="sizer-answer-main"><span data-answer-label></span> <b class="sizer-answer-value" data-answer-value></b></div>
         <span class="sizer-answer-sub" data-answer-sub></span>
@@ -552,6 +557,8 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
     .sizer-row b { color: #c3cbdc; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .sizer-risk { font-weight: 600; }
     .sizer-risk b { color: #f08b8b; }
+    .sizer-baht { font-size: 0.82rem; color: #7d8aa0; margin-top: -0.2rem; }
+    .sizer-baht b { color: #d8b862; }
     .sizer-answer { margin-top: 0.6rem; padding: 0.75rem 0.9rem; border-radius: 10px; border: 1px solid #2f9e5c; background: #173626; color: #4ade80; display: grid; gap: 0.15rem; }
     .sizer-answer-main { font-size: 1.02rem; font-weight: 700; }
     .sizer-answer-value { font-size: 1.28rem; font-variant-numeric: tabular-nums; }
@@ -575,10 +582,13 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
       const feeEl = get('fee');
       const pctEl = get('pct');
       const portEl = get('port');
-      if (!premiumEl || !contractsEl || !feeEl || !pctEl || !portEl) return;
+      const rateEl = get('rate');
+      if (!premiumEl || !contractsEl || !feeEl || !pctEl || !portEl || !rateEl) return;
 
       const usd0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
       const usd2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const thb0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+      const baht = (usd: number, rate: number) => `฿${thb0.format(usd * rate)}`;
 
       const setLbl = (name: string, text: string) => {
         const el = root.querySelector<HTMLElement>(`[data-lbl="${name}"]`);
@@ -600,6 +610,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         const premium = Number(premiumEl.value);
         const contracts = Number(contractsEl.value);
         const fee = Number(feeEl.value);
+        const rate = Number(rateEl.value);
         const premiumTotal = premium * 100 * contracts;
         const feeTotal = fee * contracts;
         const risk = premiumTotal + feeTotal;
@@ -607,9 +618,11 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         setLbl('premium', `$${premium}`);
         setLbl('contracts', String(contracts));
         setLbl('fee', `$${usd2.format(fee)}`);
+        setLbl('rate', `฿${usd2.format(rate)}`);
         setOut('premium', `$${usd2.format(premiumTotal)}`);
         setOut('fee', `$${usd2.format(feeTotal)}`);
         setOut('risk', `$${usd2.format(risk)}`);
+        setOut('riskthb', baht(risk, rate));
 
         if (!answer || !ansLabel || !ansValue || !ansSub) return;
 
@@ -620,10 +633,10 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
           answer.className = 'sizer-answer';
           ansLabel.textContent = 'พอร์ตที่ต้องมีอย่างน้อย ≈';
           ansValue.textContent = `$${usd0.format(need)}`;
-          ansSub.textContent = `เพื่อให้ไม้นี้เสี่ยงแค่ ${pct}% ของพอร์ตทั้งก้อน`;
+          ansSub.textContent = `${baht(need, rate)} เพื่อให้ไม้นี้เสี่ยงแค่ ${pct}% ของพอร์ตทั้งก้อน`;
         } else {
           const port = Number(portEl.value);
-          setLbl('port', `$${usd0.format(port)}`);
+          setLbl('port', `$${usd0.format(port)} (${baht(port, rate)})`);
           const actual = (risk / port) * 100;
           const shown = Math.round(actual * 10) / 10;
           const tier = shown <= 2 ? 'ok' : shown <= 5 ? 'warn' : 'danger';
@@ -639,7 +652,7 @@ import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
         }
       };
 
-      [premiumEl, contractsEl, feeEl, pctEl, portEl].forEach((el) => {
+      [premiumEl, contractsEl, feeEl, pctEl, portEl, rateEl].forEach((el) => {
         el.addEventListener('input', recompute);
       });
 
