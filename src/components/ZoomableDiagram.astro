@@ -25,8 +25,11 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
 
   <div class="zdgm-overlay" hidden>
     <div class="zdgm-stage" role="dialog" aria-modal="true" aria-label={caption}>
-      <div class="zdgm-canvas"></div>
+      <div class="zdgm-viewport">
+        <div class="zdgm-canvas"></div>
+      </div>
       <p class="zdgm-cap">{caption}</p>
+      <p class="zdgm-hint">เลื่อนล้อเมาส์เพื่อซูม คลิกลากเพื่อเลื่อนภาพ (บนมือถือใช้สองนิ้วขยาย นิ้วเดียวลากเลื่อน)</p>
       <button type="button" class="zdgm-close" aria-label="ปิดภาพขยาย">
         <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
           <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/>
@@ -83,25 +86,65 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
 
   .zdgm-stage{
     position:relative;
+    display:flex;
+    flex-direction:column;
     width:100%;
     max-width:1100px;
     max-height:92vh;
-    overflow:auto;
+    overflow:hidden;
     background:var(--dl-panel, #111a27);
     border:1px solid var(--dl-border);
     border-radius:14px;
     padding:2.4rem 1rem 1rem;
   }
+  /* กรอบภาพ: ตัวที่ซูม/แพนอยู่ข้างใน ปุ่มปิดอยู่นอกกรอบจึงไม่เลื่อนตาม */
+  .zdgm-viewport{
+    position:relative;
+    flex:1 1 auto;
+    /* canvas เป็น absolute จึงไม่ดันความสูงให้ ต้องกำหนดความสูงกรอบเอง */
+    height:64vh;
+    min-height:0;
+    overflow:hidden;
+    touch-action:none;
+    cursor:grab;
+    overscroll-behavior:contain;
+    /* ลากเพื่อ pan ต้องไม่ไปคลุมดำข้อความ แต่ยังต้องคัดลอกได้
+       ถ้าเอาเมาส์/นิ้วจิ้มที่ตัวอักษรตรง ๆ จึงยกเว้นเฉพาะ text/tspan */
+    user-select:none;
+    -webkit-user-select:none;
+  }
+  .zdgm-canvas :global(text),
+  .zdgm-canvas :global(tspan){
+    user-select:text;
+    -webkit-user-select:text;
+  }
+  .zdgm-viewport.dragging{cursor:grabbing;}
+  /* ซูมด้วยการเปลี่ยน width จริงของ canvas ไม่ใช่ transform:scale()
+     เพราะ scale() (ยิ่งคู่กับ will-change) จะยืด raster เดิมจนภาพแตก
+     ส่วน translate ปลอดภัย ไม่กระทบความคมชัด */
+  .zdgm-canvas{
+    position:absolute;
+    top:0;
+    left:0;
+  }
   .zdgm-canvas :global(svg){
+    display:block;
     width:100%;
     height:auto;
-    min-width:560px;
   }
   .zdgm-cap{
     margin:0.8rem 0 0;
     font-size:0.82rem;
     line-height:1.6;
     color:var(--dl-muted);
+    text-align:center;
+  }
+  .zdgm-hint{
+    margin:0.4rem 0 0;
+    font-size:0.72rem;
+    line-height:1.5;
+    color:var(--dl-muted);
+    opacity:0.75;
     text-align:center;
   }
   .zdgm-close{
@@ -136,10 +179,128 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
     figures.forEach((fig) => {
       const openBtn = fig.querySelector<HTMLButtonElement>('.zdgm-open');
       const overlay = fig.querySelector<HTMLElement>('.zdgm-overlay');
+      const viewport = fig.querySelector<HTMLElement>('.zdgm-viewport');
       const canvas = fig.querySelector<HTMLElement>('.zdgm-canvas');
       const closeBtn = fig.querySelector<HTMLButtonElement>('.zdgm-close');
       const source = fig.querySelector<SVGSVGElement>('.dgm-scroll svg');
-      if (!openBtn || !overlay || !canvas || !closeBtn || !source) return;
+      if (!openBtn || !overlay || !viewport || !canvas || !closeBtn || !source) return;
+
+      const MAX_ZOOM = 8;
+      // สถานะการซูม/แพน: scale คูณบน transform, tx/ty คือ offset หน่วย px ของ viewport
+      let scale = 1;
+      let minScale = 1;
+      let tx = 0;
+      let ty = 0;
+      let baseW = 0;
+      let baseH = 0;
+
+      const apply = () => {
+        const vw = viewport.clientWidth;
+        const vh = viewport.clientHeight;
+        const cw = baseW * scale;
+        const ch = baseH * scale;
+        // เล็กกว่ากรอบ = จัดกลาง, ใหญ่กว่ากรอบ = ล็อกไม่ให้ลากจนภาพหลุดขอบ
+        tx = cw <= vw ? (vw - cw) / 2 : Math.min(0, Math.max(vw - cw, tx));
+        ty = ch <= vh ? (vh - ch) / 2 : Math.min(0, Math.max(vh - ch, ty));
+        canvas.style.width = `${cw}px`;
+        canvas.style.transform = `translate(${tx}px, ${ty}px)`;
+      };
+
+      const fit = () => {
+        const vw = viewport.clientWidth;
+        const vh = viewport.clientHeight;
+        canvas.style.width = `${vw}px`;
+        canvas.style.transform = 'none';
+        baseW = vw;
+        baseH = canvas.offsetHeight || vh;
+        minScale = baseH > vh ? Math.min(1, vh / baseH) : 1;
+        scale = minScale;
+        tx = 0;
+        ty = 0;
+        apply();
+      };
+
+      const zoomAt = (factor: number, px: number, py: number) => {
+        const next = Math.min(MAX_ZOOM, Math.max(minScale, scale * factor));
+        if (next === scale) return;
+        // ตรึงจุดใต้เคอร์เซอร์/นิ้วให้อยู่กับที่ระหว่างซูม
+        const ratio = next / scale;
+        tx = px - (px - tx) * ratio;
+        ty = py - (py - ty) * ratio;
+        scale = next;
+        apply();
+      };
+
+      const localPoint = (clientX: number, clientY: number) => {
+        const r = viewport.getBoundingClientRect();
+        return { x: clientX - r.left, y: clientY - r.top };
+      };
+
+      viewport.addEventListener('wheel', (e: WheelEvent) => {
+        e.preventDefault();
+        const p = localPoint(e.clientX, e.clientY);
+        zoomAt(Math.exp(-e.deltaY * 0.0018), p.x, p.y);
+      }, { passive: false });
+
+      const pointers = new Map<number, { x: number; y: number }>();
+      let pinchDist = 0;
+
+      // จิ้มโดนตัวอักษรของ diagram = ปล่อยให้เลือก/ก๊อบได้ตามปกติ ไม่ต้อง pan
+      const onText = (t: EventTarget | null) =>
+        t instanceof Element && (t.tagName === 'text' || t.tagName === 'tspan');
+
+      viewport.addEventListener('pointerdown', (e: PointerEvent) => {
+        if (onText(e.target)) return;
+        // กันเมาส์ลากแล้วคลุมดำทั้งกล่อง (ทัชไม่ต้องกัน ไม่งั้น long-press เลือกข้อความพัง)
+        if (e.pointerType === 'mouse') e.preventDefault();
+        viewport.setPointerCapture(e.pointerId);
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        viewport.classList.add('dragging');
+        if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+        }
+      });
+
+      viewport.addEventListener('pointermove', (e: PointerEvent) => {
+        const prev = pointers.get(e.pointerId);
+        if (!prev) return;
+        const now = { x: e.clientX, y: e.clientY };
+        pointers.set(e.pointerId, now);
+
+        if (pointers.size >= 2) {
+          const [a, b] = [...pointers.values()];
+          const dist = Math.hypot(a.x - b.x, a.y - b.y);
+          if (pinchDist > 0) {
+            const mid = localPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
+            zoomAt(dist / pinchDist, mid.x, mid.y);
+          }
+          pinchDist = dist;
+          return;
+        }
+
+        tx += now.x - prev.x;
+        ty += now.y - prev.y;
+        apply();
+      });
+
+      const endPointer = (e: PointerEvent) => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinchDist = 0;
+        if (pointers.size === 0) viewport.classList.remove('dragging');
+      };
+      viewport.addEventListener('pointerup', endPointer);
+      viewport.addEventListener('pointercancel', endPointer);
+
+      viewport.addEventListener('dblclick', (e: MouseEvent) => {
+        const p = localPoint(e.clientX, e.clientY);
+        if (scale > minScale * 1.05) fit();
+        else zoomAt(2.5, p.x, p.y);
+      });
+
+      window.addEventListener('resize', () => {
+        if (!overlay.hidden) fit();
+      });
 
       const close = () => {
         overlay.hidden = true;
@@ -159,6 +320,9 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
         document.body.appendChild(overlay);
         overlay.hidden = false;
         document.body.style.overflow = 'hidden';
+        // อ่าน clientWidth บังคับ layout อยู่แล้ว จึงวัดได้เลยหลัง unhide
+        // (อย่าพึ่ง rAF อย่างเดียว แท็บพรีวิวโดน throttle ได้)
+        fit();
         closeBtn.focus();
       };
 
