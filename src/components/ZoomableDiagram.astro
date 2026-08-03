@@ -2,12 +2,16 @@
 // ภาพ diagram ที่แตะแล้วขยายเต็มจอได้ (lightbox)
 // ใช้คู่กับ .dgm-scroll เดิม: จอกว้างเห็นเต็ม จอแคบปัดดูได้ และถ้ายังเล็กไปก็แตะขยาย
 interface Props {
-  /** ข้อความใต้ภาพ */
-  caption: string;
+  /** ข้อความใต้ภาพ (รองรับแท็กอินไลน์ เช่น <code>/<i>/<sub> ผ่าน set:html) */
+  caption?: string;
+  /** ข้อความล้วนสำหรับ aria-label ของ dialog เมื่อ caption มีมาร์กอัป */
+  captionText?: string;
   /** ป้ายบอกผู้ใช้ว่าแตะแล้วเกิดอะไร (ค่าเริ่มต้นพอสำหรับภาพทั่วไป) */
   openLabel?: string;
 }
-const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro.props;
+const { caption = '', captionText, openLabel = 'ขยายภาพเต็มจอ' } = Astro.props;
+// aria-label รับ HTML ไม่ได้ ถ้า caption มีแท็กให้ส่ง captionText ล้วนมาแทน
+const capA11y = captionText ?? caption.replace(/<[^>]+>/g, '');
 ---
 <figure class="diagram zdgm">
   <div class="zdgm-frame">
@@ -21,14 +25,14 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
       <span>ขยาย</span>
     </button>
   </div>
-  <figcaption>{caption}</figcaption>
+  <figcaption set:html={caption}></figcaption>
 
   <div class="zdgm-overlay" hidden>
-    <div class="zdgm-stage" role="dialog" aria-modal="true" aria-label={caption}>
+    <div class="zdgm-stage" role="dialog" aria-modal="true" aria-label={capA11y}>
       <div class="zdgm-viewport">
         <div class="zdgm-canvas"></div>
       </div>
-      <p class="zdgm-cap">{caption}</p>
+      <p class="zdgm-cap" set:html={caption}></p>
       <p class="zdgm-hint">เลื่อนล้อเมาส์เพื่อซูม คลิกลากเพื่อเลื่อนภาพ (บนมือถือใช้สองนิ้วขยาย นิ้วเดียวลากเลื่อน)</p>
       <button type="button" class="zdgm-close" aria-label="ปิดภาพขยาย">
         <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
@@ -40,12 +44,46 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
 </figure>
 
 <style>
+  /* ตัวแปรของคอมโพเนนต์เอง: ธีม divine-lore (--dl-*) มาก่อน ถ้าไม่มีก็ตกไปธีม
+     น้ำเงินของ /knowledge (--blue-*) หรือค่าตายตัว จึงใช้ได้ทั้งสองเลย์เอาต์
+     ต้องประกาศทั้งที่ .zdgm และ .zdgm-overlay เพราะตอนเปิด overlay ถูกย้ายไปแปะ body */
+  .zdgm,
+  .zdgm-overlay{
+    --zd-border: var(--dl-border, var(--blue-soft, #bcd3f8));
+    --zd-muted: var(--dl-muted, #9aa7bd);
+    --zd-cap: var(--dl-muted, var(--muted, #5a6a85));
+    --zd-panel: var(--dl-panel, #111a27);
+    --zd-ink: var(--dl-ink, #e7ecf6);
+    --zd-accent: var(--dl-emerald, var(--blue-soft, #7aa2d8));
+    --zd-accent-bright: var(--dl-emerald-bright, #9ec5ff);
+    --zd-svg-bg: var(--dl-svg-bg, #ffffff);
+    --zd-svg-border: var(--dl-svg-border, 1px solid var(--blue-soft, #bcd3f8));
+    --zd-svg-pad: var(--dl-svg-pad, 0.5rem 0.25rem);
+    --zd-svg-radius: var(--dl-svg-radius, 14px);
+    --zd-open-bg: var(--dl-open-bg, rgba(12,18,28,0.86));
+  }
+
+  .zdgm{margin:1.5rem 0;}
   .zdgm-frame{position:relative;}
   /* svg มาจาก <slot> จึงถือ scope id ของหน้าที่เรียกใช้ ไม่ใช่ของคอมโพเนนต์นี้
      ต้อง :global ไม่งั้นกฎไม่ติด (ดูหัวข้อ scoped style ใน CLAUDE.md) */
   .dgm-scroll{overflow-x:auto;}
+  /* จัดพื้นหลัง/ขอบ/padding ของ svg เองในคอมโพเนนต์ พอย้ายบทความมาใช้แล้วลบกฎ
+     figure.diagram svg ในหน้าออกได้ ธีม /knowledge = พื้นขาวมีขอบ, ธีม divine = โปร่ง */
+  .dgm-scroll :global(svg){
+    background: var(--zd-svg-bg);
+    border: var(--zd-svg-border);
+    border-radius: var(--zd-svg-radius);
+    padding: var(--zd-svg-pad);
+  }
   @media (max-width: 640px){
     .dgm-scroll :global(svg){min-width:520px;}
+  }
+  .zdgm > figcaption{
+    margin-top:0.6rem;
+    font-size:0.8rem;
+    color:var(--zd-cap);
+    text-align:center;
   }
 
   .zdgm-open{
@@ -56,10 +94,10 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
     align-items:center;
     gap:5px;
     padding:5px 10px;
-    border:1px solid var(--dl-border);
+    border:1px solid var(--zd-border);
     border-radius:999px;
-    background:rgba(12,18,28,0.86);
-    color:var(--dl-muted);
+    background:var(--zd-open-bg);
+    color:var(--zd-muted);
     font-family:"Chakra Petch", sans-serif;
     font-size:0.72rem;
     cursor:pointer;
@@ -68,8 +106,8 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
   .zdgm-open svg{width:12px;height:12px;}
   .zdgm-open:hover,
   .zdgm-open:focus-visible{
-    color:var(--dl-emerald-bright);
-    border-color:var(--dl-emerald);
+    color:var(--zd-accent-bright);
+    border-color:var(--zd-accent);
   }
 
   .zdgm-overlay{
@@ -92,8 +130,8 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
     max-width:1100px;
     max-height:92vh;
     overflow:hidden;
-    background:var(--dl-panel, #111a27);
-    border:1px solid var(--dl-border);
+    background:var(--zd-panel);
+    border:1px solid var(--zd-border);
     border-radius:14px;
     padding:2.4rem 1rem 1rem;
   }
@@ -131,19 +169,21 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
     display:block;
     width:100%;
     height:auto;
+    /* ในไลต์บ็อกซ์บนธีม /knowledge ต้องมีพื้นขาว ไม่งั้นตัวอักษรเข้มจมพาเนลมืด */
+    background: var(--zd-svg-bg);
   }
   .zdgm-cap{
     margin:0.8rem 0 0;
     font-size:0.82rem;
     line-height:1.6;
-    color:var(--dl-muted);
+    color:var(--zd-muted);
     text-align:center;
   }
   .zdgm-hint{
     margin:0.4rem 0 0;
     font-size:0.72rem;
     line-height:1.5;
-    color:var(--dl-muted);
+    color:var(--zd-muted);
     opacity:0.75;
     text-align:center;
   }
@@ -156,15 +196,15 @@ const { caption, openLabel = 'ขยายภาพเต็มจอ' } = Astro
     justify-content:center;
     width:30px;
     height:30px;
-    border:1px solid var(--dl-border);
+    border:1px solid var(--zd-border);
     border-radius:8px;
     background:transparent;
-    color:var(--dl-ink);
+    color:var(--zd-ink);
     cursor:pointer;
   }
   .zdgm-close svg{width:16px;height:16px;}
   .zdgm-close:hover,
-  .zdgm-close:focus-visible{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .zdgm-close:focus-visible{border-color:var(--zd-accent);color:var(--zd-accent-bright);}
 
   @media (prefers-reduced-motion: reduce){
     .zdgm-open{transition:none;}
