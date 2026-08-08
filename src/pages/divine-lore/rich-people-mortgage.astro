@@ -1,6 +1,7 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { tex, texBlock } from '../../lib/math';
 
 /**
  * ตัวเลขทุกตัวในบทความนี้คำนวณตอน build ไม่ได้พิมพ์มือ
@@ -62,7 +63,6 @@ const extraInterest = planExtra.reduce((s, x) => s + x.interest, 0);
 
 /** โปะก้อน 300,000 ตั้งแต่งวดแรก (ค่างวดเดิม) */
 const LUMP = 300_000;
-const planLump = schedule(LOAN - LUMP, R, N);
 const lumpRows: Row[] = [];
 {
   let balance = LOAN - LUMP;
@@ -75,26 +75,55 @@ const lumpRows: Row[] = [];
   }
 }
 const lumpInterest = lumpRows.reduce((s, x) => s + x.interest, 0);
-void planLump;
 
 /** สองทางเลือก: จ่ายสดแล้วลงทุนค่างวด vs กู้แล้วปล่อยเงินก้อนลงทุน */
 function twoPaths(growth: number): { cash: number; loan: number } {
   const g = growth / 12;
   return {
-    cash: PMT * ((Math.pow(1 + g, N) - 1) / g),
+    // g = 0 คือกรณีลิมิต เงินที่เติมไม่โตเลย ปลายทางจึงเท่ากับผลรวมของค่างวด
+    cash: g === 0 ? PMT * N : PMT * ((Math.pow(1 + g, N) - 1) / g),
     loan: LOAN * Math.pow(1 + g, N),
   };
 }
 const paths = [0.04, 0.05, 0.06, 0.07, 0.08, 0.1].map((g) => ({ g, ...twoPaths(g) }));
 
+/** ดอกเบี้ยงวดแรกถ้าคิดแบบรายวันจริง ใช้โชว์ว่าจำนวนวันในงวดทำให้ตัวเลขขยับแค่ไหน */
+const dailyInterest = (days: number) => LOAN * ANNUAL * (days / 365);
+const dayCases = [28, 30, 31];
+
 const baht = (n: number) => Math.round(n).toLocaleString('en-US');
 const mB = (n: number) => (n / 1_000_000).toFixed(2);
 
 /** พิกัดกราฟแท่งซ้อนรายปี */
-const CH = { x0: 56, y0: 30, w: 620, h: 176 };
+const CH = { x0: 56, y0: 44, w: 620, h: 176 };
 const yearTotal = byYear[0].interest + byYear[0].principal;
 const slot = CH.w / YEARS;
 const barW = slot * 0.66;
+/** แท่งแรกที่ยอดเงินต้นทั้งปีแซงดอกเบี้ยทั้งปี (เส้นประต้องปักกลางแท่งนี้ ไม่ใช่ที่ขอบ slot) */
+const crossYear = byYear.find((y) => y.principal > y.interest)!.year;
+const crossoverX = CH.x0 + (crossYear - 0.5) * slot;
+
+/**
+ * กราฟเส้นเทียบ FV ของทางจ่ายสด (A) กับทางกู้ (B) ตามผลตอบแทนลงทุน g
+ * พิกัดทุกจุด derive จาก twoPaths() ตัวเดียวกับที่ตารางใช้ ไม่มีพิกัดพิมพ์มือ
+ */
+const FV = { x0: 74, y0: 30, w: 596, h: 186 };
+const G_MIN = 0;
+const G_MAX = 0.12;
+const fvPoints = Array.from({ length: 61 }, (_, i) => {
+  const g = G_MIN + ((G_MAX - G_MIN) * i) / 60;
+  const { cash, loan } = twoPaths(g);
+  return { g, cash, loan };
+});
+const fvMax = Math.max(...fvPoints.map((p) => Math.max(p.cash, p.loan)));
+const fvX = (g: number) => FV.x0 + ((g - G_MIN) / (G_MAX - G_MIN)) * FV.w;
+const fvY = (v: number) => FV.y0 + FV.h - (v / fvMax) * FV.h;
+const fvPath = (pick: (p: (typeof fvPoints)[number]) => number) =>
+  fvPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${fvX(p.g).toFixed(2)} ${fvY(pick(p)).toFixed(2)}`).join(' ');
+const pathA = fvPath((p) => p.cash);
+const pathB = fvPath((p) => p.loan);
+const tieX = fvX(ANNUAL);
+const tieY = fvY(twoPaths(ANNUAL).loan);
 ---
 <DivineLoreLayout
   title="คนรวยก็กู้ซื้อบ้าน: แกะดอกเบี้ยทีละบาท | บันทึกศาสตร์แห่งเทพ"
@@ -109,7 +138,7 @@ const barW = slot * 0.66;
   <p class="tag">บันทึกการเงิน</p>
   <h1>คนรวยก็กู้ซื้อบ้าน: แกะดอกเบี้ยทีละบาท</h1>
   <p class="subtitle">
-    มีโพสต์แนวนี้วนกลับมาทุกปี "Buffett ก็กู้ 30 ปี, Zuckerberg ก็รีไฟแนนซ์, Musk ก็กู้ Morgan Stanley เพราะฉะนั้นอย่ากลัวดอกเบี้ยบ้าน" อ่านแล้วรู้สึกดี แต่ยังไม่รู้อะไรเพิ่ม บันทึกนี้เลยไปขุดว่าแต่ละเคสจริงแค่ไหน ตัวเลขดอกเบี้ยข้างในทำงานยังไง และส่วนไหนของวิธีคิดนั้นที่ใช้ในไทยไม่ได้เลย
+    กู้บ้าน {mB(LOAN)} ล้าน ผ่อนสามสิบปี จ่ายจริง {mB(PMT * N)} ล้าน เป็นดอกเบี้ย {mB(totalInterest)} ล้าน แพงกว่าตัวบ้านที่กู้มา แต่คนที่ควักเงินสดซื้อทั้งหลังได้สบาย ๆ กลับเลือกกู้ บันทึกนี้แกะดอกเบี้ยทีละบาทจนเห็นว่าเส้นแบ่งระหว่างจ่ายสดกับกู้อยู่ตรงไหนเป๊ะ ๆ และวิธีคิดแบบมหาเศรษฐีอเมริกันส่วนไหนที่ใช้ในไทยไม่ได้เลย
   </p>
 
   <hr class="divider" />
@@ -122,13 +151,16 @@ const barW = slot * 0.66;
   </div>
 
   <p>
-    นี่เป็นชิ้นแรกของหมวดเกร็ดการเงิน วัตถุดิบมาสองทาง ทางแรกเป็นทวีตที่เล่าถึงอินฟลูฯ คนหนึ่งที่ถูกตั้งคำถามว่ารวยแล้วยังกู้แบงก์ซื้อคอนโดทำไม เจ้าตัวตอบว่าเอาเงินก้อนไปลงกับอย่างอื่นดีกว่าเพราะหักกลบกับเบี้ยธนาคารแล้วยังคุ้ม ทางที่สองเป็นโพสต์เฟซบุ๊กที่ไล่รายชื่อมหาเศรษฐีที่กู้ซื้อบ้าน แล้วปิดท้ายว่าเหตุผลคือ Opportunity Cost บวก Leverage
+    ลองคิดเลขเล่น ๆ กู้ {mB(LOAN)} ล้านซื้อบ้าน ดอกเบี้ย {(ANNUAL * 100).toFixed(0)}% ต่อปี ผ่อนสามสิบปี ครบสัญญาแล้วเงินที่ไหลออกจากบัญชีเราทั้งหมดคือ {mB(PMT * N)} ล้านบาท ในนั้นเป็นดอกเบี้ย {mB(totalInterest)} ล้าน แปลว่าค่าเช่าเงินที่จ่ายให้ธนาคารแพงกว่าราคาบ้านที่ขอกู้มา ใครเห็นเลขนี้ครั้งแรกแล้วอยากรีบหาทางโปะให้จบไว ๆ ถือว่าปกติมาก
   </p>
   <p>
-    สองชิ้นนี้พูดถูกในภาพใหญ่ ปัญหาคือมันหยุดตรงจุดที่น่าสนใจที่สุดพอดี คำว่า "หักกลบกับเบี้ยธนาคาร" ต้องหักกลบที่เท่าไหร่ถึงคุ้ม โพสต์ไม่ได้บอก และคำว่า amortizing loan interest ที่ต้นทางบอกให้ไปเสิร์ชเอง ก็คือหัวใจทั้งหมดที่ควรเล่าให้จบในโพสต์นั้นเลย
+    ทีนี้เรื่องที่แปลกคือ คนที่ควักเงินสดซื้อบ้านทั้งหลังได้โดยไม่สะเทือนอะไรเลย หลายคนกลับเลือกกู้ ทุกปีจะมีโพสต์ไล่รายชื่อพวกนี้วนกลับมา Buffett กู้สามสิบปีทั้งที่รวยระดับโลก Zuckerberg รีไฟแนนซ์บ้านตัวเอง Musk กู้จาก Morgan Stanley เวลามีคนถามว่ารวยขนาดนั้นแล้วกู้ทำไม คำตอบที่ได้ยินบ่อยที่สุดคือเอาเงินก้อนไปลงทุนต่อคุ้มกว่าดอกเบี้ยที่เสีย
   </p>
   <p>
-    ผมจะเริ่มจากตัวเลขก่อน แล้วค่อยไปดูประวัติของแต่ละคน เพราะถ้ายังไม่เห็นว่าดอกเบี้ยเดินยังไง อ่านประวัติเขาไปก็ได้แค่ความรู้สึก
+    คำตอบนั้นถูก แล้วก็หยุดตรงจุดที่น่าสนใจที่สุดพอดี <strong>คุ้มกว่าที่ผลตอบแทนกี่เปอร์เซ็นต์</strong> ไม่มีโพสต์ไหนบอก ทั้งที่คำถามนี้มีคำตอบเป๊ะ ๆ เป็นตัวเลขตัวเดียว และพิสูจน์ได้ด้วยพีชคณิตไม่กี่บรรทัด
+  </p>
+  <p>
+    ก่อนจะไปถึงเส้นแบ่งนั้น ต้องรู้ก่อนว่าดอกเบี้ยบ้านเดินยังไง เพราะเกือบทุกความเข้าใจผิดเรื่องนี้เริ่มจากการเดาวิธีเดินของมันผิดตั้งแต่บรรทัดแรก บันทึกนี้เลยเริ่มจากการกางตัวเลขให้เห็นทีละบาทก่อน แล้วค่อยไปดูว่าประวัติของมหาเศรษฐีแต่ละคนจริงแค่ไหน และกติกาภาษีที่ทำให้วิธีคิดของพวกเขาเวิร์ก มีข้อไหนบ้างที่ยกมาใช้ในไทยไม่ได้เลย
   </p>
 
   <hr class="divider-solid" />
@@ -147,11 +179,57 @@ const barW = slot * 0.66;
     กฎมีข้อเดียว ดอกเบี้ยงวดนี้คิดจาก <strong>เงินต้นที่ยังค้างอยู่ตอนนั้น</strong> เท่านั้น ยอดที่เคยกู้มาไม่เกี่ยวอีกแล้ว
   </p>
   <div class="card">
-    <p>ดอกเบี้ยงวดนี้ = เงินต้นคงเหลือ × อัตราต่อปี × จำนวนวันในงวด ÷ 365</p>
-    <p>เงินต้นที่ตัดได้งวดนี้ = ค่างวดที่จ่าย − ดอกเบี้ยงวดนี้</p>
+    <Fragment set:html={texBlock(String.raw`\text{ดอกเบี้ยงวดนี้} \;=\; \text{เงินต้นคงเหลือ} \times \text{อัตราต่อปี} \times \frac{\text{จำนวนวันในงวด}}{365}`)} />
+    <Fragment set:html={texBlock(String.raw`\text{เงินต้นที่ตัดได้งวดนี้} \;=\; \text{ค่างวดที่จ่าย} \;-\; \text{ดอกเบี้ยงวดนี้}`)} />
   </div>
   <p>
-    ธนาคารไทยส่วนใหญ่คิดแบบรายวันจริง ๆ ตามสูตรบรรทัดแรก บทความนี้จะใช้เวอร์ชันย่อคือคิดเป็นรายเดือน (อัตราต่อปีหารสิบสอง) เพื่อให้ตารางอ่านง่าย ตัวเลขจะเพี้ยนจากใบเสร็จจริงเล็กน้อย แต่รูปทรงเหมือนกันหมด
+    ที่ต้องคูณ <span set:html={tex(String.raw`\tfrac{\text{จำนวนวันในงวด}}{365}`)} /> เพราะอัตราที่ธนาคารประกาศเป็นอัตรา <strong>ต่อปี</strong> เงินที่เรายืมมาไม่ได้อยู่กับเราครบปีในงวดเดียว มันอยู่แค่ช่วงสั้น ๆ ช่วงหนึ่ง เราจึงจ่ายค่าเช่าตามสัดส่วนของเวลาที่ยืมจริง เศษส่วนก้อนนี้ทำหน้าที่หั่นค่าเช่าทั้งปีให้เหลือเฉพาะส่วนของงวดนี้
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">"งวด" นับวันยังไง</p>
+    <p>
+      <strong>จำนวนวันในงวด</strong> คือจำนวนวันนับจาก <strong>วันที่เราจ่ายครั้งก่อน</strong> ถึง <strong>วันที่เราจ่ายครั้งนี้</strong> ไม่ใช่จำนวนวันของเดือนบนปฏิทิน สมมติเราตัดค่างวดทุกวันที่ 5 งวดที่ครอบ 5 มกราคม ถึง 5 กุมภาพันธ์ ยาว 31 วัน ส่วนงวดถัดไป 5 กุมภาพันธ์ ถึง 5 มีนาคม ยาวแค่ 28 วัน ตัวเลขนี้จึงเปลี่ยนไปเรื่อย ๆ ทุกงวดโดยที่เราไม่ได้ทำอะไรผิด
+    </p>
+  </div>
+  <p>
+    ลองใส่เลขจริงดู เงินต้นคงเหลือ {baht(LOAN)} บาท อัตรา {(ANNUAL * 100).toFixed(0)}% ต่อปี ดอกเบี้ยงวดเดียวกันนี้จะออกมาไม่เท่ากันเลยขึ้นกับว่างวดนั้นยาวกี่วัน
+  </p>
+
+  <figure class="tbl">
+    <table class="amo">
+      <caption>ดอกเบี้ยงวดแรก เมื่อเงินต้นคงเหลือ {baht(LOAN)} บาท อัตรา {(ANNUAL * 100).toFixed(0)}% ต่อปี</caption>
+      <thead>
+        <tr><th>ช่วงของงวด</th><th>จำนวนวันในงวด</th><th>ดอกเบี้ยที่ต้องจ่าย</th></tr>
+      </thead>
+      <tbody>
+        {dayCases.map((d) => (
+          <tr>
+            <td>{d === 28 ? '5 ก.พ. ถึง 5 มี.ค.' : d === 30 ? '5 เม.ย. ถึง 5 พ.ค.' : '5 ม.ค. ถึง 5 ก.พ.'}</td>
+            <td>{d} วัน</td>
+            <td class="hot">{baht(dailyInterest(d))}</td>
+          </tr>
+        ))}
+        <tr class="tie">
+          <td>เวอร์ชันย่อที่บันทึกนี้ใช้</td>
+          <td>ถือว่าทุกงวดเท่ากัน</td>
+          <td class="hot">{baht(LOAN * R)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>งวดที่ยาวกว่ากันสามวันทำให้ดอกเบี้ยต่างกัน {baht(dailyInterest(31) - dailyInterest(28))} บาท นี่คือเหตุผลที่ใบเสร็จแต่ละเดือนไม่เคยเท่ากันเป๊ะ ๆ ส่วนแถวล่างคือค่าคงที่ที่บันทึกนี้ใช้แทน ซึ่งไปนั่งอยู่ระหว่างงวด 30 วันกับ 31 วันพอดี</figcaption>
+  </figure>
+
+  <p>
+    ธนาคารไทยส่วนใหญ่คิดแบบรายวันจริง ๆ ตามสูตรบรรทัดแรก บทความนี้จะใช้เวอร์ชันย่อคือถือว่าทุกงวดยาวเท่ากันหมดหนึ่งเดือน ตัวเลขจะเพี้ยนจากใบเสร็จจริงเล็กน้อยอย่างที่เห็นในตาราง แต่รูปทรงเหมือนกันหมด เขียนเป็นสูตรที่จะใช้ตลอดทั้งบันทึกนี้ได้ว่า
+  </p>
+  <div class="card">
+    <Fragment set:html={texBlock(String.raw`\text{ดอกเบี้ยงวดที่ } k \;=\; B_{k-1} \times r \qquad\text{โดย}\qquad r \;=\; \frac{\text{อัตราต่อปี}}{12}`)} />
+    <p>
+      <span set:html={tex('B_{k-1}')} /> คือเงินต้นคงเหลือหลังจบงวดก่อนหน้า ส่วน <span set:html={tex('r')} /> คือ <strong>อัตราดอกเบี้ยต่องวด</strong> ซึ่งในบันทึกนี้เท่ากับ <span set:html={tex(String.raw`\tfrac{0.06}{12} = 0.005`)} /> หรือ 0.5% ต่อเดือน
+    </p>
+  </div>
+  <p>
+    สูตรสองบรรทัดนี้คือทุกอย่างที่ต้องรู้จริง ๆ ตัวเลขทุกตัวที่เหลือในบันทึกนี้ ทั้งตาราง กราฟ และเครื่องคิดเลขข้างล่าง ล้วนงอกออกมาจากการวนสองบรรทัดนี้ซ้ำ ๆ 360 รอบเท่านั้น
   </p>
   <details class="expander">
     <summary>ทำไมจ่ายวันที่ 5 กับวันที่ 25 ของเดือนแล้วดอกเบี้ยไม่เท่ากัน</summary>
@@ -172,7 +250,16 @@ const barW = slot * 0.66;
 
   <h2>ตารางจริง กู้ 3 ล้าน 30 ปี ดอกเบี้ย 6%</h2>
   <p>
-    ใส่เลขเข้าสูตรค่างวดจะได้ผ่อนเดือนละ <strong>{baht(PMT)} บาท</strong> เท่ากันทุกงวดจนจบ ทีนี้มาดูว่าข้างในค่างวดก้อนนี้มีอะไร
+    กฎสองบรรทัดเมื่อกี้บอกว่าค่างวดถูกแบ่งยังไง แต่ยังไม่ได้บอกว่าค่างวดควรเป็นเท่าไหร่ ซึ่งธนาคารก็ไม่ได้ตั้งขึ้นมาลอย ๆ เงื่อนไขมีข้อเดียวคือ <strong>ผ่อนครบ 360 งวดแล้วหนี้ต้องเหลือศูนย์พอดี ไม่ขาดไม่เกิน</strong> จ่ายน้อยกว่านั้นหนี้ไม่มีวันหมด จ่ายมากกว่านั้นก็จบก่อนกำหนด เงื่อนไขนี้บีบให้เหลือค่างวดที่เป็นไปได้แค่ค่าเดียว
+  </p>
+  <div class="card">
+    <Fragment set:html={texBlock(String.raw`M \;=\; L \cdot \frac{r}{1-(1+r)^{-n}}`)} />
+    <p>
+      แทน <span set:html={tex(String.raw`L = 3{,}000{,}000`)} /> (ยอดกู้), <span set:html={tex('r = 0.005')} /> (ดอกเบี้ยต่อเดือน), <span set:html={tex('n = 360')} /> (จำนวนงวด) จะได้ค่างวด <strong>{baht(PMT)} บาท</strong> เท่ากันทุกงวดจนจบ ที่มาของสูตรนี้อยู่ในกล่อง "สูตรค่างวดมาจากไหน" ถัดจากกราฟข้างล่าง
+    </p>
+  </div>
+  <p>
+    ทีนี้มาดูว่าข้างในค่างวดก้อนนี้มีอะไร
   </p>
 
   <figure class="tbl">
@@ -206,34 +293,56 @@ const barW = slot * 0.66;
   </p>
 
   <ZoomableDiagram caption="ทุกแท่งสูงเท่ากันเพราะเราจ่ายเท่ากันทุกปี ที่เปลี่ยนคือสัดส่วนข้างใน (diagram สร้างจากตัวเลขที่คำนวณตอน build)">
-    <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กราฟแท่งซ้อนสามสิบแท่ง แท่งละหนึ่งปี ความสูงเท่ากันทุกแท่งเพราะค่างวดรวมทั้งปีคงที่ ส่วนสีทองด้านบนคือดอกเบี้ย ส่วนสีเขียวด้านล่างคือเงินต้น ปีแรกดอกเบี้ยกินพื้นที่เกือบทั้งแท่ง แล้วสัดส่วนดอกเบี้ยลดลงเรื่อย ๆ จนปีที่สามสิบเป็นเงินต้นเกือบทั้งแท่ง จุดที่เงินต้นแซงดอกเบี้ยอยู่ราวปีที่ ${Math.ceil(crossover.month / 12)}`} style="font-family:'Sarabun',sans-serif">
-      <text x="8" y="18" font-size="11" fill="#f0d060">■ ดอกเบี้ย</text>
-      <text x="90" y="18" font-size="11" fill="#4ade80">■ เงินต้น</text>
-      <line x1={CH.x0} y1={CH.y0 + CH.h} x2={CH.x0 + CH.w} y2={CH.y0 + CH.h} stroke="#3a4666" stroke-width="1"/>
+    <svg viewBox="0 0 720 278" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กราฟแท่งซ้อนสามสิบแท่ง แท่งละหนึ่งปี แกนตั้งคือเงินที่จ่ายรวมทั้งปีเป็นบาท ความสูงเท่ากันทุกแท่งเพราะค่างวดรวมทั้งปีคงที่ ส่วนสีทองด้านบนคือดอกเบี้ย ส่วนสีเขียวด้านล่างคือเงินต้น มีเส้นประแนวนอนที่ระดับครึ่งแท่งไว้เทียบว่าเมื่อไหร่เขียวโตเกินครึ่ง ปีแรกดอกเบี้ยกินพื้นที่เกือบทั้งแท่ง แล้วสัดส่วนดอกเบี้ยลดลงเรื่อย ๆ จนปีที่สามสิบเป็นเงินต้นเกือบทั้งแท่ง เส้นประแนวตั้งสีแดงปักที่แท่งปีที่ ${crossYear} ซึ่งเป็นแท่งแรกที่ส่วนเขียวสูงกว่าส่วนทอง`} style="font-family:'Sarabun',sans-serif">
+      <text x="8" y="16" font-size="11" fill="#f0d060">■ ดอกเบี้ย</text>
+      <text x="90" y="16" font-size="11" fill="#4ade80">■ เงินต้น</text>
+
+      {/* ป้ายจุดตัด วางเหนือพื้นที่กราฟ จะได้ไม่ทับแท่ง */}
+      <text x={crossoverX} y={CH.y0 - 8} font-size="10.5" fill="#f08b8b" text-anchor="middle">ปีที่ {crossYear} เงินต้นทั้งปีแซงดอกเบี้ยทั้งปี</text>
+
+      {/* แกนตั้ง */}
+      <text x="14" y={CH.y0 + CH.h / 2} font-size="10" fill="#8a97ad" text-anchor="middle" transform={`rotate(-90 14 ${CH.y0 + CH.h / 2})`}>เงินที่จ่ายรวมทั้งปี (บาท)</text>
       <text x={CH.x0 - 8} y={CH.y0 + 6} font-size="10" fill="#8a97ad" text-anchor="end">{baht(yearTotal)}</text>
+      <text x={CH.x0 - 8} y={CH.y0 + CH.h / 2 + 4} font-size="10" fill="#8a97ad" text-anchor="end">ครึ่ง</text>
       <text x={CH.x0 - 8} y={CH.y0 + CH.h + 4} font-size="10" fill="#8a97ad" text-anchor="end">0</text>
+      <line x1={CH.x0} y1={CH.y0 + CH.h} x2={CH.x0 + CH.w} y2={CH.y0 + CH.h} stroke="#3a4666" stroke-width="1"/>
+
       {byYear.map((y, i) => {
         const hI = (y.interest / yearTotal) * CH.h;
         const hP = (y.principal / yearTotal) * CH.h;
         const x = CH.x0 + i * slot + (slot - barW) / 2;
+        const isCross = i + 1 === crossYear;
         return (
           <g>
             <rect x={x} y={CH.y0} width={barW} height={hI} fill="#e0b400" opacity="0.85"/>
             <rect x={x} y={CH.y0 + hI} width={barW} height={hP} fill="#2f9e5c"/>
+            {isCross && <rect x={x - 1.5} y={CH.y0 - 1.5} width={barW + 3} height={CH.h + 3} fill="none" stroke="#f08b8b" stroke-width="1.4" rx="2"/>}
           </g>
         );
       })}
+
+      {/* เส้นครึ่งแท่ง ไว้เทียบด้วยตาว่าเขียวโตเกินครึ่งเมื่อไหร่ */}
+      <line x1={CH.x0} y1={CH.y0 + CH.h / 2} x2={CH.x0 + CH.w} y2={CH.y0 + CH.h / 2} stroke="#8a97ad" stroke-width="1" stroke-dasharray="3 4" opacity="0.75"/>
+
+      {/* เส้นจุดตัด ปักกลางแท่งของปีที่เงินต้นแซง */}
+      <line x1={crossoverX} y1={CH.y0 - 4} x2={crossoverX} y2={CH.y0 + CH.h + 6} stroke="#f08b8b" stroke-width="1.4" stroke-dasharray="4 3"/>
+
       {[1, 5, 10, 15, 20, 25, 30].map((yr) => (
-        <text x={CH.x0 + (yr - 0.5) * slot} y={CH.y0 + CH.h + 18} font-size="10" fill="#8a97ad" text-anchor="middle">{yr}</text>
+        <g>
+          <line x1={CH.x0 + (yr - 0.5) * slot} y1={CH.y0 + CH.h} x2={CH.x0 + (yr - 0.5) * slot} y2={CH.y0 + CH.h + 4} stroke="#3a4666" stroke-width="1"/>
+          <text x={CH.x0 + (yr - 0.5) * slot} y={CH.y0 + CH.h + 18} font-size="10" fill="#8a97ad" text-anchor="middle">{yr}</text>
+        </g>
       ))}
+      <text x={crossoverX} y={CH.y0 + CH.h + 18} font-size="10" fill="#f08b8b" text-anchor="middle">{crossYear}</text>
       <text x={CH.x0 + CH.w / 2} y={CH.y0 + CH.h + 38} font-size="10.5" fill="#8a97ad" text-anchor="middle">ปีที่</text>
-      <line x1={CH.x0 + Math.ceil(crossover.month / 12) * slot} y1={CH.y0 - 4} x2={CH.x0 + Math.ceil(crossover.month / 12) * slot} y2={CH.y0 + CH.h} stroke="#f08b8b" stroke-width="1.4" stroke-dasharray="4 3"/>
-      <text x={CH.x0 + Math.ceil(crossover.month / 12) * slot + 6} y={CH.y0 + 14} font-size="10.5" fill="#f08b8b">เงินต้นเพิ่งแซงดอกเบี้ย</text>
     </svg>
   </ZoomableDiagram>
 
   <p>
-    เส้นประสีแดงคือจุดที่หลายคนไม่เคยรู้ ผ่อนไปถึงงวดที่ {crossover.month} หรือราวปีที่ {(crossover.month / 12).toFixed(1)} นั่นแหละที่เงินต้นเพิ่งจะเริ่มมากกว่าดอกเบี้ยในค่างวดหนึ่งงวด และหนี้จะเหลือครึ่งหนึ่งของยอดที่กู้ตอนงวดที่ {halfway.month} หรือปีที่ {(halfway.month / 12).toFixed(1)} ทั้งที่จ่ายเงินมาแล้ว {mB(PMT * halfway.month)} ล้านบาท
+    กราฟนี้เป็นรายปี เส้นประแดงจึงปักที่ปีที่ {crossYear} ซึ่งเป็นปีแรกที่เงินต้นรวมทั้งปีแซงดอกเบี้ยรวมทั้งปี ถ้าซูมลงไปดูทีละงวดจะเห็นจุดพลิกก่อนหน้านั้นนิดหน่อย คือ <strong>งวดที่ {crossover.month}</strong> หรือราวปีที่ {(crossover.month / 12).toFixed(1)} เป็นงวดแรกที่เงินต้นในค่างวดก้อนนั้นมากกว่าดอกเบี้ย สองเลขนี้ต่างกันเพราะนับคนละหน่วย งวดเดียว กับ ทั้งปีรวมกัน
+  </p>
+  <p>
+    ที่หลายคนไม่เคยรู้คือหนี้จะเหลือครึ่งหนึ่งของยอดที่กู้ตอนงวดที่ {halfway.month} หรือปีที่ {(halfway.month / 12).toFixed(1)} ทั้งที่จ่ายเงินไปแล้ว {mB(PMT * halfway.month)} ล้านบาท
   </p>
   <div class="callout callout-warn">
     <p class="callout-label">ตัวเลขที่ควรจำ</p>
@@ -242,26 +351,67 @@ const barW = slot * 0.66;
     </p>
   </div>
   <p>
-    ตรงนี้ต้องพูดให้เป็นธรรมกับสินเชื่อบ้านด้วย ตัวเลข 3.4 ล้านนั้นเป็นเงินของอีกสามสิบปีข้างหน้า ซึ่งค่าของมันไม่เท่ากับเงินวันนี้ ค่างวด 17,987 บาทในปี 2056 จะรู้สึกเล็กกว่าตอนนี้มาก เพราะเงินเดือนและราคาของโดยทั่วไปขยับขึ้นตามเวลา นี่คือข้อดีที่แท้จริงของการล็อกหนี้ก้อนใหญ่ไว้นาน ๆ ในสกุลเงินที่เฟ้อได้ ผู้กู้ได้เปรียบเงินเฟ้อ
+    ตรงนี้ต้องพูดให้เป็นธรรมกับสินเชื่อบ้านด้วย ตัวเลข {mB(totalInterest)} ล้านนั้นเป็นเงินของอีกสามสิบปีข้างหน้า ซึ่งค่าของมันไม่เท่ากับเงินวันนี้ ค่างวด {baht(PMT)} บาทในปี 2056 จะรู้สึกเล็กกว่าตอนนี้มาก เพราะเงินเดือนและราคาของโดยทั่วไปขยับขึ้นตามเวลา นี่คือข้อดีที่แท้จริงของการล็อกหนี้ก้อนใหญ่ไว้นาน ๆ ในสกุลเงินที่เฟ้อได้ ผู้กู้ได้เปรียบเงินเฟ้อ และเก็บข้อนี้ไว้ในใจก่อน เพราะมันคือเหตุผลตัวจริงที่ Zuckerberg รีไฟแนนซ์บ้านตัวเองในหัวข้อถัดไป
   </p>
   <details class="expander">
     <summary>สูตรค่างวดมาจากไหน (คณิตศาสตร์ล้วน)</summary>
     <div class="expander-body">
       <p>
-        เราอยากหาค่างวด M ที่ทำให้ผ่อน n งวดแล้วหนี้เหลือศูนย์พอดี วิธีคิดที่ตรงที่สุดคือมองว่าเงินต้นวันนี้ต้องเท่ากับมูลค่าปัจจุบันของค่างวดทุกงวดรวมกัน
+        ให้ <span set:html={tex('L')} /> คือยอดกู้, <span set:html={tex('r')} /> คืออัตราดอกเบี้ย <strong>ต่องวด</strong>, <span set:html={tex('n')} /> คือจำนวนงวด, <span set:html={tex('M')} /> คือค่างวด และ <span set:html={tex('B_k')} /> คือหนี้คงเหลือหลังจบงวดที่ <span set:html={tex('k')} /> ทุกอย่างในนี้งอกจากกฎข้อเดียวที่กางไว้ข้างบน ไม่ต้องใช้ของใหม่เลย
+      </p>
+
+      <p class="callout-label">ที่มาของ <span set:html={tex('(1+r)')} /></p>
+      <p>
+        กฎบอกว่าดอกเบี้ยงวดนี้เท่ากับ <span set:html={tex('B \\times r')} /> ดังนั้นถ้างวดนั้นเราไม่จ่ายอะไรเลย หนี้จะกลายเป็น <span set:html={tex('B + Br')} /> ซึ่งดึงตัวร่วมออกมาได้เป็น <span set:html={tex('B(1+r)')} /> ก้อน <span set:html={tex('(1+r)')} /> ที่โผล่ในทุกสูตรถัดจากนี้จึงเป็นแค่กฎเดิมเขียนใหม่ ไม่ใช่ของที่เสกมา
       </p>
       <p>
-        <code>L = M/(1+r) + M/(1+r)² + … + M/(1+r)ⁿ</code>
+        เดินกลับทางก็ได้ เงิน <span set:html={tex('X')} /> ที่จะมีในงวดหน้า มีค่าเท่ากับ <span set:html={tex(String.raw`\tfrac{X}{1+r}`)} /> ในวันนี้ เพราะถ้าเอา <span set:html={tex(String.raw`\tfrac{X}{1+r}`)} /> ไปวางไว้หนึ่งงวด มันจะโตกลับมาเป็น <span set:html={tex('X')} /> พอดี ทำซ้ำ <span set:html={tex('k')} /> งวดก็ได้ <span set:html={tex('(1+r)^k')} /> การหารด้วย <span set:html={tex('(1+r)')} /> จึงแปลว่า "ย้ายเงินก้อนนี้ถอยหลังมาหนึ่งงวด"
       </p>
+
+      <p class="callout-label">ทางที่หนึ่ง กางกฎออกตรง ๆ</p>
       <p>
-        ก้อนขวาคืออนุกรมเรขาคณิต (geometric series) อัตราส่วน 1/(1+r) พอยุบด้วยสูตรผลบวกอนุกรมจะได้
+        จบแต่ละงวด หนี้เก่าโตด้วย <span set:html={tex('(1+r)')} /> แล้วถูกหักด้วยค่างวด <span set:html={tex('M')} /> เขียนได้ว่า <span set:html={tex('B_k = B_{k-1}(1+r) - M')} /> กางจาก <span set:html={tex('B_0 = L')} /> ไปเรื่อย ๆ ทุกครั้งที่ผ่านหนึ่งงวด ค่างวดเก่าจะถูกคูณ <span set:html={tex('(1+r)')} /> เพิ่มอีกหนึ่งชั้น พอครบ <span set:html={tex('n')} /> งวดจึงได้
       </p>
+      <Fragment set:html={texBlock(String.raw`B_n \;=\; L(1+r)^n \;-\; M\Big[(1+r)^{n-1} + (1+r)^{n-2} + \cdots + 1\Big]`)} />
       <p>
-        <code>L = M × (1 − (1+r)⁻ⁿ) / r</code> ซึ่งย้ายข้างเป็น <code>M = L × r / (1 − (1+r)⁻ⁿ)</code>
+        ก้อนในวงเล็บคืออนุกรมเรขาคณิต (geometric series) ที่ขึ้นต้นด้วย 1 อัตราส่วน <span set:html={tex('(1+r)')} /> จำนวน <span set:html={tex('n')} /> พจน์ ซึ่งยุบได้เป็น <span set:html={tex(String.raw`\tfrac{(1+r)^n - 1}{r}`)} /> เงื่อนไข "ครบ n งวดแล้วหนี้เหลือศูนย์" คือ <span set:html={tex('B_n = 0')} /> แทนลงไปแล้วย้ายข้าง
       </p>
+      <Fragment set:html={texBlock(String.raw`L(1+r)^n \;=\; M \cdot \frac{(1+r)^n - 1}{r} \qquad\Longrightarrow\qquad M \;=\; L \cdot \frac{r(1+r)^n}{(1+r)^n - 1}`)} />
       <p>
-        แทน L = 3,000,000, r = 0.06/12 = 0.005, n = 360 จะได้ M = {PMT.toFixed(2)} บาท ก้อน <code>(1 − (1+r)⁻ⁿ)/r</code> มีชื่อเรียกว่า <strong>annuity factor</strong> ("แอนนูอิตี แฟกเตอร์" แปลว่าตัวคูณของกระแสเงินงวดเท่ากัน) เดี๋ยวจะได้ใช้อีกในหัวข้อจุดคุ้มทุน
+        หารทั้งเศษและส่วนด้วย <span set:html={tex('(1+r)^n')} /> จะได้หน้าตาที่ใช้กันทั่วไป
       </p>
+      <Fragment set:html={texBlock(String.raw`M \;=\; L \cdot \frac{r}{1-(1+r)^{-n}}`)} />
+
+      <p class="callout-label">ทางที่สอง มองเป็นมูลค่าปัจจุบัน</p>
+      <p>
+        อีกมุมที่ให้คำตอบเดียวกันคือลากค่างวดทุกงวดถอยหลังกลับมาเป็นเงินวันนี้ ด้วยกฎ "ถอยหลังหนึ่งงวดคือหารด้วย <span set:html={tex('(1+r)')} />" ที่เพิ่งได้มา ค่างวดของงวดที่ <span set:html={tex('k')} /> จึงมีค่าวันนี้เท่ากับ <span set:html={tex(String.raw`\tfrac{M}{(1+r)^k}`)} /> และเงินที่ธนาคารยอมปล่อยกู้วันนี้ก็คือผลรวมของทั้งหมดนั้น
+      </p>
+      <Fragment set:html={texBlock(String.raw`L \;=\; \frac{M}{1+r} + \frac{M}{(1+r)^2} + \cdots + \frac{M}{(1+r)^n}`)} />
+      <p>
+        อนุกรมเรขาคณิตอีกชุด คราวนี้พจน์แรกคือ <span set:html={tex(String.raw`\tfrac{M}{1+r}`)} /> อัตราส่วน <span set:html={tex(String.raw`q = \tfrac{1}{1+r}`)} /> จำนวน <span set:html={tex('n')} /> พจน์ ใช้สูตรผลบวก <span set:html={tex(String.raw`a\tfrac{1-q^n}{1-q}`)} /> ได้
+      </p>
+      <Fragment set:html={texBlock(String.raw`L \;=\; \frac{M}{1+r} \cdot \frac{1-(1+r)^{-n}}{1 - \frac{1}{1+r}} \;=\; \frac{M}{1+r} \cdot \frac{1-(1+r)^{-n}}{\frac{r}{1+r}} \;=\; M \cdot \frac{1-(1+r)^{-n}}{r}`)} />
+      <p>
+        ตัว <span set:html={tex('(1+r)')} /> ตัดกันหายไปในขั้นสุดท้าย เหลือ <span set:html={tex(String.raw`M = L \cdot \tfrac{r}{1-(1+r)^{-n}}`)} /> ตรงกับทางที่หนึ่งเป๊ะ ก้อน <span set:html={tex(String.raw`\tfrac{1-(1+r)^{-n}}{r}`)} /> มีชื่อเรียกว่า <strong>annuity factor</strong> ("แอนนูอิตี แฟกเตอร์" แปลว่าตัวคูณของกระแสเงินงวดเท่ากัน) เดี๋ยวจะได้ใช้อีกในหัวข้อจุดคุ้มทุน
+      </p>
+
+      <p class="callout-label">ลองเคสจิ๋วที่ไล่มือได้จริง</p>
+      <p>
+        เลข 360 งวดไล่มือไม่ไหว แต่ย่อเหลือสองงวดแล้วตรวจได้ทั้งเส้น สมมติกู้ 1,000 บาท ดอกเบี้ย 10% ต่องวด ผ่อน 2 งวด แทนในสูตรได้ <span set:html={tex(String.raw`M = 1000 \cdot \tfrac{0.1}{1-1.1^{-2}} = 576.19`)} /> แล้วเอา 576.19 ไปวนกฎสองบรรทัดดู
+      </p>
+      <figure class="tbl">
+        <table class="amo">
+          <caption>ไล่มือ กู้ 1,000 ดอกเบี้ย 10% ต่องวด สองงวดจบ</caption>
+          <thead>
+            <tr><th>งวดที่</th><th>ดอกเบี้ย</th><th>ตัดเงินต้น</th><th>คงเหลือ</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="hot">100.00</td><td class="cool">476.19</td><td>523.81</td></tr>
+            <tr><td>2</td><td class="hot">52.38</td><td class="cool">523.81</td><td>0.00</td></tr>
+          </tbody>
+        </table>
+        <figcaption>งวดสุดท้ายตัดเงินต้นได้พอดีกับที่ค้างอยู่ หนี้จบที่ศูนย์ถ้วน ไม่ใช่เพราะปัดเศษ แต่เพราะสูตรถูกตั้งมาให้เป็นแบบนั้น และเห็นครบในสองบรรทัดว่าดอกเบี้ยลด เงินต้นโต</figcaption>
+      </figure>
     </div>
   </details>
 
@@ -325,7 +475,7 @@ const barW = slot * 0.66;
 
   <h2>Opportunity cost กับ Leverage แปลว่าอะไรจริง ๆ</h2>
   <p>
-    สองคำนี้คือคำที่โพสต์ต้นทางใช้ปิดท้าย มันเป็นคำที่ถูก แต่ถ้าไม่แกะออกมันก็เป็นแค่คำเท่ ๆ
+    เวลาโพสต์แนวนี้ต้องสรุปว่าทำไมคนรวยถึงเลือกกู้ มันมักจบด้วยสองคำนี้ ซึ่งเป็นคำที่ถูก แต่ถ้าไม่แกะออกมันก็เป็นแค่คำเท่ ๆ
   </p>
   <div class="callout callout-note">
     <p class="callout-label">แกะคำศัพท์</p>
@@ -341,31 +491,35 @@ const barW = slot * 0.66;
   </p>
 
   <ZoomableDiagram caption="วางแบบนี้แล้วบ้านหักกันหายไปจากสมการ เหลือแค่การแข่งกันของพอร์ตสองแบบ (diagram วาดประกอบโดยผู้เขียน)">
-    <svg viewBox="0 0 720 268" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเทียบสองทาง ทางซ้ายจ่ายสดสามล้านซื้อบ้าน เงินลงทุนเริ่มที่ศูนย์ แล้วเอาเงินที่เคยเป็นค่างวดเดือนละหนึ่งหมื่นเจ็ดพันเก้าร้อยแปดสิบเจ็ดบาทไปลงทุนทุกเดือน ทางขวากู้สามล้านซื้อบ้าน เงินสามล้านอยู่ในพอร์ตตั้งแต่วันแรก แล้วถอนจากพอร์ตไปจ่ายค่างวดทุกเดือน ปลายทางทั้งสองฝั่งได้บ้านหลังเดียวกัน ต่างกันแค่หน้าตาของพอร์ต" style="font-family:'Sarabun',sans-serif">
-      <rect x="20" y="16" width="320" height="150" rx="12" fill="#1c2536" stroke="#3a4666"/>
-      <text x="180" y="42" font-size="13" font-weight="700" fill="#c3cbdc" text-anchor="middle">ทาง A: จ่ายสด</text>
-      <text x="180" y="68" font-size="11.5" fill="#9aa7bd" text-anchor="middle">ควักสด 3,000,000 ซื้อบ้านจบ</text>
-      <text x="180" y="90" font-size="11.5" fill="#9aa7bd" text-anchor="middle">พอร์ตเริ่มที่ 0 บาท</text>
-      <text x="180" y="116" font-size="11.5" fill="#4ade80" text-anchor="middle">ไม่มีค่างวด จึงเอา 17,987</text>
-      <text x="180" y="136" font-size="11.5" fill="#4ade80" text-anchor="middle">ไปลงทุนได้ทุกเดือน 360 เดือน</text>
-      <text x="180" y="158" font-size="11" fill="#8a97ad" text-anchor="middle">พอร์ตโตจากการเติมทีละน้อย</text>
+    <svg viewBox="0 0 720 322" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนภาพเทียบสองทาง แถบบนสุดคือเงื่อนไขตั้งต้นที่ทำให้เทียบกันได้อย่างยุติธรรม ทั้งสองคนมีเงินสด ${baht(LOAN)} บาทเท่ากัน มีรายได้ต่อเดือนเท่ากัน และอยากได้บ้านราคาเท่ากันหลังเดียวกัน ทางซ้ายคือทาง A จ่ายสด ${baht(LOAN)} ซื้อบ้าน พอร์ตเริ่มที่ศูนย์ แล้วเอารายได้ส่วนที่เคยต้องเป็นค่างวดเดือนละ ${baht(PMT)} บาทไปลงทุนทุกเดือน ทางขวาคือทาง B กู้ ${baht(LOAN)} ซื้อบ้าน เงิน ${baht(LOAN)} อยู่ในพอร์ตตั้งแต่วันแรกและไม่ถูกแตะเลย เพราะรายได้ก้อนเดียวกันนั้นถูกใช้จ่ายค่างวดให้ธนาคารแทนการลงทุน กล่องล่างสรุปว่าปลายทางทั้งสองฝั่งได้บ้านหลังเดียวกัน ต่างกันแค่หน้าตาของพอร์ต`} style="font-family:'Sarabun',sans-serif">
+      <rect x="20" y="12" width="680" height="48" rx="12" fill="#141a29" stroke="#3a4666"/>
+      <text x="360" y="31" font-size="11" font-weight="700" fill="#c3cbdc" text-anchor="middle">เงื่อนไขตั้งต้นที่ทำให้เทียบกันได้อย่างยุติธรรม</text>
+      <text x="360" y="50" font-size="11" fill="#9aa7bd" text-anchor="middle">มีเงินสด {baht(LOAN)} บาทเท่ากัน · รายได้ต่อเดือนเท่ากัน · อยากได้บ้านราคา {baht(LOAN)} บาทหลังเดียวกัน</text>
 
-      <rect x="380" y="16" width="320" height="150" rx="12" fill="#2b2410" stroke="#e0b400"/>
-      <text x="540" y="42" font-size="13" font-weight="700" fill="#f0d060" text-anchor="middle">ทาง B: กู้</text>
-      <text x="540" y="68" font-size="11.5" fill="#d8b862" text-anchor="middle">กู้ 3,000,000 ซื้อบ้าน</text>
-      <text x="540" y="90" font-size="11.5" fill="#d8b862" text-anchor="middle">พอร์ตเริ่มที่ 3,000,000 เต็ม</text>
-      <text x="540" y="116" font-size="11.5" fill="#f0d060" text-anchor="middle">แต่ต้องถอน 17,987 ทุกเดือน</text>
-      <text x="540" y="136" font-size="11.5" fill="#f0d060" text-anchor="middle">ไปจ่ายแบงก์ 360 เดือน</text>
-      <text x="540" y="158" font-size="11" fill="#c9a94a" text-anchor="middle">พอร์ตโตจากก้อนใหญ่ตั้งแต่วันแรก</text>
+      <rect x="20" y="76" width="320" height="150" rx="12" fill="#1c2536" stroke="#3a4666"/>
+      <text x="180" y="102" font-size="13" font-weight="700" fill="#c3cbdc" text-anchor="middle">ทาง A: จ่ายสด</text>
+      <text x="180" y="128" font-size="11.5" fill="#9aa7bd" text-anchor="middle">ควักสด {baht(LOAN)} ซื้อบ้านจบ</text>
+      <text x="180" y="150" font-size="11.5" fill="#9aa7bd" text-anchor="middle">พอร์ตเริ่มที่ 0 บาท</text>
+      <text x="180" y="176" font-size="11.5" fill="#4ade80" text-anchor="middle">ไม่มีค่างวด จึงเอา {baht(PMT)}</text>
+      <text x="180" y="196" font-size="11.5" fill="#4ade80" text-anchor="middle">ไปลงทุนได้ทุกเดือน {N} เดือน</text>
+      <text x="180" y="218" font-size="11" fill="#8a97ad" text-anchor="middle">พอร์ตโตจากการเติมทีละน้อย</text>
 
-      <rect x="150" y="192" width="420" height="58" rx="12" fill="#173626" stroke="#2f9e5c"/>
-      <text x="360" y="216" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">ปลายทางได้บ้านหลังเดียวกัน ราคาเท่ากัน</text>
-      <text x="360" y="238" font-size="11.5" fill="#a9dcc0" text-anchor="middle">เหลือคำถามเดียวว่าพอร์ตฝั่งไหนใหญ่กว่า</text>
+      <rect x="380" y="76" width="320" height="150" rx="12" fill="#2b2410" stroke="#e0b400"/>
+      <text x="540" y="102" font-size="13" font-weight="700" fill="#f0d060" text-anchor="middle">ทาง B: กู้</text>
+      <text x="540" y="128" font-size="11.5" fill="#d8b862" text-anchor="middle">กู้ {baht(LOAN)} ซื้อบ้าน</text>
+      <text x="540" y="150" font-size="11.5" fill="#d8b862" text-anchor="middle">พอร์ตเริ่มที่ {baht(LOAN)} เต็ม</text>
+      <text x="540" y="176" font-size="11.5" fill="#f0d060" text-anchor="middle">เอา {baht(PMT)} จ่ายแบงก์แทน</text>
+      <text x="540" y="196" font-size="11.5" fill="#f0d060" text-anchor="middle">จึงเติมพอร์ตไม่ได้เลย {N} เดือน</text>
+      <text x="540" y="218" font-size="11" fill="#c9a94a" text-anchor="middle">พอร์ตโตจากก้อนใหญ่ตั้งแต่วันแรก</text>
+
+      <rect x="150" y="248" width="420" height="58" rx="12" fill="#173626" stroke="#2f9e5c"/>
+      <text x="360" y="272" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">ปลายทางได้บ้านหลังเดียวกัน ราคาเท่ากัน</text>
+      <text x="360" y="294" font-size="11.5" fill="#a9dcc0" text-anchor="middle">เหลือคำถามเดียวว่าพอร์ตฝั่งไหนใหญ่กว่า</text>
     </svg>
   </ZoomableDiagram>
 
   <p>
-    ทาง A ได้พอร์ตแบบทยอยเติม ทาง B ได้พอร์ตแบบก้อนเดียวตั้งแต่วันแรกแต่ถูกดูดออกทุกเดือน คำถามคือผลตอบแทนต้องได้เท่าไหร่ทาง B จึงจะชนะ ลองดูตัวเลขจริง
+    กุญแจอยู่ที่รายได้ต่อเดือนของสองทางเท่ากัน ต่างกันแค่ว่าเงินก้อนนั้นถูกส่งไปไหน ทาง A ส่งเข้าพอร์ต ทาง B ส่งให้ธนาคาร ทาง A จึงได้พอร์ตแบบทยอยเติมจากศูนย์ ส่วนทาง B ได้พอร์ตก้อนใหญ่ตั้งแต่วันแรกที่นอนทบต้นอยู่เฉย ๆ ครบสามสิบปีโดยไม่ถูกถอน คำถามคือผลตอบแทนต้องได้เท่าไหร่ทาง B จึงจะชนะ ลองดูตัวเลขจริง
   </p>
 
   <figure class="tbl">
@@ -381,8 +535,7 @@ const barW = slot * 0.66;
             <td>{mB(p.cash)}</td>
             <td>{mB(p.loan)}</td>
             <td class={p.loan - p.cash > 1 ? 'cool' : p.cash - p.loan > 1 ? 'hot' : undefined}>
-              {p.loan - p.cash > 1 ? 'B ชนะ ' : p.cash - p.loan > 1 ? 'A ชนะ ' : 'เสมอ '}
-              {Math.abs(p.loan - p.cash) > 1 ? mB(Math.abs(p.loan - p.cash)) : ''}
+              {p.loan - p.cash > 1 ? `B ชนะ +${mB(p.loan - p.cash)}` : p.cash - p.loan > 1 ? `A ชนะ +${mB(p.cash - p.loan)}` : `เสมอ ${mB(Math.abs(p.loan - p.cash))}`}
             </td>
           </tr>
         ))}
@@ -398,25 +551,71 @@ const barW = slot * 0.66;
     <summary>พิสูจน์ว่าจุดคุ้มทุนคืออัตราดอกเบี้ยเงินกู้พอดี</summary>
     <div class="expander-body">
       <p>
-        ให้ L คือเงินกู้, r คืออัตราดอกเบี้ยต่องวด, g คือผลตอบแทนลงทุนต่องวด, n คือจำนวนงวด และ M คือค่างวด
+        ให้ <span set:html={tex('L')} /> คือเงินกู้, <span set:html={tex('r')} /> คืออัตราดอกเบี้ยต่องวด, <span set:html={tex('g')} /> คือผลตอบแทนลงทุนต่องวด, <span set:html={tex('n')} /> คือจำนวนงวด และ <span set:html={tex('M')} /> คือค่างวด
       </p>
       <p>
-        ทาง A เติมเงิน M ทุกงวดเข้าพอร์ตที่โตอัตรา g ปลายทางได้ <code>FV_A = M × ((1+g)ⁿ − 1)/g</code>
+        ทาง A เติมเงิน <span set:html={tex('M')} /> ทุกงวดเข้าพอร์ตที่โตอัตรา <span set:html={tex('g')} /> ก้อนที่เติมงวดแรกมีเวลาโต <span set:html={tex('n-1')} /> งวด ก้อนถัดมาโต <span set:html={tex('n-2')} /> งวด ไล่ไปจนก้อนสุดท้ายที่ยังไม่ทันโตเลย รวมกันคือ <span set:html={tex(String.raw`M[(1+g)^{n-1} + \cdots + 1]`)} /> ซึ่งเป็นอนุกรมเรขาคณิตชุดเดียวกับที่ยุบไปแล้วในกล่องสูตรค่างวด ได้
+      </p>
+      <Fragment set:html={texBlock(String.raw`FV_A \;=\; M \cdot \frac{(1+g)^n - 1}{g}`)} />
+      <p>
+        ทาง B ใส่ <span set:html={tex('L')} /> เข้าพอร์ตวันแรกแล้วปล่อยทบต้นยาว เพราะเงินที่เติมสุทธิเป็นศูนย์ทุกงวด (รายได้ <span set:html={tex('M')} /> ที่ฝั่ง A เอาไปลงทุน ฝั่ง B เอาไปจ่ายแบงก์แทน พอร์ตไม่ถูกถอน) ก้อนเดียวโต <span set:html={tex('n')} /> งวดเต็มจึงได้
+      </p>
+      <Fragment set:html={texBlock(String.raw`FV_B \;=\; L \cdot (1+g)^n`)} />
+      <p>
+        ทีนี้ลองแทน <span set:html={tex('g = r')} /> ดู จากสูตรค่างวดเรารู้ว่า <span set:html={tex(String.raw`L = M \cdot \tfrac{1-(1+r)^{-n}}{r}`)} /> ดังนั้น
+      </p>
+      <Fragment set:html={texBlock(String.raw`FV_B \;=\; M \cdot \frac{1-(1+r)^{-n}}{r} \cdot (1+r)^n \;=\; M \cdot \frac{(1+r)^n - 1}{r} \;=\; FV_A`)} />
+      <p>
+        เท่ากันพอดีชนิดไม่เหลือเศษ ที่ <span set:html={tex('g = r')} /> จึงเป็นจุดเสมอเสมอไป ไม่ว่าจะกู้เท่าไหร่หรือกี่งวด
       </p>
       <p>
-        ทาง B ใส่ L เข้าพอร์ตวันแรก แล้วเงินที่เติมสุทธิเป็นศูนย์ทุกงวด (รับ M แล้วจ่าย M ให้แบงก์) ปลายทางได้ <code>FV_B = L × (1+g)ⁿ</code>
+        เหลืออีกข้อที่ต้องยืนยันคือจุดเสมอมีจุดเดียว ลากทั้งสองเส้นออกมาดูจะเห็นทันที
+      </p>
+
+      <ZoomableDiagram caption={`เส้นทั้งสองตัดกันครั้งเดียวที่ ${(ANNUAL * 100).toFixed(0)}% พอดี ซึ่งเป็นอัตราดอกเบี้ยเงินกู้ ก่อนถึงจุดนั้นการจ่ายสดชนะ หลังจากนั้นการกู้ชนะ และช่องว่างถ่างขึ้นเรื่อย ๆ เพราะเงินก้อนใหญ่ได้ทบต้นครบทุกงวด (diagram สร้างจากตัวเลขที่คำนวณตอน build)`}>
+        <svg viewBox="0 0 720 268" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กราฟเส้นสองเส้น แกนนอนคือผลตอบแทนลงทุนต่อปีตั้งแต่ ${(G_MIN * 100).toFixed(0)} ถึง ${(G_MAX * 100).toFixed(0)} เปอร์เซ็นต์ แกนตั้งคือมูลค่าพอร์ตเมื่อครบสามสิบปีหน่วยล้านบาท เส้นสีเทาคือทาง A จ่ายสดแล้วทยอยลงทุนค่างวด เส้นสีทองคือทาง B กู้แล้วปล่อยเงินก้อนนอนทบต้น ที่ผลตอบแทนต่ำเส้นของทาง A อยู่สูงกว่า เส้นทั้งสองตัดกันจุดเดียวที่ ${(ANNUAL * 100).toFixed(0)} เปอร์เซ็นต์ ซึ่งเท่ากับอัตราดอกเบี้ยเงินกู้พอดี หลังจุดนั้นเส้นของทาง B แซงขึ้นไปและถ่างห่างเร็วขึ้นเรื่อย ๆ พื้นที่ซ้ายของจุดตัดกำกับว่าทาง A ชนะ พื้นที่ขวากำกับว่าทาง B ชนะ`} style="font-family:'Sarabun',sans-serif">
+          <rect x={FV.x0} y={FV.y0} width={tieX - FV.x0} height={FV.h} fill="#9aa7bd" opacity="0.07"/>
+          <rect x={tieX} y={FV.y0} width={FV.x0 + FV.w - tieX} height={FV.h} fill="#e0b400" opacity="0.07"/>
+
+          <text x={(FV.x0 + tieX) / 2} y={FV.y0 + 18} font-size="11" font-weight="700" fill="#c3cbdc" text-anchor="middle">ผลตอบแทนต่ำกว่าดอกเบี้ย ทาง A ชนะ</text>
+          <text x={(tieX + FV.x0 + FV.w) / 2} y={FV.y0 + 18} font-size="11" font-weight="700" fill="#f0d060" text-anchor="middle">ผลตอบแทนสูงกว่าดอกเบี้ย ทาง B ชนะ</text>
+
+          <line x1={FV.x0} y1={FV.y0} x2={FV.x0} y2={FV.y0 + FV.h} stroke="#3a4666" stroke-width="1"/>
+          <line x1={FV.x0} y1={FV.y0 + FV.h} x2={FV.x0 + FV.w} y2={FV.y0 + FV.h} stroke="#3a4666" stroke-width="1"/>
+
+          {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+            <g>
+              <line x1={FV.x0 - 4} y1={FV.y0 + FV.h - f * FV.h} x2={FV.x0} y2={FV.y0 + FV.h - f * FV.h} stroke="#3a4666" stroke-width="1"/>
+              <text x={FV.x0 - 8} y={FV.y0 + FV.h - f * FV.h + 4} font-size="10" fill="#8a97ad" text-anchor="end">{mB(fvMax * f)}</text>
+            </g>
+          ))}
+          <text x="16" y={FV.y0 + FV.h / 2} font-size="10" fill="#8a97ad" text-anchor="middle" transform={`rotate(-90 16 ${FV.y0 + FV.h / 2})`}>มูลค่าพอร์ตเมื่อครบ {YEARS} ปี (ล้านบาท)</text>
+
+          {[0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12].map((g) => (
+            <g>
+              <line x1={fvX(g)} y1={FV.y0 + FV.h} x2={fvX(g)} y2={FV.y0 + FV.h + 4} stroke="#3a4666" stroke-width="1"/>
+              <text x={fvX(g)} y={FV.y0 + FV.h + 18} font-size="10" fill="#8a97ad" text-anchor="middle">{(g * 100).toFixed(0)}%</text>
+            </g>
+          ))}
+          <text x={FV.x0 + FV.w / 2} y={FV.y0 + FV.h + 38} font-size="10.5" fill="#8a97ad" text-anchor="middle">ผลตอบแทนลงทุนต่อปี</text>
+
+          <path d={pathA} fill="none" stroke="#9aa7bd" stroke-width="2.2"/>
+          <path d={pathB} fill="none" stroke="#e0b400" stroke-width="2.2"/>
+
+          <line x1={tieX} y1={FV.y0} x2={tieX} y2={FV.y0 + FV.h + 6} stroke="#2f9e5c" stroke-width="1.4" stroke-dasharray="4 3"/>
+          <circle cx={tieX} cy={tieY} r="4.5" fill="#4ade80"/>
+          <text x={tieX} y={FV.y0 + FV.h + 52} font-size="10.5" font-weight="700" fill="#4ade80" text-anchor="middle">จุดเสมอจุดเดียว g = {(ANNUAL * 100).toFixed(0)}% เท่ากับดอกเบี้ยเงินกู้พอดี</text>
+
+          <text x={FV.x0 + FV.w} y={fvY(fvPoints[fvPoints.length - 1].cash) + 16} font-size="11" font-weight="700" fill="#9aa7bd" text-anchor="end">ทาง A จ่ายสด</text>
+          <text x={FV.x0 + FV.w} y={fvY(fvPoints[fvPoints.length - 1].loan) - 8} font-size="11" font-weight="700" fill="#f0d060" text-anchor="end">ทาง B กู้</text>
+        </svg>
+      </ZoomableDiagram>
+
+      <p>
+        เหตุผลที่ตัดกันได้ครั้งเดียวอยู่ที่ส่วนต่าง <span set:html={tex(String.raw`D(g) = FV_B - FV_A`)} /> โดย <span set:html={tex('L')} /> กับ <span set:html={tex('M')} /> ถูกตรึงไว้แล้วด้วย <span set:html={tex('r')} /> ตัวจริงของสัญญา ไม่ขยับตาม <span set:html={tex('g')} /> พอ <span set:html={tex('g')} /> เพิ่มขึ้น เงินก้อน <span set:html={tex('L')} /> ที่นอนทบต้นครบ <span set:html={tex('n')} /> งวดได้ประโยชน์มากกว่าเงินที่ทยอยเติม เพราะเงินงวดท้าย ๆ ของฝั่ง A แทบไม่มีเวลาโต <span set:html={tex('D')} /> จึงเพิ่มทางเดียวตลอดช่วงและตัดศูนย์ได้ครั้งเดียว
       </p>
       <p>
-        ทีนี้ลองแทน g = r ดู จากสูตรค่างวดเรารู้ว่า <code>L = M × (1 − (1+r)⁻ⁿ)/r</code> ดังนั้น
-      </p>
-      <p>
-        <code>FV_B = M × (1 − (1+r)⁻ⁿ)/r × (1+r)ⁿ = M × ((1+r)ⁿ − 1)/r = FV_A</code>
-      </p>
-      <p>
-        เท่ากันพอดี และเพราะ FV_B โตตาม g แรงกว่า FV_A (เงินก้อนใหญ่ได้ทบต้นครบ n งวด ขณะที่เงินเติมงวดท้าย ๆ แทบไม่ได้ทบเลย) เมื่อ g มากกว่า r ทาง B จะชนะ และเมื่อ g น้อยกว่า r ทาง A จะชนะ
-      </p>
-      <p>
-        นี่คือความหมายที่แท้จริงของ "หักกลบกับเบี้ยธนาคาร" ในทวีตต้นทาง เส้นแบ่งอยู่ที่อัตราดอกเบี้ยเงินกู้ ไม่ใช่ที่จำนวนดอกเบี้ยรวม 3.4 ล้านที่คนชอบเอามาขู่กัน
+        นี่คือความหมายที่แท้จริงของประโยค "เอาเงินไปลงทุนต่อคุ้มกว่าดอกเบี้ยที่เสีย" เส้นแบ่งอยู่ที่อัตราดอกเบี้ยเงินกู้ ส่วนตัวเลขดอกเบี้ยรวม 3.4 ล้านที่คนชอบเอามาขู่กันไม่เกี่ยวกับการตัดสินใจนี้เลย
       </p>
     </div>
   </details>
@@ -494,6 +693,7 @@ const barW = slot * 0.66;
       <p>ทาง A จ่ายสดแล้วลงทุนค่างวด: <b data-out="fva"></b></p>
       <p>ทาง B กู้แล้วปล่อยเงินก้อนลงทุน: <b data-out="fvb"></b></p>
       <p class="calc-say" data-out="say"></p>
+      <p class="calc-line" data-out="line"></p>
     </div>
     <p class="calc-note">
       โมเดลย่อ คิดดอกเบี้ยรายเดือน ผลตอบแทนลงทุนสม่ำเสมอ ไม่คิดภาษี ค่าธรรมเนียม เงินเฟ้อ และไม่คิดว่าดอกเบี้ยลอยตัวจะขยับ ใช้เพื่อเห็นรูปทรงของการตัดสินใจเท่านั้น
@@ -532,7 +732,7 @@ const barW = slot * 0.66;
         <tr>
           <td>Ken Griffin</td>
           <td>ซื้อที่ Palm Beach 99.1 ล้านดอลลาร์ด้วยเงินสดในเดือนกันยายน 2019 แล้วเมษายน 2020 นิติบุคคลที่เชื่อมโยงกับเขาไปกู้ Citibank 49 ล้านดอลลาร์บนทรัพย์เดิม</td>
-          <td>ซื้อสดก่อนแล้วค่อยกู้ทีหลัง เรียกว่า cash-out คือดึงเงินสดกลับออกจากบ้านที่จ่ายไปแล้ว</td>
+          <td>ซื้อสดก่อนแล้วค่อยถอนเงินสดกลับออกมาทีหลัง (cash-out)</td>
         </tr>
         <tr>
           <td>Jay-Z และ Beyoncé</td>
@@ -548,7 +748,7 @@ const barW = slot * 0.66;
     เคส Zuckerberg คือเคสที่ถูกอ้างบ่อยที่สุดและก็เป็นเคสที่แข็งที่สุดด้วย เพราะดอกเบี้ย 1.05% นั้นต่ำกว่าอัตราเงินเฟ้อ ถ้าเงินเฟ้อ 2% ต่อปีแต่เราจ่ายดอก 1.05% หนี้ที่ค้างอยู่มีมูลค่าจริงลดลงทุกปีโดยเราไม่ต้องทำอะไร ในสภาพแบบนั้นการไม่กู้กลายเป็นการตัดสินใจที่แพงกว่า
   </p>
   <p>
-    ส่วนเคส Musk กับ Griffin เป็นเรื่องอื่นเลย เขาไม่ได้กู้เพราะไม่มีเงินซื้อบ้าน เขาเอาบ้านที่มีอยู่ไปเปลี่ยนเป็นเงินสดที่ใช้ทำอย่างอื่นได้ ภาษาการเงินเรียกว่าปลดล็อกสภาพคล่อง ที่น่าสังเกตคือปลายทางของ Musk พลิกไปอีกทาง เขาประกาศในปี 2020 ว่าจะขายทรัพย์สินทางกายภาพเกือบทั้งหมดและจะไม่มีบ้านเป็นของตัวเอง แล้วก็ทำจริงในปี 2021 เคสนี้จึงไม่ได้เป็นหลักฐานว่ากู้ซื้อบ้านเป็นแผนระยะยาวที่ดี
+    ส่วนเคส Musk กับ Griffin เป็นเรื่องอื่นเลย เขาไม่ได้กู้เพราะไม่มีเงินซื้อบ้าน เขาเอาบ้านที่มีอยู่ไปเปลี่ยนเป็นเงินสดที่ใช้ทำอย่างอื่นได้ ภาษาการเงินเรียกว่าปลดล็อกสภาพคล่อง ท่านี้มีชื่อเรียกเฉพาะว่า <strong>cash-out</strong> อ่านว่า <strong>"แคชเอาต์"</strong> แปลตรงตัวว่า <strong>"เอาเงินสดออก"</strong> คือบ้านที่จ่ายเงินไปแล้วเปรียบเหมือนตู้เซฟที่เงินก้อนนั้นไปนอนนิ่งอยู่ข้างใน การกู้ทับเข้าไปทีหลังคือการเปิดตู้เอาเงินกลับออกมาหมุนต่อ โดยยังได้อยู่บ้านหลังเดิม ต่างจากการกู้ตอนซื้อตรงที่ลำดับสลับกัน คือควักเองก่อนแล้วค่อยยืม ที่น่าสังเกตคือปลายทางของ Musk พลิกไปอีกทาง เขาประกาศในปี 2020 ว่าจะขายทรัพย์สินทางกายภาพเกือบทั้งหมดและจะไม่มีบ้านเป็นของตัวเอง แล้วก็ทำจริงในปี 2021 เคสนี้จึงไม่ได้เป็นหลักฐานว่ากู้ซื้อบ้านเป็นแผนระยะยาวที่ดี
   </p>
   <div class="callout callout-note">
     <p class="callout-label">ตรงไหนที่ผมไม่ยืนยัน</p>
@@ -569,14 +769,14 @@ const barW = slot * 0.66;
       <strong>Capital gains tax</strong> อ่านว่า <strong>"แคปปิตอล เกนส์ แท็กซ์"</strong> แปลว่า <strong>"ภาษีกำไรจากการขายทรัพย์สิน"</strong> ในสหรัฐ กำไรจากหุ้นที่ถือเกินหนึ่งปีเสียภาษีระดับ 20% บวกภาษีเพิ่มอีกชั้น
     </p>
     <p>
-      <strong>Cost basis</strong> แปลว่า <strong>"ต้นทุนตั้งต้น"</strong> คือราคาที่เราซื้อของชิ้นนั้นมา ใช้เป็นฐานคำนวณกำไรตอนขาย
+      <strong>Cost basis</strong> อ่านว่า <strong>"คอสต์ เบสิส"</strong> แปลว่า <strong>"ต้นทุนตั้งต้น"</strong> คือราคาที่เราซื้อของชิ้นนั้นมา ใช้เป็นฐานคำนวณกำไรตอนขาย คำว่า <i>basis</i> ในที่นี้จึงแปลว่าฐาน ตรงตัวเลย และเดี๋ยวจะได้เจออีกทีในคำว่า <i>step-up in basis</i>
     </p>
     <p>
       <strong>SBLOC</strong> อ่านว่า <strong>"เอส-บล็อก"</strong> ย่อจาก <i>Securities-Backed Line of Credit</i> แปลว่า <strong>"วงเงินกู้ที่ใช้หลักทรัพย์ค้ำ"</strong> คือเอาพอร์ตหุ้นไปวางค้ำแล้วเบิกเงินสดมาใช้ โดยไม่ต้องขายหุ้น
     </p>
   </div>
   <p>
-    วิธีที่ที่ปรึกษาการเงินสายมั่งคั่งใช้กันจนมีชื่อเล่นว่า <strong>Buy, Borrow, Die</strong> เดินสามจังหวะ
+    วิธีที่ที่ปรึกษาการเงินสายมั่งคั่งใช้กันจนมีชื่อเล่นว่า <strong>Buy, Borrow, Die</strong> เดินสามจังหวะ สองจังหวะแรกคือซื้อแล้วถือ กับเอาของที่ถือไปค้ำเพื่อกู้เงินสดมาใช้ ส่วนจังหวะที่สามคือกฎที่ทำให้ทั้งแผนปิดจบ นั่นคือตอนส่งต่อทายาท ต้นทุนตั้งต้นของทรัพย์จะถูก <strong>รีเซ็ตขึ้นมาเป็นราคาวันที่เจ้าของเสียชีวิต</strong> (step-up in basis) กำไรที่สะสมมาทั้งชีวิตจึงหลุดออกจากฐานภาษีไปเฉย ๆ
   </p>
 
   <ZoomableDiagram caption="สินเชื่อบ้านของมหาเศรษฐีเป็นแค่ขั้นที่สองในภาพนี้ โดยใช้บ้านเป็นหลักประกันแทนพอร์ตหุ้น (diagram วาดประกอบโดยผู้เขียน)">
@@ -628,7 +828,7 @@ const barW = slot * 0.66;
         ทางกู้: วางหุ้นค้ำ เบิก 5 ล้าน หุ้นทั้ง 10 ล้านยังอยู่ในพอร์ตและโตต่อ ต้นทุนคือดอกเบี้ยปีละไม่กี่เปอร์เซ็นต์ ซึ่งถ้าพอร์ตโตเร็วกว่าดอกเบี้ย ส่วนต่างจะกินภาษีที่หลบไว้ได้เรื่อย ๆ
       </p>
       <p>
-        จุดที่ทางกู้พังคือเมื่อราคาหลักทรัพย์ที่ค้ำร่วงหนัก เจ้าหนี้จะเรียกหลักประกันเพิ่ม (margin call) ถ้าเติมไม่ทันก็ถูกบังคับขายในราคาที่แย่ที่สุด กลยุทธ์นี้จึงเป็นของคนที่มีทรัพย์ล้นเกินความจำเป็นอยู่แล้ว ไม่ใช่ของคนที่ใช้ทรัพย์ทั้งก้อนไปกับหนี้
+        จุดที่ทางกู้พังคือเมื่อราคาหลักทรัพย์ที่ค้ำร่วงหนัก เจ้าหนี้จะเรียกหลักประกันเพิ่ม (margin call อ่านว่า "มาร์จิน คอล" แปลว่าการเรียกเติมหลักประกัน) ถ้าเติมไม่ทันก็ถูกบังคับขายในราคาที่แย่ที่สุด กลยุทธ์นี้จึงเป็นของคนที่มีทรัพย์ล้นเกินความจำเป็นอยู่แล้ว ไม่ใช่ของคนที่ใช้ทรัพย์ทั้งก้อนไปกับหนี้
       </p>
     </div>
   </details>
@@ -637,7 +837,7 @@ const barW = slot * 0.66;
 
   <h2>เอามาใช้กับไทยได้แค่ไหน</h2>
   <p>
-    นี่คือส่วนที่ผมคิดว่าสำคัญที่สุดของบันทึกนี้ เพราะโพสต์ต้นทางเอาเคสอเมริกันมาสรุปให้คนไทยฟัง ทั้งที่กฎพื้นฐานสี่ข้อต่างกันคนละเรื่อง
+    นี่คือส่วนที่ผมคิดว่าสำคัญที่สุดของบันทึกนี้ เพราะโพสต์ต้นทางเอาเคสอเมริกันมาสรุปให้คนไทยฟัง ทั้งที่กฎพื้นฐานสี่ข้อต่างกันคนละเรื่อง ข้อที่ต่างแรงที่สุดคือดอกเบี้ยบ้านในไทยไม่ได้คงที่ตลอดสัญญา พ้นช่วงโปรโมชันแล้วมันจะไปผูกกับ <strong>อัตราดอกเบี้ยลูกค้ารายย่อยชั้นดี</strong> (Minimum Retail Rate ย่อว่า <strong>MRR</strong>) ซึ่งเป็นอัตราอ้างอิงที่แต่ละธนาคารประกาศเองและขยับได้ตลอดอายุสัญญา
   </p>
 
   <figure class="tbl">
@@ -873,6 +1073,12 @@ const barW = slot * 0.66;
   }
   .calc-say.win{color:var(--dl-emerald-bright);}
   .calc-say.lose{color:#f0c860;}
+  .calc-line{
+    margin-top:0.35rem !important;
+    font-size:0.79rem !important;
+    color:var(--dl-muted);
+  }
+  .calc-line b{color:#fff;font-variant-numeric:tabular-nums;}
   .calc-note{
     font-size:0.74rem;
     color:#6b7690;
@@ -924,6 +1130,7 @@ const barW = slot * 0.66;
       const barI = out('bari');
       const barP = out('barp');
       const say = out('say');
+      const line = out('line');
       const barBox = out('barlabel');
 
       function render(): void {
@@ -985,10 +1192,27 @@ const barW = slot * 0.66;
         put('fva', millions(fvA));
         put('fvb', millions(fvB));
 
+        // เส้นแบ่งคือทฤษฎีบทของบทความ ผลตอบแทนที่คาดหวังเทียบกับดอกเบี้ยเงินกู้ตรง ๆ
+        const ratePct = Number(refs.rate.value);
+        const growthPct = Number(refs.growth.value);
+        const spread = growthPct - ratePct;
+        // ตัดสินจากส่วนต่างของอัตรา ไม่ผูกกับวงเงินกู้ ใช้ครึ่งของขั้นที่ละเอียดที่สุด
+        // เพื่อให้ "เสมอ" ขึ้นเฉพาะตอนสองค่าตรงกันจริง ไม่ใช่แค่ใกล้กัน
+        const stepG = Number(refs.growth.step) || 0.1;
+        const stepR = Number(refs.rate.step) || 0.05;
+        const tolerance = Math.min(stepG, stepR) / 2;
+        const isTie = Math.abs(spread) < tolerance;
+
+        if (line) {
+          line.innerHTML = isTie
+            ? `เส้นแบ่งของคุณคือ <b>${ratePct.toFixed(2)}%</b> ตอนนี้ตั้งผลตอบแทนไว้ <b>${growthPct.toFixed(2)}%</b> จึงพอดีเส้น`
+            : `เส้นแบ่งของคุณคือ <b>${ratePct.toFixed(2)}%</b> ตอนนี้ตั้งผลตอบแทนไว้ <b>${growthPct.toFixed(2)}%</b> จึง${spread > 0 ? 'เกิน' : 'ต่ำกว่า'}เส้นอยู่ <b>${Math.abs(spread).toFixed(2)}%</b>`;
+        }
+
         const diff = fvB - fvA;
         const gap = Math.abs(diff);
         if (say) {
-          if (gap < L * 0.001) {
+          if (isTie) {
             say.textContent = 'เสมอกันพอดี เพราะผลตอบแทนลงทุนเท่ากับดอกเบี้ยเงินกู้';
             say.className = 'calc-say';
           } else if (diff > 0) {
