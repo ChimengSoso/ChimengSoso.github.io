@@ -4,6 +4,7 @@ import ArticleByline from '../../components/ArticleByline.astro';
 import { getAdjacentArticles, getArticle } from '../../data/articles';
 import { formatThaiDate } from '../../lib/dates';
 import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 
 const { prev, next } = getAdjacentArticles('claude-agent-team/');
 const article = getArticle('claude-agent-team/')!;
@@ -76,7 +77,7 @@ const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefi
     มันมาไล่โค้ดด้วยสายตาที่สดกว่า จับจุดที่ dev มองข้ามได้ง่ายกว่า
   </p>
 
-  <figure class="diagram">
+  <ZoomableDiagram caption="ตัวเลข 1–5 คือลำดับการส่งงาน เริ่มจากคุณสั่ง Lead ไปจนงานวนกลับมาถึงคุณ — จุดสำคัญคือ QA ไม่ได้ตรวจแล้วจบ แต่ reject ต้องวนกลับไปหา dev พร้อมเหตุผลเสมอ นี่คือหัวใจของลูป feedback ที่ทำให้ทีมต่างจาก AI ตัวเดียวตรวจงานตัวเอง">
     <svg viewBox="0 0 740 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงจรการทำงานเป็นทีมพร้อมลำดับ 1 ถึง 5: (1) คุณสั่งงาน Lead โดยอ้อมทางซ้าย (2) Lead ตั้งเกณฑ์แล้วส่งให้ dev เขียนโค้ด (3) dev ส่งโค้ดให้ QA ตรวจ ระหว่างนั้นถ้า QA ไม่ผ่านจะตีกลับพร้อมเหตุผลให้ dev วนแก้จนผ่าน (4) เมื่อผ่าน QA แจ้ง approved กลับ Lead (5) Lead สรุปแล้วอ้อมทางขวาส่งมอบกลับมาให้คุณ" style="font-family:'Sarabun',sans-serif">
       <defs>
         <marker id="team-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
@@ -140,8 +141,7 @@ const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefi
       <text x="596" y="41.5" font-size="10.5" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
       <text x="612" y="42" font-size="11" fill="#1f7a45">สรุปแล้วส่งมอบ</text>
     </svg>
-    <figcaption>ตัวเลข 1–5 คือลำดับการส่งงาน เริ่มจากคุณสั่ง Lead ไปจนงานวนกลับมาถึงคุณ — จุดสำคัญคือ QA ไม่ได้ตรวจแล้วจบ แต่ reject ต้องวนกลับไปหา dev พร้อมเหตุผลเสมอ นี่คือหัวใจของลูป feedback ที่ทำให้ทีมต่างจาก AI ตัวเดียวตรวจงานตัวเอง</figcaption>
-  </figure>
+  </ZoomableDiagram>
 
   <h2 class="step">3 วิธีจัดทีมที่มีจริงวันนี้</h2>
   <p>
@@ -174,7 +174,7 @@ const updated = article.updatedISO ? formatThaiDate(article.updatedISO) : undefi
       <li><strong>Sub-agents</strong> — คุยกันเอง: <strong>ไม่ได้เลย</strong> · ควบคุมได้: <strong>ปานกลาง</strong> · เหมาะกับงานเดี่ยว ๆ ที่ต้องการแค่สรุปกลับ</li>
     </ul>
   </div>
-  <p>ตัวอย่าง "Lead–dev–QA" ในบทความนี้ใช้ <strong>Workflows</strong> เพราะอยากได้ลูป feedback ที่ทำซ้ำได้แน่นอน ไม่อยากให้ผลลัพธ์เปลี่ยนไปมาแบบสุ่มทุกครั้งที่รัน</p>
+  <p>ตัวอย่าง "Lead–dev–QA" ในบทความนี้ใช้ <strong>Agent Teams</strong> เพราะอยากได้บรรยากาศ "ทีมคุยกันเอง" จริง ๆ — เห็น QA ส่งข้อความตีกลับหา dev สด ๆ ในแผง agent ไม่ใช่แค่ log สรุปตอนจบ</p>
 
   <h2>ออกแบบ "บทบาท" ให้แต่ละ agent</h2>
   <p>
@@ -202,34 +202,47 @@ approve เฉพาะเมื่อทุกเกณฑ์ผ่านจร
 
   <h2 class="step">ลงมือจริง — ทีมสร้างฟังก์ชันตัวหนึ่ง</h2>
   <p>
-    เพื่อไม่ให้เป็นแค่ทฤษฎีลอย ๆ ผมเขียน workflow จริงให้ทีม "Lead–dev–QA" ทำงานกันเป็น phase ตามลำดับ:
-    <strong>Plan (Lead ตั้งเกณฑ์) → Build+QA (dev เขียน แล้ว QA ตรวจ วนจนผ่าน) → Handoff (Lead สรุปส่งมอบ)</strong>
-    โจทย์ที่ให้คือฟังก์ชัน <code>formatThousands(n)</code> — ใส่ comma คั่นหลักพันให้ตัวเลข รองรับทั้งจำนวนลบและทศนิยม
+    ก่อนลงมือ ขอแยกให้ชัดว่าการตั้งทีมแบบนี้ทำได้ <strong>สองทาง ที่ค่าใช้จ่ายต่างกันคนละเรื่อง</strong> —
+    บทความนี้จะเล่าให้เห็นทั้งคู่ แต่ลงมือรันจริงแค่ทางเดียว โจทย์ที่ให้ทีมทำคือฟังก์ชัน
+    <code>formatThousands(n)</code> — ใส่ comma คั่นหลักพันให้ตัวเลข รองรับทั้งจำนวนลบและทศนิยม
   </p>
-  <CodeBlock lang="js" title="team-demo.workflow.js (ย่อ)" code={`phase('Plan')
-const spec = await agent(
-  \`You are the TEAM LEAD. Restate the goal, list 3-5 acceptance criteria
-   your QA will verify, write a short brief for your dev. Do not write the code yourself.\`,
-  { label: 'boss:plan', schema: SPEC_SCHEMA, effort: 'low' })
+  <p>
+    <strong>ทางแรก — แบบเสียตัง คือยิง Claude API ตรง ๆ</strong> เขียนสคริปต์เรียก SDK เอง
+    แล้วเอาเนื้อไฟล์บทบาท (<code>.claude/agents/&lt;role&gt;.md</code>) ไปใส่เป็น system prompt ของแต่ละ agent
+    แกนกลางเหลือแค่ฟังก์ชันเดียวที่เรียก agent หนึ่งตัวหนึ่งครั้ง:
+  </p>
+  <CodeBlock lang="js" title="แบบเสียตัง — ยิง API ตรง (บทความนี้จะไม่รันอันนี้)" code={`import Anthropic from '@anthropic-ai/sdk';
+const client = new Anthropic();          // อ่าน ANTHROPIC_API_KEY จาก env
 
-phase('Build+QA')
-let code = '', lastQa = null; const rounds = []; const MAX_ROUNDS = 3
-for (let round = 1; round <= MAX_ROUNDS; round++) {
-  const feedback = lastQa ? \`Previous attempt REJECTED. Fix:\\n- \${lastQa.issues.join('\\n- ')}\\n\${code}\` : ''
-  code = await agent(\`You are the DEV. Implement: \${spec.devBrief} \${feedback}
-                      Return ONLY the module source.\`,
-                     { label: \`dev:round\${round}\`, effort: 'low' })
-  lastQa = await agent(\`You are a STRICT QA. Mentally EXECUTE the code on 1234567, -1234,
-                        1234.5678, 0, -1234567.89. Approve only if every input is exact.\`,
-                       { label: \`qa:round\${round}\`, schema: QA_SCHEMA, effort: 'low' })
-  rounds.push({ round, approved: lastQa.approved, verdict: lastQa.verdict, issues: lastQa.issues })
-  if (lastQa.approved) break
-}
-
-phase('Handoff')
-const handoff = await agent(\`You are the TEAM LEAD. Write a short Thai handoff note:
-                             what was built, passed QA?, how many rounds, any caveat.\`,
-                            { label: 'boss:handoff', effort: 'low' })`} />
+async function agent(system, prompt) {
+  const res = await client.messages.create({
+    model: 'claude-opus-4-8',
+    max_tokens: 4096,
+    system,                              // ← เนื้อไฟล์ .claude/agents/<role>.md
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return res.content[0].text;
+}`} />
+  <p>
+    วิธีนี้ clone ไปรันได้ทุกเครื่อง แต่ <strong>ทุกครั้งที่ agent พูดหนึ่งที คือจ่ายเงินต่อ token</strong> —
+    ทีมนึงวางแผน เขียน ตรวจ ตีกลับ แก้ วนกันหลายสิบเทิร์น มิเตอร์ค่า API ก็เดินตลอด และต้องไปสมัครขอ API key มาก่อนถึงจะเริ่มได้
+  </p>
+  <p>
+    <strong>ทางที่สอง — แบบไม่เสียเพิ่ม คือ Agent Teams ใน Claude Code</strong> อันนี้รันในซับที่เราจ่ายอยู่แล้ว
+    ไม่ต้องมี key แยก แถมได้เห็นทีมคุยกันสด ๆ ในแผง agent — บทความนี้เลยเลือกรันทางนี้ให้ดู
+    เปิดฟีเจอร์ (ยัง experimental) ด้วยตัวแปรระบบก่อน แล้วให้ session หลักสวมบทเป็น lead:
+  </p>
+  <CodeBlock lang="bash" title="แบบไม่เสีย — รันในซับ Claude Code" code={`# .claude/settings.json:  { "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" } }
+claude --agent lead`} />
+  <p>จากนั้นสั่งงานด้วยภาษาคนตรง ๆ ให้ lead ตั้งเกณฑ์แล้วเรียกลูกทีมมาทำ:</p>
+  <CodeBlock lang="text" title="พิมพ์สั่ง lead" code={`โจทย์: เขียน formatThousands(n) ใส่ comma คั่นหลักพัน รองรับจำนวนลบและทศนิยม เป็น pure function
+ตั้ง acceptance criteria แล้ว spawn teammate สองตัว: ตัวหนึ่งใช้ agent type "dev" อีกตัวใช้ "qa"
+ให้ dev เขียนโค้ด, qa ตรวจตามเกณฑ์แล้วส่งข้อความตีกลับถ้าไม่ผ่าน วนจน qa อนุมัติ`} />
+  <p>
+    lead จะทำงานเป็นลำดับ: ตั้งเกณฑ์ → spawn <code>dev</code> กับ <code>qa</code> เป็น teammate → สร้าง task ให้ทำเป็นทอด —
+    <strong>dev เขียน → qa ตรวจ → ถ้าไม่ผ่าน qa ส่งข้อความตีกลับให้ dev แก้ วนจนผ่าน → lead สรุปส่งมอบ</strong> —
+    ทั้งหมดเห็นสด ๆ ในแผง agent
+  </p>
   <p>
     รอบแรก dev เขียนแบบร่างเร็ว ยังไม่กันเคสทศนิยมไว้ — โค้ดที่ได้ใช้ regex ตัดหลักพันตรง ๆ กับตัวเลขทั้งก้อน
     รวมถึงส่วนทศนิยมด้วย ผลคือพัง
@@ -249,6 +262,60 @@ const handoff = await agent(\`You are the TEAM LEAD. Write a short Thai handoff 
   const body = fracPart === undefined ? grouped : \`\${grouped}.\${fracPart}\`;
   return negative ? \`-\${body}\` : body;
 }`} />
+  <div class="callout callout-tip">
+    <p class="callout-label">ลองรันเองได้</p>
+    <p>
+      ทั้งหมดนี้ไม่ใช่แค่เล่าให้ฟัง — ผมทำเป็น repo ที่ clone ไปเปิดใน Claude Code แล้วรันเองได้จริงไว้ที่
+      <a href="https://github.com/ChimengSoso/claude-agent-team-demo" target="_blank" rel="noopener noreferrer">ChimengSoso/claude-agent-team-demo</a>
+      ข้างในมีแค่ไฟล์บทบาท Lead–dev–QA ใน <code>.claude/agents/</code> กับ <code>.claude/settings.json</code> ที่เปิดฟีเจอร์ Agent Teams ไว้ให้แล้ว —
+      <strong>ไม่ต้องมี API key ไม่ต้อง <code>npm install</code></strong> เปิดโฟลเดอร์ด้วย <code>claude --agent lead</code> แล้วสั่งงานตามตัวอย่างด้านบนได้เลย
+    </p>
+  </div>
+
+  <ZoomableDiagram captionText="บทบาท Lead–dev–QA เขียนเป็นไฟล์ชุดเดียวใน .claude/agents/ ป้อนได้ทั้งสองทาง ต่างกันที่ปลายทาง — ยิง API ตรงจ่ายต่อ token ทุกครั้งที่ทีมพูด ส่วน Agent Teams รันในซับที่จ่ายอยู่แล้ว บทความนี้จึงเลือกทดลองทางขวา" caption='บทบาท Lead–dev–QA เขียนเป็นไฟล์ชุดเดียวใน <code>.claude/agents/</code> ป้อนได้ทั้งสองทาง ต่างกันที่ปลายทาง — ยิง API ตรงจ่ายต่อ token ทุกครั้งที่ทีมพูด ส่วน Agent Teams รันในซับที่จ่ายอยู่แล้ว บทความนี้จึงเลือกทดลองทางขวา'>
+    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ: ไฟล์บทบาทชุดเดียวในโฟลเดอร์ .claude/agents/ (lead, dev, qa) แตกเป็นสองทาง ทางซ้ายคือแบบเสียตัง — สคริปต์ยิง Claude API ตรง ๆ ผ่าน SDK ปลายทางคือ Claude API ที่จ่ายต่อ token และต้องมี key ทางขวาคือแบบไม่เสีย — Agent Teams ใน Claude Code สั่งด้วย claude --agent lead ปลายทางคือซับ Claude Code ที่รวมค่าใช้จ่ายอยู่แล้วไม่จ่ายเพิ่ม บทความนี้ทดลองทางขวา" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="fork-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4d72a9"/>
+        </marker>
+        <marker id="fork-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#2f9e5c"/>
+        </marker>
+        <marker id="fork-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#b23b3b"/>
+        </marker>
+      </defs>
+
+      <rect x="255" y="22" width="210" height="60" rx="12" fill="#eef3fb" stroke="#4d72a9" stroke-width="1.5"/>
+      <text x="360" y="47" font-size="14" font-weight="700" fill="#294266" text-anchor="middle">.claude/agents/*.md</text>
+      <text x="360" y="68" font-size="12" fill="#5a6a85" text-anchor="middle">lead · dev · qa (บทบาทชุดเดียว)</text>
+
+      <text x="170" y="118" font-size="12" font-weight="700" fill="#b23b3b" text-anchor="middle">แบบเสียตัง</text>
+      <text x="550" y="118" font-size="12" font-weight="700" fill="#2f9e5c" text-anchor="middle">แบบไม่เสีย</text>
+
+      <line x1="330" y1="82" x2="180" y2="150" stroke="#4d72a9" stroke-width="1.5" marker-end="url(#fork-blue)"/>
+      <line x1="390" y1="82" x2="540" y2="150" stroke="#4d72a9" stroke-width="1.5" marker-end="url(#fork-blue)"/>
+
+      <rect x="45" y="150" width="250" height="58" rx="12" fill="#e9f0fb" stroke="#4d72a9" stroke-width="1.5"/>
+      <text x="170" y="175" font-size="13" font-weight="700" fill="#294266" text-anchor="middle">สคริปต์ยิง API (SDK)</text>
+      <text x="170" y="195" font-size="11" fill="#5a6a85" text-anchor="middle">messages.create()</text>
+
+      <rect x="425" y="150" width="250" height="58" rx="12" fill="#e9f0fb" stroke="#4d72a9" stroke-width="1.5"/>
+      <text x="550" y="175" font-size="13" font-weight="700" fill="#294266" text-anchor="middle">Agent Teams</text>
+      <text x="550" y="195" font-size="11" fill="#5a6a85" text-anchor="middle">claude --agent lead</text>
+
+      <line x1="170" y1="208" x2="170" y2="252" stroke="#b23b3b" stroke-width="1.5" marker-end="url(#fork-red)"/>
+      <line x1="550" y1="208" x2="550" y2="252" stroke="#2f9e5c" stroke-width="1.5" marker-end="url(#fork-green)"/>
+
+      <rect x="45" y="252" width="250" height="50" rx="12" fill="#fbeeee" stroke="#b23b3b" stroke-width="1.5"/>
+      <text x="170" y="273" font-size="12" font-weight="700" fill="#9e3535" text-anchor="middle">Claude API</text>
+      <text x="170" y="291" font-size="11" fill="#b23b3b" text-anchor="middle">จ่ายต่อ token · ต้องมี key</text>
+
+      <rect x="425" y="252" width="250" height="50" rx="12" fill="#e6f4ec" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="550" y="273" font-size="12" font-weight="700" fill="#1f7a45" text-anchor="middle">ซับ Claude Code</text>
+      <text x="550" y="291" font-size="11" fill="#3f7d5c" text-anchor="middle">รวมในซับ ไม่จ่ายเพิ่ม</text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลูป feedback มี 2 ทิศทาง</h2>
   <p>
@@ -266,41 +333,34 @@ const handoff = await agent(\`You are the TEAM LEAD. Write a short Thai handoff 
   </p>
   <p class="pull">agent ที่ดีคือ agent ที่ปฏิเสธจะเดา แล้วถามกลับ — ดีกว่าเดาผิดแล้วส่งต่อความผิดพลาดนั้นไปทั้งสาย</p>
 
-  <h2>แล้ว "ห้องแชตรวม" ที่นั่งดูมันคุยล่ะ?</h2>
+  <h2>นั่งดูทีมมันคุยกันได้ตรงไหน</h2>
   <p>
-    ขอซื่อสัตย์ตรงนี้: <strong>ยังไม่มีเป็นฟีเจอร์สำเร็จรูป</strong> ที่ใกล้เคียงที่สุดตอนนี้คือหน้าติดตามความคืบหน้าของ Workflows,
-    หน้าแยกจอ (split-pane) ของ Agent Teams ที่โชว์แต่ละ agent กำลังทำอะไร หรือคำสั่ง <code>claude agents</code>
-    ที่เปิด dashboard สถานะ — ทั้งหมดนี้เป็น "หน้าสถานะ" ไม่ใช่ "ห้องแชตแบบ transcript" ที่นั่งไล่อ่านบทสนทนาทั้งเส้นได้
+    ข้อดีของ Agent Teams คือไม่ต้องทำเครื่องมืออะไรเพิ่มเพื่อ "ดูทีมคุยกัน" — Claude Code มีให้ในตัว
+    ทุก teammate โผล่เป็นแถวในแผง agent (agent panel) ใต้ช่องพิมพ์ กดลูกศรเลือกตัวไหนแล้วกด <code>Enter</code>
+    จะเปิด transcript ของตัวนั้นให้ไล่อ่านสด ๆ — เห็น QA ร่างเหตุผลที่จะตีกลับ เห็น dev รับ feedback ไปแก้ ครบทุกเทิร์น
+    และพิมพ์ส่งข้อความหา teammate ตัวนั้นตรง ๆ ได้ด้วยถ้าอยากแทรก
   </p>
   <p>
-    ทางออกที่ผมทำคือเอา log จากการรัน workflow มา render เป็นห้องแชตเอง (ยังเป็น prototype ที่ผมสร้างขึ้นมาทดลอง ไม่ใช่ของจริงใน Claude Code)
-    ยึดหลักออกแบบห้องแชตหลายคนพูดพร้อมกันตามแนวทางที่ UXPin แนะนำไว้สำหรับ chat UI ที่มีผู้พูดมากกว่า 2 คน
+    เบื้องหลังการคุยกันคือ <strong>mailbox</strong> (กล่องข้อความของแต่ละ agent เก็บเป็นไฟล์ JSON) กับ
+    <strong>task list ร่วม</strong> ที่ทุกตัวเห็นตรงกันว่างานไหนใครถือ เสร็จหรือยัง — teammate ส่งข้อความหากันเองได้โดยตรง
+    ไม่ต้องเด้งผ่าน lead ทุกครั้ง ต่างจาก sub-agent ที่รายงานกลับตัวหลักได้อย่างเดียว
   </p>
-  <figure class="screenshot">
-    <img src="/knowledge/agent-team-room.png" alt="prototype ห้องแชตทีม Claude แสดง 3 โซน: roster ซ้ายมือระบุบทบาทและสีของ You, Team Lead, Dev, QA · ห้องหลักตรงกลางไล่ตาม phase ตั้งแต่ kickoff จนถึง QA อนุมัติ · thread ย่อยด้านขวาสำหรับบทสนทนาที่ไม่เกี่ยวกับสายหลัก" loading="lazy" />
-    <figcaption>ทุกข้อความในห้องหลักชิดซ้ายเป็นคอลัมน์เดียวแม้จะมี 4 ผู้พูด ยกเว้น "You (Chi)" ที่ชิดขวาเป็นข้อยกเว้นเดียว — แยกสายตาได้ทันทีว่าอันไหนคือเรา ส่วนบทสนทนาที่ไม่เกี่ยวกับสายหลัก (QA ขอความชัดเจนจาก Lead) ถูกกันไว้เป็น thread ย่อยด้านขวา ไม่ปนกับห้องหลัก</figcaption>
-  </figure>
-  <div class="callout callout-tip">
-    <p class="callout-label">เคล็ดลับ</p>
-    <p>
-      ถ้าจะออกแบบห้องแชตแบบนี้เอง หลักที่ยึดได้: <strong>ผู้พูดตั้งแต่ 3 คนขึ้นไปให้ใช้คอลัมน์เดียวชิดซ้ายทั้งหมด</strong>
-      (บับเบิลซ้าย-ขวาสองฝั่งใช้ได้ดีแค่ตอนคู่สนทนามีแค่ 2 คน พอเกิน 2 จะเริ่มสับสนว่าใครคุยกับใคร) แล้ว<strong>ใช้สีชื่อแยกคนแทนสีทั้งบับเบิล</strong>
-      ให้<strong>มนุษย์เป็นข้อยกเว้นเดียวที่ชิดขวา</strong> เพื่อแยกสายตาได้ทันทีว่าไหนคือเรา และแยก thread ย่อยไว้ต่างหาก
-      เมื่อ agent สองตัวคุยกันเองโดยไม่เกี่ยวกับเรา (เช่น QA คุยกับ Lead เรื่องขอความชัดเจน) จะได้ไม่ปนกับสายหลัก
-    </p>
-  </div>
+  <p>
+    ถ้าอยากเห็นทุกตัวพร้อมกันคนละจอ เปิดโหมด <strong>split-pane</strong> ได้ (ต้องมี tmux หรือ iTerm2 —
+    บน Windows Terminal กับ VS Code integrated terminal ยังไม่รองรับ split-pane ใช้แบบ in-process เลือกดูทีละตัวแทน)
+  </p>
 
   <h2>จะ "จำ" setting พวกนี้ได้ยังไง</h2>
   <p>
-    บทบาท agent ที่เขียนไว้ใน <code>.claude/agents/</code> คู่มือโปรเจกต์ใน <code>CLAUDE.md</code> ไฟล์ความจำระยะยาว
-    และ workflow script ที่เซฟไว้ใน <code>.claude/workflows/</code> — ทั้งหมดนี้เก็บเป็นไฟล์ในโปรเจกต์ ทุก session ถัดไปที่เปิดโปรเจกต์เดียวกันจะอ่านเจอเอง
-    ไม่ต้องอธิบายบทบาทหรือลำดับงานซ้ำทุกครั้ง
+    บทบาท agent ที่เขียนไว้ใน <code>.claude/agents/</code> การเปิดฟีเจอร์ใน <code>.claude/settings.json</code>
+    และคู่มือโปรเจกต์ใน <code>CLAUDE.md</code> — ทั้งหมดนี้เก็บเป็นไฟล์ในโปรเจกต์ ทุก session ถัดไปที่เปิดโปรเจกต์เดียวกันจะอ่านเจอเอง
+    ไม่ต้องอธิบายบทบาทซ้ำทุกครั้ง และเพราะมันเป็นไฟล์ ก็ <code>commit</code> ขึ้น git แชร์ให้ทั้งทีมใช้ชุดเดียวกันได้
   </p>
   <div class="callout callout-note">
     <p class="callout-label">โน้ต</p>
     <p>
-      ข้อจำกัดที่ควรรู้ไว้: การตั้งค่าพวกนี้ผูกกับเครื่องและโปรเจกต์ที่บันทึกไฟล์ไว้ ไม่ sync ข้ามเครื่องอัตโนมัติ
-      และแต่ละ session ไม่ได้ "คุยข้าม session สด ๆ" กันเองได้ — ถ้าอยากกลับไปดูบทสนทนาเก่าต้องใช้ <code>/resume</code> เรียกคืนมา
+      ข้อจำกัดที่ควรรู้ไว้: ไฟล์ตั้งค่าแชร์ผ่าน git ได้ก็จริง แต่ "ทีมที่กำลังรัน" ไม่ได้ตามไปด้วย —
+      Agent Teams ยัง resume ทีมเดิมไม่ได้ (ออกจาก session แล้วเปิดใหม่ ต้อง spawn teammate กันใหม่หมด) และมีได้ทีมเดียวต่อ session
     </p>
   </div>
 
@@ -308,7 +368,7 @@ const handoff = await agent(\`You are the TEAM LEAD. Write a short Thai handoff 
   <div class="card">
     <ul>
       <li>Agent Teams ยังเป็น experimental feature อยู่ อาจเจอพฤติกรรมแปลก ๆ เรื่องการ resume session หรือการปิดทีมไม่สมบูรณ์</li>
-      <li>Workflows มีเพดานตายตัว: agent รันพร้อมกันสูงสุด 16 ตัว รวมทั้งรันไม่เกิน 1,000 ตัว และยิ่งเรียก agent เยอะยิ่งกินโควตา token มากตามไปด้วย</li>
+      <li>Agent Teams กิน token มากกว่า session เดียวพอสมควร เพราะแต่ละ teammate มี context ของตัวเอง — รวมอยู่ในโควตาซับตามปกติ ทีมยิ่งใหญ่ยิ่งเปลือง (เอกสารแนะนำเริ่ม 3–5 ตัว) และมีได้ทีมเดียวต่อ session teammate ยังซ้อนทีมของตัวเองไม่ได้</li>
       <li><strong>"ลูปวนจนผ่าน" ไม่ได้แปลว่า "ถูกเสมอ"</strong> — QA ก็เป็น AI เหมือนกัน ยังต้องมีคนตรวจปลายทางอยู่ดี โดยเฉพาะงานที่มีผลกระทบสูง</li>
       <li>การตั้งค่าบทบาทหรือ permission ต่าง ๆ ไม่ใช่กำแพงความปลอดภัยจริง เป็นแค่การจัดระเบียบงาน ไม่ควรเอาไปพึ่งพาเป็นเกราะป้องกันข้อมูลสำคัญ</li>
     </ul>
@@ -327,9 +387,9 @@ const handoff = await agent(\`You are the TEAM LEAD. Write a short Thai handoff 
   <h2>แหล่งอ้างอิง</h2>
   <p>เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง</p>
   <ol class="references">
-    <li><a href="https://code.claude.com/docs/en/agent-teams" target="_blank" rel="noopener noreferrer">Orchestrate teams of Claude Code sessions</a> — Claude Code Docs, สืบค้น 2026-07-16</li>
-    <li><a href="https://code.claude.com/docs/en/workflows" target="_blank" rel="noopener noreferrer">Orchestrate subagents at scale with dynamic workflows</a> — Claude Code Docs, สืบค้น 2026-07-16</li>
-    <li><a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">Create custom subagents</a> — Claude Code Docs, สืบค้น 2026-07-16</li>
-    <li><a href="https://www.uxpin.com/studio/blog/chat-user-interface-design/" target="_blank" rel="noopener noreferrer">Chat UI Design: How to Build Effective Chat Interfaces</a> — UXPin, สืบค้น 2026-07-16 (หลักการจัดวางข้อความห้องแชตที่มีผู้พูดมากกว่า 2 คน)</li>
+    <li><a href="https://github.com/ChimengSoso/claude-agent-team-demo" target="_blank" rel="noopener noreferrer">ChimengSoso/claude-agent-team-demo</a> — โค้ดตัวอย่างที่รันได้จริงประกอบบทความนี้ (ทีม Lead–dev–QA แบบ Agent Teams รันในซับ Claude Code ไม่ต้องมี API key)</li>
+    <li><a href="https://code.claude.com/docs/en/agent-teams" target="_blank" rel="noopener noreferrer">Orchestrate teams of Claude Code sessions</a> — Claude Code Docs, สืบค้น 2026-07-22</li>
+    <li><a href="https://code.claude.com/docs/en/workflows" target="_blank" rel="noopener noreferrer">Orchestrate subagents at scale with dynamic workflows</a> — Claude Code Docs, สืบค้น 2026-07-22</li>
+    <li><a href="https://code.claude.com/docs/en/sub-agents" target="_blank" rel="noopener noreferrer">Create custom subagents</a> — Claude Code Docs, สืบค้น 2026-07-22</li>
   </ol>
 </Layout>
