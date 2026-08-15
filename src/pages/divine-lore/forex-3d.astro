@@ -1,6 +1,7 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import ExplainNumber from '../../components/ExplainNumber.astro';
 import { texBlock } from '../../lib/math';
 
 /**
@@ -13,8 +14,13 @@ import { texBlock } from '../../lib/math';
 
 /* ---------- 1) ผลตอบแทนที่สัญญา ---------- */
 const MONTHLY = 0.10;
-const YEARLY_COMPOUND = Math.pow(1 + MONTHLY, 12) - 1;
+/** ตัวคูณ 12 เดือน คือเงินกลายเป็นกี่เท่า ยังไม่ได้หักเงินต้นออก */
+const COMPOUND_FACTOR = Math.pow(1 + MONTHLY, 12);
+/** อัตราผลตอบแทน คือกำไรเทียบเงินต้น จึงต้องลบ 1 เพื่อหักเงินต้นที่เราใส่เองออก */
+const YEARLY_COMPOUND = COMPOUND_FACTOR - 1;
 const YEARLY_SIMPLE = MONTHLY * 12;
+const BUFFETT_YEARLY = 0.2;
+const beatBuffett = YEARLY_SIMPLE / BUFFETT_YEARLY;
 const SEED = 100_000;
 const seedAfter5y = SEED * Math.pow(1 + MONTHLY, 60);
 const setAfter5y = SEED * Math.pow(1.08, 5);
@@ -122,6 +128,18 @@ const taxRows = [500_000, 1_000_000, 3_000_000, 5_000_000, 10_000_000].map((p) =
 });
 /** กำไรที่บริษัทเริ่มถูกกว่าบุคคลธรรมดา (ยังไม่นับตอนดึงเงินออก) */
 const citWinsAt = taxRows.find((r) => r.company < r.personal)!.p;
+/** แถวที่เอามาแจกแจงทีละขั้นในกล่องอธิบาย เลือกแถวที่บริษัทเพิ่งเริ่มชนะพอดี */
+const taxDemo = taxRows.find((r) => r.p === citWinsAt)!;
+const pitBands: { label: string; width: number; rate: number }[] = [
+  { label: '0 ถึง 150,000', width: 150_000, rate: 0 },
+  { label: '150,001 ถึง 300,000', width: 150_000, rate: 0.05 },
+  { label: '300,001 ถึง 500,000', width: 200_000, rate: 0.1 },
+  { label: '500,001 ถึง 750,000', width: 250_000, rate: 0.15 },
+  { label: '750,001 ถึง 1,000,000', width: 250_000, rate: 0.2 },
+];
+/** ส่วนของกำไรที่โดนอัตรา 15% ของนิติบุคคล คือส่วนที่พ้น 300,000 บาทแรกมา */
+const citDemoBase = taxDemo.p - 300_000;
+const citDemoDividendBase = taxDemo.p - taxDemo.company;
 /** กำไรที่บริษัทถูกกว่าจริง แม้จะจ่ายปันผลออกมาทั้งก้อนแล้ว */
 const bothWinsAt = taxRows.find((r) => r.both < r.personal)!.p;
 
@@ -166,6 +184,114 @@ const tlX = (y: number) => TL.x0 + ((y - 2015) / (2026 - 2015)) * TL.w;
 const baht = (n: number) => Math.round(n).toLocaleString('en-US');
 const mB = (n: number) => (n / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 0 });
 const pct = (n: number) => (n * 100).toFixed(1);
+
+/**
+ * เนื้อในกล่อง <ExplainNumber> ของทุกตัวเลขที่คลิกได้ในบทนี้
+ * รวมไว้ที่เดียวเพราะมันคือ "เชิงอรรถวิธีคิด" ของโมเดลข้างบน อ่านคู่กันได้เลย
+ * ต้องเป็นสตริง HTML ไม่ใช่ slot children ดูเหตุผลใน ExplainNumber.astro
+ *
+ * สูตร KaTeX ทุกตัวถูกยกออกมาไว้ใน TEX ก่อน ห้ามเรียก texBlock(String.raw`...`)
+ * ซ้อนอยู่ใน ${...} ของ template literal อีกที เพราะตัว parser ของ Astro
+ * อ่าน template literal ซ้อนชั้นไม่ออก แล้วจะหาปลาย frontmatter (---) ไม่เจอ
+ * อาการคือ astro check พ่น error ใส่ทุกบรรทัดใน <style> ว่า "Cannot find name"
+ */
+const TEX = {
+  yearlyCompound: texBlock(String.raw`(1 + 0.10)^{12} - 1 \;=\; ${COMPOUND_FACTOR.toFixed(4)} - 1 \;=\; ${YEARLY_COMPOUND.toFixed(4)}`),
+  seedAfter5y: texBlock(String.raw`${baht(SEED)} \times (1 + 0.10)^{60} \;=\; ${baht(seedAfter5y)}`),
+  yearlySimple: texBlock(String.raw`0.10 \times 12 \;=\; ${YEARLY_SIMPLE.toFixed(2)}`),
+  beatBuffett: texBlock(String.raw`\frac{${(YEARLY_SIMPLE * 100).toFixed(0)}\%}{${(BUFFETT_YEARLY * 100).toFixed(0)}\%} \;=\; ${beatBuffett.toFixed(0)}`),
+  cumPrincipal: texBlock(String.raw`\text{เงินต้นสะสม} \;=\; \frac{(1+g)^{\,n-1} - 1}{g}`),
+  collapseTest: texBlock(String.raw`0.10 \times \frac{(1+g)^{\,n-1}-1}{g} \;>\; (1+g)^{\,n-1}`),
+  growthAfter5y: texBlock(String.raw`(1 + 0.10)^{60} \;=\; ${growthAfter5y.toFixed(2)}`),
+  dividendCut: texBlock(String.raw`${baht(citDemoDividendBase)} \times 0.10 \;=\; ${baht(citDemoDividendBase * DIVIDEND_WHT)}`),
+  dividendSum: texBlock(String.raw`${baht(taxDemo.company)} + ${baht(citDemoDividendBase * DIVIDEND_WHT)} \;=\; ${baht(taxDemo.both)}`),
+  interestPerYear: texBlock(String.raw`${baht(LOSS)} \times 0.075 \;=\; ${baht(interestPerYear)}`),
+  recoveryPct: texBlock(String.raw`\frac{${baht(SEIZED)}}{${baht(LOSS)}} \;=\; ${(SEIZED / LOSS).toFixed(4)}`),
+  perHeadLoss: texBlock(String.raw`\frac{${baht(LOSS)}}{${baht(VICTIMS_REPORTED)}} \;=\; ${baht(perHeadLoss)}`),
+  perHeadBack: texBlock(String.raw`\frac{${baht(SEIZED)}}{${baht(VICTIMS_REPORTED)}} \;=\; ${baht(perHeadBack)}`),
+};
+
+/** ลิสต์ขั้นบันไดภาษีบุคคลธรรมดา ต่อเป็นสตริงไว้ก่อนด้วยเหตุผลเดียวกับ TEX */
+const pitBandList = pitBands
+  .map((b) => '<li>' + b.label + ' คิด ' + (b.rate * 100).toFixed(0) + '% เป็นเงิน ' + baht(b.width * b.rate) + ' บาท</li>')
+  .join('');
+
+const EX = {
+  yearlyCompound: `
+    ${TEX.yearlyCompound}
+    <p>เลข 12 คือจำนวนเดือนใน 1 ปี เงินที่ไม่ถอนออกจะถูกคิด 10% บนฐานที่โตขึ้นทุกเดือน เงิน ${baht(SEED)} บาทจึงกลายเป็น 110,000 แล้ว 121,000 แล้ว 133,100 ไปเรื่อย ๆ จนสิ้นปีที่ ${baht(SEED * COMPOUND_FACTOR)} บาท</p>
+    <p><strong>ที่ต้องลบ 1</strong> เพราะ ${COMPOUND_FACTOR.toFixed(4)} คือตัวคูณ แปลว่าเงินกลายเป็นกี่เท่า ส่วนคำว่าผลตอบแทนหมายถึงกำไรเทียบเงินต้น เงินต้นที่เราใส่เองไม่ใช่กำไรจึงต้องหักออกก่อน เหมือนฝากแบงก์ 100 บาทได้คืน 105 บาท เราเรียกว่าผลตอบแทน 5% ไม่ใช่ 105%</p>
+  `,
+  seedAfter5y: `
+    ${TEX.seedAfter5y}
+    <p>เลข 60 คือจำนวนเดือนใน 5 ปี ช่องนี้ถามหาเงินปลายทาง ไม่ได้ถามอัตราผลตอบแทน จึงใช้ตัวคูณล้วน ๆ ไม่ต้องลบ 1</p>
+    <p>ทุกแถวในคอลัมน์นี้ใช้สูตรเดียวกันคือ เงินต้นคูณด้วย (1 + อัตรา) ยกกำลังจำนวนงวด ต่างกันแค่แถวอื่นเป็นอัตราต่อปีจึงยกกำลัง 5 ส่วนแถวนี้เป็นอัตราต่อเดือนจึงยกกำลัง 60</p>
+  `,
+  yearlySimple: `
+    ${TEX.yearlySimple}
+    <p>กรณีนี้คือถอนกำไรออกทุกเดือน เงินต้นจึงค้างอยู่ที่ ${baht(SEED)} บาทเท่าเดิมตลอด ดอกเดือนละ ${baht(SEED * MONTHLY)} บาท คูณ 12 เดือนได้ ${baht(SEED * YEARLY_SIMPLE)} บาท คิดเป็น ${(YEARLY_SIMPLE * 100).toFixed(0)}% ของเงินต้น</p>
+    <p>ต่างจาก ${pct(YEARLY_COMPOUND)}% ตรงที่อันนั้นปล่อยกำไรไว้ให้ทบ ฐานที่คิด 10% จึงโตขึ้นทุกเดือน</p>
+  `,
+  beatBuffett: `
+    ${TEX.beatBuffett}
+    <p>เทียบด้วยตัวเลขที่ไม่ทบต้น ซึ่งเป็นกรณีที่ใจดีกับ Forex-3D ที่สุดแล้ว ถ้าเทียบด้วยตัวเลขทบต้น ${pct(YEARLY_COMPOUND)}% ส่วนต่างจะเป็น ${(YEARLY_COMPOUND / BUFFETT_YEARLY).toFixed(0)} เท่า</p>
+    <p>ตัวเลขราว ${(BUFFETT_YEARLY * 100).toFixed(0)}% ต่อปีของ Buffett คือค่าเฉลี่ยระยะยาวของ Berkshire Hathaway ตลอดหกสิบปี ไม่ใช่ผลตอบแทนของปีใดปีหนึ่ง</p>
+  `,
+  collapseMonth: `
+    <p>ตั้งเงินใหม่ของเดือนแรกเป็น 1 หน่วย ถ้าเงินใหม่โตเดือนละ <i>g</i> เงินที่ไหลเข้าในเดือนที่ <i>n</i> คือ (1+<i>g</i>) ยกกำลัง <i>n</i>&minus;1 ส่วนเงินต้นที่สะสมอยู่ในระบบก่อนหน้านั้นคือผลรวมอนุกรมเรขาคณิต</p>
+    ${TEX.cumPrincipal}
+    <p>ระบบพังในเดือนแรกที่ภาระจ่ายแซงเงินที่ไหลเข้า คือเดือนแรกที่</p>
+    ${TEX.collapseTest}
+    <p>แถวนี้คือกรณี <i>g</i> เท่ากับ 0 ซึ่งเงื่อนไขลดรูปเหลือ 0.10 คูณ (<i>n</i>&minus;1) มากกว่า 1 จึงพังตั้งแต่เดือนที่ ${growthCases[0].die} และสังเกตว่าถ้า <i>g</i> ตั้งแต่ 0.10 ขึ้นไป อสมการนี้เป็นจริงไม่ได้เลย นั่นคือที่มาของแถวสุดท้าย</p>
+  `,
+  growthAfter5y: `
+    ${TEX.growthAfter5y}
+    <p>เลข 60 คือจำนวนเดือนใน 5 ปี ตัวนี้ไม่ต้องลบ 1 เพราะเราถามว่าใหญ่ขึ้นกี่เท่า ซึ่งคือตัวคูณตรง ๆ ไม่ได้ถามว่ากำไรกี่เปอร์เซ็นต์</p>
+    <p>สังเกตว่ามันเป็นเลขตัวเดียวกับ ${baht(seedAfter5y)} บาทในตารางแรก เพราะทั้งสองอันคือ 1.10 ยกกำลัง 60 เหมือนกัน ต่างกันแค่อันนั้นเอาไปคูณกับเงิน ${baht(SEED)} บาท</p>
+  `,
+  pitDemo: `
+    <p>อัตราก้าวหน้าไม่ได้เอา 20% ไปคูณกำไรทั้งก้อน แต่หั่นกำไรเป็นชั้น ๆ แล้วคิดคนละอัตรา กำไร ${baht(taxDemo.p)} บาทถูกหั่นแบบนี้</p>
+    <ul>${pitBandList}</ul>
+    <p>รวมทั้งหมด ${baht(taxDemo.personal)} บาท คิดเป็น ${((taxDemo.personal / taxDemo.p) * 100).toFixed(1)}% ของกำไร ซึ่งต่ำกว่าอัตราชั้นบนสุดที่ 20% เพราะสามชั้นล่างเสียถูกกว่า</p>
+    <p>ตัวเลขนี้คิดจากเงินได้สุทธิ คือหลังหักค่าใช้จ่ายและค่าลดหย่อนทุกอย่างไปแล้ว</p>
+  `,
+  citDemo: `
+    <p>บริษัทก็เป็นขั้นบันได แต่มีแค่สามชั้น กำไร ${baht(taxDemo.p)} บาทถูกหั่นแบบนี้</p>
+    <ul>
+      <li>300,000 บาทแรก ยกเว้น เป็นเงิน 0 บาท</li>
+      <li>ส่วนที่เหลืออีก ${baht(citDemoBase)} บาท คิด 15% เป็นเงิน ${baht(citDemoBase * 0.15)} บาท</li>
+      <li>ส่วนที่เกิน 3,000,000 บาท คิด 20% แถวนี้ยังไปไม่ถึงจึงเป็น 0 บาท</li>
+    </ul>
+    <p>รวม ${baht(taxDemo.company)} บาท อัตราพิเศษนี้ใช้ได้เฉพาะบริษัทที่ทุนชำระแล้วไม่เกิน 5 ล้านบาทและรายได้ไม่เกิน 30 ล้านบาทต่อปี</p>
+  `,
+  dividendDemo: `
+    <p>ช่องนี้คือภาษีสองชั้นรวมกัน ชั้นแรกคือบริษัทเสีย ${baht(taxDemo.company)} บาทตามช่องซ้าย เหลือกำไรหลังภาษีอยู่ในบริษัท ${baht(citDemoDividendBase)} บาท</p>
+    <p>ชั้นที่สองเกิดตอนบริษัทจ่ายกำไรก้อนนั้นออกมาให้เจ้าของเป็นเงินปันผล ซึ่งถูกหักภาษี ณ ที่จ่าย 10%</p>
+    ${TEX.dividendCut}
+    ${TEX.dividendSum}
+    <p>ช่องนี้จึงเป็นกรณีที่เจ้าของดึงกำไรออกมาใช้ทั้งก้อน ถ้าเก็บไว้ลงทุนต่อในบริษัท ภาษีชั้นที่สองยังไม่เกิด</p>
+  `,
+  interestPerYear: `
+    ${TEX.interestPerYear}
+    <p>อัตรา 7.5% ต่อปีคืออัตราดอกเบี้ยผิดนัดที่ศาลใช้กับค่าเสียหายในคดีลักษณะนี้ และเดินนับตั้งแต่วันผิดนัด ไม่ใช่นับจากวันพิพากษา</p>
+    <p>ตัวเลขนี้จึงพอกขึ้นทุกปีที่ยังใช้หนี้ไม่ครบ และดอกเบี้ยปีเดียวก็เกินหนึ่งในสี่ของมูลค่าทรัพย์ทั้งหมดที่ยึดได้แล้ว</p>
+  `,
+  recoveryPct: `
+    ${TEX.recoveryPct}
+    <p>เอาทรัพย์ที่ยึดและอายัดได้หารด้วยความเสียหายตามฟ้อง แล้วคูณร้อย</p>
+    <p>เป็นการเทียบแบบหยาบ เพราะมูลค่าทรัพย์ที่ยึดเป็นราคาประเมินตอนยึด ซึ่งเวลาขายทอดตลาดจริงมักได้ต่ำกว่านั้น และยังมีค่าใช้จ่ายในกระบวนการอีก ตัวเลขที่ถึงมือผู้เสียหายจริงจึงต่ำกว่า ${recoveryPct.toFixed(1)}%</p>
+  `,
+  perHeadLoss: `
+    ${TEX.perHeadLoss}
+    <p>เป็นค่าเฉลี่ยเลขคณิตล้วน ๆ ของจริงกระจายตัวกว้างมาก เพราะระบบแบ่งสมาชิกเป็นห้าระดับ คนที่อยู่ระดับล่างเสียหลักหมื่น ส่วนคนที่ไต่ไปถึงระดับบนเสียหลักล้าน</p>
+    <p>แปลว่าค่ามัธยฐานน่าจะต่ำกว่าค่าเฉลี่ยตัวนี้พอสมควร แต่ตัวเลขรายคนไม่ได้เปิดเผยจึงคำนวณไม่ได้</p>
+  `,
+  perHeadBack: `
+    ${TEX.perHeadBack}
+    <p>เอาทรัพย์ที่ยึดได้ทั้งหมดหารจำนวนผู้เสียหาย เป็นภาพคร่าว ๆ ของขนาดช่องว่างเท่านั้น</p>
+    <p>ในทางปฏิบัติการเฉลี่ยทรัพย์คืนไม่ได้แบ่งหัวละเท่ากัน แต่แบ่งตามสัดส่วนความเสียหายที่แต่ละคนพิสูจน์ได้ คนที่เสีย ${baht(perHeadLoss * 4)} บาทจึงได้คืนมากกว่าคนที่เสีย ${baht(perHeadLoss / 4)} บาทตามสัดส่วน</p>
+  `,
+};
 ---
 <DivineLoreLayout
   title="Forex-3D: คุก 49,110 ปี กับเลขที่ไม่มีวันจริง | บันทึกศาสตร์แห่งเทพ"
@@ -411,12 +537,20 @@ const pct = (n: number) => (n * 100).toFixed(1);
         <tr><td>เงินฝากประจำธนาคาร</td><td>ราว 1.5%</td><td>{baht(SEED * Math.pow(1.015, 5))}</td></tr>
         <tr><td>พันธบัตรรัฐบาลไทยระยะยาว</td><td>ราว 3%</td><td>{baht(SEED * Math.pow(1.03, 5))}</td></tr>
         <tr><td>ตลาดหุ้นระยะยาวโดยเฉลี่ย</td><td>ราว 8%</td><td>{baht(setAfter5y)}</td></tr>
-        <tr><td>Warren Buffett ตลอด 60 ปี</td><td>ราว 20%</td><td>{baht(SEED * Math.pow(1.2, 5))}</td></tr>
-        <tr class="tie"><td>Forex-3D ที่ {(MONTHLY * 100).toFixed(0)}% ต่อเดือน</td><td class="hot">{pct(YEARLY_COMPOUND)}%</td><td class="hot">{baht(seedAfter5y)}</td></tr>
+        <tr><td>Warren Buffett ตลอด 60 ปี</td><td>ราว {(BUFFETT_YEARLY * 100).toFixed(0)}%</td><td>{baht(SEED * Math.pow(1 + BUFFETT_YEARLY, 5))}</td></tr>
+        <tr class="tie">
+          <td>Forex-3D ที่ {(MONTHLY * 100).toFixed(0)}% ต่อเดือน</td>
+          <td class="hot">
+            <ExplainNumber value={`${pct(YEARLY_COMPOUND)}%`} title={`${pct(YEARLY_COMPOUND)}% ต่อปี มาจากไหน`} html={EX.yearlyCompound} />
+          </td>
+          <td class="hot">
+            <ExplainNumber value={baht(seedAfter5y)} title={`${baht(seedAfter5y)} บาท มาจากไหน`} html={EX.seedAfter5y} />
+          </td>
+        </tr>
       </tbody>
     </table>
     <figcaption>
-      ทบต้นเดือนละ {(MONTHLY * 100).toFixed(0)} เปอร์เซ็นต์เท่ากับ {pct(YEARLY_COMPOUND)} เปอร์เซ็นต์ต่อปี ต่อให้ถอนกำไรออกทุกเดือนไม่ทบต้นเลยก็ยังเป็น {(YEARLY_SIMPLE * 100).toFixed(0)} เปอร์เซ็นต์ต่อปี ซึ่งชนะนักลงทุนที่เก่งที่สุดในประวัติศาสตร์อยู่หกเท่า
+      ทบต้นเดือนละ {(MONTHLY * 100).toFixed(0)} เปอร์เซ็นต์เท่ากับ {pct(YEARLY_COMPOUND)} เปอร์เซ็นต์ต่อปี ต่อให้ถอนกำไรออกทุกเดือนไม่ทบต้นเลยก็ยังเป็น <ExplainNumber value={`${(YEARLY_SIMPLE * 100).toFixed(0)} เปอร์เซ็นต์`} title={`${(YEARLY_SIMPLE * 100).toFixed(0)}% ต่อปี มาจากไหน`} html={EX.yearlySimple} />ต่อปี ซึ่งชนะนักลงทุนที่เก่งที่สุดในประวัติศาสตร์อยู่ <ExplainNumber value={`${beatBuffett.toFixed(0)} เท่า`} title={`${beatBuffett.toFixed(0)} เท่า มาจากไหน`} html={EX.beatBuffett} />
     </figcaption>
   </figure>
 
@@ -501,10 +635,16 @@ const pct = (n: number) => (n * 100).toFixed(1);
         <tr><th>เงินใหม่โตเดือนละ</th><th>เดือนแรกที่จ่ายไม่ไหว</th></tr>
       </thead>
       <tbody>
-        {growthCases.map((c) => (
+        {growthCases.map((c, i) => (
           <tr class={c.die === 0 ? 'tie' : undefined}>
             <td>{(c.g * 100).toFixed(0)}%</td>
-            <td class={c.die === 0 ? 'hot' : 'cool'}>{c.die === 0 ? 'ไม่พัง แต่ต้องโตแบบนี้ตลอดไป' : `เดือนที่ ${c.die}`}</td>
+            <td class={c.die === 0 ? 'hot' : 'cool'}>
+              {c.die === 0 && 'ไม่พัง แต่ต้องโตแบบนี้ตลอดไป'}
+              {c.die !== 0 && i !== 0 && `เดือนที่ ${c.die}`}
+              {c.die !== 0 && i === 0 && (
+                <ExplainNumber value={`เดือนที่ ${c.die}`} title="ทุกแถวในตารางนี้คำนวณยังไง" html={EX.collapseMonth} />
+              )}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -515,7 +655,7 @@ const pct = (n: number) => (n * 100).toFixed(1);
   </figure>
 
   <p>
-    ประโยคสุดท้ายฟังดูเหมือนแค่ยาก แต่จริง ๆ มันเป็นไปไม่ได้เชิงกายภาพ โตเดือนละ {(MONTHLY * 100).toFixed(0)} เปอร์เซ็นต์แปลว่าห้าปีผ่านไป เงินใหม่ที่ต้องไหลเข้าในเดือนนั้นเดือนเดียวต้องใหญ่กว่าเดือนแรก <strong>{baht(growthAfter5y)} เท่า</strong> ถ้าเดือนแรกคือหนึ่งล้านบาท เดือนที่หกสิบต้องหาให้ได้สามร้อยกว่าล้านบาทในเดือนเดียว แล้วเดือนถัดไปต้องมากกว่านั้นอีกสิบเปอร์เซ็นต์
+    ประโยคสุดท้ายฟังดูเหมือนแค่ยาก แต่จริง ๆ มันเป็นไปไม่ได้เชิงกายภาพ โตเดือนละ {(MONTHLY * 100).toFixed(0)} เปอร์เซ็นต์แปลว่าห้าปีผ่านไป เงินใหม่ที่ต้องไหลเข้าในเดือนนั้นเดือนเดียวต้องใหญ่กว่าเดือนแรก <strong><ExplainNumber value={`${baht(growthAfter5y)} เท่า`} title={`${baht(growthAfter5y)} เท่า มาจากไหน`} html={EX.growthAfter5y} /></strong> ถ้าเดือนแรกคือหนึ่งล้านบาท เดือนที่หกสิบต้องหาให้ได้สามร้อยกว่าล้านบาทในเดือนเดียว แล้วเดือนถัดไปต้องมากกว่านั้นอีกสิบเปอร์เซ็นต์
   </p>
   <div class="callout callout-tip">
     <p class="callout-label">โมเดลนี้ยังใจดีเกินจริงด้วยซ้ำ</p>
@@ -720,9 +860,24 @@ const pct = (n: number) => (n * 100).toFixed(1);
         {taxRows.map((r) => (
           <tr class={r.p === bothWinsAt ? 'tie' : undefined}>
             <td>{mB(r.p)} ล้าน</td>
-            <td>{baht(r.personal)} ({((r.personal / r.p) * 100).toFixed(1)}%)</td>
-            <td class="cool">{baht(r.company)} ({((r.company / r.p) * 100).toFixed(1)}%)</td>
-            <td class={r.both < r.personal ? 'cool' : 'hot'}>{baht(r.both)} ({((r.both / r.p) * 100).toFixed(1)}%)</td>
+            <td>
+              {r.p !== taxDemo.p && `${baht(r.personal)} (${((r.personal / r.p) * 100).toFixed(1)}%)`}
+              {r.p === taxDemo.p && (
+                <ExplainNumber value={`${baht(r.personal)} (${((r.personal / r.p) * 100).toFixed(1)}%)`} title="ขั้นบันไดของบุคคลธรรมดา" html={EX.pitDemo} />
+              )}
+            </td>
+            <td class="cool">
+              {r.p !== taxDemo.p && `${baht(r.company)} (${((r.company / r.p) * 100).toFixed(1)}%)`}
+              {r.p === taxDemo.p && (
+                <ExplainNumber value={`${baht(r.company)} (${((r.company / r.p) * 100).toFixed(1)}%)`} title="ขั้นบันไดของนิติบุคคล SME" html={EX.citDemo} />
+              )}
+            </td>
+            <td class={r.both < r.personal ? 'cool' : 'hot'}>
+              {r.p !== taxDemo.p && `${baht(r.both)} (${((r.both / r.p) * 100).toFixed(1)}%)`}
+              {r.p === taxDemo.p && (
+                <ExplainNumber value={`${baht(r.both)} (${((r.both / r.p) * 100).toFixed(1)}%)`} title="ทำไมบวกปันผลแล้วแพงขึ้น" html={EX.dividendDemo} />
+              )}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -973,7 +1128,7 @@ const pct = (n: number) => (n * 100).toFixed(1);
     </p>
   </div>
   <p>
-    ส่วนเงินที่ผู้เสียหายจะได้คืน ศาลสั่งให้จำเลยที่มีความผิดร่วมกันชดใช้ {mB(LOSS)} ล้านบาทพร้อมดอกเบี้ยร้อยละ 7.5 ต่อปี ซึ่งดอกเบี้ยอย่างเดียวคิดเป็นราวปีละ {mB(interestPerYear)} ล้านบาท
+    ส่วนเงินที่ผู้เสียหายจะได้คืน ศาลสั่งให้จำเลยที่มีความผิดร่วมกันชดใช้ {mB(LOSS)} ล้านบาทพร้อมดอกเบี้ยร้อยละ 7.5 ต่อปี ซึ่งดอกเบี้ยอย่างเดียวคิดเป็นราวปีละ <ExplainNumber value={`${mB(interestPerYear)} ล้านบาท`} title={`ดอกเบี้ยปีละ ${mB(interestPerYear)} ล้าน มาจากไหน`} html={EX.interestPerYear} />
   </p>
 
   <hr class="divider-solid" />
@@ -989,9 +1144,24 @@ const pct = (n: number) => (n * 100).toFixed(1);
       <tbody>
         <tr><td>ความเสียหายตามฟ้อง</td><td class="hot">{baht(LOSS)} บาท</td></tr>
         <tr><td>ทรัพย์ที่ยึดและอายัดได้</td><td class="cool">ราว {baht(SEIZED)} บาท</td></tr>
-        <tr class="tie"><td>คิดเป็นสัดส่วนของความเสียหาย</td><td>{recoveryPct.toFixed(1)}%</td></tr>
-        <tr><td>ความเสียหายเฉลี่ยต่อผู้เสียหายหนึ่งราย</td><td class="hot">{baht(perHeadLoss)} บาท</td></tr>
-        <tr><td>ถ้าเฉลี่ยคืนเท่ากันทุกราย จะได้คืนราว</td><td class="cool">{baht(perHeadBack)} บาท</td></tr>
+        <tr class="tie">
+          <td>คิดเป็นสัดส่วนของความเสียหาย</td>
+          <td>
+            <ExplainNumber value={`${recoveryPct.toFixed(1)}%`} title={`${recoveryPct.toFixed(1)}% มาจากไหน`} html={EX.recoveryPct} />
+          </td>
+        </tr>
+        <tr>
+          <td>ความเสียหายเฉลี่ยต่อผู้เสียหายหนึ่งราย</td>
+          <td class="hot">
+            <ExplainNumber value={`${baht(perHeadLoss)} บาท`} title={`${baht(perHeadLoss)} บาท มาจากไหน`} html={EX.perHeadLoss} />
+          </td>
+        </tr>
+        <tr>
+          <td>ถ้าเฉลี่ยคืนเท่ากันทุกราย จะได้คืนราว</td>
+          <td class="cool">
+            <ExplainNumber value={`${baht(perHeadBack)} บาท`} title={`${baht(perHeadBack)} บาท มาจากไหน`} html={EX.perHeadBack} />
+          </td>
+        </tr>
       </tbody>
     </table>
     <figcaption>
