@@ -336,11 +336,58 @@ const description =
       100%{transform:scale(1.06);background:#242f42;}
     }
     .nn-token{
-      width:0.5rem;
-      height:0.5rem;
-      border-radius:50%;
-      background:var(--nn-gold);
-      box-shadow:0 0 8px var(--nn-gold);
+      width:1.05rem;
+      height:1.05rem;
+      display:block;
+      color:var(--nn-gold);
+      filter:drop-shadow(0 0 6px rgba(226,178,60,.85));
+      animation:nn-hop .45s ease-out;
+    }
+    @keyframes nn-hop{
+      0%{transform:translateY(-9px) scale(.75);}
+      55%{transform:translateY(2px) scale(1.12);}
+      100%{transform:none;}
+    }
+
+    /* tier badge + debt breakdown */
+    .nn-tier{
+      display:inline-flex;
+      align-items:center;
+      gap:0.4rem;
+      margin-top:0.35rem;
+      font-size:0.72rem;
+      background:rgba(226,178,60,.12);
+      border:1px solid rgba(226,178,60,.4);
+      border-radius:999px;
+      padding:0.14rem 0.7rem;
+    }
+    .nn-tier-n{font-family:"JetBrains Mono",monospace;color:var(--nn-gold);}
+    .nn-tier-name{color:var(--nn-ink);}
+    .nn-rows dd.muted, .nn-rows dt.sub{color:var(--nn-muted);}
+    .nn-debt{flex-wrap:wrap;}
+    .nn-debt-head{
+      flex:1 1 auto;
+      text-align:left;
+      min-width:0;
+      padding:0;
+      background:none;
+      border:none;
+      cursor:pointer;
+    }
+    .nn-debt.is-open{outline:1px solid var(--nn-border);}
+    .nn-debt-body{
+      flex-basis:100%;
+      margin-top:0.45rem;
+      padding-top:0.45rem;
+      border-top:1px dashed var(--nn-border);
+    }
+    .nn-list li{position:relative;}
+    .nn-pop-debt{top:.15rem;right:.6rem;font-size:.72rem;}
+    .nn-warnline{
+      margin-top:0.4rem;
+      font-size:0.72rem;
+      color:var(--nn-gold);
+      line-height:1.6;
     }
     .nn-center{
       grid-row:2 / 7;
@@ -358,27 +405,20 @@ const description =
     }
     .nn-dice{display:flex;gap:0.4rem;}
     .nn-die{
-      width:2.2rem;
-      height:2.2rem;
-      border-radius:9px;
-      background:var(--nn-panel);
-      border:1px solid var(--nn-border);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-size:1.15rem;
-      font-weight:700;
-      color:#fff;
-      font-variant-numeric:tabular-nums;
+      width:2.6rem;
+      height:2.6rem;
+      display:block;
+      filter:drop-shadow(0 4px 8px rgba(0,0,0,.45));
+      transform:rotate(-4deg);
     }
-    .nn-die.is-rolling{
-      color:var(--nn-gold);
-      animation:nn-tumble .12s linear infinite;
-    }
+    .nn-die svg{width:100%;height:100%;display:block;}
+    .nn-die.is-idle{opacity:.45;transform:none;filter:none;}
+    .nn-die.is-rolling{animation:nn-tumble .18s linear infinite;}
     @keyframes nn-tumble{
-      0%{transform:rotate(-7deg) translateY(0);}
-      50%{transform:rotate(7deg) translateY(-3px);}
-      100%{transform:rotate(-7deg) translateY(0);}
+      0%{transform:rotate(-16deg) translateY(0) scale(.95);}
+      35%{transform:rotate(12deg) translateY(-7px) scale(1.06);}
+      70%{transform:rotate(-6deg) translateY(-2px) scale(1);}
+      100%{transform:rotate(-16deg) translateY(0) scale(.95);}
     }
     .nn-here{font-size:0.8rem;color:var(--nn-muted);}
     .nn-here b{color:var(--nn-ink);}
@@ -628,6 +668,7 @@ const description =
       <div class="nn-headrow">
         <div class="nn-brand">
           <h1 data-i18n="gameTitle">หนีหนู</h1>
+          <p class="nn-tier" data-tier hidden></p>
           <p class="nn-sub" data-i18n="gameSub">เกมกระดานการเงินที่คุณชนะเมื่อเงินไหลเข้าต่อเดือน มากกว่ารายจ่ายต่อเดือน</p>
         </div>
         <div class="nn-tools">
@@ -693,6 +734,7 @@ const description =
       LOAN_STEP,
       acceptBaby,
       acceptDownsized,
+      acceptFriendHelp,
       assetCashflow,
       assetValue,
       borrow,
@@ -701,6 +743,13 @@ const description =
       buyFastDeal,
       canRepay,
       canRoll,
+      canQuit,
+      callItADay,
+      TIER_NAMES,
+      quitJob,
+      stayEmployed,
+      salary,
+      tierOf,
       charityCost,
       checkTrouble,
       chooseDeal,
@@ -709,11 +758,9 @@ const description =
       dealDown,
       dealPrice,
       debtLabel,
-      debtPayments,
       declineDoodad,
       doodadCost,
       escapeProgress,
-      fastAdded,
       fastProgress,
       finishMove,
       fireSale,
@@ -758,6 +805,8 @@ const description =
     let modal: 'rules' | 'confirmRestart' | 'fastIntro' | null = null;
     /** the player dismissed the result card to look at (or screenshot) the board */
     let endingClosed = false;
+    /** which debt row has its breakdown open */
+    let openDebt: string | null = null;
 
     /* --- animation state (never saved: it only describes the turn in flight) --- */
     /** a turn is playing out; the roll buttons stay disabled until it finishes */
@@ -779,6 +828,37 @@ const description =
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const sleep = (ms: number): Promise<void> =>
       new Promise((done) => window.setTimeout(done, reducedMotion() ? 0 : ms));
+
+    /** Pip layout for a die face, drawn as a real face rather than a numeral. */
+    const DIE_PIPS: Record<number, [number, number][]> = {
+      1: [[1, 1]],
+      2: [[0, 0], [2, 2]],
+      3: [[0, 0], [1, 1], [2, 2]],
+      4: [[0, 0], [2, 0], [0, 2], [2, 2]],
+      5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
+      6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
+    };
+
+    function dieSvg(n: number): string {
+      const pips = DIE_PIPS[n] ?? DIE_PIPS[1] ?? [];
+      const dots = pips
+        .map(([c, r]) => `<circle cx="${14 + c * 18}" cy="${14 + r * 18}" r="5.2" fill="#1b2433"/>`)
+        .join('');
+      return `<svg viewBox="0 0 60 60" aria-hidden="true">
+        <defs><linearGradient id="nnd${n}" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#c9d4e4"/>
+        </linearGradient></defs>
+        <rect x="2" y="2" width="56" height="56" rx="13" fill="url(#nnd${n})" stroke="#8f9db3" stroke-width="1.5"/>
+        <rect x="6" y="6" width="48" height="20" rx="9" fill="#fff" opacity=".55"/>
+        ${dots}
+      </svg>`;
+    }
+
+    /** The player's marker: a small figure rather than an anonymous dot. */
+    const TOKEN_SVG = `<svg class="nn-token" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="5" r="3.4" fill="currentColor"/>
+      <path d="M12 9c-3 0-5 1.8-5 4.4V16h2.2l.5 6h4.6l.5-6H17v-2.6C17 10.8 15 9 12 9z" fill="currentColor"/>
+    </svg>`;
 
     const T = (l: Loc): string => l[lang];
     const money = (n: number): string => `฿${Math.round(n).toLocaleString('en-US')}`;
@@ -907,7 +987,7 @@ const description =
             .map((a) => {
               const flow = assetCashflow(a);
               return `<li>
-                <span class="nm"><b>${T(a.name)}</b><small>${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)}` : ''}</small></span>
+                <span class="nm"><b>${T(a.name)}</b><small>${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)} · ${T(UI.mortgageOn)} ${money(a.mortgagePay)}` : ''}</small></span>
                 <span class="amt ${flow > 0 ? 'pos' : ''}">${flow > 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>
               </li>`;
             })
@@ -917,10 +997,28 @@ const description =
       const debtRows = s.debts.length
         ? `<ul class="nn-list">${s.debts
             .map(
-              (d) => `<li>
-                <span class="nm"><b>${T(debtLabel(d.key))}</b><small>${money(d.balance)} · ${money(d.payment)}${T(UI.perMonth)}</small></span>
+              (d) => {
+              const interest = d.balance * d.rate;
+              const principal = Math.max(0, d.payment - interest);
+              const left = d.interestOnly || principal <= 0 ? Infinity : Math.ceil(d.balance / principal);
+              const totalInt = Number.isFinite(left) ? left * d.payment - d.balance : Infinity;
+              return `<li class="nn-debt${openDebt === d.key ? ' is-open' : ''}">
+                <button type="button" class="nn-debt-head" data-act="opendebt" data-id="${d.key}" aria-expanded="${openDebt === d.key}">
+                  <span class="nm"><b>${T(debtLabel(d.key))}</b><small>${money(d.balance)} · ${money(d.payment)}${T(UI.perMonth)}</small></span>
+                </button>
                 <button type="button" class="nn-mini" data-act="repay" data-id="${d.key}" ${canRepay(s, d.key) ? '' : 'disabled'}>${T(UI.payoff)}</button>
-              </li>`,
+                ${openDebt === d.key ? `<div class="nn-debt-body">
+                  <dl class="nn-rows">
+                    <dt>${T(UI.interestPart)}</dt><dd class="neg">${money(interest)}</dd>
+                    <dt>${T(UI.principalPart)}</dt><dd class="${principal > 0 ? 'pos' : 'neg'}">${money(principal)}</dd>
+                    ${Number.isFinite(left) ? `<dt>${T(UI.monthsLeft)}</dt><dd>${left} ${T(UI.monthsUnitShort)}</dd>
+                    <dt>${T(UI.totalInterest)}</dt><dd class="neg">${money(totalInt)}</dd>
+                    <dt>${T(UI.payoffSaves)}</dt><dd class="pos">${money(totalInt)}</dd>` : ''}
+                  </dl>
+                  ${d.interestOnly ? `<p class="nn-warnline">${T(UI.neverEnds)}</p>` : ''}
+                </div>` : ''}
+              </li>`;
+            },
             )
             .join('')}</ul>`
         : `<p class="nn-empty">${T(UI.noDebts)}</p>`;
@@ -929,28 +1027,23 @@ const description =
         <div class="nn-sec">
           <h3>${T(UI.income)}</h3>
           <dl class="nn-rows">
-            ${onFast ? '' : `<dt>${T(UI.salary)}</dt><dd>${money(p.salary)}</dd>`}
+            <dt>${T(UI.salary)}</dt><dd class="${s.quit ? 'muted' : ''}">${s.quit ? T(UI.salaryGone) : money(salary(s))}</dd>
             <dt>${T(UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
           </dl>
         </div>
-        ${
-          onFast
-            ? ''
-            : `<div class="nn-sec">
+        <div class="nn-sec">
           <h3>${T(UI.expenses)}</h3>
           <dl class="nn-rows">
             <dt>${T(UI.taxes)}</dt><dd>${money(p.taxes)}</dd>
             <dt>${T(UI.other)}</dt><dd>${money(p.otherExpenses)}</dd>
             ${s.children > 0 ? `<dt>${T(UI.childrenCost)} (${s.children})</dt><dd>${money(p.childCost * s.children)}</dd>` : ''}
-            <dt>${T(UI.liabilities)}</dt><dd>${money(debtPayments(s))}</dd>
+            ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
           </dl>
-        </div>`
-        }
-        <div class="nn-big">
-          <span>${onFast ? T(UI.fastIncome) : T(UI.cashflow)}</span>
-          <strong class="${onFast ? 'pos' : cls(cf)}">${onFast ? money(passive) : signed(cf)}</strong>
         </div>
-        ${onFast ? `<p class="nn-empty" style="margin-top:.4rem">${T(UI.fastProgressLabel)} ${money(fastAdded(s))} / ${money(FAST_GOAL)}${T(UI.perMonth)}</p>` : ''}
+        <div class="nn-big">
+          <span>${T(UI.cashflow)}</span>
+          <strong class="${cls(cf)}">${signed(cf)}</strong>
+        </div>
         <div class="nn-big nn-cashrow">
           <span>${T(UI.cash)}</span><strong class="${cls(s.cash)}" data-cash>${money(shownCash)}</strong>
         </div>
@@ -964,6 +1057,9 @@ const description =
         </div>
         <div class="nn-big">
           <span>${T(UI.netWorth)}</span><strong class="${cls(netWorth(s))}">${money(netWorth(s))}</strong>
+        </div>
+        <div class="nn-big">
+          <span>${T(UI.karma)}</span><strong class="${s.karma >= 0 ? 'pos' : 'neg'}">${s.karma > 0 ? '+' : ''}${s.karma}</strong>
         </div>
         ${onFast ? `<div class="nn-sec"><h3>${T(UI.yourDream)}</h3><p class="nn-empty">${T(dreamById.get(s.dreamId)?.title ?? UI.notYet)} · ${money(dreamById.get(s.dreamId)?.cost ?? 0)}</p></div>` : ''}
         ${expenses > 0 && !onFast ? `<p class="nn-empty" style="margin-top:.6rem">${T(UI.escapeNeed)} ${money(expenses)}${T(UI.perMonth)} · ${T(UI.income)} ${money(income)}</p>` : ''}`;
@@ -992,7 +1088,7 @@ const description =
           const long = UI[`tile${tile.charAt(0).toUpperCase()}${tile.slice(1)}` as keyof typeof UI];
           const here = i === at;
           return `<div class="nn-tile nn-tile-${tile}${here ? ' is-here' : ''}${here && flashPay ? ' is-pay' : ''}" style="grid-row:${row};grid-column:${col}" role="img" aria-label="${T(long)}${here ? ' · ' + T(UI.turn) + ' ' + s.turn : ''}">
-            <span>${T(short)}</span>${here ? '<span class="nn-token"></span>' : ''}
+            <span>${T(short)}</span>${here ? TOKEN_SVG : ''}
           </div>`;
         })
         .join('');
@@ -1002,8 +1098,8 @@ const description =
       const pct = Math.round((onFast ? fastProgress(s) : escapeProgress(s)) * 100);
       const faces = diceSpin ?? s.lastRoll;
       const dice = faces.length
-        ? faces.map((d) => `<span class="nn-die${diceSpin ? ' is-rolling' : ''}">${d}</span>`).join('')
-        : `<span class="nn-die">·</span>`;
+        ? faces.map((d) => `<span class="nn-die${diceSpin ? ' is-rolling' : ''}">${dieSvg(d)}</span>`).join('')
+        : `<span class="nn-die is-idle">${dieSvg(1)}</span>`;
       // While the token is still travelling, the tile under it is not yet the
       // answer to anything, so the readout says so instead of naming it.
       const heading = s.walking > 0 ? `${T(UI.walking)} ${s.walking}` : `<b>${T(longName)}</b>`;
@@ -1038,12 +1134,23 @@ const description =
         <button type="button" class="nn-btn nn-btn-go" data-act="roll" data-id="1" ${rollable ? '' : 'disabled'}>${T(UI.roll1)}</button>
         ${two ? `<button type="button" class="nn-btn nn-btn-gold" data-act="roll" data-id="2" ${rollable ? '' : 'disabled'}>${T(UI.roll2)}</button>` : ''}
         ${borrowable ? `<button type="button" class="nn-btn" data-act="borrow">${T(UI.borrowBtn)}</button>` : ''}
+        ${canQuit(s) && !busy ? `<button type="button" class="nn-btn nn-btn-gold" data-act="quit">${T(UI.quitBtn)}</button>` : ''}
+        ${s.quit && !busy ? `<button type="button" class="nn-btn nn-btn-quiet" data-act="endnow">${T(UI.endNow)}</button>` : ''}
         <div class="nn-status">
           <span>${T(UI.turn)} ${s.turn}</span>
           <span>${T(UI.months)} ${s.months}</span>
           ${s.skipTurns > 0 ? `<span class="neg">${T(UI.skipping)} ${s.skipTurns}</span>` : ''}
           ${two ? `<span class="pos">${T(UI.charityLeft)} ${s.charityTurns}</span>` : ''}
         </div>`;
+    }
+
+    function renderTier(root: Root, s: GameState): void {
+      const host = root.querySelector<HTMLElement>('[data-tier]');
+      if (!host) return;
+      const t = tierOf(s);
+      const name = TIER_NAMES[t - 1];
+      host.hidden = false;
+      host.innerHTML = `<span class="nn-tier-n">${T(UI.tier)} ${t}</span><span class="nn-tier-name">${name ? T(name) : ''}</span>`;
     }
 
     function renderLog(root: Root, s: GameState): void {
@@ -1242,6 +1349,44 @@ const description =
           </div>`;
       }
 
+      if (p.kind === 'quit') {
+        return `<div class="kind">${T(UI.quitTitle)}</div>
+          <h2 id="nn-dlg-title">${T(UI.quitTitle)}</h2>
+          <p class="story">${T(UI.quitBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.quitLose)}</dt><dd class="neg">${money(salary(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.quitKeep)}</dt><dd class="pos">${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.quitBills)}</dt><dd>${money(totalExpenses(s))}${T(UI.perMonth)}</dd>
+          </dl>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="quit">${T(UI.quitNow)}</button>
+            <button type="button" class="nn-btn nn-btn-quiet" data-act="stay">${T(UI.stayOn)}</button>
+          </div>`;
+      }
+
+      if (p.kind === 'friend') {
+        return `<div class="kind">${T(UI.friendTitle)}</div>
+          <h2 id="nn-dlg-title">${T(UI.friendTitle)}</h2>
+          <p class="story">${T(UI.friendBody)}</p>
+          <dl class="facts"><dt>${T(UI.karma)}</dt><dd class="pos">${s.karma}</dd></dl>
+          <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="friend">${T(UI.friendAccept)}</button></div>`;
+      }
+
+      if (p.kind === 'tierUp') {
+        const name = TIER_NAMES[p.tier - 1];
+        const confetti = reducedMotion() ? '' : `<div class="nn-confetti" aria-hidden="true">${Array.from({ length: 18 })
+          .map((_, i) => `<i style="left:${(i * 89) % 100}%;background:${['#5fd694', '#e2b23c', '#4d72a9', '#fff'][i % 4]};animation-delay:${((i * 131) % 800) / 1000}s;animation-duration:${2 + ((i * 47) % 90) / 100}s"></i>`)
+          .join('')}</div>`;
+        return `${confetti}
+          <div class="kind">${T(UI.tierUpTitle)}</div>
+          <h2 id="nn-dlg-title" class="nn-win-title">${T(UI.tier)} ${p.tier} · ${name ? T(name) : ''}</h2>
+          <dl class="facts">
+            <dt>${T(UI.passive)}</dt><dd class="pos">${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.netWorth)}</dt><dd>${money(netWorth(s))}</dd>
+          </dl>
+          <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="tierok">${T(UI.keepPlaying)}</button></div>`;
+      }
+
       if (p.kind === 'rescue') {
         const rows = s.assets
           .map(
@@ -1328,6 +1473,7 @@ const description =
         renderBoard(root, state);
         renderControls(root, state);
         renderLog(root, state);
+        renderTier(root, state);
         settleCash(root, state.cash);
       }
 
@@ -1391,6 +1537,28 @@ const description =
       cashRaf = window.requestAnimationFrame(tick);
     }
 
+/**
+     * On a new month, float the principal coming off each debt above its row,
+     * one after another, so paying down debt is something the player watches
+     * happen rather than something they have to infer from a shrinking number.
+     */
+    function showDebtCuts(root: Root, s: GameState): void {
+      if (reducedMotion()) return;
+      const rows = Array.from(root.querySelectorAll<HTMLElement>('.nn-debt'));
+      s.debts.forEach((d, i) => {
+        const row = rows[i];
+        if (!row || d.interestOnly) return;
+        const principal = Math.max(0, d.payment - d.balance * d.rate);
+        if (principal <= 0) return;
+        const pop = document.createElement('span');
+        pop.className = 'nn-pop down nn-pop-debt';
+        pop.textContent = `-${money(principal)}`;
+        pop.style.animationDelay = `${i * 0.18}s`;
+        row.appendChild(pop);
+        window.setTimeout(() => pop.remove(), 1400 + i * 180);
+      });
+    }
+
     /** Tumble the dice for a beat before the real faces are shown. */
     async function spinDice(root: Root, s: GameState): Promise<void> {
       if (reducedMotion() || s.lastRoll.length === 0) return;
@@ -1438,6 +1606,7 @@ const description =
             renderSheet(root, s);
             renderLog(root, s);
             settleCash(root, s.cash);
+            showDebtCuts(root, s);
             await sleep(760);
           } else {
             await sleep(230);
@@ -1555,6 +1724,9 @@ const description =
         case 'closemodal':
           modal = null;
           break;
+        case 'opendebt':
+          openDebt = openDebt === id ? null : (id ?? null);
+          break;
         case 'closeending':
           endingClosed = true;
           break;
@@ -1605,6 +1777,22 @@ const description =
           break;
         case 'baby':
           acceptBaby(s);
+          break;
+        case 'quit':
+          quitJob(s);
+          break;
+        case 'stay':
+          stayEmployed(s);
+          break;
+        case 'friend':
+          acceptFriendHelp(s);
+          break;
+        case 'tierok':
+          s.pending = null;
+          break;
+        case 'endnow':
+          callItADay(s);
+          endingClosed = false;
           break;
         case 'downsized':
           acceptDownsized(s);

@@ -45,6 +45,32 @@ export const ESCAPE_MULTIPLE = 100;
 /** extra monthly income needed to win on the fast track */
 export const FAST_GOAL = 300000;
 export const MAX_CHILDREN = 3;
+/** monthly interest on the debt a profession starts with, and on asset mortgages */
+export const DEBT_RATE: Record<DebtKey, number> = {
+  home: 0.0035,
+  car: 0.005,
+  card: 0.015,
+  retail: 0.01,
+  student: 0.002,
+  bank: LOAN_RATE,
+};
+export const MORTGAGE_RATE = 0.0035;
+/** generosity needed before a friend will step in during a cash crisis */
+export const FRIEND_HELP_KARMA = 3;
+export const FRIEND_HELP_AMOUNT = 150000;
+/** monthly passive income, above the level at escape, for the professional tier */
+export const TIER5_INCOME = 300000;
+/** total monthly passive income for the top tier, alongside owning the dream */
+export const TIER6_INCOME = 1000000;
+
+export const TIER_NAMES: Loc[] = [
+  { th: 'มนุษย์เงินเดือน', en: 'Salary earner' },
+  { th: 'มือใหม่หัดลงทุน', en: 'First-time investor' },
+  { th: 'คนที่หนีออกมาได้', en: 'Off the wheel' },
+  { th: 'เจ้าของพอร์ต', en: 'Debt-free owner' },
+  { th: 'นักลงทุนอาชีพ', en: 'Professional investor' },
+  { th: 'นายทุน', en: 'Capitalist' },
+];
 
 /* ------------------------------------------------------------------- random */
 
@@ -96,8 +122,33 @@ export function passiveIncome(s: GameState): number {
   return s.assets.reduce((sum, a) => sum + assetCashflow(a), 0);
 }
 
+export function salary(s: GameState): number {
+  return s.quit ? 0 : profession(s).salary;
+}
+
 export function totalIncome(s: GameState): number {
-  return profession(s).salary + passiveIncome(s);
+  return salary(s) + passiveIncome(s);
+}
+
+/** Everything owed each month across the balance sheet, mortgages included. */
+export function mortgagePayments(s: GameState): number {
+  return s.assets.reduce((sum, a) => sum + a.mortgagePay * (a.debt > 0 ? 1 : 0), 0);
+}
+
+/** Which tier the player has earned right now, 1..6. */
+export function tierOf(s: GameState): number {
+  const passive = passiveIncome(s);
+  if (s.dreamBought && passive >= TIER6_INCOME) return 6;
+  if (s.quit && passive - s.escapeIncome >= TIER5_INCOME) return 5;
+  if (s.quit && s.debts.length === 0 && s.assets.every((a) => a.debt <= 0) && netWorth(s) > 0) return 4;
+  if (s.quit) return 3;
+  if (s.assets.some((a) => a.cashflowPerUnit > 0)) return 2;
+  return 1;
+}
+
+/** True once passive income covers the bills, i.e. the job is optional. */
+export function canQuit(s: GameState): boolean {
+  return !s.quit && passiveIncome(s) >= totalExpenses(s);
 }
 
 export function childExpense(s: GameState): number {
@@ -179,7 +230,12 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     cash: p.cash,
     children: 0,
     assets: [],
-    debts: p.debts.map((d) => ({ ...d })),
+    debts: p.debts.map((d) => ({ ...d, rate: DEBT_RATE[d.key] })),
+    quit: false,
+    tier: 1,
+    karma: 0,
+    friendHelpUsed: false,
+    endedByChoice: false,
     prices,
     pos: 0,
     fastPos: 0,
@@ -333,6 +389,46 @@ function landRat(s: GameState): void {
   }
 }
 
+/**
+ * One month of debt service. Interest is the cost of carrying the balance; the
+ * rest of the payment eats into the principal, so ordinary debts really do
+ * shrink and eventually vanish. The emergency loan is interest-only and never
+ * shrinks on its own, which is exactly why it hurts.
+ */
+export function amortize(s: GameState): void {
+  for (const d of s.debts) {
+    if (d.interestOnly) continue;
+    const principal = Math.max(0, d.payment - d.balance * d.rate);
+    d.balance = Math.max(0, d.balance - principal);
+  }
+  for (const a of s.assets) {
+    if (a.debt <= 0) continue;
+    const principal = Math.max(0, a.mortgagePay - a.debt * MORTGAGE_RATE);
+    a.debt = Math.max(0, a.debt - principal);
+    if (a.debt <= 0) {
+      // The mortgage is gone, so the payment it was eating comes back as income.
+      a.cashflowPerUnit += a.mortgagePay / a.qty;
+      note(
+        s,
+        {
+          th: `ผ่อน ${a.name.th} หมดแล้ว เงินไหลเข้าเพิ่มเดือนละ ${money(a.mortgagePay)}`,
+          en: `${a.name.en} is paid off: ${money(a.mortgagePay)} more coming in every month.`,
+        },
+        'good',
+      );
+    }
+  }
+  const cleared = s.debts.filter((d) => d.balance <= 0);
+  for (const d of cleared) {
+    note(
+      s,
+      { th: `ผ่อน${debtLabel(d.key).th}หมดแล้ว รายจ่ายลดลง ${money(d.payment)}`, en: `${debtLabel(d.key).en} cleared: ${money(d.payment)} off the monthly bill.` },
+      'good',
+    );
+  }
+  s.debts = s.debts.filter((d) => d.balance > 0);
+}
+
 function payday(s: GameState): void {
   const cf = monthlyCashflow(s);
   s.cash += cf;
@@ -345,19 +441,27 @@ function payday(s: GameState): void {
     },
     cf >= 0 ? 'good' : 'bad',
   );
+  amortize(s);
   checkEscape(s);
   checkTrouble(s);
 }
 
 function fastPayday(s: GameState): void {
-  const income = passiveIncome(s);
-  s.cash += income;
+  // No salary out here, but the bills did not stop, so a fast-track month is
+  // passive income minus expenses just like any other month.
+  const cf = monthlyCashflow(s);
+  s.cash += cf;
   s.months += 1;
   note(
     s,
-    { th: `รายได้ทางด่วนเข้าบัญชี +${money(income)}`, en: `Fast-track income lands: +${money(income)}` },
-    'good',
+    {
+      th: `เงินไหลเข้า ${money(passiveIncome(s))} หักรายจ่าย ${money(totalExpenses(s))} เหลือ ${cf >= 0 ? '+' : ''}${money(cf)}`,
+      en: `${money(passiveIncome(s))} in, ${money(totalExpenses(s))} of expenses, leaving ${cf >= 0 ? '+' : ''}${money(cf)}`,
+    },
+    cf >= 0 ? 'good' : 'bad',
   );
+  amortize(s);
+  checkTier(s);
 }
 
 function landFast(s: GameState): void {
@@ -439,6 +543,7 @@ export function buyDeal(s: GameState, qty: number): void {
       costPerUnit: per,
       pricePerUnit: price,
       debt: card.debt * n,
+      mortgagePay: (card.mortgagePay ?? 0) * n,
       cashflowPerUnit: card.cashflow,
     };
     if (card.symbol !== undefined) asset.symbol = card.symbol;
@@ -532,6 +637,7 @@ export function payDoodad(s: GameState): void {
   const card = doodadById.get(s.pending.cardId);
   if (!card) return;
   const cost = doodadCost(s, card);
+  if (card.social) s.karma += 1;
   if (cost > 0) {
     s.cash -= cost;
     note(s, { th: `${card.title.th} จ่ายไป ${money(cost)}`, en: `${card.title.en}: paid ${money(cost)}.` }, 'bad');
@@ -566,7 +672,15 @@ export function declineDoodad(s: GameState): void {
   if (s.pending?.kind !== 'doodad') return;
   const card = doodadById.get(s.pending.cardId);
   if (!card?.optional) return;
-  note(s, { th: `ปฏิเสธ ${card.title.th} ไม่เสียเงินสักบาท`, en: `Declined ${card.title.en}: not a baht spent.` }, 'good');
+  if (card.social) s.karma -= 1;
+  note(
+    s,
+    {
+      th: `ปฏิเสธ ${card.title.th} ไม่เสียเงินสักบาท${card.social ? ' แต่น้ำใจลดลง 1' : ''}`,
+      en: `Declined ${card.title.en}: not a baht spent${card.social ? ', but generosity drops by 1' : ''}.`,
+    },
+    'good',
+  );
   s.pending = null;
 }
 
@@ -650,6 +764,7 @@ export function buyFastDeal(s: GameState): void {
     costPerUnit: card.price,
     pricePerUnit: card.price,
     debt: 0,
+    mortgagePay: 0,
     cashflowPerUnit: card.cashflow,
   });
   note(
@@ -726,13 +841,14 @@ export function skipDream(s: GameState): void {
 
 /* --------------------------------------------------------------- debt desk */
 
-function addDebt(s: GameState, key: DebtKey, balance: number, payment: number): void {
+function addDebt(s: GameState, key: DebtKey, balance: number, payment: number, interestOnly = false): void {
   const existing = s.debts.find((d) => d.key === key);
   if (existing) {
     existing.balance += balance;
     existing.payment += payment;
   } else {
-    const d: Debt = { key, balance, payment };
+    const d: Debt = { key, balance, payment, rate: DEBT_RATE[key] };
+    if (interestOnly) d.interestOnly = true;
     s.debts.push(d);
   }
 }
@@ -746,7 +862,7 @@ export function borrow(s: GameState, amount: number): void {
   const value = Math.min(steps * LOAN_STEP, maxBorrow(s));
   if (value <= 0) return;
   s.cash += value;
-  addDebt(s, 'bank', value, value * LOAN_RATE);
+  addDebt(s, 'bank', value, value * LOAN_RATE, true);
   note(
     s,
     {
@@ -844,6 +960,10 @@ export function checkTrouble(s: GameState): void {
     if (s.pending?.kind === 'rescue') s.pending = null;
     return;
   }
+  if (!s.friendHelpUsed && s.karma >= FRIEND_HELP_KARMA) {
+    s.pending = { kind: 'friend' };
+    return;
+  }
   const canFireSale = s.assets.length > 0;
   const canBorrowMore = maxBorrow(s) >= LOAN_STEP;
   if (!canFireSale && !canBorrowMore) {
@@ -862,11 +982,37 @@ export function checkTrouble(s: GameState): void {
   s.pending = { kind: 'rescue' };
 }
 
-export function checkEscape(s: GameState): void {
-  if (s.phase !== 'rat') return;
-  const passive = passiveIncome(s);
-  if (passive < totalExpenses(s)) return;
+/**
+ * Crossing the line no longer quits the job for the player: it offers the
+ * choice. Plenty of people keep the salary a while longer to build a buffer,
+ * and the decision is the most interesting moment in the game.
+ */
+export function acceptFriendHelp(s: GameState): void {
+  if (s.pending?.kind !== 'friend') return;
+  s.friendHelpUsed = true;
+  s.karma -= FRIEND_HELP_KARMA;
+  s.cash += FRIEND_HELP_AMOUNT;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `เพื่อนที่คุณเคยช่วยไว้โอนมาให้ ${money(FRIEND_HELP_AMOUNT)} ไม่คิดดอกเบี้ย ไม่มีกำหนดคืน`,
+      en: `A friend you once helped sends ${money(FRIEND_HELP_AMOUNT)}, no interest and no deadline.`,
+    },
+    'good',
+  );
+  checkTrouble(s);
+}
 
+export function checkEscape(s: GameState): void {
+  if (s.phase !== 'rat' || s.pending !== null) return;
+  if (canQuit(s)) s.pending = { kind: 'quit' };
+}
+
+export function quitJob(s: GameState): void {
+  if (!canQuit(s)) return;
+  const passive = passiveIncome(s);
+  s.quit = true;
   s.phase = 'fast';
   s.escapeIncome = passive;
   const bonus = passive * ESCAPE_MULTIPLE;
@@ -876,26 +1022,46 @@ export function checkEscape(s: GameState): void {
   note(
     s,
     {
-      th: `เงินไหลเข้าเดือนละ ${money(passive)} มากกว่ารายจ่ายแล้ว หนีออกจากวงล้อสำเร็จ รับเงินก้อนตั้งต้นทางด่วน ${money(bonus)}`,
-      en: `Passive income of ${money(passive)} a month now covers every expense. You are off the wheel, with ${money(bonus)} to start the fast track.`,
+      th: `ลาออกจากงานประจำแล้ว ไม่มีเงินเดือนอีกต่อไป อยู่ด้วยเงินไหลเข้าเดือนละ ${money(passive)} รับเงินก้อนตั้งต้น ${money(bonus)}`,
+      en: `You quit. No salary from here, just ${money(passive)} a month of passive income, plus ${money(bonus)} to start with.`,
     },
     'good',
   );
+  checkTier(s);
+}
+
+export function stayEmployed(s: GameState): void {
+  if (s.pending?.kind !== 'quit') return;
+  s.pending = null;
+  note(
+    s,
+    { th: 'ยังไม่ลาออก เก็บเงินเดือนไว้สะสมกันชนก่อน', en: 'Not yet: the salary stays while the buffer grows.' },
+    'plain',
+  );
+}
+
+/** Promote the player if they have earned a new tier, and say so. */
+export function checkTier(s: GameState): void {
+  const now = tierOf(s);
+  if (now <= s.tier) return;
+  s.tier = now;
+  if (s.pending === null) s.pending = { kind: 'tierUp', tier: now };
+  const name = TIER_NAMES[now - 1];
+  if (name) {
+    note(s, { th: `เลื่อนขั้นเป็น "${name.th}"`, en: `New tier reached: "${name.en}"` }, 'good');
+  }
+}
+
+/** The player decides the run is over; nothing else ends it but bankruptcy. */
+export function callItADay(s: GameState): void {
+  if (s.phase !== 'rat' && s.phase !== 'fast') return;
+  s.phase = 'won';
+  s.endedByChoice = true;
+  s.pending = null;
 }
 
 export function checkWin(s: GameState): void {
-  if (s.phase !== 'fast') return;
-  if (s.dreamBought || fastAdded(s) >= FAST_GOAL) {
-    s.phase = 'won';
-    note(
-      s,
-      {
-        th: s.dreamBought ? 'คุณซื้อความฝันของตัวเองได้แล้ว จบเกมแบบชนะ' : `รายได้ทางด่วนแตะ ${money(FAST_GOAL)} ต่อเดือน จบเกมแบบชนะ`,
-        en: s.dreamBought ? 'You bought your dream. That is the win.' : `Fast-track income reached ${money(FAST_GOAL)} a month. That is the win.`,
-      },
-      'good',
-    );
-  }
+  checkTier(s);
 }
 
 /* ------------------------------------------------------------ save / load */
@@ -943,6 +1109,16 @@ export function parseSave(raw: string): GameState | null {
   // `walking` used to read as undefined and left `canRoll` false forever, i.e.
   // a board nobody could roll on again.
   if (!Number.isFinite(game.walking)) game.walking = 0;
+  if (typeof game.quit !== 'boolean') game.quit = game.phase === 'fast' || game.phase === 'won';
+  if (!Number.isFinite(game.karma)) game.karma = 0;
+  if (typeof game.friendHelpUsed !== 'boolean') game.friendHelpUsed = false;
+  if (typeof game.endedByChoice !== 'boolean') game.endedByChoice = false;
+  for (const d of game.debts) {
+    if (!Number.isFinite(d.rate)) d.rate = DEBT_RATE[d.key] ?? 0;
+    if (d.key === 'bank') d.interestOnly = true;
+  }
+  for (const a of game.assets) if (!Number.isFinite(a.mortgagePay)) a.mortgagePay = 0;
+  if (!Number.isFinite(game.tier)) game.tier = tierOf(game);
   if (!Number.isFinite(game.escapeIncome)) game.escapeIncome = 0;
   if (!Number.isFinite(game.charityTurns)) game.charityTurns = 0;
   if (!Number.isFinite(game.skipTurns)) game.skipTurns = 0;
