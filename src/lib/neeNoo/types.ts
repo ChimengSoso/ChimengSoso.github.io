@@ -44,6 +44,11 @@ export interface Asset {
   mortgagePay: number;
   /** monthly cash flow per unit (can be 0 for capital-gain plays) */
   cashflowPerUnit: number;
+  /** see DealCard.volatility; carried so the holding keeps swinging after purchase */
+  volatility?: number;
+  /** cash flow the day it was bought, used to cap how far a swing can run */
+  baseCashflow?: number;
+  impact?: number;
 }
 
 /* ------------------------------------------------------------- liabilities */
@@ -57,11 +62,15 @@ export interface Debt {
   payment: number;
   /**
    * Monthly interest rate. Whatever the payment covers beyond the interest goes
-   * to principal, so ordinary debts shrink on their own every payday. The
-   * emergency loan is interest-only: its payment is pure interest and the
-   * balance never moves until it is repaid as a lump.
+   * to principal, so every debt shrinks on its own each payday and eventually
+   * ends. The emergency loan is the harshest of them: a big payment against a
+   * short balance, which is exactly what an unsecured loan feels like.
    */
   rate: number;
+  /**
+   * Legacy flag from the interest-only emergency loan. Kept so saves written
+   * before the loan was made amortising still parse; nothing sets it any more.
+   */
   interestOnly?: boolean;
 }
 
@@ -83,9 +92,17 @@ export interface Profession {
 
 /* ------------------------------------------------------------------- cards */
 
+/**
+ * `small`/`big` are the two rat-race decks; `fast` and `mega` are their
+ * fast-track counterparts. Sharing one card type means the fast track gets
+ * traded paper, leverage and quantities for free, instead of the flat
+ * price-and-yield cards it used to have.
+ */
+export type DealSize = 'small' | 'big' | 'fast' | 'mega';
+
 export interface DealCard {
   id: string;
-  size: 'small' | 'big';
+  size: DealSize;
   kind: AssetKind;
   title: Loc;
   story: Loc;
@@ -102,6 +119,15 @@ export interface DealCard {
   /** monthly cash flow per unit */
   cashflow: number;
   maxQty: number;
+  /**
+   * A young business does not sit still. Each month there is a chance its cash
+   * flow steps up or down by this share, and a small chance it folds outright.
+   * Only set on the cards where that volatility is the point (startups, and the
+   * businesses whose fortunes swing with a trend).
+   */
+  volatility?: number;
+  /** the country notices this one: counts toward the capitalist's legacy */
+  impact?: number;
 }
 
 export type MarketCard =
@@ -132,10 +158,15 @@ export interface DoodadCard {
   instalment?: { balanceScale: number; paymentScale: number };
 }
 
+/**
+ * Fast-track amounts are sized against the player rather than in flat baht: out
+ * here one player lives on ฿20,000 a month and another on ฿400,000, so a fixed
+ * ฿400,000 windfall is either a fortune or a rounding error. `months` is a
+ * multiple of current monthly passive income, and `incomeLossPct` a share of it.
+ */
 export type FastCard =
-  | { id: string; type: 'deal'; title: Loc; story: Loc; price: number; cashflow: number }
-  | { id: string; type: 'bonus'; title: Loc; story: Loc; amount: number }
-  | { id: string; type: 'setback'; title: Loc; story: Loc; amount: number; incomeLoss?: number };
+  | { id: string; type: 'bonus'; title: Loc; story: Loc; months: number }
+  | { id: string; type: 'setback'; title: Loc; story: Loc; months: number; incomeLossPct?: number };
 
 export interface Dream {
   id: string;
@@ -147,7 +178,11 @@ export interface Dream {
 /* ------------------------------------------------------------------- board */
 
 export type RatTile = 'payday' | 'deal' | 'market' | 'doodad' | 'baby' | 'downsized' | 'charity';
-export type FastTile = 'fastpay' | 'fastdeal' | 'dream' | 'bonus' | 'setback';
+/**
+ * `dream` does double duty: once every dream is achieved it becomes the legacy
+ * tile, which is the only thing left worth landing on out here.
+ */
+export type FastTile = 'fastpay' | 'fastdeal' | 'fastmarket' | 'dream' | 'bonus' | 'setback';
 
 /* ------------------------------------------------------------------- state */
 
@@ -165,6 +200,12 @@ export type Pending =
   | { kind: 'fastbonus'; cardId: string }
   | { kind: 'fastsetback'; cardId: string }
   | { kind: 'dream' }
+  /** the current dream is already achieved, so choose the next one to chase */
+  | { kind: 'dreamPick' }
+  /** every dream is done: the question stops being what to buy and becomes what to leave */
+  | { kind: 'legacy' }
+  /** picking a small or a country-sized deal, the fast track's version of dealChoice */
+  | { kind: 'fastChoice' }
   | { kind: 'rescue' }
   /** passive income now covers the bills: quit the job, or keep the salary */
   | { kind: 'quit' }
@@ -186,6 +227,7 @@ export interface Decks {
   market: string[];
   doodad: string[];
   fastDeal: string[];
+  fastMega: string[];
   fastBonus: string[];
   fastSetback: string[];
 }
@@ -215,13 +257,37 @@ export interface GameState {
    * parallel pot of income.
    */
   escapeIncome: number;
-  dreamBought: boolean;
+  /**
+   * Dreams already achieved, oldest first. Buying the same one twice was never
+   * the point: each dream is bought once, and landing on the tile again offers
+   * the pick of the ones still on the shelf. The collection is the scoreboard.
+   */
+  dreamsOwned: string[];
   /** the salary is gone once the player chooses to quit; expenses carry on */
   quit: boolean;
+  /**
+   * The quit decision has already been put to the player once. Without this the
+   * offer would reappear every single payday for the rest of the game; the
+   * button under the board is how they change their mind later.
+   */
+  quitOffered: boolean;
   /** highest investor tier reached so far, 1..6 */
   tier: number;
   /** generosity: earned by saying yes to people, spent when they return the favour */
   karma: number;
+
+  /* --------------------------------------------------------------- legacy */
+  /**
+   * Money given away for good. It leaves the balance sheet completely, which is
+   * the point: it is the one number that only goes up by costing you something.
+   */
+  donated: number;
+  /** the portfolio has been moved into a company: flat tax, fixed running cost */
+  incorporated: boolean;
+  /** sum assured on the life policy; the premium is a monthly expense */
+  insuranceCover: number;
+  /** lives touched by the schools, hospitals and banks on the balance sheet */
+  impact: number;
   friendHelpUsed: boolean;
   /** the player called it a day themselves rather than going bankrupt */
   endedByChoice: boolean;
