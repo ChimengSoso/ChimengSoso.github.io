@@ -1,6 +1,7 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import ExplainNumber from '../../components/ExplainNumber.astro';
 import { tex, texBlock } from '../../lib/math';
 
 /**
@@ -92,7 +93,30 @@ const dailyInterest = (days: number) => LOAN * ANNUAL * (days / 365);
 const dayCases = [28, 30, 31];
 
 const baht = (n: number) => Math.round(n).toLocaleString('en-US');
+const baht2 = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const mB = (n: number) => (n / 1_000_000).toFixed(2);
+
+/** เลขเล็ก ๆ ในกล่องอธิบายทบต้น คำนวณไว้เพื่อไม่ให้เนื้อความกับกล่องวิธีคิดหลุดจากกัน */
+const CI = { seed: 100, rate: 0.1, years: 30 };
+const ciCompound = CI.seed * Math.pow(1 + CI.rate, CI.years);
+const ciSimple = CI.seed * (1 + CI.rate * CI.years);
+
+/** เคสถอนเงินสด 5 ล้านดอลลาร์จากพอร์ต 10 ล้านที่ต้นทุนเดิม 1 ล้าน ใช้ในกล่อง Buy Borrow Die */
+const SB = { need: 5, gainShare: 0.9, taxRate: 0.24 };
+const sbSell = SB.need / (1 - SB.gainShare * SB.taxRate);
+
+/**
+ * จุดพลิกสองจุดในตารางค่างวด เขียนเป็นสูตรปิดไว้ด้วย เพราะเป็นคำตอบที่ไม่ขึ้นกับยอดกู้เลย
+ * crossRemaining: เงินต้นแซงดอกเบี้ยเมื่อจำนวนงวดที่เหลือ (นับงวดนี้ด้วย) ต่ำกว่า ln2 / ln(1+r)
+ * halfK: ยอดค้างเหลือครึ่งหนึ่งของยอดกู้ที่งวด k ซึ่งแก้ (1+r)^k = ((1+r)^n + 1) / 2 ได้ตรง ๆ
+ */
+const crossRemaining = Math.log(2) / Math.log(1 + R);
+/** จำนวนงวดที่เหลือมากที่สุดที่ยังเข้าเงื่อนไข ใช้ย้อนกลับไปเป็นเลขงวด */
+const crossRemMax = Math.floor(crossRemaining);
+const halfK = Math.log((Math.pow(1 + R, N) + 1) / 2) / Math.log(1 + R);
+/** จ่ายรวมทั้งสัญญาของสองทาง เงินต้นเท่ากันทั้งคู่ ส่วนต่างจึงเป็นดอกเบี้ยล้วน ๆ */
+const totalOut = LOAN + totalInterest;
+const lumpTotalOut = LOAN + lumpInterest;
 
 /** พิกัดกราฟแท่งซ้อนรายปี */
 const CH = { x0: 56, y0: 44, w: 620, h: 176 };
@@ -124,6 +148,112 @@ const pathA = fvPath((p) => p.cash);
 const pathB = fvPath((p) => p.loan);
 const tieX = fvX(ANNUAL);
 const tieY = fvY(twoPaths(ANNUAL).loan);
+
+/**
+ * เชิงอรรถวิธีคิดของ <ExplainNumber> ทุกกล่องในหน้านี้
+ * ใส่เฉพาะตัวเลขที่ derive มาจากโมเดลข้างบนแล้วเนื้อความไม่ได้กางวิธีคิดไว้ข้าง ๆ
+ * และใส่เฉพาะครั้งแรกที่เลขตัวนั้นโผล่ (เลขในคำโปรยกับในกล่อง "ตัวเลขที่ควรจำ" จึงปล่อยเปล่า)
+ *
+ * เนื้อในกล่องต้องเป็น "สตริง HTML" ไม่ใช่ slot children ดูเหตุผลใน ExplainNumber.astro
+ * และสูตร KaTeX ทุกตัวต้องยกมาไว้ใน TEX ก่อน ห้าม texBlock(String.raw`...`) ซ้อนใน ${...}
+ * ของ template literal อีกที เพราะ parser ของ Astro จะหาปลาย frontmatter ไม่เจอ
+ */
+const texNum = (n: number) => baht(n).replace(/,/g, '{,}');
+const texNum2 = (n: number) => baht2(n).replace(/,/g, '{,}');
+
+const TEX = {
+  totalPaid: texBlock(String.raw`${texNum2(PMT)} \times ${N} \;=\; ${texNum(PMT * N)}`),
+  dayGap: texBlock(String.raw`${texNum(LOAN)} \times ${ANNUAL} \times \frac{3}{365} \;=\; ${texNum(dailyInterest(31) - dailyInterest(28))}`),
+  pmtFormula: texBlock(String.raw`M \;=\; L \cdot \frac{r}{1-(1+r)^{-n}}`),
+  pmtSub: texBlock(String.raw`${texNum(LOAN)} \times \frac{${R.toFixed(3)}}{1-(${(1 + R).toFixed(3)})^{-${N}}} \;=\; ${texNum2(PMT)}`),
+  firstShare: texBlock(String.raw`\frac{${texNum(LOAN * R)}}{${texNum(PMT)}} \;=\; ${(plan[0].interest / PMT).toFixed(4)}`),
+  year1: texBlock(String.raw`${texNum(PMT * 12)} - ${texNum(byYear[0].principal)} \;=\; ${texNum(byYear[0].interest)}`),
+  crossRule: texBlock(String.raw`\text{งวดที่เหลือ} \;<\; \frac{\ln 2}{\ln(1+r)} \;=\; \frac{\ln 2}{\ln ${(1 + R).toFixed(3)}} \;=\; ${crossRemaining.toFixed(2)}`),
+  crossMonth: texBlock(String.raw`${N} + 1 - ${crossRemMax} \;=\; ${crossover.month}`),
+  halfRule: texBlock(String.raw`(1+r)^{k} \;=\; \frac{(1+r)^{n}+1}{2} \qquad\Longrightarrow\qquad k \;=\; ${halfK.toFixed(2)}`),
+  extraSaved: texBlock(String.raw`${texNum(totalInterest)} - ${texNum(extraInterest)} \;=\; ${texNum(totalInterest - extraInterest)}`),
+  lumpSaved: texBlock(String.raw`${texNum(totalOut)} - ${texNum(lumpTotalOut)} \;=\; ${texNum(totalInterest - lumpInterest)}`),
+  compound: texBlock(String.raw`${CI.seed} \times (1 + ${CI.rate})^{${CI.years}} \;=\; ${texNum2(ciCompound)}`),
+  fvA: texBlock(String.raw`${texNum2(PMT)} \times \frac{(1+\frac{${paths[0].g}}{12})^{${N}}-1}{\frac{${paths[0].g}}{12}} \;=\; ${texNum(paths[0].cash)}`),
+  fvB: texBlock(String.raw`${texNum(LOAN)} \times \left(1+\frac{${paths[0].g}}{12}\right)^{${N}} \;=\; ${texNum(paths[0].loan)}`),
+  sbloc: texBlock(String.raw`\frac{${SB.need}}{1 - (${SB.gainShare} \times ${SB.taxRate})} \;=\; \frac{${SB.need}}{${(1 - SB.gainShare * SB.taxRate).toFixed(3)}} \;=\; ${sbSell.toFixed(2)}`),
+};
+
+const EX = {
+  totalPaid: `
+    ${TEX.totalPaid}
+    <p>ค่างวดเดือนละ ${baht2(PMT)} บาทคูณด้วย ${N} งวด ตัวค่างวดเองมาจากสูตรที่กางไว้ในหัวข้อถัดไป ตอนนี้พกไปแค่ว่ามันคงที่ทุกงวดจนจบสัญญา</p>
+    <p>ในก้อนนี้เป็นเงินต้นที่ยืมมา ${baht(LOAN)} บาท ที่เหลืออีก ${baht(totalInterest)} บาทคือดอกเบี้ย เอา ${baht(PMT * N)} ลบ ${baht(LOAN)} ก็ได้ตัวเลขนั้นตรง ๆ</p>
+  `,
+  dayGap: `
+    ${TEX.dayGap}
+    <p>สามคือส่วนต่างจำนวนวันระหว่างงวดที่ยาว 31 วันกับงวดที่ยาว 28 วัน คิดบนยอดค้างงวดแรกที่ยังเต็ม ${baht(LOAN)} บาท</p>
+    <p>งวดหลัง ๆ ส่วนต่างนี้จะเล็กลงเรื่อย ๆ เพราะยอดค้างลดลง ตัวเลขนี้จึงเป็นกรณีที่ห่างกันมากที่สุดของทั้งสัญญา</p>
+  `,
+  pmt: `
+    ${TEX.pmtFormula}
+    ${TEX.pmtSub}
+    <p>โดย <i>L</i> คือยอดกู้ ${baht(LOAN)} บาท <i>r</i> คืออัตราต่องวดซึ่งเท่ากับ ${(ANNUAL * 100).toFixed(0)}% หารสิบสองได้ ${R.toFixed(3)} และ <i>n</i> คือ ${N} งวด</p>
+    <p>สูตรนี้มาจากเงื่อนไขข้อเดียวว่าผ่อนครบ ${N} งวดแล้วหนี้ต้องเหลือศูนย์พอดี ที่มาแบบเต็มกางไว้ในกล่อง "สูตรค่างวดมาจากไหน" ข้างล่าง ซึ่งเป็นสูตรเดียวกับที่ปั้นเลข 576.19 ในเคสจิ๋วสองงวด</p>
+    <p>ธนาคารจริงจะปัดขึ้นเป็นหลักร้อยหรือหลักสิบตามนโยบายของแต่ละที่ ค่างวดในใบสัญญาจึงมักลงท้ายกลม ๆ กว่านี้</p>
+  `,
+  firstShare: `
+    ${TEX.firstShare}
+    <p>ดอกเบี้ยงวดแรก ${baht(LOAN * R)} บาทมาจากยอดค้างที่ยังเต็ม ${baht(LOAN)} คูณอัตราต่อเดือน ${(R * 100).toFixed(1)}% ส่วนตัวหารคือค่างวดทั้งก้อน</p>
+    <p>สัดส่วนนี้ขึ้นกับอัตราดอกเบี้ยกับจำนวนงวดเท่านั้น ไม่ได้ขึ้นกับว่ากู้มากหรือน้อย กู้ 1 ล้านหรือ 10 ล้านที่เงื่อนไขเดียวกัน งวดแรกก็เป็นดอกเบี้ย ${((plan[0].interest / PMT) * 100).toFixed(1)}% เท่ากัน</p>
+  `,
+  year1Interest: `
+    <p>บวกดอกเบี้ยของ 12 งวดแรกเข้าด้วยกัน หรือคิดลัดจากเงินที่จ่ายทั้งปีลบส่วนที่ไปตัดเงินต้นก็ได้เลขเดียวกัน</p>
+    ${TEX.year1}
+    <p>สังเกตว่ามันน้อยกว่า ${baht(LOAN * R)} คูณ 12 ซึ่งเท่ากับ ${baht(LOAN * R * 12)} บาทอยู่นิดหน่อย เพราะยอดค้างลดลงทุกงวด ดอกเบี้ยงวดที่ 12 จึงเหลือ ${baht(plan[11].interest)} บาทแล้ว</p>
+  `,
+  crossoverMonth: `
+    <p>งวดไหนที่เงินต้นแซงดอกเบี้ย คืองวดที่ค่างวดถูกแบ่งไปเป็นดอกเบี้ยน้อยกว่าครึ่ง แปลว่ายอดค้างต้องต่ำกว่า ${baht(PMT / (2 * R))} บาท พอแทนสูตรยอดค้างลงไปแล้วจัดรูป เงื่อนไขจะยุบเหลือแค่นี้</p>
+    ${TEX.crossRule}
+    <p>อ่านว่า "เหลืออีกไม่ถึง ${crossRemaining.toFixed(0)} งวดเมื่อไหร่ เงินต้นจะเริ่มแซง" งวดแรกที่เข้าเงื่อนไขจึงเป็น</p>
+    ${TEX.crossMonth}
+    <p>ที่น่าสนใจคือยอดกู้หายไปจากสมการหมดเลย เลข ${crossRemaining.toFixed(2)} ขึ้นกับอัตราดอกเบี้ยอย่างเดียว กู้ 3 ล้านหรือ 30 ล้านที่ ${(ANNUAL * 100).toFixed(0)}% สามสิบปี ก็พลิกที่งวดที่ ${crossover.month} เหมือนกันเป๊ะ</p>
+  `,
+  halfwayMonth: `
+    <p>ตั้งโจทย์ว่ายอดค้างเหลือครึ่งหนึ่งของยอดกู้ที่งวดไหน แล้วแก้หา <i>k</i> ตรง ๆ</p>
+    ${TEX.halfRule}
+    <p>ได้ ${halfK.toFixed(2)} จึงต้องรอจบงวดที่ ${halfway.month} ยอดค้างถึงจะต่ำกว่าครึ่งจริง</p>
+    <p>เลขนี้ก็ไม่ขึ้นกับยอดกู้เหมือนกัน และมันเกินครึ่งทางของ ${N} งวดไปพอสมควร นั่นคืออาการของการที่งวดต้น ๆ แทบไม่ได้ตัดเงินต้นเลย</p>
+  `,
+  extraSaved: `
+    ${TEX.extraSaved}
+    <p>เอาดอกเบี้ยรวมของแถวบนลบด้วยดอกเบี้ยรวมของแถวนี้ ตัวเลขทั้งสองมาจากการวนกฎสองบรรทัดเดิม ต่างกันแค่แถวนี้จ่ายเดือนละ ${baht(PMT + EXTRA)} บาทแทน ${baht(PMT)}</p>
+    <p>เงินที่เติมเข้าไปทั้งหมดคือ ${baht(EXTRA)} คูณ ${planExtra.length} งวด เท่ากับ ${baht(EXTRA * planExtra.length)} บาท แล้วได้ดอกเบี้ยที่ไม่ต้องจ่ายกลับมามากกว่านั้น</p>
+    <p>สาเหตุที่หนี้จบเร็วขึ้นถึง ${(YEARS - planExtra.length / 12).toFixed(1)} ปีทั้งที่เติมแค่ ${((EXTRA / PMT) * 100).toFixed(0)}% ของค่างวด เพราะเงินส่วนที่เติมเข้าไปตัดเงินต้นเต็ม ๆ ไม่ถูกดอกเบี้ยหักไปก่อนเหมือนค่างวดปกติ</p>
+  `,
+  lumpSaved: `
+    <p>ดูจากเงินที่ไหลออกจากบัญชีทั้งสัญญาจะเห็นชัดที่สุด เพราะเงินต้นที่คืนธนาคารเท่ากัน ${baht(LOAN)} บาททั้งสองทาง ส่วนต่างที่เหลือจึงเป็นดอกเบี้ยล้วน ๆ</p>
+    ${TEX.lumpSaved}
+    <p>ทางที่โปะจ่ายรวม ${baht(lumpTotalOut)} บาท คือเงินก้อน ${baht(LUMP)} วันแรก บวกค่างวดเดิมอีก ${lumpRows.length} งวด แล้วหนี้ก็จบก่อนกำหนดไป ${N - lumpRows.length} งวด</p>
+    <p>ที่แรงขนาดนี้เพราะ ${baht(LUMP)} บาทก้อนนั้นถ้าไม่โปะ มันจะนั่งอยู่ในยอดค้างแล้วโดนคิดดอก ${(R * 100).toFixed(1)}% ต่อเดือนไปอีกยี่สิบกว่าปี</p>
+  `,
+  compound: `
+    ${TEX.compound}
+    <p>ยกกำลัง ${CI.years} คือทบ ${CI.years} รอบ รอบที่สองคิด ${(CI.rate * 100).toFixed(0)}% บนยอดของรอบแรก ไม่ใช่บนเงินต้นเดิมแล้ว</p>
+    <p>ส่วนแบบไม่ทบต้นคือได้ปีละ ${baht(CI.seed * CI.rate)} บาทเท่ากันทุกปี ${CI.years} ปีก็ได้ดอก ${baht(CI.seed * CI.rate * CI.years)} บวกเงินต้นเดิมเป็น ${baht(ciSimple)} บาท ส่วนต่างระหว่างสองตัวเลขนี้คือของที่ทบต้นสร้างขึ้นมาล้วน ๆ</p>
+  `,
+  fvA: `
+    ${TEX.fvA}
+    <p>ทาง A เติมเงินเท่ากับค่างวด ${baht2(PMT)} บาทเข้าพอร์ตทุกเดือนไป ${N} เดือน ก้อนที่เติมเดือนแรกมีเวลาโตนานที่สุด ก้อนสุดท้ายแทบไม่ทันโตเลย ผลรวมของทั้งหมดยุบเป็นสูตรอนุกรมเรขาคณิตข้างบน</p>
+    <p>ผลตอบแทน ${(paths[0].g * 100).toFixed(0)}% ต่อปีถูกหารสิบสองเป็นอัตราต่อเดือนก่อน เพราะเงินเข้าพอร์ตเดือนละครั้ง ที่มาของสูตรกางไว้ในกล่องพิสูจน์ถัดจากตารางนี้</p>
+  `,
+  fvB: `
+    ${TEX.fvB}
+    <p>ทาง B ไม่ได้เติมเงินเข้าพอร์ตเลยสักบาทเดียว เพราะรายได้ก้อนที่ฝั่ง A เอาไปลงทุน ฝั่งนี้เอาไปจ่ายค่างวดให้ธนาคารแทน เงินก้อน ${baht(LOAN)} บาทจึงนอนทบต้นครบ ${N} เดือนโดยไม่ถูกถอน</p>
+    <p>ที่ผลตอบแทนต่ำ ๆ แบบนี้ทาง A ยังชนะอยู่ เพราะเงินที่ทยอยเติมเข้าไปรวมกันแล้ว ${baht(PMT * N)} บาท มากกว่าเงินก้อนตั้งต้น ${baht(LOAN)} บาทเกินเท่าตัว ต้องรอให้ผลตอบแทนสูงพอ พลังทบต้นของก้อนใหญ่ถึงจะแซงได้</p>
+  `,
+  sbloc: `
+    ${TEX.sbloc}
+    <p>ต้นทุนเดิม 1 ล้านบนพอร์ต 10 ล้าน แปลว่าทุกดอลลาร์ที่ขายออกไปเป็นกำไรราว ${(SB.gainShare * 100).toFixed(0)}% ภาษีที่จ่ายจริงจึงเท่ากับ ${(SB.gainShare * SB.taxRate * 100).toFixed(1)}% ของยอดขาย เหลือเข้ากระเป๋า ${((1 - SB.gainShare * SB.taxRate) * 100).toFixed(1)}%</p>
+    <p>อยากได้เงินสด ${SB.need} ล้านสุทธิจึงต้องขายมากกว่านั้น คือเอา ${SB.need} หารด้วย ${(1 - SB.gainShare * SB.taxRate).toFixed(3)} ได้ ${sbSell.toFixed(2)} ล้าน</p>
+    <p>ส่วนที่เกินมา ${(sbSell - SB.need).toFixed(2)} ล้านคือหุ้นที่ต้องขายทิ้งเพื่อไปจ่ายภาษีโดยเฉพาะ และมันออกจากพอร์ตไปแล้วก็ไม่โตต่อให้เราอีกเลย</p>
+  `,
+};
 ---
 <DivineLoreLayout
   title="คนรวยก็กู้ซื้อบ้าน: แกะดอกเบี้ยทีละบาท | บันทึกศาสตร์แห่งเทพ"
@@ -151,7 +281,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
   </div>
 
   <p>
-    ลองคิดเลขเล่น ๆ กู้ {mB(LOAN)} ล้านซื้อบ้าน ดอกเบี้ย {(ANNUAL * 100).toFixed(0)}% ต่อปี ผ่อนสามสิบปี ครบสัญญาแล้วเงินที่ไหลออกจากบัญชีเราทั้งหมดคือ {mB(PMT * N)} ล้านบาท ในนั้นเป็นดอกเบี้ย {mB(totalInterest)} ล้าน แปลว่าค่าเช่าเงินที่จ่ายให้ธนาคารแพงกว่าราคาบ้านที่ขอกู้มา ใครเห็นเลขนี้ครั้งแรกแล้วอยากรีบหาทางโปะให้จบไว ๆ ถือว่าปกติมาก
+    ลองคิดเลขเล่น ๆ กู้ {mB(LOAN)} ล้านซื้อบ้าน ดอกเบี้ย {(ANNUAL * 100).toFixed(0)}% ต่อปี ผ่อนสามสิบปี ครบสัญญาแล้วเงินที่ไหลออกจากบัญชีเราทั้งหมดคือ <ExplainNumber value={`${mB(PMT * N)} ล้านบาท`} title={`${mB(PMT * N)} ล้านบาทมาจากไหน`} html={EX.totalPaid} /> ในนั้นเป็นดอกเบี้ย {mB(totalInterest)} ล้าน แปลว่าค่าเช่าเงินที่จ่ายให้ธนาคารแพงกว่าราคาบ้านที่ขอกู้มา ใครเห็นเลขนี้ครั้งแรกแล้วอยากรีบหาทางโปะให้จบไว ๆ ถือว่าปกติมาก
   </p>
   <p>
     ทีนี้เรื่องที่แปลกคือ คนที่ควักเงินสดซื้อบ้านทั้งหลังได้โดยไม่สะเทือนอะไรเลย หลายคนกลับเลือกกู้ ทุกปีจะมีโพสต์ไล่รายชื่อพวกนี้วนกลับมา Buffett กู้สามสิบปีทั้งที่รวยระดับโลก Zuckerberg รีไฟแนนซ์ (refinance) บ้านตัวเอง คือย้ายหนี้ก้อนเดิมไปแบงก์ใหม่ที่คิดดอกถูกกว่า ส่วน Musk กู้จาก Morgan Stanley เวลามีคนถามว่ารวยขนาดนั้นแล้วกู้ทำไม คำตอบที่ได้ยินบ่อยที่สุดคือเอาเงินก้อนไปลงทุนต่อคุ้มกว่าดอกเบี้ยที่เสีย
@@ -216,7 +346,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
     สูตรสองบรรทัดนี้คือทุกอย่างที่ต้องรู้จริง ๆ ตัวเลขทุกตัวที่เหลือในบันทึกนี้ ทั้งตาราง กราฟ และเครื่องคิดเลขข้างล่าง ล้วนงอกออกมาจากการวนสองบรรทัดนี้ซ้ำ ๆ 360 รอบเท่านั้น
   </p>
   <p>
-    (ของจริงธนาคารไทยละเอียดกว่านี้อีกขั้น คือคิดดอกเบี้ยตามจำนวนวันจริงของแต่ละงวด งวดที่ยาว 31 วันกับงวดที่ยาว 28 วันจึงเสียดอกต่างกันราว {baht(dailyInterest(31) - dailyInterest(28))} บาท ซึ่งเป็นเหตุผลที่ใบเสร็จแต่ละเดือนไม่เคยเท่ากันเป๊ะ บันทึกนี้ใช้เวอร์ชันย่อคือถือว่าทุกงวดยาวเท่ากันหมด รายละเอียดกางไว้ในกล่องท้ายหัวข้อนี้)
+    (ของจริงธนาคารไทยละเอียดกว่านี้อีกขั้น คือคิดดอกเบี้ยตามจำนวนวันจริงของแต่ละงวด งวดที่ยาว 31 วันกับงวดที่ยาว 28 วันจึงเสียดอกต่างกันราว <ExplainNumber value={baht(dailyInterest(31) - dailyInterest(28))} title={`${baht(dailyInterest(31) - dailyInterest(28))} บาทมาจากไหน`} html={EX.dayGap} /> บาท ซึ่งเป็นเหตุผลที่ใบเสร็จแต่ละเดือนไม่เคยเท่ากันเป๊ะ บันทึกนี้ใช้เวอร์ชันย่อคือถือว่าทุกงวดยาวเท่ากันหมด รายละเอียดกางไว้ในกล่องท้ายหัวข้อนี้)
   </p>
   <p>
     ปัญหาคือ 360 รอบไล่มือไม่ไหว แต่ถ้าย่อโจทย์ลงเหลือสองงวดจะตรวจได้ทั้งเส้นด้วยเครื่องคิดเลขเครื่องเดียว สมมติกู้ 1,000 บาท ดอกเบี้ย 10% ต่องวด ผ่อนสองงวดจบ และค่างวดถูกตั้งไว้ที่ 576.19 บาท ลองวนกฎสองบรรทัดดู
@@ -295,7 +425,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
   </p>
   <div class="card">
     <p>
-      สำหรับกู้ {mB(LOAN)} ล้าน สามสิบปี ดอกเบี้ย {(ANNUAL * 100).toFixed(0)}% ค่างวดค่าเดียวนั้นคือ <strong>{baht(PMT)} บาท</strong> เท่ากันทุกงวดจนจบ
+      สำหรับกู้ {mB(LOAN)} ล้าน สามสิบปี ดอกเบี้ย {(ANNUAL * 100).toFixed(0)}% ค่างวดค่าเดียวนั้นคือ <strong><ExplainNumber value={`${baht(PMT)} บาท`} title={`${baht(PMT)} บาทมาจากไหน`} html={EX.pmt} /></strong> เท่ากันทุกงวดจนจบ
     </p>
     <p>
       เลขนี้หาได้ด้วยพีชคณิตระดับมัธยมปลายไม่กี่บรรทัด กางไว้ในกล่อง "สูตรค่างวดมาจากไหน" ถัดจากกราฟข้างล่าง ซึ่งเป็นสูตรเดียวกับที่ปั้นเลข 576.19 ในเคสจิ๋วเมื่อกี้ ไม่ต้องเปิดดูก็อ่านต่อได้ ตัวเลขที่ต้องพกไปด้วยมีแค่ {baht(PMT)} บาทต่อเดือน
@@ -329,7 +459,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
   </figure>
 
   <p>
-    งวดแรก ดอกเบี้ยกิน <strong>{((plan[0].interest / PMT) * 100).toFixed(1)}%</strong> ของค่างวด ตลอดปีแรกเราจ่ายไปทั้งหมด {baht(PMT * 12)} บาท ในนั้นเป็นดอกเบี้ย {baht(byYear[0].interest)} บาท และตัดเงินต้นได้แค่ {baht(byYear[0].principal)} บาท คิดเป็น {((byYear[0].principal / (PMT * 12)) * 100).toFixed(0)}% ของเงินที่จ่ายไป
+    งวดแรก ดอกเบี้ยกิน <strong><ExplainNumber value={`${((plan[0].interest / PMT) * 100).toFixed(1)}%`} title={`${((plan[0].interest / PMT) * 100).toFixed(1)}% มาจากไหน`} html={EX.firstShare} /></strong> ของค่างวด ตลอดปีแรกเราจ่ายไปทั้งหมด {baht(PMT * 12)} บาท ในนั้นเป็นดอกเบี้ย <ExplainNumber value={baht(byYear[0].interest)} title={`ดอกเบี้ยปีแรก ${baht(byYear[0].interest)} บาทมาจากไหน`} html={EX.year1Interest} /> บาท และตัดเงินต้นได้แค่ {baht(byYear[0].principal)} บาท คิดเป็น {((byYear[0].principal / (PMT * 12)) * 100).toFixed(0)}% ของเงินที่จ่ายไป
   </p>
   <p>
     ที่เป็นแบบนี้เพราะงวดแรกเงินต้นยังค้างอยู่เต็ม 3 ล้าน ดอกเบี้ยจึงเต็มที่สุด แล้วหลังจากนั้นมันจะไล่ลงทุกงวดเพราะยอดค้างลดลง ทำให้ส่วนที่ตัดเงินต้นโตขึ้นทุกงวดโดยที่ค่างวดไม่ขยับ
@@ -382,10 +512,10 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
   </ZoomableDiagram>
 
   <p>
-    กราฟนี้เป็นรายปี เส้นประแดงจึงปักที่ปีที่ {crossYear} ซึ่งเป็นปีแรกที่เงินต้นรวมทั้งปีแซงดอกเบี้ยรวมทั้งปี ถ้าซูมลงไปดูทีละงวดจะเห็นจุดพลิกก่อนหน้านั้นนิดหน่อย คือ <strong>งวดที่ {crossover.month}</strong> หรือราวปีที่ {(crossover.month / 12).toFixed(1)} เป็นงวดแรกที่เงินต้นในค่างวดก้อนนั้นมากกว่าดอกเบี้ย สองเลขนี้ต่างกันเพราะนับคนละหน่วย งวดเดียว กับ ทั้งปีรวมกัน แต่ทั้งคู่ตกอยู่ในปีที่ {crossYear} เหมือนกัน ถ้าจะจำเลขเดียวก็จำว่าราวปีที่ {crossYear} เงินต้นถึงจะเริ่มโตกว่าดอกเบี้ย
+    กราฟนี้เป็นรายปี เส้นประแดงจึงปักที่ปีที่ {crossYear} ซึ่งเป็นปีแรกที่เงินต้นรวมทั้งปีแซงดอกเบี้ยรวมทั้งปี ถ้าซูมลงไปดูทีละงวดจะเห็นจุดพลิกก่อนหน้านั้นนิดหน่อย คือ <strong>งวดที่ <ExplainNumber value={String(crossover.month)} title={`ทำไมเป็นงวดที่ ${crossover.month}`} html={EX.crossoverMonth} /></strong> หรือราวปีที่ {(crossover.month / 12).toFixed(1)} เป็นงวดแรกที่เงินต้นในค่างวดก้อนนั้นมากกว่าดอกเบี้ย สองเลขนี้ต่างกันเพราะนับคนละหน่วย งวดเดียว กับ ทั้งปีรวมกัน แต่ทั้งคู่ตกอยู่ในปีที่ {crossYear} เหมือนกัน ถ้าจะจำเลขเดียวก็จำว่าราวปีที่ {crossYear} เงินต้นถึงจะเริ่มโตกว่าดอกเบี้ย
   </p>
   <p>
-    ที่หลายคนไม่เคยรู้คือหนี้จะเหลือครึ่งหนึ่งของยอดที่กู้ตอนงวดที่ {halfway.month} หรือปีที่ {(halfway.month / 12).toFixed(1)} ทั้งที่จ่ายเงินไปแล้ว {mB(PMT * halfway.month)} ล้านบาท
+    ที่หลายคนไม่เคยรู้คือหนี้จะเหลือครึ่งหนึ่งของยอดที่กู้ตอนงวดที่ <ExplainNumber value={String(halfway.month)} title={`ทำไมยอดค้างเหลือครึ่งตอนงวดที่ ${halfway.month}`} html={EX.halfwayMonth} /> หรือปีที่ {(halfway.month / 12).toFixed(1)} ทั้งที่จ่ายเงินไปแล้ว {mB(PMT * halfway.month)} ล้านบาท
   </p>
   <div class="callout callout-warn">
     <p class="callout-label">ตัวเลขที่ควรจำ</p>
@@ -469,13 +599,13 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
           <td>โปะเพิ่มเดือนละ {baht(EXTRA)}</td>
           <td>{(planExtra.length / 12).toFixed(1)} ปี</td>
           <td class="hot">{baht(extraInterest)}</td>
-          <td class="cool">{baht(totalInterest - extraInterest)}</td>
+          <td class="cool"><ExplainNumber value={baht(totalInterest - extraInterest)} title={`ประหยัด ${baht(totalInterest - extraInterest)} บาทมาจากไหน`} html={EX.extraSaved} /></td>
         </tr>
         <tr>
           <td>โปะก้อน {baht(LUMP)} ตั้งแต่งวดแรก</td>
           <td>{(lumpRows.length / 12).toFixed(1)} ปี</td>
           <td class="hot">{baht(lumpInterest)}</td>
-          <td class="cool">{baht(totalInterest - lumpInterest)}</td>
+          <td class="cool"><ExplainNumber value={baht(totalInterest - lumpInterest)} title={`ประหยัด ${baht(totalInterest - lumpInterest)} บาทมาจากไหน`} html={EX.lumpSaved} /></td>
         </tr>
       </tbody>
     </table>
@@ -494,7 +624,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
       <strong>ทบต้น</strong> คือดอกเบี้ยที่ได้มารอบนี้ถูกทบเข้าไปเป็นเงินต้นของรอบหน้า รอบหน้าจึงคิดดอกบนยอดที่ใหญ่ขึ้น ลองด้วยเลขเล็ก ๆ ฝากเงิน 100 บาท ได้ดอก 10% ต่อปี ปีแรกได้ 110 บาท ปีที่สองไม่ใช่ 120 บาทแต่เป็น 121 บาท เพราะ 10% ของปีที่สองคิดบน 110 ไม่ใช่บน 100 อีกแล้ว
     </p>
     <p>
-      ส่วนต่างปีละบาทสองบาทนี่เองที่พอวนไปสามสิบปีแล้วกลายเป็นเรื่องใหญ่ เงิน 100 บาทที่ทบต้น 10% ครบสามสิบปีจะกลายเป็นราว 1,745 บาท ขณะที่ถ้าไม่ทบต้นจะได้แค่ 400 บาท
+      ส่วนต่างปีละบาทสองบาทนี่เองที่พอวนไปสามสิบปีแล้วกลายเป็นเรื่องใหญ่ เงิน {baht(CI.seed)} บาทที่ทบต้น {(CI.rate * 100).toFixed(0)}% ครบสามสิบปีจะกลายเป็นราว <ExplainNumber value={baht(ciCompound)} title={`${baht(ciCompound)} บาทมาจากไหน`} html={EX.compound} /> บาท ขณะที่ถ้าไม่ทบต้นจะได้แค่ {baht(ciSimple)} บาท
     </p>
     <p>
       หนี้ก็เดินด้วยเครื่องยนต์ตัวเดียวกัน การโปะเงินต้นจึงเท่ากับการดับเครื่องยนต์นั้นทิ้งสำหรับเงินก้อนที่โปะไป และนี่คือคำที่จะกลับมาอีกครั้งในหัวข้อถัดไปตอนเทียบว่าจ่ายสดกับกู้อันไหนคุ้มกว่ากัน
@@ -580,11 +710,12 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
         <tr><th>ผลตอบแทนลงทุนต่อปี</th><th>ทาง A จ่ายสด</th><th>ทาง B กู้</th><th>ส่วนต่าง</th></tr>
       </thead>
       <tbody>
-        {paths.map((p) => (
+        {/* แถวแรกแถวเดียวที่มีกล่องวิธีคิด เพราะทุกแถวใช้สูตรเดียวกัน ต่างกันแค่ค่า g */}
+        {paths.map((p, i) => (
           <tr class={Math.abs(p.g - ANNUAL) < 1e-9 ? 'tie' : undefined}>
             <td>{(p.g * 100).toFixed(0)}%</td>
-            <td>{mB(p.cash)}</td>
-            <td>{mB(p.loan)}</td>
+            <td>{i === 0 ? <ExplainNumber value={mB(p.cash)} title={`ทาง A ที่ ${(p.g * 100).toFixed(0)}% ได้ ${mB(p.cash)} ล้านมาจากไหน`} html={EX.fvA} /> : mB(p.cash)}</td>
+            <td>{i === 0 ? <ExplainNumber value={mB(p.loan)} title={`ทาง B ที่ ${(p.g * 100).toFixed(0)}% ได้ ${mB(p.loan)} ล้านมาจากไหน`} html={EX.fvB} /> : mB(p.loan)}</td>
             <td class={p.loan - p.cash > 1 ? 'cool' : p.cash - p.loan > 1 ? 'hot' : undefined}>
               {p.loan - p.cash > 1 ? `B ชนะ +${mB(p.loan - p.cash)}` : p.cash - p.loan > 1 ? `A ชนะ +${mB(p.cash - p.loan)}` : `เสมอ ${mB(Math.abs(p.loan - p.cash))}`}
             </td>
@@ -876,7 +1007,7 @@ const tieY = fvY(twoPaths(ANNUAL).loan);
         สมมติมีหุ้นมูลค่า 10 ล้านดอลลาร์ที่ต้นทุนเดิม 1 ล้าน ต้องการเงินสด 5 ล้าน
       </p>
       <p>
-        ทางขาย: ต้องขายหุ้นมากกว่า 5 ล้านเพราะต้องเผื่อภาษี กำไรที่รับรู้ราว 90% ของยอดขาย ถ้าเสียภาษีรวม 24% ก็ต้องขายราว 6.3 ล้านเพื่อให้เหลือ 5 ล้านสุทธิ ผลคือหุ้นออกจากพอร์ตไป 6.3 ล้านและหยุดโตตลอดกาล
+        ทางขาย: ต้องขายหุ้นมากกว่า {SB.need} ล้านเพราะต้องเผื่อภาษี กำไรที่รับรู้ราว {(SB.gainShare * 100).toFixed(0)}% ของยอดขาย ถ้าเสียภาษีรวม {(SB.taxRate * 100).toFixed(0)}% ก็ต้องขายราว <ExplainNumber value={`${sbSell.toFixed(2)} ล้าน`} title={`${sbSell.toFixed(2)} ล้านมาจากไหน`} html={EX.sbloc} /> เพื่อให้เหลือ {SB.need} ล้านสุทธิ ผลคือหุ้นออกจากพอร์ตไป {sbSell.toFixed(2)} ล้านและหยุดโตตลอดกาล
       </p>
       <p>
         ทางกู้: วางหุ้นค้ำ เบิก 5 ล้าน หุ้นทั้ง 10 ล้านยังอยู่ในพอร์ตและโตต่อ ต้นทุนคือดอกเบี้ยปีละไม่กี่เปอร์เซ็นต์ ซึ่งถ้าพอร์ตโตเร็วกว่าดอกเบี้ย ส่วนต่างจะกินภาษีที่หลบไว้ได้เรื่อย ๆ
