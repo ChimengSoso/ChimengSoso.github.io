@@ -1,6 +1,8 @@
 ---
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import ExplainNumber from '../../components/ExplainNumber.astro';
+import { texBlock } from '../../lib/math';
 
 // โมเดล Reverse DCF สำหรับมินิเกม (แบบง่าย: FCFF margin คงที่ ไม่ใส่ช่วง cash burn ต้นทาง)
 // ตรึงกับหมุดที่บทความระบุ: EV 37,000 ล้าน ที่ราคา ~66, รายได้ฐาน 680 ล้าน
@@ -58,6 +60,55 @@ const rdcfInit = rdcfCompute(RDCF.priceRef);
 // pre-render สูงสุด 20 แถว (สคริปต์จะซ่อน/โชว์ตามจำนวนปี) กันปัญหา scoped CSS ไม่จับ <tr> ที่ JS สร้างเอง
 const RDCF_MAXYEARS = 20;
 const rdcfSlots: (RdcfRow | null)[] = Array.from({ length: RDCF_MAXYEARS }, (_, i) => rdcfInit.rows[i] ?? null);
+
+/** ตัวอย่างเก็บค่าเช่าด้วย Covered Call คิดจากตัวแปรชุดเดียว จะได้ไม่มีเลขพิมพ์มือในเนื้อความ */
+const CC = { premium: 4, cost: 100, months: 3 };
+const ccPerRound = CC.premium / CC.cost;
+const ccRounds = 12 / CC.months;
+const ccYearSimple = ccPerRound * ccRounds;
+const ccYearCompound = Math.pow(1 + ccPerRound, ccRounds) - 1;
+
+/** อัตราโตที่คุณเอิร์ธถอดออกมาในคลาส ต่อยอดเป็นตัวคูณสิบปีกับรายได้ปลายทาง */
+const CLASS_CAGR = 0.45;
+const cagrMultiple = Math.pow(1 + CLASS_CAGR, RDCF.years);
+const rev10Class = RDCF.rev0 * cagrMultiple;
+const rev10Nudged = RDCF.rev0 * Math.pow(1 + CLASS_CAGR + 0.01, RDCF.years);
+
+/**
+ * เชิงอรรถวิธีคิดของ <ExplainNumber> ในหน้านี้ ใส่เฉพาะเลขที่เนื้อความไม่ได้กางวิธีคิดไว้ข้าง ๆ
+ * (จุดคุ้มทุน 155 กับ 2,900% มีกล่องกางอยู่แล้ว จึงไม่ต้องมีกล่องซ้อนอีก)
+ *
+ * เนื้อในกล่องต้องเป็นสตริง HTML ไม่ใช่ slot children และสูตร KaTeX ต้องยกมาไว้ใน TEX ก่อน
+ * ห้าม texBlock(String.raw`...`) ซ้อนใน ${...} ของ template literal ดูเหตุผลใน ExplainNumber.astro
+ */
+const pctFmt = (n: number) => (n * 100).toFixed(0);
+const TEX = {
+  ccYear: texBlock(String.raw`${pctFmt(ccPerRound)}\% \times ${ccRounds} \;=\; ${pctFmt(ccYearSimple)}\%`),
+  ccCompound: texBlock(String.raw`(1 + ${ccPerRound})^{${ccRounds}} - 1 \;=\; ${(ccYearCompound * 100).toFixed(2)}\%`),
+  rev10: texBlock(String.raw`${RDCF.rev0} \times (1 + ${CLASS_CAGR})^{${RDCF.years}} \;=\; ${Math.round(rev10Class).toLocaleString('en-US').replace(/,/g, '{,}')}`),
+  multiple: texBlock(String.raw`(1 + ${CLASS_CAGR})^{${RDCF.years}} \;=\; ${cagrMultiple.toFixed(2)}`),
+};
+
+const EX = {
+  ccYear: `
+    ${TEX.ccYear}
+    <p>รอบหนึ่งกินเวลา ${CC.months} เดือน หนึ่งปีจึงเปิดได้ ${ccRounds} รอบ เอา ${pctFmt(ccPerRound)}% ของแต่ละรอบมาบวกกันตรง ๆ</p>
+    <p>ถ้าเอา premium ที่ได้ไปลงทุนต่อด้วย ตัวเลขจะขยับขึ้นเป็น ${(ccYearCompound * 100).toFixed(2)}% เพราะรอบหลังคิดบนฐานที่โตขึ้น</p>
+    ${TEX.ccCompound}
+    <p>ที่ต้องระวังคือเลขนี้ตั้งอยู่บนเงื่อนไขสามข้อพร้อมกัน หุ้นต้องไม่วิ่งทะลุ strike สักรอบเดียวใน ${ccRounds} รอบ ต้องมีคนยอมจ่าย premium เท่าเดิมทุกรอบ และเราต้องยังถือหุ้นตัวนั้นอยู่ครบ ${CC.cost} หุ้นตลอดปี พลาดข้อไหนข้อหนึ่งตัวเลขจริงก็ต่ำกว่านี้</p>
+  `,
+  rev10: `
+    ${TEX.rev10}
+    <p>ฐานรายได้วันนี้ ${RDCF.rev0} ล้านดอลลาร์ คูณด้วยอัตราโต ${pctFmt(CLASS_CAGR)}% ทบกัน ${RDCF.years} รอบ ได้ราว ${(rev10Class / 1000).toFixed(1)} พันล้าน</p>
+    <p>ที่บอกเป็นช่วงกว้าง ๆ เพราะ ${pctFmt(CLASS_CAGR)}% เองก็เป็นเลขปัดมาแล้ว ขยับขึ้นอีกจุดเดียวเป็น ${pctFmt(CLASS_CAGR + 0.01)}% ปลายทางกระโดดไป ${(rev10Nudged / 1000).toFixed(1)} พันล้านทันที ตัวเลขปลายทางไวกับทศนิยมของอัตราโตมาก</p>
+    <p>เทียบให้เห็นภาพคือรายได้ต้องโตขึ้นราว ${cagrMultiple.toFixed(0)} เท่าของวันนี้ ภายในสิบปี</p>
+  `,
+  multiple: `
+    ${TEX.multiple}
+    <p>โตปีละ ${pctFmt(CLASS_CAGR)}% แปลว่าปีถัดไปได้ตัวคูณ ${1 + CLASS_CAGR} ของปีก่อน ทำแบบนั้น ${RDCF.years} รอบจึงเป็นการคูณ ${1 + CLASS_CAGR} เข้าไป ${RDCF.years} ครั้ง</p>
+    <p>ถ้าเป็นการบวกตรง ๆ แบบไม่ทบ ${pctFmt(CLASS_CAGR)}% คูณ ${RDCF.years} ปีจะได้แค่ ${pctFmt(CLASS_CAGR * RDCF.years)}% หรือ ${(1 + CLASS_CAGR * RDCF.years).toFixed(1)} เท่า ต่างจากของจริงอยู่ราว ${(cagrMultiple / (1 + CLASS_CAGR * RDCF.years)).toFixed(1)} เท่า</p>
+  `,
+};
 ---
 <DivineLoreLayout title="Options 101: หุ้นอยู่ที่เดิม เราก็ขาดทุนได้ | บันทึกศาสตร์แห่งเทพ" description="สรุป Webull Master Class ตอน Zero to Options Trader แบบละเอียด พร้อมภาพ payoff ทุกท่า ตั้งแต่ Call/Put, Covered Call, Cash Secured Put ไปจนถึงการหาโซนราคาด้วย Reverse DCF">
   <nav class="dl-nav">
@@ -1085,7 +1136,7 @@ const rdcfSlots: (RdcfRow | null)[] = Array.from({ length: RDCF_MAXYEARS }, (_, 
     ลองดูฉากที่มันเวิร์กก่อน สมมติเราขาย Call strike 150 อายุสามเดือน ได้ premium มา 4 ดอลลาร์ต่อหุ้น คิดเป็นเงินจริง 400 ดอลลาร์ต่อสัญญา ผ่านไปสามเดือนหุ้นยังวนอยู่แถว 110 ถึง 120 ไม่ถึง 150 สัญญาหมดอายุไปเฉย ๆ เราเก็บ 400 ดอลลาร์นั้นไว้เต็มก้อน หุ้นก็ยังอยู่ในมือครบ 100 หุ้นเหมือนเดิม แล้วเปิดรอบใหม่ได้อีก
   </p>
   <p>
-    คิดเป็นสัดส่วนคือ 4 บนต้นทุนหุ้น 100 เท่ากับ 4% ในสามเดือน ถ้าทำได้แบบนี้ทุกไตรมาสก็ราว 16% ต่อปีจากหุ้นที่เรานั่งถืออยู่เฉย ๆ อยู่แล้ว คนถึงเรียกท่านี้ว่าเก็บค่าเช่า และเรียกผลตอบแทนก้อนนี้ว่า <strong>yield</strong> ("ยีลด์" แปลว่าผลตอบแทนที่งอกออกมาจากสิ่งที่เราถืออยู่ คิดเป็นเปอร์เซ็นต์ต่อปี มาจาก <i>yield</i> ที่แปลว่าให้ผลผลิต แบบที่ดินให้ผลผลิต)
+    คิดเป็นสัดส่วนคือ {CC.premium} บนต้นทุนหุ้น {CC.cost} เท่ากับ {pctFmt(ccPerRound)}% ในสามเดือน ถ้าทำได้แบบนี้ทุกไตรมาสก็ราว <ExplainNumber value={`${pctFmt(ccYearSimple)}%`} title={`${pctFmt(ccYearSimple)}% ต่อปีมาจากไหน`} html={EX.ccYear} /> ต่อปีจากหุ้นที่เรานั่งถืออยู่เฉย ๆ อยู่แล้ว คนถึงเรียกท่านี้ว่าเก็บค่าเช่า และเรียกผลตอบแทนก้อนนี้ว่า <strong>yield</strong> ("ยีลด์" แปลว่าผลตอบแทนที่งอกออกมาจากสิ่งที่เราถืออยู่ คิดเป็นเปอร์เซ็นต์ต่อปี มาจาก <i>yield</i> ที่แปลว่าให้ผลผลิต แบบที่ดินให้ผลผลิต)
   </p>
   <p>
     ส่วนตอนหุ้นลง สมมติลงไป 80 เราก็ขาดทุนตามปกติของคนถือหุ้น แต่อย่างน้อยมี premium ที่ได้มาช่วยลดรอยแผลลงบ้าง
@@ -1471,7 +1522,7 @@ const rdcfSlots: (RdcfRow | null)[] = Array.from({ length: RDCF_MAXYEARS }, (_, 
     วิธีคิดของ Reverse DCF ใช้ได้กับหุ้นตัวไหนก็ตาม ขอแค่จำสี่จังหวะนี้ไว้ครับ หนึ่ง เอา <strong>มูลค่าตลาดวันนี้ (EV)</strong> ตั้งเป็นโจทย์ที่ล็อกไว้ สอง <strong>ล็อกสมมติฐานที่เหลือ</strong> ให้อยู่ในระดับที่เรารับได้ เช่น WACC มาร์จิ้นปลายทาง จำนวนปีที่ยอมให้โตแรง สาม <strong>แก้ย้อนกลับ</strong> หาว่าต้องโตปีละกี่เปอร์เซ็นต์ โมเดลถึงจะปั้นมูลค่าออกมาเท่ากับมูลค่าตลาดพอดี สี่ เอาอัตราโตที่ได้มา<strong>ถามตัวเองว่ามันสมเหตุสมผลไหม</strong> ในเมื่อราคาเป็นตัวตั้ง คำตอบสุดท้ายจึงไม่ใช่ "หุ้นควรราคาเท่าไหร่" แต่เป็น "ถ้าจะซื้อที่ราคานี้ เราต้องเชื่อว่าบริษัทโตได้แค่ไหน"
   </p>
   <p>
-    พอเอาสูตรนี้มาใส่ตัวเลขของ RKLB ผลลัพธ์ที่ได้คือ ราคาช่วงนั้นบังคับให้บริษัทต้องเติบโตราว <strong>45% ต่อปี (CAGR) ติดต่อกัน 10 ปี</strong> ซึ่งแปลว่ารายได้ต้องไปแตะ 28 ถึง 29 พันล้านดอลลาร์ จากฐานวันนี้ที่ 680 ล้าน
+    พอเอาสูตรนี้มาใส่ตัวเลขของ RKLB ผลลัพธ์ที่ได้คือ ราคาช่วงนั้นบังคับให้บริษัทต้องเติบโตราว <strong>45% ต่อปี (CAGR) ติดต่อกัน 10 ปี</strong> ซึ่งแปลว่ารายได้ต้องไปแตะ <ExplainNumber value="28 ถึง 29 พันล้านดอลลาร์" title="28 ถึง 29 พันล้านมาจากไหน" html={EX.rev10} /> จากฐานวันนี้ที่ {RDCF.rev0} ล้าน
   </p>
   <p>
     ลองแยกให้เห็นชัดว่าอะไรเป็นอะไร ตัวแรกคือ <strong>EV ที่เป็นโจทย์ล็อกตายตัว</strong> เพราะเป็นราคาที่ตลาดตั้งไว้จริง เราแตะมันไม่ได้ ส่วนอีกสี่ตัวข้างล่างคือ <strong>ปุ่มที่เราหมุนเอง</strong> แต่ละปุ่มไม่ได้เป็นแค่พารามิเตอร์แห้ง ๆ มันคือความเชื่ออย่างหนึ่งที่เราเซ็นชื่อรับรองไปด้วย พอล็อกโจทย์แล้วหมุนสี่ปุ่มนี้ให้อยู่ในระดับที่รับได้ โมเดลก็จะคายตัวเลขที่หกออกมาให้ นั่นคืออัตราการเติบโตที่ราคานี้เรียกร้อง
@@ -1511,7 +1562,7 @@ const rdcfSlots: (RdcfRow | null)[] = Array.from({ length: RDCF_MAXYEARS }, (_, 
   <div class="callout callout-note">
     <p class="callout-label">แกะคำศัพท์</p>
     <p>
-      <strong>CAGR</strong> อ่านว่า <strong>"เค-เอ-จี-อาร์"</strong> หรือ <strong>"เคเกอร์"</strong> ย่อจาก <i>Compound Annual Growth Rate</i> แปลว่า <strong>"อัตราโตทบต้นเฉลี่ยต่อปี"</strong> เวลาบอกว่าโต 45% CAGR สิบปี ไม่ได้แปลว่าโตรวม 450% แต่คือคูณกันสิบรอบ ซึ่งกลายเป็นราว 41 เท่า นี่คือเหตุผลว่าทำไม 680 ล้านถึงต้องกลายเป็น 28 พันล้าน
+      <strong>CAGR</strong> อ่านว่า <strong>"เค-เอ-จี-อาร์"</strong> หรือ <strong>"เคเกอร์"</strong> ย่อจาก <i>Compound Annual Growth Rate</i> แปลว่า <strong>"อัตราโตทบต้นเฉลี่ยต่อปี"</strong> เวลาบอกว่าโต {pctFmt(CLASS_CAGR)}% CAGR สิบปี ไม่ได้แปลว่าโตรวม {pctFmt(CLASS_CAGR * RDCF.years)}% แต่คือคูณกันสิบรอบ ซึ่งกลายเป็นราว <ExplainNumber value={`${cagrMultiple.toFixed(0)} เท่า`} title={`${cagrMultiple.toFixed(0)} เท่ามาจากไหน`} html={EX.multiple} /> นี่คือเหตุผลว่าทำไม {RDCF.rev0} ล้านถึงต้องกลายเป็น 28 พันล้าน
     </p>
   </div>
   <p>

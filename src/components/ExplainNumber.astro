@@ -1,0 +1,376 @@
+---
+/**
+ * ตัวเลขในเนื้อความที่คลิกแล้วกางวิธีคำนวณให้ดู
+ *
+ * ใช้กับตัวเลขที่ derive มาจากโมเดลใน frontmatter แล้วบทความไม่ได้โชว์วิธีคิดไว้ข้าง ๆ
+ * ถ้าตรงนั้นมีตารางหรือสูตรกางอยู่แล้ว ไม่ต้องใช้ตัวนี้ (เส้นประเยอะเกินไปหน้าจะรก)
+ * และใส่เฉพาะ "ครั้งแรก" ที่ตัวเลขนั้นโผล่ในบท ครั้งถัด ๆ ไปปล่อยเป็นข้อความธรรมดา
+ *
+ * เนื้อในกล่องรับเป็น "สตริง HTML" ผ่าน prop ไม่ใช่ slot โดยตั้งใจ อย่าเปลี่ยนกลับ
+ * เหตุผล: คอมโพเนนต์นี้ต้องวางกลางย่อหน้าได้ แต่เนื้อในกล่องเป็น block
+ * (<p>, <ul>, <div class="mathblock"> ของ KaTeX) ถ้าเขียนเป็น slot children
+ * ตัว compiler ของ Astro จะเห็น <p> ซ้อน <p> แล้วปิดย่อหน้าแม่ทิ้ง ลามขึ้นไป
+ * ปิด <Layout> ก่อนจบหน้า ผลคือครึ่งท้ายของบทความหลุดไปอยู่นอก </html>
+ * ทั้งที่ astro check และ astro build เขียวสนิท (เคยโดนมาแล้วตอนทำบท forex-3d)
+ * การส่งเป็นสตริงแล้ว set:html ลง <template> ทำให้ compiler ไม่ parse เนื้อนั้นเลย
+ * ส่วนเบราว์เซอร์ parse เนื้อใน <template> แยกเป็น DocumentFragment จึงปลอดภัย
+ *
+ * ตอนเปิด สคริปต์ clone เนื้อออกไปแปะที่ layer ระดับ body ทำให้ popover
+ * ไม่ถูก figure.tbl (overflow-x:auto) หรือ .panel ตัดขอบทิ้ง
+ *
+ * สไตล์เป็น is:global เพราะ popover ถูกสร้างตอน runtime จึงไม่มี data-astro-cid
+ * ให้ scoped selector จับ (กับดักเดิมที่เคยเจอใน SecretConsole)
+ */
+interface Props {
+  /** ตัวเลขที่จะแสดงในเนื้อความ ส่งเป็นสตริงที่จัดรูปมาแล้ว */
+  value: string;
+  /** หัวกล่อง บอกว่ากำลังจะอธิบายเลขตัวไหน เช่น "213.8% ต่อปี มาจากไหน" */
+  title: string;
+  /** เนื้อในกล่องเป็นสตริง HTML ใช้ <p>/<ul>/texBlock() ได้ตามปกติ */
+  html: string;
+}
+const { value, title, html } = Astro.props;
+---
+<span class="xnum">
+  <button type="button" class="xnum-trigger" aria-expanded="false" aria-haspopup="dialog" aria-label={`${value} แตะเพื่อดูวิธีคำนวณ`}>{value}</button>
+  <template class="xnum-tpl" data-title={title} set:html={html}></template>
+</span>
+
+<style is:global>
+  .xnum{
+    display:inline;
+    white-space:nowrap;
+  }
+  .xnum-trigger{
+    font:inherit;
+    color:inherit;
+    background:none;
+    border:none;
+    padding:0;
+    margin:0;
+    cursor:pointer;
+    border-bottom:1px dashed var(--dl-gold, #b8860b);
+    /* ให้เส้นประไม่ชิดตัวอักษรจนอ่านสระล่างไม่ออก */
+    padding-bottom:1px;
+    transition:color .15s, border-color .15s;
+  }
+  .xnum-trigger:hover,
+  .xnum-trigger[aria-expanded="true"]{
+    color:var(--dl-gold, #b8860b);
+    border-bottom-color:currentColor;
+  }
+  .xnum-trigger:focus-visible{
+    outline:2px solid var(--dl-emerald-bright, #4d72a9);
+    outline-offset:2px;
+    border-radius:3px;
+  }
+
+  #xnum-layer{
+    position:fixed;
+    inset:0;
+    z-index:120;
+    pointer-events:none;
+  }
+  #xnum-layer[hidden]{display:none;}
+  .xnum-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(6,10,18,0.55);
+    opacity:0;
+    transition:opacity .18s ease;
+    pointer-events:none;
+  }
+  .xnum-backdrop.on{opacity:1;pointer-events:auto;}
+
+  .xnum-pop{
+    position:absolute;
+    box-sizing:border-box;
+    pointer-events:auto;
+    background:var(--dl-panel, #ffffff);
+    border:1px solid var(--dl-border, #d8e2f2);
+    border-radius:14px;
+    box-shadow:0 18px 46px -12px rgba(0,0,0,0.6);
+    padding:0.85rem 1rem 1rem;
+    font-size:0.86rem;
+    line-height:1.7;
+    color:var(--dl-ink, #131e30);
+    white-space:normal;
+    max-height:min(70vh, 30rem);
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    animation:xnum-in .16s ease-out both;
+  }
+  @keyframes xnum-in{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+
+  .xnum-arrow{
+    position:absolute;
+    width:10px;
+    height:10px;
+    background:var(--dl-panel, #ffffff);
+    border-left:1px solid var(--dl-border, #d8e2f2);
+    border-top:1px solid var(--dl-border, #d8e2f2);
+    transform:rotate(45deg);
+    top:-6px;
+  }
+  .xnum-pop.xnum-above .xnum-arrow{
+    top:auto;
+    bottom:-6px;
+    transform:rotate(225deg);
+  }
+
+  .xnum-head{
+    display:flex;
+    align-items:flex-start;
+    gap:0.6rem;
+    margin-bottom:0.5rem;
+    padding-bottom:0.5rem;
+    border-bottom:1px dashed var(--dl-border, #d8e2f2);
+  }
+  .xnum-title{
+    flex:1;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.4px;
+    color:var(--dl-gold, #b8860b);
+    line-height:1.5;
+  }
+  .xnum-close{
+    flex-shrink:0;
+    background:none;
+    border:none;
+    padding:2px;
+    cursor:pointer;
+    color:var(--dl-muted, #5a6a85);
+    line-height:0;
+    border-radius:5px;
+  }
+  .xnum-close:hover{color:var(--dl-ink, #131e30);}
+  .xnum-close svg{width:14px;height:14px;display:block;fill:currentColor;}
+
+  .xnum-body > :first-child{margin-top:0;}
+  .xnum-body > :last-child{margin-bottom:0;}
+  .xnum-body p{font-size:0.86rem;margin:0.5rem 0;}
+  .xnum-body .mathblock{
+    margin:0.5rem 0;
+    padding:0.45rem 0.6rem;
+    font-size:0.94em;
+  }
+  .xnum-body .katex{font-size:0.98em;}
+  .xnum-body ul{
+    margin:0.5rem 0;
+    padding-left:1.15rem;
+    font-size:0.84rem;
+  }
+  .xnum-body li{margin:0.25rem 0;}
+  .xnum-body i{font-style:italic;}
+  .xnum-body strong{color:var(--dl-emerald-bright, #294266);}
+
+  /* จอแคบ: เด้งเป็นแผ่นเต็มความกว้างที่ก้นจอ อ่านง่ายกว่ากล่องลอยที่โดนบีบ */
+  .xnum-pop.xnum-sheet{
+    left:0;
+    right:0;
+    bottom:0;
+    top:auto;
+    width:auto;
+    max-height:76vh;
+    border-radius:18px 18px 0 0;
+    border-bottom:none;
+    padding:1rem 1.15rem calc(1.15rem + env(safe-area-inset-bottom, 0px));
+    animation:xnum-sheet-in .2s cubic-bezier(.16,1,.3,1) both;
+  }
+  @keyframes xnum-sheet-in{from{transform:translateY(14px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+  .xnum-pop.xnum-sheet .xnum-arrow{display:none;}
+
+  @media (prefers-reduced-motion: reduce){
+    .xnum-pop,
+    .xnum-pop.xnum-sheet{animation:none;}
+    .xnum-backdrop{transition:none;}
+    .xnum-trigger{transition:none;}
+  }
+</style>
+
+<script>
+  // popover ของ ExplainNumber
+  // เปิดได้ทีละกล่อง เนื้อในถูก clone จาก <template> ไปไว้ที่ layer ระดับ body
+  // เพื่อหนีการถูก overflow ของ figure.tbl / .panel ตัดขอบ
+  const SHEET_MAX_WIDTH = 560;
+  const MARGIN = 12;
+  const POP_WIDTH = 360;
+
+  interface OpenState {
+    trigger: HTMLButtonElement;
+    pop: HTMLElement;
+    arrow: HTMLElement;
+  }
+  let open: OpenState | null = null;
+  let layer: HTMLElement | null = null;
+  let backdrop: HTMLElement | null = null;
+  let rafId = 0;
+
+  function ensureLayer(): { layer: HTMLElement; backdrop: HTMLElement } {
+    let l = document.getElementById('xnum-layer');
+    if (!l) {
+      l = document.createElement('div');
+      l.id = 'xnum-layer';
+      l.hidden = true;
+      const b = document.createElement('div');
+      b.className = 'xnum-backdrop';
+      l.appendChild(b);
+      document.body.appendChild(l);
+    }
+    layer = l;
+    backdrop = l.querySelector('.xnum-backdrop');
+    return { layer: l, backdrop: backdrop as HTMLElement };
+  }
+
+  function isSheet(): boolean {
+    return window.innerWidth < SHEET_MAX_WIDTH;
+  }
+
+  function place(): void {
+    if (!open) return;
+    const { trigger, pop, arrow } = open;
+    if (isSheet()) {
+      pop.classList.add('xnum-sheet');
+      pop.style.width = '';
+      pop.style.left = '';
+      pop.style.top = '';
+      pop.classList.remove('xnum-above');
+      return;
+    }
+    pop.classList.remove('xnum-sheet');
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    const width = Math.min(POP_WIDTH, vw - MARGIN * 2);
+    pop.style.width = `${width}px`;
+
+    const r = trigger.getBoundingClientRect();
+    const h = pop.offsetHeight;
+    let top = r.bottom + 10;
+    let above = false;
+    if (top + h > vh - MARGIN && r.top - 10 - h > MARGIN) {
+      top = r.top - 10 - h;
+      above = true;
+    }
+    top = Math.max(MARGIN, Math.min(top, vh - MARGIN - h));
+
+    let left = r.left + r.width / 2 - width / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - MARGIN - width));
+
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    pop.classList.toggle('xnum-above', above);
+
+    const arrowX = Math.max(14, Math.min(r.left + r.width / 2 - left, width - 14));
+    arrow.style.left = `${arrowX - 5}px`;
+  }
+
+  function close(returnFocus = false): void {
+    if (!open) return;
+    const { trigger, pop } = open;
+    trigger.setAttribute('aria-expanded', 'false');
+    pop.remove();
+    if (layer) layer.hidden = true;
+    if (backdrop) backdrop.classList.remove('on');
+    document.body.style.removeProperty('overflow');
+    open = null;
+    if (returnFocus) trigger.focus();
+  }
+
+  function openFor(root: HTMLElement, trigger: HTMLButtonElement): void {
+    const tpl = root.querySelector<HTMLTemplateElement>('.xnum-tpl');
+    if (!tpl) return;
+    close();
+    const { layer: l, backdrop: b } = ensureLayer();
+
+    const pop = document.createElement('div');
+    pop.className = 'xnum-pop';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-modal', 'false');
+    pop.setAttribute('aria-label', tpl.dataset.title ?? 'วิธีคำนวณ');
+
+    const arrow = document.createElement('span');
+    arrow.className = 'xnum-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+
+    const head = document.createElement('div');
+    head.className = 'xnum-head';
+    const title = document.createElement('span');
+    title.className = 'xnum-title';
+    title.textContent = tpl.dataset.title ?? '';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'xnum-close';
+    closeBtn.setAttribute('aria-label', 'ปิดคำอธิบาย');
+    closeBtn.innerHTML =
+      '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/></svg>';
+    head.append(title, closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'xnum-body';
+    body.appendChild(tpl.content.cloneNode(true));
+
+    pop.append(arrow, head, body);
+    l.hidden = false;
+    l.appendChild(pop);
+
+    trigger.setAttribute('aria-expanded', 'true');
+    open = { trigger, pop, arrow };
+
+    if (isSheet()) b.classList.add('on');
+    // วางสามรอบโดยตั้งใจ รอบแรกกำหนดความกว้าง 360px ให้เนื้อในไหลใหม่
+    // รอบสองวัดความสูงที่ไหลเสร็จแล้ว (ไม่งั้นกล่องที่มีสูตรจะทะลุขอบล่างจอ)
+    // รอบสาม (อีกเฟรมถัดไป) เผื่อฟอนต์ KaTeX โหลดเสร็จทีหลังแล้วบรรทัดสูตรสูงขึ้น
+    place();
+    place();
+    onReflow();
+
+    closeBtn.addEventListener('click', () => close(true));
+  }
+
+  function onDocPointerDown(e: PointerEvent): void {
+    if (!open) return;
+    if (!(e.target instanceof Node)) return;
+    if (open.pop.contains(e.target)) return;
+    if (open.trigger.contains(e.target)) return;
+    close();
+  }
+
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && open) {
+      e.stopPropagation();
+      close(true);
+    }
+  }
+
+  function onReflow(): void {
+    if (!open) return;
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(place);
+  }
+
+  function initExplainNumbers(): void {
+    document.querySelectorAll<HTMLElement>('.xnum').forEach((root) => {
+      const trigger = root.querySelector<HTMLButtonElement>('.xnum-trigger');
+      if (!trigger || trigger.dataset.bound === '1') return;
+      trigger.dataset.bound = '1';
+      trigger.addEventListener('click', () => {
+        if (open && open.trigger === trigger) {
+          close(true);
+          return;
+        }
+        openFor(root, trigger);
+      });
+    });
+  }
+
+  document.addEventListener('pointerdown', onDocPointerDown);
+  document.addEventListener('keydown', onKeyDown);
+  window.addEventListener('resize', onReflow);
+  window.addEventListener('scroll', onReflow, true);
+  // ClientRouter สลับหน้าแล้ว popover ที่ค้างอยู่จะชี้ไปที่ปุ่มที่หลุด DOM ไปแล้ว
+  document.addEventListener('astro:before-swap', () => close());
+  document.addEventListener('astro:page-load', initExplainNumbers);
+</script>
