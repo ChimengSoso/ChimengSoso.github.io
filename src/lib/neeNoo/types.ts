@@ -37,6 +37,11 @@ export interface Asset {
   pricePerUnit: number;
   /** debt attached to the whole holding */
   debt: number;
+  /**
+   * Monthly mortgage payment on that debt. `cashflowPerUnit` is already net of
+   * it, so clearing the debt hands this amount back as extra monthly income.
+   */
+  mortgagePay: number;
   /** monthly cash flow per unit (can be 0 for capital-gain plays) */
   cashflowPerUnit: number;
 }
@@ -50,6 +55,14 @@ export interface Debt {
   balance: number;
   /** monthly payment; disappears from the expense sheet once the debt is paid off */
   payment: number;
+  /**
+   * Monthly interest rate. Whatever the payment covers beyond the interest goes
+   * to principal, so ordinary debts shrink on their own every payday. The
+   * emergency loan is interest-only: its payment is pure interest and the
+   * balance never moves until it is repaid as a lump.
+   */
+  rate: number;
+  interestOnly?: boolean;
 }
 
 /* ------------------------------------------------------------- professions */
@@ -64,7 +77,8 @@ export interface Profession {
   otherExpenses: number;
   childCost: number;
   cash: number;
-  debts: Debt[];
+  /** interest rates are filled in from DEBT_RATE when the game starts */
+  debts: Omit<Debt, 'rate'>[];
 }
 
 /* ------------------------------------------------------------------- cards */
@@ -83,6 +97,8 @@ export interface DealCard {
   down: number;
   /** debt taken on per unit */
   debt: number;
+  /** monthly mortgage payment per unit, already deducted from `cashflow` */
+  mortgagePay?: number;
   /** monthly cash flow per unit */
   cashflow: number;
   maxQty: number;
@@ -110,6 +126,8 @@ export interface DoodadCard {
   perChild?: boolean;
   /** the player may decline it */
   optional?: boolean;
+  /** it involves other people, so saying yes or no moves the generosity counter */
+  social?: boolean;
   /** instead of paying cash, it can be put on an instalment plan (also scaled) */
   instalment?: { balanceScale: number; paymentScale: number };
 }
@@ -147,7 +165,12 @@ export type Pending =
   | { kind: 'fastbonus'; cardId: string }
   | { kind: 'fastsetback'; cardId: string }
   | { kind: 'dream' }
-  | { kind: 'rescue' };
+  | { kind: 'rescue' }
+  /** passive income now covers the bills: quit the job, or keep the salary */
+  | { kind: 'quit' }
+  /** a friend steps in because the player has been generous before */
+  | { kind: 'friend' }
+  | { kind: 'tierUp'; tier: number };
 
 export type Phase = 'rat' | 'fast' | 'won' | 'lost';
 
@@ -193,6 +216,15 @@ export interface GameState {
    */
   escapeIncome: number;
   dreamBought: boolean;
+  /** the salary is gone once the player chooses to quit; expenses carry on */
+  quit: boolean;
+  /** highest investor tier reached so far, 1..6 */
+  tier: number;
+  /** generosity: earned by saying yes to people, spent when they return the favour */
+  karma: number;
+  friendHelpUsed: boolean;
+  /** the player called it a day themselves rather than going bankrupt */
+  endedByChoice: boolean;
   lastRoll: number[];
   /** tiles still to walk this turn; the UI advances them one at a time */
   walking: number;
