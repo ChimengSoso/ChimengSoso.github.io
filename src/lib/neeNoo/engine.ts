@@ -13,6 +13,7 @@ import {
   doodadById,
   doodads,
   dreamById,
+  dreams,
   fastById,
   fastCards,
   marketById,
@@ -22,9 +23,12 @@ import {
 import type {
   Asset,
   DealCard,
+  DealSize,
+  Decks,
   Debt,
   DebtKey,
   DoodadCard,
+  Dream,
   FastCard,
   GameState,
   Loc,
@@ -33,17 +37,29 @@ import type {
 } from './types';
 
 export const SAVE_VERSION = 1;
-/** monthly payment on the emergency bank loan, as a share of the balance */
+/** monthly payment on the emergency bank loan, as a share of the amount drawn */
 export const LOAN_RATE = 0.1;
 export const LOAN_STEP = 10000;
-/** the bank stops lending past this multiple of the monthly salary */
-export const LOAN_SALARY_CAP = 20;
+/**
+ * The bank stops lending past this many months of expenses. Real underwriting
+ * asks whether the borrower can service the debt, so the ceiling follows the
+ * bills rather than the payslip: at three months of expenses the payment lands
+ * near 30% of them, which every profession's cash flow can still carry. The
+ * old ceiling of twenty months of salary was a button that guaranteed
+ * bankruptcy, and in testing it was the cause of every single loss.
+ */
+export const LOAN_EXPENSE_CAP = 3;
 /** fire-sale price, as a share of the sticker price */
 export const FIRE_SALE_RATE = 0.5;
 /** fast-track cash granted at the escape, as a multiple of monthly passive income */
 export const ESCAPE_MULTIPLE = 100;
-/** extra monthly income needed to win on the fast track */
-export const FAST_GOAL = 300000;
+/**
+ * Extra monthly income needed to reach the professional-investor tier, as a
+ * multiple of whatever the player was earning the day they quit. A flat figure
+ * meant the office worker had to build eighteen times their escape income while
+ * the pilot needed under three, so the fast track scales like everything else.
+ */
+export const FAST_GOAL_MULTIPLE = 8;
 export const MAX_CHILDREN = 3;
 /** monthly interest on the debt a profession starts with, and on asset mortgages */
 export const DEBT_RATE: Record<DebtKey, number> = {
@@ -52,16 +68,15 @@ export const DEBT_RATE: Record<DebtKey, number> = {
   card: 0.015,
   retail: 0.01,
   student: 0.002,
-  bank: LOAN_RATE,
+  /** 2% a month, around 24% a year: an unsecured personal loan, not a mortgage */
+  bank: 0.02,
 };
 export const MORTGAGE_RATE = 0.0035;
 /** generosity needed before a friend will step in during a cash crisis */
 export const FRIEND_HELP_KARMA = 3;
 export const FRIEND_HELP_AMOUNT = 150000;
-/** monthly passive income, above the level at escape, for the professional tier */
-export const TIER5_INCOME = 300000;
-/** total monthly passive income for the top tier, alongside owning the dream */
-export const TIER6_INCOME = 1000000;
+/** total monthly passive income for the top tier, as a multiple of the escape level */
+export const TIER6_MULTIPLE = 25;
 
 export const TIER_NAMES: Loc[] = [
   { th: 'มนุษย์เงินเดือน', en: 'Salary earner' },
@@ -135,11 +150,16 @@ export function mortgagePayments(s: GameState): number {
   return s.assets.reduce((sum, a) => sum + a.mortgagePay * (a.debt > 0 ? 1 : 0), 0);
 }
 
+/** Extra monthly income the fast track is asking this player to build. */
+export function fastGoal(s: GameState): number {
+  return Math.round((s.escapeIncome * FAST_GOAL_MULTIPLE) / 1000) * 1000;
+}
+
 /** Which tier the player has earned right now, 1..6. */
 export function tierOf(s: GameState): number {
   const passive = passiveIncome(s);
-  if (s.dreamBought && passive >= TIER6_INCOME) return 6;
-  if (s.quit && passive - s.escapeIncome >= TIER5_INCOME) return 5;
+  if (s.dreamsOwned.length > 0 && passive >= s.escapeIncome * TIER6_MULTIPLE) return 6;
+  if (s.quit && passive - s.escapeIncome >= fastGoal(s)) return 5;
   if (s.quit && s.debts.length === 0 && s.assets.every((a) => a.debt <= 0) && netWorth(s) > 0) return 4;
   if (s.quit) return 3;
   if (s.assets.some((a) => a.cashflowPerUnit > 0)) return 2;
@@ -155,13 +175,35 @@ export function childExpense(s: GameState): number {
   return profession(s).childCost * s.children;
 }
 
+/**
+ * Income tax follows the income. Once the salary is gone there is no payslip to
+ * tax, so the line is recomputed at the same effective rate against what is
+ * actually coming in. It shrinks at the moment of quitting and grows again as
+ * the portfolio does, which is what makes the fast track breathable.
+ */
+export function taxes(s: GameState): number {
+  const p = profession(s);
+  if (!s.quit) return p.taxes;
+  // Inside a company the rate is flat and only the half taken out as salary or
+  // dividend is taxed personally; the rest is left to compound in the company.
+  if (s.incorporated) return Math.round(passiveIncome(s) * CORP_TAX_RATE * 0.5);
+  const rate = p.salary > 0 ? p.taxes / p.salary : 0;
+  return Math.round(passiveIncome(s) * rate);
+}
+
 export function debtPayments(s: GameState): number {
   return s.debts.reduce((sum, d) => sum + d.payment, 0);
 }
 
 export function totalExpenses(s: GameState): number {
-  const p = profession(s);
-  return p.taxes + p.otherExpenses + childExpense(s) + debtPayments(s);
+  return (
+    taxes(s) +
+    profession(s).otherExpenses +
+    childExpense(s) +
+    debtPayments(s) +
+    (s.incorporated ? CORP_MONTHLY_COST : 0) +
+    insurancePremium(s)
+  );
 }
 
 export function monthlyCashflow(s: GameState): number {
@@ -179,7 +221,10 @@ export function netWorth(s: GameState): number {
 }
 
 export function loanCeiling(s: GameState): number {
-  return profession(s).salary * LOAN_SALARY_CAP;
+  // Measured against the bills the loan is not part of, so drawing on it never
+  // raises the player's own credit limit.
+  const base = totalExpenses(s) - (s.debts.find((d) => d.key === 'bank')?.payment ?? 0);
+  return Math.round((base * LOAN_EXPENSE_CAP) / LOAN_STEP) * LOAN_STEP;
 }
 
 export function bankBalance(s: GameState): number {
@@ -199,7 +244,8 @@ export function fastAdded(s: GameState): number {
 }
 
 export function fastProgress(s: GameState): number {
-  return Math.min(1, fastAdded(s) / FAST_GOAL);
+  const goal = fastGoal(s);
+  return goal <= 0 ? 1 : Math.min(1, fastAdded(s) / goal);
 }
 
 /* --------------------------------------------------------------------- log */
@@ -232,8 +278,13 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     assets: [],
     debts: p.debts.map((d) => ({ ...d, rate: DEBT_RATE[d.key] })),
     quit: false,
+    quitOffered: false,
     tier: 1,
     karma: 0,
+    donated: 0,
+    incorporated: false,
+    insuranceCover: 0,
+    impact: 0,
     friendHelpUsed: false,
     endedByChoice: false,
     prices,
@@ -244,11 +295,11 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     skipTurns: 0,
     charityTurns: 0,
     escapeIncome: 0,
-    dreamBought: false,
+    dreamsOwned: [],
     lastRoll: [],
     walking: 0,
     pending: null,
-    decks: { small: [], big: [], market: [], doodad: [], fastDeal: [], fastBonus: [], fastSetback: [] },
+    decks: { small: [], big: [], market: [], doodad: [], fastDeal: [], fastMega: [], fastBonus: [], fastSetback: [] },
     seed: seed | 0,
     log: [],
   };
@@ -261,12 +312,16 @@ export function createGame(professionId: string, dreamId: string, seed: number):
   return s;
 }
 
+export const dealIdsOfSize = (size: DealSize): string[] =>
+  deals.filter((d) => d.size === size).map((d) => d.id);
+
 function refillAll(s: GameState): void {
-  s.decks.small = shuffled(s, deals.filter((d) => d.size === 'small').map((d) => d.id));
-  s.decks.big = shuffled(s, deals.filter((d) => d.size === 'big').map((d) => d.id));
+  s.decks.small = shuffled(s, dealIdsOfSize('small'));
+  s.decks.big = shuffled(s, dealIdsOfSize('big'));
   s.decks.market = shuffled(s, marketCards.map((c) => c.id));
   s.decks.doodad = shuffled(s, doodads.map((c) => c.id));
-  s.decks.fastDeal = shuffled(s, fastCards.filter((c) => c.type === 'deal').map((c) => c.id));
+  s.decks.fastDeal = shuffled(s, dealIdsOfSize('fast'));
+  s.decks.fastMega = shuffled(s, dealIdsOfSize('mega'));
   s.decks.fastBonus = shuffled(s, fastCards.filter((c) => c.type === 'bonus').map((c) => c.id));
   s.decks.fastSetback = shuffled(s, fastCards.filter((c) => c.type === 'setback').map((c) => c.id));
 }
@@ -391,13 +446,13 @@ function landRat(s: GameState): void {
 
 /**
  * One month of debt service. Interest is the cost of carrying the balance; the
- * rest of the payment eats into the principal, so ordinary debts really do
- * shrink and eventually vanish. The emergency loan is interest-only and never
- * shrinks on its own, which is exactly why it hurts.
+ * rest of the payment eats into the principal, so every debt really does shrink
+ * and eventually vanish. The emergency loan hurts through the size of its
+ * payment rather than by never ending: a tenth of the amount drawn, every
+ * month, until it is gone.
  */
 export function amortize(s: GameState): void {
   for (const d of s.debts) {
-    if (d.interestOnly) continue;
     const principal = Math.max(0, d.payment - d.balance * d.rate);
     d.balance = Math.max(0, d.balance - principal);
   }
@@ -444,6 +499,7 @@ function payday(s: GameState): void {
   amortize(s);
   checkEscape(s);
   checkTrouble(s);
+  checkTier(s);
 }
 
 function fastPayday(s: GameState): void {
@@ -461,6 +517,7 @@ function fastPayday(s: GameState): void {
     cf >= 0 ? 'good' : 'bad',
   );
   amortize(s);
+  driftBusinesses(s);
   checkTier(s);
 }
 
@@ -471,7 +528,11 @@ function landFast(s: GameState): void {
       fastPayday(s);
       break;
     case 'fastdeal':
-      s.pending = { kind: 'fastdeal', cardId: draw(s, s.decks.fastDeal, fastCards.filter((c) => c.type === 'deal').map((c) => c.id)) };
+      s.pending = { kind: 'fastChoice' };
+      break;
+    case 'fastmarket':
+      s.pending = { kind: 'market', cardId: draw(s, s.decks.market, marketCards.map((c) => c.id)) };
+      applyMarketPrice(s);
       break;
     case 'bonus':
       s.pending = { kind: 'fastbonus', cardId: draw(s, s.decks.fastBonus, fastCards.filter((c) => c.type === 'bonus').map((c) => c.id)) };
@@ -480,7 +541,15 @@ function landFast(s: GameState): void {
       s.pending = { kind: 'fastsetback', cardId: draw(s, s.decks.fastSetback, fastCards.filter((c) => c.type === 'setback').map((c) => c.id)) };
       break;
     case 'dream':
-      s.pending = { kind: 'dream' };
+      // Nothing left to buy for yourself: the tile starts asking the other
+      // question instead.
+      if (dreamsDone(s)) {
+        s.pending = { kind: 'legacy' };
+      } else if (s.dreamsOwned.includes(s.dreamId)) {
+        s.pending = { kind: 'dreamPick' };
+      } else {
+        s.pending = { kind: 'dream' };
+      }
       break;
     default:
       break;
@@ -489,13 +558,14 @@ function landFast(s: GameState): void {
 
 /* --------------------------------------------------------------- rat tiles */
 
-export function chooseDeal(s: GameState, size: 'small' | 'big'): void {
-  if (s.pending?.kind !== 'dealChoice') return;
-  const cardId =
-    size === 'small'
-      ? draw(s, s.decks.small, deals.filter((d) => d.size === 'small').map((d) => d.id))
-      : draw(s, s.decks.big, deals.filter((d) => d.size === 'big').map((d) => d.id));
-  s.pending = { kind: 'deal', cardId };
+export function chooseDeal(s: GameState, size: DealSize): void {
+  if (s.pending?.kind !== 'dealChoice' && s.pending?.kind !== 'fastChoice') return;
+  const deck =
+    size === 'small' ? s.decks.small
+    : size === 'big' ? s.decks.big
+    : size === 'fast' ? s.decks.fastDeal
+    : s.decks.fastMega;
+  s.pending = { kind: 'deal', cardId: draw(s, deck, dealIdsOfSize(size)) };
 }
 
 export function dealPrice(s: GameState, card: DealCard): number {
@@ -548,6 +618,11 @@ export function buyDeal(s: GameState, qty: number): void {
     };
     if (card.symbol !== undefined) asset.symbol = card.symbol;
     if (card.tag !== undefined) asset.tag = card.tag;
+    if (card.volatility !== undefined) {
+      asset.volatility = card.volatility;
+      asset.baseCashflow = card.cashflow;
+    }
+    if (card.impact !== undefined) asset.impact = card.impact * n;
     s.assets.push(asset);
   }
 
@@ -562,11 +637,96 @@ export function buyDeal(s: GameState, qty: number): void {
   s.pending = null;
   checkEscape(s);
   checkTrouble(s);
+  checkTier(s);
 }
 
 export function passDeal(s: GameState): void {
-  if (s.pending?.kind !== 'deal' && s.pending?.kind !== 'dealChoice') return;
+  if (s.pending?.kind !== 'deal' && s.pending?.kind !== 'dealChoice' && s.pending?.kind !== 'fastChoice') return;
   s.pending = null;
+}
+
+/* ------------------------------------------------------- living businesses */
+
+/** Ceiling and floor on how far a volatile holding can drift from where it started. */
+export const SWING_MAX = 3;
+/** Sale price of a business sold privately, as a multiple of its monthly profit. */
+export const BIZ_EXIT_MULTIPLE = 18;
+
+/**
+ * A month in the life of the businesses that do not sit still. Most months
+ * nothing happens; some months the number moves; occasionally one folds. The
+ * point is that a business is a living thing with a story, not a bond coupon,
+ * so the player has a reason to look at the portfolio and decide what to keep.
+ */
+export function driftBusinesses(s: GameState): void {
+  for (const a of s.assets) {
+    if (!a.volatility || a.qty <= 0) continue;
+    const roll = rand(s);
+    const base = a.baseCashflow ?? a.cashflowPerUnit;
+    if (base <= 0) continue;
+
+    // A high-volatility venture can fail outright; a steady one never does.
+    if (a.volatility >= 0.25 && roll < 0.04 && a.cashflowPerUnit > 0) {
+      a.cashflowPerUnit = 0;
+      note(
+        s,
+        {
+          th: `${a.name.th} ไปต่อไม่ไหว ปิดกิจการแล้ว รายได้จากตัวนี้เหลือศูนย์ ขายซากได้จากหน้างบ`,
+          en: `${a.name.th} could not carry on and has shut down. Its income is now zero; what is left can be sold from the statement.`,
+        },
+        'bad',
+      );
+      continue;
+    }
+    if (roll > 0.45) continue;
+
+    const up = roll < 0.245;
+    const next = a.cashflowPerUnit * (up ? 1 + a.volatility : 1 - a.volatility);
+    const capped = Math.max(0, Math.min(base * SWING_MAX, next));
+    if (Math.round(capped) === Math.round(a.cashflowPerUnit)) continue;
+    const delta = (capped - a.cashflowPerUnit) * a.qty;
+    a.cashflowPerUnit = capped;
+    note(
+      s,
+      {
+        th: `${a.name.th} ${up ? 'โตขึ้น' : 'แผ่วลง'} เงินไหลเข้าจากตัวนี้ ${delta >= 0 ? '+' : ''}${money(delta)} ต่อเดือน`,
+        en: `${a.name.en} ${up ? 'grew' : 'softened'}: ${delta >= 0 ? '+' : ''}${money(delta)} a month from it now.`,
+      },
+      up ? 'good' : 'bad',
+    );
+  }
+}
+
+/** A business can always be sold privately, at a worse price than a real buyer pays. */
+export function canSellBusiness(a: Asset): boolean {
+  return a.kind === 'business';
+}
+
+export function businessExitValue(a: Asset): number {
+  return Math.max(0, Math.round(assetCashflow(a) * BIZ_EXIT_MULTIPLE - a.debt));
+}
+
+export function sellBusiness(s: GameState, assetUid: string): void {
+  const a = s.assets.find((x) => x.uid === assetUid);
+  if (!a || !canSellBusiness(a)) return;
+  const proceeds = businessExitValue(a);
+  const gain = proceeds - a.costPerUnit * a.qty;
+  s.cash += proceeds;
+  s.assets = s.assets.filter((x) => x.uid !== a.uid);
+  note(
+    s,
+    {
+      th: proceeds > 0
+        ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
+        : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
+      en: proceeds > 0
+        ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
+        : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
+    },
+    gain >= 0 ? 'good' : 'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
 }
 
 export function marketMatches(s: GameState, card: MarketCard): Asset[] {
@@ -604,6 +764,45 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
     {
       th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
       en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
+    },
+    gain >= 0 ? 'good' : 'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
+/**
+ * Traded paper can be sold on any turn at the going price, without waiting for
+ * a buyer to turn up on a market tile. Shares and gold really are liquid, and
+ * the old rule turned gold into a trap: no income while held, and no way out
+ * until its one price card happened to be drawn. A building still needs a
+ * buyer, which is the difference worth teaching.
+ */
+export function canSellNow(a: Asset): boolean {
+  return (a.kind === 'stock' || a.kind === 'gold') && !!a.symbol;
+}
+
+export function livePrice(s: GameState, a: Asset): number {
+  return a.symbol ? (s.prices[a.symbol] ?? a.pricePerUnit) : a.pricePerUnit;
+}
+
+export function sellPaper(s: GameState, assetUid: string, qty: number): void {
+  const a = s.assets.find((x) => x.uid === assetUid);
+  if (!a || !canSellNow(a)) return;
+  const n = Math.max(1, Math.min(qty, a.qty));
+  const unit = livePrice(s, a);
+  const proceeds = unit * n;
+  const gain = proceeds - a.costPerUnit * n;
+
+  s.cash += proceeds;
+  a.qty -= n;
+  if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
+
+  note(
+    s,
+    {
+      th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ที่ราคาตลาด ${money(unit)} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
+      en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} at the market price of ${money(unit)} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
     },
     gain >= 0 ? 'good' : 'bad',
   );
@@ -703,16 +902,25 @@ export function acceptBaby(s: GameState): void {
   checkEscape(s);
 }
 
+/** One month of pay, which Thai labour law owes anyone let go after a year. */
+export function severance(s: GameState): number {
+  return profession(s).salary;
+}
+
 export function acceptDownsized(s: GameState): void {
   if (s.pending?.kind !== 'downsized') return;
   // The bill for being jobless is charged month by month over the two skipped
   // turns (see rollDice), not as one lump here, so the player watches it happen.
+  // The severance lands up front, which is exactly how it feels: a cushion that
+  // looks generous on the day and is gone before the job comes back.
   s.skipTurns = 2;
+  const pay = severance(s);
+  s.cash += pay;
   note(
     s,
     {
-      th: 'ตกงาน ไม่มีเงินเดือนเข้าอีก 2 เดือน แต่รายจ่ายยังเดินต่อทุกเดือน',
-      en: 'Downsized: no salary for two months, while the expenses carry on regardless.',
+      th: `ตกงาน ได้ค่าชดเชย ${money(pay)} แต่ไม่มีเงินเดือนเข้าอีก 2 เดือน ส่วนรายจ่ายยังเดินต่อทุกเดือน`,
+      en: `Downsized: ${money(pay)} of severance, then two months with no salary while the expenses carry on regardless.`,
     },
     'bad',
   );
@@ -749,34 +957,14 @@ export function skipCharity(s: GameState): void {
 
 /* -------------------------------------------------------------- fast tiles */
 
-export function buyFastDeal(s: GameState): void {
-  if (s.pending?.kind !== 'fastdeal') return;
-  const card = fastById.get(s.pending.cardId);
-  if (!card || card.type !== 'deal' || s.cash < card.price) return;
-  s.cash -= card.price;
-  s.assets.push({
-    uid: uid(s, card.id),
-    cardId: card.id,
-    kind: 'business',
-    name: card.title,
-    tag: 'fasttrack',
-    qty: 1,
-    costPerUnit: card.price,
-    pricePerUnit: card.price,
-    debt: 0,
-    mortgagePay: 0,
-    cashflowPerUnit: card.cashflow,
-  });
-  note(
-    s,
-    {
-      th: `ลงทุน ${card.title.th} จ่าย ${money(card.price)} รายได้ทางด่วนเพิ่มเดือนละ ${money(card.cashflow)}`,
-      en: `Invested in ${card.title.en} for ${money(card.price)}: ${money(card.cashflow)} more per month.`,
-    },
-    'good',
-  );
-  s.pending = null;
-  checkWin(s);
+/** Cash value of a fast-track card, in months of the player's passive income. */
+export function fastAmount(s: GameState, months: number): number {
+  return Math.round((passiveIncome(s) * months) / 1000) * 1000;
+}
+
+/** How much monthly income a setback takes away, as a share of what comes in. */
+export function fastIncomeLoss(s: GameState, pct: number): number {
+  return Math.round((passiveIncome(s) * pct) / 100) * 100;
 }
 
 /**
@@ -797,23 +985,22 @@ function shaveIncome(s: GameState, amount: number): void {
 export function resolveFastCard(s: GameState): void {
   const p = s.pending;
   if (!p) return;
-  if (p.kind === 'fastdeal') {
-    s.pending = null;
-    return;
-  }
   if (p.kind === 'fastbonus' || p.kind === 'fastsetback') {
     const card: FastCard | undefined = fastById.get(p.cardId);
     if (card && card.type === 'bonus') {
-      s.cash += card.amount;
-      note(s, { th: `${card.title.th} +${money(card.amount)}`, en: `${card.title.en}: +${money(card.amount)}` }, 'good');
+      const gain = fastAmount(s, card.months);
+      s.cash += gain;
+      note(s, { th: `${card.title.th} +${money(gain)}`, en: `${card.title.en}: +${money(gain)}` }, 'good');
     } else if (card && card.type === 'setback') {
-      s.cash -= card.amount;
-      if (card.incomeLoss) shaveIncome(s, card.incomeLoss);
+      const cost = fastAmount(s, card.months);
+      const loss = card.incomeLossPct ? fastIncomeLoss(s, card.incomeLossPct) : 0;
+      s.cash -= cost;
+      if (loss > 0) shaveIncome(s, loss);
       note(
         s,
         {
-          th: `${card.title.th} ${card.amount ? `จ่าย ${money(card.amount)}` : ''}${card.incomeLoss ? ` รายได้ต่อเดือนหายไป ${money(card.incomeLoss)}` : ''}`,
-          en: `${card.title.en}${card.amount ? `: paid ${money(card.amount)}` : ''}${card.incomeLoss ? `, monthly income down ${money(card.incomeLoss)}` : ''}`,
+          th: `${card.title.th}${cost ? ` จ่าย ${money(cost)}` : ''}${loss ? ` รายได้ต่อเดือนหายไป ${money(loss)}` : ''}`,
+          en: `${card.title.en}${cost ? `: paid ${money(cost)}` : ''}${loss ? `, monthly income down ${money(loss)}` : ''}`,
         },
         'bad',
       );
@@ -823,33 +1010,184 @@ export function resolveFastCard(s: GameState): void {
   }
 }
 
+/** Dreams still on the shelf, cheapest first so the ladder reads as a ladder. */
+export function remainingDreams(s: GameState): Dream[] {
+  return dreams.filter((d) => !s.dreamsOwned.includes(d.id)).sort((a, b) => a.cost - b.cost);
+}
+
+export function ownedDreams(s: GameState): Dream[] {
+  return s.dreamsOwned.map((id) => dreamById.get(id)).filter((d): d is Dream => !!d);
+}
+
+export function dreamsDone(s: GameState): boolean {
+  return s.dreamsOwned.length >= dreams.length;
+}
+
 export function buyDream(s: GameState): void {
   if (s.pending?.kind !== 'dream') return;
   const dream = dreamById.get(s.dreamId);
-  if (!dream || s.cash < dream.cost) return;
+  if (!dream || s.cash < dream.cost || s.dreamsOwned.includes(dream.id)) return;
   s.cash -= dream.cost;
-  s.dreamBought = true;
-  note(s, { th: `ซื้อความฝัน: ${dream.title.th}`, en: `Dream purchased: ${dream.title.en}` }, 'good');
+  s.dreamsOwned.push(dream.id);
+  note(
+    s,
+    {
+      th: `ทำความฝันสำเร็จ: ${dream.title.th} (ครบ ${s.dreamsOwned.length} จาก ${dreams.length} ข้อ)`,
+      en: `Dream achieved: ${dream.title.en} (${s.dreamsOwned.length} of ${dreams.length})`,
+    },
+    'good',
+  );
   s.pending = null;
+  // Line up the next one automatically, so the tile always has something to be
+  // about the next time it comes round.
+  const next = remainingDreams(s)[0];
+  if (next) s.dreamId = next.id;
   checkWin(s);
 }
 
+/** Choose which dream to chase next, from the ones not yet achieved. */
+export function pickDream(s: GameState, dreamId: string): void {
+  if (s.pending?.kind !== 'dreamPick') return;
+  const dream = dreamById.get(dreamId);
+  if (!dream || s.dreamsOwned.includes(dreamId)) return;
+  s.dreamId = dreamId;
+  s.pending = { kind: 'dream' };
+  note(
+    s,
+    { th: `ตั้งความฝันข้อต่อไป: ${dream.title.th}`, en: `Next dream set: ${dream.title.en}` },
+    'plain',
+  );
+}
+
 export function skipDream(s: GameState): void {
-  if (s.pending?.kind !== 'dream') return;
+  if (s.pending?.kind !== 'dream' && s.pending?.kind !== 'dreamPick') return;
+  s.pending = null;
+}
+
+/* ------------------------------------------------------------------ legacy */
+
+/**
+ * Thailand's inheritance tax only bites above ฿100m from any one estate, at 10%,
+ * or 5% where the heirs are the deceased's own parents or descendants. A
+ * registered spouse is exempt entirely. The game uses the 5% direct-heir rate,
+ * since that is the case almost every player is imagining.
+ *
+ * These are game mechanics built on the real thresholds, not tax advice; the
+ * rules panel says so out loud.
+ */
+export const ESTATE_FREE = 100000000;
+export const ESTATE_RATE = 0.05;
+/** company tax, flat, against the personal rate a big portfolio would otherwise pay */
+export const CORP_TAX_RATE = 0.2;
+export const CORP_SETUP_COST = 250000;
+/** accountants, audits and filings, every month, whether or not it saved anything */
+export const CORP_MONTHLY_COST = 45000;
+/** a policy costs this share of its sum assured every month */
+export const INSURANCE_PREMIUM_RATE = 0.0016;
+export const INSURANCE_STEP = 10000000;
+
+/** What the heirs would be billed if the estate passed today. */
+export function estateTax(s: GameState): number {
+  const taxable = Math.max(0, netWorth(s) - ESTATE_FREE);
+  return Math.round(taxable * ESTATE_RATE);
+}
+
+/** True once the estate is big enough for the tax to exist at all. */
+export function estateTaxable(s: GameState): boolean {
+  return netWorth(s) > ESTATE_FREE;
+}
+
+export function insurancePremium(s: GameState): number {
+  return Math.round(s.insuranceCover * INSURANCE_PREMIUM_RATE);
+}
+
+/**
+ * The number the endgame is really played for: what actually reaches the people
+ * and causes the player named, once the taxman has taken his cut. Insurance
+ * proceeds are paid straight to the beneficiary rather than into the estate, so
+ * they arrive whole, and money already given away can no longer be taxed.
+ */
+export function legacyTotal(s: GameState): number {
+  return Math.max(0, netWorth(s) - estateTax(s)) + s.insuranceCover + s.donated;
+}
+
+export function legacyUnlocked(s: GameState): boolean {
+  return dreamsDone(s);
+}
+
+/** Give a slice away for good. It leaves the balance sheet and never comes back. */
+export function donate(s: GameState, amount: number): void {
+  const value = Math.min(Math.max(0, Math.floor(amount)), Math.floor(s.cash));
+  if (value <= 0) return;
+  s.cash -= value;
+  s.donated += value;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `โอนเข้ามูลนิธิ ${money(value)} เงินก้อนนี้ออกจากงบของคุณถาวร และออกจากฐานภาษีมรดกไปด้วย`,
+      en: `${money(value)} moved into the foundation. It leaves your balance sheet for good, and leaves the taxable estate with it.`,
+    },
+    'good',
+  );
+  checkTier(s);
+}
+
+/**
+ * Move the portfolio into a company. Worth it only once the tax saved beats the
+ * accountant, which is the whole lesson: a structure that is right for someone
+ * bigger than you is simply a cost.
+ */
+export function corpSaving(s: GameState): number {
+  const personal = taxes(s);
+  const corporate = Math.round(passiveIncome(s) * CORP_TAX_RATE * 0.5) + CORP_MONTHLY_COST;
+  return personal - corporate;
+}
+
+export function incorporate(s: GameState): void {
+  if (s.incorporated || s.cash < CORP_SETUP_COST) return;
+  s.cash -= CORP_SETUP_COST;
+  s.incorporated = true;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `จดนิติบุคคลแล้ว จ่ายค่าตั้ง ${money(CORP_SETUP_COST)} ภาษีเปลี่ยนเป็นอัตราบริษัท และมีค่าบัญชี ${money(CORP_MONTHLY_COST)} ทุกเดือนไม่ว่าจะประหยัดได้หรือไม่`,
+      en: `Incorporated for ${money(CORP_SETUP_COST)}. Tax moves to the company rate, and ${money(CORP_MONTHLY_COST)} of accounting is due every month whether it saves anything or not.`,
+    },
+    corpSaving(s) > 0 ? 'good' : 'bad',
+  );
+}
+
+export function buyInsurance(s: GameState, cover: number): void {
+  const value = Math.floor(Math.max(0, cover) / INSURANCE_STEP) * INSURANCE_STEP;
+  if (value <= 0) return;
+  s.insuranceCover += value;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `ทำประกันชีวิตทุน ${money(value)} เบี้ยเพิ่มเดือนละ ${money(Math.round(value * INSURANCE_PREMIUM_RATE))} สินไหมจ่ายตรงถึงผู้รับผลประโยชน์ จึงไม่ตกเป็นกองมรดกและไม่ถูกคิดภาษี`,
+      en: `Took out ${money(value)} of life cover at ${money(Math.round(value * INSURANCE_PREMIUM_RATE))} a month. The payout goes straight to the beneficiary, so it never enters the estate and is never taxed.`,
+    },
+    'good',
+  );
+}
+
+export function closeLegacy(s: GameState): void {
+  if (s.pending?.kind !== 'legacy') return;
   s.pending = null;
 }
 
 /* --------------------------------------------------------------- debt desk */
 
-function addDebt(s: GameState, key: DebtKey, balance: number, payment: number, interestOnly = false): void {
+function addDebt(s: GameState, key: DebtKey, balance: number, payment: number): void {
   const existing = s.debts.find((d) => d.key === key);
   if (existing) {
     existing.balance += balance;
     existing.payment += payment;
   } else {
-    const d: Debt = { key, balance, payment, rate: DEBT_RATE[key] };
-    if (interestOnly) d.interestOnly = true;
-    s.debts.push(d);
+    s.debts.push({ key, balance, payment, rate: DEBT_RATE[key] });
   }
 }
 
@@ -862,12 +1200,12 @@ export function borrow(s: GameState, amount: number): void {
   const value = Math.min(steps * LOAN_STEP, maxBorrow(s));
   if (value <= 0) return;
   s.cash += value;
-  addDebt(s, 'bank', value, value * LOAN_RATE, true);
+  addDebt(s, 'bank', value, value * LOAN_RATE);
   note(
     s,
     {
-      th: `กู้ธนาคาร ${money(value)} รายจ่ายเพิ่มเดือนละ ${money(value * LOAN_RATE)}`,
-      en: `Borrowed ${money(value)}, adding ${money(value * LOAN_RATE)} to monthly expenses.`,
+      th: `กู้ธนาคาร ${money(value)} ผ่อนเดือนละ ${money(value * LOAN_RATE)} ประมาณ 11 เดือนจึงหมด`,
+      en: `Borrowed ${money(value)} at ${money(value * LOAN_RATE)} a month, clearing in about eleven months.`,
     },
     'bad',
   );
@@ -892,9 +1230,12 @@ export function repay(s: GameState, key: string, amount?: number): void {
 
   s.cash -= value;
   const label = debtLabel(d.key);
-  const freed = key === 'bank' ? value * LOAN_RATE : d.payment;
+  // Paying off part of a loan shortens it rather than stretching it: the
+  // payment falls in the same proportion as the balance.
+  const share = d.balance > 0 ? value / d.balance : 1;
+  const freed = key === 'bank' ? d.payment * share : d.payment;
   d.balance -= value;
-  d.payment = key === 'bank' ? d.balance * LOAN_RATE : 0;
+  d.payment = key === 'bank' ? Math.max(0, d.payment - freed) : 0;
   if (d.balance <= 0) s.debts = s.debts.filter((x) => x.key !== key);
 
   note(
@@ -906,6 +1247,37 @@ export function repay(s: GameState, key: string, amount?: number): void {
     'good',
   );
   checkEscape(s);
+}
+
+/**
+ * Clear the loan attached to one holding. Left to amortise on its own a
+ * property mortgage runs about forty years, so this is the only way the
+ * payment-becomes-income moment is ever reachable inside a game: spend the
+ * cash, stop paying interest, and keep the rent that was covering it.
+ */
+export function canClearMortgage(s: GameState, assetUid: string): boolean {
+  const a = s.assets.find((x) => x.uid === assetUid);
+  return !!a && a.debt > 0 && s.cash >= a.debt;
+}
+
+export function clearMortgage(s: GameState, assetUid: string): void {
+  const a = s.assets.find((x) => x.uid === assetUid);
+  if (!a || a.debt <= 0 || s.cash < a.debt) return;
+  const paid = a.debt;
+  s.cash -= paid;
+  a.debt = 0;
+  a.cashflowPerUnit += a.mortgagePay / a.qty;
+  note(
+    s,
+    {
+      th: `ปิดหนี้ ${a.name.th} ${money(paid)} ค่าผ่อนเดือนละ ${money(a.mortgagePay)} กลายเป็นรายได้ของคุณเต็ม ๆ`,
+      en: `Cleared the loan on ${a.name.en} for ${money(paid)}: the ${money(a.mortgagePay)} monthly payment is now income.`,
+    },
+    'good',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+  checkTier(s);
 }
 
 export const debtLabel = (key: DebtKey): Loc =>
@@ -1004,15 +1376,33 @@ export function acceptFriendHelp(s: GameState): void {
   checkTrouble(s);
 }
 
+/**
+ * Put the quit decision to the player, but only the first time they cross the
+ * line. Anyone who says "not yet" would otherwise be asked again every payday
+ * for the rest of the game; the button under the board is how they change their
+ * mind later.
+ */
 export function checkEscape(s: GameState): void {
-  if (s.phase !== 'rat' || s.pending !== null) return;
-  if (canQuit(s)) s.pending = { kind: 'quit' };
+  if (s.phase !== 'rat') return;
+  // Falling back below the line arms the offer again: crossing it a second time
+  // after a new baby or a new debt is a fresh decision, not a repeat of the old.
+  if (!canQuit(s)) {
+    s.quitOffered = false;
+    return;
+  }
+  if (s.pending !== null || s.quitOffered) return;
+  // The flag is only set once the player has actually answered (see quitJob and
+  // stayEmployed). Marking it here would lose the offer for good whenever a
+  // payday raised it mid-walk and the landing tile's card overwrote it, leaving
+  // a board that can never be escaped from.
+  s.pending = { kind: 'quit' };
 }
 
 export function quitJob(s: GameState): void {
   if (!canQuit(s)) return;
   const passive = passiveIncome(s);
   s.quit = true;
+  s.quitOffered = true;
   s.phase = 'fast';
   s.escapeIncome = passive;
   const bonus = passive * ESCAPE_MULTIPLE;
@@ -1033,6 +1423,7 @@ export function quitJob(s: GameState): void {
 export function stayEmployed(s: GameState): void {
   if (s.pending?.kind !== 'quit') return;
   s.pending = null;
+  s.quitOffered = true;
   note(
     s,
     { th: 'ยังไม่ลาออก เก็บเงินเดือนไว้สะสมกันชนก่อน', en: 'Not yet: the salary stays while the buffer grows.' },
@@ -1058,6 +1449,24 @@ export function callItADay(s: GameState): void {
   s.phase = 'won';
   s.endedByChoice = true;
   s.pending = null;
+}
+
+/**
+ * Take a finished run back off the shelf. Ending the game is the player's call,
+ * so un-ending it should be too: pressing "see the summary" must not be a
+ * one-way door, and saves written by older builds that declared a winner on the
+ * player's behalf would otherwise be stuck on that card forever.
+ */
+export function resumeAfterEnd(s: GameState): void {
+  if (s.phase !== 'won') return;
+  s.phase = s.quit ? 'fast' : 'rat';
+  s.endedByChoice = false;
+  s.pending = null;
+  note(
+    s,
+    { th: 'กลับมาเล่นต่อ ยังไม่มีอะไรจบนอกจากล้มละลาย', en: 'Back in the game: nothing ends this but bankruptcy.' },
+    'good',
+  );
 }
 
 export function checkWin(s: GameState): void {
@@ -1110,17 +1519,78 @@ export function parseSave(raw: string): GameState | null {
   // a board nobody could roll on again.
   if (!Number.isFinite(game.walking)) game.walking = 0;
   if (typeof game.quit !== 'boolean') game.quit = game.phase === 'fast' || game.phase === 'won';
+  if (typeof game.quitOffered !== 'boolean') game.quitOffered = game.quit;
+  // The old single `dreamBought` flag becomes a one-entry collection.
+  if (!Array.isArray(game.dreamsOwned)) {
+    const legacy = (parsed as Record<string, unknown>).dreamBought === true;
+    game.dreamsOwned = legacy ? [game.dreamId] : [];
+  }
   if (!Number.isFinite(game.karma)) game.karma = 0;
   if (typeof game.friendHelpUsed !== 'boolean') game.friendHelpUsed = false;
   if (typeof game.endedByChoice !== 'boolean') game.endedByChoice = false;
   for (const d of game.debts) {
     if (!Number.isFinite(d.rate)) d.rate = DEBT_RATE[d.key] ?? 0;
-    if (d.key === 'bank') d.interestOnly = true;
+    // Saves written while the emergency loan was interest-only carry both the
+    // flag and the old 10% rate; both are converted so the loan now ends.
+    if (d.key === 'bank') {
+      delete d.interestOnly;
+      d.rate = DEBT_RATE.bank;
+    }
   }
-  for (const a of game.assets) if (!Number.isFinite(a.mortgagePay)) a.mortgagePay = 0;
+  // A mortgaged holding saved before `mortgagePay` existed must get its real
+  // payment back from the card it came from, not a zero. Defaulting to zero
+  // left a debt whose payment covers nothing: the balance never amortises, and
+  // the breakdown reads "interest ฿3,990, principal ฿0" next to ฿3,500 of rent,
+  // which looks like the property loses money every month. It does not; the
+  // ฿3,500 is already net of a ฿6,300 payment that the save had simply lost.
+  for (const a of game.assets) {
+    if (Number.isFinite(a.mortgagePay) && a.mortgagePay > 0) continue;
+    const card = a.debt > 0 ? dealById.get(a.cardId) : undefined;
+    a.mortgagePay = card?.mortgagePay ? card.mortgagePay * a.qty : 0;
+  }
   if (!Number.isFinite(game.tier)) game.tier = tierOf(game);
   if (!Number.isFinite(game.escapeIncome)) game.escapeIncome = 0;
   if (!Number.isFinite(game.charityTurns)) game.charityTurns = 0;
+  if (!Number.isFinite(game.donated)) game.donated = 0;
+  if (typeof game.incorporated !== 'boolean') game.incorporated = false;
+  if (!Number.isFinite(game.insuranceCover)) game.insuranceCover = 0;
+  if (!Number.isFinite(game.impact)) game.impact = 0;
+  if (!Array.isArray(game.decks?.fastMega)) game.decks.fastMega = [];
+  // A deck is a list of card ids, and the card list changes between deploys.
+  // Anything that no longer exists is dropped here, because drawing a card that
+  // cannot be found leaves a pending decision nothing can render and no way to
+  // roll again: the board is dead with no error anywhere. Emptied decks refill
+  // themselves from the current cards on the next draw.
+  const known: Record<keyof Decks, Set<string>> = {
+    small: new Set(dealIdsOfSize('small')),
+    big: new Set(dealIdsOfSize('big')),
+    fastDeal: new Set(dealIdsOfSize('fast')),
+    fastMega: new Set(dealIdsOfSize('mega')),
+    market: new Set(marketCards.map((c) => c.id)),
+    doodad: new Set(doodads.map((c) => c.id)),
+    fastBonus: new Set(fastCards.filter((c) => c.type === 'bonus').map((c) => c.id)),
+    fastSetback: new Set(fastCards.filter((c) => c.type === 'setback').map((c) => c.id)),
+  };
+  for (const key of Object.keys(known) as (keyof Decks)[]) {
+    const deck = game.decks[key];
+    game.decks[key] = Array.isArray(deck) ? deck.filter((id) => known[key].has(id)) : [];
+  }
+  // The same applies to a card the save was paused on.
+  const stuck = game.pending;
+  if (stuck) {
+    const missing =
+      ((stuck.kind === 'deal' || stuck.kind === 'fastdeal') && !dealById.has(stuck.cardId)) ||
+      (stuck.kind === 'market' && !marketById.has(stuck.cardId)) ||
+      (stuck.kind === 'doodad' && !doodadById.has(stuck.cardId)) ||
+      ((stuck.kind === 'fastbonus' || stuck.kind === 'fastsetback') && !fastById.has(stuck.cardId));
+    if (missing) game.pending = null;
+  }
+  // The fast track used to have a deck of its own card type; a save paused on
+  // one of those cards has nothing left to render, so the card is dropped.
+  const stale = game.pending as { kind?: string } | null;
+  if (stale && (stale.kind === 'fastdeal' || stale.kind === 'fastbonus' || stale.kind === 'fastsetback')) {
+    if (stale.kind === 'fastdeal') game.pending = null;
+  }
   if (!Number.isFinite(game.skipTurns)) game.skipTurns = 0;
   if (!Array.isArray(game.lastRoll)) game.lastRoll = [];
   if (typeof game.prices !== 'object' || game.prices === null) game.prices = {};
