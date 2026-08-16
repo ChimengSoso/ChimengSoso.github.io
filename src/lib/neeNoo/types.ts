@@ -229,6 +229,12 @@ export interface DoodadCard {
   instalment?: { balanceScale: number; paymentScale: number };
   /** a bill car insurance would have covered, if there is any in force */
   insurable?: boolean;
+  /**
+   * Comes round on the calendar rather than out of the deck. Birthdays and
+   * school fees arrive on a date, not on a dice roll, so these cards keep their
+   * words but are dealt by the clock.
+   */
+  annual?: boolean;
   /** what saying no to this one really costs, when the cost is not money */
   declineNote?: Loc;
 }
@@ -287,6 +293,10 @@ export type Pending =
   | { kind: 'licence'; routeId: string; targetId: string }
   /** the salary has stopped for good, whether by age or by a failed medical */
   | { kind: 'retired' }
+  /** a year has gone by and the children are a year older */
+  | { kind: 'birthday' }
+  /** the school year has come round for whichever children are old enough */
+  | { kind: 'schoolfee' }
   | { kind: 'rescue' }
   /** passive income now covers the bills: quit the job, or keep the salary */
   | { kind: 'quit' }
@@ -348,6 +358,13 @@ export interface GameState {
   slumpCut: number;
   /** months of car cover still in force; renewing buys another twelve */
   carCoverMonths: number;
+  /**
+   * Annual family events waiting to be shown. They are flags rather than
+   * pendings so a birthday that falls in the same month as a tier promotion is
+   * queued instead of quietly overwritten.
+   */
+  birthdayDue: boolean;
+  schoolDue: boolean;
   /**
    * Pay as a share of what this job normally pays. It is 1 for the career you
    * started in and less than 1 after retraining, because walking into a new

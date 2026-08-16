@@ -134,12 +134,12 @@ function draw(s: GameState, deck: string[], refill: string[]): string {
 }
 
 /**
- * A birthday present for children you do not have is not a small bill, it is a
- * card that should never have been dealt. Cards priced per child are held back
- * until there is at least one, and come back into the deck the moment there is.
+ * The random pile, minus anything the calendar deals instead. Birthdays and
+ * school fees used to sit in here, which meant a family could go seven years
+ * without one and a childless player could be handed a bill for ฿0.
  */
 function drawDoodad(s: GameState): string {
-  const pool = doodads.filter((c) => !c.perChild || s.children > 0).map((c) => c.id);
+  const pool = doodads.filter((c) => !c.annual).map((c) => c.id);
   const allowed = new Set(pool);
   s.decks.doodad = s.decks.doodad.filter((id) => allowed.has(id));
   return draw(s, s.decks.doodad, pool);
@@ -473,6 +473,8 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     slumpMonths: 0,
     slumpCut: 0,
     carCoverMonths: 0,
+    birthdayDue: false,
+    schoolDue: false,
     entryPay: 1,
     skipTurns: 0,
     charityTurns: 0,
@@ -535,6 +537,9 @@ export function rollDice(s: GameState, dice: number): void {
       'bad',
     );
     checkTrouble(s);
+    // Months out of work are still months, so an anniversary that falls during
+    // one is dealt here rather than waiting for the job to come back.
+    claimAnnual(s);
     return;
   }
 
@@ -798,6 +803,103 @@ export function payLicence(s: GameState, plan: LicencePlan): void {
   switchCareer(s, targetId, route);
 }
 
+/* ------------------------------------------------------- the family calendar */
+
+/** Children old enough for a school to be charging for them. */
+export function schoolChildren(s: GameState): { years: number; scale: number; label: Loc }[] {
+  return s.childBorn.map((b) => childStage(s, b)).filter((c) => c.years >= 3);
+}
+
+/**
+ * One card a year for the whole family rather than one per child. Three
+ * children would otherwise mean six interruptions a year, which buys realism
+ * with an amount of clicking nobody asked for.
+ */
+export function birthdayCost(s: GameState): number {
+  const card = doodadById.get('x-gift');
+  if (!card || s.childBorn.length === 0) return 0;
+  const per = card.scale * livingCost(s);
+  return Math.round(s.childBorn.reduce((sum, b) => sum + per * childStage(s, b).scale, 0) / 100) * 100;
+}
+
+/** School bills only the children who are actually at school, and by stage. */
+export function schoolFee(s: GameState): number {
+  const card = doodadById.get('x-school');
+  const kids = schoolChildren(s);
+  if (!card || kids.length === 0) return 0;
+  const per = card.scale * livingCost(s);
+  return Math.round(kids.reduce((sum, c) => sum + per * c.scale, 0) / 100) * 100;
+}
+
+/**
+ * Anniversaries measured from the first child's arrival. School fees are held
+ * half a year away from the birthday so the two never land in the same month.
+ */
+function markAnnual(s: GameState): void {
+  const first = s.childBorn[0];
+  if (first === undefined) return;
+  const since = s.months - first;
+  if (since > 0 && since % 12 === 0) s.birthdayDue = true;
+  if (since > 6 && (since - 6) % 12 === 0 && schoolChildren(s).length > 0) s.schoolDue = true;
+}
+
+/**
+ * Turn a waiting anniversary into a card, but only when the board is otherwise
+ * idle. A birthday that falls in the same month as a promotion waits for next
+ * payday rather than being overwritten by it.
+ */
+function claimAnnual(s: GameState): void {
+  if (s.pending !== null) return;
+  if (s.birthdayDue) {
+    s.birthdayDue = false;
+    s.pending = { kind: 'birthday' };
+    return;
+  }
+  if (s.schoolDue) {
+    s.schoolDue = false;
+    s.pending = { kind: 'schoolfee' };
+  }
+}
+
+export function payBirthday(s: GameState): void {
+  if (s.pending?.kind !== 'birthday') return;
+  const cost = birthdayCost(s);
+  s.cash -= cost;
+  note(
+    s,
+    {
+      th: `วันเกิดลูก จ่ายไป ${money(cost)}`,
+      en: `Birthdays: ${money(cost)} spent.`,
+    },
+    'bad',
+  );
+  s.pending = null;
+  checkTrouble(s);
+}
+
+export function declineBirthday(s: GameState): void {
+  if (s.pending?.kind !== 'birthday') return;
+  const card = doodadById.get('x-gift');
+  if (card?.declineNote) note(s, card.declineNote, 'plain');
+  s.pending = null;
+}
+
+export function paySchool(s: GameState): void {
+  if (s.pending?.kind !== 'schoolfee') return;
+  const cost = schoolFee(s);
+  s.cash -= cost;
+  note(
+    s,
+    {
+      th: `เปิดเทอมใหม่ ค่าเทอมลูก ${schoolChildren(s).length} คน รวม ${money(cost)}`,
+      en: `A new school year: ${money(cost)} for ${schoolChildren(s).length} at school.`,
+    },
+    'bad',
+  );
+  s.pending = null;
+  checkTrouble(s);
+}
+
 /* --------------------------------------------------- one month of calendar */
 
 /**
@@ -810,6 +912,7 @@ function monthPassed(s: GameState): void {
   if (s.bondMonths > 0) s.bondMonths -= 1;
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
   if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
+  markAnnual(s);
   advanceStudy(s);
   // Rents are renegotiated once a year and recover only part of what inflation
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
@@ -873,6 +976,7 @@ function payday(s: GameState): void {
   checkEscape(s);
   checkTrouble(s);
   checkTier(s);
+  claimAnnual(s);
 }
 
 function fastPayday(s: GameState): void {
@@ -892,6 +996,7 @@ function fastPayday(s: GameState): void {
   amortize(s);
   driftBusinesses(s);
   checkTier(s);
+  claimAnnual(s);
 }
 
 function landFast(s: GameState): void {
@@ -2207,6 +2312,8 @@ export function parseSave(raw: string): GameState | null {
   if (!Number.isFinite(game.slumpMonths)) game.slumpMonths = 0;
   if (!Number.isFinite(game.slumpCut)) game.slumpCut = 0;
   if (!Number.isFinite(game.carCoverMonths)) game.carCoverMonths = 0;
+  if (typeof game.birthdayDue !== 'boolean') game.birthdayDue = false;
+  if (typeof game.schoolDue !== 'boolean') game.schoolDue = false;
   if (!Number.isFinite(game.entryPay) || game.entryPay <= 0) game.entryPay = 1;
   if (!Array.isArray(game.lastRoll)) game.lastRoll = [];
   if (typeof game.prices !== 'object' || game.prices === null) game.prices = {};

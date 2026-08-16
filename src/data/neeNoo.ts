@@ -1441,9 +1441,13 @@ export const doodads: DoodadCard[] = [
   {
     id: 'x-school',
     title: { th: 'ค่าเทอมลูก', en: 'School fees' },
-    story: { th: 'ค่าเทอม ค่าชุด ค่าหนังสือ และค่าอะไรอีกไม่รู้ที่โรงเรียนเพิ่งคิดออก', en: 'Tuition, uniforms, books, and something else the school just thought of.' },
+    story: {
+      th: 'เปิดเทอมใหม่มาพร้อมค่าเทอม ค่าชุด ค่าหนังสือ และค่าอะไรอีกไม่รู้ที่โรงเรียนเพิ่งคิดออก ปีหน้าก็มาอีก และแพงขึ้นทุกปีที่ลูกโตขึ้น',
+      en: 'A new school year arrives with tuition, uniforms, books, and something else the school just thought of. It comes again next year, and it costs more every year they grow.',
+    },
     scale: 0.9,
     perChild: true,
+    annual: true,
   },
   {
     id: 'x-ticket',
@@ -1526,6 +1530,7 @@ export const doodads: DoodadCard[] = [
     },
     scale: 0.45,
     perChild: true,
+    annual: true,
     optional: true,
     declineNote: {
       th: 'เงินก้อนนี้ยังอยู่ในบัญชีคุณครบ อีกยี่สิบปีลูกอาจจำวันเกิดปีนี้ไม่ได้เลย หรืออาจจำได้แม่นกว่าที่คุณอยากให้จำ เกมนี้คำนวณให้คุณได้ทุกอย่าง ยกเว้นว่าตกลงแล้วคุ้มไหม',
