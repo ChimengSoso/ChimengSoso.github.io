@@ -1434,6 +1434,8 @@ export const doodads: DoodadCard[] = [
     title: { th: 'งานแต่งเพื่อน', en: 'A friend’s wedding' },
     story: { th: 'ซองแดงหนึ่งใบ กับค่าเดินทางไปต่างจังหวัดอีกนิดหน่อย', en: 'One envelope of cash, plus a little travel to get there.' },
     scale: 0.3,
+    optional: true,
+    social: true,
   },
   {
     id: 'x-school',

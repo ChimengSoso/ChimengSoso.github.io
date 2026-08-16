@@ -110,6 +110,10 @@ export const UI = {
   sell: { th: 'ขาย', en: 'Sell' },
   sellNone: { th: 'ไม่ขาย', en: 'Sell nothing' },
   marketNone: { th: 'ยังไม่ทำอะไร', en: 'Do nothing' },
+  welcomeChild: { th: 'ยินดีต้อนรับ', en: 'Welcome them' },
+  notNow: { th: 'ยังไม่พร้อม', en: 'Not now' },
+  childCostNow: { th: 'ค่าเลี้ยงดูตอนนี้', en: 'Costs from today' },
+  childCostLater: { th: 'ตอนเข้ามัธยม', en: 'By secondary school' },
   halfPrice: { th: 'ขายครึ่งราคาได้', en: 'Half price fetches' },
   minusItsDebt: { th: 'หักหนี้ที่ติดอยู่', en: 'less the debt on it' },
   andLoses: { th: 'และเสียเงินไหลเข้า', en: 'and gives up' },
@@ -200,8 +204,8 @@ export const UI = {
   instalmentBtn: { th: 'ขอผ่อนแทน', en: 'Take instalments' },
   ok: { th: 'รับทราบ', en: 'Continue' },
   babyBody: {
-    th: 'ครอบครัวใหญ่ขึ้นหนึ่งคน ความสุขเพิ่มขึ้นเยอะ และรายจ่ายรายเดือนก็เพิ่มขึ้นตามไปด้วย',
-    en: 'The family grows by one. So does joy, and so does the monthly expense line.',
+    th: 'จังหวะของการมีลูกมาถึงแล้ว ครอบครัวจะใหญ่ขึ้นหนึ่งคน ความสุขเพิ่มขึ้นเยอะ และรายจ่ายรายเดือนก็เพิ่มขึ้นตามไปด้วย แล้วยังเพิ่มอีกทุกครั้งที่ลูกโตขึ้นอีกขั้น เรื่องนี้เป็นการตัดสินใจ ไม่ใช่สิ่งที่เกมจะยัดใส่มือใคร',
+    en: 'The moment has come round. The family would grow by one, joy would grow a lot, and the monthly bill would grow too, then grow again at every stage the child passes through. This is a decision, not something the game hands you.',
   },
   downsizedBody: {
     th: 'บริษัทลดขนาด สองเดือนถัดไปคุณไม่มีเงินเดือนเข้า แต่รายจ่ายยังเดินเท่าเดิมทุกเดือน สิ่งเดียวที่ช่วยได้คือเงินไหลเข้าที่คุณสร้างไว้แล้ว',
