@@ -227,6 +227,10 @@ export interface DoodadCard {
   social?: boolean;
   /** instead of paying cash, it can be put on an instalment plan (also scaled) */
   instalment?: { balanceScale: number; paymentScale: number };
+  /** a bill car insurance would have covered, if there is any in force */
+  insurable?: boolean;
+  /** what saying no to this one really costs, when the cost is not money */
+  declineNote?: Loc;
 }
 
 /**
@@ -342,6 +346,8 @@ export interface GameState {
   /** a self-employed slump: months left, and the share of takings it removes */
   slumpMonths: number;
   slumpCut: number;
+  /** months of car cover still in force; renewing buys another twelve */
+  carCoverMonths: number;
   /**
    * Pay as a share of what this job normally pays. It is 1 for the career you
    * started in and less than 1 after retraining, because walking into a new
