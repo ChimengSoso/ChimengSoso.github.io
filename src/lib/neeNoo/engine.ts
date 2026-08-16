@@ -126,6 +126,18 @@ function draw(s: GameState, deck: string[], refill: string[]): string {
   return id ?? (refill[0] ?? '');
 }
 
+/**
+ * A birthday present for children you do not have is not a small bill, it is a
+ * card that should never have been dealt. Cards priced per child are held back
+ * until there is at least one, and come back into the deck the moment there is.
+ */
+function drawDoodad(s: GameState): string {
+  const pool = doodads.filter((c) => !c.perChild || s.children > 0).map((c) => c.id);
+  const allowed = new Set(pool);
+  s.decks.doodad = s.decks.doodad.filter((id) => allowed.has(id));
+  return draw(s, s.decks.doodad, pool);
+}
+
 function uid(s: GameState, cardId: string): string {
   return `${cardId}-${Math.floor(rand(s) * 1e9).toString(36)}`;
 }
@@ -590,7 +602,7 @@ function landRat(s: GameState): void {
       applyMarketPrice(s);
       break;
     case 'doodad':
-      s.pending = { kind: 'doodad', cardId: draw(s, s.decks.doodad, doodads.map((c) => c.id)) };
+      s.pending = { kind: 'doodad', cardId: drawDoodad(s) };
       break;
     case 'baby':
       s.pending = { kind: 'baby' };
