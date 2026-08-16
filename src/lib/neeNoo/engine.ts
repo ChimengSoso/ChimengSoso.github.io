@@ -16,9 +16,13 @@ import {
   dreams,
   fastById,
   fastCards,
+  childStages,
   marketById,
   marketCards,
   professionById,
+  professions,
+  studyRouteById,
+  studyRoutes,
 } from '../../data/neeNoo';
 import type {
   Asset,
@@ -31,9 +35,11 @@ import type {
   Dream,
   FastCard,
   GameState,
+  LicencePlan,
   Loc,
   MarketCard,
   Profession,
+  StudyRoute,
 } from './types';
 
 export const SAVE_VERSION = 1;
@@ -61,6 +67,9 @@ export const ESCAPE_MULTIPLE = 100;
  */
 export const FAST_GOAL_MULTIPLE = 8;
 export const MAX_CHILDREN = 3;
+/** months a sponsored licence is worked off for, and the cut taken meanwhile */
+export const BOND_MONTHS = 36;
+export const BOND_CUT = 0.25;
 /** monthly interest on the debt a profession starts with, and on asset mortgages */
 export const DEBT_RATE: Record<DebtKey, number> = {
   home: 0.0035,
@@ -138,11 +147,23 @@ export function passiveIncome(s: GameState): number {
 }
 
 export function salary(s: GameState): number {
-  return s.quit ? 0 : profession(s).salary;
+  if (noMoreSalary(s)) return 0;
+  // A full-time course means no wage at all while it runs.
+  if (s.study && studyRouteById.get(s.study.routeId)?.fullTime) return 0;
+  let base = profession(s).salary * payLevel(s) * s.entryPay;
+  if (s.bondMonths > 0) base *= 1 - BOND_CUT;
+  if (s.slumpMonths > 0) base *= 1 - s.slumpCut;
+  return Math.round(base);
 }
 
 export function totalIncome(s: GameState): number {
-  return salary(s) + passiveIncome(s);
+  return salary(s) + pensionIncome(s) + passiveIncome(s);
+}
+
+/** Tuition due each month the enrolment is running, averaged over its terms. */
+export function tuitionMonthly(s: GameState): number {
+  if (!s.study || s.study.termsLeft <= 0) return 0;
+  return Math.round(s.study.perTerm / s.study.termEvery);
 }
 
 /** Everything owed each month across the balance sheet, mortgages included. */
@@ -166,13 +187,123 @@ export function tierOf(s: GameState): number {
   return 1;
 }
 
-/** True once passive income covers the bills, i.e. the job is optional. */
+/**
+ * True once passive income covers the bills, i.e. the job is optional.
+ *
+ * Not while out of work, though. There is no job to resign from during those
+ * months, and the salary is already zero, so quitting then would cost nothing
+ * and still pay the escape bonus: the layoff would become the cheapest possible
+ * moment to leave, which is the opposite of what the card is for. The offer
+ * comes back by itself on the first turn back at work.
+ */
 export function canQuit(s: GameState): boolean {
-  return !s.quit && passiveIncome(s) >= totalExpenses(s);
+  return !s.quit && s.skipTurns === 0 && passiveIncome(s) >= totalExpenses(s);
+}
+
+/* -------------------------------------------------------------- the clock */
+
+/**
+ * Thailand's long-run average since 1977 is 3.71% a year, and the last two
+ * years were near zero. 3% sits between the two and is high enough to be felt
+ * across a game without being a number nobody would recognise.
+ */
+export const INFLATION = 0.03;
+/**
+ * Rents chase inflation but never quite catch it: a lease is fixed until it is
+ * renewed, and a tenant who is asked for the whole increase leaves.
+ */
+export const RENT_FOLLOW = 0.7;
+
+export function yearsElapsed(s: GameState): number {
+  return Math.floor(s.months / 12);
+}
+
+/** Everything a household buys, indexed to the year the game has reached. */
+export function priceLevel(s: GameState): number {
+  return Math.pow(1 + INFLATION, yearsElapsed(s));
+}
+
+/** Pay rises compound too, and for most jobs they lose the race on purpose. */
+export function payLevel(s: GameState): number {
+  return Math.pow(1 + profession(s).raise, yearsElapsed(s));
+}
+
+export function livingCost(s: GameState): number {
+  return Math.round(profession(s).otherExpenses * priceLevel(s));
+}
+
+export function ageMonths(s: GameState): number {
+  return profession(s).startAge * 12 + s.months;
+}
+
+export function ageYears(s: GameState): number {
+  return Math.floor(ageMonths(s) / 12);
+}
+
+/** Months of salary left before the job ends by age. Infinite for self-employment. */
+export function monthsToRetire(s: GameState): number {
+  const p = profession(s);
+  if (p.retireAge <= 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, p.retireAge * 12 - ageMonths(s));
+}
+
+export function retiredByAge(s: GameState): boolean {
+  return monthsToRetire(s) <= 0;
+}
+
+/** No salary from here: the age came, or the career ended some other way. */
+export function noMoreSalary(s: GameState): boolean {
+  return s.quit || s.careerOver || retiredByAge(s);
+}
+
+/**
+ * What the state pays once the salary stops, and the three answers are not
+ * close to each other. A civil servant collects a share of their own salary. An
+ * employee collects a share of a ฿15,000 ceiling no matter what they earned, so
+ * the bigger the salary the more brutal the drop. Someone who worked for
+ * themselves collects the old-age allowance that every Thai over 60 receives.
+ */
+export function pensionIncome(s: GameState): number {
+  if (!noMoreSalary(s) || s.quit) return 0;
+  const p = profession(s);
+  // Nothing pays out early. Social security's old-age benefit starts at 55, the
+  // civil pension and the old-age allowance at 60, so a career that ended at 43
+  // means twelve years of paying the bills out of whatever you built.
+  const claimAge = p.pension === 'sso' ? 55 : 60;
+  if (ageYears(s) < claimAge) return 0;
+  const finalSalary = Math.round(p.salary * payLevel(s));
+  // Career length assumes the player started work at 22, which is what the
+  // contribution-year part of both formulas is counting.
+  const served = Math.max(0, ageYears(s) - 22);
+  if (p.pension === 'civil') {
+    // อายุราชการ × เงินเดือนเฉลี่ย ÷ 50, capped at 70% of that salary.
+    return Math.round(Math.min(finalSalary * 0.7, (finalSalary * served) / 50));
+  }
+  if (p.pension === 'sso') {
+    // 20% of the capped wage base at 15 years, plus 1.5% for every year beyond.
+    const rate = 0.2 + 0.015 * Math.max(0, served - 15);
+    return Math.round(Math.min(15000, finalSalary) * rate);
+  }
+  // The old-age allowance, which is all a self-employed player ever gets.
+  return ageYears(s) >= 60 ? 600 : 0;
+}
+
+/* ------------------------------------------------------------------ family */
+
+/**
+ * A child costs what its age costs. The tiers come from the real shape of the
+ * bill: milk and nappies, then kindergarten fees, then school, then tutoring.
+ */
+export function childStage(s: GameState, bornMonth: number): { years: number; scale: number; label: Loc } {
+  const years = Math.max(0, Math.floor((s.months - bornMonth) / 12));
+  let stage = childStages[0];
+  for (const t of childStages) if (years >= t.fromAge) stage = t;
+  return { years, scale: stage.scale, label: stage.label };
 }
 
 export function childExpense(s: GameState): number {
-  return profession(s).childCost * s.children;
+  const per = profession(s).childCost * priceLevel(s);
+  return Math.round(s.childBorn.reduce((sum, born) => sum + per * childStage(s, born).scale, 0));
 }
 
 /**
@@ -183,7 +314,7 @@ export function childExpense(s: GameState): number {
  */
 export function taxes(s: GameState): number {
   const p = profession(s);
-  if (!s.quit) return p.taxes;
+  if (!s.quit) return Math.round(p.taxes * payLevel(s) * (salary(s) > 0 ? 1 : 0));
   // Inside a company the rate is flat and only the half taken out as salary or
   // dividend is taxed personally; the rest is left to compound in the company.
   if (s.incorporated) return Math.round(passiveIncome(s) * CORP_TAX_RATE * 0.5);
@@ -195,11 +326,35 @@ export function debtPayments(s: GameState): number {
   return s.debts.reduce((sum, d) => sum + d.payment, 0);
 }
 
+/**
+ * Debt riding on the balance sheet rather than sitting in the liabilities list.
+ * A leveraged condo hides ฿1.1M inside its own row, so a player with six of
+ * them could read "liabilities" as a number that left out almost everything
+ * they actually owe.
+ */
+export function assetDebt(s: GameState): number {
+  return s.assets.reduce((sum, a) => sum + a.debt, 0);
+}
+
+export function personalDebt(s: GameState): number {
+  return s.debts.reduce((sum, d) => sum + d.balance, 0);
+}
+
+export function totalDebt(s: GameState): number {
+  return personalDebt(s) + assetDebt(s);
+}
+
+/** Everything leaving the account each month to service debt, both kinds. */
+export function totalDebtService(s: GameState): number {
+  return debtPayments(s) + mortgagePayments(s);
+}
+
 export function totalExpenses(s: GameState): number {
   return (
     taxes(s) +
-    profession(s).otherExpenses +
+    livingCost(s) +
     childExpense(s) +
+    tuitionMonthly(s) +
     debtPayments(s) +
     (s.incorporated ? CORP_MONTHLY_COST : 0) +
     insurancePremium(s)
@@ -292,6 +447,13 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     fastPos: 0,
     turn: 1,
     months: 0,
+    childBorn: [],
+    study: null,
+    careerOver: false,
+    bondMonths: 0,
+    slumpMonths: 0,
+    slumpCut: 0,
+    entryPay: 1,
     skipTurns: 0,
     charityTurns: 0,
     escapeIncome: 0,
@@ -341,7 +503,7 @@ export function rollDice(s: GameState, dice: number): void {
     // it, which is the whole point of the game.
     s.skipTurns -= 1;
     s.turn += 1;
-    s.months += 1;
+    monthPassed(s);
     const gap = totalExpenses(s) - passiveIncome(s);
     s.cash -= gap;
     note(
@@ -484,10 +646,200 @@ export function amortize(s: GameState): void {
   s.debts = s.debts.filter((d) => d.balance > 0);
 }
 
+/* ---------------------------------------------------------- going back to school */
+
+/** Jobs a route can actually lead to, current one excluded. */
+export function routeTargets(s: GameState, route: StudyRoute): Profession[] {
+  return professions.filter(
+    (p) => p.id !== s.professionId && (route.opensLicensed || !p.licensed) && (route.id !== 'pilot' || p.id === 'pilot'),
+  );
+}
+
+export function canEnrol(s: GameState, route: StudyRoute): boolean {
+  if (s.study || s.quit) return false;
+  // The first term is due on enrolment, so it has to be affordable today.
+  return s.cash >= Math.round(route.tuition / route.terms) && routeTargets(s, route).length > 0;
+}
+
+export function enrol(s: GameState, routeId: string, targetId: string): void {
+  const route = studyRouteById.get(routeId);
+  if (!route || s.study || !professionById.has(targetId)) return;
+  const perTerm = Math.round(route.tuition / route.terms);
+  if (s.cash < perTerm) return;
+  s.cash -= perTerm;
+  s.study = {
+    routeId,
+    targetId,
+    monthsLeft: route.months,
+    termsLeft: route.terms - 1,
+    perTerm,
+    termEvery: Math.max(1, Math.round(route.months / route.terms)),
+    sinceTerm: 0,
+    totalMonths: route.months,
+  };
+  // A full-time course takes the player off the board as well as off the payroll.
+  if (route.fullTime) s.skipTurns = route.months;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `สมัครเรียน ${route.title.th} จ่ายเทอมแรก ${money(perTerm)} เหลืออีก ${route.terms - 1} เทอม ใช้เวลา ${route.months} เดือน${route.fullTime ? ' และไม่มีเงินเดือนเข้าเลยตลอดหลักสูตร' : ' โดยยังทำงานประจำไปด้วยได้'}`,
+      en: `Enrolled in ${route.title.en}: ${money(perTerm)} for the first term, ${route.terms - 1} to go, ${route.months} months of it${route.fullTime ? ', and no salary for any of them' : ', with the day job carrying on'}.`,
+    },
+    'plain',
+  );
+  checkTrouble(s);
+}
+
+/** Years finished so far, for the "year 2 of 4" line under the board. */
+export function studyYear(s: GameState): { done: number; total: number } {
+  if (!s.study) return { done: 0, total: 0 };
+  const passed = s.study.totalMonths - s.study.monthsLeft;
+  return { done: Math.floor(passed / 12) + 1, total: Math.ceil(s.study.totalMonths / 12) };
+}
+
+/**
+ * One month of an enrolment. Tuition falls when a term does, not smoothly and
+ * not all at the start, which is how a real bill arrives.
+ */
+function advanceStudy(s: GameState): void {
+  const st = s.study;
+  if (!st) return;
+  st.monthsLeft -= 1;
+  st.sinceTerm += 1;
+  if (st.sinceTerm >= st.termEvery && st.termsLeft > 0) {
+    st.sinceTerm = 0;
+    st.termsLeft -= 1;
+    s.cash -= st.perTerm;
+    note(
+      s,
+      {
+        th: `ถึงกำหนดค่าเทอม จ่ายไป ${money(st.perTerm)} เหลืออีก ${st.termsLeft} เทอม`,
+        en: `A term fell due: ${money(st.perTerm)} paid, ${st.termsLeft} to go.`,
+      },
+      'bad',
+    );
+  }
+  if (st.monthsLeft > 0) return;
+
+  const route = studyRouteById.get(st.routeId);
+  s.study = null;
+  if (!route) return;
+  if (route.licenceFee > 0) {
+    s.pending = { kind: 'licence', routeId: route.id, targetId: st.targetId };
+    return;
+  }
+  switchCareer(s, st.targetId, route);
+}
+
+/** Walk into the new job. The wage starts below what the veterans there earn. */
+export function switchCareer(s: GameState, targetId: string, route: StudyRoute): void {
+  const next = professionById.get(targetId);
+  if (!next) return;
+  const before = profession(s).name.th;
+  s.professionId = targetId;
+  s.careerOver = false;
+  s.skipTurns = 0;
+  // Entry pay is modelled as a permanent haircut against this profession's
+  // normal salary, which is what starting over actually feels like.
+  s.entryPay = route.entrySalary;
+  note(
+    s,
+    {
+      th: `เรียนจบแล้ว เปลี่ยนจาก${before}มาเป็น${next.name.th} เริ่มที่ ${Math.round(route.entrySalary * 100)}% ของเงินเดือนสายนี้ เพราะคุณคือคนใหม่ของที่นี่`,
+      en: `Graduated and moved from ${before} to ${next.name.en}, starting at ${Math.round(route.entrySalary * 100)}% of what this job normally pays, because here you are the new one.`,
+    },
+    'good',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
+/** Settle the licence fee, three ways, each expensive in its own currency. */
+export function payLicence(s: GameState, plan: LicencePlan): void {
+  if (s.pending?.kind !== 'licence') return;
+  const { routeId, targetId } = s.pending;
+  const route = studyRouteById.get(routeId);
+  if (!route) return;
+  const fee = route.licenceFee;
+  if (plan === 'cash') {
+    if (s.cash < fee) return;
+    s.cash -= fee;
+    note(s, { th: `จ่ายค่าใบอนุญาต ${money(fee)} ด้วยเงินที่เก็บมาเอง ไม่ติดหนี้ใคร`, en: `Paid the ${money(fee)} licence fee out of savings, owing nobody.` }, 'plain');
+  } else if (plan === 'loan') {
+    addDebt(s, 'bank', fee, Math.round(fee * LOAN_RATE));
+    note(s, { th: `กู้ ${money(fee)} มาจ่ายค่าใบอนุญาต ผ่อนเดือนละ ${money(Math.round(fee * LOAN_RATE))} เริ่มงานใหม่พร้อมหนี้ก้อนใหม่`, en: `Borrowed ${money(fee)} for the licence at ${money(Math.round(fee * LOAN_RATE))} a month: a new job and a new debt on the same day.` }, 'bad');
+  } else {
+    // The employer pays and buys years of your life at a below-market wage.
+    s.bondMonths = BOND_MONTHS;
+    note(s, { th: `รับทุนจากสายการบิน ไม่ต้องจ่ายค่าใบอนุญาตเอง แลกกับสัญญาผูกมัด ${BOND_MONTHS} เดือน ระหว่างนั้นเงินเดือนถูกหักไว้ ${Math.round(BOND_CUT * 100)}%`, en: `The airline paid the licence in exchange for a ${BOND_MONTHS}-month bond, during which ${Math.round(BOND_CUT * 100)}% of the salary is held back.` }, 'plain');
+  }
+  s.pending = null;
+  switchCareer(s, targetId, route);
+}
+
+/* --------------------------------------------------- one month of calendar */
+
+/**
+ * Everything that happens because a month went by rather than because the
+ * player did something. Both paydays and the jobless months go through here, so
+ * the calendar advances at one rate no matter what the player is doing.
+ */
+function monthPassed(s: GameState): void {
+  s.months += 1;
+  if (s.bondMonths > 0) s.bondMonths -= 1;
+  if (s.slumpMonths > 0) s.slumpMonths -= 1;
+  advanceStudy(s);
+  // Rents are renegotiated once a year and recover only part of what inflation
+  // took. Fixed-rate loan payments are not touched at all, which is the quiet
+  // gift inflation hands to anyone holding long debt.
+  if (s.months % 12 === 0) {
+    const step = 1 + INFLATION * RENT_FOLLOW;
+    let moved = 0;
+    for (const a of s.assets) {
+      if (a.kind !== 'property' && a.kind !== 'business') continue;
+      if (a.cashflowPerUnit === 0) continue;
+      const before = a.cashflowPerUnit;
+      a.cashflowPerUnit *= step;
+      if (a.baseCashflow !== undefined) a.baseCashflow *= step;
+      moved += (a.cashflowPerUnit - before) * a.qty;
+    }
+    note(
+      s,
+      {
+        th: `ผ่านไปอีกหนึ่งปี ค่าครองชีพขึ้น ${Math.round(INFLATION * 100)}% ค่าเช่าขึ้นตามไม่ทัน ${moved > 0 ? `+${money(moved)} ต่อเดือน` : 'ยังไม่มีค่าเช่าให้ขึ้น'} ส่วนค่างวดหนี้เท่าเดิมทุกบาท`,
+        en: `Another year gone. Living costs rose ${Math.round(INFLATION * 100)}%, rents followed only part of the way (${moved > 0 ? `+${money(moved)} a month` : 'no rent to raise yet'}), and the loan payments did not move at all.`,
+      },
+      'plain',
+    );
+  }
+  checkRetirement(s);
+}
+
+/**
+ * The salary ends on a birthday, and the game does not end with it. Whoever
+ * built enough income by then keeps playing on it; whoever did not now watches
+ * the pension they actually qualify for try to cover a life it was never sized
+ * for. This is the question the whole game has been asking.
+ */
+export function checkRetirement(s: GameState): void {
+  if (s.quit || s.careerOver || !retiredByAge(s)) return;
+  s.careerOver = true;
+  s.pending = { kind: 'retired' };
+  note(
+    s,
+    {
+      th: `อายุครบ ${profession(s).retireAge} ปี เกษียณแล้ว ไม่มีเงินเดือนอีกต่อไป เหลือบำนาญเดือนละ ${money(pensionIncome(s))} กับเงินไหลเข้าที่คุณสร้างไว้เอง ${money(passiveIncome(s))}`,
+      en: `You turned ${profession(s).retireAge} and the salary stopped. What is left is a pension of ${money(pensionIncome(s))} a month and the ${money(passiveIncome(s))} you built yourself.`,
+    },
+    'bad',
+  );
+}
+
 function payday(s: GameState): void {
   const cf = monthlyCashflow(s);
   s.cash += cf;
-  s.months += 1;
+  monthPassed(s);
   note(
     s,
     {
@@ -507,7 +859,7 @@ function fastPayday(s: GameState): void {
   // passive income minus expenses just like any other month.
   const cf = monthlyCashflow(s);
   s.cash += cf;
-  s.months += 1;
+  monthPassed(s);
   note(
     s,
     {
@@ -663,10 +1015,10 @@ export function driftBusinesses(s: GameState): void {
     if (!a.volatility || a.qty <= 0) continue;
     const roll = rand(s);
     const base = a.baseCashflow ?? a.cashflowPerUnit;
-    if (base <= 0) continue;
+    if (base === 0) continue;
 
     // A high-volatility venture can fail outright; a steady one never does.
-    if (a.volatility >= 0.25 && roll < 0.04 && a.cashflowPerUnit > 0) {
+    if (a.volatility >= 0.25 && roll < 0.04 && a.cashflowPerUnit !== 0) {
       a.cashflowPerUnit = 0;
       note(
         s,
@@ -681,8 +1033,16 @@ export function driftBusinesses(s: GameState): void {
     if (roll > 0.45) continue;
 
     const up = roll < 0.245;
-    const next = a.cashflowPerUnit * (up ? 1 + a.volatility : 1 - a.volatility);
-    const capped = Math.max(0, Math.min(base * SWING_MAX, next));
+    // A venture bought underwater steps by a fixed slice of its own size. A
+    // multiplicative step cannot work there: multiplying a loss by 1.35 deepens
+    // it at the exact moment the business is supposed to be recovering. Such a
+    // business may climb all the way into profit, which is the only reason to
+    // buy one, and may sink twice as deep first.
+    const reach = Math.abs(base) * SWING_MAX;
+    const next = base < 0
+      ? a.cashflowPerUnit + (up ? 1 : -1) * Math.abs(base) * a.volatility
+      : a.cashflowPerUnit * (up ? 1 + a.volatility : 1 - a.volatility);
+    const capped = Math.max(base < 0 ? -reach : 0, Math.min(reach, next));
     if (Math.round(capped) === Math.round(a.cashflowPerUnit)) continue;
     const delta = (capped - a.cashflowPerUnit) * a.qty;
     a.cashflowPerUnit = capped;
@@ -821,13 +1181,94 @@ export function applyMarketPrice(s: GameState): void {
   }
 }
 
+/**
+ * The deal card a traded symbol was introduced by. That card already carries
+ * the name, the dividend and the size of a sensible lot, so a purchase made
+ * straight off a market card reuses it instead of inventing a second set of
+ * numbers. What the player already holds wins the tie, so topping up a position
+ * stacks onto it rather than opening a near-identical second row.
+ */
+export function symbolDeal(s: GameState, symbol: string): DealCard | undefined {
+  const held = s.assets.find((a) => a.symbol === symbol);
+  const from = held ? dealById.get(held.cardId) : undefined;
+  if (from) return from;
+  const pool = deals.filter((c) => c.symbol === symbol);
+  const outside = s.phase !== 'rat';
+  return (
+    pool.find((c) => (outside ? c.size === 'fast' || c.size === 'mega' : c.size === 'small' || c.size === 'big')) ??
+    pool[0]
+  );
+}
+
+/**
+ * A price card is news, and news cuts both ways: a crash is a discount to
+ * anyone holding cash. Offering only the sell button taught the opposite of the
+ * intended lesson, so the same card now quotes a price to buy at too. The
+ * dividend per unit does not move with the quote, which is the part worth
+ * noticing: the same money buys more income while the price is down.
+ */
+export function marketBuy(s: GameState): { card: DealCard; unit: number; max: number } | null {
+  if (s.pending?.kind !== 'market') return null;
+  const news = marketById.get(s.pending.cardId);
+  if (!news || news.type !== 'price' || news.price <= 0) return null;
+  const card = symbolDeal(s, news.symbol);
+  if (!card) return null;
+  return { card, unit: news.price, max: Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / news.price))) };
+}
+
+export function buyFromMarket(s: GameState, qty: number): void {
+  const offer = marketBuy(s);
+  if (!offer) return;
+  const { card, unit } = offer;
+  const n = Math.max(0, Math.min(qty, offer.max));
+  if (n === 0) return;
+
+  s.cash -= unit * n;
+  const existing = s.assets.find((a) => a.cardId === card.id && a.symbol === card.symbol);
+  if (existing) {
+    const totalCost = existing.costPerUnit * existing.qty + unit * n;
+    existing.qty += n;
+    existing.costPerUnit = totalCost / existing.qty;
+    existing.pricePerUnit = unit;
+  } else {
+    // Bought with cash on the spot: no bank is lending against a price card.
+    const asset: Asset = {
+      uid: uid(s, card.id),
+      cardId: card.id,
+      kind: card.kind,
+      name: card.title,
+      qty: n,
+      costPerUnit: unit,
+      pricePerUnit: unit,
+      debt: 0,
+      mortgagePay: 0,
+      cashflowPerUnit: card.cashflow,
+    };
+    if (card.symbol !== undefined) asset.symbol = card.symbol;
+    s.assets.push(asset);
+  }
+
+  note(
+    s,
+    {
+      th: `ซื้อ ${card.title.th}${n > 1 ? ` ${n} หน่วย` : ''} ที่ราคาตลาด ${money(unit)} จ่ายเงินสด ${money(unit * n)}${card.cashflow ? ` ได้เงินไหลเข้าเพิ่มเดือนละ ${money(card.cashflow * n)}` : ''}`,
+      en: `Bought ${card.title.en}${n > 1 ? ` ×${n}` : ''} at the market price of ${money(unit)} for ${money(unit * n)}${card.cashflow ? `, adding ${money(card.cashflow * n)} a month` : ''}.`,
+    },
+    'good',
+  );
+  s.pending = null;
+  checkEscape(s);
+  checkTrouble(s);
+  checkTier(s);
+}
+
 export function closeMarket(s: GameState): void {
   if (s.pending?.kind !== 'market') return;
   s.pending = null;
 }
 
 export function doodadCost(s: GameState, card: DoodadCard): number {
-  const base = Math.round((card.scale * profession(s).otherExpenses) / 100) * 100;
+  const base = Math.round((card.scale * livingCost(s)) / 100) * 100;
   return card.perChild ? base * s.children : base;
 }
 
@@ -889,11 +1330,13 @@ export function acceptBaby(s: GameState): void {
     note(s, { th: 'ลูก ๆ โตกันหมดแล้ว รายจ่ายไม่เพิ่ม', en: 'The children are grown; expenses do not change.' });
   } else {
     s.children += 1;
+    s.childBorn.push(s.months);
+    const per = Math.round(profession(s).childCost * priceLevel(s));
     note(
       s,
       {
-        th: `มีลูกเพิ่มหนึ่งคน รายจ่ายเพิ่มเดือนละ ${money(profession(s).childCost)}`,
-        en: `A new child: ${money(profession(s).childCost)} more every month.`,
+        th: `มีลูกเพิ่มหนึ่งคน ตอนนี้รายจ่ายเพิ่มเดือนละ ${money(per)} และจะเพิ่มอีกเมื่อถึงวัยเข้าเรียน`,
+        en: `A new child: ${money(per)} more every month for now, and more again once school starts.`,
       },
       'bad',
     );
@@ -904,7 +1347,44 @@ export function acceptBaby(s: GameState): void {
 
 /** One month of pay, which Thai labour law owes anyone let go after a year. */
 export function severance(s: GameState): number {
-  return profession(s).salary;
+  return salary(s);
+}
+
+/**
+ * What being out of work costs this particular career. The shape of the shock
+ * is the trade the player made when they picked a job: the biggest salary in
+ * the game is the one a doctor can end in an afternoon, and the smallest is the
+ * one nothing much ever happens to.
+ */
+/**
+ * The chance this month's check ends the career outright. Medicals get harder
+ * to renew with age, so the number the player is quoted grows as they do.
+ * Everyone else is on zero: nobody revokes a teacher's licence for turning 50.
+ */
+export function groundingRisk(s: GameState): number {
+  if (profession(s).risk !== 'grounded') return 0;
+  return Math.min(0.6, 0.15 + 0.02 * Math.max(0, ageYears(s) - 40));
+}
+
+export function careerShock(s: GameState, grounded = false): { months: number; ends: boolean; cut: number; cutMonths: number } {
+  switch (profession(s).risk) {
+    // A pilot who fails a medical does not get a second opinion and a fortnight
+    // off. That licence is how the salary existed, and it is gone. Passing the
+    // check is the usual outcome, which is why the job is worth taking at all.
+    case 'grounded':
+      return grounded
+        ? { months: 0, ends: true, cut: 0, cutMonths: 0 }
+        : { months: 2, ends: false, cut: 0, cutMonths: 0 };
+    case 'layoff':
+      return { months: 4, ends: false, cut: 0, cutMonths: 0 };
+    // Nobody lays off someone who works for themselves; the takings just fall.
+    case 'slump':
+      return { months: 0, ends: false, cut: 0.35, cutMonths: 8 };
+    case 'steady':
+      return { months: 1, ends: false, cut: 0, cutMonths: 0 };
+    default:
+      return { months: 2, ends: false, cut: 0, cutMonths: 0 };
+  }
 }
 
 export function acceptDownsized(s: GameState): void {
@@ -913,19 +1393,56 @@ export function acceptDownsized(s: GameState): void {
   // turns (see rollDice), not as one lump here, so the player watches it happen.
   // The severance lands up front, which is exactly how it feels: a cushion that
   // looks generous on the day and is gone before the job comes back.
-  s.skipTurns = 2;
+  const shock = careerShock(s, rand(s) < groundingRisk(s));
   const pay = severance(s);
   s.cash += pay;
-  note(
-    s,
-    {
-      th: `ตกงาน ได้ค่าชดเชย ${money(pay)} แต่ไม่มีเงินเดือนเข้าอีก 2 เดือน ส่วนรายจ่ายยังเดินต่อทุกเดือน`,
-      en: `Downsized: ${money(pay)} of severance, then two months with no salary while the expenses carry on regardless.`,
-    },
-    'bad',
-  );
-  s.pending = null;
+  if (shock.ends) {
+    s.careerOver = true;
+    note(
+      s,
+      {
+        th: `ตรวจร่างกายประจำปีไม่ผ่าน ใบอนุญาตถูกระงับ อาชีพนี้จบลงตรงนี้ ได้ค่าชดเชย ${money(pay)} ก้อนสุดท้าย จากนี้ไม่มีเงินเดือนอีกแล้ว ถ้าจะกลับมามีรายได้ประจำต้องไปเรียนใหม่`,
+        en: `You failed the annual medical and the licence is suspended. This career ends here, with ${money(pay)} of final pay and no salary after it. A wage means retraining now.`,
+      },
+      'bad',
+    );
+  } else if (shock.cutMonths > 0) {
+    s.slumpMonths = shock.cutMonths;
+    s.slumpCut = shock.cut;
+    note(
+      s,
+      {
+        th: `เศรษฐกิจแถวนี้เงียบไปทั้งย่าน ไม่มีใครเลิกจ้างคุณได้เพราะคุณจ้างตัวเอง แต่รายได้หายไป ${Math.round(shock.cut * 100)}% อีก ${shock.cutMonths} เดือน`,
+        en: `The whole street went quiet. Nobody can lay off someone who employs themselves, but takings just fell ${Math.round(shock.cut * 100)}% for ${shock.cutMonths} months.`,
+      },
+      'bad',
+    );
+  } else {
+    s.skipTurns = shock.months;
+    note(
+      s,
+      {
+        th: `ตกงาน ได้ค่าชดเชย ${money(pay)} แต่ไม่มีเงินเดือนเข้าอีก ${shock.months} เดือน ส่วนรายจ่ายยังเดินต่อทุกเดือน`,
+        en: `Out of work: ${money(pay)} of severance, then ${shock.months} months with no salary while the expenses carry on regardless.`,
+      },
+      'bad',
+    );
+  }
+  // Out of work is when people actually retrain, so the offer belongs here.
+  s.pending = studyRoutes.some((r) => canEnrol(s, r)) ? { kind: 'career' } : null;
   checkTrouble(s);
+}
+
+/** Acknowledge the end of the salary and carry on with what is left. */
+export function acceptRetirement(s: GameState): void {
+  if (s.pending?.kind !== 'retired') return;
+  s.pending = studyRoutes.some((r) => canEnrol(s, r)) ? { kind: 'career' } : null;
+}
+
+/** Go back to the same job rather than retraining. */
+export function declineCareer(s: GameState): void {
+  if (s.pending?.kind !== 'career') return;
+  s.pending = null;
 }
 
 export function charityCost(s: GameState): number {
@@ -1086,15 +1603,38 @@ export const CORP_MONTHLY_COST = 45000;
 export const INSURANCE_PREMIUM_RATE = 0.0016;
 export const INSURANCE_STEP = 10000000;
 
-/** What the heirs would be billed if the estate passed today. */
+/**
+ * How many people the estate is split between. Thai inheritance tax is charged
+ * on the person receiving, not on the estate as a whole, so every heir brings
+ * their own exemption with them. A player with no children still has one heir
+ * somewhere; the game does not ask who.
+ */
+export function heirs(s: GameState): number {
+  return Math.max(1, s.children);
+}
+
+/** The slice of the estate one heir receives, before tax. */
+export function heirShare(s: GameState): number {
+  return Math.max(0, netWorth(s)) / heirs(s);
+}
+
+/**
+ * What the heirs would be billed if the estate passed today.
+ *
+ * The exemption is per recipient, which is the single most useful thing to know
+ * about this tax: an estate of ฿300M left to three children is three shares of
+ * ฿100M and nobody pays a baht, while the same estate left to one child is
+ * taxed on ฿200M of it. Splitting equally is not a rounding detail, it is the
+ * whole planning decision.
+ */
 export function estateTax(s: GameState): number {
-  const taxable = Math.max(0, netWorth(s) - ESTATE_FREE);
+  const taxable = Math.max(0, netWorth(s) - ESTATE_FREE * heirs(s));
   return Math.round(taxable * ESTATE_RATE);
 }
 
 /** True once the estate is big enough for the tax to exist at all. */
 export function estateTaxable(s: GameState): boolean {
-  return netWorth(s) > ESTATE_FREE;
+  return netWorth(s) > ESTATE_FREE * heirs(s);
 }
 
 export function insurancePremium(s: GameState): number {
@@ -1404,6 +1944,9 @@ export function quitJob(s: GameState): void {
   s.quit = true;
   s.quitOffered = true;
   s.phase = 'fast';
+  // Nobody carries a layoff onto the fast track. canQuit already rules this out;
+  // the line is here for saves written before it did.
+  s.skipTurns = 0;
   s.escapeIncome = passive;
   const bonus = passive * ESCAPE_MULTIPLE;
   s.cash += bonus;
@@ -1592,6 +2135,17 @@ export function parseSave(raw: string): GameState | null {
     if (stale.kind === 'fastdeal') game.pending = null;
   }
   if (!Number.isFinite(game.skipTurns)) game.skipTurns = 0;
+  // Saves written before careers had a calendar. A child already on the sheet
+  // is treated as born at the start, which is the only honest guess available.
+  if (!Array.isArray(game.childBorn)) {
+    game.childBorn = Array.from({ length: Math.max(0, game.children | 0) }, () => 0);
+  }
+  if (game.study === undefined) game.study = null;
+  if (typeof game.careerOver !== 'boolean') game.careerOver = false;
+  if (!Number.isFinite(game.bondMonths)) game.bondMonths = 0;
+  if (!Number.isFinite(game.slumpMonths)) game.slumpMonths = 0;
+  if (!Number.isFinite(game.slumpCut)) game.slumpCut = 0;
+  if (!Number.isFinite(game.entryPay) || game.entryPay <= 0) game.entryPay = 1;
   if (!Array.isArray(game.lastRoll)) game.lastRoll = [];
   if (typeof game.prices !== 'object' || game.prices === null) game.prices = {};
   return game;

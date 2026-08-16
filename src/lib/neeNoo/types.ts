@@ -76,6 +76,22 @@ export interface Debt {
 
 /* ------------------------------------------------------------- professions */
 
+/**
+ * What waits after the salary stops. The three Thai systems pay wildly
+ * different amounts for the same working life, which is the point of modelling
+ * them at all: a civil servant retires on most of their salary, an employee on
+ * a slice of a ฿15,000 ceiling no matter what they earned, and someone who
+ * worked for themselves on the old-age allowance everybody gets.
+ */
+export type PensionKind = 'civil' | 'sso' | 'none';
+
+/**
+ * The shock this career can take. High pay comes with the fragile ones: a pilot
+ * who fails a medical is finished flying that day, while the teacher's salary is
+ * the dullest and safest number in the game.
+ */
+export type CareerRisk = 'grounded' | 'layoff' | 'slump' | 'steady' | 'normal';
+
 export interface Profession {
   id: string;
   name: Loc;
@@ -88,6 +104,61 @@ export interface Profession {
   cash: number;
   /** interest rates are filled in from DEBT_RATE when the game starts */
   debts: Omit<Debt, 'rate'>[];
+  /** age the player is when they start this career in the game */
+  startAge: number;
+  /** age the salary stops; 0 means this work has no fixed end */
+  retireAge: number;
+  pension: PensionKind;
+  /** annual pay rise as a share — deliberately below inflation for most jobs */
+  raise: number;
+  risk: CareerRisk;
+  /** true when the job legally needs a degree, so a short course cannot reach it */
+  licensed?: boolean;
+}
+
+/**
+ * A way into a different job. Thailand's three real routes differ on far more
+ * than price: the cheap fast one only opens unlicensed work, the long one opens
+ * everything while you keep working, and the expensive one takes you out of the
+ * workforce entirely and hands back the biggest salary in the game.
+ */
+export interface StudyRoute {
+  id: string;
+  title: Loc;
+  story: Loc;
+  /** months from enrolment to graduation */
+  months: number;
+  /** total tuition, charged over `terms` instalments rather than up front */
+  tuition: number;
+  terms: number;
+  /** the player stops working and stops rolling for the duration */
+  fullTime: boolean;
+  /** professions this route can lead to; empty means anything unlicensed */
+  opensLicensed: boolean;
+  /** a separate professional licence fee due on graduation */
+  licenceFee: number;
+  /** salary on the first day of the new job, as a share of its normal salary */
+  entrySalary: number;
+}
+
+/** How a licence fee gets paid for. Each way costs something different. */
+export type LicencePlan = 'cash' | 'loan' | 'bond';
+
+/** An enrolment in progress. */
+export interface StudyProgress {
+  routeId: string;
+  /** the job waiting on the other side */
+  targetId: string;
+  monthsLeft: number;
+  termsLeft: number;
+  /** tuition due each time a term falls, already divided out */
+  perTerm: number;
+  /** months between term bills */
+  termEvery: number;
+  /** months since the last term was paid */
+  sinceTerm: number;
+  /** total months the course runs, kept so the UI can say "year 2 of 4" */
+  totalMonths: number;
 }
 
 /* ------------------------------------------------------------------- cards */
@@ -206,6 +277,12 @@ export type Pending =
   | { kind: 'legacy' }
   /** picking a small or a country-sized deal, the fast track's version of dealChoice */
   | { kind: 'fastChoice' }
+  /** out of work and deciding whether to go back to the same job or retrain */
+  | { kind: 'career' }
+  /** graduation day: the licence still has to be paid for somehow */
+  | { kind: 'licence'; routeId: string; targetId: string }
+  /** the salary has stopped for good, whether by age or by a failed medical */
+  | { kind: 'retired' }
   | { kind: 'rescue' }
   /** passive income now covers the bills: quit the job, or keep the salary */
   | { kind: 'quit' }
@@ -247,6 +324,30 @@ export interface GameState {
   fastPos: number;
   turn: number;
   months: number;
+  /**
+   * The month each child was born, so the statement can charge what that age
+   * actually costs. `children` stays as the count because every rule that only
+   * needs "how many" reads it, and the two are written together.
+   */
+  childBorn: number[];
+  /** enrolled in something, with terms still to pay and months still to sit */
+  study: StudyProgress | null;
+  /**
+   * The salary has ended for good: retirement age, or a career that ended on
+   * its own terms. Only retraining brings a wage back.
+   */
+  careerOver: boolean;
+  /** owed to the employer that paid for the licence, worked off month by month */
+  bondMonths: number;
+  /** a self-employed slump: months left, and the share of takings it removes */
+  slumpMonths: number;
+  slumpCut: number;
+  /**
+   * Pay as a share of what this job normally pays. It is 1 for the career you
+   * started in and less than 1 after retraining, because walking into a new
+   * field means walking in at the bottom of it.
+   */
+  entryPay: number;
   skipTurns: number;
   /** turns left on the "give and it comes back" charity bonus (choose 1 or 2 dice) */
   charityTurns: number;
