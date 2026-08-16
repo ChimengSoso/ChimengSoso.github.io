@@ -127,9 +127,18 @@ export const UI = {
   minusItsDebt: { th: 'หักหนี้ที่ติดอยู่', en: 'less the debt on it' },
   andLoses: { th: 'และเสียเงินไหลเข้า', en: 'and gives up' },
   allUnderwater: {
-    th: 'สินทรัพย์ทุกชิ้นที่คุณถืออยู่ ขายครึ่งราคาแล้วยังไม่พอปิดหนี้ที่ติดมากับมัน ขายไปก็ไม่ได้เงินสักบาท ได้แค่หยุดค่างวด นี่คือหน้าตาของการกู้มาซื้อจนเต็มเพดาน',
-    en: 'Every asset you hold sells for less than the debt attached to it, so selling raises nothing at all and only stops the payments. This is what borrowing to the ceiling looks like from the inside.',
+    th: 'สินทรัพย์ทุกชิ้นที่คุณถืออยู่ ขายครึ่งราคาแล้วยังไม่พอปิดหนี้ที่ติดมากับมัน ขายไปนอกจากจะไม่ได้เงินสักบาท ธนาคารยังตามเก็บส่วนต่างที่เหลือต่ออีก นี่คือหน้าตาของการกู้มาซื้อจนเต็มเพดาน',
+    en: 'Every asset you hold sells for less than the debt attached to it. Selling raises nothing at all and leaves the lender chasing you for the rest. This is what borrowing to the ceiling looks like from the inside.',
   },
+  /** A sale that did not cover its own loan leaves a deficiency balance behind. */
+  stillOwed: { th: 'ขายแล้วยังค้างหนี้', en: 'Still owed after the sale' },
+  /** Fast-track cards pay once. The old label read as a permanent monthly income. */
+  lumpSum: { th: 'รับเป็นเงินก้อนครั้งเดียว', en: 'One-off payment' },
+  landTaken: { th: 'ที่ดินที่ถูกเวนคืน', en: 'The plot taken' },
+  /** Car cover runs on a clock the player must be able to see. */
+  coverChip: { th: 'ประกันรถเหลือ', en: 'Cover' },
+  coverNone: { th: 'ไม่มีประกันรถ', en: 'No car cover' },
+  deficiencyPay: { th: 'ผ่อนต่อ', en: 'repaid at' },
   age: { th: 'อายุ', en: 'Age' },
   yearsUnit: { th: 'ปี', en: '' },
   toRetire: { th: 'เกษียณอีก', en: 'to retire' },
@@ -155,6 +164,38 @@ export const UI = {
   termsLeft: { th: 'เหลืออีก', en: 'terms to go' },
   termsWord: { th: 'เทอม', en: '' },
   tuition: { th: 'ค่าเทอม', en: 'Tuition' },
+  /** Tuition is charged as a lump when the term falls due, so the statement
+   *  shows it as a bill on its way rather than a monthly line. */
+  tuitionNextLabel: { th: 'ค่าเทอมงวดหน้า', en: 'Next term' },
+  dueThisMonth: { th: 'เดือนนี้', en: 'this month' },
+  dueInMonths: { th: 'อีก', en: 'in' },
+  notInCashflow: { th: 'ยังไม่รวมในกระแสเงินสด จ่ายทีเดียวตอนถึงงวด', en: 'not in the cash-flow line: charged in full when the term falls due' },
+  /** Graduation day: the job has already changed, and this is where it is said out loud. */
+  gradTag: { th: 'เรียนจบ', en: 'Graduated' },
+  gradTitle: { th: 'จบหลักสูตรแล้ว วันนี้คุณเปลี่ยนอาชีพ', en: 'The course is finished. Today the job changes.' },
+  gradBody: {
+    th: 'สิ่งที่เปลี่ยนไม่ได้มีแค่ชื่อตำแหน่ง เงินเดือนตั้งต้นต่ำกว่าคนที่อยู่มาก่อน และค่าใช้จ่ายประจำก็ขยับตามวิถีชีวิตของงานใหม่ด้วย ทั้งขาขึ้นและขาลง',
+    en: 'More than the job title moves. The starting wage sits below what the people already there earn, and the running costs shift to match the life the new job comes with, in whichever direction that happens to be.',
+  },
+  gradFrom: { th: 'จากอาชีพ', en: 'From' },
+  gradTo: { th: 'เป็น', en: 'To' },
+  jobLabel: { th: 'อาชีพ', en: 'Job' },
+  studyingTo: { th: 'เรียนเพื่อไปเป็น', en: 'studying to become' },
+  /** After forty the baby tile becomes a reward instead of a first child. */
+  rewardExamTag: { th: 'เรื่องดีของครอบครัว', en: 'Good news at home' },
+  rewardExamTitle: { th: 'ลูกสอบได้ดีกว่าที่คิด', en: 'They did better than anyone expected' },
+  rewardExamBody: {
+    th: 'ผลสอบออกมาดีเกินคาด และลูกก็ยังไม่ได้ขออะไรเลยสักคำ คุณเป็นคนที่ตัดสินใจเองว่าจะฉลองยังไง และเดือนนี้กระเป๋าเงินก็มีสิทธิ์ออกเสียงด้วย',
+    en: 'The results came back better than anyone hoped, and they have not asked for a thing. How this gets marked is entirely your call, and this month your wallet gets a vote too.',
+  },
+  rewardPetTag: { th: 'อีกหนึ่งสมาชิกในบ้าน', en: 'The other one at home' },
+  rewardPetTitle: { th: 'ถึงรอบพาไปหาหมอแล้ว', en: 'It is that time at the vet again' },
+  rewardPetBody: {
+    th: 'มันไม่ได้เรียกคุณว่าพ่อแม่ แต่มันรอคุณอยู่ที่ประตูทุกวัน ค่าวัคซีน ค่าอาหาร ค่าของเล่นที่มันจะกัดพังภายในสามวัน รวมแล้วก็เท่ากับที่บ้านอื่นจ่ายให้ลูกอยู่ดี',
+    en: 'It does not call you a parent, but it waits by the door every day. Vaccinations, food, and a toy it will destroy within three days add up to roughly what other households spend on a child anyway.',
+  },
+  rewardPay: { th: 'จ่าย', en: 'Pay' },
+  rewardSkip: { th: 'เดือนนี้ขอผ่านก่อน', en: 'Not this month' },
   careerTitle: { th: 'จะกลับไปทำงานเดิม หรือเปลี่ยนสาย', en: 'Back to the same work, or change lanes' },
   careerBody: {
     th: 'ตอนที่งานหลุดมือคือตอนที่คนส่วนใหญ่ตัดสินใจเรื่องนี้จริง ๆ เพราะมันเป็นตอนเดียวที่ไม่ต้องเสียอะไรเพิ่มเพื่อจะออก การเรียนไม่ได้ฟรี และราคาที่แพงที่สุดไม่ใช่ค่าเทอม',

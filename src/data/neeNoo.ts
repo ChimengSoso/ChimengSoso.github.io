@@ -1522,6 +1522,27 @@ export const doodads: DoodadCard[] = [
     scale: 0.6,
   },
   {
+    /**
+     * The only card in the deck that buys nothing you can point at. It is here
+     * so the fast-track book-rights cheque has somebody to belong to: that card
+     * says "the story you wrote while still on the wheel", and until this
+     * existed there was no wheel and no story, just money arriving.
+     */
+    id: 'x-writing',
+    title: { th: 'เริ่มเขียนต้นฉบับตอนกลางคืน', en: 'Starting the manuscript at night' },
+    story: {
+      th: 'คอร์สเขียนออนไลน์กับเวลาที่ต้องแลกมาด้วยการนอนน้อยลงวันละชั่วโมง เงินก้อนนี้ไม่ได้ซื้ออะไรที่จับต้องได้เลย และอาจไม่ได้อะไรกลับมาสักบาทตลอดชีวิต หรืออาจได้กลับมาในอีกสิบปีข้างหน้าตอนที่คุณลืมไปแล้วว่าเคยเขียน',
+      en: 'An online writing course and an hour less sleep a night. This money buys nothing you can hold, and it may never come back at all, or it may come back in ten years when you have forgotten you ever wrote anything.',
+    },
+    scale: 1.1,
+    optional: true,
+    writes: true,
+    declineNote: {
+      th: 'ปิดแท็บคอร์สไป เดือนนี้ก็เหมือนเดือนก่อน ๆ ไม่มีอะไรเสีย และไม่มีอะไรเริ่ม',
+      en: 'You closed the tab. This month looks like all the ones before it: nothing lost, and nothing begun.',
+    },
+  },
+  {
     id: 'x-gift',
     title: { th: 'ของขวัญวันเกิดลูก', en: 'Birthday present for the kids' },
     story: {
@@ -1548,20 +1569,45 @@ export const fastCards: FastCard[] = [
     title: { th: 'เงินปันผลพิเศษ', en: 'Special dividend' },
     story: { th: 'กิจการหนึ่งที่คุณถืออยู่มีกำไรสะสมเยอะเกินไป เลยจ่ายคืนผู้ถือหุ้นก้อนหนึ่ง', en: 'One of your holdings built up too much retained profit and paid a slice back to shareholders.' },
     months: 4,
+    needs: 'shares',
   },
   {
     id: 'f-bonus-book',
     type: 'bonus',
     title: { th: 'ขายลิขสิทธิ์หนังสือ', en: 'Book rights sold' },
-    story: { th: 'เรื่องที่คุณเขียนตอนยังอยู่ในวงล้อ มีสำนักพิมพ์ขอซื้อลิขสิทธิ์แปล', en: 'The story you wrote while still on the wheel just sold its translation rights.' },
+    story: {
+      th: 'ต้นฉบับที่คุณนั่งเขียนตอนกลางคืนสมัยยังอยู่ในวงล้อ วันนี้มีสำนักพิมพ์ต่างประเทศขอซื้อลิขสิทธิ์แปล ค่าคอร์สที่จ่ายไปวันนั้นเพิ่งได้คำตอบวันนี้',
+      en: 'The manuscript you sat up writing back when you were still on the wheel just sold its translation rights abroad. The course you paid for that year finally answered today.',
+    },
     months: 9,
+    needs: 'book',
+  },
+  {
+    /**
+     * The guaranteed bonus. Every other card in this deck now asks the player to
+     * own something first, so one of them has to be true for everybody or a
+     * portfolio of pure cash would face an empty deck.
+     */
+    id: 'f-bonus-refund',
+    type: 'bonus',
+    title: { th: 'ได้ภาษีคืนก้อนใหญ่', en: 'A large tax refund' },
+    story: {
+      th: 'ยื่นแบบปีนี้แล้วพบว่าจ่ายเกินไปหลายรายการ ค่าลดหย่อนที่ลืมใช้มาสองปีถูกนับย้อนให้ทั้งหมด เงินที่เคยเป็นของคุณอยู่แล้วเดินทางกลับบ้าน',
+      en: 'This year’s filing turned up several things you had overpaid, and two years of allowances you had forgotten to claim were counted back. Money that was already yours found its way home.',
+    },
+    months: 3,
   },
   {
     id: 'f-bonus-land',
     type: 'bonus',
     title: { th: 'เวนคืนที่ดิน', en: 'Land expropriated' },
-    story: { th: 'รัฐเวนคืนที่ดินแปลงเก่าของคุณเพื่อทำทางด่วน จ่ายค่าชดเชยเป็นเงินก้อน', en: 'The state took an old plot of yours for an expressway and paid compensation in one lump.' },
-    months: 15,
+    story: {
+      th: 'ทางด่วนสายใหม่ตัดผ่านที่ดินของคุณพอดี รัฐจ่ายค่าทดแทนสูงกว่าราคาประเมิน แต่ไม่ได้ถามว่าคุณอยากขายไหม ที่ดินแปลงนั้นออกจากมือคุณไปแล้ว',
+      en: 'The new expressway runs straight through your plot. The state pays above the assessed value and does not ask whether you wanted to sell. That land is no longer yours.',
+    },
+    months: 0,
+    needs: 'land',
+    effect: 'expropriate',
   },
   {
     id: 'f-bonus-ipo',
@@ -1572,6 +1618,7 @@ export const fastCards: FastCard[] = [
       en: 'A company you hold went public, and you sold part of your stake at the offer price, well above anything it had been valued at before.',
     },
     months: 12,
+    needs: 'business',
   },
   {
     id: 'f-bonus-concession',
@@ -1582,6 +1629,7 @@ export const fastCards: FastCard[] = [
       en: 'The existing contract was renewed with more territory attached, and an advance arrived on signing.',
     },
     months: 7,
+    needs: 'business',
   },
   {
     id: 'f-bonus-anchor',
@@ -1592,6 +1640,7 @@ export const fastCards: FastCard[] = [
       en: 'A national company took a large space on a ten-year lease and paid a full year up front.',
     },
     months: 6,
+    needs: 'tenants',
   },
   {
     id: 'f-bonus-insurance',
@@ -1602,6 +1651,7 @@ export const fastCards: FastCard[] = [
       en: 'This time the policy actually covered it and paid in full. Years of premiums justified themselves in a single day.',
     },
     months: 5,
+    needs: 'insured',
   },
   {
     id: 'f-set-tax',
@@ -1614,7 +1664,13 @@ export const fastCards: FastCard[] = [
     id: 'f-set-market',
     type: 'setback',
     title: { th: 'ตลาดผันผวน', en: 'The market turns' },
-    story: { th: 'เศรษฐกิจชะลอ ผู้เช่าบางรายขอลดค่าเช่า รายได้ต่อเดือนของคุณหายไปส่วนหนึ่ง', en: 'The economy slowed and some tenants renegotiated. Part of your monthly income is gone.' },
+    // Deliberately the one setback with no prerequisite: whatever you hold, a
+    // slow year reaches it, and every portfolio needs more than one thing that
+    // can go wrong.
+    story: {
+      th: 'เศรษฐกิจชะลอทั้งประเทศ ไม่ว่าเงินของคุณไปอยู่ในอะไร ปีนี้มันจ่ายกลับมาน้อยลงพร้อมกันหมด',
+      en: 'The whole economy slowed. Whatever your money is sitting in, this year all of it pays back less at once.',
+    },
     months: 0,
     incomeLossPct: 0.12,
   },
@@ -1625,6 +1681,7 @@ export const fastCards: FastCard[] = [
     story: { th: 'ประกันจ่ายไม่ครบ ส่วนต่างคุณต้องควักเอง และรายได้หยุดไปช่วงหนึ่ง', en: 'Insurance did not cover everything, you paid the gap, and income paused for a while.' },
     months: 2.5,
     incomeLossPct: 0.06,
+    needs: 'property',
   },
   {
     id: 'f-set-rates',
@@ -1636,6 +1693,7 @@ export const fastCards: FastCard[] = [
     },
     months: 1.5,
     incomeLossPct: 0.07,
+    needs: 'debt',
   },
   {
     id: 'f-set-flood',
@@ -1647,6 +1705,7 @@ export const fastCards: FastCard[] = [
     },
     months: 4,
     incomeLossPct: 0.05,
+    needs: 'tenants',
   },
   {
     id: 'f-set-manager',
@@ -1657,6 +1716,7 @@ export const fastCards: FastCard[] = [
       en: 'The person you trusted to run things for two years had been keeping two sets of books. By the time it surfaced, months of money were gone.',
     },
     months: 5,
+    needs: 'business',
   },
   {
     id: 'f-set-lawsuit',
@@ -1667,6 +1727,7 @@ export const fastCards: FastCard[] = [
       en: 'A tenant slipped in a common area. The case dragged on for two years, and the lawyers billed every month either way.',
     },
     months: 3.5,
+    needs: 'tenants',
   },
   {
     id: 'f-set-competitor',
@@ -1678,6 +1739,7 @@ export const fastCards: FastCard[] = [
     },
     months: 0,
     incomeLossPct: 0.18,
+    needs: 'business',
   },
   {
     id: 'f-set-cyber',
@@ -1688,6 +1750,7 @@ export const fastCards: FastCard[] = [
       en: 'Customer data leaked. Everyone had to be notified, a response team hired, and the data-protection fine paid.',
     },
     months: 4.5,
+    needs: 'business',
   },
   {
     id: 'f-set-landtax',
@@ -1698,6 +1761,7 @@ export const fastCards: FastCard[] = [
       en: 'The new valuation lifted the whole district. Land you were simply holding became land you pay to hold.',
     },
     months: 2,
+    needs: 'land',
   },
   {
     id: 'f-set-keystaff',
@@ -1709,6 +1773,7 @@ export const fastCards: FastCard[] = [
     },
     months: 2.5,
     incomeLossPct: 0.08,
+    needs: 'business',
   },
   {
     id: 'f-set-baht',
@@ -1720,6 +1785,7 @@ export const fastCards: FastCard[] = [
     },
     months: 0,
     incomeLossPct: 0.1,
+    needs: 'business',
   },
   {
     id: 'f-set-permit',
@@ -1730,6 +1796,7 @@ export const fastCards: FastCard[] = [
       en: 'New zoning rules landed after construction had started. The drawings had to be redone and refiled from scratch.',
     },
     months: 3,
+    needs: 'property',
   },
   {
     id: 'f-set-recall',
@@ -1741,6 +1808,7 @@ export const fastCards: FastCard[] = [
     },
     months: 3.5,
     incomeLossPct: 0.05,
+    needs: 'business',
   },
   {
     id: 'f-set-partner',
@@ -1751,6 +1819,7 @@ export const fastCards: FastCard[] = [
       en: 'The friend who put in money alongside you wants it back, and you have to buy their share yourself.',
     },
     months: 6,
+    needs: 'business',
   },
 ];
 
