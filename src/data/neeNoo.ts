@@ -1416,6 +1416,7 @@ export const doodads: DoodadCard[] = [
     title: { th: 'รถเข้าอู่', en: 'The car goes to the garage' },
     story: { th: 'คลัตช์เริ่มลื่นมาสองอาทิตย์แล้ว วันนี้มันตัดสินใจแทนคุณ', en: 'The clutch has been slipping for two weeks. Today it decided for you.' },
     scale: 1.3,
+    insurable: true,
   },
   {
     id: 'x-dentist',
@@ -1473,8 +1474,16 @@ export const doodads: DoodadCard[] = [
   {
     id: 'x-insurance',
     title: { th: 'ต่อประกันรถ', en: 'Car insurance renewal' },
-    story: { th: 'ค่าเบี้ยขึ้นทุกปี แม้ปีนี้จะขับดีขึ้นก็ตาม', en: 'The premium rises every year, even the years you drove better.' },
+    story: {
+      th: 'ประกันชั้นหนึ่งเป็นภาคสมัครใจ ไม่ต่อก็ขับได้ตามกฎหมาย ค่าเบี้ยขึ้นทุกปีแม้ปีนี้จะขับดีขึ้นก็ตาม และมันจะดูเหมือนเงินทิ้งไปเรื่อย ๆ จนถึงเดือนที่มันไม่ใช่',
+      en: 'Comprehensive cover is voluntary; the law lets you drive without it. The premium rises every year, even the years you drove better, and it looks like money thrown away right up until the month it is not.',
+    },
     scale: 2.1,
+    optional: true,
+    declineNote: {
+      th: 'ไม่ต่อประกันปีนี้ เก็บเงินไว้ในกระเป๋าได้ทั้งก้อน จากนี้ถ้ารถมีเรื่อง ค่าซ่อมเป็นของคุณคนเดียวเต็มจำนวน',
+      en: 'No cover this year and the whole premium stays in your pocket. From here, anything that happens to the car is yours to pay in full.',
+    },
   },
   {
     id: 'x-lend',
@@ -1493,6 +1502,16 @@ export const doodads: DoodadCard[] = [
     instalment: { balanceScale: 2.8, paymentScale: 0.14 },
   },
   {
+    id: 'x-crash',
+    title: { th: 'รถชนกลางสี่แยก', en: 'A crash at the junction' },
+    story: {
+      th: 'ไฟเหลืองยาวกว่าที่คิด อีกคันมาเร็วกว่าที่คิด ไม่มีใครเจ็บ แต่หน้ารถพังทั้งหน้าและอู่ไม่ได้คิดราคาตามความรู้สึกของใคร',
+      en: 'The amber lasted less than it looked and the other car came faster than it looked. Nobody was hurt, the whole front end is gone, and the garage does not price by how unfair it felt.',
+    },
+    scale: 5,
+    insurable: true,
+  },
+  {
     id: 'x-utility',
     title: { th: 'ค่าน้ำค่าไฟหน้าร้อน', en: 'Summer utility bill' },
     story: { th: 'เดือนนี้แอร์ทำงานหนักกว่าคุณ และมันก็เรียกค่าแรงด้วย', en: 'This month the air conditioner worked harder than you did, and it billed you for it.' },
@@ -1501,9 +1520,17 @@ export const doodads: DoodadCard[] = [
   {
     id: 'x-gift',
     title: { th: 'ของขวัญวันเกิดลูก', en: 'Birthday present for the kids' },
-    story: { th: 'ของที่ขอไว้ราคาสูงกว่าที่คิด และคุณก็ปฏิเสธไม่ลง', en: 'What they asked for costs more than you expected, and you cannot say no.' },
+    story: {
+      th: 'ของที่ลูกขอไว้ราคาสูงกว่าที่คิด เดือนนี้ตัวเลขในบัญชีก็ตึงกว่าที่คิดเหมือนกัน จะซื้อก็ได้ จะบอกว่าปีนี้ขอผ่านก่อนก็ได้ ไม่มีใครในเกมนี้มีสิทธิ์ตัดสินคุณ',
+      en: 'What they asked for costs more than you thought, and this month is tighter than you thought. You can buy it, or you can say not this year. Nobody in this game gets to judge you for either.',
+    },
     scale: 0.45,
     perChild: true,
+    optional: true,
+    declineNote: {
+      th: 'เงินก้อนนี้ยังอยู่ในบัญชีคุณครบ อีกยี่สิบปีลูกอาจจำวันเกิดปีนี้ไม่ได้เลย หรืออาจจำได้แม่นกว่าที่คุณอยากให้จำ เกมนี้คำนวณให้คุณได้ทุกอย่าง ยกเว้นว่าตกลงแล้วคุ้มไหม',
+      en: 'The money is still in your account, every baht of it. In twenty years they may not remember this birthday at all, or they may remember it more precisely than you would like. This game can compute everything for you except whether that was worth it.',
+    },
   },
 ];
 

@@ -70,6 +70,13 @@ export const MAX_CHILDREN = 3;
 /** months a sponsored licence is worked off for, and the cut taken meanwhile */
 export const BOND_MONTHS = 36;
 export const BOND_CUT = 0.25;
+/**
+ * Comprehensive cover pays the garage; the excess is what the driver still
+ * hands over. A tenth of the bill is close enough to the real ค่าเสียหายส่วนแรก
+ * to teach the shape of the trade without pretending to quote a policy.
+ */
+export const INSURED_SHARE = 0.1;
+export const COVER_MONTHS = 12;
 /** monthly interest on the debt a profession starts with, and on asset mortgages */
 export const DEBT_RATE: Record<DebtKey, number> = {
   home: 0.0035,
@@ -465,6 +472,7 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     bondMonths: 0,
     slumpMonths: 0,
     slumpCut: 0,
+    carCoverMonths: 0,
     entryPay: 1,
     skipTurns: 0,
     charityTurns: 0,
@@ -801,6 +809,7 @@ function monthPassed(s: GameState): void {
   s.months += 1;
   if (s.bondMonths > 0) s.bondMonths -= 1;
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
+  if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
   advanceStudy(s);
   // Rents are renegotiated once a year and recover only part of what inflation
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
@@ -1280,6 +1289,20 @@ export function closeMarket(s: GameState): void {
 }
 
 export function doodadCost(s: GameState, card: DoodadCard): number {
+  let base = Math.round((card.scale * livingCost(s)) / 100) * 100;
+  // The month the gamble is settled. Cover turns a ruinous garage bill into an
+  // annoying one, and its absence turns an annoying one into a ruinous one.
+  if (card.insurable && s.carCoverMonths > 0) base = Math.round((base * INSURED_SHARE) / 100) * 100;
+  return card.perChild ? base * s.children : base;
+}
+
+/** True when this bill is landing on somebody who paid for cover in time. */
+export function coveredNow(s: GameState, card: DoodadCard): boolean {
+  return !!card.insurable && s.carCoverMonths > 0;
+}
+
+/** What the bill would have been without a policy, for the dialog to show. */
+export function uninsuredCost(s: GameState, card: DoodadCard): number {
   const base = Math.round((card.scale * livingCost(s)) / 100) * 100;
   return card.perChild ? base * s.children : base;
 }
@@ -1290,6 +1313,7 @@ export function payDoodad(s: GameState): void {
   if (!card) return;
   const cost = doodadCost(s, card);
   if (card.social) s.karma += 1;
+  if (card.id === 'x-insurance') s.carCoverMonths = COVER_MONTHS;
   if (cost > 0) {
     s.cash -= cost;
     note(s, { th: `${card.title.th} จ่ายไป ${money(cost)}`, en: `${card.title.en}: paid ${money(cost)}.` }, 'bad');
@@ -1325,6 +1349,7 @@ export function declineDoodad(s: GameState): void {
   const card = doodadById.get(s.pending.cardId);
   if (!card?.optional) return;
   if (card.social) s.karma -= 1;
+  if (card.id === 'x-insurance') s.carCoverMonths = 0;
   note(
     s,
     {
@@ -1333,6 +1358,7 @@ export function declineDoodad(s: GameState): void {
     },
     'good',
   );
+  if (card.declineNote) note(s, card.declineNote, 'plain');
   s.pending = null;
 }
 
@@ -2180,6 +2206,7 @@ export function parseSave(raw: string): GameState | null {
   if (!Number.isFinite(game.bondMonths)) game.bondMonths = 0;
   if (!Number.isFinite(game.slumpMonths)) game.slumpMonths = 0;
   if (!Number.isFinite(game.slumpCut)) game.slumpCut = 0;
+  if (!Number.isFinite(game.carCoverMonths)) game.carCoverMonths = 0;
   if (!Number.isFinite(game.entryPay) || game.entryPay <= 0) game.entryPay = 1;
   if (!Array.isArray(game.lastRoll)) game.lastRoll = [];
   if (typeof game.prices !== 'object' || game.prices === null) game.prices = {};
