@@ -229,6 +229,8 @@ export interface DoodadCard {
   instalment?: { balanceScale: number; paymentScale: number };
   /** a bill car insurance would have covered, if there is any in force */
   insurable?: boolean;
+  /** paying it means the player started writing, which may pay off years later */
+  writes?: boolean;
   /**
    * Comes round on the calendar rather than out of the deck. Birthdays and
    * school fees arrive on a date, not on a dice roll, so these cards keep their
@@ -245,9 +247,29 @@ export interface DoodadCard {
  * ฿400,000 windfall is either a fortune or a rounding error. `months` is a
  * multiple of current monthly passive income, and `incomeLossPct` a share of it.
  */
+/**
+ * What a fast-track card's story assumes the player actually owns. A card whose
+ * story is about your tenants, your staff or your land is only dealt to someone
+ * who has them: "the state took an old plot of yours" reads as a bug when you
+ * never bought a plot, and it read as free money that could be collected over
+ * and over from land nobody owned.
+ */
+export type FastNeed = 'shares' | 'business' | 'property' | 'tenants' | 'land' | 'debt' | 'insured' | 'book';
+
+/** Cards that do something to a specific holding rather than paying a multiple. */
+export type FastEffect = 'expropriate';
+
 export type FastCard =
-  | { id: string; type: 'bonus'; title: Loc; story: Loc; months: number }
-  | { id: string; type: 'setback'; title: Loc; story: Loc; months: number; incomeLossPct?: number };
+  | { id: string; type: 'bonus'; title: Loc; story: Loc; months: number; needs?: FastNeed; effect?: FastEffect }
+  | {
+      id: string;
+      type: 'setback';
+      title: Loc;
+      story: Loc;
+      months: number;
+      incomeLossPct?: number;
+      needs?: FastNeed;
+    };
 
 export interface Dream {
   id: string;
@@ -293,6 +315,8 @@ export type Pending =
   | { kind: 'licence'; routeId: string; targetId: string }
   /** the salary has stopped for good, whether by age or by a failed medical */
   | { kind: 'retired' }
+  | { kind: 'graduated' }
+  | { kind: 'reward' }
   /** a year has gone by and the children are a year older */
   | { kind: 'birthday' }
   /** the school year has come round for whichever children are old enough */
@@ -339,6 +363,13 @@ export interface GameState {
   turn: number;
   months: number;
   /**
+   * How old the player was on the first turn. Held here rather than read from
+   * the current profession, because retraining changes the profession and a
+   * teacher who became an engineer would otherwise turn 32 on graduation day
+   * while a doctor who became a teacher would get four years back.
+   */
+  startAge: number;
+  /**
    * The month each child was born, so the statement can charge what that age
    * actually costs. `children` stays as the count because every rule that only
    * needs "how many" reads it, and the two are written together.
@@ -351,6 +382,12 @@ export interface GameState {
    * its own terms. Only retraining brings a wage back.
    */
   careerOver: boolean;
+  /**
+   * The month the last salary was paid, or null while one still is. The pension
+   * formulas count contribution years, so they need to know when the paying
+   * stopped rather than how old the player is now.
+   */
+  workEndMonth: number | null;
   /** owed to the employer that paid for the licence, worked off month by month */
   bondMonths: number;
   /** a self-employed slump: months left, and the share of takings it removes */
@@ -359,12 +396,39 @@ export interface GameState {
   /** months of car cover still in force; renewing buys another twelve */
   carCoverMonths: number;
   /**
-   * Annual family events waiting to be shown. They are flags rather than
-   * pendings so a birthday that falls in the same month as a tier promotion is
-   * queued instead of quietly overwritten.
+   * The month the next renewal notice falls due. Cover used to be offered only
+   * when its card happened to come out of a thirteen-card deck, which measured
+   * out at one offer every 56 months against twelve months of cover: even a
+   * player who bought it every single time was uninsured for 86% of the repair
+   * bills, and the first offer arrived at a median of month 44. A policy renews
+   * on a date in real life, so it does here too, starting at the first year.
+   */
+  coverRenewMonth: number;
+  coverDue: boolean;
+  /** started writing back in the rat race, which the fast track can pay off */
+  wroteBook: boolean;
+  /**
+   * Decisions the calendar has raised and the player has not answered yet. They
+   * are flags rather than pendings because a card is only ever a card: a payday
+   * passed in the middle of a roll used to raise one of these and the tile the
+   * token finally stopped on would overwrite it, so a birthday could be charged
+   * to nobody and a retirement could happen with no notice at all. A flag
+   * survives that, and `claimDue` turns it back into a card at the next moment
+   * the board is idle.
    */
   birthdayDue: boolean;
   schoolDue: boolean;
+  /** the salary has ended by age and the player has not been told yet */
+  retireDue: boolean;
+  /** a course is finished and its licence fee is still unanswered */
+  licenceDue: { routeId: string; targetId: string } | null;
+  /**
+   * The profession left behind on graduation day, held until the player has
+   * been shown what changed. Without a card the whole switch happened in one
+   * log line that scrolled away, and the board never says what your job is, so
+   * finishing a course looked exactly like nothing happening.
+   */
+  graduatedFrom: string | null;
   /**
    * Pay as a share of what this job normally pays. It is 1 for the career you
    * started in and less than 1 after retraining, because walking into a new

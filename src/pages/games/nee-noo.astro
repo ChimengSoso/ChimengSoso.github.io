@@ -219,6 +219,9 @@ const description =
     .nn-rows dt{color:var(--nn-muted);min-width:0;}
     .nn-rows dd{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
     .nn-rows .sub{padding-left:0.7rem;font-size:0.78rem;}
+    /* A row that is a heads-up rather than a monthly bill says so under itself,
+       so the figure beside it is never read as part of the cash-flow total. */
+    .nn-rows .nn-rownote{display:block;font-size:0.7rem;line-height:1.35;opacity:0.75;}
     .nn-sec{
       margin-top:0.9rem;
       padding-top:0.7rem;
@@ -969,7 +972,8 @@ const description =
       LOAN_RATE,
       LOAN_STEP,
       MORTGAGE_RATE,
-      fastAmount,
+      fastCardCash,
+      landHeld,
       fastGoal,
       fastIncomeLoss,
       severance,
@@ -983,6 +987,7 @@ const description =
       uninsuredCost,
       MAX_CHILDREN,
       acceptDownsized,
+      acceptGraduation,
       acceptFriendHelp,
       assetCashflow,
       assetValue,
@@ -1033,7 +1038,7 @@ const description =
       payBirthday,
       declineBirthday,
       paySchool,
-      tuitionMonthly,
+      tuitionNext,
       studyYear,
       routeTargets,
       canEnrol,
@@ -1060,6 +1065,7 @@ const description =
       charityCost,
       checkTrouble,
       chooseDeal,
+      claimDue,
       closeMarket,
       createGame,
       dealDown,
@@ -1071,6 +1077,12 @@ const description =
       fastProgress,
       finishMove,
       fireSale,
+      payReward,
+      declineReward,
+      rewardCost,
+      rewardKind,
+      fireSaleShortfall,
+      DEFICIENCY_PAY_RATE,
       fireSaleValue,
       giveCharity,
       maxAffordable,
@@ -1492,6 +1504,10 @@ const description =
         <div class="nn-sec">
           <h3>${T(UI.income)}</h3>
           <dl class="nn-rows">
+            <!-- The job was named on the setup screen and nowhere else, so
+                 finishing a course and walking into a different career changed
+                 nothing the player could actually see. -->
+            <dt>${T(UI.jobLabel)}</dt><dd>${T(profession(s).name)}${s.entryPay < 1 ? ` <small class="muted">${Math.round(s.entryPay * 100)}%</small>` : ''}</dd>
             <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
             ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
             <dt>${T(UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
@@ -1503,7 +1519,7 @@ const description =
             <dt>${T(UI.taxes)}</dt><dd>${money(taxes(s))}</dd>
             <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
             ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})</dt><dd>${money(childExpense(s))}</dd>` : ''}
-            ${s.study ? `<dt>${T(UI.tuition)}</dt><dd class="warn">${money(tuitionMonthly(s))}</dd>` : ''}
+            ${tuitionRow(s)}
             ${s.incorporated ? `<dt>${T(UI.accounting)}</dt><dd>${money(CORP_MONTHLY_COST)}</dd>` : ''}
             ${s.insuranceCover > 0 ? `<dt>${T(UI.premium)}</dt><dd>${money(insurancePremium(s))}</dd>` : ''}
             ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
@@ -1611,6 +1627,20 @@ const description =
       return kind === 'civil' ? UI.pensionCivil : kind === 'sso' ? UI.pensionSso : UI.pensionNone;
     }
 
+    /**
+     * Tuition is charged as a lump the month a term falls due, so it is shown as
+     * a bill on its way rather than as a monthly expense. It used to sit in the
+     * expenses list and in `totalExpenses`, which billed it twice.
+     */
+    function tuitionRow(s: GameState): string {
+      const next = tuitionNext(s);
+      if (!next) return '';
+      const when = next.inMonths <= 0
+        ? T(UI.dueThisMonth)
+        : `${T(UI.dueInMonths)} ${next.inMonths} ${T(UI.monthsWord)}`;
+      return `<dt class="sub">${T(UI.tuitionNextLabel)} · ${when}<small class="nn-rownote">${T(UI.notInCashflow)}</small></dt><dd class="warn">${money(next.amount)}</dd>`;
+    }
+
     function retireLine(s: GameState): string {
       if (s.quit) return '';
       if (noMoreSalary(s)) return `<span class="neg">${T(retiredByAge(s) ? UI.retiredTag : UI.careerEnded)}</span>`;
@@ -1652,7 +1682,13 @@ const description =
           <span>${T(UI.months)} ${s.months}</span>
           <span>${T(UI.age)} ${ageYears(s)} ${T(UI.yearsUnit)}</span>
           ${retireLine(s)}
-          ${s.study ? `<span class="warn">${T(UI.studyLabel)} ${T(UI.studyYearOf)} ${studyYear(s).done}/${studyYear(s).total}</span>` : ''}
+          ${s.study ? `<span class="warn">${T(UI.studyLabel)} ${T(UI.studyYearOf)} ${studyYear(s).done}/${studyYear(s).total} · ${T(UI.studyingTo)} ${T(professionById.get(s.study.targetId)?.name ?? UI.notYet)}</span>` : ''}
+          <!-- Cover was invisible: the player paid the premium, twenty turns
+               went by, it lapsed, and the next repair bill arrived at full
+               price with nothing on screen having ever mentioned it. -->
+          ${s.carCoverMonths > 0
+            ? `<span class="${s.carCoverMonths <= 2 ? 'warn' : 'pos'}">${T(UI.coverChip)} ${s.carCoverMonths} ${T(UI.monthsWord)}</span>`
+            : `<span class="neg">${T(UI.coverNone)}</span>`}
           ${s.bondMonths > 0 ? `<span class="warn">${T(UI.bondActive)} ${s.bondMonths}</span>` : ''}
           ${s.slumpMonths > 0 ? `<span class="neg">${T(UI.slumpActive)} ${s.slumpMonths}</span>` : ''}
           ${s.skipTurns > 0 ? `<span class="neg">${T(UI.skipping)} ${s.skipTurns}</span>` : ''}
@@ -1763,7 +1799,7 @@ const description =
      * number the whole run was an argument about.
      */
     function pensionAt60(s: GameState): number {
-      const at60: GameState = { ...s, quit: false, careerOver: true, months: Math.max(s.months, (60 - profession(s).startAge) * 12) };
+      const at60: GameState = { ...s, quit: false, careerOver: true, months: Math.max(s.months, (60 - s.startAge) * 12) };
       return pensionIncome(at60);
     }
 
@@ -1841,6 +1877,17 @@ const description =
       const low = Math.min(...downs);
       const high = Math.max(...downs);
       return `${cards.length} ${T(UI.cardsWord)} · ${money(low)}–${money(high)}`;
+    }
+
+    /**
+     * A per-unit figure below one baht rounds to "+฿0", which reads as a share
+     * that pays nothing at all. A ฿40 bank share paying ฿0.34 a month is the
+     * whole point of that card, so anything under a baht keeps two decimals.
+     */
+    function perUnit(flow: number): string {
+      if (flow === 0) return '—';
+      if (Math.abs(flow) >= 1) return signed(flow);
+      return `${flow > 0 ? '+' : '-'}฿${Math.abs(flow).toFixed(2)}`;
     }
 
     function qtyNote(unit: number, flow: number, qty: number): string {
@@ -1943,7 +1990,8 @@ const description =
           <dl class="facts">
             <dt>${T(UI.price)}</dt><dd>${money(dealPrice(s, card))}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}</dd>
             ${card.debt > 0 ? `<dt>${T(UI.downPayment)}</dt><dd>${money(per)}</dd><dt>${T(UI.loanTaken)}</dt><dd>${money(card.debt)}</dd><dt>${T(UI.mortgageOn)}</dt><dd class="neg">${money(card.mortgagePay ?? 0)}${T(UI.perMonth)}</dd>` : ''}
-            <dt>${T(UI.monthlyIn)}</dt><dd class="${card.cashflow !== 0 ? cls(card.cashflow) : ''}">${card.cashflow !== 0 ? `${signed(card.cashflow)}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}` : '—'}</dd>
+            <dt>${T(UI.monthlyIn)}</dt><dd class="${card.cashflow !== 0 ? cls(card.cashflow) : ''}">${card.cashflow !== 0 ? `${perUnit(card.cashflow)}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}` : '—'}</dd>
+            ${card.cashflow > 0 && dealPrice(s, card) > 0 ? `<dt>${T(UI.yearlyYield)}</dt><dd class="pos">${((card.cashflow * 12 * 100) / dealPrice(s, card)).toFixed(1)}%</dd>` : ''}
             ${card.cashflow < 0 ? `<dt>${T(UI.carryCost)}</dt><dd class="neg">${money(Math.abs(card.cashflow) * 12)}${T(UI.perYear)}</dd>` : ''}
             ${card.volatility ? `<dt>${T(UI.swingLabel)}</dt><dd class="warn">${Math.round(card.volatility * 100)}%</dd>` : ''}
             ${card.impact ? `<dt>${T(UI.impactLabel)}</dt><dd>${card.impact.toLocaleString('en-US')}</dd>` : ''}
@@ -2086,6 +2134,40 @@ const description =
           <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="retiredok">${T(UI.ok)}</button></div>`;
       }
 
+      if (p.kind === 'graduated') {
+        const from = professionById.get(s.graduatedFrom ?? '');
+        const now = profession(s);
+        const wasCost = from ? Math.round(from.otherExpenses * priceLevel(s)) : 0;
+        return `<div class="kind">${T(UI.gradTag)}</div>
+          <h2 id="nn-dlg-title">${T(UI.gradTitle)}</h2>
+          <p class="story">${T(UI.gradBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.gradFrom)}</dt><dd class="muted">${from ? T(from.name) : '—'}</dd>
+            <dt>${T(UI.gradTo)}</dt><dd><b>${T(now.name)}</b></dd>
+            <dt>${T(UI.salary)}</dt><dd class="pos">${money(salary(s))}${T(UI.perMonth)} · ${Math.round(s.entryPay * 100)}% ${T(UI.ofThatJob)}</dd>
+            <dt>${T(UI.other)}</dt><dd class="${livingCost(s) > wasCost ? 'neg' : 'pos'}">${money(wasCost)} → ${money(livingCost(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.cashflow)}</dt><dd class="nn-rowsplit ${cls(monthlyCashflow(s))}">${signed(monthlyCashflow(s))}${T(UI.perMonth)}</dd>
+          </dl>
+          <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="gradok">${T(UI.ok)}</button></div>`;
+      }
+
+      if (p.kind === 'reward') {
+        const exam = rewardKind(s) === 'exam';
+        const cost = rewardCost(s);
+        return `<div class="kind">${T(exam ? UI.rewardExamTag : UI.rewardPetTag)}</div>
+          <h2 id="nn-dlg-title">${T(exam ? UI.rewardExamTitle : UI.rewardPetTitle)}</h2>
+          <p class="story">${T(exam ? UI.rewardExamBody : UI.rewardPetBody)}</p>
+          <dl class="facts">
+            ${exam ? `<dt>${T(UI.childrenCost)}</dt><dd>${s.childBorn.map((b) => `${childStage(s, b).years} ${T(UI.yearsUnit)}`).join(' · ')}</dd>` : ''}
+            <dt>${T(UI.rewardPay)}</dt><dd class="neg">${money(cost)}</dd>
+            <dt>${T(UI.cash)}</dt><dd class="${s.cash >= cost ? '' : 'neg'}">${money(s.cash)}</dd>
+          </dl>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="payreward">${T(UI.rewardPay)} ${money(cost)}</button>
+            <button type="button" class="nn-btn nn-btn-quiet" data-act="skipreward">${T(UI.rewardSkip)}</button>
+          </div>`;
+      }
+
       if (p.kind === 'career') {
         // Every route is shown even when it cannot be afforded, because seeing
         // the price of the door you cannot open is most of the lesson.
@@ -2217,11 +2299,13 @@ const description =
           .sort((a, b) => fireSaleValue(b, b.qty) - fireSaleValue(a, a.qty))
           .map((a) => {
             const raised = fireSaleValue(a, a.qty);
+            const short = fireSaleShortfall(a, a.qty);
             const half = a.pricePerUnit * FIRE_SALE_RATE * a.qty;
             const flow = assetCashflow(a);
             return `<div class="nn-sellrow">
               <span class="nm"><b>${T(a.name)}</b><small>${T(UI.offerPrice)} <b class="${raised > 0 ? 'pos' : 'neg'}">${money(raised)}</b>${a.qty > 1 ? ` (${a.qty} ${T(UI.units)})` : ''}
-                <br>${T(UI.halfPrice)} ${money(half)}${a.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(a.debt)}` : ''}${flow > 0 ? ` · ${T(UI.andLoses)} ${money(flow)}${T(UI.perMonth)}` : ''}</small></span>
+                <br>${T(UI.halfPrice)} ${money(half)}${a.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(a.debt)}` : ''}${flow > 0 ? ` · ${T(UI.andLoses)} ${money(flow)}${T(UI.perMonth)}` : ''}
+                ${short > 0 ? `<br><b class="neg">${T(UI.stillOwed)} ${money(short)}</b> · ${T(UI.deficiencyPay)} ${money(Math.round(short * DEFICIENCY_PAY_RATE))}${T(UI.perMonth)}` : ''}</small></span>
               ${a.qty > 1 ? `<input type="number" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
               <button type="button" class="nn-btn nn-btn-danger" data-act="firesale" data-id="${a.uid}">${T(UI.fireSaleBtn)}</button>
             </div>`;
@@ -2242,14 +2326,18 @@ const description =
       if (p.kind === 'fastbonus' || p.kind === 'fastsetback') {
         const card = fastById.get(p.cardId);
         if (!card) return null;
-        const cash = fastAmount(s, card.months);
+        // A one-off cheque, never a monthly figure. Labelling it "เงินเข้าต่อเดือน"
+        // made a ฿2.5M lump read as ฿2.5M a month for the rest of the game.
+        const cash = fastCardCash(s, card);
         const loss = card.type === 'setback' && card.incomeLossPct ? fastIncomeLoss(s, card.incomeLossPct) : 0;
         const good = card.type === 'bonus';
+        const taken = card.type === 'bonus' && card.effect === 'expropriate' ? landHeld(s)[0] : undefined;
         return `<div class="kind">${good ? T(UI.tileBonus) : T(UI.tileSetback)}</div>
           <h2 id="nn-dlg-title">${T(card.title)}</h2>
           <p class="story">${T(card.story)}</p>
           <dl class="facts">
-            ${cash > 0 ? `<dt>${good ? T(UI.monthlyIn) : T(UI.pay)}</dt><dd class="${good ? 'pos' : 'neg'}">${signed(good ? cash : -cash)}</dd>` : ''}
+            ${taken ? `<dt>${T(UI.landTaken)}</dt><dd class="neg">${T(taken.name)} · ${money(assetValue(taken))}${taken.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(taken.debt)}` : ''}</dd>` : ''}
+            ${cash > 0 ? `<dt>${good ? T(UI.lumpSum) : T(UI.pay)}</dt><dd class="${good ? 'pos' : 'neg'}">${signed(good ? cash : -cash)}</dd>` : ''}
             ${loss > 0 ? `<dt>${T(UI.passive)}</dt><dd class="neg">${signed(-loss)}${T(UI.perMonth)}</dd>` : ''}
             <dt>${T(UI.cash)}</dt><dd>${money(s.cash)}</dd>
           </dl>
@@ -2637,6 +2725,10 @@ const description =
             return;
           }
           applyGameAction(panel, s, action, id);
+          // Closing one card is the moment to show whatever the calendar has
+          // been holding, so a queued birthday appears now rather than waiting
+          // for the next roll.
+          claimDue(s);
           break;
       }
 
@@ -2680,6 +2772,15 @@ const description =
           break;
         case 'keepjob':
           declineCareer(s);
+          break;
+        case 'gradok':
+          acceptGraduation(s);
+          break;
+        case 'payreward':
+          payReward(s);
+          break;
+        case 'skipreward':
+          declineReward(s);
           break;
         case 'enrol': {
           if (!id) break;
