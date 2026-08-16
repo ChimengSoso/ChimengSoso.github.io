@@ -1324,6 +1324,29 @@ export function declineDoodad(s: GameState): void {
   s.pending = null;
 }
 
+/**
+ * Not everyone wants children, and a game about the cost of a life should not
+ * hand anybody a family they did not ask for. Saying no costs nothing and
+ * carries no judgement; the tile can come round again later.
+ */
+export function declineBaby(s: GameState): void {
+  if (s.pending?.kind !== 'baby') return;
+  note(
+    s,
+    {
+      th: 'ยังไม่ใช่ตอนนี้ ครอบครัวเท่าเดิม รายจ่ายเท่าเดิม',
+      en: 'Not now. The family stays the size it is, and so does the monthly bill.',
+    },
+    'plain',
+  );
+  s.pending = null;
+}
+
+/** What one more child would add to the monthly bill at today's prices. */
+export function nextChildCost(s: GameState): number {
+  return Math.round(profession(s).childCost * priceLevel(s));
+}
+
 export function acceptBaby(s: GameState): void {
   if (s.pending?.kind !== 'baby') return;
   if (s.children >= MAX_CHILDREN) {
