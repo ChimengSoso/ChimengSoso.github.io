@@ -1012,6 +1012,7 @@ const description =
       marketBuy,
       buyFromMarket,
       totalDebt,
+      FIRE_SALE_RATE,
       ageYears,
       monthsToRetire,
       retiredByAge,
@@ -2161,15 +2162,26 @@ const description =
       }
 
       if (p.kind === 'rescue') {
+        // Sorted by what each sale actually raises, because in a panic the
+        // useful ones have to be at the top. A heavily mortgaged property
+        // raises nothing at all, and the row now shows the subtraction that
+        // gets it to nothing instead of printing a bare ฿0 nobody can explain.
         const rows = s.assets
-          .map(
-            (a) => `<div class="nn-sellrow">
-              <span class="nm"><b>${T(a.name)}</b><small>${T(UI.offerPrice)} ${money(fireSaleValue(a, a.qty))}${a.qty > 1 ? ` (${a.qty} ${T(UI.units)})` : ''}</small></span>
+          .slice()
+          .sort((a, b) => fireSaleValue(b, b.qty) - fireSaleValue(a, a.qty))
+          .map((a) => {
+            const raised = fireSaleValue(a, a.qty);
+            const half = a.pricePerUnit * FIRE_SALE_RATE * a.qty;
+            const flow = assetCashflow(a);
+            return `<div class="nn-sellrow">
+              <span class="nm"><b>${T(a.name)}</b><small>${T(UI.offerPrice)} <b class="${raised > 0 ? 'pos' : 'neg'}">${money(raised)}</b>${a.qty > 1 ? ` (${a.qty} ${T(UI.units)})` : ''}
+                <br>${T(UI.halfPrice)} ${money(half)}${a.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(a.debt)}` : ''}${flow > 0 ? ` · ${T(UI.andLoses)} ${money(flow)}${T(UI.perMonth)}` : ''}</small></span>
               ${a.qty > 1 ? `<input type="number" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
               <button type="button" class="nn-btn nn-btn-danger" data-act="firesale" data-id="${a.uid}">${T(UI.fireSaleBtn)}</button>
-            </div>`,
-          )
+            </div>`;
+          })
           .join('');
+        const useless = s.assets.length > 0 && s.assets.every((a) => fireSaleValue(a, a.qty) <= 0);
         return `<div class="kind">${T(UI.rescueTitle)}</div>
           <h2 id="nn-dlg-title">${money(s.cash)}</h2>
           <p class="story">${T(UI.rescueBody)}</p>
@@ -2177,6 +2189,7 @@ const description =
           <button type="button" class="nn-btn nn-btn-gold" data-act="borrow-enough">${T(UI.borrowJustEnough)}</button>
           <button type="button" class="nn-btn" data-act="borrow">${T(UI.borrowBtn)}</button>
         </div>` : ''}
+          ${useless ? `<p class="nn-warnline">${T(UI.allUnderwater)}</p>` : ''}
           <div style="margin-top:1rem">${rows}</div>`;
       }
 

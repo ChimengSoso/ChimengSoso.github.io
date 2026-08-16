@@ -110,6 +110,13 @@ export const UI = {
   sell: { th: 'ขาย', en: 'Sell' },
   sellNone: { th: 'ไม่ขาย', en: 'Sell nothing' },
   marketNone: { th: 'ยังไม่ทำอะไร', en: 'Do nothing' },
+  halfPrice: { th: 'ขายครึ่งราคาได้', en: 'Half price fetches' },
+  minusItsDebt: { th: 'หักหนี้ที่ติดอยู่', en: 'less the debt on it' },
+  andLoses: { th: 'และเสียเงินไหลเข้า', en: 'and gives up' },
+  allUnderwater: {
+    th: 'สินทรัพย์ทุกชิ้นที่คุณถืออยู่ ขายครึ่งราคาแล้วยังไม่พอปิดหนี้ที่ติดมากับมัน ขายไปก็ไม่ได้เงินสักบาท ได้แค่หยุดค่างวด นี่คือหน้าตาของการกู้มาซื้อจนเต็มเพดาน',
+    en: 'Every asset you hold sells for less than the debt attached to it, so selling raises nothing at all and only stops the payments. This is what borrowing to the ceiling looks like from the inside.',
+  },
   age: { th: 'อายุ', en: 'Age' },
   yearsUnit: { th: 'ปี', en: '' },
   toRetire: { th: 'เกษียณอีก', en: 'to retire' },
