@@ -15,9 +15,81 @@ import type {
   FastCard,
   FastTile,
   MarketCard,
+  Loc,
   Profession,
   RatTile,
+  StudyRoute,
 } from '../lib/neeNoo/types';
+
+/**
+ * What it actually costs to become someone else, in Thailand, in 2026.
+ *
+ * The prices and durations are real, and they say something the game could not
+ * say any other way: the fast cheap route exists but it cannot reach the jobs
+ * that need a licence, the route that reaches everything takes four years you
+ * spend paying while you work, and the route that pays the most takes you out
+ * of the workforce entirely and costs more than most people's houses.
+ * Sources are cited in the article that goes with the game.
+ */
+export const studyRoutes: StudyRoute[] = [
+  {
+    id: 'short',
+    title: { th: 'คอร์สระยะสั้น / บูตแคมป์', en: 'Short course or bootcamp' },
+    story: {
+      th: 'สามถึงหกเดือน เรียนกลางคืนกับวันหยุด จ่ายทีเดียวจบ เปลี่ยนสายได้จริงแต่เฉพาะงานที่ไม่ต้องมีใบอนุญาต และเข้าไปเป็นเด็กใหม่ เงินเดือนเริ่มต้นต่ำกว่าคนที่อยู่มาก่อน',
+      en: 'Three to six months of evenings and weekends, paid in one go. It really does change careers, but only into work that needs no licence, and you walk in as the new person on a junior wage.',
+    },
+    months: 5,
+    tuition: 55000,
+    terms: 1,
+    fullTime: false,
+    opensLicensed: false,
+    licenceFee: 0,
+    entrySalary: 0.7,
+  },
+  {
+    id: 'degree',
+    title: { th: 'ปริญญาตรีภาคพิเศษ เสาร์อาทิตย์', en: 'Weekend bachelor’s degree' },
+    story: {
+      th: 'สี่ปีเต็ม เรียนเสาร์อาทิตย์ ทำงานประจำไปด้วยได้ ค่าเทอมจ่ายเป็นเทอม ๆ ไม่ได้จ่ายทีเดียว ราคาที่แท้จริงคือสี่ปีที่คุณโตช้าลงกว่าคนที่ไม่ได้เรียน',
+      en: 'Four full years of weekends while you keep your job. Tuition comes term by term, not in one lump. The real price is four years of growing slower than the people who did not enrol.',
+    },
+    months: 48,
+    tuition: 260000,
+    terms: 8,
+    fullTime: false,
+    opensLicensed: true,
+    licenceFee: 0,
+    entrySalary: 0.85,
+  },
+  {
+    id: 'pilot',
+    title: { th: 'หลักสูตรนักบินพาณิชย์ตรี', en: 'Commercial pilot licence course' },
+    story: {
+      th: 'ยี่สิบเดือนเต็มเวลา ลาออกจากงานไปเรียนอย่างเดียว ไม่มีเงินเดือนเข้าเลยสักบาท ค่าเรียนสองล้านสองแสน แล้วยังมีค่าใบอนุญาตรออยู่ตอนจบอีกก้อน',
+      en: 'Twenty months of full-time training with no salary at all, ฿2.2 million of tuition, and a licence fee still waiting on graduation day.',
+    },
+    months: 20,
+    tuition: 2200000,
+    terms: 5,
+    fullTime: true,
+    opensLicensed: true,
+    licenceFee: 350000,
+    entrySalary: 0.8,
+  },
+];
+
+/**
+ * What a child costs at each age, as a multiple of the profession's baseline.
+ * Nothing about a child gets cheaper: the milk-and-nappies years give way to
+ * school fees, and school fees give way to tutoring.
+ */
+export const childStages: { fromAge: number; scale: number; label: Loc }[] = [
+  { fromAge: 0, scale: 1, label: { th: 'แรกเกิด', en: 'infant' } },
+  { fromAge: 3, scale: 1.6, label: { th: 'อนุบาล', en: 'kindergarten' } },
+  { fromAge: 6, scale: 1.8, label: { th: 'ประถม', en: 'primary' } },
+  { fromAge: 12, scale: 2.4, label: { th: 'มัธยม', en: 'secondary' } },
+];
 
 /* ------------------------------------------------------------- professions */
 
@@ -45,6 +117,11 @@ export const professions: Profession[] = [
       { key: 'card', balance: 55000, payment: 2700 },
       { key: 'retail', balance: 20000, payment: 1000 },
     ],
+    startAge: 31,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.02,
+    risk: 'normal',
   },
   {
     id: 'teacher',
@@ -64,6 +141,12 @@ export const professions: Profession[] = [
       { key: 'card', balance: 25000, payment: 1300 },
       { key: 'student', balance: 90000, payment: 900 },
     ],
+    startAge: 30,
+    retireAge: 60,
+    pension: 'civil',
+    raise: 0.015,
+    risk: 'steady',
+    licensed: true,
   },
   {
     id: 'nurse',
@@ -83,6 +166,12 @@ export const professions: Profession[] = [
       { key: 'card', balance: 40000, payment: 2000 },
       { key: 'student', balance: 60000, payment: 700 },
     ],
+    startAge: 30,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.025,
+    risk: 'steady',
+    licensed: true,
   },
   {
     id: 'cafe',
@@ -101,6 +190,11 @@ export const professions: Profession[] = [
       { key: 'car', balance: 260000, payment: 5500 },
       { key: 'card', balance: 60000, payment: 3000 },
     ],
+    startAge: 33,
+    retireAge: 0,
+    pension: 'none',
+    raise: 0,
+    risk: 'slump',
   },
   {
     id: 'engineer',
@@ -119,6 +213,12 @@ export const professions: Profession[] = [
       { key: 'car', balance: 480000, payment: 8500 },
       { key: 'card', balance: 50000, payment: 2500 },
     ],
+    startAge: 32,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.03,
+    risk: 'normal',
+    licensed: true,
   },
   {
     id: 'dev',
@@ -137,6 +237,11 @@ export const professions: Profession[] = [
       { key: 'car', balance: 620000, payment: 10000 },
       { key: 'card', balance: 76000, payment: 3800 },
     ],
+    startAge: 30,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.04,
+    risk: 'layoff',
   },
   {
     id: 'doctor',
@@ -156,6 +261,12 @@ export const professions: Profession[] = [
       { key: 'card', balance: 80000, payment: 4000 },
       { key: 'student', balance: 300000, payment: 3000 },
     ],
+    startAge: 34,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.03,
+    risk: 'steady',
+    licensed: true,
   },
   {
     id: 'pilot',
@@ -174,6 +285,12 @@ export const professions: Profession[] = [
       { key: 'car', balance: 1800000, payment: 20000 },
       { key: 'card', balance: 140000, payment: 7000 },
     ],
+    startAge: 33,
+    retireAge: 60,
+    pension: 'sso',
+    raise: 0.025,
+    risk: 'grounded',
+    licensed: true,
   },
 ];
 
@@ -294,6 +411,63 @@ export const deals: DealCard[] = [
     mortgagePay: 6300,
     cashflow: 3500,
     maxQty: 1,
+  },
+  /*
+   * The three cards below are the only ones in the deck that cost money every
+   * month instead of paying it. Without them every leveraged deal in the game
+   * was cash-flow positive from the first month, so leverage had no downside to
+   * teach and there was no way to talk yourself into a hole.
+   */
+  {
+    id: 'd-landloan',
+    size: 'small',
+    kind: 'property',
+    tag: 'land',
+    title: { th: 'ที่ดินติดถนนใหญ่ (กู้ซื้อ)', en: 'Roadside land, bought with a loan' },
+    story: {
+      th: 'ผังเมืองใหม่ยังไม่ประกาศ แต่คนแถวนั้นพูดกันแล้ว ที่ดินไม่ให้ค่าเช่าสักบาทระหว่างรอ ส่วนดอกเบี้ยไม่เคยรอใคร',
+      en: 'The new zoning plan is still a rumour the neighbours repeat. Land pays no rent while you wait, and the interest never waits.',
+    },
+    price: 900000,
+    down: 180000,
+    debt: 720000,
+    mortgagePay: 4000,
+    cashflow: -4000,
+    maxQty: 2,
+  },
+  {
+    id: 'd-condoempty',
+    size: 'small',
+    kind: 'property',
+    tag: 'condo',
+    title: { th: 'คอนโดใหม่ที่ยังหาผู้เช่าไม่ได้', en: 'A new condo with nobody in it' },
+    story: {
+      th: 'ตึกเพิ่งสร้างเสร็จ ห้องว่างพร้อมกันทั้งชั้น ค่าเช่าที่เคยคุยไว้เลยกดกันลงมาจนไม่พอค่างวด',
+      en: 'The building just finished and a whole floor came onto the market at once, so the rent everyone quoted no longer covers the payment.',
+    },
+    price: 1200000,
+    down: 60000,
+    debt: 1140000,
+    mortgagePay: 6300,
+    cashflow: -1500,
+    maxQty: 2,
+  },
+  {
+    id: 'd-cafenew',
+    size: 'small',
+    kind: 'business',
+    tag: 'cafe',
+    title: { th: 'ร้านกาแฟเปิดใหม่หน้าออฟฟิศ', en: 'A new coffee shop outside an office block' },
+    story: {
+      th: 'ทำเลดี ค่าเช่าแพง ลูกค้ายังไม่รู้จัก เดือนแรก ๆ ต้องควักเนื้อก่อน จะรอดหรือไม่รอดขึ้นกับว่าคนจะติดร้านทันไหม',
+      en: 'Good spot, expensive rent, nobody knows it yet. The first months come out of your pocket, and whether it lives depends on how fast regulars appear.',
+    },
+    price: 250000,
+    down: 250000,
+    debt: 0,
+    cashflow: -3000,
+    maxQty: 1,
+    volatility: 0.35,
   },
   {
     id: 'd-rooms',
@@ -1634,3 +1808,4 @@ export const doodadById = new Map(doodads.map((c) => [c.id, c]));
 export const fastById = new Map(fastCards.map((c) => [c.id, c]));
 export const dreamById = new Map(dreams.map((d) => [d.id, d]));
 export const professionById = new Map(professions.map((p) => [p.id, p]));
+export const studyRouteById = new Map(studyRoutes.map((r) => [r.id, r]));

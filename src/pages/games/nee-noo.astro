@@ -494,6 +494,8 @@ const description =
       font-weight:600;
     }
     .nn-rows dt.nn-rowsplit{color:var(--nn-ink);}
+    .nn-debtsum{margin-bottom:0.55rem;}
+    .nn-debtsum .nn-total{font-size:0.9rem;font-weight:700;}
     .nn-rows .nn-rowhead{
       margin-top:0.5rem;
       font-size:0.72rem;
@@ -811,6 +813,43 @@ const description =
       color:var(--nn-ink);
       user-select:text;
     }
+    /* The other side of a price card: a counter to buy at the quoted price. */
+    /* Retraining: three real routes side by side, priced honestly. */
+    .nn-routes{display:grid;gap:0.7rem;margin-top:0.9rem;}
+    .nn-route{
+      background:var(--nn-panel-2);
+      border:1px solid var(--nn-border);
+      border-radius:13px;
+      padding:0.75rem 0.85rem 0.85rem;
+    }
+    .nn-route h3{margin:0 0 0.3rem;font-size:0.85rem;color:#fff;}
+    .nn-route p{margin:0 0 0.5rem;font-size:0.78rem;color:var(--nn-muted);line-height:1.55;}
+    .nn-route .facts{margin:0 0 0.55rem;}
+    .nn-route .nn-btn{width:100%;}
+    .nn-route select{
+      background:var(--nn-panel);
+      border:1px solid var(--nn-border);
+      border-radius:8px;
+      padding:0.32rem 0.5rem;
+      color:var(--nn-ink);
+      max-width:100%;
+    }
+    .nn-route .nn-qty{margin:0 0 0.55rem;flex-direction:column;align-items:stretch;gap:0.3rem;}
+    .nn-buybox{
+      margin-top:0.9rem;
+      padding:0.75rem 0.85rem 0.85rem;
+      background:var(--nn-panel-2);
+      border:1px solid var(--nn-border);
+      border-radius:13px;
+    }
+    .nn-buybox h3{
+      margin:0 0 0.4rem;
+      font-size:0.82rem;
+      font-weight:700;
+      color:#fff;
+    }
+    .nn-buybox .facts{margin:0;}
+    .nn-buybox .nn-acts{margin-top:0.7rem;}
     .nn-note{
       font-size:0.78rem;
       color:var(--nn-muted);
@@ -923,6 +962,8 @@ const description =
       marketById,
       professionById,
       professions,
+      studyRouteById,
+      studyRoutes,
     } from '../../data/neeNoo';
     import {
       LOAN_RATE,
@@ -968,6 +1009,31 @@ const description =
       INSURANCE_PREMIUM_RATE,
       INSURANCE_STEP,
       livePrice,
+      marketBuy,
+      buyFromMarket,
+      totalDebt,
+      ageYears,
+      monthsToRetire,
+      retiredByAge,
+      noMoreSalary,
+      pensionIncome,
+      priceLevel,
+      livingCost,
+      childStage,
+      childExpense,
+      tuitionMonthly,
+      studyYear,
+      routeTargets,
+      canEnrol,
+      enrol,
+      payLicence,
+      acceptRetirement,
+      declineCareer,
+      heirs,
+      heirShare,
+      personalDebt,
+      assetDebt,
+      totalDebtService,
       sellPaper,
       resumeAfterEnd,
       clearMortgage,
@@ -1228,7 +1294,6 @@ const description =
     function renderSheet(root: Root, s: GameState): void {
       const host = root.querySelector<HTMLElement>('[data-sheet]');
       if (!host) return;
-      const p = profession(s);
       const passive = passiveIncome(s);
       const income = totalIncome(s);
       const expenses = totalExpenses(s);
@@ -1290,7 +1355,7 @@ const description =
           <button type="button" class="nn-debt-head" data-act="opendebt" data-id="${first.cardId}" aria-expanded="${open}">
             <span class="nm"><b>${T(first.name)}</b><small>${meta}</small></span>
           </button>
-          <span class="amt ${flow > 0 ? 'pos' : ''}">${flow > 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>
+          <span class="amt ${flow !== 0 ? cls(flow) : ''}">${flow !== 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>
           ${open ? `<div class="nn-debt-body"><ul class="nn-list nn-sublist">${list.map((a) => singleAssetRow(a, true)).join('')}</ul></div>` : ''}
         </li>`;
       };
@@ -1314,7 +1379,9 @@ const description =
               const flow = assetCashflow(a);
               const open = nested || openDebt === a.uid;
               const meta = `${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)} · ${T(UI.mortgageOn)} ${money(a.mortgagePay)}` : ''}`;
-              const amt = `<span class="amt ${flow > 0 ? 'pos' : ''}">${flow > 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>`;
+              // A holding that costs money every month has to say so; showing
+              // a dash there hid the whole point of the negative-carry cards.
+              const amt = `<span class="amt ${flow !== 0 ? cls(flow) : ''}">${flow !== 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>`;
               if (a.debt <= 0) {
                 // Shares and gold are liquid: their row carries its own sell
                 // button and the price it would fetch today.
@@ -1388,7 +1455,10 @@ const description =
               </li>`;
             })
             .join('')}</ul>`
-        : `<p class="nn-empty">${T(UI.noDebts)}</p>`;
+        // With no personal debt but a mortgaged portfolio, "no debts" would
+        // contradict the total sitting right above it, so the summary speaks
+        // alone in that case.
+        : assetDebt(s) > 0 ? '' : `<p class="nn-empty">${T(UI.noDebts)}</p>`;
 
       const tierName = TIER_NAMES[Math.max(s.tier, tierOf(s)) - 1];
       const owned = ownedDreams(s);
@@ -1410,7 +1480,8 @@ const description =
         <div class="nn-sec">
           <h3>${T(UI.income)}</h3>
           <dl class="nn-rows">
-            <dt>${T(UI.salary)}</dt><dd class="${s.quit ? 'muted' : ''}">${s.quit ? T(UI.salaryGone) : money(salary(s))}</dd>
+            <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
+            ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
             <dt>${T(UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
           </dl>
         </div>
@@ -1418,8 +1489,9 @@ const description =
           <h3>${T(UI.expenses)}</h3>
           <dl class="nn-rows">
             <dt>${T(UI.taxes)}</dt><dd>${money(taxes(s))}</dd>
-            <dt>${T(UI.other)}</dt><dd>${money(p.otherExpenses)}</dd>
-            ${s.children > 0 ? `<dt>${T(UI.childrenCost)} (${s.children})</dt><dd>${money(p.childCost * s.children)}</dd>` : ''}
+            <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
+            ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})</dt><dd>${money(childExpense(s))}</dd>` : ''}
+            ${s.study ? `<dt>${T(UI.tuition)}</dt><dd class="warn">${money(tuitionMonthly(s))}</dd>` : ''}
             ${s.incorporated ? `<dt>${T(UI.accounting)}</dt><dd>${money(CORP_MONTHLY_COST)}</dd>` : ''}
             ${s.insuranceCover > 0 ? `<dt>${T(UI.premium)}</dt><dd>${money(insurancePremium(s))}</dd>` : ''}
             ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
@@ -1435,6 +1507,14 @@ const description =
         </div>
         <div class="nn-sec">
           <h3>${T(UI.liabilities)}</h3>
+          <!-- Mortgages live inside their own asset rows, so without this block
+               the liabilities heading reported a fraction of what is owed. -->
+          ${totalDebt(s) > 0 ? `<dl class="nn-rows nn-debtsum">
+            <dt class="nn-total">${T(UI.totalDebt)}</dt><dd class="nn-total neg">${money(totalDebt(s))}</dd>
+            <dt class="sub">${T(UI.personalDebt)}</dt><dd class="sub">${money(personalDebt(s))}</dd>
+            <dt class="sub">${T(UI.assetDebt)}</dt><dd class="sub">${money(assetDebt(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.debtService)}</dt><dd class="nn-rowsplit neg">${money(totalDebtService(s))}${T(UI.perMonth)}</dd>
+          </dl>` : ''}
           ${debtRows}
         </div>
         <div class="nn-big">
@@ -1510,6 +1590,23 @@ const description =
         </div>`;
     }
 
+    /**
+     * The countdown only means something while there is still a salary to lose,
+     * so it turns into a plain label once the wage has stopped for good.
+     */
+    function pensionLabelOf(s: GameState): Loc {
+      const kind = professionById.get(s.professionId)?.pension;
+      return kind === 'civil' ? UI.pensionCivil : kind === 'sso' ? UI.pensionSso : UI.pensionNone;
+    }
+
+    function retireLine(s: GameState): string {
+      if (s.quit) return '';
+      if (noMoreSalary(s)) return `<span class="neg">${T(retiredByAge(s) ? UI.retiredTag : UI.careerEnded)}</span>`;
+      const left = monthsToRetire(s);
+      if (!Number.isFinite(left)) return `<span class="pos">${T(UI.noRetire)}</span>`;
+      return `<span class="${left <= 24 ? 'neg' : ''}">${T(UI.toRetire)} ${Math.round(left / 12)} ${T(UI.monthsWord) === 'months' ? 'yr' : 'ปี'}</span>`;
+    }
+
     function renderControls(root: Root, s: GameState): void {
       const host = root.querySelector<HTMLElement>('[data-controls]');
       if (!host) return;
@@ -1541,6 +1638,11 @@ const description =
         <div class="nn-status">
           <span>${T(UI.turn)} ${s.turn}</span>
           <span>${T(UI.months)} ${s.months}</span>
+          <span>${T(UI.age)} ${ageYears(s)} ${T(UI.yearsUnit)}</span>
+          ${retireLine(s)}
+          ${s.study ? `<span class="warn">${T(UI.studyLabel)} ${T(UI.studyYearOf)} ${studyYear(s).done}/${studyYear(s).total}</span>` : ''}
+          ${s.bondMonths > 0 ? `<span class="warn">${T(UI.bondActive)} ${s.bondMonths}</span>` : ''}
+          ${s.slumpMonths > 0 ? `<span class="neg">${T(UI.slumpActive)} ${s.slumpMonths}</span>` : ''}
           ${s.skipTurns > 0 ? `<span class="neg">${T(UI.skipping)} ${s.skipTurns}</span>` : ''}
           ${two ? `<span class="pos">${T(UI.charityLeft)} ${s.charityTurns}</span>` : ''}
         </div>`;
@@ -1643,6 +1745,16 @@ const description =
         <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.ok)}</button></div>`;
     }
 
+    /**
+     * The pension this career would actually pay at 60, computed against the
+     * salary the player would have had by then rather than today's. It is the
+     * number the whole run was an argument about.
+     */
+    function pensionAt60(s: GameState): number {
+      const at60: GameState = { ...s, quit: false, careerOver: true, months: Math.max(s.months, (60 - profession(s).startAge) * 12) };
+      return pensionIncome(at60);
+    }
+
     function endingDialog(s: GameState): string {
       const won = s.phase === 'won';
       const job = profession(s);
@@ -1674,7 +1786,26 @@ const description =
           <dt>${T(UI.turn)}</dt><dd>${s.turn}</dd>
           <dt>${T(UI.passive)}</dt><dd>${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
           <dt>${T(UI.netWorth)}</dt><dd>${money(netWorth(s))}</dd>
+          <dt>${T(UI.inflationLabel)}</dt><dd>+${Math.round((priceLevel(s) - 1) * 100)}% ${T(UI.sinceStart)}</dd>
         </dl>
+        <!-- The closing argument. What the state would have paid, next to what
+             the player built, and what the heirs keep after the taxman. -->
+        <div class="nn-sec">
+          <h3>${T(UI.ifYouStop)}</h3>
+          <dl class="facts">
+            <dt>${T(pensionLabelOf(s))}</dt><dd class="${pensionAt60(s) > 0 ? '' : 'neg'}">${money(pensionAt60(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.expenses)}</dt><dd class="neg">${money(totalExpenses(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.passive)}</dt><dd class="${passiveIncome(s) > 0 ? 'pos' : 'neg'}">${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
+          </dl>
+        </div>
+        <div class="nn-sec">
+          <h3>${T(UI.heirsLabel)} ${heirs(s)}</h3>
+          <dl class="facts">
+            <dt>${T(UI.perHeir)}</dt><dd>${money(heirShare(s))}</dd>
+            <dt>${T(UI.heirTax)}</dt><dd class="${estateTax(s) > 0 ? 'neg' : 'pos'}">${estateTax(s) > 0 ? money(estateTax(s)) : T(UI.heirTaxNone)}</dd>
+          </dl>
+          <p class="nn-warnline">${T(UI.splitNote)}</p>
+        </div>
         <div class="nn-acts">
           <button type="button" class="nn-btn" data-act="closeending">${T(UI.keepLooking)}</button>
           ${won ? `<button type="button" class="nn-btn nn-btn-go" data-act="resume-run">${T(UI.resumeRun)}</button>` : ''}
@@ -1704,7 +1835,7 @@ const description =
       const n = Math.max(0, qty);
       const total = unit * n;
       const income = flow * n;
-      return `${T(UI.totalCost)} <b>${money(total)}</b>${income > 0 ? ` · ${T(UI.monthlyIn)} <b class="pos">${signed(income)}${T(UI.perMonth)}</b>` : ''}`;
+      return `${T(UI.totalCost)} <b>${money(total)}</b>${income !== 0 ? ` · ${T(UI.monthlyIn)} <b class="${cls(income)}">${signed(income)}${T(UI.perMonth)}</b>` : ''}`;
     }
 
     function pendingDialog(s: GameState): string | null {
@@ -1800,7 +1931,8 @@ const description =
           <dl class="facts">
             <dt>${T(UI.price)}</dt><dd>${money(dealPrice(s, card))}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}</dd>
             ${card.debt > 0 ? `<dt>${T(UI.downPayment)}</dt><dd>${money(per)}</dd><dt>${T(UI.loanTaken)}</dt><dd>${money(card.debt)}</dd><dt>${T(UI.mortgageOn)}</dt><dd class="neg">${money(card.mortgagePay ?? 0)}${T(UI.perMonth)}</dd>` : ''}
-            <dt>${T(UI.monthlyIn)}</dt><dd class="${card.cashflow > 0 ? 'pos' : ''}">${card.cashflow > 0 ? `${signed(card.cashflow)}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}` : '—'}</dd>
+            <dt>${T(UI.monthlyIn)}</dt><dd class="${card.cashflow !== 0 ? cls(card.cashflow) : ''}">${card.cashflow !== 0 ? `${signed(card.cashflow)}${card.maxQty > 1 ? ` / ${T(UI.units)}` : ''}` : '—'}</dd>
+            ${card.cashflow < 0 ? `<dt>${T(UI.carryCost)}</dt><dd class="neg">${money(Math.abs(card.cashflow) * 12)}${T(UI.perYear)}</dd>` : ''}
             ${card.volatility ? `<dt>${T(UI.swingLabel)}</dt><dd class="warn">${Math.round(card.volatility * 100)}%</dd>` : ''}
             ${card.impact ? `<dt>${T(UI.impactLabel)}</dt><dd>${card.impact.toLocaleString('en-US')}</dd>` : ''}
             <dt>${T(UI.cash)}</dt><dd>${money(s.cash)}</dd>
@@ -1830,12 +1962,40 @@ const description =
                 </div>`;
               })
               .join('')
-          : `<p class="nn-empty">${T(UI.nothingToSell)}</p>`;
+          : '';
+        // A quoted price is not only an exit. When it comes in under the price
+        // the thing normally trades at, the useful move is the opposite one, so
+        // the card carries its own buy counter next to the sell rows.
+        const offer = marketBuy(s);
+        let buyBox = '';
+        if (offer) {
+          const { card: deal, unit, max } = offer;
+          const gap = deal.price > 0 ? (unit - deal.price) / deal.price : 0;
+          const cheap = gap <= -0.01;
+          const badge = Math.abs(gap) >= 0.01
+            ? ` <span class="${cheap ? 'pos' : 'neg'}">${T(cheap ? UI.belowNormal : UI.aboveNormal)} ${Math.abs(Math.round(gap * 100))}%</span>`
+            : '';
+          buyBox = `<div class="nn-buybox">
+            <h3>${T(UI.buyAtThisPrice)} · ${T(deal.title)}</h3>
+            <dl class="facts">
+              <dt>${T(UI.price)}</dt><dd>${money(unit)}${deal.maxQty > 1 ? ` / ${T(UI.units)}` : ''}${badge}</dd>
+              ${deal.cashflow > 0 ? `<dt>${T(UI.yearlyYield)}</dt><dd class="pos">${((deal.cashflow * 12 * 100) / unit).toFixed(1)}%</dd>` : ''}
+              <dt>${T(UI.cash)}</dt><dd>${money(s.cash)}</dd>
+            </dl>
+            ${cheap && deal.cashflow > 0 ? `<p class="nn-warnline">${T(UI.cheapYieldNote)}</p>` : ''}
+            ${max > 1 ? `<div class="nn-qty"><label for="nn-buyqty">${T(UI.qty)} (1–${max})</label><input id="nn-buyqty" type="number" data-qty="buy" data-unit="${unit}" data-flow="${deal.cashflow}" data-max="${max}" min="1" max="${max}" value="${max}"></div>
+            <p class="nn-empty" data-qty-note>${qtyNote(unit, deal.cashflow, max)}</p>` : ''}
+            <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="marketbuy" ${max > 0 ? '' : 'disabled'}>${max > 0 ? T(UI.buy) : T(UI.cannotAfford)}</button></div>
+          </div>`;
+        }
+        const empty = !rows && !buyBox ? `<p class="nn-empty">${T(UI.nothingToSell)}</p>` : '';
+        const idle = matches.length || offer;
         return `<div class="kind">${T(UI.tileMarket)}</div>
           <h2 id="nn-dlg-title">${T(card.title)}</h2>
           <p class="story">${T(card.story)}</p>
-          <div style="margin-top:1rem">${rows}</div>
-          <div class="nn-acts"><button type="button" class="nn-btn ${matches.length ? 'nn-btn-quiet' : 'nn-btn-go'}" data-act="closemarket">${matches.length ? T(UI.sellNone) : T(UI.ok)}</button></div>`;
+          <div style="margin-top:1rem">${rows}${empty}</div>
+          ${buyBox}
+          <div class="nn-acts"><button type="button" class="nn-btn ${idle ? 'nn-btn-quiet' : 'nn-btn-go'}" data-act="closemarket">${offer ? T(UI.marketNone) : matches.length ? T(UI.sellNone) : T(UI.ok)}</button></div>`;
       }
 
       if (p.kind === 'doodad') {
@@ -1863,7 +2023,80 @@ const description =
           <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="baby">${T(UI.ok)}</button></div>`;
       }
 
+      if (p.kind === 'retired') {
+        const pension = pensionIncome(s);
+        const gap = totalExpenses(s) - pension - passiveIncome(s);
+        return `<div class="kind">${T(UI.retiredTag)}</div>
+          <h2 id="nn-dlg-title">${T(UI.retiredTitle)}</h2>
+          <p class="story">${T(UI.retiredBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.salary)}</dt><dd class="muted">${T(UI.salaryGone)}</dd>
+            <dt>${T(pensionLabelOf(s))}</dt><dd class="${pension > 0 ? 'pos' : 'neg'}">${money(pension)}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.passive)}</dt><dd class="${passiveIncome(s) > 0 ? 'pos' : ''}">${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.expenses)}</dt><dd class="neg">${money(totalExpenses(s))}${T(UI.perMonth)}</dd>
+            <dt class="nn-rowsplit">${T(UI.cashflow)}</dt><dd class="nn-rowsplit ${cls(-gap)}">${signed(-gap)}${T(UI.perMonth)}</dd>
+          </dl>
+          <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="retiredok">${T(UI.ok)}</button></div>`;
+      }
+
+      if (p.kind === 'career') {
+        // Every route is shown even when it cannot be afforded, because seeing
+        // the price of the door you cannot open is most of the lesson.
+        const cards = studyRoutes
+          .map((r) => {
+            const targets = routeTargets(s, r);
+            const first = targets[0];
+            const perTerm = Math.round(r.tuition / r.terms);
+            const ok = canEnrol(s, r) && !!first;
+            return `<div class="nn-route">
+              <h3>${T(r.title)}</h3>
+              <p>${T(r.story)}</p>
+              <dl class="facts">
+                <dt>${T(UI.courseMonths)}</dt><dd>${r.months} ${T(UI.monthsWord)}</dd>
+                <dt>${T(UI.totalTuition)}</dt><dd class="neg">${money(r.tuition)}</dd>
+                <dt>${T(UI.firstTerm)}</dt><dd class="${s.cash >= perTerm ? '' : 'neg'}">${money(perTerm)}</dd>
+                ${r.licenceFee > 0 ? `<dt>${T(UI.licenceTitle)}</dt><dd class="neg">${money(r.licenceFee)}</dd>` : ''}
+                <dt>${T(UI.entryPayLabel)}</dt><dd>${Math.round(r.entrySalary * 100)}% ${T(UI.ofThatJob)}</dd>
+                <dt>${T(UI.salary)}</dt><dd class="${r.fullTime ? 'neg' : 'pos'}">${T(r.fullTime ? UI.noSalaryWhile : UI.keepWorking)}</dd>
+              </dl>
+              ${targets.length ? `<label class="nn-qty"><span>${T(UI.pickTarget)}</span>
+                <select data-target="${r.id}">${targets.map((t) => `<option value="${t.id}">${T(t.name)} · ${money(t.salary)}</option>`).join('')}</select></label>` : ''}
+              <button type="button" class="nn-btn nn-btn-go" data-act="enrol" data-id="${r.id}" ${ok ? '' : 'disabled'}>${ok ? T(UI.enrolBtn) : T(UI.cannotAfford)}</button>
+            </div>`;
+          })
+          .join('');
+        return `<div class="kind">${T(UI.tileDownsized)}</div>
+          <h2 id="nn-dlg-title">${T(UI.careerTitle)}</h2>
+          <p class="story">${T(UI.careerBody)}</p>
+          <div class="nn-routes">${cards}</div>
+          <div class="nn-acts"><button type="button" class="nn-btn nn-btn-quiet" data-act="keepjob">${T(UI.keepJob)}</button></div>`;
+      }
+
+      if (p.kind === 'licence') {
+        const route = studyRouteById.get(p.routeId);
+        if (!route) return null;
+        const fee = route.licenceFee;
+        return `<div class="kind">${T(UI.studyLabel)}</div>
+          <h2 id="nn-dlg-title">${T(UI.licenceTitle)}</h2>
+          <p class="story">${T(UI.licenceBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.licenceTitle)}</dt><dd class="neg">${money(fee)}</dd>
+            <dt>${T(UI.cash)}</dt><dd class="${s.cash >= fee ? '' : 'neg'}">${money(s.cash)}</dd>
+          </dl>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="licence" data-id="cash" ${s.cash >= fee ? '' : 'disabled'}>${T(UI.payCash)}</button>
+            <button type="button" class="nn-btn" data-act="licence" data-id="loan">${T(UI.payLoan)}</button>
+            <button type="button" class="nn-btn nn-btn-gold" data-act="licence" data-id="bond">${T(UI.payBond)}</button>
+          </div>
+          <p class="nn-warnline">${T(UI.bondNote)}</p>`;
+      }
+
       if (p.kind === 'downsized') {
+        // Two months of bills with no salary behind them, against the severance
+        // paid today. Passive income big enough to cover the gap leaves the
+        // player ahead, and the row says so rather than reporting a loss of ฿0.
+        const monthlyGap = Math.max(0, totalExpenses(s) - passiveIncome(s));
+        const net = severance(s) - 2 * monthlyGap;
         return `<div class="kind">${T(UI.tileDownsized)}</div>
           <h2 id="nn-dlg-title">${T(UI.tileDownsized)}</h2>
           <p class="story">${T(UI.downsizedBody)}</p>
@@ -1871,8 +2104,9 @@ const description =
             <dt>${T(UI.expenses)}</dt><dd class="neg">${money(totalExpenses(s))}${T(UI.perMonth)}</dd>
             <dt>${T(UI.passive)}</dt><dd class="${passiveIncome(s) > 0 ? 'pos' : ''}">${money(passiveIncome(s))}${T(UI.perMonth)}</dd>
             <dt>${T(UI.severance)}</dt><dd class="pos">${signed(severance(s))}</dd>
-            <dt>${T(UI.downsizedCost)}</dt><dd class="neg">${money(Math.min(0, severance(s) - 2 * Math.max(0, totalExpenses(s) - passiveIncome(s))))}</dd>
+            <dt>${T(net < 0 ? UI.downsizedCost : UI.downsizedSpare)}</dt><dd class="${cls(net)}">${signed(net)}</dd>
           </dl>
+          ${!s.quit && passiveIncome(s) >= totalExpenses(s) ? `<p class="nn-warnline">${T(UI.quitPaused)}</p>` : ''}
           <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="downsized">${T(UI.ok)}</button></div>`;
       }
 
@@ -2245,11 +2479,24 @@ const description =
 
     /* ------------------------------------------------------------ actions */
 
-    function qtyOf(root: Root, id?: string): number {
+    /**
+     * The quantity box belonging to the button that was pressed. Searching the
+     * whole board found the wrong one: the balance sheet is rendered before the
+     * dialog, and a paper holding carries a quantity box of its own under the
+     * same asset id, so a purchase read the sell box in the sheet and bought
+     * whatever number happened to be sitting in it. `scope` is the panel the
+     * button lives in, which is the only place its own box can be.
+     */
+    function qtyOf(scope: ParentNode, id?: string): number {
       const sel = id ? `[data-qty="${id}"]` : '[data-qty]';
-      const input = root.querySelector<HTMLInputElement>(sel);
+      const input = scope.querySelector<HTMLInputElement>(sel);
       const n = input ? Number.parseInt(input.value, 10) : 1;
       return Number.isFinite(n) && n > 0 ? n : 1;
+    }
+
+    /** The panel a clicked control belongs to: dialog, sheet, log or the board. */
+    function panelOf(root: Root, from: HTMLElement | undefined): ParentNode {
+      return from?.closest('.nn-ovl, [data-sheet], [data-logpanel], [data-controls]') ?? root;
     }
 
     /** Take a state as the live game: match the cash display and settle any walk. */
@@ -2260,9 +2507,10 @@ const description =
       shownCash = s.cash;
     }
 
-    function act(root: Root, action: string, id: string | undefined): void {
+    function act(root: Root, action: string, id: string | undefined, from?: HTMLElement): void {
       const s = state;
       if (busy) return;
+      const panel = panelOf(root, from);
 
       switch (action) {
         case 'pick-prof':
@@ -2329,7 +2577,7 @@ const description =
             void runTurn(root, s, id === '2' ? 2 : 1);
             return;
           }
-          applyGameAction(root, s, action, id);
+          applyGameAction(panel, s, action, id);
           break;
       }
 
@@ -2338,7 +2586,7 @@ const description =
       render(root);
     }
 
-    function applyGameAction(root: Root, s: GameState, action: string, id: string | undefined): void {
+    function applyGameAction(panel: ParentNode, s: GameState, action: string, id: string | undefined): void {
       switch (action) {
         case 'deal':
           // Four decks share this button, so the id is passed through rather
@@ -2348,13 +2596,31 @@ const description =
           chooseDeal(s, id === 'big' || id === 'fast' || id === 'mega' ? id : 'small');
           break;
         case 'buy':
-          buyDeal(s, qtyOf(root));
+          buyDeal(s, qtyOf(panel));
           break;
         case 'pass':
           passDeal(s);
           break;
         case 'sell':
-          if (id) sellToMarket(s, id, qtyOf(root, id));
+          if (id) sellToMarket(s, id, qtyOf(panel, id));
+          break;
+        case 'retiredok':
+          acceptRetirement(s);
+          break;
+        case 'keepjob':
+          declineCareer(s);
+          break;
+        case 'enrol': {
+          if (!id) break;
+          const pick = panel.querySelector<HTMLSelectElement>(`[data-target="${id}"]`);
+          if (pick) enrol(s, id, pick.value);
+          break;
+        }
+        case 'licence':
+          if (id === 'cash' || id === 'loan' || id === 'bond') payLicence(s, id);
+          break;
+        case 'marketbuy':
+          buyFromMarket(s, qtyOf(panel, 'buy'));
           break;
         case 'closemarket':
           closeMarket(s);
@@ -2405,14 +2671,14 @@ const description =
           borrow(s, Math.max(LOAN_STEP, Math.ceil(Math.max(0, -s.cash) / LOAN_STEP) * LOAN_STEP));
           break;
         case 'borrow-do': {
-          const input = root.querySelector<HTMLInputElement>('[data-borrow]');
+          const input = panel.querySelector<HTMLInputElement>('[data-borrow]');
           const asked = input ? Number.parseInt(input.value, 10) : LOAN_STEP;
           borrow(s, Number.isFinite(asked) && asked > 0 ? asked : LOAN_STEP);
           modal = null;
           break;
         }
         case 'sellnow':
-          if (id) sellPaper(s, id, qtyOf(root, id));
+          if (id) sellPaper(s, id, qtyOf(panel, id));
           break;
         case 'clearmortgage':
           if (id) clearMortgage(s, id);
@@ -2421,7 +2687,7 @@ const description =
           if (id) repay(s, id);
           break;
         case 'firesale':
-          if (id) fireSale(s, id, qtyOf(root, id));
+          if (id) fireSale(s, id, qtyOf(panel, id));
           break;
         case 'fastskip':
         case 'fastresolve':
@@ -2507,7 +2773,7 @@ const description =
         const actor = e.target.closest<HTMLElement>('[data-act]');
         if (!actor || !root.contains(actor)) return;
         const action = actor.dataset.act;
-        if (action) act(root, action, actor.dataset.id);
+        if (action) act(root, action, actor.dataset.id, actor);
       });
 
       // The borrow dialog prices the choice as it is being made, without a
@@ -2516,7 +2782,7 @@ const description =
         if (!(e.target instanceof HTMLInputElement)) return;
         const el = e.target;
         if ('borrow' in el.dataset) {
-          const note = root.querySelector<HTMLElement>('[data-borrow-note]');
+          const note = panelOf(root, el).querySelector<HTMLElement>('[data-borrow-note]');
           const n = Number.parseInt(el.value, 10);
           if (note) note.textContent = `${T(UI.borrowMonthly)} ${money(Number.isFinite(n) && n > 0 ? n * LOAN_RATE : 0)}`;
           return;
@@ -2525,7 +2791,7 @@ const description =
         // wallet can actually cover so the figure is never a promise the
         // purchase will refuse to keep.
         if (el.dataset.unit !== undefined) {
-          const note = root.querySelector<HTMLElement>('[data-qty-note]');
+          const note = panelOf(root, el).querySelector<HTMLElement>('[data-qty-note]');
           if (!note) return;
           const cap = Number(el.dataset.max ?? 0);
           const raw = Number.parseInt(el.value, 10);
