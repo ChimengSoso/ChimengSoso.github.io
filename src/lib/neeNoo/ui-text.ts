@@ -119,6 +119,8 @@ export const UI = {
   coverLapsed: { th: 'ตอนนี้ไม่มีความคุ้มครองเลย ถ้ารถมีเรื่องก่อนต่อเบี้ย ค่าซ่อมเป็นของคุณทั้งก้อน', en: 'There is no cover at all right now. Anything that happens before you renew is yours to pay in full.' },
   welcomeChild: { th: 'ยินดีต้อนรับ', en: 'Welcome them' },
   notNow: { th: 'ยังไม่พร้อม', en: 'Not now' },
+  childrenTurn: { th: 'ลูกอายุครบ', en: 'They turn' },
+  childrenAtSchool: { th: 'ลูกที่อยู่ในวัยเรียน', en: 'Children at school' },
   childCostNow: { th: 'ค่าเลี้ยงดูตอนนี้', en: 'Costs from today' },
   childCostLater: { th: 'ตอนเข้ามัธยม', en: 'By secondary school' },
   halfPrice: { th: 'ขายครึ่งราคาได้', en: 'Half price fetches' },
