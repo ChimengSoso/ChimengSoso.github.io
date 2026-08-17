@@ -473,6 +473,14 @@ export interface GameState {
   /** the children's health cover is in force, and its premium is being paid */
   childInsured: boolean;
   /**
+   * Share of the wage going into the provident fund, matched baht for baht by
+   * the employer. The pot is locked until the job ends and compounds while it
+   * waits, which makes it the only holding in the game that grows without ever
+   * being landed on.
+   */
+  pfRate: number;
+  pfPot: number;
+  /**
    * The animal in the house, rolled at the start of the game. The vet bill used
    * to arrive for a creature with no species and no name, which is a bill
    * nobody can feel. A named cat is complained about; "a pet" is not.

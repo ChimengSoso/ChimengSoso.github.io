@@ -260,6 +260,15 @@ const description =
       display:inline-block;padding:0 0.32rem;margin-right:0.3rem;border-radius:0.3rem;
       font-size:0.62rem;letter-spacing:0.04em;background:rgba(214,168,74,0.2);color:var(--nn-gold);
     }
+    /* The payslip block: savings the employer doubles does not belong in the
+       same list as the phone bill, so it gets its own frame. */
+    .nn-payroll{border:1px solid rgba(47,158,92,0.3);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(47,158,92,0.05);}
+    .nn-pfpick{display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.72rem;color:var(--nn-muted);}
+    .nn-pfpick button{
+      border:1px solid var(--nn-border);border-radius:7px;padding:0.15rem 0.5rem;
+      font-size:0.72rem;color:var(--nn-muted);cursor:pointer;background:none;
+    }
+    .nn-pfpick button[aria-pressed="true"]{border-color:var(--nn-green);color:var(--nn-green-bright);}
     .nn-hero-note{margin:0.15rem 0 0;font-size:0.72rem;color:var(--nn-muted);}
     .nn-hero-note b{color:var(--nn-ink);}
     /* The credit assessment and the annual report are both "the other side's
@@ -1181,6 +1190,15 @@ const description =
       childStage,
       childExpense,
       childExpenseGross,
+      ssoContribution,
+      pfContribution,
+      pfMatch,
+      pfPot,
+      pfCashOut,
+      pfRateOptions,
+      hasProvidentFund,
+      setPfRate,
+      PF_VEST_AGE,
       childPremium,
       partnerCost,
       schoolChildren,
@@ -1807,6 +1825,24 @@ const description =
             <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
           </dl>
         </div>
+        <!-- The payslip's own deductions, kept apart from ordinary spending
+             because one of them is not spending at all: it is savings the
+             employer doubles on the way in. -->
+        ${salary(s) > 0 && (ssoContribution(s) > 0 || hasProvidentFund(s)) ? `<div class="nn-sec nn-payroll">
+          <h3>${T(UI.payrollTitle)}</h3>
+          <dl class="nn-rows">
+            ${ssoContribution(s) > 0 ? `<dt>${T(profession(s).pension === 'civil' ? UI.gpfLabel : UI.ssoLabel)}</dt><dd>-${money(ssoContribution(s))}</dd>` : ''}
+            ${hasProvidentFund(s) ? `<dt>${T(UI.pfOwn)} (${Math.round(s.pfRate * 100)}%)</dt><dd>-${money(pfContribution(s))}</dd>
+            <dt>${T(UI.pfMatch)}</dt><dd class="pos">+${money(pfMatch(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.pfPotLabel)}</dt><dd class="nn-rowsplit pos">${money(pfPot(s))}</dd>
+            ${ageYears(s) < PF_VEST_AGE && pfPot(s) > 0 ? `<dt class="sub">${T(UI.pfIfTakenNow)}</dt><dd class="sub">${money(pfCashOut(s))}</dd>` : ''}` : ''}
+          </dl>
+          ${hasProvidentFund(s) ? `<div class="nn-pfpick" role="group" aria-label="${T(UI.pfOwn)}">
+            <span>${T(UI.pfSetRate)}</span>
+            ${pfRateOptions().map((r) => `<button type="button" data-act="pfrate" data-id="${r}" aria-pressed="${Math.abs(r - s.pfRate) < 0.001}">${Math.round(r * 100)}%</button>`).join('')}
+          </div>
+          <p class="nn-empty">${T(UI.pfNote)}</p>` : ''}
+        </div>` : ''}
         <div class="nn-sec">
           <h3>${T(UI.expenses)}</h3>
           <dl class="nn-rows">
@@ -3546,6 +3582,9 @@ const description =
         case 'speed':
           speed = id === 'fast' ? 'fast' : id === 'off' ? 'off' : 'normal';
           saveSpeed();
+          break;
+        case 'pfrate':
+          if (s && id !== undefined) setPfRate(s, Number(id));
           break;
         case 'moreassets':
           assetsExpanded = !assetsExpanded;
