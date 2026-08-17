@@ -155,7 +155,16 @@ function drawDoodad(s: GameState): string {
   // Nothing happens to a car that was never bought, so a player who declined
   // one is never billed for a clutch, a crash or a policy.
   const pool = doodads
-    .filter((c) => !c.annual && c.id !== 'x-insurance' && (s.hasCar || !c.needsCar))
+    .filter(
+      (c) =>
+        !c.annual
+        && c.id !== 'x-insurance'
+        && (s.hasCar || !c.needsCar)
+        && (!c.needsChild || s.children > 0)
+        && (!c.needsPartner || s.partner)
+        // Nobody is offered cover they already hold.
+        && (!c.buysChildCover || !s.childInsured),
+    )
     .map((c) => c.id);
   const allowed = new Set(pool);
   s.decks.doodad = s.decks.doodad.filter((id) => allowed.has(id));
@@ -411,6 +420,42 @@ export function housingCost(s: GameState): number {
   return rentCost(s) + commuteCost(s);
 }
 
+/**
+ * The two lines a household has that a single person does not.
+ *
+ * A child in Thailand costs an ordinary family somewhere between ฿5,000 and
+ * ฿10,000 a month and a comfortable one several times that, which is what
+ * `childCost` now carries. These two are what that figure does not: the person
+ * the child arrived with, and the policy that stands between a fever at two in
+ * the morning and a bill nobody budgeted for.
+ */
+export const PARTNER_SHARE = 0.12;
+export const CHILD_PREMIUM_RATE = 0.25;
+/**
+ * The share of the children's bills that lands on this player rather than on
+ * the other adult in the house. Every figure the game charges for a child is
+ * the household's real figure, and half of it is what appears on this
+ * statement: a two-earner household is what raising children in Thailand
+ * actually looks like, and pretending otherwise made the numbers either
+ * dishonest or unplayable.
+ */
+export const HOUSEHOLD_SHARE = 0.5;
+
+export function partnerCost(s: GameState): number {
+  return s.partner ? Math.round(livingCost(s) * PARTNER_SHARE) : 0;
+}
+
+export function childPremium(s: GameState): number {
+  if (!s.childInsured || s.children === 0) return 0;
+  return Math.round(profession(s).childCost * priceLevel(s) * CHILD_PREMIUM_RATE * s.children * HOUSEHOLD_SHARE);
+}
+
+/** The household's own figure, before the other adult takes their half. */
+export function childExpenseGross(s: GameState): number {
+  const per = profession(s).childCost * priceLevel(s);
+  return Math.round(s.childBorn.reduce((sum, born) => sum + per * childStage(s, born).scale, 0));
+}
+
 export function ageMonths(s: GameState): number {
   return s.startAge * 12 + s.months;
 }
@@ -485,8 +530,7 @@ export function childStage(s: GameState, bornMonth: number): { years: number; sc
 }
 
 export function childExpense(s: GameState): number {
-  const per = profession(s).childCost * priceLevel(s);
-  return Math.round(s.childBorn.reduce((sum, born) => sum + per * childStage(s, born).scale, 0));
+  return Math.round(childExpenseGross(s) * HOUSEHOLD_SHARE);
 }
 
 /* ------------------------------------------------------------- income tax */
@@ -684,7 +728,10 @@ export function totalDebtService(s: GameState): number {
  * company's account, before the company works out what it owes.
  */
 export function totalExpenses(s: GameState): number {
-  return taxes(s) + livingCost(s) + housingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
+  return (
+    taxes(s) + livingCost(s) + housingCost(s) + partnerCost(s)
+    + childExpense(s) + childPremium(s) + debtPayments(s) + insurancePremium(s)
+  );
 }
 
 export function monthlyCashflow(s: GameState): number {
@@ -858,6 +905,8 @@ export function createGame(
     coverRenewMonth: COVER_MONTHS,
     coverDue: false,
     wroteBook: false,
+    partner: false,
+    childInsured: false,
     birthdayDue: false,
     schoolDue: false,
     retireDue: false,
@@ -1294,7 +1343,7 @@ export function schoolChildren(s: GameState): { years: number; scale: number; la
 export function birthdayCost(s: GameState): number {
   const card = doodadById.get('x-gift');
   if (!card || s.childBorn.length === 0) return 0;
-  const per = card.scale * livingCost(s);
+  const per = card.scale * livingCost(s) * HOUSEHOLD_SHARE;
   return Math.round(s.childBorn.reduce((sum, b) => sum + per * childStage(s, b).scale, 0) / 100) * 100;
 }
 
@@ -1303,7 +1352,7 @@ export function schoolFee(s: GameState): number {
   const card = doodadById.get('x-school');
   const kids = schoolChildren(s);
   if (!card || kids.length === 0) return 0;
-  const per = card.scale * livingCost(s);
+  const per = card.scale * livingCost(s) * HOUSEHOLD_SHARE;
   return Math.round(kids.reduce((sum, c) => sum + per * c.scale, 0) / 100) * 100;
 }
 
@@ -1961,18 +2010,19 @@ export function doodadCost(s: GameState, card: DoodadCard): number {
   // The month the gamble is settled. Cover turns a ruinous garage bill into an
   // annoying one, and its absence turns an annoying one into a ruinous one.
   if (card.insurable && s.carCoverMonths > 0) base = Math.round((base * INSURED_SHARE) / 100) * 100;
-  return card.perChild ? base * s.children : base;
+  if (card.insurableChild && s.childInsured) base = Math.round((base * INSURED_SHARE) / 100) * 100;
+  return card.perChild ? Math.round(base * s.children * HOUSEHOLD_SHARE) : base;
 }
 
 /** True when this bill is landing on somebody who paid for cover in time. */
 export function coveredNow(s: GameState, card: DoodadCard): boolean {
-  return !!card.insurable && s.carCoverMonths > 0;
+  return (!!card.insurable && s.carCoverMonths > 0) || (!!card.insurableChild && s.childInsured);
 }
 
 /** What the bill would have been without a policy, for the dialog to show. */
 export function uninsuredCost(s: GameState, card: DoodadCard): number {
   const base = Math.round((card.scale * livingCost(s)) / 100) * 100;
-  return card.perChild ? base * s.children : base;
+  return card.perChild ? Math.round(base * s.children * HOUSEHOLD_SHARE) : base;
 }
 
 export function payDoodad(s: GameState): void {
@@ -1987,11 +2037,29 @@ export function payDoodad(s: GameState): void {
     s.coverRenewMonth = s.months + COVER_MONTHS;
     s.coverDue = false;
   }
+  // Child cover is a standing premium rather than a year bought at a time: it
+  // joins the monthly bill and stays there, which is both how the policies work
+  // and the only way a player feels it between the nights it matters.
+  if (card.buysChildCover) {
+    s.childInsured = true;
+    note(
+      s,
+      {
+        th: `ทำประกันสุขภาพให้ลูกแล้ว เบี้ยเดือนละ ${money(profession(s).childCost * priceLevel(s) * CHILD_PREMIUM_RATE * s.children)} จากนี้ค่ารักษาลูกเหลือให้จ่ายเองแค่เศษเดียว`,
+        en: `The children are covered, at ${money(profession(s).childCost * priceLevel(s) * CHILD_PREMIUM_RATE * s.children)} a month. From here a hospital night costs a fraction of what it would have.`,
+      },
+      'plain',
+    );
+  }
+  // The card's own words go through the same filling the dialog uses: a log
+  // line is read by the same person, and "ค่ารักษา{petName}" is the kind of
+  // thing that only ever shows up once the game is being played.
+  const named = fillCard(s, card.title);
   if (cost > 0) {
     s.cash -= cost;
-    note(s, { th: `${card.title.th} จ่ายไป ${money(cost)}`, en: `${card.title.en}: paid ${money(cost)}.` }, 'bad');
+    note(s, { th: `${named.th} จ่ายไป ${money(cost)}`, en: `${named.en}: paid ${money(cost)}.` }, 'bad');
   } else {
-    note(s, { th: `${card.title.th} รอบนี้ไม่มีค่าใช้จ่าย`, en: `${card.title.en}: nothing to pay this time.` });
+    note(s, { th: `${named.th} รอบนี้ไม่มีค่าใช้จ่าย`, en: `${named.en}: nothing to pay this time.` });
   }
   s.pending = null;
   checkTrouble(s);
@@ -2010,8 +2078,8 @@ export function takeInstalment(s: GameState): void {
   note(
     s,
     {
-      th: `ผ่อน ${card.title.th} หนี้เพิ่ม ${money(balance)} รายจ่ายเพิ่มเดือนละ ${money(payment)}`,
-      en: `${card.title.en} on instalments: ${money(balance)} of debt, ${money(payment)} more per month.`,
+      th: `ผ่อน ${fillCard(s, card.title).th} หนี้เพิ่ม ${money(balance)} รายจ่ายเพิ่มเดือนละ ${money(payment)}`,
+      en: `${fillCard(s, card.title).en} on instalments: ${money(balance)} of debt, ${money(payment)} more per month.`,
     },
     'bad',
   );
@@ -2035,8 +2103,8 @@ export function declineDoodad(s: GameState): void {
   note(
     s,
     {
-      th: `ปฏิเสธ ${card.title.th} ไม่เสียเงินสักบาท${card.social ? ' แต่น้ำใจลดลง 1' : ''}`,
-      en: `Declined ${card.title.en}: not a baht spent${card.social ? ', but generosity drops by 1' : ''}.`,
+      th: `ปฏิเสธ ${fillCard(s, card.title).th} ไม่เสียเงินสักบาท${card.social ? ' แต่น้ำใจลดลง 1' : ''}`,
+      en: `Declined ${fillCard(s, card.title).en}: not a baht spent${card.social ? ', but generosity drops by 1' : ''}.`,
     },
     'good',
   );
@@ -2115,7 +2183,12 @@ export function declineReward(s: GameState): void {
 }
 
 /** What one more child would add to the monthly bill at today's prices. */
+/** The household's figure for one more child, and the half of it that is yours. */
 export function nextChildCost(s: GameState): number {
+  return Math.round(profession(s).childCost * priceLevel(s) * HOUSEHOLD_SHARE);
+}
+
+export function nextChildCostGross(s: GameState): number {
   return Math.round(profession(s).childCost * priceLevel(s));
 }
 
@@ -2124,8 +2197,13 @@ export function acceptBaby(s: GameState): void {
   if (s.children >= MAX_CHILDREN) {
     note(s, { th: 'ลูก ๆ โตกันหมดแล้ว รายจ่ายไม่เพิ่ม', en: 'The children are grown; expenses do not change.' });
   } else {
+    const first = s.children === 0;
     s.children += 1;
     s.childBorn.push(s.months);
+    // The game had been quietly assuming this all along: birthdays, school
+    // runs and a household of more than one. It says so now, and it costs what
+    // it costs.
+    if (first) s.partner = true;
     const per = Math.round(profession(s).childCost * priceLevel(s));
     note(
       s,
@@ -2641,7 +2719,7 @@ export function corpSaving(s: GameState): number {
  * lesson, it is a trap.
  */
 export function suggestedDraw(s: GameState): number {
-  const need = livingCost(s) + housingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
+  const need = livingCost(s) + housingCost(s) + partnerCost(s) + childExpense(s) + childPremium(s) + debtPayments(s) + insurancePremium(s);
   return Math.ceil(need / 1000) * 1000;
 }
 
@@ -3377,6 +3455,10 @@ export function parseSave(raw: string): GameState | null {
   }
   if (typeof game.coverDue !== 'boolean') game.coverDue = false;
   if (typeof game.wroteBook !== 'boolean') game.wroteBook = false;
+  // A save with children in it was already living this life; it simply had no
+  // word for the other person in the house.
+  if (typeof game.partner !== 'boolean') game.partner = game.children > 0;
+  if (typeof game.childInsured !== 'boolean') game.childInsured = false;
   if (typeof game.birthdayDue !== 'boolean') game.birthdayDue = false;
   if (typeof game.schoolDue !== 'boolean') game.schoolDue = false;
   if (typeof game.retireDue !== 'boolean') game.retireDue = false;

@@ -137,7 +137,7 @@ export const professions: Profession[] = [
     },
     salary: 22000,
     otherExpenses: 6900,
-    childCost: 1300,
+    childCost: 4000,
     cash: 30000,
     debts: [
       { key: 'car', balance: 240000, payment: 5400 },
@@ -159,7 +159,7 @@ export const professions: Profession[] = [
     },
     salary: 26000,
     otherExpenses: 7800,
-    childCost: 1500,
+    childCost: 4600,
     cash: 30000,
     debts: [
       { key: 'home', balance: 480000, payment: 3200 },
@@ -183,7 +183,7 @@ export const professions: Profession[] = [
     },
     salary: 34000,
     otherExpenses: 9200,
-    childCost: 1700,
+    childCost: 5600,
     cash: 35000,
     debts: [
       { key: 'home', balance: 900000, payment: 5500 },
@@ -207,7 +207,7 @@ export const professions: Profession[] = [
     },
     salary: 38000,
     otherExpenses: 9400,
-    childCost: 1800,
+    childCost: 6000,
     cash: 35000,
     debts: [
       { key: 'retail', balance: 560000, payment: 7500 },
@@ -229,7 +229,7 @@ export const professions: Profession[] = [
     },
     salary: 48000,
     otherExpenses: 12400,
-    childCost: 2100,
+    childCost: 7200,
     cash: 50000,
     debts: [
       { key: 'home', balance: 1500000, payment: 9000 },
@@ -252,7 +252,7 @@ export const professions: Profession[] = [
     },
     salary: 60000,
     otherExpenses: 15200,
-    childCost: 2300,
+    childCost: 8400,
     cash: 70000,
     debts: [
       { key: 'home', balance: 2100000, payment: 12000 },
@@ -274,7 +274,7 @@ export const professions: Profession[] = [
     },
     salary: 110000,
     otherExpenses: 24100,
-    childCost: 3600,
+    childCost: 13000,
     cash: 150000,
     debts: [
       { key: 'home', balance: 4200000, payment: 24000 },
@@ -298,7 +298,7 @@ export const professions: Profession[] = [
     },
     salary: 150000,
     otherExpenses: 28100,
-    childCost: 4200,
+    childCost: 16000,
     cash: 250000,
     debts: [
       { key: 'home', balance: 5600000, payment: 32000 },
@@ -1564,6 +1564,71 @@ export const doodads: DoodadCard[] = [
     declineNote: {
       th: 'ไม่ต่อประกันปีนี้ เก็บเงินไว้ในกระเป๋าได้ทั้งก้อน จากนี้ถ้ารถมีเรื่อง ค่าซ่อมเป็นของคุณคนเดียวเต็มจำนวน',
       en: 'No cover this year and the whole premium stays in your pocket. From here, anything that happens to the car is yours to pay in full.',
+    },
+  },
+  {
+    /**
+     * The bills a child brings that are not food and not school: the hospital
+     * night, the policy that would have paid for it, the toys, and the trips
+     * that are half the reason people have children in the first place.
+     */
+    id: 'x-childsick',
+    title: { th: 'ลูกไม่สบาย ต้องนอนโรงพยาบาล', en: 'A child in hospital overnight' },
+    story: {
+      th: 'ไข้ขึ้นสูงตอนตีสอง ห้องฉุกเฉินบอกให้นอนดูอาการหนึ่งคืน ค่าห้องกับค่ายาไม่ได้รอให้ถึงสิ้นเดือน',
+      en: 'A fever at two in the morning, one night under observation, and a bill that does not wait for payday.',
+    },
+    scale: 4.2,
+    perChild: true,
+    needsChild: true,
+    insurableChild: true,
+  },
+  {
+    id: 'x-childcover',
+    title: { th: 'ทำประกันสุขภาพให้ลูก', en: 'Health cover for the children' },
+    story: {
+      th: 'เบี้ยประกันสุขภาพเด็กเริ่มราวสองพันกว่าบาทต่อเดือนต่อคน จ่ายทุกเดือนไปโดยไม่ได้อะไรกลับมาเลย จนถึงคืนที่ได้',
+      en: 'Child health cover starts at a couple of thousand baht a month each, paid every month for nothing at all, right up until the night it pays for everything.',
+    },
+    scale: 0,
+    optional: true,
+    needsChild: true,
+    buysChildCover: true,
+    declineNote: {
+      th: 'ยังไม่ทำประกันให้ลูก เงินอยู่ในกระเป๋าครบทุกบาท ถ้าลูกเจ็บป่วยขึ้นมา ค่ารักษาเป็นของคุณเต็มจำนวน',
+      en: 'No cover for now and every baht stays in your pocket. If a child gets ill, the bill is entirely yours.',
+    },
+  },
+  {
+    id: 'x-childtrip',
+    title: { th: 'พาลูกไปเที่ยว กับของเล่นที่สัญญาไว้', en: 'A trip with the children, and the toy you promised' },
+    story: {
+      th: 'ปิดเทอมนี้ที่บ้านคุยกันว่าจะไปทะเล ค่าที่พักกับค่ารถไม่เท่าไหร่ ที่หนักคือของทุกอย่างที่เดินผ่านแล้วมีคนชี้',
+      en: 'The family agreed on the sea this school holiday. The room and the fuel are the small part; the expensive part is everything anybody points at on the way.',
+    },
+    scale: 1.5,
+    perChild: true,
+    needsChild: true,
+    optional: true,
+    declineNote: {
+      th: 'ปีนี้ไม่ได้ไป เงินยังอยู่ ส่วนเด็ก ๆ จำได้ว่าปีนี้ไม่ได้ไป',
+      en: 'No trip this year. The money stays, and the children remember that there was no trip this year.',
+    },
+  },
+  {
+    id: 'x-anniversary',
+    title: { th: 'ครบรอบ กับวันเกิดคู่ชีวิต', en: 'An anniversary, and their birthday' },
+    story: {
+      th: 'ร้านที่จองไว้ล่วงหน้าสองเดือน กับของขวัญที่ดูราคาแล้ววางลง แล้วก็หยิบขึ้นมาใหม่ ปีหนึ่งมีไม่กี่วันที่ยอมจ่ายโดยไม่คิดเลข',
+      en: 'The restaurant booked two months ahead, and the present you put down after seeing the price and then picked up again. There are only a few days a year worth not doing the arithmetic on.',
+    },
+    scale: 1.9,
+    optional: true,
+    social: true,
+    needsPartner: true,
+    declineNote: {
+      th: 'ปีนี้ผ่านไปเงียบ ๆ ประหยัดเงินได้จริง และอีกฝ่ายก็จำได้จริงเหมือนกัน',
+      en: 'The day passed quietly. It really did save the money, and they really do remember.',
     },
   },
   {

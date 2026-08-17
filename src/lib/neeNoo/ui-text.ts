@@ -627,9 +627,19 @@ export const UI = {
 
   /* ------------------------------------------------------------- the animal */
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
+  partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
+  childCostHousehold: { th: 'ค่าเลี้ยงดูทั้งบ้าน', en: 'What the household pays' },
+  childHalfNote: { th: 'ครึ่งหนึ่งของทั้งบ้าน', en: 'half of the household’s' },
+  childShareNote: {
+    th: 'ค่าเลี้ยงลูกหนึ่งคนของครอบครัวไทยทั่วไปอยู่ราวห้าพันถึงหนึ่งหมื่นบาทต่อเดือน งบนี้แสดงครึ่งเดียว เพราะอีกครึ่งเป็นของคู่ชีวิต ส่วนค่าเทอม วันเกิด และค่าหมอ คิดแยกเป็นการ์ดของมันเอง',
+    en: 'An ordinary Thai family spends five to ten thousand baht a month on one child. This statement shows half of it, because the other adult pays the other half. School fees, birthdays and hospital nights are charged separately by their own cards.',
+  },
+  childCoverLabel: { th: 'เบี้ยประกันสุขภาพลูก', en: 'Children’s health cover' },
   homeOwned: { th: 'บ้านที่อยู่', en: 'The house you live in' },
   ownNote: { th: 'ราคาขยับขึ้นช้า ๆ ตามราคาที่ดินแถวนั้น', en: 'Drifting up slowly with land prices around it' },
   carOwned: { th: 'รถที่ขับอยู่', en: 'The car you drive' },
+  thenRent: { th: 'จากนั้นต้องเช่าอยู่ เดือนละ', en: 'Then renting, at' },
+  thenCommute: { th: 'จากนั้นต้องเดินทางเอง เดือนละ', en: 'Then getting around, at' },
   carNote: { th: 'มูลค่าลดลงทุกปี ปีแรก ๆ มักต่ำกว่ายอดหนี้ที่ยังเหลือ', en: 'Worth less every year, and for the first few years worth less than the loan on it' },
 
   /* --------------------------------------------------- reading a share card */
