@@ -309,8 +309,6 @@ export type Pending =
   | { kind: 'baby' }
   | { kind: 'downsized' }
   | { kind: 'charity' }
-  | { kind: 'payday' }
-  | { kind: 'fastdeal'; cardId: string }
   | { kind: 'fastbonus'; cardId: string }
   | { kind: 'fastsetback'; cardId: string }
   | { kind: 'dream' }
@@ -497,8 +495,9 @@ export interface GameState {
   corpDraw: number;
   /** sum assured on the life policy; the premium is a monthly expense */
   insuranceCover: number;
-  /** lives touched by the schools, hospitals and banks on the balance sheet */
-  impact: number;
+  // No `impact` here: it was a running total that nothing ever added to and
+  // nothing ever read. The lives-touched figure shown on the statement is summed
+  // from the holdings themselves (`Asset.impact`), which is the only copy.
   friendHelpUsed: boolean;
   /** the player called it a day themselves rather than going bankrupt */
   endedByChoice: boolean;
