@@ -172,8 +172,14 @@ export function assetCashflow(a: Asset): number {
   return a.cashflowPerUnit * a.qty;
 }
 
+/**
+ * Cash flow from the holdings the player owns personally. Anything sitting in
+ * the company earns for the company, not for them, and is counted by
+ * `corpRevenue` instead. `householdIncome` puts the two back together for the
+ * questions that are about the household rather than about one pocket.
+ */
 export function passiveIncome(s: GameState): number {
-  return s.assets.reduce((sum, a) => sum + assetCashflow(a), 0);
+  return s.assets.filter((a) => !isCorpAsset(a)).reduce((sum, a) => sum + assetCashflow(a), 0);
 }
 
 export function salary(s: GameState): number {
@@ -187,7 +193,106 @@ export function salary(s: GameState): number {
 }
 
 export function totalIncome(s: GameState): number {
-  return salary(s) + pensionIncome(s) + passiveIncome(s);
+  return salary(s) + pensionIncome(s) + passiveIncome(s) + drawTaken(s);
+}
+
+/* ----------------------------------------------------------------- company */
+
+/**
+ * อัตราภาษีเงินได้นิติบุคคลสำหรับ SME: nothing on the first ฿300,000 of profit,
+ * 15% up to ฿3M, 20% above. A company small enough to be the player's is small
+ * enough to qualify, so the game only models the SME table.
+ */
+export const CORP_BRACKETS: { size: number; rate: number }[] = [
+  { size: 300000, rate: 0 },
+  { size: 2700000, rate: 0.15 },
+  { size: Number.POSITIVE_INFINITY, rate: 0.2 },
+];
+
+export function corpTax(profitYear: number): number {
+  let left = Math.max(0, profitYear);
+  let owed = 0;
+  for (const b of CORP_BRACKETS) {
+    if (left <= 0) break;
+    const slice = Math.min(left, b.size);
+    owed += slice * b.rate;
+    left -= slice;
+  }
+  return owed;
+}
+
+export const isCorpAsset = (a: Asset): boolean => a.owner === 'corp';
+
+/**
+ * Money in or out of the account that owns a holding. Selling a company
+ * building pays the company, not the player; letting the proceeds land in the
+ * player's pocket would be a tax-free way to empty the company.
+ */
+function settle(s: GameState, a: Asset, amount: number): void {
+  if (isCorpAsset(a)) s.corpCash += amount;
+  else s.cash += amount;
+}
+
+/** The account a holding's own bills are paid from. */
+export function purseFor(s: GameState, a: Asset): number {
+  return isCorpAsset(a) ? s.corpCash : s.cash;
+}
+
+/** Monthly rent and trading profit belonging to the company. */
+export function corpRevenue(s: GameState): number {
+  return s.assets.filter(isCorpAsset).reduce((sum, a) => sum + assetCashflow(a), 0);
+}
+
+/** The director's salary actually being paid, which needs a company to pay it. */
+export function drawTaken(s: GameState): number {
+  return s.incorporated ? Math.max(0, Math.round(s.corpDraw)) : 0;
+}
+
+/** Company profit before its own tax: revenue, less the accountant and the draw. */
+export function corpProfit(s: GameState): number {
+  if (!s.incorporated) return 0;
+  return corpRevenue(s) - CORP_MONTHLY_COST - drawTaken(s);
+}
+
+export function corpTaxMonthly(s: GameState): number {
+  if (!s.incorporated) return 0;
+  return Math.round(corpTax(corpProfit(s) * 12) / 12);
+}
+
+/** What the company keeps each month once it has paid everything it owes. */
+export function corpRetained(s: GameState): number {
+  if (!s.incorporated) return 0;
+  return corpProfit(s) - corpTaxMonthly(s);
+}
+
+/**
+ * What the company could hand over each month if the player took no salary from
+ * it at all. Measured with the draw at zero on purpose: whether the household
+ * has escaped should not change because the player moved a number between two
+ * of their own pockets.
+ */
+export function corpDistributable(s: GameState): number {
+  if (!s.incorporated) return 0;
+  const profit = corpRevenue(s) - CORP_MONTHLY_COST;
+  return profit - Math.round(corpTax(profit * 12) / 12);
+}
+
+/**
+ * Everything the household lives on, wherever it happens to sit. The escape bar
+ * and the tier ladder read this rather than personal passive income, because a
+ * player who moves their buildings into a company has not become poorer and
+ * must not be told they are back on the wheel.
+ */
+export function householdIncome(s: GameState): number {
+  return passiveIncome(s) + corpDistributable(s);
+}
+
+/** The company's own balance sheet, which is what the player's shares are worth. */
+export function corpEquity(s: GameState): number {
+  const assets = s.assets
+    .filter(isCorpAsset)
+    .reduce((sum, a) => sum + assetValue(a) - a.debt, 0);
+  return s.corpCash + assets;
 }
 
 /**
@@ -217,7 +322,9 @@ export function fastGoal(s: GameState): number {
 
 /** Which tier the player has earned right now, 1..6. */
 export function tierOf(s: GameState): number {
-  const passive = passiveIncome(s);
+  // Household, not personal: moving the buildings into a company must not read
+  // as losing them.
+  const passive = householdIncome(s);
   if (s.dreamsOwned.length > 0 && passive >= s.escapeIncome * TIER6_MULTIPLE) return 6;
   if (s.quit && passive - s.escapeIncome >= fastGoal(s)) return 5;
   if (s.quit && s.debts.length === 0 && s.assets.every((a) => a.debt <= 0) && netWorth(s) > 0) return 4;
@@ -236,7 +343,7 @@ export function tierOf(s: GameState): number {
  * comes back by itself on the first turn back at work.
  */
 export function canQuit(s: GameState): boolean {
-  return !s.quit && s.skipTurns === 0 && passiveIncome(s) >= totalExpenses(s);
+  return !s.quit && s.skipTurns === 0 && householdIncome(s) >= totalExpenses(s);
 }
 
 /* -------------------------------------------------------------- the clock */
@@ -433,9 +540,16 @@ const taxSlice = (gross: number, deduct: number): TaxSlice => ({
   taxable: Math.max(0, gross - deduct),
 });
 
-/** Monthly cash flow from the holdings that fall into one category of income. */
+/**
+ * Monthly cash flow from the personally held assets in one category. Anything
+ * the company owns is the company's income and is taxed on the company's own
+ * ladder, so it never appears on this bill.
+ */
 function incomeFrom(s: GameState, pick: (a: Asset) => boolean): number {
-  return Math.max(0, s.assets.filter(pick).reduce((sum, a) => sum + assetCashflow(a), 0));
+  return Math.max(
+    0,
+    s.assets.filter((a) => !isCorpAsset(a) && pick(a)).reduce((sum, a) => sum + assetCashflow(a), 0),
+  );
 }
 
 /**
@@ -454,27 +568,29 @@ export function taxBill(s: GameState): TaxBill {
   // A civil-service pension is 40(1) income like any wage. The social-security
   // old-age benefit and the state's ฿600 allowance are both exempt, so neither
   // of those ever reaches this line.
-  const payYear = (salary(s) + (p.pension === 'civil' ? pensionIncome(s) : 0)) * 12;
+  // The director's salary is 40(1) income like any other wage, which is exactly
+  // why paying yourself out of the company is not free.
+  const payYear = (salary(s) + drawTaken(s) + (p.pension === 'civil' ? pensionIncome(s) : 0)) * 12;
   const salaryLine = taxSlice(payYear, Math.min(payYear * SALARY_DEDUCT_RATE, SALARY_DEDUCT_CAP));
 
   const rentYear = incomeFrom(s, (a) => a.kind === 'property') * 12;
   const bizYear = incomeFrom(s, (a) => a.kind === 'business') * 12;
   const divYear = incomeFrom(s, (a) => a.kind === 'stock' || a.kind === 'gold') * 12;
 
-  // Inside a company the rent and the trade are the company's income, not
-  // yours, so they leave your ladder and meet the company's rate instead. The
-  // full two-pocket company is a separate piece of work; this keeps the old
-  // behaviour coherent with the new model until then.
-  const inCompany = s.incorporated;
-  const rentLine = taxSlice(inCompany ? 0 : rentYear, inCompany ? 0 : rentYear * RENT_DEDUCT);
-  const bizLine = taxSlice(inCompany ? 0 : bizYear, inCompany ? 0 : bizYear * BIZ_DEDUCT);
-  const corpYear = inCompany ? (rentYear + bizYear) * CORP_TAX_RATE * 0.5 : 0;
+  const rentLine = taxSlice(rentYear, rentYear * RENT_DEDUCT);
+  const bizLine = taxSlice(bizYear, bizYear * BIZ_DEDUCT);
+  // Shown on the same bill for honesty, but charged to the company, not to the
+  // player: it is already out of the money before any of it reaches them.
+  const corpYear = corpTaxMonthly(s) * 12;
 
   const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD;
   const net = Math.max(0, salaryLine.taxable + rentLine.taxable + bizLine.taxable - allowance);
   const ladderYear = ladderTax(net);
   const dividendYear = divYear * DIVIDEND_TAX;
-  const year = ladderYear + dividendYear + corpYear;
+  // The company's tax is deliberately NOT in here. It is paid out of the
+  // company's own account before anything reaches the player, so adding it to
+  // the personal expense line would charge it twice.
+  const year = ladderYear + dividendYear;
 
   return {
     salary: salaryLine,
@@ -529,15 +645,13 @@ export function totalDebtService(s: GameState): number {
   return debtPayments(s) + mortgagePayments(s);
 }
 
+/**
+ * What leaves the player's own account every month. The accountant's fee is not
+ * here any more: it is a cost of running the company and is paid out of the
+ * company's account, before the company works out what it owes.
+ */
 export function totalExpenses(s: GameState): number {
-  return (
-    taxes(s) +
-    livingCost(s) +
-    childExpense(s) +
-    debtPayments(s) +
-    (s.incorporated ? CORP_MONTHLY_COST : 0) +
-    insurancePremium(s)
-  );
+  return taxes(s) + livingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
 }
 
 export function monthlyCashflow(s: GameState): number {
@@ -548,10 +662,36 @@ export function assetValue(a: Asset): number {
   return a.pricePerUnit * a.qty;
 }
 
-export function netWorth(s: GameState): number {
-  const assets = s.assets.reduce((sum, a) => sum + assetValue(a) - a.debt, 0);
+/** What the player owns outright, with nothing of the company's counted. */
+export function personalWorth(s: GameState): number {
+  const assets = s.assets
+    .filter((a) => !isCorpAsset(a))
+    .reduce((sum, a) => sum + assetValue(a) - a.debt, 0);
   const debts = s.debts.reduce((sum, d) => sum + d.balance, 0);
   return s.cash + assets - debts;
+}
+
+/**
+ * Everything the player is worth, personally and through the company.
+ *
+ * Owning 100% of the shares means the shares are worth whatever the company's
+ * net assets are, so company equity is simply added. It is deliberately not
+ * discounted here: it really is theirs. What it costs to convert into spendable
+ * money is a separate question, answered by `worthAfterWindingUp`.
+ */
+export function netWorth(s: GameState): number {
+  return personalWorth(s) + corpEquity(s);
+}
+
+/**
+ * The same wealth, valued as cash in hand today. Everything inside the company
+ * has to come out as a dividend to be spent, and the taxman takes his 10% on
+ * the way. The gap between this and `netWorth` is the bill the structure has
+ * been deferring, not a bill it cancelled.
+ */
+export function worthAfterWindingUp(s: GameState): number {
+  const equity = corpEquity(s);
+  return personalWorth(s) + (equity > 0 ? Math.round(equity * (1 - DIVIDEND_TAX)) : equity);
 }
 
 export function loanCeiling(s: GameState): number {
@@ -569,12 +709,12 @@ export function bankBalance(s: GameState): number {
 export function escapeProgress(s: GameState): number {
   const exp = totalExpenses(s);
   if (exp <= 0) return 1;
-  return Math.min(1, passiveIncome(s) / exp);
+  return Math.min(1, householdIncome(s) / exp);
 }
 
 /** Monthly income built since leaving the wheel — the fast-track scoreboard. */
 export function fastAdded(s: GameState): number {
-  return Math.max(0, passiveIncome(s) - s.escapeIncome);
+  return Math.max(0, householdIncome(s) - s.escapeIncome);
 }
 
 export function fastProgress(s: GameState): number {
@@ -617,6 +757,8 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     karma: 0,
     donated: 0,
     incorporated: false,
+    corpCash: 0,
+    corpDraw: 0,
     insuranceCover: 0,
     impact: 0,
     friendHelpUsed: false,
@@ -1132,8 +1274,34 @@ export function paySchool(s: GameState): void {
  * player did something. Both paydays and the jobless months go through here, so
  * the calendar advances at one rate no matter what the player is doing.
  */
+/**
+ * The company's month, run before the player's. It collects its own rent, pays
+ * its accountant and its director, settles its own tax, and keeps the rest. The
+ * money it keeps is not the player's money yet, which is the entire lesson of
+ * the structure.
+ */
+function corpMonth(s: GameState): void {
+  if (!s.incorporated) return;
+  const kept = corpRetained(s);
+  s.corpCash += kept;
+  // The draw is paid whether or not the company earned it, exactly as a real
+  // payroll runs. If that empties the account the player sees it go negative
+  // and has to either cut their own salary or put money back in.
+  if (s.months % 12 === 0 && s.months > 0) {
+    note(
+      s,
+      {
+        th: `สรุปปีของบริษัท รายรับ ${money(corpRevenue(s) * 12)} จ่ายเงินเดือนกรรมการ ${money(drawTaken(s) * 12)} ค่าบัญชี ${money(CORP_MONTHLY_COST * 12)} ภาษีนิติบุคคล ${money(corpTaxMonthly(s) * 12)} เหลือสะสมในบริษัท ${money(s.corpCash)}`,
+        en: `The company's year: ${money(corpRevenue(s) * 12)} in, ${money(drawTaken(s) * 12)} of director's salary, ${money(CORP_MONTHLY_COST * 12)} of accounting, ${money(corpTaxMonthly(s) * 12)} of corporate tax, and ${money(s.corpCash)} sitting in its account.`,
+      },
+      kept >= 0 ? 'plain' : 'bad',
+    );
+  }
+}
+
 function monthPassed(s: GameState): void {
   s.months += 1;
+  corpMonth(s);
   if (s.bondMonths > 0) s.bondMonths -= 1;
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
   if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
@@ -1289,26 +1457,46 @@ export function dealDown(s: GameState, card: DealCard): number {
   return card.symbol ? dealPrice(s, card) : card.down;
 }
 
-export function maxAffordable(s: GameState, card: DealCard): number {
-  const per = dealDown(s, card);
-  if (per <= 0) return card.maxQty;
-  return Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / per)));
+/** Which pocket a purchase is being made from. */
+export type Buyer = 'me' | 'corp';
+
+export function purseOf(s: GameState, by: Buyer): number {
+  return by === 'corp' ? s.corpCash : s.cash;
 }
 
-export function buyDeal(s: GameState, qty: number): void {
+export function maxAffordable(s: GameState, card: DealCard, by: Buyer = 'me'): number {
+  const per = dealDown(s, card);
+  if (per <= 0) return card.maxQty;
+  return Math.max(0, Math.min(card.maxQty, Math.floor(purseOf(s, by) / per)));
+}
+
+/** True where a company buying this would actually be the sensible move. */
+export function canBuyAsCorp(s: GameState, card: DealCard): boolean {
+  return s.incorporated && (card.kind === 'property' || card.kind === 'business');
+}
+
+export function buyDeal(s: GameState, qty: number, by: Buyer = 'me'): void {
   if (s.pending?.kind !== 'deal') return;
   const card = dealById.get(s.pending.cardId);
   if (!card) return;
-  const n = Math.max(0, Math.min(qty, maxAffordable(s, card)));
+  const buyer: Buyer = by === 'corp' && canBuyAsCorp(s, card) ? 'corp' : 'me';
+  const n = Math.max(0, Math.min(qty, maxAffordable(s, card, buyer)));
   if (n === 0) return;
 
   const per = dealDown(s, card);
   const price = dealPrice(s, card);
-  s.cash -= per * n;
+  if (buyer === 'corp') s.corpCash -= per * n;
+  else s.cash -= per * n;
   if (card.symbol) s.prices[card.symbol] = price;
 
-  // Only traded symbols stack into one holding; two condos stay two condos.
-  const existing = card.symbol ? s.assets.find((a) => a.cardId === card.id && a.symbol === card.symbol) : undefined;
+  // Only traded symbols stack into one holding; two condos stay two condos. A
+  // company's holding never stacks onto a personal one: they are two different
+  // owners, and merging them would quietly move money between the pockets.
+  const existing = card.symbol
+    ? s.assets.find(
+        (a) => a.cardId === card.id && a.symbol === card.symbol && (a.owner === 'corp') === (buyer === 'corp'),
+      )
+    : undefined;
   if (existing) {
     const totalCost = existing.costPerUnit * existing.qty + per * n;
     existing.qty += n;
@@ -1334,14 +1522,16 @@ export function buyDeal(s: GameState, qty: number): void {
       asset.baseCashflow = card.cashflow;
     }
     if (card.impact !== undefined) asset.impact = card.impact * n;
+    if (buyer === 'corp') asset.owner = 'corp';
     s.assets.push(asset);
   }
 
+  const inName = buyer === 'corp' ? { th: 'ในนามบริษัท ', en: ' in the company’s name' } : { th: '', en: '' };
   note(
     s,
     {
-      th: `ซื้อ ${card.title.th} ${n > 1 ? `จำนวน ${n} หน่วย ` : ''}จ่ายเงินสด ${money(per * n)}${card.cashflow ? ` ได้เงินไหลเข้าเพิ่มเดือนละ ${money(card.cashflow * n)}` : ''}`,
-      en: `Bought ${card.title.en}${n > 1 ? ` ×${n}` : ''} for ${money(per * n)}${card.cashflow ? `, adding ${money(card.cashflow * n)} a month` : ''}.`,
+      th: `ซื้อ ${card.title.th} ${inName.th}${n > 1 ? `จำนวน ${n} หน่วย ` : ''}จ่ายเงินสด ${money(per * n)}${card.cashflow ? ` ได้เงินไหลเข้าเพิ่มเดือนละ ${money(card.cashflow * n)}` : ''}`,
+      en: `Bought ${card.title.en}${n > 1 ? ` ×${n}` : ''}${inName.en} for ${money(per * n)}${card.cashflow ? `, adding ${money(card.cashflow * n)} a month` : ''}.`,
     },
     'good',
   );
@@ -1430,7 +1620,7 @@ export function sellBusiness(s: GameState, assetUid: string): void {
   if (!a || !canSellBusiness(a)) return;
   const proceeds = businessExitValue(a);
   const gain = proceeds - a.costPerUnit * a.qty;
-  s.cash += proceeds;
+  settle(s, a, proceeds);
   s.assets = s.assets.filter((x) => x.uid !== a.uid);
   note(
     s,
@@ -1473,7 +1663,7 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
   const proceeds = unit * n - debtShare;
   const gain = proceeds - (a.costPerUnit * n);
 
-  s.cash += proceeds;
+  settle(s, a, proceeds);
   a.qty -= n;
   a.debt -= debtShare;
   if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
@@ -1513,7 +1703,7 @@ export function sellPaper(s: GameState, assetUid: string, qty: number): void {
   const proceeds = unit * n;
   const gain = proceeds - a.costPerUnit * n;
 
-  s.cash += proceeds;
+  settle(s, a, proceeds);
   a.qty -= n;
   if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
 
@@ -1972,7 +2162,7 @@ export function skipCharity(s: GameState): void {
 
 /** Cash value of a fast-track card, in months of the player's passive income. */
 export function fastAmount(s: GameState, months: number): number {
-  return Math.round((passiveIncome(s) * months) / 1000) * 1000;
+  return Math.round((householdIncome(s) * months) / 1000) * 1000;
 }
 
 /** The state pays above the assessed value, which is the only good part of it. */
@@ -2042,7 +2232,7 @@ export function fastCardCash(s: GameState, card: FastCard): number {
 
 /** How much monthly income a setback takes away, as a share of what comes in. */
 export function fastIncomeLoss(s: GameState, pct: number): number {
-  return Math.round((passiveIncome(s) * pct) / 100) * 100;
+  return Math.round((householdIncome(s) * pct) / 100) * 100;
 }
 
 /**
@@ -2173,10 +2363,24 @@ export function skipDream(s: GameState): void {
 export const ESTATE_FREE = 100000000;
 export const ESTATE_RATE = 0.05;
 /** company tax, flat, against the personal rate a big portfolio would otherwise pay */
+/** Top rate a company pays; the bands that lead up to it are in CORP_BRACKETS. */
 export const CORP_TAX_RATE = 0.2;
-export const CORP_SETUP_COST = 250000;
-/** accountants, audits and filings, every month, whether or not it saved anything */
-export const CORP_MONTHLY_COST = 45000;
+/** registration, paid-up capital paperwork and the professional fees around it */
+export const CORP_SETUP_COST = 50000;
+/**
+ * Moving a building into a company is a sale to a different legal person, and
+ * the Land Department charges for it. This is the toll nobody budgets for, and
+ * on a portfolio of any size it dwarfs the registration fee.
+ */
+export const CORP_TRANSFER_RATE = 0.02;
+/**
+ * Bookkeeping, the annual audit and the filings, spread over the year. A small
+ * company's books run about ฿3,000 a month with the audit and the returns on
+ * top, so ฿8,000 covers a company with several properties in it. The old figure
+ * here was ฿45,000, set when incorporating was a flat tax swap rather than a
+ * structure, and at that price the company could never be worth opening.
+ */
+export const CORP_MONTHLY_COST = 8000;
 /** a policy costs this share of its sum assured every month */
 export const INSURANCE_PREMIUM_RATE = 0.0016;
 export const INSURANCE_STEP = 10000000;
@@ -2256,27 +2460,133 @@ export function donate(s: GameState, amount: number): void {
  * accountant, which is the whole lesson: a structure that is right for someone
  * bigger than you is simply a cost.
  */
+/** Holdings that would move across on incorporation: the ones a company can run. */
+export function transferable(s: GameState): Asset[] {
+  return s.assets.filter((a) => !isCorpAsset(a) && (a.kind === 'property' || a.kind === 'business'));
+}
+
+/**
+ * The monthly difference incorporating would make, computed by actually running
+ * both worlds rather than by guessing at a rate.
+ *
+ * Two things are compared: what the household keeps today, and what it would
+ * keep with the buildings and the shops inside a company, paying the player the
+ * same salary they draw now. Everything the structure costs is in there: the
+ * accountant every month, the company's own tax, and the personal tax on the
+ * salary the player takes back out.
+ */
 export function corpSaving(s: GameState): number {
   if (s.incorporated) return 0;
-  const personal = taxes(s);
-  // The same bill with the rent and the trade moved across, which is the only
-  // part a company changes, plus the accountant it changes it with.
-  const corporate = taxes({ ...s, incorporated: true }) + CORP_MONTHLY_COST;
-  return personal - corporate;
+  const now = passiveIncome(s) - taxes(s);
+  const after: GameState = {
+    ...s,
+    incorporated: true,
+    corpDraw: suggestedDraw(s),
+    assets: s.assets.map((a) =>
+      a.kind === 'property' || a.kind === 'business' ? { ...a, owner: 'corp' as const } : a,
+    ),
+  };
+  // What the household would actually keep: the company's retained profit plus
+  // the salary drawn out of it, less the personal tax on that salary. Measured
+  // against `corpDistributable` instead this read far worse than the truth,
+  // because that figure deliberately assumes the player draws nothing.
+  const then = corpRetained(after) + drawTaken(after) + passiveIncome(after) - taxes(after);
+  return Math.round(then - now);
+}
+
+/**
+ * A starting director's salary: enough to cover the life the player is already
+ * living, rounded to something a payroll would actually pay. Incorporating and
+ * then quietly starving because every baht went into the company is not a
+ * lesson, it is a trap.
+ */
+export function suggestedDraw(s: GameState): number {
+  const need = livingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
+  return Math.ceil(need / 1000) * 1000;
+}
+
+/** Registration plus the transfer fees on everything that moves across. */
+export function corpSetupTotal(s: GameState): number {
+  const moving = transferable(s).reduce((sum, a) => sum + assetValue(a), 0);
+  return CORP_SETUP_COST + Math.round(moving * CORP_TRANSFER_RATE);
 }
 
 export function incorporate(s: GameState): void {
-  if (s.incorporated || s.cash < CORP_SETUP_COST) return;
-  s.cash -= CORP_SETUP_COST;
+  const bill = corpSetupTotal(s);
+  if (s.incorporated || s.cash < bill) return;
+  const moved = transferable(s);
+  s.cash -= bill;
   s.incorporated = true;
+  s.corpDraw = suggestedDraw(s);
+  // Buildings and shops move across, because that is what the company is for.
+  // Listed shares stay personal: their dividends are already settled at a flat
+  // 10% and a company would only add a second layer of tax on the way out.
+  for (const a of moved) a.owner = 'corp';
   s.pending = null;
   note(
     s,
     {
-      th: `จดนิติบุคคลแล้ว จ่ายค่าตั้ง ${money(CORP_SETUP_COST)} ภาษีเปลี่ยนเป็นอัตราบริษัท และมีค่าบัญชี ${money(CORP_MONTHLY_COST)} ทุกเดือนไม่ว่าจะประหยัดได้หรือไม่`,
-      en: `Incorporated for ${money(CORP_SETUP_COST)}. Tax moves to the company rate, and ${money(CORP_MONTHLY_COST)} of accounting is due every month whether it saves anything or not.`,
+      th: `จดนิติบุคคลแล้ว จ่ายไป ${money(bill)} (ค่าจดทะเบียน ${money(CORP_SETUP_COST)} กับค่าธรรมเนียมโอนทรัพย์สิน ${Math.round(CORP_TRANSFER_RATE * 100)}% อีก ${money(bill - CORP_SETUP_COST)}) โอนทรัพย์สิน ${moved.length} รายการเข้าบริษัท ตั้งเงินเดือนกรรมการไว้ที่ ${money(s.corpDraw)} ปรับได้ตลอด`,
+      en: `Incorporated for ${money(bill)}: ${money(CORP_SETUP_COST)} to register and ${money(bill - CORP_SETUP_COST)} of ${Math.round(CORP_TRANSFER_RATE * 100)}% transfer fees on the way in. ${moved.length} holdings moved across, and the director's salary starts at ${money(s.corpDraw)} and can be changed at any time.`,
     },
-    corpSaving(s) > 0 ? 'good' : 'bad',
+    'plain',
+  );
+  checkEscape(s);
+  checkTier(s);
+}
+
+/** Change the director's salary. The one lever the whole structure turns on. */
+export function setDraw(s: GameState, amount: number): void {
+  if (!s.incorporated) return;
+  s.corpDraw = Math.max(0, Math.round(amount / 1000) * 1000);
+  note(
+    s,
+    {
+      th: `ตั้งเงินเดือนกรรมการเป็น ${money(s.corpDraw)} ต่อเดือน ก้อนนี้บริษัทหักเป็นค่าใช้จ่ายได้ แต่คุณต้องเอาไปรวมในเงินได้ประเภท 1 ของตัวเอง`,
+      en: `Director's salary set to ${money(s.corpDraw)} a month. The company deducts it before its own tax, and you declare it as type 1 income on yours.`,
+    },
+    'plain',
+  );
+  checkEscape(s);
+}
+
+/**
+ * Take a lump out as a dividend. Unlike the salary, the company cannot deduct
+ * it, so this money has already paid corporate tax and pays 10% again on the
+ * way out. That second layer is the price of everything the structure saved.
+ */
+export function payDividend(s: GameState, amount: number): void {
+  if (!s.incorporated) return;
+  const gross = Math.min(Math.max(0, Math.floor(amount)), Math.floor(Math.max(0, s.corpCash)));
+  if (gross <= 0) return;
+  const tax = Math.round(gross * DIVIDEND_TAX);
+  s.corpCash -= gross;
+  s.cash += gross - tax;
+  note(
+    s,
+    {
+      th: `จ่ายปันผลจากบริษัทให้ตัวเอง ${money(gross)} หักภาษี ณ ที่จ่าย ${Math.round(DIVIDEND_TAX * 100)}% เป็นเงิน ${money(tax)} เข้ากระเป๋าจริง ${money(gross - tax)} เงินก้อนนี้เสียภาษีมาแล้วสองชั้น`,
+      en: `Paid yourself a ${money(gross)} dividend. ${Math.round(DIVIDEND_TAX * 100)}% withheld (${money(tax)}), so ${money(gross - tax)} actually lands in your pocket. This money has now been taxed twice.`,
+    },
+    'plain',
+  );
+  checkTier(s);
+}
+
+/** Put personal cash into the company, so it can buy something bigger. */
+export function fundCompany(s: GameState, amount: number): void {
+  if (!s.incorporated) return;
+  const value = Math.min(Math.max(0, Math.floor(amount)), Math.floor(Math.max(0, s.cash)));
+  if (value <= 0) return;
+  s.cash -= value;
+  s.corpCash += value;
+  note(
+    s,
+    {
+      th: `ใส่เงินเพิ่มทุนเข้าบริษัท ${money(value)} ขาออกไม่เสียภาษี แต่ขากลับเสีย`,
+      en: `Put ${money(value)} into the company. Nothing is taxed on the way in; the way out is another matter.`,
+    },
+    'plain',
   );
 }
 
@@ -2381,14 +2691,14 @@ export function repay(s: GameState, key: string, amount?: number): void {
  */
 export function canClearMortgage(s: GameState, assetUid: string): boolean {
   const a = s.assets.find((x) => x.uid === assetUid);
-  return !!a && a.debt > 0 && s.cash >= a.debt;
+  return !!a && a.debt > 0 && purseFor(s, a) >= a.debt;
 }
 
 export function clearMortgage(s: GameState, assetUid: string): void {
   const a = s.assets.find((x) => x.uid === assetUid);
-  if (!a || a.debt <= 0 || s.cash < a.debt) return;
+  if (!a || a.debt <= 0 || purseFor(s, a) < a.debt) return;
   const paid = a.debt;
-  s.cash -= paid;
+  settle(s, a, -paid);
   a.debt = 0;
   a.cashflowPerUnit += a.mortgagePay / a.qty;
   note(
@@ -2451,7 +2761,10 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
   const shortfall = Math.round(fireSaleShortfall(a, n));
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
 
-  s.cash += proceeds;
+  // Selling the company's building pays the company. Getting that money into a
+  // personal account still costs a dividend, which is the point: a company is
+  // not a wallet you can reach into during a bad month.
+  settle(s, a, proceeds);
   a.qty -= n;
   a.debt -= debtShare;
   if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
@@ -2499,7 +2812,10 @@ export function checkTrouble(s: GameState): void {
   }
   const canFireSale = s.assets.length > 0;
   const canBorrowMore = maxBorrow(s) >= LOAN_STEP;
-  if (!canFireSale && !canBorrowMore) {
+  // Money sitting in the company is still a way out, just an expensive one, so
+  // nobody is declared bankrupt while their own company is solvent.
+  const canDrawDown = s.incorporated && s.corpCash > 0;
+  if (!canFireSale && !canBorrowMore && !canDrawDown) {
     s.phase = 'lost';
     s.pending = null;
     note(
@@ -2561,7 +2877,7 @@ export function checkEscape(s: GameState): void {
 
 export function quitJob(s: GameState): void {
   if (!canQuit(s)) return;
-  const passive = passiveIncome(s);
+  const passive = householdIncome(s);
   const hadJob = !noMoreSalary(s);
   s.quit = true;
   s.quitOffered = true;
@@ -2726,6 +3042,15 @@ export function parseSave(raw: string): GameState | null {
   if (!Number.isFinite(game.charityTurns)) game.charityTurns = 0;
   if (!Number.isFinite(game.donated)) game.donated = 0;
   if (typeof game.incorporated !== 'boolean') game.incorporated = false;
+  // Saves from before the company had books of its own. An older save that had
+  // already "incorporated" only ever held a flag, so it starts with an empty
+  // account and its holdings still in the player's own name; the company's
+  // offer to take them over comes round again.
+  if (!Number.isFinite(game.corpCash)) game.corpCash = 0;
+  if (!Number.isFinite(game.corpDraw) || game.corpDraw < 0) game.corpDraw = 0;
+  for (const a of game.assets) {
+    if (a.owner !== 'corp') delete a.owner;
+  }
   if (!Number.isFinite(game.insuranceCover)) game.insuranceCover = 0;
   if (!Number.isFinite(game.impact)) game.impact = 0;
   if (!Array.isArray(game.decks?.fastMega)) game.decks.fastMega = [];

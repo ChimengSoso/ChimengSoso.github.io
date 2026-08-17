@@ -252,6 +252,16 @@ const description =
     .nn-tbl .muted{color:var(--nn-muted);}
     /* The bracket the player is standing in right now. */
     .nn-tbl .nn-taxhere{background:rgba(214,168,74,0.14);}
+    /* The company's books sit in the sheet but must not read as the player's
+       own money, so the block is tinted and its rows keep their own frame. */
+    .nn-corp{border:1px solid rgba(214,168,74,0.35);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(214,168,74,0.06);}
+    .nn-corpbtn{margin-top:0.6rem;width:100%;}
+    .nn-owner{
+      display:inline-block;padding:0 0.32rem;margin-right:0.3rem;border-radius:0.3rem;
+      font-size:0.62rem;letter-spacing:0.04em;background:rgba(214,168,74,0.2);color:var(--nn-gold);
+    }
+    .nn-hero-note{margin:0.15rem 0 0;font-size:0.72rem;color:var(--nn-muted);}
+    .nn-hero-note b{color:var(--nn-ink);}
     .nn-tbl .nn-taxhere th{color:var(--nn-gold);}
     .nn-tbl figcaption, .nn-tbl + figcaption{font-size:0.7rem;}
     .nn-tbl figcaption{padding:0.45rem 0.7rem;color:var(--nn-muted);border-top:1px solid var(--nn-line);}
@@ -1048,12 +1058,25 @@ const description =
       legacyTotal,
       legacyUnlocked,
       corpSaving,
+      corpSetupTotal,
+      corpRevenue,
+      corpRetained,
+      corpTaxMonthly,
+      corpEquity,
+      householdIncome,
+      drawTaken,
+      worthAfterWindingUp,
+      transferable,
+      canBuyAsCorp,
+      setDraw,
+      payDividend,
+      fundCompany,
+      isCorpAsset,
       donate,
       incorporate,
       buyInsurance,
       closeLegacy,
       insurancePremium,
-      CORP_SETUP_COST,
       CORP_MONTHLY_COST,
       INSURANCE_PREMIUM_RATE,
       INSURANCE_STEP,
@@ -1166,7 +1189,7 @@ const description =
     let pickedDream = dreams[0]?.id ?? '';
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
-    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | null = null;
+    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | 'corp' | null = null;
     /** the player dismissed the result card to look at (or screenshot) the board */
     let endingClosed = false;
     /** which debt row has its breakdown open */
@@ -1442,7 +1465,11 @@ const description =
             .map((a) => {
               const flow = assetCashflow(a);
               const open = nested || openDebt === a.uid;
-              const meta = `${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)} · ${T(UI.mortgageOn)} ${money(a.mortgagePay)}` : ''}`;
+              // A holding in the company's name has to say so on its own row, or
+              // the two pockets blur back into one on the only screen that lists
+              // what is actually owned.
+              const owner = isCorpAsset(a) ? `<span class="nn-owner">${T(UI.ownedByCorp)}</span> ` : '';
+              const meta = `${owner}${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)} · ${T(UI.mortgageOn)} ${money(a.mortgagePay)}` : ''}`;
               // A holding that costs money every month has to say so; showing
               // a dash there hid the whole point of the negative-carry cards.
               const amt = `<span class="amt ${flow !== 0 ? cls(flow) : ''}">${flow !== 0 ? `${signed(flow)}${T(UI.perMonth)}` : '—'}</span>`;
@@ -1534,8 +1561,15 @@ const description =
         <div class="nn-hero">
           <span class="nn-hero-label">${T(UI.netWorth)}</span>
           <strong class="nn-hero-figure ${cls(netWorth(s))}">${money(netWorth(s))}</strong>
+          <!-- Owning the company means owning its net assets, so they are part
+               of this figure. What they are worth as spendable money is less,
+               because getting them out is a taxable event, and saying so here is
+               the difference between a lesson and a scoreboard. -->
+          ${s.incorporated && corpEquity(s) !== 0
+            ? `<p class="nn-hero-note">${T(UI.worthIfCashedOut)} <b>${money(worthAfterWindingUp(s))}</b></p>`
+            : ''}
           <div class="nn-hero-sub">
-            <span><i>${T(UI.passive)}</i><b class="${passive > 0 ? 'pos' : ''}">${money(passive)}${T(UI.perMonth)}</b></span>
+            <span><i>${T(s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${money(householdIncome(s))}${T(UI.perMonth)}</b></span>
             <span><i>${T(UI.cashflow)}</i><b class="${cls(cf)}">${signed(cf)}</b></span>
             <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
           </div>
@@ -1550,7 +1584,8 @@ const description =
             <dt>${T(UI.jobLabel)}</dt><dd>${T(profession(s).name)}${s.entryPay < 1 ? ` <small class="muted">${Math.round(s.entryPay * 100)}%</small>` : ''}</dd>
             <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
             ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
-            <dt>${T(UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
+            ${s.incorporated ? `<dt>${T(UI.drawLabel)}</dt><dd class="pos">${money(drawTaken(s))}</dd>` : ''}
+            <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
           </dl>
         </div>
         <div class="nn-sec">
@@ -1562,7 +1597,9 @@ const description =
             <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
             ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})</dt><dd>${money(childExpense(s))}</dd>` : ''}
             ${tuitionRow(s)}
-            ${s.incorporated ? `<dt>${T(UI.accounting)}</dt><dd>${money(CORP_MONTHLY_COST)}</dd>` : ''}
+<!-- The accountant is the company's bill, not the player's. It is listed in
+                 the company block below; leaving it here as well showed it twice
+                 while only charging it once. -->
             ${s.insuranceCover > 0 ? `<dt>${T(UI.premium)}</dt><dd>${money(insurancePremium(s))}</dd>` : ''}
             ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
           </dl>
@@ -1571,6 +1608,23 @@ const description =
           <span>${T(UI.cashflow)}</span>
           <strong class="${cls(cf)}">${signed(cf)}</strong>
         </div>
+        <!-- The company's own books. Without this the player had a structure
+             they could not see and could not feel: money went in, a tax rate
+             changed somewhere, and nothing on the sheet ever said "this is the
+             company's, not yours". -->
+        ${s.incorporated ? `<div class="nn-sec nn-corp">
+          <h3>${T(UI.corpTitle)}</h3>
+          <dl class="nn-rows">
+            <dt>${T(UI.corpRevenue)}</dt><dd class="${corpRevenue(s) > 0 ? 'pos' : ''}">${money(corpRevenue(s))}</dd>
+            <dt class="sub">${T(UI.corpDrawOut)}</dt><dd class="sub">-${money(drawTaken(s))}</dd>
+            <dt class="sub">${T(UI.accounting)}</dt><dd class="sub">-${money(CORP_MONTHLY_COST)}</dd>
+            <dt class="sub">${T(UI.corpTaxLabel)}</dt><dd class="sub">-${money(corpTaxMonthly(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.corpRetained)}</dt><dd class="nn-rowsplit ${cls(corpRetained(s))}">${signed(corpRetained(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>
+            <dt class="nn-total">${T(UI.corpEquityLabel)}</dt><dd class="nn-total ${cls(corpEquity(s))}">${money(corpEquity(s))}</dd>
+          </dl>
+          <button type="button" class="nn-btn nn-btn-gold nn-corpbtn" data-act="corp">${T(UI.corpManage)}</button>
+        </div>` : ''}
         <div class="nn-sec">
           <h3>${T(UI.assets)}</h3>
           ${assetRows}
@@ -1711,6 +1765,11 @@ const description =
         <button type="button" class="nn-btn nn-btn-go" data-act="roll" data-id="1" ${rollable ? '' : 'disabled'}>${T(UI.roll1)}</button>
         ${two ? `<button type="button" class="nn-btn nn-btn-gold" data-act="roll" data-id="2" ${rollable ? '' : 'disabled'}>${T(UI.roll2)}</button>` : ''}
         ${borrowable ? `<button type="button" class="nn-btn" data-act="borrow">${T(UI.borrowBtn)}</button>` : ''}
+        <!-- The company used to be reachable only from the legacy tile, which
+             needs every dream bought first, so most players never met it. It is
+             a decision about a portfolio, so it belongs wherever the portfolio
+             is big enough for the question to be real. -->
+        ${!busy && (s.incorporated || transferable(s).length > 0) ? `<button type="button" class="nn-btn ${s.incorporated ? '' : 'nn-btn-quiet'}" data-act="corp">${T(s.incorporated ? UI.corpManage : UI.corpOpen)}</button>` : ''}
         ${canQuit(s) && !busy ? `<button type="button" class="nn-btn nn-btn-gold" data-act="quit">${T(UI.quitBtn)}</button>` : ''}
         ${s.quit && !busy ? `<button type="button" class="nn-btn nn-btn-quiet" data-act="endnow">${T(UI.endNow)}</button>` : ''}
         <div class="nn-speed" role="group" aria-label="${T(UI.speed)}">
@@ -1767,6 +1826,7 @@ const description =
       // it. Nobody should be rushed off a win they just spent 80 turns earning.
       if ((s.phase === 'won' || s.phase === 'lost') && !endingClosed) return endingDialog(s);
       if (modal === 'tax') return taxDialog(s);
+      if (modal === 'corp') return corpDialog(s);
       if (modal === 'fastIntro') return fastIntroDialog(s);
       // Sits on top of the rescue card, since borrowing is one of the two ways
       // out of it.
@@ -1854,6 +1914,72 @@ const description =
           <dt class="nn-rowsplit">${T(UI.taxTotalMonth)}</dt><dd class="nn-rowsplit neg"><b>${money(b.month)}</b></dd>
         </dl>
         <p class="nn-warnline">${T(UI.taxDisclaimer)}</p>
+        <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.ok)}</button></div>`;
+    }
+
+    /**
+     * The company desk. Two decisions live here and they pull against each
+     * other: what to pay yourself, and what to take out as a dividend.
+     *
+     * The salary is deductible for the company and taxable for you, so raising
+     * it moves money from the company's 15% onto your own ladder. The dividend
+     * is not deductible, so it has already paid corporate tax and pays 10% again
+     * on the way out. Both numbers are shown with what they actually cost right
+     * now rather than described, because the crossover moves as the player grows.
+     */
+    function corpDialog(s: GameState): string {
+      if (!s.incorporated) {
+        const saving = corpSaving(s);
+        const moving = transferable(s);
+        return `<div class="kind">${T(UI.corpTitle)}</div>
+          <h2 id="nn-dlg-title">${T(UI.corpSetupTitle)}</h2>
+          <p class="story">${T(UI.corpSetupBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.corpSetupFee)}<small>${T(UI.corpSetupFeeNote)}</small></dt><dd class="neg">${money(corpSetupTotal(s))}</dd>
+            <dt>${T(UI.accounting)}</dt><dd class="neg">${money(CORP_MONTHLY_COST)}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.corpMoves)}</dt><dd>${moving.length ? moving.map((a) => T(a.name)).join(' · ') : T(UI.corpMovesNone)}</dd>
+            <dt class="nn-rowsplit">${T(UI.corpVerdict)}<small>${T(UI.corpVerdictNote)}</small></dt>
+            <dd class="nn-rowsplit ${cls(saving)}"><b>${signed(saving)}${T(UI.perMonth)}</b></dd>
+          </dl>
+          <p class="nn-warnline">${T(saving > 0 ? UI.corpWorthIt : UI.corpNotYet)}</p>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="incorporate" ${s.cash >= corpSetupTotal(s) ? '' : 'disabled'}>${s.cash >= corpSetupTotal(s) ? T(UI.corpDoIt) : T(UI.cannotAfford)}</button>
+            <button type="button" class="nn-btn nn-btn-quiet" data-act="closemodal">${T(UI.notNow)}</button>
+          </div>`;
+      }
+
+      const draw = drawTaken(s);
+      // What one more ฿10,000 of salary would cost, both ways, so the trade is a
+      // number rather than a feeling.
+      const step = 10000;
+      const more: GameState = { ...s, corpDraw: draw + step };
+      const nowKeep = corpRetained(s) + draw - taxes(s);
+      const moreKeep = corpRetained(more) + drawTaken(more) - taxes(more);
+      return `<div class="kind">${T(UI.corpTitle)}</div>
+        <h2 id="nn-dlg-title">${T(UI.corpDeskTitle)}</h2>
+        <p class="story">${T(UI.corpDeskBody)}</p>
+        <dl class="facts">
+          <dt>${T(UI.corpRevenue)}</dt><dd class="pos">${money(corpRevenue(s))}${T(UI.perMonth)}</dd>
+          <dt>${T(UI.corpRetained)}</dt><dd class="${cls(corpRetained(s))}">${signed(corpRetained(s))}${T(UI.perMonth)}</dd>
+          <dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>
+        </dl>
+        <div class="nn-qty">
+          <label for="nn-draw">${T(UI.drawLabel)}</label>
+          <input id="nn-draw" type="number" data-qty="draw" min="0" step="1000" value="${draw}">
+          <button type="button" class="nn-btn" data-act="setdraw">${T(UI.setIt)}</button>
+        </div>
+        <p class="nn-empty">${T(UI.drawTradeNote)} <b class="${cls(moreKeep - nowKeep)}">${signed(moreKeep - nowKeep)}</b> ${T(UI.perMonth)}</p>
+        <div class="nn-qty">
+          <label for="nn-div">${T(UI.dividendLabel)}</label>
+          <input id="nn-div" type="number" data-qty="dividend" min="0" step="10000" value="${Math.max(0, Math.floor(s.corpCash / 10000) * 10000)}">
+          <button type="button" class="nn-btn" data-act="paydividend" ${s.corpCash > 0 ? '' : 'disabled'}>${T(UI.takeIt)}</button>
+        </div>
+        <p class="nn-empty">${T(UI.dividendNote)}</p>
+        <div class="nn-qty">
+          <label for="nn-fund">${T(UI.fundLabel)}</label>
+          <input id="nn-fund" type="number" data-qty="fund" min="0" step="10000" value="0">
+          <button type="button" class="nn-btn" data-act="fundcorp" ${s.cash > 0 ? '' : 'disabled'}>${T(UI.putIn)}</button>
+        </div>
         <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.ok)}</button></div>`;
     }
 
@@ -2079,11 +2205,11 @@ const description =
               <p>${T(UI.optFoundationBody)}</p>
               <dl><dt>${T(UI.give)}</dt><dd class="pos">${money(give)}</dd></dl>
             </button>
-            <button type="button" class="nn-pick" data-act="incorporate" ${!s.incorporated && s.cash >= CORP_SETUP_COST ? '' : 'disabled'}>
+            <button type="button" class="nn-pick" data-act="corp" ${s.incorporated ? 'disabled' : ''}>
               <h3>${T(UI.optCompany)}${s.incorporated ? ` · ${T(UI.alreadyDone)}` : ''}</h3>
               <p>${T(UI.optCompanyBody)}</p>
               <dl>
-                <dt>${T(UI.setupCost)}</dt><dd>${money(CORP_SETUP_COST)}</dd>
+                <dt>${T(UI.setupCost)}</dt><dd>${money(corpSetupTotal(s))}</dd>
                 <dt>${T(UI.savedPerMonth)}</dt><dd class="${saving > 0 ? 'pos' : 'warn'}">${signed(saving)}</dd>
               </dl>
             </button>
@@ -2105,6 +2231,12 @@ const description =
         if (!card) return null;
         const per = dealDown(s, card);
         const max = maxAffordable(s, card);
+        // Two buyers means two budgets. The quantity box is sized to whichever
+        // pocket could take more, so a company with the cash is never capped by
+        // what the player happens to be carrying.
+        const byCorp = canBuyAsCorp(s, card);
+        const corpMax = byCorp ? maxAffordable(s, card, 'corp') : 0;
+        const maxAny = Math.max(max, corpMax);
         const kindLabel =
           card.size === 'small' ? UI.smallDeal
           : card.size === 'big' ? UI.bigDeal
@@ -2122,12 +2254,15 @@ const description =
             ${card.volatility ? `<dt>${T(UI.swingLabel)}</dt><dd class="warn">${Math.round(card.volatility * 100)}%</dd>` : ''}
             ${card.impact ? `<dt>${T(UI.impactLabel)}</dt><dd>${card.impact.toLocaleString('en-US')}</dd>` : ''}
             <dt>${T(UI.cash)}</dt><dd>${money(s.cash)}</dd>
+            ${byCorp ? `<dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>` : ''}
           </dl>
           ${card.debt > 0 ? `<p class="nn-warnline">${T(UI.leverageNote)}</p>` : ''}
-          ${max > 1 ? `<div class="nn-qty"><label for="nn-qty">${T(UI.qty)} (1–${max})</label><input id="nn-qty" type="number" data-qty data-unit="${per}" data-flow="${card.cashflow}" data-max="${max}" min="1" max="${max}" value="${max}"></div>
-          <p class="nn-empty" data-qty-note>${qtyNote(per, card.cashflow, max)}</p>` : ''}
+          ${byCorp ? `<p class="nn-empty">${T(UI.buyAsCorpNote)}</p>` : ''}
+          ${maxAny > 1 ? `<div class="nn-qty"><label for="nn-qty">${T(UI.qty)} (1–${maxAny})</label><input id="nn-qty" type="number" data-qty data-unit="${per}" data-flow="${card.cashflow}" data-max="${maxAny}" min="1" max="${maxAny}" value="${maxAny}"></div>
+          <p class="nn-empty" data-qty-note>${qtyNote(per, card.cashflow, maxAny)}</p>` : ''}
           <div class="nn-acts">
-            <button type="button" class="nn-btn nn-btn-go" data-act="buy" ${max > 0 ? '' : 'disabled'}>${max > 0 ? T(UI.buy) : T(UI.cannotAfford)}</button>
+            <button type="button" class="nn-btn nn-btn-go" data-act="buy" ${max > 0 ? '' : 'disabled'}>${max > 0 ? T(byCorp ? UI.buyAsMe : UI.buy) : T(UI.cannotAfford)}</button>
+            ${byCorp ? `<button type="button" class="nn-btn nn-btn-gold" data-act="buycorp" ${corpMax > 0 ? '' : 'disabled'}>${corpMax > 0 ? T(UI.buyAsCorp) : T(UI.corpCannotAfford)}</button>` : ''}
             <button type="button" class="nn-btn nn-btn-quiet" data-act="pass">${T(UI.pass)}</button>
           </div>`;
       }
@@ -2767,6 +2902,17 @@ const description =
       return Number.isFinite(n) && n > 0 ? n : 1;
     }
 
+    /**
+     * Like `qtyOf`, but zero is a real answer. A quantity of zero means "you
+     * did not fill this in" and becomes 1; a director's salary of zero means
+     * exactly zero, and that is a position the player is allowed to take.
+     */
+    function amountOf(scope: ParentNode, id: string): number {
+      const input = scope.querySelector<HTMLInputElement>(`[data-qty="${id}"]`);
+      const n = input ? Number.parseInt(input.value, 10) : 0;
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+
     /** The panel a clicked control belongs to: dialog, sheet, log or the board. */
     function panelOf(root: Root, from: HTMLElement | undefined): ParentNode {
       return from?.closest('.nn-ovl, [data-sheet], [data-logpanel], [data-controls]') ?? root;
@@ -2814,6 +2960,9 @@ const description =
           break;
         case 'taxwhy':
           modal = 'tax';
+          break;
+        case 'corp':
+          modal = 'corp';
           break;
         case 'restart':
           modal = state ? 'confirmRestart' : null;
@@ -2877,6 +3026,18 @@ const description =
           break;
         case 'buy':
           buyDeal(s, qtyOf(panel));
+          break;
+        case 'buycorp':
+          buyDeal(s, qtyOf(panel), 'corp');
+          break;
+        case 'setdraw':
+          setDraw(s, amountOf(panel, 'draw'));
+          break;
+        case 'paydividend':
+          payDividend(s, amountOf(panel, 'dividend'));
+          break;
+        case 'fundcorp':
+          fundCompany(s, amountOf(panel, 'fund'));
           break;
         case 'pass':
           passDeal(s);

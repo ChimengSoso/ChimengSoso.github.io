@@ -44,6 +44,14 @@ export interface Asset {
   mortgagePay: number;
   /** monthly cash flow per unit (can be 0 for capital-gain plays) */
   cashflowPerUnit: number;
+  /**
+   * Held by the company rather than by the player personally. Absent means
+   * personal, so every save written before the company existed reads correctly.
+   * The distinction is the whole point of incorporating: a company's rent is the
+   * company's income, taxed at the company's rate, and it stays in the company
+   * until the player takes it out and pays again to do so.
+   */
+  owner?: 'corp';
   /** see DealCard.volatility; carried so the holding keeps swinging after purchase */
   volatility?: number;
   /** cash flow the day it was bought, used to cap how far a swing can run */
@@ -473,8 +481,20 @@ export interface GameState {
    * the point: it is the one number that only goes up by costing you something.
    */
   donated: number;
-  /** the portfolio has been moved into a company: flat tax, fixed running cost */
+  /** a company exists and holds part of the portfolio */
   incorporated: boolean;
+  /**
+   * The company's own bank account. It is not the player's money: getting it
+   * out costs tax, which is the trade the whole structure is about.
+   */
+  corpCash: number;
+  /**
+   * เงินเดือนกรรมการ, set by the player. The company deducts it before its own
+   * tax, and the player pays personal tax on it as 40(1) income. Paying
+   * yourself more moves money from the company's 15% to your own ladder; paying
+   * yourself less leaves it compounding inside the company and taxed once.
+   */
+  corpDraw: number;
   /** sum assured on the life policy; the premium is a monthly expense */
   insuranceCover: number;
   /** lives touched by the schools, hospitals and banks on the balance sheet */
