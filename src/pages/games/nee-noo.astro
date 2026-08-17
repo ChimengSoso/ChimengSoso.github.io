@@ -663,7 +663,29 @@ const description =
       padding:0.9rem;
       text-align:center;
     }
-    .nn-dice{display:flex;gap:0.4rem;}
+    .nn-dice{
+      display:flex;flex-direction:column;align-items:center;gap:0.3rem;
+      background:none;border:1px solid transparent;border-radius:12px;
+      padding:0.45rem 0.7rem;color:inherit;font:inherit;cursor:pointer;
+      transition:border-color .15s ease, background .15s ease, transform .12s ease;
+    }
+    .nn-dice-faces{display:flex;gap:0.4rem;}
+    .nn-dice-hint{
+      font-size:0.66rem;letter-spacing:0.04em;color:var(--nn-muted);
+      text-transform:uppercase;
+    }
+    /* Live: a ring, a lift on hover, and a slow breath so the eye finds it
+       without anything shouting. */
+    .nn-dice.is-live{border-color:var(--nn-border);background:rgba(255,255,255,0.03);animation:nn-breathe 2.6s ease-in-out infinite;}
+    .nn-dice.is-live .nn-dice-hint{color:var(--nn-green-bright);}
+    .nn-dice.is-live:hover{border-color:var(--nn-green);background:rgba(47,158,92,0.12);transform:translateY(-1px);}
+    .nn-dice.is-live:active{transform:translateY(1px) scale(.98);}
+    .nn-dice:focus-visible{outline:2px solid var(--nn-green);outline-offset:3px;}
+    .nn-dice:disabled{cursor:not-allowed;animation:none;}
+    @keyframes nn-breathe{
+      0%,100%{box-shadow:0 0 0 0 rgba(47,158,92,0);}
+      50%{box-shadow:0 0 0 6px rgba(47,158,92,0.10);}
+    }
     .nn-die{
       width:2.6rem;
       height:2.6rem;
@@ -2034,13 +2056,27 @@ const description =
       const dice = faces.length
         ? faces.map((d) => `<span class="nn-die${diceSpin ? ' is-rolling' : ''}">${dieSvg(d)}</span>`).join('')
         : `<span class="nn-die is-idle">${dieSvg(1)}</span>`;
+      // The dice are the roll button now. A separate green button underneath was
+      // one control too many for a phone, and the dice were the thing everybody
+      // reached for first anyway; they simply never said they could be pressed.
+      const rollable = canRoll(s) && !busy;
+      const twoDice = s.charityTurns > 0;
+      const diceHint = busy || s.walking > 0 ? UI.diceRolling
+        : s.pending !== null ? UI.diceWaitCard
+        : s.skipTurns > 0 ? UI.diceSkipping
+        : rollable ? (twoDice ? UI.diceTapOne : UI.diceTap)
+        : UI.diceNotNow;
       // While the token is still travelling, the tile under it is not yet the
       // answer to anything, so the readout says so instead of naming it.
       const heading = s.walking > 0 ? `${T(UI.walking)} ${s.walking}` : `<b>${T(longName)}</b>`;
 
       host.innerHTML = `${cells}
         <div class="nn-center">
-          <div class="nn-dice">${dice}</div>
+          <button type="button" class="nn-dice${rollable ? ' is-live' : ''}" data-act="roll" data-id="1"
+            ${rollable ? '' : 'disabled'} aria-label="${T(UI.roll1)}">
+            <span class="nn-dice-faces">${dice}</span>
+            <span class="nn-dice-hint">${T(diceHint)}</span>
+          </button>
           <p class="nn-here">${heading}</p>
           <div class="nn-meterwrap">
             <div class="nn-meterlabel"><span>${onFast ? T(UI.fastProgressLabel) : T(UI.progress)}</span><span>${pct}%</span></div>
@@ -2099,9 +2135,12 @@ const description =
       host.innerHTML = `
         <!-- A card that was pushed aside has to be obvious and it has to be the
              first thing here, because the dice stay locked until it is answered
-             and the disabled roll button alone never says why. -->
+             and the greyed-out dice alone never say why. -->
         ${cardIsHidden(s) ? `<button type="button" class="nn-btn nn-btn-gold nn-cardback" data-act="showcard">${T(UI.backToCard)}</button>` : ''}
-        <button type="button" class="nn-btn nn-btn-go" data-act="roll" data-id="1" ${rollable ? '' : 'disabled'}>${T(UI.roll1)}</button>
+        <!-- Rolling one die is done by pressing the dice in the middle of the
+             board. Only the charity bonus needs a button of its own, because
+             that is a real choice between two rolls rather than a second way to
+             do the same thing. -->
         ${two ? `<button type="button" class="nn-btn nn-btn-gold" data-act="roll" data-id="2" ${rollable ? '' : 'disabled'}>${T(UI.roll2)}</button>` : ''}
         ${borrowable ? `<button type="button" class="nn-btn" data-act="borrow">${T(UI.borrowBtn)}</button>` : ''}
         <!-- The company used to be reachable only from the legacy tile, which

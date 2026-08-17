@@ -649,6 +649,12 @@ export const UI = {
   reportFireSales: { th: 'จำนวนครั้งที่ต้องขายด่วน', en: 'Times you had to sell in a hurry' },
   reportIncomeGot: { th: 'เงินที่ทรัพย์สินจ่ายคืนมาแล้วทั้งหมด', en: 'What those holdings have paid you' },
   reportLottery: { th: 'หวย ได้คืน / ที่ซื้อไป', en: 'Lottery, back against spent' },
+  diceTap: { th: 'แตะลูกเต๋าเพื่อทอย', en: 'tap the dice to roll' },
+  diceTapOne: { th: 'แตะเพื่อทอย 1 ลูก', en: 'tap to roll one' },
+  diceRolling: { th: 'กำลังเดิน', en: 'moving' },
+  diceWaitCard: { th: 'ตอบการ์ดก่อนถึงจะทอยได้', en: 'answer the card first' },
+  diceSkipping: { th: 'รอบนี้อดทอย', en: 'a turn is being skipped' },
+  diceNotNow: { th: 'ยังทอยไม่ได้', en: 'not just now' },
   seedLabel: { th: 'รหัสสำรับไพ่ (ไม่ใส่ก็ได้)', en: 'Deck code (optional)' },
   seedPlaceholder: { th: 'เว้นว่าง = สุ่มใหม่', en: 'blank for a fresh shuffle' },
   seedNote: {
