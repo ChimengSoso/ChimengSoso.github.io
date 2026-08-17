@@ -487,6 +487,14 @@ export interface GameState {
    * year's cap, `taxFundFirst` the month the first unit was bought, which is
    * where the ten-year lock is counted from.
    */
+  /**
+   * The standing order into a broad index fund, what it has grown into, and
+   * what was actually paid in. The last one is kept so the gain can be shown
+   * against the money rather than against a share price nobody watched.
+   */
+  dcaMonthly: number;
+  dcaPot: number;
+  dcaPaid: number;
   taxFundPot: number;
   taxFundYear: number;
   taxFundFirst: number | null;

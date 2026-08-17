@@ -772,6 +772,89 @@ export function declineTaxFund(s: GameState): void {
   s.pending = null;
 }
 
+/* ------------------------------------------ the boring one that wins anyway */
+
+/**
+ * A broad index fund bought by standing order every month.
+ *
+ * Everything else in this game is bought in lumps, when a card happens to
+ * offer it, which is exactly how most people invest and exactly why most people
+ * are not invested. This is the other way: a small amount leaves the account on
+ * payday whether or not anything interesting happened that month, and the
+ * compounding does the work. It pays no monthly income at all, so it never
+ * moves the escape line by a single baht; it only ever shows up in what the
+ * player is worth. That contrast is the whole point of putting it in.
+ */
+export const DCA_RETURN = 0.07;
+/** How far a year can land from the average, either way. */
+export const DCA_SWING = 0.18;
+export const DCA_STEP = 1000;
+
+export function dcaValue(s: GameState): number {
+  return Math.round(s.dcaPot);
+}
+
+/** Every baht ever put in, so the gain can be read off against it. */
+export function dcaPaidIn(s: GameState): number {
+  return Math.round(s.dcaPaid);
+}
+
+export function dcaGain(s: GameState): number {
+  return Math.round(s.dcaPot - s.dcaPaid);
+}
+
+export function setDcaMonthly(s: GameState, amount: number): void {
+  const value = Math.max(0, Math.floor(amount / DCA_STEP) * DCA_STEP);
+  if (value === s.dcaMonthly) return;
+  s.dcaMonthly = value;
+  note(
+    s,
+    value > 0
+      ? {
+          th: `ตั้งโอนซื้อกองทุนดัชนีอัตโนมัติเดือนละ ${money(value)} หักทุกวันเงินเดือนโดยไม่ต้องตัดสินใจใหม่ทุกครั้ง`,
+          en: `A standing order of ${money(value)} a month into the index fund, taken on payday without the decision being made again.`,
+        }
+      : { th: 'ยกเลิกการโอนซื้อกองทุนดัชนีอัตโนมัติแล้ว', en: 'The standing order into the index fund has been cancelled.' },
+    value > 0 ? 'good' : 'plain',
+  );
+}
+
+/**
+ * One month of the standing order. It skips itself when the account cannot
+ * take it, because a transfer that overdraws somebody is not a plan, and the
+ * card that follows would have been the bank's.
+ */
+function dcaMonth(s: GameState): void {
+  // The market's own year, drawn once and then applied smoothly, so a run of
+  // months does not look like a coin being flipped every payday.
+  const drift = 1 + (DCA_RETURN + (rand(s) - 0.5) * DCA_SWING) / 12;
+  s.dcaPot *= drift;
+  if (s.dcaMonthly <= 0) return;
+  if (s.cash < s.dcaMonthly) return;
+  s.cash -= s.dcaMonthly;
+  s.dcaPot += s.dcaMonthly;
+  s.dcaPaid += s.dcaMonthly;
+}
+
+export function sellDca(s: GameState, amount?: number): void {
+  const value = Math.min(s.dcaPot, amount === undefined ? s.dcaPot : Math.max(0, amount));
+  if (value <= 0) return;
+  const share = s.dcaPot > 0 ? value / s.dcaPot : 1;
+  const gain = Math.round(value - s.dcaPaid * share);
+  s.cash += Math.round(value);
+  s.dcaPaid = Math.max(0, s.dcaPaid - s.dcaPaid * share);
+  s.dcaPot -= value;
+  note(
+    s,
+    {
+      th: `ขายกองทุนดัชนี ${money(value)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))}) กำไรจากกองทุนรวมในไทยไม่เสียภาษี`,
+      en: `Sold ${money(value)} of the index fund (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}). Mutual-fund gains are not taxed in Thailand.`,
+    },
+    gain >= 0 ? 'good' : 'bad',
+  );
+  checkEscape(s);
+}
+
 export const ALLOWANCE_SELF = 60000;
 export const ALLOWANCE_CHILD = 30000;
 /** 40(1): half the pay, capped, which is why big salaries lose this race */
@@ -996,7 +1079,7 @@ export function personalWorth(s: GameState): number {
   const debts = s.debts.reduce((sum, d) => sum + d.balance, 0);
   // The provident fund is counted at what it would actually pay out, not at its
   // balance: before 55 a slice of it belongs to the taxman.
-  return s.cash + assets + homeValue(s) + carValue(s) + pfCashOut(s) + taxFundValue(s) - debts;
+  return s.cash + assets + homeValue(s) + carValue(s) + pfCashOut(s) + taxFundValue(s) + dcaValue(s) - debts;
 }
 
 /**
@@ -1139,6 +1222,9 @@ export function createGame(
     // allows and never touch it again, so that is where the game starts them.
     pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
     pfPot: 0,
+    dcaMonthly: 0,
+    dcaPot: 0,
+    dcaPaid: 0,
     taxFundPot: 0,
     taxFundYear: 0,
     taxFundFirst: null,
@@ -1729,6 +1815,7 @@ function monthPassed(s: GameState): void {
   s.months += 1;
   pfMonth(s);
   s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
+  dcaMonth(s);
   // December, when the whole country remembers this at once.
   if (s.months > 0 && s.months % 12 === 0) {
     s.taxFundYear = 0;
@@ -3780,6 +3867,9 @@ export function parseSave(raw: string): GameState | null {
   if (typeof game.childInsured !== 'boolean') game.childInsured = false;
   if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
   if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
+  if (!Number.isFinite(game.dcaMonthly) || game.dcaMonthly < 0) game.dcaMonthly = 0;
+  if (!Number.isFinite(game.dcaPot) || game.dcaPot < 0) game.dcaPot = 0;
+  if (!Number.isFinite(game.dcaPaid) || game.dcaPaid < 0) game.dcaPaid = 0;
   if (!Number.isFinite(game.taxFundPot) || game.taxFundPot < 0) game.taxFundPot = 0;
   if (!Number.isFinite(game.taxFundYear) || game.taxFundYear < 0) game.taxFundYear = 0;
   if (game.taxFundFirst === undefined) game.taxFundFirst = game.taxFundPot > 0 ? game.months : null;

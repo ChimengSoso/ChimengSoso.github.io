@@ -262,6 +262,8 @@ const description =
     }
     /* The payslip block: savings the employer doubles does not belong in the
        same list as the phone bill, so it gets its own frame. */
+    .nn-dca{border:1px solid rgba(47,158,92,0.22);border-radius:0.7rem;padding:0.7rem 0.8rem;}
+    .nn-dcaset{margin-top:0.5rem;flex-wrap:wrap;}
     .nn-payroll{border:1px solid rgba(47,158,92,0.3);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(47,158,92,0.05);}
     .nn-pfpick{display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.72rem;color:var(--nn-muted);}
     .nn-pfpick button{
@@ -1191,6 +1193,12 @@ const description =
       childExpense,
       childExpenseGross,
       ssoContribution,
+      setDcaMonthly,
+      sellDca,
+      dcaValue,
+      dcaPaidIn,
+      dcaGain,
+      DCA_STEP,
       buyTaxFund,
       declineTaxFund,
       sellTaxFund,
@@ -1859,6 +1867,24 @@ const description =
             ${pfRateOptions().map((r) => `<button type="button" data-act="pfrate" data-id="${r}" aria-pressed="${Math.abs(r - s.pfRate) < 0.001}">${Math.round(r * 100)}%</button>`).join('')}
           </div>
           <p class="nn-empty">${T(UI.pfNote)}</p>` : ''}
+        </div>` : ''}
+        <!-- The standing order. It sits with the payslip because that is when
+             it happens, and because the decision it represents is the same
+             kind: money that leaves before it can be spent. -->
+        ${s.phase === 'rat' || dcaValue(s) > 0 ? `<div class="nn-sec nn-dca">
+          <h3>${T(UI.dcaTitle)}</h3>
+          <dl class="nn-rows">
+            <dt>${T(UI.dcaMonthlyLabel)}</dt><dd>${s.dcaMonthly > 0 ? `-${money(s.dcaMonthly)}` : '—'}</dd>
+            ${dcaValue(s) > 0 ? `<dt>${T(UI.dcaPaidIn)}</dt><dd>${money(dcaPaidIn(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.dcaWorth)}</dt><dd class="nn-rowsplit ${cls(dcaGain(s))}">${money(dcaValue(s))} <small class="muted">${signed(dcaGain(s))}</small></dd>` : ''}
+          </dl>
+          <div class="nn-qty nn-dcaset">
+            <label for="nn-dca">${T(UI.dcaSet)}</label>
+            <input id="nn-dca" type="number" data-qty="dca" min="0" step="${DCA_STEP}" value="${s.dcaMonthly}">
+            <button type="button" class="nn-btn" data-act="setdca">${T(UI.setIt)}</button>
+            ${dcaValue(s) > 0 ? `<button type="button" class="nn-mini" data-act="selldca">${T(UI.sellNow)}</button>` : ''}
+          </div>
+          <p class="nn-empty">${T(UI.dcaNote)}</p>
         </div>` : ''}
         <div class="nn-sec">
           <h3>${T(UI.expenses)}</h3>
@@ -3714,6 +3740,12 @@ const description =
           break;
         case 'gradok':
           acceptGraduation(s);
+          break;
+        case 'setdca':
+          setDcaMonthly(s, amountOf(panel, 'dca'));
+          break;
+        case 'selldca':
+          sellDca(s);
           break;
         case 'buytaxfund':
           buyTaxFund(s, amountOf(panel, 'taxfund'));
