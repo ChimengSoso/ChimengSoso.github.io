@@ -296,10 +296,10 @@ export const UI = {
     en: 'The results came back better than anyone hoped, and they have not asked for a thing. How this gets marked is entirely your call, and this month your wallet gets a vote too.',
   },
   rewardPetTag: { th: 'อีกหนึ่งสมาชิกในบ้าน', en: 'The other one at home' },
-  rewardPetTitle: { th: 'ถึงรอบพาไปหาหมอแล้ว', en: 'It is that time at the vet again' },
+  rewardPetTitle: { th: 'ถึงรอบพา{petName}ไปหาหมอแล้ว', en: 'It is that time at the vet again for {petName}' },
   rewardPetBody: {
-    th: 'มันไม่ได้เรียกคุณว่าพ่อแม่ แต่มันรอคุณอยู่ที่ประตูทุกวัน ค่าวัคซีน ค่าอาหาร ค่าของเล่นที่มันจะกัดพังภายในสามวัน รวมแล้วก็เท่ากับที่บ้านอื่นจ่ายให้ลูกอยู่ดี',
-    en: 'It does not call you a parent, but it waits by the door every day. Vaccinations, food, and a toy it will destroy within three days add up to roughly what other households spend on a child anyway.',
+    th: '{pet} ไม่ได้เรียกคุณว่าพ่อแม่ แต่มันรอคุณอยู่ที่ประตูทุกวัน ค่าวัคซีน ค่าอาหาร ค่าของเล่นที่มันจะกัดพังภายในสามวัน รวมแล้วก็เท่ากับที่บ้านอื่นจ่ายให้ลูกอยู่ดี',
+    en: '{pet} does not call you a parent, but waits by the door every day. Vaccinations, food, and a toy that will be destroyed within three days add up to roughly what other households spend on a child anyway.',
   },
   rewardPay: { th: 'จ่าย', en: 'Pay' },
   rewardSkip: { th: 'เดือนนี้ขอผ่านก่อน', en: 'Not this month' },
@@ -568,6 +568,174 @@ export const UI = {
   rulesNoteBody: {
     th: 'เกมนี้เขียนขึ้นใหม่ทั้งหมดสำหรับเว็บนี้ ทั้งอาชีพ การ์ด ตัวเลข และถ้อยคำ ไม่ได้เกี่ยวข้องกับหรือได้รับอนุญาตจากเจ้าของเกมการเงินเชิงพาณิชย์รายใด กลไกพื้นฐานอย่างงบการเงินส่วนบุคคลและการวัดอิสรภาพจากเงินไหลเข้า เป็นแนวคิดสาธารณะที่ใครก็หยิบมาออกแบบเกมของตัวเองได้',
     en: 'Every profession, card, number and line of text here was written for this site. It is not affiliated with, or licensed by, any commercial financial board game. The underlying ideas, a personal income statement and measuring freedom by passive income, are public concepts anyone may build a game around.',
+  },
+
+  /* ------------------------------------------- setting a card aside a moment */
+  setAside: { th: 'ย่อการ์ดไว้ก่อน ไปดูงบการเงิน', en: 'Set this aside and look at the statement' },
+  backToCard: { th: 'กลับไปที่การ์ดที่ค้างอยู่', en: 'Back to the card waiting for you' },
+
+  /* ------------------------------------------------- the bank's credit desk */
+  creditTitle: { th: 'ฝ่ายสินเชื่อกำลังพิจารณา', en: 'The credit desk is reading your file' },
+  creditBody: {
+    th: 'ธนาคารไม่ได้ดูว่าคุณอยากได้เท่าไหร่ แต่ดูว่าคุณจ่ายคืนไหวแค่ไหน สี่บรรทัดข้างล่างคือสิ่งที่เขาเปิดดูจริง ๆ ก่อนเซ็นอนุมัติ',
+    en: 'The bank is not looking at how much you want. It is looking at how much you can repay. The four lines below are what actually gets read before anyone signs.',
+  },
+  docIncome: { th: 'รายได้ที่ธนาคารนับให้', en: 'Income they will count' },
+  docIncomeNote: {
+    th: 'เงินเดือน บำนาญ และเงินเดือนกรรมการ นับเต็ม ส่วนค่าเช่ากับปันผล นับให้ 70% เพราะผู้เช่าย้ายออกได้และกิจการมีปีที่ไม่ดีได้',
+    en: 'Salary, pension and a director’s wage count in full. Rent and dividends count at 70%, because tenants leave and businesses have bad years.',
+  },
+  dsrLabel: { th: 'ภาระผ่อนต่อรายได้ ถ้าอนุมัติ', en: 'Debt service if approved' },
+  dsrCeiling: { th: 'เพดานที่ธนาคารรับได้', en: 'Their ceiling' },
+  creditChance: { th: 'โอกาสผ่าน', en: 'Chance of approval' },
+  chanceHigh: { th: 'สูง', en: 'high' },
+  chanceMid: { th: 'ก้ำกึ่ง', en: 'borderline' },
+  chanceLow: { th: 'ต่ำ', en: 'low' },
+  factorIncome: { th: 'ฐานรายได้ประจำ', en: 'Documented income' },
+  factorDsr: { th: 'สัดส่วนหนี้ต่อรายได้', en: 'Debt-to-income' },
+  factorHistory: { th: 'ประวัติการชำระ', en: 'Repayment record' },
+  factorBuffer: { th: 'เงินสดในมือตอนยื่น', en: 'Cash on the day' },
+  verdictGood: { th: 'ผ่านสบาย', en: 'clean' },
+  verdictFair: { th: 'พอไปได้', en: 'passable' },
+  verdictPoor: { th: 'เป็นจุดอ่อน', en: 'a problem' },
+  historyLine: { th: 'จ่ายตรงเวลา {on} เดือน · เดือนที่ปิดไม่ลง {late} · ปิดหนี้ครบ {done} ก้อน', en: '{on} months paid, {late} months short, {done} loans cleared' },
+  applyLoan: { th: 'ยื่นขอสินเชื่อ', en: 'Apply' },
+  loanBlocked: {
+    th: 'ธนาคารเพิ่งปฏิเสธคำขอไป แฟ้มยังไม่ถูกเปิดใหม่จนถึงเดือนที่ {month}',
+    en: 'The bank just declined you. They will not reopen the file until month {month}.',
+  },
+  loanRefused: { th: 'ไม่อนุมัติ', en: 'Declined' },
+  loanPartial: { th: 'อนุมัติบางส่วน', en: 'Partly approved' },
+  offerCut: { th: 'ขอเท่านี้ได้ แต่วงเงินที่เขาให้จริงคือ', en: 'You may ask for this, but the line they will actually grant is' },
+
+  /* --------------------------------------------- renting and getting around */
+  rentLabel: { th: 'ค่าเช่าบ้าน', en: 'Rent' },
+  commuteLabel: { th: 'ค่าเดินทาง (ไม่มีรถ)', en: 'Getting around (no car)' },
+  setupStep3: { th: '3. ตั้งต้นชีวิต', en: '3. How you start out' },
+  setupStep3Hint: {
+    th: 'เกมนี้เคยยัดรถกับบ้านพร้อมหนี้ใส่มือคุณตั้งแต่ตาแรก ทั้งที่มันคือการตัดสินใจที่คนส่วนใหญ่ได้เลือกจริง ๆ เลือกเอาว่าจะรับหนี้ก้อนนั้นไว้ หรือจะจ่ายอีกแบบหนึ่งแทน',
+    en: 'The game used to hand you a car and a house with the loans already signed, when that is the one decision most people really do get to make. Take the debt, or pay for it the other way.',
+  },
+  takeCar: { th: 'ผ่อนรถต่อ', en: 'Keep the car' },
+  skipCar: { th: 'ไม่มีรถ', en: 'No car' },
+  takeHome: { th: 'ผ่อนบ้านต่อ', en: 'Keep the house' },
+  skipHome: { th: 'เช่าอยู่', en: 'Rent instead' },
+  carKeepNote: { th: 'ค่างวด {pay}/เดือน หนี้ {debt} ผ่อนหมดแล้วรถเป็นของคุณ', en: '{pay} a month against {debt} of debt. When it ends, the car is yours.' },
+  carSkipNote: { th: 'ไม่มีหนี้ ไม่มีค่าซ่อม ไม่ต้องต่อประกัน แต่ค่าเดินทาง {cost}/เดือน และมันไม่มีวันหมด', en: 'No debt, no repairs, no policy to renew, but {cost} a month to get around and it never ends.' },
+  homeKeepNote: { th: 'ค่างวด {pay}/เดือน หนี้ {debt} ทุกงวดกัดเงินต้นลงเรื่อย ๆ', en: '{pay} a month against {debt} of debt, and every payment eats into the principal.' },
+  homeSkipNote: { th: 'ไม่มีหนี้บ้านเลย แต่ค่าเช่า {cost}/เดือน จ่ายไปสามสิบปีก็ยังไม่ได้เป็นเจ้าของอะไร', en: 'No mortgage at all, but {cost} a month of rent, and thirty years of it still owns you nothing.' },
+
+  /* ------------------------------------------------------------- the animal */
+  petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
+  homeOwned: { th: 'บ้านที่อยู่', en: 'The house you live in' },
+  ownNote: { th: 'ราคาขยับขึ้นช้า ๆ ตามราคาที่ดินแถวนั้น', en: 'Drifting up slowly with land prices around it' },
+  carOwned: { th: 'รถที่ขับอยู่', en: 'The car you drive' },
+  carNote: { th: 'มูลค่าลดลงทุกปี ปีแรก ๆ มักต่ำกว่ายอดหนี้ที่ยังเหลือ', en: 'Worth less every year, and for the first few years worth less than the loan on it' },
+
+  /* --------------------------------------------------- reading a share card */
+  booksTitle: { th: 'งบการเงินย่อ (ต่อปี)', en: 'The books (yearly)' },
+  bookRevenue: { th: 'รายได้', en: 'Revenue' },
+  bookProfit: { th: 'กำไรสุทธิ', en: 'Net profit' },
+  bookGrowth: { th: 'รายได้โตจากปีก่อน', en: 'Revenue growth' },
+  bookGearing: { th: 'หนี้ต่อทุน', en: 'Debt to equity' },
+  bookPe: { th: 'ราคาต่อกำไร (P/E)', en: 'Price to earnings' },
+  bookNoPe: { th: 'ยังไม่มีกำไรให้หาร', en: 'no earnings to divide by' },
+  bookMillion: { th: 'ล้านบาท', en: '฿m' },
+  goldNoBooks: {
+    th: 'ทองไม่มีงบการเงินให้อ่าน เพราะทองไม่ได้ทำมาหากินอะไร มันไม่มีรายได้ ไม่มีกำไร ไม่จ่ายปันผล ราคาขึ้นลงตามคนอื่นอยากได้มันแค่ไหน',
+    en: 'Gold has no books to read, because gold does not do any work. No revenue, no profit, no dividend. Its price is only ever what the next person will pay.',
+  },
+
+  /* ------------------------------------------- profit and loss on a holding */
+  costBasis: { th: 'ต้นทุน', en: 'Cost' },
+  unrealised: { th: 'กำไร/ขาดทุนบนกระดาษ', en: 'On paper' },
+
+  /* ----------------------------------------------------- glossary popovers */
+  whatIsIt: { th: 'คำนี้แปลว่าอะไร', en: 'What this means' },
+  gloNetWorth: { th: 'ความมั่งคั่งสุทธิ', en: 'Net worth' },
+  gloNetWorthBody: {
+    th: 'ของทั้งหมดที่คุณมี ลบหนี้ทั้งหมดที่คุณติด เหลือเท่าไหร่คือความมั่งคั่งสุทธิ มันตอบคำถามว่า "ถ้าวันนี้ขายทุกอย่างแล้วใช้หนี้ให้หมด จะเหลือเงินเท่าไหร่" คนเงินเดือนเยอะแต่ติดหนี้เยอะ ตัวเลขนี้ติดลบได้สบาย ๆ',
+    en: 'Everything you own minus everything you owe. It answers one question: if you sold it all today and paid off every debt, what would be left? A big salary with big debts sits below zero here without any trouble.',
+  },
+  gloCashflow: { th: 'กระแสเงินสด', en: 'Cash flow' },
+  gloCashflowBody: {
+    th: 'เงินเข้าทั้งเดือน ลบเงินออกทั้งเดือน เหลือติดลบแปลว่าเดือนนี้คุณจนลง ต่อให้มีทรัพย์สินเยอะแค่ไหนก็ตาม ความมั่งคั่งสุทธิบอกว่าคุณ "มี" เท่าไหร่ กระแสเงินสดบอกว่าคุณ "รอด" ในแต่ละเดือนไหม',
+    en: 'Everything that came in this month minus everything that went out. Negative means this month made you poorer, however much you own. Net worth says what you have; cash flow says whether you get through the month.',
+  },
+  gloPassive: { th: 'เงินไหลเข้า (passive income)', en: 'Passive income' },
+  gloPassiveBody: {
+    th: 'เงินที่เข้ามาโดยคุณไม่ต้องไปนั่งทำงานแลก เช่นค่าเช่า ปันผล กำไรจากกิจการที่มีคนอื่นดูแล เกมนี้ชนะเมื่อตัวเลขนี้แซงรายจ่ายรวม ไม่ใช่เมื่อเงินเดือนขึ้น',
+    en: 'Money that arrives without you sitting down to earn it: rent, dividends, the profit of a business somebody else runs. You win this game when this figure passes your total expenses, not when your salary rises.',
+  },
+  gloAssets: { th: 'ทรัพย์สิน', en: 'Assets' },
+  gloAssetsBody: {
+    th: 'ของที่ใส่เงินเข้ากระเป๋าคุณ หรืออย่างน้อยก็มีมูลค่าขายต่อได้ คำนี้ในเกมนับตามราคาตลาดวันนี้ ไม่ใช่ราคาที่คุณซื้อมา ของบางอย่างที่คนเรียกว่าทรัพย์สินในชีวิตจริง เช่นรถ กินเงินคุณทุกเดือนโดยไม่คืนอะไรเลย',
+    en: 'Things that put money in your pocket, or at least things you could sell. Here they are counted at today’s market price, not what you paid. Some things people call assets, a car for instance, only ever take money out.',
+  },
+  gloLiabilities: { th: 'หนี้สิน', en: 'Liabilities' },
+  gloLiabilitiesBody: {
+    th: 'ยอดเงินต้นที่ยังค้างอยู่ทั้งหมด ทั้งหนี้ส่วนตัวและหนี้ที่ติดมากับทรัพย์สิน เช่นบ้านที่ยังผ่อนไม่หมด ตัวเลขนี้ไม่ใช่ค่างวดต่อเดือน แต่คือก้อนที่ต้องจ่ายจนครบ',
+    en: 'The principal still outstanding, both your own debts and the ones riding on an asset such as a half-paid house. This is not the monthly payment; it is the lump that has to be cleared.',
+  },
+  gloDebtService: { th: 'ภาระผ่อนต่อเดือน', en: 'Debt service' },
+  gloDebtServiceBody: {
+    th: 'รวมค่างวดทุกก้อนที่ต้องจ่ายในหนึ่งเดือน ธนาคารสนใจตัวเลขนี้เทียบกับรายได้มากกว่าสนใจว่าคุณติดหนี้รวมเท่าไหร่ เพราะมันคือสิ่งที่ตัดสินว่าเดือนหน้าคุณยังจ่ายไหวไหม',
+    en: 'Every instalment you owe in one month added up. A bank cares about this against your income far more than about the total you owe, because this is what decides whether next month goes badly.',
+  },
+  gloEquity: { th: 'ส่วนของเจ้าของ', en: 'Equity' },
+  gloEquityBody: {
+    th: 'ทรัพย์สินของบริษัท ลบหนี้ของบริษัท เหลือเท่าไหร่คือส่วนที่เป็นของคุณในฐานะเจ้าของหุ้น มันรวมอยู่ในความมั่งคั่งสุทธิแล้ว แต่จะเอาออกมาใช้จริงต้องจ่ายภาษีปันผลก่อน',
+    en: 'What the company owns minus what it owes: the part that is yours as the shareholder. It is already inside your net worth, but getting it out to spend costs dividend tax first.',
+  },
+  gloDown: { th: 'เงินดาวน์', en: 'Down payment' },
+  gloDownBody: {
+    th: 'เงินสดที่ต้องวางเองตอนซื้อ ส่วนที่เหลือธนาคารออกให้ก่อนแล้วคุณผ่อนคืน ดาวน์น้อยแปลว่าใช้เงินคนอื่นเยอะ ซึ่งทั้งขยายกำไรและขยายความเจ็บพอ ๆ กัน',
+    en: 'The cash you put down yourself; the bank fronts the rest and you repay it. A small deposit means using more of somebody else’s money, which magnifies the gain and the pain equally.',
+  },
+
+  /* ---------------------------------------------------- offers you can't take */
+  butNoHolding: {
+    th: 'แต่ตอนนี้คุณยังไม่มีของที่เขาอยากได้อยู่ในมือ ข้อเสนอนี้เลยผ่านไปเฉย ๆ',
+    en: 'But you are holding nothing they want, so the offer simply passes you by.',
+  },
+
+  /* -------------------------------------------------------- the how-to screen */
+  learnTitle: { th: 'อ่านก่อนเล่น 1 นาที', en: 'One minute before you start' },
+  learnLead: {
+    th: 'เกมนี้ไม่ได้วัดว่าใครเงินเดือนเยอะกว่า มันวัดว่าเงินที่ไหลเข้าโดยคุณไม่ต้องทำงาน โตทันรายจ่ายของคุณเมื่อไหร่',
+    en: 'This game does not measure who earns more. It measures the month your income stops depending on you showing up.',
+  },
+  learn1: { th: 'เป้าหมายเดียว', en: 'The only goal' },
+  learn1Body: {
+    th: 'ชนะเมื่อ เงินไหลเข้าต่อเดือน มากกว่า รายจ่ายต่อเดือน ไม่เกี่ยวกับว่าคุณมีเงินสดเท่าไหร่ เพราะเงินก้อนหมดได้ แต่เงินไหลเข้ามันมาเองทุกเดือน',
+    en: 'You win the month your passive income passes your expenses. Cash in hand is not the test: a lump runs out, and income that arrives every month does not.',
+  },
+  learn2: { th: 'หนึ่งตา เกิดอะไรบ้าง', en: 'What one turn does' },
+  learn2Body: {
+    th: 'ทอยลูกเต๋า เดินไปตามช่อง แล้วทำตามช่องที่หยุด ช่องเงินเดือนคือสิ้นเดือน เงินเข้าลบรายจ่ายทีเดียว ช่องโอกาสคือของให้ซื้อ ช่องตลาดคือคนมาขอซื้อของจากคุณ ช่องจ่ายคือบิลที่ไม่ได้เชิญมา',
+    en: 'Roll, walk, and do what the tile says. Payday is the end of a month: income in, expenses out, all at once. Deals are things to buy, the market is somebody wanting to buy from you, and the expense tiles are bills nobody invited.',
+  },
+  learn3: { th: 'ซื้ออะไรถึงจะขยับ', en: 'What actually moves you' },
+  learn3Body: {
+    th: 'ของที่จ่ายเงินให้คุณทุกเดือน เช่นห้องปล่อยเช่า กองทุนอสังหาฯ หรือกิจการเล็ก ๆ จะดันเส้น "เงินไหลเข้า" ขึ้น ส่วนของที่หวังกำไรตอนขายอย่างหุ้นเก็งกำไรหรือทอง ไม่ขยับเส้นนั้นเลยจนกว่าคุณจะขายได้จริง',
+    en: 'Things that pay you every month, a rented room, a property fund, a small business, push the passive-income line up. Things you hope to sell higher, a speculative share or gold, do nothing to that line until you actually sell.',
+  },
+  learn4: { th: 'หนี้ ไม่ได้แปลว่าแพ้', en: 'Debt is not the enemy' },
+  learn4Body: {
+    th: 'หนี้ที่เอาไปซื้อของที่จ่ายค่าเช่ากลับมามากกว่าค่างวด ทำให้คุณเร็วขึ้น หนี้ที่เอาไปซื้อของที่ไม่คืนอะไรเลย ทำให้เส้นชัยถอยห่างออกไปทุกเดือน เกมนี้แยกสองอย่างนี้ให้เห็นชัด ๆ',
+    en: 'Debt that buys something paying more rent than the instalment makes you faster. Debt that buys something paying nothing pushes the finish line further away every month. The game keeps the two apart on purpose.',
+  },
+  learn5: { th: 'แพ้ยังไง', en: 'How you lose' },
+  learn5Body: {
+    th: 'เงินสดติดลบ ขายของก็ไม่พอ กู้ก็ไม่ผ่าน คือจบเกม ธนาคารในเกมนี้ดูรายได้ ดูสัดส่วนหนี้ และดูประวัติการจ่ายของคุณจริง ๆ ไม่ได้ปล่อยกู้ให้ทุกครั้งที่ขอ',
+    en: 'Cash goes below zero, selling does not cover it, and the loan is declined. The bank here reads your income, your debt ratio and your payment record, and it does not say yes every time.',
+  },
+  learnGo: { th: 'เข้าใจแล้ว ไปเลือกอาชีพ', en: 'Got it, pick a job' },
+  learnSkip: { th: 'ข้ามไปก่อน', en: 'Skip' },
+  learnAgain: { th: 'วิธีเล่น', en: 'How to play' },
+  learnDiagram: {
+    th: 'แผนภาพ: เงินเดือนเข้ามาแล้วถูกรายจ่ายกินจนเกือบหมด ส่วนที่เหลือถ้าเอาไปซื้อทรัพย์สินที่จ่ายเงินคืน จะกลายเป็นเงินไหลเข้าที่โตขึ้นทุกเดือน จนวันหนึ่งสูงกว่ารายจ่าย นั่นคือวันที่คุณออกจากวงล้อได้',
+    en: 'Diagram: a salary comes in and expenses eat nearly all of it. Whatever is left, spent on things that pay you back, becomes an income line that grows every month until it stands taller than the expenses. That is the day you step off the wheel.',
   },
 } satisfies Record<string, Loc>;
 

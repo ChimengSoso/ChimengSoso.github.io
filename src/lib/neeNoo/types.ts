@@ -210,6 +210,34 @@ export interface DealCard {
   volatility?: number;
   /** the country notices this one: counts toward the capitalist's legacy */
   impact?: number;
+  /**
+   * The page out of the annual report that a share card shows before it is
+   * bought. Buying blind is how most people buy their first share, and the
+   * point of printing the numbers is that the two cheap-looking shares in this
+   * deck are cheap for opposite reasons: one earns and pays out, the other
+   * loses money and is priced on a story.
+   */
+  books?: Fundamentals;
+}
+
+/**
+ * A listed company's headline figures, in the units the exchange uses: revenue
+ * and profit in millions of baht a year, the rest as plain ratios. Everything
+ * here is invented for the game.
+ */
+export interface Fundamentals {
+  /** yearly revenue, ฿m */
+  revenue: number;
+  /** yearly net profit, ฿m — negative means it is burning money */
+  profit: number;
+  /** revenue growth against last year, as a share */
+  growth: number;
+  /** debt against equity; above ~2 is a company the bank part-owns */
+  gearing: number;
+  /** price against yearly earnings per share; 0 when there are no earnings */
+  pe: number;
+  /** one line on what the numbers add up to */
+  note: Loc;
 }
 
 export type MarketCard =
@@ -240,6 +268,10 @@ export interface DoodadCard {
   instalment?: { balanceScale: number; paymentScale: number };
   /** a bill car insurance would have covered, if there is any in force */
   insurable?: boolean;
+  /** only happens to somebody who owns a car; skipped entirely for those who do not */
+  needsCar?: boolean;
+  /** the bill is for the animal in the house, so its name belongs in the words */
+  pet?: boolean;
   /** paying it means the player started writing, which may pay off years later */
   writes?: boolean;
   /**
@@ -416,6 +448,45 @@ export interface GameState {
   coverDue: boolean;
   /** started writing back in the rat race, which the fast track can pay off */
   wroteBook: boolean;
+  /**
+   * The animal in the house, rolled at the start of the game. The vet bill used
+   * to arrive for a creature with no species and no name, which is a bill
+   * nobody can feel. A named cat is complained about; "a pet" is not.
+   */
+  pet: { speciesId: string; name: Loc } | null;
+  /**
+   * Whether the game began with a car and a home of one's own. Every job used
+   * to hand both over on the first turn with the loans already signed, which is
+   * the one decision most people actually get to make. Saying no clears the
+   * debt and buys the alternative instead: rent that never ends, and getting to
+   * work the hard way.
+   */
+  hasCar: boolean;
+  hasHome: boolean;
+  /**
+   * What the car and the house were worth on day one.
+   *
+   * They were never on the balance sheet at all: the loans were, so every
+   * player began the game a million baht in the hole for owning two ordinary
+   * things. The values are kept from the start rather than tracked from the
+   * loan, because a house that is paid off is still a house, and they move
+   * apart from here: one drifts up with prices, the other loses a seventh of
+   * itself every year and spends its first years worth less than what is owed
+   * on it.
+   */
+  ownValue: { home: number; car: number };
+  /**
+   * The month the bank will look at an application again. A refusal is not a
+   * "no" the player can click past: it stands for a while, which is what makes
+   * the ceiling worth staying under in the first place.
+   */
+  loanBlockedUntil: number;
+  /**
+   * The file the bank keeps on you. Months that closed with the bills paid,
+   * months that closed short, and loans seen through to the end: the three
+   * things an underwriter can actually look up about somebody.
+   */
+  credit: { onTime: number; late: number; cleared: number; refused: number };
   /**
    * Decisions the calendar has raised and the player has not answered yet. They
    * are flags rather than pendings because a card is only ever a card: a payday
