@@ -44,6 +44,14 @@ export interface Asset {
   mortgagePay: number;
   /** monthly cash flow per unit (can be 0 for capital-gain plays) */
   cashflowPerUnit: number;
+  /**
+   * Held by the company rather than by the player personally. Absent means
+   * personal, so every save written before the company existed reads correctly.
+   * The distinction is the whole point of incorporating: a company's rent is the
+   * company's income, taxed at the company's rate, and it stays in the company
+   * until the player takes it out and pays again to do so.
+   */
+  owner?: 'corp';
   /** see DealCard.volatility; carried so the holding keeps swinging after purchase */
   volatility?: number;
   /** cash flow the day it was bought, used to cap how far a swing can run */
@@ -97,9 +105,18 @@ export interface Profession {
   name: Loc;
   blurb: Loc;
   salary: number;
-  taxes: number;
+  // No `taxes` field: it used to be a hand-written figure per job and it had
+  // drifted a long way from the real ladder (a ฿22,000 salary was billed ฿900 a
+  // month when it actually owes nothing at all). Tax is computed from income
+  // now, by category, in `taxBill`.
   /** food, transport, phone… everything not itemised as a debt payment */
   otherExpenses: number;
+  /**
+   * What one child costs this household every month, day to day, before school
+   * fees and before anything the cards charge separately. It is the whole
+   * household's figure: half of it lands on the player's statement, because
+   * there is somebody else in the house paying the other half.
+   */
   childCost: number;
   cash: number;
   /** interest rates are filled in from DEBT_RATE when the game starts */
@@ -199,6 +216,34 @@ export interface DealCard {
   volatility?: number;
   /** the country notices this one: counts toward the capitalist's legacy */
   impact?: number;
+  /**
+   * The page out of the annual report that a share card shows before it is
+   * bought. Buying blind is how most people buy their first share, and the
+   * point of printing the numbers is that the two cheap-looking shares in this
+   * deck are cheap for opposite reasons: one earns and pays out, the other
+   * loses money and is priced on a story.
+   */
+  books?: Fundamentals;
+}
+
+/**
+ * A listed company's headline figures, in the units the exchange uses: revenue
+ * and profit in millions of baht a year, the rest as plain ratios. Everything
+ * here is invented for the game.
+ */
+export interface Fundamentals {
+  /** yearly revenue, ฿m */
+  revenue: number;
+  /** yearly net profit, ฿m — negative means it is burning money */
+  profit: number;
+  /** revenue growth against last year, as a share */
+  growth: number;
+  /** debt against equity; above ~2 is a company the bank part-owns */
+  gearing: number;
+  /** price against yearly earnings per share; 0 when there are no earnings */
+  pe: number;
+  /** one line on what the numbers add up to */
+  note: Loc;
 }
 
 export type MarketCard =
@@ -229,6 +274,30 @@ export interface DoodadCard {
   instalment?: { balanceScale: number; paymentScale: number };
   /** a bill car insurance would have covered, if there is any in force */
   insurable?: boolean;
+  /** only happens to somebody who owns a car; skipped entirely for those who do not */
+  needsCar?: boolean;
+  /** only reaches a household with children in it */
+  needsChild?: boolean;
+  /** only reaches somebody who has a partner to have it with */
+  needsPartner?: boolean;
+  /** a bill the children's health cover would have paid most of */
+  insurableChild?: boolean;
+  /** saying yes to this one starts the children's health cover */
+  buysChildCover?: boolean;
+  /** a ticket, settled on the spot against the real odds */
+  lottery?: boolean;
+  /** a savings circle: money out now, a larger sum back later, on trust alone */
+  chair?: boolean;
+  /** the bill is for the animal in the house, so its name belongs in the words */
+  pet?: boolean;
+  /** paying it means the player started writing, which may pay off years later */
+  writes?: boolean;
+  /**
+   * Comes round on the calendar rather than out of the deck. Birthdays and
+   * school fees arrive on a date, not on a dice roll, so these cards keep their
+   * words but are dealt by the clock.
+   */
+  annual?: boolean;
   /** what saying no to this one really costs, when the cost is not money */
   declineNote?: Loc;
 }
@@ -239,9 +308,29 @@ export interface DoodadCard {
  * ฿400,000 windfall is either a fortune or a rounding error. `months` is a
  * multiple of current monthly passive income, and `incomeLossPct` a share of it.
  */
+/**
+ * What a fast-track card's story assumes the player actually owns. A card whose
+ * story is about your tenants, your staff or your land is only dealt to someone
+ * who has them: "the state took an old plot of yours" reads as a bug when you
+ * never bought a plot, and it read as free money that could be collected over
+ * and over from land nobody owned.
+ */
+export type FastNeed = 'shares' | 'business' | 'property' | 'tenants' | 'land' | 'debt' | 'insured' | 'book';
+
+/** Cards that do something to a specific holding rather than paying a multiple. */
+export type FastEffect = 'expropriate';
+
 export type FastCard =
-  | { id: string; type: 'bonus'; title: Loc; story: Loc; months: number }
-  | { id: string; type: 'setback'; title: Loc; story: Loc; months: number; incomeLossPct?: number };
+  | { id: string; type: 'bonus'; title: Loc; story: Loc; months: number; needs?: FastNeed; effect?: FastEffect }
+  | {
+      id: string;
+      type: 'setback';
+      title: Loc;
+      story: Loc;
+      months: number;
+      incomeLossPct?: number;
+      needs?: FastNeed;
+    };
 
 export interface Dream {
   id: string;
@@ -268,10 +357,10 @@ export type Pending =
   | { kind: 'market'; cardId: string }
   | { kind: 'doodad'; cardId: string }
   | { kind: 'baby' }
+  /** December, and the only tax decision the player gets to make all year */
+  | { kind: 'taxfund' }
   | { kind: 'downsized' }
   | { kind: 'charity' }
-  | { kind: 'payday' }
-  | { kind: 'fastdeal'; cardId: string }
   | { kind: 'fastbonus'; cardId: string }
   | { kind: 'fastsetback'; cardId: string }
   | { kind: 'dream' }
@@ -287,6 +376,12 @@ export type Pending =
   | { kind: 'licence'; routeId: string; targetId: string }
   /** the salary has stopped for good, whether by age or by a failed medical */
   | { kind: 'retired' }
+  | { kind: 'graduated' }
+  | { kind: 'reward' }
+  /** a year has gone by and the children are a year older */
+  | { kind: 'birthday' }
+  /** the school year has come round for whichever children are old enough */
+  | { kind: 'schoolfee' }
   | { kind: 'rescue' }
   /** passive income now covers the bills: quit the job, or keep the salary */
   | { kind: 'quit' }
@@ -329,6 +424,13 @@ export interface GameState {
   turn: number;
   months: number;
   /**
+   * How old the player was on the first turn. Held here rather than read from
+   * the current profession, because retraining changes the profession and a
+   * teacher who became an engineer would otherwise turn 32 on graduation day
+   * while a doctor who became a teacher would get four years back.
+   */
+  startAge: number;
+  /**
    * The month each child was born, so the statement can charge what that age
    * actually costs. `children` stays as the count because every rule that only
    * needs "how many" reads it, and the two are written together.
@@ -341,6 +443,12 @@ export interface GameState {
    * its own terms. Only retraining brings a wage back.
    */
   careerOver: boolean;
+  /**
+   * The month the last salary was paid, or null while one still is. The pension
+   * formulas count contribution years, so they need to know when the paying
+   * stopped rather than how old the player is now.
+   */
+  workEndMonth: number | null;
   /** owed to the employer that paid for the licence, worked off month by month */
   bondMonths: number;
   /** a self-employed slump: months left, and the share of takings it removes */
@@ -348,6 +456,144 @@ export interface GameState {
   slumpCut: number;
   /** months of car cover still in force; renewing buys another twelve */
   carCoverMonths: number;
+  /**
+   * The month the next renewal notice falls due. Cover used to be offered only
+   * when its card happened to come out of a thirteen-card deck, which measured
+   * out at one offer every 56 months against twelve months of cover: even a
+   * player who bought it every single time was uninsured for 86% of the repair
+   * bills, and the first offer arrived at a median of month 44. A policy renews
+   * on a date in real life, so it does here too, starting at the first year.
+   */
+  coverRenewMonth: number;
+  coverDue: boolean;
+  /** started writing back in the rat race, which the fast track can pay off */
+  wroteBook: boolean;
+  /**
+   * There is somebody else in this life. It arrives with the first child, on
+   * the grounds that the game was already assuming one: a household with
+   * children in it has anniversaries, birthdays that are not yours, and meals
+   * that cost more than the food. Their own income is deliberately not
+   * modelled; what is modelled is only what leaves your side of the table.
+   */
+  partner: boolean;
+  /** the children's health cover is in force, and its premium is being paid */
+  childInsured: boolean;
+  /**
+   * Share of the wage going into the provident fund, matched baht for baht by
+   * the employer. The pot is locked until the job ends and compounds while it
+   * waits, which makes it the only holding in the game that grows without ever
+   * being landed on.
+   */
+  pfRate: number;
+  pfPot: number;
+  /**
+   * The December fund. `taxFundYear` is what has been bought against this
+   * year's cap, `taxFundFirst` the month the first unit was bought, which is
+   * where the ten-year lock is counted from.
+   */
+  /**
+   * The standing order into a broad index fund, what it has grown into, and
+   * what was actually paid in. The last one is kept so the gain can be shown
+   * against the money rather than against a share price nobody watched.
+   */
+  /**
+   * How far the floating reference rate has moved from where the game started.
+   * Held on the state rather than on each loan so every mortgage moves together,
+   * the way one bank's MRR moves every borrower at once.
+   */
+  /**
+   * The tally the ending report is built from. None of these change how the
+   * game plays; they are what the player did, kept so the last screen can say
+   * something more useful than whether the dice were kind.
+   */
+  /** tickets bought and prizes taken, kept so the ending can print the ratio */
+  lotterySpent: number;
+  lotteryWon: number;
+  /** money in a savings circle, and the month it is supposed to come back */
+  chairIn: number;
+  chairDue: number | null;
+  interestPaid: number;
+  monthsUnderwater: number;
+  fireSales: number;
+  investedTotal: number;
+  incomeBought: number;
+  /** every baht ever invested, grown in a broad fund instead, for comparison */
+  shadowPot: number;
+  /** rent and profit those holdings have paid out over the whole game */
+  incomeReceived: number;
+  taxPaid: number;
+  refundsTaken: number;
+  rateDrift: number;
+  /** the card is being paid the smallest amount it will take */
+  cardMinimum: boolean;
+  dcaMonthly: number;
+  dcaPot: number;
+  dcaPaid: number;
+  taxFundPot: number;
+  taxFundYear: number;
+  taxFundFirst: number | null;
+  taxFundDue: boolean;
+  /**
+   * The animal in the house, rolled at the start of the game. The vet bill used
+   * to arrive for a creature with no species and no name, which is a bill
+   * nobody can feel. A named cat is complained about; "a pet" is not.
+   */
+  pet: { speciesId: string; name: Loc } | null;
+  /**
+   * Whether the game began with a car and a home of one's own. Every job used
+   * to hand both over on the first turn with the loans already signed, which is
+   * the one decision most people actually get to make. Saying no clears the
+   * debt and buys the alternative instead: rent that never ends, and getting to
+   * work the hard way.
+   */
+  hasCar: boolean;
+  hasHome: boolean;
+  /**
+   * What the car and the house were worth on day one.
+   *
+   * They were never on the balance sheet at all: the loans were, so every
+   * player began the game a million baht in the hole for owning two ordinary
+   * things. The values are kept from the start rather than tracked from the
+   * loan, because a house that is paid off is still a house, and they move
+   * apart from here: one drifts up with prices, the other loses a seventh of
+   * itself every year and spends its first years worth less than what is owed
+   * on it.
+   */
+  ownValue: { home: number; car: number };
+  /**
+   * The month the bank will look at an application again. A refusal is not a
+   * "no" the player can click past: it stands for a while, which is what makes
+   * the ceiling worth staying under in the first place.
+   */
+  loanBlockedUntil: number;
+  /**
+   * The file the bank keeps on you. Months that closed with the bills paid,
+   * months that closed short, and loans seen through to the end: the three
+   * things an underwriter can actually look up about somebody.
+   */
+  credit: { onTime: number; late: number; cleared: number; refused: number };
+  /**
+   * Decisions the calendar has raised and the player has not answered yet. They
+   * are flags rather than pendings because a card is only ever a card: a payday
+   * passed in the middle of a roll used to raise one of these and the tile the
+   * token finally stopped on would overwrite it, so a birthday could be charged
+   * to nobody and a retirement could happen with no notice at all. A flag
+   * survives that, and `claimDue` turns it back into a card at the next moment
+   * the board is idle.
+   */
+  birthdayDue: boolean;
+  schoolDue: boolean;
+  /** the salary has ended by age and the player has not been told yet */
+  retireDue: boolean;
+  /** a course is finished and its licence fee is still unanswered */
+  licenceDue: { routeId: string; targetId: string } | null;
+  /**
+   * The profession left behind on graduation day, held until the player has
+   * been shown what changed. Without a card the whole switch happened in one
+   * log line that scrolled away, and the board never says what your job is, so
+   * finishing a course looked exactly like nothing happening.
+   */
+  graduatedFrom: string | null;
   /**
    * Pay as a share of what this job normally pays. It is 1 for the career you
    * started in and less than 1 after retraining, because walking into a new
@@ -389,12 +635,25 @@ export interface GameState {
    * the point: it is the one number that only goes up by costing you something.
    */
   donated: number;
-  /** the portfolio has been moved into a company: flat tax, fixed running cost */
+  /** a company exists and holds part of the portfolio */
   incorporated: boolean;
+  /**
+   * The company's own bank account. It is not the player's money: getting it
+   * out costs tax, which is the trade the whole structure is about.
+   */
+  corpCash: number;
+  /**
+   * เงินเดือนกรรมการ, set by the player. The company deducts it before its own
+   * tax, and the player pays personal tax on it as 40(1) income. Paying
+   * yourself more moves money from the company's 15% to your own ladder; paying
+   * yourself less leaves it compounding inside the company and taxed once.
+   */
+  corpDraw: number;
   /** sum assured on the life policy; the premium is a monthly expense */
   insuranceCover: number;
-  /** lives touched by the schools, hospitals and banks on the balance sheet */
-  impact: number;
+  // No `impact` here: it was a running total that nothing ever added to and
+  // nothing ever read. The lives-touched figure shown on the statement is summed
+  // from the holdings themselves (`Asset.impact`), which is the only copy.
   friendHelpUsed: boolean;
   /** the player called it a day themselves rather than going bankrupt */
   endedByChoice: boolean;
