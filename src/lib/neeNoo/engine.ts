@@ -760,7 +760,6 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     corpCash: 0,
     corpDraw: 0,
     insuranceCover: 0,
-    impact: 0,
     friendHelpUsed: false,
     endedByChoice: false,
     prices,
@@ -3052,7 +3051,6 @@ export function parseSave(raw: string): GameState | null {
     if (a.owner !== 'corp') delete a.owner;
   }
   if (!Number.isFinite(game.insuranceCover)) game.insuranceCover = 0;
-  if (!Number.isFinite(game.impact)) game.impact = 0;
   if (!Array.isArray(game.decks?.fastMega)) game.decks.fastMega = [];
   // A deck is a list of card ids, and the card list changes between deploys.
   // Anything that no longer exists is dropped here, because drawing a card that
@@ -3077,18 +3075,17 @@ export function parseSave(raw: string): GameState | null {
   const stuck = game.pending;
   if (stuck) {
     const missing =
-      ((stuck.kind === 'deal' || stuck.kind === 'fastdeal') && !dealById.has(stuck.cardId)) ||
+      (stuck.kind === 'deal' && !dealById.has(stuck.cardId)) ||
       (stuck.kind === 'market' && !marketById.has(stuck.cardId)) ||
       (stuck.kind === 'doodad' && !doodadById.has(stuck.cardId)) ||
       ((stuck.kind === 'fastbonus' || stuck.kind === 'fastsetback') && !fastById.has(stuck.cardId));
     if (missing) game.pending = null;
   }
-  // The fast track used to have a deck of its own card type; a save paused on
-  // one of those cards has nothing left to render, so the card is dropped.
+  // The fast track used to have decks and a `payday` card of its own. Nothing
+  // raises either any more and neither has a dialog left, so a save paused on
+  // one would sit on a card the board cannot draw and cannot dismiss.
   const stale = game.pending as { kind?: string } | null;
-  if (stale && (stale.kind === 'fastdeal' || stale.kind === 'fastbonus' || stale.kind === 'fastsetback')) {
-    if (stale.kind === 'fastdeal') game.pending = null;
-  }
+  if (stale && (stale.kind === 'fastdeal' || stale.kind === 'payday')) game.pending = null;
   if (!Number.isFinite(game.skipTurns)) game.skipTurns = 0;
   // Saves written before careers had a calendar. A child already on the sheet
   // is treated as born at the start, which is the only honest guess available.
