@@ -91,6 +91,34 @@ export const childStages: { fromAge: number; scale: number; label: Loc }[] = [
   { fromAge: 12, scale: 2.4, label: { th: 'มัธยม', en: 'secondary' } },
 ];
 
+/**
+ * The animal in the house. A vet bill for "a pet" is an abstraction nobody
+ * grumbles about; a vet bill for a cat called ลูกชิ้น is a thing that happened
+ * to somebody. The species and the name are rolled at the start of the game and
+ * kept for its whole length, so the same creature keeps showing up.
+ */
+export const petSpecies: { id: string; label: Loc }[] = [
+  { id: 'dog', label: { th: 'หมา', en: 'dog' } },
+  { id: 'cat', label: { th: 'แมว', en: 'cat' } },
+  { id: 'rabbit', label: { th: 'กระต่าย', en: 'rabbit' } },
+  { id: 'parrot', label: { th: 'นกแก้ว', en: 'parrot' } },
+  { id: 'goldfish', label: { th: 'ปลาทอง', en: 'goldfish' } },
+  { id: 'hamster', label: { th: 'หนูแฮมสเตอร์', en: 'hamster' } },
+];
+
+export const petNames: Loc[] = [
+  { th: 'ข้าวปั้น', en: 'Khao Pan' },
+  { th: 'ลูกชิ้น', en: 'Look Chin' },
+  { th: 'โมจิ', en: 'Mochi' },
+  { th: 'ปุยฝ้าย', en: 'Pui Fai' },
+  { th: 'ชาเย็น', en: 'Cha Yen' },
+  { th: 'ส้มโอ', en: 'Som O' },
+  { th: 'ก้อนหิน', en: 'Kon Hin' },
+  { th: 'เจ้าด่าง', en: 'Jao Dang' },
+  { th: 'ตังเม', en: 'Tang Mae' },
+  { th: 'ขนมปัง', en: 'Kanom Pang' },
+];
+
 /* ------------------------------------------------------------- professions */
 
 /**
@@ -108,9 +136,8 @@ export const professions: Profession[] = [
       en: 'The smallest salary in the game, but also the lightest expenses. The finish line is closer than it looks.',
     },
     salary: 22000,
-    taxes: 900,
-    otherExpenses: 6000,
-    childCost: 1300,
+    otherExpenses: 6900,
+    childCost: 4000,
     cash: 30000,
     debts: [
       { key: 'car', balance: 240000, payment: 5400 },
@@ -131,9 +158,8 @@ export const professions: Profession[] = [
       en: 'Stable, already has a house and a car, but the student loan still shows up every month.',
     },
     salary: 26000,
-    taxes: 1300,
-    otherExpenses: 6500,
-    childCost: 1500,
+    otherExpenses: 7800,
+    childCost: 4600,
     cash: 30000,
     debts: [
       { key: 'home', balance: 480000, payment: 3200 },
@@ -156,9 +182,8 @@ export const professions: Profession[] = [
       en: 'Works hard and earns more than the teacher, but the bigger house eats more of it.',
     },
     salary: 34000,
-    taxes: 2100,
-    otherExpenses: 7500,
-    childCost: 1700,
+    otherExpenses: 9200,
+    childCost: 5600,
     cash: 35000,
     debts: [
       { key: 'home', balance: 900000, payment: 5500 },
@@ -181,9 +206,8 @@ export const professions: Profession[] = [
       en: 'Already a business owner, but the income still depends on standing behind the counter, so it counts as salary.',
     },
     salary: 38000,
-    taxes: 1800,
-    otherExpenses: 8200,
-    childCost: 1800,
+    otherExpenses: 9400,
+    childCost: 6000,
     cash: 35000,
     debts: [
       { key: 'retail', balance: 560000, payment: 7500 },
@@ -204,9 +228,8 @@ export const professions: Profession[] = [
       en: 'Good salary, big house, nice car, and expenses that grew exactly as fast as the salary did.',
     },
     salary: 48000,
-    taxes: 3600,
-    otherExpenses: 10400,
-    childCost: 2100,
+    otherExpenses: 12400,
+    childCost: 7200,
     cash: 50000,
     debts: [
       { key: 'home', balance: 1500000, payment: 9000 },
@@ -228,9 +251,8 @@ export const professions: Profession[] = [
       en: 'The most starting cash of the mid-salary group, so the investing can start earlier.',
     },
     salary: 60000,
-    taxes: 5200,
-    otherExpenses: 13000,
-    childCost: 2300,
+    otherExpenses: 15200,
+    childCost: 8400,
     cash: 70000,
     debts: [
       { key: 'home', balance: 2100000, payment: 12000 },
@@ -251,9 +273,8 @@ export const professions: Profession[] = [
       en: 'The second-highest salary, yet it takes eighty-four thousand a month of passive income to get out.',
     },
     salary: 110000,
-    taxes: 13000,
-    otherExpenses: 24000,
-    childCost: 3600,
+    otherExpenses: 24100,
+    childCost: 13000,
     cash: 150000,
     debts: [
       { key: 'home', balance: 4200000, payment: 24000 },
@@ -276,9 +297,8 @@ export const professions: Profession[] = [
       en: 'The highest salary in the game and the most left over, but also the most distant finish line: a hundred and ten thousand a month of passive income.',
     },
     salary: 150000,
-    taxes: 19000,
-    otherExpenses: 32000,
-    childCost: 4200,
+    otherExpenses: 28100,
+    childCost: 16000,
     cash: 250000,
     debts: [
       { key: 'home', balance: 5600000, payment: 32000 },
@@ -313,6 +333,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 1500,
+    books: {
+      revenue: 12400,
+      profit: 620,
+      growth: 0.06,
+      gearing: 1.1,
+      pe: 18,
+      note: {
+        th: 'ขายของได้เยอะมาก แต่เหลือเป็นกำไรแค่ 5 สตางค์ต่อยอดขายหนึ่งบาท และสาขาใหม่ที่กำลังเปิดก็เปิดด้วยเงินกู้',
+        en: 'It sells a great deal and keeps five satang of every baht. The new branches are being opened with borrowed money.',
+      },
+    },
   },
   {
     id: 'd-trn',
@@ -329,6 +360,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 600,
+    books: {
+      revenue: 8900,
+      profit: 410,
+      growth: 0.24,
+      gearing: 1.9,
+      pe: 31,
+      note: {
+        th: 'รายได้โตปีละเกือบหนึ่งในสี่ ซึ่งเป็นเหตุผลที่ราคาแพงเมื่อเทียบกำไร คนซื้อกำลังจ่ายเงินให้กับการโตที่ยังไม่เกิด',
+        en: 'Revenue grows by nearly a quarter a year, which is why it is priced high against its profit. Buyers are paying for growth that has not happened yet.',
+      },
+    },
   },
   {
     id: 'd-solr',
@@ -345,6 +387,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 3000,
+    books: {
+      revenue: 1200,
+      profit: -380,
+      growth: 0.41,
+      gearing: 2.8,
+      pe: 0,
+      note: {
+        th: 'ยังไม่เคยมีกำไรสักปี หนี้เกือบสามเท่าของทุน และรายได้ที่โตเร็วก็ยังตามรายจ่ายไม่ทัน ถูกเพราะมีเหตุผลของมัน',
+        en: 'It has never had a profitable year, it owes nearly three times its equity, and revenue is growing fast but still losing the race to costs. It is cheap for a reason.',
+      },
+    },
   },
   {
     id: 'd-bnk',
@@ -361,6 +414,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0.34,
     maxQty: 6000,
+    books: {
+      revenue: 96000,
+      profit: 21500,
+      growth: 0.03,
+      gearing: 0.6,
+      pe: 7.5,
+      note: {
+        th: 'โตช้าจนน่าเบื่อ แต่กำไรหนาและจ่ายออกมาเป็นเงินสดทุกเดือน ราคาต่อกำไรต่ำที่สุดในกระดาน',
+        en: 'Dull growth, thick profits, and it hands them over in cash every month. The lowest price against earnings on the board.',
+      },
+    },
   },
   {
     id: 'd-reit',
@@ -377,6 +441,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0.75,
     maxQty: 4000,
+    books: {
+      revenue: 3100,
+      profit: 1450,
+      growth: 0.02,
+      gearing: 0.9,
+      pe: 11,
+      note: {
+        th: 'เกือบทุกบาทที่เก็บค่าเช่าได้ถูกจ่ายคืนผู้ถือหน่วย กองแบบนี้จึงโตช้าเป็นปกติ เพราะไม่ได้เก็บกำไรไว้ขยายตัวเอง',
+        en: 'Almost every baht of rent collected is paid back out to unit holders, so a fund like this grows slowly by design: it keeps nothing to expand with.',
+      },
+    },
   },
   {
     id: 'd-gold',
@@ -1417,6 +1492,7 @@ export const doodads: DoodadCard[] = [
     story: { th: 'คลัตช์เริ่มลื่นมาสองอาทิตย์แล้ว วันนี้มันตัดสินใจแทนคุณ', en: 'The clutch has been slipping for two weeks. Today it decided for you.' },
     scale: 1.3,
     insurable: true,
+    needsCar: true,
   },
   {
     id: 'x-dentist',
@@ -1441,9 +1517,13 @@ export const doodads: DoodadCard[] = [
   {
     id: 'x-school',
     title: { th: 'ค่าเทอมลูก', en: 'School fees' },
-    story: { th: 'ค่าเทอม ค่าชุด ค่าหนังสือ และค่าอะไรอีกไม่รู้ที่โรงเรียนเพิ่งคิดออก', en: 'Tuition, uniforms, books, and something else the school just thought of.' },
+    story: {
+      th: 'เปิดเทอมใหม่มาพร้อมค่าเทอม ค่าชุด ค่าหนังสือ และค่าอะไรอีกไม่รู้ที่โรงเรียนเพิ่งคิดออก ปีหน้าก็มาอีก และแพงขึ้นทุกปีที่ลูกโตขึ้น',
+      en: 'A new school year arrives with tuition, uniforms, books, and something else the school just thought of. It comes again next year, and it costs more every year they grow.',
+    },
     scale: 0.9,
     perChild: true,
+    annual: true,
   },
   {
     id: 'x-ticket',
@@ -1459,9 +1539,10 @@ export const doodads: DoodadCard[] = [
   },
   {
     id: 'x-vet',
-    title: { th: 'ค่ารักษาสัตว์เลี้ยง', en: 'Vet bill' },
-    story: { th: 'หมาไปกินอะไรมาก็ไม่รู้ หมอบอกว่ามันจะหาย แต่กระเป๋าเงินคุณอาจไม่หาย', en: 'The dog ate something unidentifiable. The vet says it will recover; your wallet may not.' },
+    title: { th: 'ค่ารักษา{petName}', en: 'Vet bill for {petName}' },
+    story: { th: '{pet} ไปกินอะไรมาก็ไม่รู้ หมอบอกว่าเดี๋ยวก็หาย แต่กระเป๋าเงินคุณอาจไม่หาย', en: '{pet} ate something unidentifiable. The vet says it will recover; your wallet may not.' },
     scale: 0.85,
+    pet: true,
   },
   {
     id: 'x-trip',
@@ -1483,6 +1564,109 @@ export const doodads: DoodadCard[] = [
     declineNote: {
       th: 'ไม่ต่อประกันปีนี้ เก็บเงินไว้ในกระเป๋าได้ทั้งก้อน จากนี้ถ้ารถมีเรื่อง ค่าซ่อมเป็นของคุณคนเดียวเต็มจำนวน',
       en: 'No cover this year and the whole premium stays in your pocket. From here, anything that happens to the car is yours to pay in full.',
+    },
+  },
+  {
+    /**
+     * The bills a child brings that are not food and not school: the hospital
+     * night, the policy that would have paid for it, the toys, and the trips
+     * that are half the reason people have children in the first place.
+     */
+    id: 'x-childsick',
+    title: { th: 'ลูกไม่สบาย ต้องนอนโรงพยาบาล', en: 'A child in hospital overnight' },
+    story: {
+      th: 'ไข้ขึ้นสูงตอนตีสอง ห้องฉุกเฉินบอกให้นอนดูอาการหนึ่งคืน ค่าห้องกับค่ายาไม่ได้รอให้ถึงสิ้นเดือน',
+      en: 'A fever at two in the morning, one night under observation, and a bill that does not wait for payday.',
+    },
+    scale: 4.2,
+    perChild: true,
+    needsChild: true,
+    insurableChild: true,
+  },
+  {
+    id: 'x-childcover',
+    title: { th: 'ทำประกันสุขภาพให้ลูก', en: 'Health cover for the children' },
+    story: {
+      th: 'เบี้ยประกันสุขภาพเด็กเริ่มราวสองพันกว่าบาทต่อเดือนต่อคน จ่ายทุกเดือนไปโดยไม่ได้อะไรกลับมาเลย จนถึงคืนที่ได้',
+      en: 'Child health cover starts at a couple of thousand baht a month each, paid every month for nothing at all, right up until the night it pays for everything.',
+    },
+    scale: 0,
+    optional: true,
+    needsChild: true,
+    buysChildCover: true,
+    declineNote: {
+      th: 'ยังไม่ทำประกันให้ลูก เงินอยู่ในกระเป๋าครบทุกบาท ถ้าลูกเจ็บป่วยขึ้นมา ค่ารักษาเป็นของคุณเต็มจำนวน',
+      en: 'No cover for now and every baht stays in your pocket. If a child gets ill, the bill is entirely yours.',
+    },
+  },
+  {
+    id: 'x-childtrip',
+    title: { th: 'พาลูกไปเที่ยว กับของเล่นที่สัญญาไว้', en: 'A trip with the children, and the toy you promised' },
+    story: {
+      th: 'ปิดเทอมนี้ที่บ้านคุยกันว่าจะไปทะเล ค่าที่พักกับค่ารถไม่เท่าไหร่ ที่หนักคือของทุกอย่างที่เดินผ่านแล้วมีคนชี้',
+      en: 'The family agreed on the sea this school holiday. The room and the fuel are the small part; the expensive part is everything anybody points at on the way.',
+    },
+    scale: 1.5,
+    perChild: true,
+    needsChild: true,
+    optional: true,
+    declineNote: {
+      th: 'ปีนี้ไม่ได้ไป เงินยังอยู่ ส่วนเด็ก ๆ จำได้ว่าปีนี้ไม่ได้ไป',
+      en: 'No trip this year. The money stays, and the children remember that there was no trip this year.',
+    },
+  },
+  {
+    id: 'x-anniversary',
+    title: { th: 'ครบรอบ กับวันเกิดคู่ชีวิต', en: 'An anniversary, and their birthday' },
+    story: {
+      th: 'ร้านที่จองไว้ล่วงหน้าสองเดือน กับของขวัญที่ดูราคาแล้ววางลง แล้วก็หยิบขึ้นมาใหม่ ปีหนึ่งมีไม่กี่วันที่ยอมจ่ายโดยไม่คิดเลข',
+      en: 'The restaurant booked two months ahead, and the present you put down after seeing the price and then picked up again. There are only a few days a year worth not doing the arithmetic on.',
+    },
+    scale: 1.9,
+    optional: true,
+    social: true,
+    needsPartner: true,
+    declineNote: {
+      th: 'ปีนี้ผ่านไปเงียบ ๆ ประหยัดเงินได้จริง และอีกฝ่ายก็จำได้จริงเหมือนกัน',
+      en: 'The day passed quietly. It really did save the money, and they really do remember.',
+    },
+  },
+  {
+    /**
+     * The lottery. Twice a month, a hundred baht at a time, and the arithmetic
+     * is not close: the first prize is one ticket in a million and the whole
+     * draw pays back about sixty satang on the baht. It is in the game because
+     * it is in the country, and because expected value is easier to feel with a
+     * ticket in your hand than on a whiteboard.
+     */
+    id: 'x-lottery',
+    title: { th: 'งวดนี้ซื้อหวยไหม', en: 'The draw is on the sixteenth' },
+    story: {
+      th: 'เลขที่ฝันเมื่อคืนกับเลขทะเบียนรถที่จอดหน้าบ้าน คนขายบอกว่าเหลือใบสุดท้ายพอดี ทุกงวดก็เหลือใบสุดท้ายพอดีทุกที',
+      en: 'The number from last night’s dream and the plate on the car outside. The seller says it is the last one left, the way it is every draw.',
+    },
+    scale: 0.12,
+    optional: true,
+    lottery: true,
+    declineNote: {
+      th: 'ไม่ซื้องวดนี้ เงินอยู่ครบ และค่าคาดหวังที่หายไปคือติดลบอยู่แล้ว',
+      en: 'No ticket this time. The money stays, and the expected value you gave up was negative anyway.',
+    },
+  },
+  {
+    id: 'x-chair',
+    title: { th: 'เพื่อนชวนเล่นแชร์', en: 'A rotating savings circle' },
+    story: {
+      th: 'วงละสิบคน ส่งเดือนละเท่ากัน ใครอยากได้ก่อนก็ประมูลดอกสูงกว่าคนอื่น ได้เงินก้อนเร็วแปลว่าจ่ายแพงกว่า ได้ท้ายวงแปลว่าได้ดอกจากคนอื่น ทั้งหมดนี้ตั้งอยู่บนความเชื่อใจล้วน ๆ ไม่มีใครค้ำอะไรให้',
+      en: 'Ten people, the same amount every month, and whoever wants the pot first bids the highest rate for it. Going early costs you; going last pays you. The whole thing rests on trust and nothing else.',
+    },
+    scale: 1.6,
+    optional: true,
+    social: true,
+    chair: true,
+    declineNote: {
+      th: 'ไม่เข้าวงแชร์ครั้งนี้ ไม่ได้ดอกจากใคร และไม่ต้องลุ้นว่าท้าววงจะหอบเงินหนีไหม',
+      en: 'No circle this time: no interest from anybody, and nothing to lose if the organiser disappears.',
     },
   },
   {
@@ -1510,12 +1694,34 @@ export const doodads: DoodadCard[] = [
     },
     scale: 5,
     insurable: true,
+    needsCar: true,
   },
   {
     id: 'x-utility',
     title: { th: 'ค่าน้ำค่าไฟหน้าร้อน', en: 'Summer utility bill' },
     story: { th: 'เดือนนี้แอร์ทำงานหนักกว่าคุณ และมันก็เรียกค่าแรงด้วย', en: 'This month the air conditioner worked harder than you did, and it billed you for it.' },
     scale: 0.6,
+  },
+  {
+    /**
+     * The only card in the deck that buys nothing you can point at. It is here
+     * so the fast-track book-rights cheque has somebody to belong to: that card
+     * says "the story you wrote while still on the wheel", and until this
+     * existed there was no wheel and no story, just money arriving.
+     */
+    id: 'x-writing',
+    title: { th: 'เริ่มเขียนต้นฉบับตอนกลางคืน', en: 'Starting the manuscript at night' },
+    story: {
+      th: 'คอร์สเขียนออนไลน์กับเวลาที่ต้องแลกมาด้วยการนอนน้อยลงวันละชั่วโมง เงินก้อนนี้ไม่ได้ซื้ออะไรที่จับต้องได้เลย และอาจไม่ได้อะไรกลับมาสักบาทตลอดชีวิต หรืออาจได้กลับมาในอีกสิบปีข้างหน้าตอนที่คุณลืมไปแล้วว่าเคยเขียน',
+      en: 'An online writing course and an hour less sleep a night. This money buys nothing you can hold, and it may never come back at all, or it may come back in ten years when you have forgotten you ever wrote anything.',
+    },
+    scale: 1.1,
+    optional: true,
+    writes: true,
+    declineNote: {
+      th: 'ปิดแท็บคอร์สไป เดือนนี้ก็เหมือนเดือนก่อน ๆ ไม่มีอะไรเสีย และไม่มีอะไรเริ่ม',
+      en: 'You closed the tab. This month looks like all the ones before it: nothing lost, and nothing begun.',
+    },
   },
   {
     id: 'x-gift',
@@ -1526,6 +1732,7 @@ export const doodads: DoodadCard[] = [
     },
     scale: 0.45,
     perChild: true,
+    annual: true,
     optional: true,
     declineNote: {
       th: 'เงินก้อนนี้ยังอยู่ในบัญชีคุณครบ อีกยี่สิบปีลูกอาจจำวันเกิดปีนี้ไม่ได้เลย หรืออาจจำได้แม่นกว่าที่คุณอยากให้จำ เกมนี้คำนวณให้คุณได้ทุกอย่าง ยกเว้นว่าตกลงแล้วคุ้มไหม',
@@ -1543,20 +1750,45 @@ export const fastCards: FastCard[] = [
     title: { th: 'เงินปันผลพิเศษ', en: 'Special dividend' },
     story: { th: 'กิจการหนึ่งที่คุณถืออยู่มีกำไรสะสมเยอะเกินไป เลยจ่ายคืนผู้ถือหุ้นก้อนหนึ่ง', en: 'One of your holdings built up too much retained profit and paid a slice back to shareholders.' },
     months: 4,
+    needs: 'shares',
   },
   {
     id: 'f-bonus-book',
     type: 'bonus',
     title: { th: 'ขายลิขสิทธิ์หนังสือ', en: 'Book rights sold' },
-    story: { th: 'เรื่องที่คุณเขียนตอนยังอยู่ในวงล้อ มีสำนักพิมพ์ขอซื้อลิขสิทธิ์แปล', en: 'The story you wrote while still on the wheel just sold its translation rights.' },
+    story: {
+      th: 'ต้นฉบับที่คุณนั่งเขียนตอนกลางคืนสมัยยังอยู่ในวงล้อ วันนี้มีสำนักพิมพ์ต่างประเทศขอซื้อลิขสิทธิ์แปล ค่าคอร์สที่จ่ายไปวันนั้นเพิ่งได้คำตอบวันนี้',
+      en: 'The manuscript you sat up writing back when you were still on the wheel just sold its translation rights abroad. The course you paid for that year finally answered today.',
+    },
     months: 9,
+    needs: 'book',
+  },
+  {
+    /**
+     * The guaranteed bonus. Every other card in this deck now asks the player to
+     * own something first, so one of them has to be true for everybody or a
+     * portfolio of pure cash would face an empty deck.
+     */
+    id: 'f-bonus-refund',
+    type: 'bonus',
+    title: { th: 'ได้ภาษีคืนก้อนใหญ่', en: 'A large tax refund' },
+    story: {
+      th: 'ยื่นแบบปีนี้แล้วพบว่าจ่ายเกินไปหลายรายการ ค่าลดหย่อนที่ลืมใช้มาสองปีถูกนับย้อนให้ทั้งหมด เงินที่เคยเป็นของคุณอยู่แล้วเดินทางกลับบ้าน',
+      en: 'This year’s filing turned up several things you had overpaid, and two years of allowances you had forgotten to claim were counted back. Money that was already yours found its way home.',
+    },
+    months: 3,
   },
   {
     id: 'f-bonus-land',
     type: 'bonus',
     title: { th: 'เวนคืนที่ดิน', en: 'Land expropriated' },
-    story: { th: 'รัฐเวนคืนที่ดินแปลงเก่าของคุณเพื่อทำทางด่วน จ่ายค่าชดเชยเป็นเงินก้อน', en: 'The state took an old plot of yours for an expressway and paid compensation in one lump.' },
-    months: 15,
+    story: {
+      th: 'ทางด่วนสายใหม่ตัดผ่านที่ดินของคุณพอดี รัฐจ่ายค่าทดแทนสูงกว่าราคาประเมิน แต่ไม่ได้ถามว่าคุณอยากขายไหม ที่ดินแปลงนั้นออกจากมือคุณไปแล้ว',
+      en: 'The new expressway runs straight through your plot. The state pays above the assessed value and does not ask whether you wanted to sell. That land is no longer yours.',
+    },
+    months: 0,
+    needs: 'land',
+    effect: 'expropriate',
   },
   {
     id: 'f-bonus-ipo',
@@ -1567,6 +1799,7 @@ export const fastCards: FastCard[] = [
       en: 'A company you hold went public, and you sold part of your stake at the offer price, well above anything it had been valued at before.',
     },
     months: 12,
+    needs: 'business',
   },
   {
     id: 'f-bonus-concession',
@@ -1577,6 +1810,7 @@ export const fastCards: FastCard[] = [
       en: 'The existing contract was renewed with more territory attached, and an advance arrived on signing.',
     },
     months: 7,
+    needs: 'business',
   },
   {
     id: 'f-bonus-anchor',
@@ -1587,6 +1821,7 @@ export const fastCards: FastCard[] = [
       en: 'A national company took a large space on a ten-year lease and paid a full year up front.',
     },
     months: 6,
+    needs: 'tenants',
   },
   {
     id: 'f-bonus-insurance',
@@ -1597,6 +1832,7 @@ export const fastCards: FastCard[] = [
       en: 'This time the policy actually covered it and paid in full. Years of premiums justified themselves in a single day.',
     },
     months: 5,
+    needs: 'insured',
   },
   {
     id: 'f-set-tax',
@@ -1609,7 +1845,13 @@ export const fastCards: FastCard[] = [
     id: 'f-set-market',
     type: 'setback',
     title: { th: 'ตลาดผันผวน', en: 'The market turns' },
-    story: { th: 'เศรษฐกิจชะลอ ผู้เช่าบางรายขอลดค่าเช่า รายได้ต่อเดือนของคุณหายไปส่วนหนึ่ง', en: 'The economy slowed and some tenants renegotiated. Part of your monthly income is gone.' },
+    // Deliberately the one setback with no prerequisite: whatever you hold, a
+    // slow year reaches it, and every portfolio needs more than one thing that
+    // can go wrong.
+    story: {
+      th: 'เศรษฐกิจชะลอทั้งประเทศ ไม่ว่าเงินของคุณไปอยู่ในอะไร ปีนี้มันจ่ายกลับมาน้อยลงพร้อมกันหมด',
+      en: 'The whole economy slowed. Whatever your money is sitting in, this year all of it pays back less at once.',
+    },
     months: 0,
     incomeLossPct: 0.12,
   },
@@ -1620,6 +1862,7 @@ export const fastCards: FastCard[] = [
     story: { th: 'ประกันจ่ายไม่ครบ ส่วนต่างคุณต้องควักเอง และรายได้หยุดไปช่วงหนึ่ง', en: 'Insurance did not cover everything, you paid the gap, and income paused for a while.' },
     months: 2.5,
     incomeLossPct: 0.06,
+    needs: 'property',
   },
   {
     id: 'f-set-rates',
@@ -1631,6 +1874,7 @@ export const fastCards: FastCard[] = [
     },
     months: 1.5,
     incomeLossPct: 0.07,
+    needs: 'debt',
   },
   {
     id: 'f-set-flood',
@@ -1642,6 +1886,7 @@ export const fastCards: FastCard[] = [
     },
     months: 4,
     incomeLossPct: 0.05,
+    needs: 'tenants',
   },
   {
     id: 'f-set-manager',
@@ -1652,6 +1897,7 @@ export const fastCards: FastCard[] = [
       en: 'The person you trusted to run things for two years had been keeping two sets of books. By the time it surfaced, months of money were gone.',
     },
     months: 5,
+    needs: 'business',
   },
   {
     id: 'f-set-lawsuit',
@@ -1662,6 +1908,7 @@ export const fastCards: FastCard[] = [
       en: 'A tenant slipped in a common area. The case dragged on for two years, and the lawyers billed every month either way.',
     },
     months: 3.5,
+    needs: 'tenants',
   },
   {
     id: 'f-set-competitor',
@@ -1673,6 +1920,7 @@ export const fastCards: FastCard[] = [
     },
     months: 0,
     incomeLossPct: 0.18,
+    needs: 'business',
   },
   {
     id: 'f-set-cyber',
@@ -1683,6 +1931,7 @@ export const fastCards: FastCard[] = [
       en: 'Customer data leaked. Everyone had to be notified, a response team hired, and the data-protection fine paid.',
     },
     months: 4.5,
+    needs: 'business',
   },
   {
     id: 'f-set-landtax',
@@ -1693,6 +1942,7 @@ export const fastCards: FastCard[] = [
       en: 'The new valuation lifted the whole district. Land you were simply holding became land you pay to hold.',
     },
     months: 2,
+    needs: 'land',
   },
   {
     id: 'f-set-keystaff',
@@ -1704,6 +1954,7 @@ export const fastCards: FastCard[] = [
     },
     months: 2.5,
     incomeLossPct: 0.08,
+    needs: 'business',
   },
   {
     id: 'f-set-baht',
@@ -1715,6 +1966,7 @@ export const fastCards: FastCard[] = [
     },
     months: 0,
     incomeLossPct: 0.1,
+    needs: 'business',
   },
   {
     id: 'f-set-permit',
@@ -1725,6 +1977,7 @@ export const fastCards: FastCard[] = [
       en: 'New zoning rules landed after construction had started. The drawings had to be redone and refiled from scratch.',
     },
     months: 3,
+    needs: 'property',
   },
   {
     id: 'f-set-recall',
@@ -1736,6 +1989,7 @@ export const fastCards: FastCard[] = [
     },
     months: 3.5,
     incomeLossPct: 0.05,
+    needs: 'business',
   },
   {
     id: 'f-set-partner',
@@ -1746,6 +2000,7 @@ export const fastCards: FastCard[] = [
       en: 'The friend who put in money alongside you wants it back, and you have to buy their share yourself.',
     },
     months: 6,
+    needs: 'business',
   },
 ];
 
