@@ -628,6 +628,18 @@ export const UI = {
   /* ------------------------------------------------------------- the animal */
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
   partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
+  payrollTitle: { th: 'หักจากเงินเดือน', en: 'Taken from the payslip' },
+  ssoLabel: { th: 'ประกันสังคม ม.33', en: 'Social security' },
+  gpfLabel: { th: 'สะสม กบข.', en: 'Government pension fund' },
+  pfOwn: { th: 'เงินสะสมของคุณ', en: 'Your contribution' },
+  pfMatch: { th: 'นายจ้างสมทบให้', en: 'Employer puts in' },
+  pfPotLabel: { th: 'กองทุนสำรองเลี้ยงชีพสะสม', en: 'Provident fund' },
+  pfIfTakenNow: { th: 'ถ้าลาออกวันนี้ได้รับ', en: 'If you left today' },
+  pfSetRate: { th: 'สะสมเดือนละ', en: 'Contribute' },
+  pfNote: {
+    th: 'ทุกบาทที่คุณใส่ นายจ้างใส่ให้อีกหนึ่งบาททันที เท่ากับได้กำไร 100% ตั้งแต่วันแรก แถมยังเอาไปลดหย่อนภาษีได้อีก เงินก้อนนี้ถอนไม่ได้จนกว่าจะออกจากงาน และถ้าออกก่อนอายุ 55 จะโดนหักภาษี 10%',
+    en: 'Every baht you put in, the employer puts in another, which is a 100% return on the first day, and the contribution comes off your taxable income too. It cannot be touched until the job ends, and leaving before 55 costs 10% of it in tax.',
+  },
   childCostHousehold: { th: 'ค่าเลี้ยงดูทั้งบ้าน', en: 'What the household pays' },
   childHalfNote: { th: 'ครึ่งหนึ่งของทั้งบ้าน', en: 'half of the household’s' },
   childShareNote: {

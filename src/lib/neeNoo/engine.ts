@@ -550,6 +550,132 @@ export const TAX_BRACKETS: { size: number; rate: number }[] = [
   { size: Number.POSITIVE_INFINITY, rate: 0.35 },
 ];
 /** ค่าลดหย่อนส่วนตัว and ค่าลดหย่อนบุตร, the two every player has */
+/* ----------------------------------------------- what the payslip really does */
+
+/**
+ * Social security, the deduction nobody reads on their own payslip.
+ *
+ * Section 33 takes 5% of the wage with the wage itself capped at ฿15,000, so
+ * every employee in the country pays at most ฿750 a month and the highest
+ * earners pay the same as somebody on ฿15,000. The employer pays a matching
+ * amount that the employee never sees. The game already paid out the old-age
+ * benefit at sixty; it had simply never charged anybody for it.
+ */
+export const SSO_RATE = 0.05;
+export const SSO_WAGE_CAP = 15000;
+/** Civil servants are outside section 33 and pay into กบข. instead. */
+export const GPF_RATE = 0.03;
+
+export function ssoContribution(s: GameState): number {
+  if (salary(s) <= 0) return 0;
+  const p = profession(s);
+  if (p.pension === 'civil') return Math.round(salary(s) * GPF_RATE);
+  // Self-employment is outside the system entirely, which is why it gets no
+  // pension at sixty either.
+  if (p.pension === 'none') return 0;
+  return Math.round(Math.min(salary(s), SSO_WAGE_CAP) * SSO_RATE);
+}
+
+/**
+ * The provident fund: the best return available to a Thai employee and the one
+ * most of them leave on the table.
+ *
+ * Whatever share of the wage the player puts in, the employer puts in the same,
+ * so the money doubles the moment it lands. It is locked until they leave the
+ * job, it compounds at a fund's rate rather than a bank's, and the contribution
+ * comes off taxable income on the way in. There is no other button in this game
+ * that pays 100% on the first day.
+ */
+export const PF_RATES = [0, 0.03, 0.05, 0.1] as const;
+export const PF_RETURN = 0.05;
+/** Deductible up to 15% of the wage, and the ladder is where that lands. */
+export const PF_DEDUCT_CAP_RATE = 0.15;
+export const PF_DEDUCT_CAP = 500000;
+/** Taken out before 55: the employer's half and the growth are taxed. */
+export const PF_EARLY_TAX = 0.1;
+export const PF_VEST_AGE = 55;
+
+/**
+ * True where this job comes with a fund the player can choose the size of.
+ * A civil servant's 3% already goes to กบข., which is a fund of the same kind
+ * with the rate fixed by law, so they are not asked twice; the self-employed
+ * have neither, which is the same reason they have no pension at sixty.
+ */
+export function hasProvidentFund(s: GameState): boolean {
+  return profession(s).pension === 'sso';
+}
+
+export function pfContribution(s: GameState): number {
+  if (!hasProvidentFund(s) || salary(s) <= 0) return 0;
+  return Math.round(salary(s) * s.pfRate);
+}
+
+/** The employer's side, which costs the player nothing and is theirs anyway. */
+export function pfMatch(s: GameState): number {
+  return pfContribution(s);
+}
+
+export function pfPot(s: GameState): number {
+  return Math.round(s.pfPot);
+}
+
+/** What the pot is worth in the hand, once the taxman has had his look. */
+export function pfCashOut(s: GameState): number {
+  const gross = s.pfPot;
+  if (gross <= 0) return 0;
+  return Math.round(ageYears(s) >= PF_VEST_AGE ? gross : gross * (1 - PF_EARLY_TAX));
+}
+
+/** The rates a scheme will actually let somebody pick, as a plain array. */
+export function pfRateOptions(): number[] {
+  return [...PF_RATES];
+}
+
+export function setPfRate(s: GameState, rate: number): void {
+  if (!hasProvidentFund(s)) return;
+  const allowed = PF_RATES.includes(rate as (typeof PF_RATES)[number]) ? rate : 0;
+  if (allowed === s.pfRate) return;
+  s.pfRate = allowed;
+  note(
+    s,
+    {
+      th: `ตั้งเงินสะสมกองทุนสำรองเลี้ยงชีพเป็น ${Math.round(allowed * 100)}% ของเงินเดือน เดือนละ ${money(pfContribution(s))} และนายจ้างสมทบให้อีกเท่ากัน`,
+      en: `Provident fund set to ${Math.round(allowed * 100)}% of the wage: ${money(pfContribution(s))} a month, matched baht for baht by the employer.`,
+    },
+    'good',
+  );
+  checkEscape(s);
+}
+
+/** Paid in, matched, and grown, once a month. */
+function pfMonth(s: GameState): void {
+  s.pfPot *= 1 + PF_RETURN / 12;
+  const own = pfContribution(s);
+  if (own > 0) s.pfPot += own + pfMatch(s);
+}
+
+/**
+ * Leaving the job hands the pot over. Before 55 the taxman takes his share of
+ * everything that was not the player's own contribution, which is the price of
+ * treating a retirement fund as a savings account.
+ */
+export function pfPayout(s: GameState): void {
+  if (s.pfPot <= 0) return;
+  const paid = pfCashOut(s);
+  const lost = Math.round(s.pfPot) - paid;
+  s.cash += paid;
+  s.pfPot = 0;
+  s.pfRate = 0;
+  note(
+    s,
+    {
+      th: `ได้รับเงินกองทุนสำรองเลี้ยงชีพ ${money(paid)}${lost > 0 ? ` (ถูกหักภาษี ${money(lost)} เพราะออกก่อนอายุ ${PF_VEST_AGE})` : ' ปลอดภาษีเพราะออกหลังอายุ 55'}`,
+      en: `The provident fund paid out ${money(paid)}${lost > 0 ? `, with ${money(lost)} withheld for leaving before ${PF_VEST_AGE}` : ', tax free at 55'}.`,
+    },
+    paid > 0 ? 'good' : 'plain',
+  );
+}
+
 export const ALLOWANCE_SELF = 60000;
 export const ALLOWANCE_CHILD = 30000;
 /** 40(1): half the pay, capped, which is why big salaries lose this race */
@@ -660,7 +786,11 @@ export function taxBill(s: GameState): TaxBill {
   // player: it is already out of the money before any of it reaches them.
   const corpYear = corpTaxMonthly(s) * 12;
 
-  const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD;
+  // Both payroll deductions come off the taxable side, which is why raising the
+  // provident-fund rate lowers this month's tax as well as building the pot.
+  const ssoYear = Math.min(ssoContribution(s) * 12, 9000);
+  const pfYear = Math.min(pfContribution(s) * 12, payYear * PF_DEDUCT_CAP_RATE, PF_DEDUCT_CAP);
+  const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD + ssoYear + pfYear;
   const net = Math.max(0, salaryLine.taxable + rentLine.taxable + bizLine.taxable - allowance);
   const ladderYear = ladderTax(net);
   const dividendYear = divYear * DIVIDEND_TAX;
@@ -729,8 +859,8 @@ export function totalDebtService(s: GameState): number {
  */
 export function totalExpenses(s: GameState): number {
   return (
-    taxes(s) + livingCost(s) + housingCost(s) + partnerCost(s)
-    + childExpense(s) + childPremium(s) + debtPayments(s) + insurancePremium(s)
+    taxes(s) + ssoContribution(s) + pfContribution(s) + livingCost(s) + housingCost(s)
+    + partnerCost(s) + childExpense(s) + childPremium(s) + debtPayments(s) + insurancePremium(s)
   );
 }
 
@@ -768,7 +898,9 @@ export function personalWorth(s: GameState): number {
     .filter((a) => !isCorpAsset(a))
     .reduce((sum, a) => sum + assetValue(a) - a.debt, 0);
   const debts = s.debts.reduce((sum, d) => sum + d.balance, 0);
-  return s.cash + assets + homeValue(s) + carValue(s) - debts;
+  // The provident fund is counted at what it would actually pay out, not at its
+  // balance: before 55 a slice of it belongs to the taxman.
+  return s.cash + assets + homeValue(s) + carValue(s) + pfCashOut(s) - debts;
 }
 
 /**
@@ -907,6 +1039,10 @@ export function createGame(
     wroteBook: false,
     partner: false,
     childInsured: false,
+    // Most people are defaulted into the smallest contribution their scheme
+    // allows and never touch it again, so that is where the game starts them.
+    pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
+    pfPot: 0,
     birthdayDue: false,
     schoolDue: false,
     retireDue: false,
@@ -1485,6 +1621,7 @@ function corpMonth(s: GameState): void {
 
 function monthPassed(s: GameState): void {
   s.months += 1;
+  pfMonth(s);
   // The bank's file is written one month at a time. A month that closed with
   // money still in the account is a month the bills were met; one that closed
   // overdrawn is the line an underwriter will find years later.
@@ -1536,6 +1673,7 @@ export function checkRetirement(s: GameState): void {
   s.careerOver = true;
   s.workEndMonth = s.months;
   s.retireDue = true;
+  pfPayout(s);
   note(
     s,
     {
@@ -3294,6 +3432,9 @@ export function quitJob(s: GameState): void {
   if (!canQuit(s)) return;
   const passive = householdIncome(s);
   const hadJob = !noMoreSalary(s);
+  // Leaving the job releases the fund, which is the moment most people first
+  // find out what it grew into, and what leaving early costs them.
+  pfPayout(s);
   s.quit = true;
   s.quitOffered = true;
   if (hadJob) s.workEndMonth = s.months;
@@ -3525,6 +3666,8 @@ export function parseSave(raw: string): GameState | null {
   // word for the other person in the house.
   if (typeof game.partner !== 'boolean') game.partner = game.children > 0;
   if (typeof game.childInsured !== 'boolean') game.childInsured = false;
+  if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
+  if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
   if (typeof game.birthdayDue !== 'boolean') game.birthdayDue = false;
   if (typeof game.schoolDue !== 'boolean') game.schoolDue = false;
   if (typeof game.retireDue !== 'boolean') game.retireDue = false;
