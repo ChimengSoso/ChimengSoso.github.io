@@ -353,6 +353,8 @@ export type Pending =
   | { kind: 'market'; cardId: string }
   | { kind: 'doodad'; cardId: string }
   | { kind: 'baby' }
+  /** December, and the only tax decision the player gets to make all year */
+  | { kind: 'taxfund' }
   | { kind: 'downsized' }
   | { kind: 'charity' }
   | { kind: 'fastbonus'; cardId: string }
@@ -480,6 +482,15 @@ export interface GameState {
    */
   pfRate: number;
   pfPot: number;
+  /**
+   * The December fund. `taxFundYear` is what has been bought against this
+   * year's cap, `taxFundFirst` the month the first unit was bought, which is
+   * where the ten-year lock is counted from.
+   */
+  taxFundPot: number;
+  taxFundYear: number;
+  taxFundFirst: number | null;
+  taxFundDue: boolean;
   /**
    * The animal in the house, rolled at the start of the game. The vet bill used
    * to arrive for a creature with no species and no name, which is a bill
