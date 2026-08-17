@@ -1193,6 +1193,12 @@ const description =
       childExpense,
       childExpenseGross,
       ssoContribution,
+      cardMinimum,
+      onCardMinimum,
+      setCardMinimum,
+      floatingRate,
+      ratePercentYear,
+      FIXED_YEARS,
       setDcaMonthly,
       sellDca,
       dcaValue,
@@ -1797,12 +1803,17 @@ const description =
         ? `<ul class="nn-list">${s.debts
             .map((d) => {
               const open = openDebt === d.key;
+              // The rate belongs on the row: it is the number that decides
+              // everything else about the loan and it was nowhere on screen.
               return `<li class="nn-debt${open ? ' is-open' : ''}">
                 <button type="button" class="nn-debt-head" data-act="opendebt" data-id="${d.key}" aria-expanded="${open}">
-                  <span class="nm"><b>${T(debtLabel(d.key))}</b><small>${money(d.balance)} · ${money(d.payment)}${T(UI.perMonth)}</small></span>
+                  <span class="nm"><b>${T(debtLabel(d.key))}</b><small>${money(d.balance)} · ${money(d.payment)}${T(UI.perMonth)} · ${ratePercentYear(d.rate)}%${T(UI.perYear)}${d.key === 'home' && s.months >= FIXED_YEARS * 12 ? ` <span class="warn">${T(UI.floating)}</span>` : ''}${d.key === 'card' && onCardMinimum(s) ? ` <span class="neg">${T(UI.payingMinimum)}</span>` : ''}</small></span>
                 </button>
                 <button type="button" class="nn-mini" data-act="repay" data-id="${d.key}" ${canRepay(s, d.key) ? '' : 'disabled'}>${T(UI.payoff)}</button>
-                ${open ? loanBody(d.balance, d.payment, d.rate, '', d.key === 'bank' ? `<p class="nn-warnline">${T(UI.bankNote)}</p>` : '') : ''}
+                ${open ? loanBody(d.balance, d.payment, d.rate, '',
+                  d.key === 'bank' ? `<p class="nn-warnline">${T(UI.bankNote)}</p>`
+                  : d.key === 'card' ? `<button type="button" class="nn-btn ${onCardMinimum(s) ? 'nn-btn-go' : 'nn-btn-quiet'} nn-debt-clear" data-act="cardmin">${T(onCardMinimum(s) ? UI.payProperly : UI.payMinimum)} ${money(onCardMinimum(s) ? Math.round(d.balance * 0.05) + Math.round(d.balance * d.rate) : cardMinimum(s))}</button><p class="nn-warnline">${T(UI.minimumNote)}</p>`
+                  : '') : ''}
               </li>`;
             })
             .join('')}</ul>`
@@ -2104,6 +2115,7 @@ const description =
             : s.carCoverMonths > 0
             ? `<span class="${s.carCoverMonths <= 2 ? 'warn' : 'pos'}">${T(UI.coverChip)} ${s.carCoverMonths} ${T(UI.monthsWord)}</span>`
             : `<span class="neg">${T(UI.coverNone)}</span>`}
+          ${s.rateDrift !== 0 ? `<span class="${s.rateDrift > 0 ? 'neg' : 'pos'}">${T(UI.rateNow)} ${ratePercentYear(floatingRate(s))}%</span>` : ''}
           ${s.pet ? `<span>${T(UI.petAtHome)} ${T(petPhrase(s))}</span>` : ''}
           ${s.bondMonths > 0 ? `<span class="warn">${T(UI.bondActive)} ${s.bondMonths}</span>` : ''}
           ${s.slumpMonths > 0 ? `<span class="neg">${T(UI.slumpActive)} ${s.slumpMonths}</span>` : ''}
@@ -3740,6 +3752,9 @@ const description =
           break;
         case 'gradok':
           acceptGraduation(s);
+          break;
+        case 'cardmin':
+          setCardMinimum(s, !onCardMinimum(s));
           break;
         case 'setdca':
           setDcaMonthly(s, amountOf(panel, 'dca'));
