@@ -676,6 +676,102 @@ export function pfPayout(s: GameState): void {
   );
 }
 
+/* -------------------------------------------- the fund everybody buys in December */
+
+/**
+ * SSF, RMF and Thai ESG: the one place where investing and the tax ladder meet.
+ *
+ * Every December the country buys funds it does not otherwise think about,
+ * because the money comes off taxable income at whatever the player's top
+ * bracket happens to be. Somebody in the 20% band gets a fifth of it back; the
+ * office worker who owes no tax at all gets nothing back and should not be
+ * buying these at all. Both of those are lessons, and the second one is the one
+ * nobody ever says out loud.
+ *
+ * The lock is the price: RMF cannot be sold until 55, SSF for ten years. Here
+ * they are one holding with one rule, because the difference between them is
+ * paperwork and the difference that matters is the lock itself.
+ */
+export const TAXFUND_RETURN = 0.06;
+export const TAXFUND_LOCK_YEARS = 10;
+export const TAXFUND_CAP_RATE = 0.3;
+export const TAXFUND_CAP = 500000;
+/** the smallest order the game will take, so the December card is not noise */
+export const TAXFUND_STEP = 10000;
+
+/** How much of a purchase this year would still come off taxable income. */
+export function taxFundRoom(s: GameState): number {
+  const payYear = (salary(s) + drawTaken(s)) * 12;
+  const cap = Math.min(payYear * TAXFUND_CAP_RATE, TAXFUND_CAP);
+  return Math.max(0, Math.floor((cap - s.taxFundYear) / TAXFUND_STEP) * TAXFUND_STEP);
+}
+
+/** What the taxman would hand back for one more baht put in. */
+export function taxFundRefundRate(s: GameState): number {
+  return marginalRate(taxBill(s).net);
+}
+
+export function taxFundValue(s: GameState): number {
+  return Math.round(s.taxFundPot);
+}
+
+/** Sellable once the lock is up, or at 55, whichever comes first. */
+export function taxFundUnlocked(s: GameState): boolean {
+  return (
+    s.taxFundPot > 0
+    && (ageYears(s) >= PF_VEST_AGE
+      || (s.taxFundFirst !== null && s.months - s.taxFundFirst >= TAXFUND_LOCK_YEARS * 12))
+  );
+}
+
+export function buyTaxFund(s: GameState, amount: number): void {
+  const value = Math.min(
+    Math.floor(amount / TAXFUND_STEP) * TAXFUND_STEP,
+    taxFundRoom(s),
+    Math.floor(s.cash / TAXFUND_STEP) * TAXFUND_STEP,
+  );
+  if (value <= 0) return;
+  const rate = taxFundRefundRate(s);
+  const refund = Math.round(value * rate);
+  s.cash -= value;
+  s.taxFundPot += value;
+  s.taxFundYear += value;
+  if (s.taxFundFirst === null) s.taxFundFirst = s.months;
+  // The refund lands with the filing rather than at the till, which is close
+  // enough to how it feels: the money comes back, months later, as a lump.
+  s.cash += refund;
+  s.taxFundDue = false;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `ซื้อกองทุนลดหย่อนภาษี ${money(value)} ได้ภาษีคืน ${money(refund)} (ฐานภาษีขั้นบนสุด ${Math.round(rate * 100)}%) เงินก้อนนี้ขายไม่ได้อีก ${TAXFUND_LOCK_YEARS} ปี`,
+      en: `Put ${money(value)} into a tax-deductible fund and got ${money(refund)} back at the ${Math.round(rate * 100)}% band. It cannot be sold for ${TAXFUND_LOCK_YEARS} years.`,
+    },
+    refund > 0 ? 'good' : 'plain',
+  );
+  checkEscape(s);
+}
+
+export function sellTaxFund(s: GameState): void {
+  if (!taxFundUnlocked(s)) return;
+  const value = taxFundValue(s);
+  s.cash += value;
+  s.taxFundPot = 0;
+  s.taxFundFirst = null;
+  note(
+    s,
+    { th: `ขายกองทุนลดหย่อนภาษีที่ครบกำหนดแล้ว ได้เงินสด ${money(value)}`, en: `Sold the matured tax fund for ${money(value)}.` },
+    'good',
+  );
+  checkEscape(s);
+}
+
+export function declineTaxFund(s: GameState): void {
+  s.taxFundDue = false;
+  s.pending = null;
+}
+
 export const ALLOWANCE_SELF = 60000;
 export const ALLOWANCE_CHILD = 30000;
 /** 40(1): half the pay, capped, which is why big salaries lose this race */
@@ -790,7 +886,7 @@ export function taxBill(s: GameState): TaxBill {
   // provident-fund rate lowers this month's tax as well as building the pot.
   const ssoYear = Math.min(ssoContribution(s) * 12, 9000);
   const pfYear = Math.min(pfContribution(s) * 12, payYear * PF_DEDUCT_CAP_RATE, PF_DEDUCT_CAP);
-  const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD + ssoYear + pfYear;
+  const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD + ssoYear + pfYear + s.taxFundYear;
   const net = Math.max(0, salaryLine.taxable + rentLine.taxable + bizLine.taxable - allowance);
   const ladderYear = ladderTax(net);
   const dividendYear = divYear * DIVIDEND_TAX;
@@ -900,7 +996,7 @@ export function personalWorth(s: GameState): number {
   const debts = s.debts.reduce((sum, d) => sum + d.balance, 0);
   // The provident fund is counted at what it would actually pay out, not at its
   // balance: before 55 a slice of it belongs to the taxman.
-  return s.cash + assets + homeValue(s) + carValue(s) + pfCashOut(s) - debts;
+  return s.cash + assets + homeValue(s) + carValue(s) + pfCashOut(s) + taxFundValue(s) - debts;
 }
 
 /**
@@ -1043,6 +1139,10 @@ export function createGame(
     // allows and never touch it again, so that is where the game starts them.
     pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
     pfPot: 0,
+    taxFundPot: 0,
+    taxFundYear: 0,
+    taxFundFirst: null,
+    taxFundDue: false,
     birthdayDue: false,
     schoolDue: false,
     retireDue: false,
@@ -1542,6 +1642,12 @@ export function claimDue(s: GameState): boolean {
     s.pending = { kind: 'schoolfee' };
     return true;
   }
+  // Last in the queue: it is the only one of these that is an opportunity
+  // rather than a bill, so it never pushes ahead of something that is owed.
+  if (s.taxFundDue) {
+    s.pending = { kind: 'taxfund' };
+    return true;
+  }
   return false;
 }
 
@@ -1622,6 +1728,12 @@ function corpMonth(s: GameState): void {
 function monthPassed(s: GameState): void {
   s.months += 1;
   pfMonth(s);
+  s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
+  // December, when the whole country remembers this at once.
+  if (s.months > 0 && s.months % 12 === 0) {
+    s.taxFundYear = 0;
+    if (salary(s) > 0 && taxBill(s).net > 0) s.taxFundDue = true;
+  }
   // The bank's file is written one month at a time. A month that closed with
   // money still in the account is a month the bills were met; one that closed
   // overdrawn is the line an underwriter will find years later.
@@ -3668,6 +3780,10 @@ export function parseSave(raw: string): GameState | null {
   if (typeof game.childInsured !== 'boolean') game.childInsured = false;
   if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
   if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
+  if (!Number.isFinite(game.taxFundPot) || game.taxFundPot < 0) game.taxFundPot = 0;
+  if (!Number.isFinite(game.taxFundYear) || game.taxFundYear < 0) game.taxFundYear = 0;
+  if (game.taxFundFirst === undefined) game.taxFundFirst = game.taxFundPot > 0 ? game.months : null;
+  if (typeof game.taxFundDue !== 'boolean') game.taxFundDue = false;
   if (typeof game.birthdayDue !== 'boolean') game.birthdayDue = false;
   if (typeof game.schoolDue !== 'boolean') game.schoolDue = false;
   if (typeof game.retireDue !== 'boolean') game.retireDue = false;

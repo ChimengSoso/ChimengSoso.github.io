@@ -1191,6 +1191,15 @@ const description =
       childExpense,
       childExpenseGross,
       ssoContribution,
+      buyTaxFund,
+      declineTaxFund,
+      sellTaxFund,
+      taxFundRoom,
+      taxFundRefundRate,
+      taxFundValue,
+      taxFundUnlocked,
+      TAXFUND_STEP,
+      TAXFUND_LOCK_YEARS,
       pfContribution,
       pfMatch,
       pfPot,
@@ -1668,8 +1677,16 @@ const description =
           : '',
       ].join('');
 
-      const assetRows = s.assets.length || ownRows
-        ? `<ul class="nn-list">${ownRows}${shown.map(groupRow).join('')}</ul>
+      // The locked funds are holdings the board never deals: they sit in the
+      // asset list because they are worth money, with the lock spelled out.
+      const fundRows = taxFundValue(s) > 0
+        ? `<li><span class="nm"><b>${T(UI.taxFundHolding)}</b><small>${taxFundUnlocked(s) ? T(UI.taxFundFree) : T(UI.taxFundStillLocked)}</small></span>
+            <span class="nn-rowend"><span class="amt">${money(taxFundValue(s))}</span>
+            ${taxFundUnlocked(s) ? `<button type="button" class="nn-mini" data-act="selltaxfund">${T(UI.sellNow)}</button>` : ''}</span></li>`
+        : '';
+
+      const assetRows = s.assets.length || ownRows || fundRows
+        ? `<ul class="nn-list">${ownRows}${fundRows}${shown.map(groupRow).join('')}</ul>
            ${hiddenCount > 0 || assetsExpanded ? `<button type="button" class="nn-more" data-act="moreassets">${assetsExpanded ? T(UI.showLess) : `${T(UI.showMore)} (${hiddenCount})`}</button>` : ''}`
         : `<p class="nn-empty">${T(UI.noAssets)}</p>`;
 
@@ -2883,6 +2900,34 @@ const description =
           </div>`;
       }
 
+      if (p.kind === 'taxfund') {
+        const room = taxFundRoom(s);
+        const rate = taxFundRefundRate(s);
+        const start = Math.min(room, Math.floor(s.cash / TAXFUND_STEP) * TAXFUND_STEP);
+        // The refund is shown for the amount actually being bought, because the
+        // whole decision is "how much of this comes back", and at the bottom
+        // bracket the honest answer is none of it.
+        return `<div class="kind">${T(UI.taxFundTag)}</div>
+          <h2 id="nn-dlg-title">${T(UI.taxFundTitle)}</h2>
+          <p class="story">${T(UI.taxFundBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.taxFundBand)}</dt><dd class="${rate > 0 ? 'pos' : 'neg'}">${Math.round(rate * 100)}%</dd>
+            <dt>${T(UI.taxFundRoom)}</dt><dd>${money(room)}</dd>
+            <dt>${T(UI.cash)}</dt><dd class="${cls(s.cash)}">${money(s.cash)}</dd>
+            <dt>${T(UI.taxFundLock)}</dt><dd class="warn">${TAXFUND_LOCK_YEARS} ${T(UI.yearsUnit)}</dd>
+          </dl>
+          ${rate === 0 ? `<p class="nn-warnline">${T(UI.taxFundNoBand)}</p>` : ''}
+          ${start >= TAXFUND_STEP ? `<div class="nn-qty">
+            <label for="nn-tf">${T(UI.taxFundAmount)}</label>
+            <input id="nn-tf" type="number" data-qty="taxfund" data-unit="1" data-flow="0" data-max="${start}" min="${TAXFUND_STEP}" max="${start}" step="${TAXFUND_STEP}" value="${start}">
+          </div>
+          <p class="nn-empty">${T(UI.taxFundRefund)} <b class="pos">${money(Math.round(start * rate))}</b></p>` : ''}
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="buytaxfund" ${start >= TAXFUND_STEP ? '' : 'disabled'}>${T(UI.taxFundBuy)}</button>
+            <button type="button" class="nn-btn nn-btn-quiet" data-act="skiptaxfund">${T(UI.notNow)}</button>
+          </div>`;
+      }
+
       if (p.kind === 'baby') {
         const full = s.children >= MAX_CHILDREN;
         return `<div class="kind">${T(UI.tileBaby)}</div>
@@ -3669,6 +3714,15 @@ const description =
           break;
         case 'gradok':
           acceptGraduation(s);
+          break;
+        case 'buytaxfund':
+          buyTaxFund(s, amountOf(panel, 'taxfund'));
+          break;
+        case 'skiptaxfund':
+          declineTaxFund(s);
+          break;
+        case 'selltaxfund':
+          sellTaxFund(s);
           break;
         case 'payreward':
           payReward(s);
