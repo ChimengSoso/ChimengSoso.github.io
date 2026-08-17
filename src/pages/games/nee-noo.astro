@@ -262,6 +262,9 @@ const description =
     }
     /* The payslip block: savings the employer doubles does not belong in the
        same list as the phone bill, so it gets its own frame. */
+    .nn-seedrow{display:flex;align-items:center;gap:0.5rem;margin-top:1rem;font-size:0.78rem;color:var(--nn-muted);}
+    .nn-seedrow input{max-width:11rem;}
+    .nn-seednote{margin-top:0.3rem;}
     .nn-report{border:1px solid var(--nn-line);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(0,0,0,0.18);}
     .nn-dca{border:1px solid rgba(47,158,92,0.22);border-radius:0.7rem;padding:0.7rem 0.8rem;}
     .nn-dcaset{margin-top:0.5rem;flex-wrap:wrap;}
@@ -1194,6 +1197,7 @@ const description =
       childExpense,
       childExpenseGross,
       ssoContribution,
+      childAllowance,
       reportCard,
       cardMinimum,
       onCardMinimum,
@@ -1323,6 +1327,8 @@ const description =
     /** the starting car and house, taken with their loans unless switched off */
     let startCar = true;
     let startHome = true;
+    /** a shared deal, typed in so a class can play the same deck */
+    let seedText = '';
     /** the how-to has been read once on this device */
     let seenLearn = false;
     /** fires once per escape, unlike the ending which stays on screen */
@@ -1601,6 +1607,13 @@ const description =
         ${swaps ? `<h2>${T(UI.setupStep3)}</h2>
         <p class="nn-hint">${T(UI.setupStep3Hint)}</p>
         <div class="nn-swaps">${swaps}</div>` : ''}
+        <!-- One number, so a room full of players can be dealt the same cards
+             and compare what they did with them rather than what they drew. -->
+        <div class="nn-seedrow">
+          <label for="nn-seed">${T(UI.seedLabel)}</label>
+          <input id="nn-seed" type="text" inputmode="numeric" data-seed value="${seedText}" placeholder="${T(UI.seedPlaceholder)}">
+        </div>
+        <p class="nn-hint nn-seednote">${T(UI.seedNote)}</p>
         <div class="nn-startrow">
           <p class="nn-startpick">${pickedName} · <b>${pickedDreamName}</b></p>
           <button type="button" class="nn-btn nn-btn-go" data-act="start">${T(UI.startGame)}</button>
@@ -1860,6 +1873,7 @@ const description =
             <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
             ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
             ${s.incorporated ? `<dt>${T(UI.drawLabel)}</dt><dd class="pos">${money(drawTaken(s))}</dd>` : ''}
+            ${childAllowance(s) > 0 ? `<dt>${T(UI.childAllowanceLabel)}</dt><dd class="pos">${money(childAllowance(s))}</dd>` : ''}
             <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
           </dl>
         </div>
@@ -2654,6 +2668,7 @@ const description =
             <dt>${T(UI.reportYield)}</dt><dd class="${r.yieldOnCost >= 0.06 ? 'pos' : r.yieldOnCost > 0 ? '' : 'neg'}">${(r.yieldOnCost * 100).toFixed(1)}%${T(UI.perYear)}</dd>
             <dt>${T(UI.reportUnderwater)}</dt><dd class="${r.monthsUnderwater > 0 ? 'neg' : 'pos'}">${r.monthsUnderwater} ${T(UI.monthsUnit)}</dd>
             <dt>${T(UI.reportFireSales)}</dt><dd class="${r.fireSales > 0 ? 'neg' : 'pos'}">${r.fireSales}</dd>
+            ${r.lotterySpent > 0 ? `<dt>${T(UI.reportLottery)}</dt><dd class="${r.lotteryWon >= r.lotterySpent ? 'pos' : 'neg'}">${money(r.lotteryWon)} / ${money(r.lotterySpent)} <small class="muted">${Math.round((r.lotteryWon / r.lotterySpent) * 100)}%</small></dd>` : ''}
           </dl>
           ${r.investedTotal > 0 ? `<dl class="facts">
             <dt>${T(UI.reportIncomeGot)}</dt><dd class="pos">${money(r.incomeReceived)}</dd>
@@ -3628,14 +3643,23 @@ const description =
           saveLearned();
           modal = null;
           break;
-        case 'start':
+        case 'start': {
           hiddenCard = null;
-          state = createGame(pickedProfession, pickedDream, Date.now() & 0x7fffffff, { car: startCar, home: startHome });
+          const typed = root.querySelector<HTMLInputElement>('[data-seed]');
+          seedText = typed?.value.trim() ?? '';
+          const parsed = Number.parseInt(seedText, 10);
+          state = createGame(
+            pickedProfession,
+            pickedDream,
+            Number.isFinite(parsed) && parsed > 0 ? parsed & 0x7fffffff : Date.now() & 0x7fffffff,
+            { car: startCar, home: startHome },
+          );
           adoptState(state);
           seenFastIntro = false;
           modal = null;
           endingClosed = false;
           break;
+        }
         case 'resume': {
           hiddenCard = null;
           const saved = readSave();
@@ -3993,6 +4017,12 @@ const description =
       root.addEventListener('input', (e: Event) => {
         if (!(e.target instanceof HTMLInputElement)) return;
         const el = e.target;
+        // The setup screen re-renders on every pick, so what was typed has to be
+        // kept outside the DOM or choosing a job would wipe the code.
+        if ('seed' in el.dataset) {
+          seedText = el.value.trim();
+          return;
+        }
         if ('borrow' in el.dataset) {
           const note = panelOf(root, el).querySelector<HTMLElement>('[data-borrow-note]');
           const n = Number.parseInt(el.value, 10);

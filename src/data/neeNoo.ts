@@ -1632,6 +1632,44 @@ export const doodads: DoodadCard[] = [
     },
   },
   {
+    /**
+     * The lottery. Twice a month, a hundred baht at a time, and the arithmetic
+     * is not close: the first prize is one ticket in a million and the whole
+     * draw pays back about sixty satang on the baht. It is in the game because
+     * it is in the country, and because expected value is easier to feel with a
+     * ticket in your hand than on a whiteboard.
+     */
+    id: 'x-lottery',
+    title: { th: 'งวดนี้ซื้อหวยไหม', en: 'The draw is on the sixteenth' },
+    story: {
+      th: 'เลขที่ฝันเมื่อคืนกับเลขทะเบียนรถที่จอดหน้าบ้าน คนขายบอกว่าเหลือใบสุดท้ายพอดี ทุกงวดก็เหลือใบสุดท้ายพอดีทุกที',
+      en: 'The number from last night’s dream and the plate on the car outside. The seller says it is the last one left, the way it is every draw.',
+    },
+    scale: 0.12,
+    optional: true,
+    lottery: true,
+    declineNote: {
+      th: 'ไม่ซื้องวดนี้ เงินอยู่ครบ และค่าคาดหวังที่หายไปคือติดลบอยู่แล้ว',
+      en: 'No ticket this time. The money stays, and the expected value you gave up was negative anyway.',
+    },
+  },
+  {
+    id: 'x-chair',
+    title: { th: 'เพื่อนชวนเล่นแชร์', en: 'A rotating savings circle' },
+    story: {
+      th: 'วงละสิบคน ส่งเดือนละเท่ากัน ใครอยากได้ก่อนก็ประมูลดอกสูงกว่าคนอื่น ได้เงินก้อนเร็วแปลว่าจ่ายแพงกว่า ได้ท้ายวงแปลว่าได้ดอกจากคนอื่น ทั้งหมดนี้ตั้งอยู่บนความเชื่อใจล้วน ๆ ไม่มีใครค้ำอะไรให้',
+      en: 'Ten people, the same amount every month, and whoever wants the pot first bids the highest rate for it. Going early costs you; going last pays you. The whole thing rests on trust and nothing else.',
+    },
+    scale: 1.6,
+    optional: true,
+    social: true,
+    chair: true,
+    declineNote: {
+      th: 'ไม่เข้าวงแชร์ครั้งนี้ ไม่ได้ดอกจากใคร และไม่ต้องลุ้นว่าท้าววงจะหอบเงินหนีไหม',
+      en: 'No circle this time: no interest from anybody, and nothing to lose if the organiser disappears.',
+    },
+  },
+  {
     id: 'x-lend',
     title: { th: 'ญาติขอยืมเงิน', en: 'A relative asks for a loan' },
     story: { th: 'ยืมแล้วอาจได้คืน อาจไม่ได้คืน แต่ที่แน่ ๆ คือความสัมพันธ์จะเปลี่ยนไปทั้งสองทาง', en: 'You might get it back, you might not. Either way the relationship changes.' },
