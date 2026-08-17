@@ -735,6 +735,8 @@ export const UI = {
   carNote: { th: 'มูลค่าลดลงทุกปี ปีแรก ๆ มักต่ำกว่ายอดหนี้ที่ยังเหลือ', en: 'Worth less every year, and for the first few years worth less than the loan on it' },
 
   /* --------------------------------------------------- reading a share card */
+  booksRead: { th: 'กดอ่านงบ', en: 'read them' },
+  booksHide: { th: 'ย่อเก็บ', en: 'fold away' },
   booksShort: { th: 'ดูงบ', en: 'books' },
   booksTitle: { th: 'งบการเงินย่อ (ต่อปี)', en: 'The books (yearly)' },
   bookRevenue: { th: 'รายได้', en: 'Revenue' },

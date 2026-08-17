@@ -292,6 +292,16 @@ const description =
     .nn-borrowbtn{width:100%;margin-top:0.6rem;}
     .nn-metergoal{margin-top:0.3rem;font-size:0.68rem;color:var(--nn-muted);text-align:center;}
     /* A quiet chip beside a holding's name: the books it was bought on. */
+    .nn-bookshead{
+      display:flex;align-items:center;justify-content:space-between;gap:0.6rem;width:100%;
+      margin-top:0.9rem;padding:0.5rem 0.7rem;
+      border:1px solid var(--nn-line);border-radius:0.7rem;background:rgba(0,0,0,0.18);
+      color:var(--nn-muted);font:inherit;font-size:0.72rem;cursor:pointer;text-align:left;
+    }
+    .nn-bookshead:hover{border-color:var(--nn-green);color:var(--nn-ink);}
+    .nn-bookshead.is-open{margin:0 0 0.6rem;background:none;}
+    .nn-booksopen{color:var(--nn-green-bright);white-space:nowrap;}
+    .nn-books .nn-bookshead{width:100%;}
     .nn-booksbtn{
       border:1px solid var(--nn-border);border-radius:6px;background:none;color:var(--nn-muted);
       font:inherit;font-size:0.62rem;padding:0 0.32rem;margin-left:0.3rem;cursor:pointer;vertical-align:middle;
@@ -1400,6 +1410,12 @@ const description =
     let defineKey: GlossaryKey | null = null;
     /** which company's books are open on their own */
     let booksKey: string | null = null;
+    /**
+     * The accounts are unfolded on the cards. It is deliberately sticky across
+     * cards: somebody who reads them once tends to want them every time, and
+     * somebody who does not should never have to fold them away twice.
+     */
+    let booksOpen = false;
     /**
      * The card the player has pushed aside to go and look at their own numbers.
      *
@@ -2661,7 +2677,7 @@ const description =
       return `<div class="kind">${T(UI.booksTitle)}</div>
         <h2 id="nn-dlg-title">${T(card.title)}</h2>
         <p class="story">${T(card.story)}</p>
-        ${booksPanel(card)}
+        ${booksPanel(card, true)}
         <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button></div>`;
     }
 
@@ -2892,13 +2908,29 @@ const description =
      * earned any. The books are where that difference is visible, so the card
      * prints them and lets the player decide what they are looking at.
      */
-    function booksPanel(card: { kind: string; books?: import('../../lib/neeNoo/types').Fundamentals }): string {
+    function booksPanel(
+      card: { kind: string; books?: import('../../lib/neeNoo/types').Fundamentals },
+      forceOpen = false,
+    ): string {
+      // Gold's line is the whole lesson and it is one sentence, so it stays in
+      // the open where nobody has to go looking for it.
       if (card.kind === 'gold') return `<p class="nn-warnline">${T(UI.goldNoBooks)}</p>`;
       const b = card.books;
       if (!b) return '';
+      // Folded by default. Somebody who wants to buy on a price move is allowed
+      // to; the point is that the accounts were there to be read, not that
+      // everybody is made to read them before they can press a button.
+      const open = forceOpen || booksOpen;
       const m = (n: number): string => `${n < 0 ? '-' : ''}฿${Math.abs(n).toLocaleString('en-US')} ${T(UI.bookMillion)}`;
+      if (!open) {
+        return `<button type="button" class="nn-bookshead" data-act="togglebooks" aria-expanded="false">
+          <span>${T(UI.booksTitle)}</span><span class="nn-booksopen">${T(UI.booksRead)}</span>
+        </button>`;
+      }
       return `<div class="nn-books">
-        <h3>${T(UI.booksTitle)}</h3>
+        ${forceOpen ? `<h3>${T(UI.booksTitle)}</h3>` : `<button type="button" class="nn-bookshead is-open" data-act="togglebooks" aria-expanded="true">
+          <span>${T(UI.booksTitle)}</span><span class="nn-booksopen">${T(UI.booksHide)}</span>
+        </button>`}
         <dl class="facts">
           <dt>${T(UI.bookRevenue)}</dt><dd>${m(b.revenue)}</dd>
           <dt>${T(UI.bookProfit)}</dt><dd class="${cls(b.profit)}">${m(b.profit)}</dd>
@@ -3848,6 +3880,9 @@ const description =
           break;
         case 'showcard':
           hiddenCard = null;
+          break;
+        case 'togglebooks':
+          booksOpen = !booksOpen;
           break;
         case 'books':
           if (id) {
