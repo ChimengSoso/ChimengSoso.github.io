@@ -492,6 +492,14 @@ export interface GameState {
    * what was actually paid in. The last one is kept so the gain can be shown
    * against the money rather than against a share price nobody watched.
    */
+  /**
+   * How far the floating reference rate has moved from where the game started.
+   * Held on the state rather than on each loan so every mortgage moves together,
+   * the way one bank's MRR moves every borrower at once.
+   */
+  rateDrift: number;
+  /** the card is being paid the smallest amount it will take */
+  cardMinimum: boolean;
   dcaMonthly: number;
   dcaPot: number;
   dcaPaid: number;

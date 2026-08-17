@@ -1222,6 +1222,8 @@ export function createGame(
     // allows and never touch it again, so that is where the game starts them.
     pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
     pfPot: 0,
+    rateDrift: 0,
+    cardMinimum: false,
     dcaMonthly: 0,
     dcaPot: 0,
     dcaPaid: 0,
@@ -1475,10 +1477,135 @@ function landRat(s: GameState): void {
  * payment rather than by never ending: a tenth of the amount drawn, every
  * month, until it is gone.
  */
+/* ------------------------------------------- the two debts that do not behave */
+
+/**
+ * A Thai mortgage is fixed for three years and floats after that.
+ *
+ * The teaser rate is the one on the poster; the one that decides whether the
+ * loan is affordable is MRR minus a spread, and it moves. When it moves the
+ * bank does not shorten the term, it raises the instalment, so a rate that goes
+ * up by a point takes the money out of this month rather than out of year
+ * thirty. Nothing in the game moved before, which quietly made every mortgage
+ * here safer than any mortgage in the country.
+ */
+export const FIXED_YEARS = 3;
+/**
+ * The most the reference rate moves in one step, in monthly-rate units. Real
+ * policy moves in quarter and half points a year, so this is capped at about
+ * 0.6 points: enough to be felt in the instalment, nowhere near enough to look
+ * like a dice roll.
+ */
+export const RATE_STEP_MAX = 0.0009;
+export const RATE_FLOOR = 0.0028;
+export const RATE_CEILING = 0.0058;
+/**
+ * How much the instalment moves for each unit of monthly rate. On a loan with
+ * twenty years left, a one-point rise takes the payment up about a tenth, and
+ * this is that relationship written as one number.
+ */
+export const PAYMENT_SENSITIVITY = 120;
+
+/** The rate a floating loan is paying this month, as a monthly figure. */
+export function floatingRate(s: GameState): number {
+  return DEBT_RATE.home + s.rateDrift;
+}
+
+export function ratePercentYear(rate: number): number {
+  return Math.round(rate * 12 * 1000) / 10;
+}
+
+/**
+ * Once a year after the fixed period, the reference rate takes a step and every
+ * floating loan follows it. Payments are recalculated to keep the loan on the
+ * same finishing line, which is the bank's habit and the borrower's problem.
+ */
+function driftRates(s: GameState): void {
+  if (s.months < FIXED_YEARS * 12 || s.months % 12 !== 0) return;
+  const step = (rand(s) - 0.45) * RATE_STEP_MAX;
+  const next = Math.min(RATE_CEILING, Math.max(RATE_FLOOR, floatingRate(s) + step));
+  const moved = next - floatingRate(s);
+  if (Math.abs(moved) < 0.00005) return;
+  s.rateDrift = next - DEBT_RATE.home;
+
+  let touched = 0;
+  for (const d of s.debts) {
+    if (d.key !== 'home') continue;
+    d.rate = next;
+    d.payment = Math.round(d.payment * (1 + moved * PAYMENT_SENSITIVITY));
+    touched += 1;
+  }
+  for (const a of s.assets) {
+    if (a.debt <= 0) continue;
+    const before = a.mortgagePay;
+    a.mortgagePay = Math.round(a.mortgagePay * (1 + moved * PAYMENT_SENSITIVITY));
+    // The rent did not move, so the difference comes straight out of the
+    // holding's monthly income, which is how a rate rise reaches a landlord.
+    a.cashflowPerUnit -= (a.mortgagePay - before) / a.qty;
+    touched += 1;
+  }
+  if (touched === 0) return;
+  note(
+    s,
+    {
+      th: `ดอกเบี้ยลอยตัวขยับเป็น ${ratePercentYear(next)}% ต่อปี ค่างวดบ้านและค่าผ่อนทรัพย์สินทุกก้อนถูกคิดใหม่ตามอัตราใหม่ ธนาคารไม่ได้ยืดเวลาให้ แต่ขึ้นค่างวดแทน`,
+      en: `The floating rate moved to ${ratePercentYear(next)}% a year, and every mortgage payment was recalculated against it. The bank did not extend the term; it raised the instalment.`,
+    },
+    moved > 0 ? 'bad' : 'good',
+  );
+  checkEscape(s);
+}
+
+/**
+ * The minimum payment on a credit card, which is not a payment plan. Paying it
+ * covers the month's interest and a sliver of principal, and the balance is
+ * still there in five years. Thai cards ask for 8%.
+ */
+export const CARD_MINIMUM_RATE = 0.08;
+
+export function cardMinimum(s: GameState): number {
+  const card = s.debts.find((d) => d.key === 'card');
+  if (!card) return 0;
+  return Math.max(500, Math.round(card.balance * CARD_MINIMUM_RATE));
+}
+
+/** True when the card is being paid the smallest amount it will accept. */
+export function onCardMinimum(s: GameState): boolean {
+  return s.cardMinimum;
+}
+
+export function setCardMinimum(s: GameState, on: boolean): void {
+  const card = s.debts.find((d) => d.key === 'card');
+  if (!card || s.cardMinimum === on) return;
+  s.cardMinimum = on;
+  if (on) {
+    card.payment = cardMinimum(s);
+    note(
+      s,
+      {
+        th: `เปลี่ยนไปจ่ายบัตรเครดิตขั้นต่ำ ${money(card.payment)} ต่อเดือน รายจ่ายเดือนนี้เบาลงจริง แลกกับการที่หนี้ก้อนนี้จะอยู่กับคุณนานขึ้นเกือบเท่าตัว เพราะยอดขั้นต่ำลดตามยอดหนี้ลงไปเรื่อย ๆ ขณะที่ดอกเบี้ย ${ratePercentYear(card.rate)}% ต่อปี ยังเดินเท่าเดิม`,
+        en: `Paying the card minimum, ${money(card.payment)} a month. This month really is lighter, and the debt will be with you for close to twice as long, because the minimum falls with the balance while the ${ratePercentYear(card.rate)}% a year does not.`,
+      },
+      'bad',
+    );
+  } else {
+    card.payment = Math.max(card.payment, Math.round(card.balance * 0.05) + Math.round(card.balance * card.rate));
+    note(
+      s,
+      { th: `กลับไปจ่ายบัตรเครดิตเต็มงวด ${money(card.payment)} ต่อเดือน`, en: `Back to a real payment on the card: ${money(card.payment)} a month.` },
+      'good',
+    );
+  }
+  checkEscape(s);
+}
+
 export function amortize(s: GameState): void {
   for (const d of s.debts) {
     const principal = Math.max(0, d.payment - d.balance * d.rate);
     d.balance = Math.max(0, d.balance - principal);
+    // A minimum payment is a share of what is left, so it falls as the balance
+    // falls and the loan stretches out towards forever.
+    if (d.key === 'card' && s.cardMinimum) d.payment = Math.max(500, Math.round(d.balance * CARD_MINIMUM_RATE));
   }
   for (const a of s.assets) {
     if (a.debt <= 0) continue;
@@ -1831,6 +1958,7 @@ function monthPassed(s: GameState): void {
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
   if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
   markAnnual(s);
+  driftRates(s);
   advanceStudy(s);
   // Rents are renegotiated once a year and recover only part of what inflation
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
@@ -3867,6 +3995,8 @@ export function parseSave(raw: string): GameState | null {
   if (typeof game.childInsured !== 'boolean') game.childInsured = false;
   if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
   if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
+  if (!Number.isFinite(game.rateDrift)) game.rateDrift = 0;
+  if (typeof game.cardMinimum !== 'boolean') game.cardMinimum = false;
   if (!Number.isFinite(game.dcaMonthly) || game.dcaMonthly < 0) game.dcaMonthly = 0;
   if (!Number.isFinite(game.dcaPot) || game.dcaPot < 0) game.dcaPot = 0;
   if (!Number.isFinite(game.dcaPaid) || game.dcaPaid < 0) game.dcaPaid = 0;
