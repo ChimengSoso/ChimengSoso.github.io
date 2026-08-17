@@ -740,6 +740,7 @@ export function buyTaxFund(s: GameState, amount: number): void {
   // The refund lands with the filing rather than at the till, which is close
   // enough to how it feels: the money comes back, months later, as a lump.
   s.cash += refund;
+  s.refundsTaken += refund;
   s.taxFundDue = false;
   s.pending = null;
   note(
@@ -1222,6 +1223,15 @@ export function createGame(
     // allows and never touch it again, so that is where the game starts them.
     pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
     pfPot: 0,
+    interestPaid: 0,
+    monthsUnderwater: 0,
+    fireSales: 0,
+    investedTotal: 0,
+    incomeBought: 0,
+    shadowPot: 0,
+    incomeReceived: 0,
+    taxPaid: 0,
+    refundsTaken: 0,
     rateDrift: 0,
     cardMinimum: false,
     dcaMonthly: 0,
@@ -1599,8 +1609,73 @@ export function setCardMinimum(s: GameState, on: boolean): void {
   checkEscape(s);
 }
 
+/* ------------------------------------------------------- the report card */
+
+/**
+ * What the player actually did, as opposed to how it turned out.
+ *
+ * A game that only reports net worth teaches whoever had the luckiest cards
+ * that they are good at this. These are the numbers a teacher would ask for
+ * instead: what the borrowing cost, how many months were spent underwater, how
+ * often something had to be sold in a hurry, and what the same money would have
+ * done sitting in an index fund the whole time.
+ */
+export interface ReportCard {
+  interestPaid: number;
+  monthsUnderwater: number;
+  fireSales: number;
+  investedTotal: number;
+  incomeBought: number;
+  /** every baht those holdings have handed over since they were bought */
+  incomeReceived: number;
+  /** yearly income bought per baht invested, which is the only yield that matters here */
+  yieldOnCost: number;
+  benchmark: number;
+  benchmarkGap: number;
+  taxPaid: number;
+  refundsTaken: number;
+}
+
+/**
+ * The shadow portfolio: every baht ever put into a deal, dropped into a broad
+ * fund on the same day instead and left alone. It is not an argument that funds
+ * beat property; it is the number that makes the argument possible at all.
+ */
+export function benchmarkValue(s: GameState): number {
+  return Math.round(s.shadowPot);
+}
+
+export function reportCard(s: GameState): ReportCard {
+  const invested = Math.round(s.investedTotal);
+  const income = Math.round(s.incomeBought);
+  return {
+    interestPaid: Math.round(s.interestPaid),
+    monthsUnderwater: s.monthsUnderwater,
+    fireSales: s.fireSales,
+    investedTotal: invested,
+    incomeBought: income,
+    incomeReceived: Math.round(s.incomeReceived),
+    yieldOnCost: invested > 0 ? (income * 12) / invested : 0,
+    benchmark: benchmarkValue(s),
+    benchmarkGap: Math.round(
+      s.assets.reduce((sum, a) => sum + assetValue(a) - a.debt, 0) + s.incomeReceived - s.shadowPot,
+    ),
+    taxPaid: Math.round(s.taxPaid),
+    refundsTaken: Math.round(s.refundsTaken),
+  };
+}
+
+/** Money going into a holding, recorded for the report and for the shadow. */
+function recordInvestment(s: GameState, cash: number, monthlyIncome: number): void {
+  if (cash <= 0) return;
+  s.investedTotal += cash;
+  s.incomeBought += monthlyIncome;
+  s.shadowPot += cash;
+}
+
 export function amortize(s: GameState): void {
   for (const d of s.debts) {
+    s.interestPaid += d.balance * d.rate;
     const principal = Math.max(0, d.payment - d.balance * d.rate);
     d.balance = Math.max(0, d.balance - principal);
     // A minimum payment is a share of what is left, so it falls as the balance
@@ -1609,6 +1684,7 @@ export function amortize(s: GameState): void {
   }
   for (const a of s.assets) {
     if (a.debt <= 0) continue;
+    s.interestPaid += a.debt * MORTGAGE_RATE;
     const principal = Math.max(0, a.mortgagePay - a.debt * MORTGAGE_RATE);
     a.debt = Math.max(0, a.debt - principal);
     if (a.debt <= 0) {
@@ -1942,6 +2018,13 @@ function monthPassed(s: GameState): void {
   s.months += 1;
   pfMonth(s);
   s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
+  s.shadowPot *= 1 + DCA_RETURN / 12;
+  // What the holdings actually handed over this month. The fund's return is
+  // inside its own value, so unless the rent is counted too the comparison is
+  // rigged against the thing that pays monthly.
+  s.incomeReceived += passiveIncome(s) + corpRevenue(s);
+  if (s.cash < 0) s.monthsUnderwater += 1;
+  s.taxPaid += taxes(s);
   dcaMonth(s);
   // December, when the whole country remembers this at once.
   if (s.months > 0 && s.months % 12 === 0) {
@@ -2141,6 +2224,7 @@ export function buyDeal(s: GameState, qty: number, by: Buyer = 'me'): void {
   const price = dealPrice(s, card);
   if (buyer === 'corp') s.corpCash -= per * n;
   else s.cash -= per * n;
+  recordInvestment(s, per * n, card.cashflow * n);
   if (card.symbol) s.prices[card.symbol] = price;
 
   // Only traded symbols stack into one holding; two condos stay two condos. A
@@ -2427,6 +2511,7 @@ export function buyFromMarket(s: GameState, qty: number): void {
   if (n === 0) return;
 
   s.cash -= unit * n;
+  recordInvestment(s, unit * n, (card.cashflow ?? 0) * n);
   const existing = s.assets.find((a) => a.cardId === card.id && a.symbol === card.symbol);
   if (existing) {
     const totalCost = existing.costPerUnit * existing.qty + unit * n;
@@ -3633,6 +3718,7 @@ export function fireSaleShortfall(a: Asset, qty: number): number {
 export function fireSale(s: GameState, assetUid: string, qty: number): void {
   const a = s.assets.find((x) => x.uid === assetUid);
   if (!a) return;
+  s.fireSales += 1;
   const n = Math.max(1, Math.min(qty, a.qty));
   const proceeds = fireSaleValue(a, n);
   const shortfall = Math.round(fireSaleShortfall(a, n));
@@ -3996,6 +4082,9 @@ export function parseSave(raw: string): GameState | null {
   if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
   if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
   if (!Number.isFinite(game.rateDrift)) game.rateDrift = 0;
+  for (const key of ['interestPaid', 'monthsUnderwater', 'fireSales', 'investedTotal', 'incomeBought', 'shadowPot', 'incomeReceived', 'taxPaid', 'refundsTaken'] as const) {
+    if (!Number.isFinite(game[key])) game[key] = 0;
+  }
   if (typeof game.cardMinimum !== 'boolean') game.cardMinimum = false;
   if (!Number.isFinite(game.dcaMonthly) || game.dcaMonthly < 0) game.dcaMonthly = 0;
   if (!Number.isFinite(game.dcaPot) || game.dcaPot < 0) game.dcaPot = 0;

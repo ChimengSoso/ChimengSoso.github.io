@@ -497,6 +497,22 @@ export interface GameState {
    * Held on the state rather than on each loan so every mortgage moves together,
    * the way one bank's MRR moves every borrower at once.
    */
+  /**
+   * The tally the ending report is built from. None of these change how the
+   * game plays; they are what the player did, kept so the last screen can say
+   * something more useful than whether the dice were kind.
+   */
+  interestPaid: number;
+  monthsUnderwater: number;
+  fireSales: number;
+  investedTotal: number;
+  incomeBought: number;
+  /** every baht ever invested, grown in a broad fund instead, for comparison */
+  shadowPot: number;
+  /** rent and profit those holdings have paid out over the whole game */
+  incomeReceived: number;
+  taxPaid: number;
+  refundsTaken: number;
   rateDrift: number;
   /** the card is being paid the smallest amount it will take */
   cardMinimum: boolean;
