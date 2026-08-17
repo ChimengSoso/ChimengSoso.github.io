@@ -629,6 +629,15 @@ export const UI = {
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
   partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
   payrollTitle: { th: 'หักจากเงินเดือน', en: 'Taken from the payslip' },
+  dcaTitle: { th: 'ตัดบัญชีซื้อกองทุนดัชนีทุกเดือน', en: 'A standing order into an index fund' },
+  dcaMonthlyLabel: { th: 'ตัดเดือนละ', en: 'Taken monthly' },
+  dcaPaidIn: { th: 'ใส่ไปแล้วทั้งหมด', en: 'Paid in so far' },
+  dcaWorth: { th: 'ตอนนี้มูลค่า', en: 'Worth today' },
+  dcaSet: { th: 'ตั้งยอดต่อเดือน', en: 'Monthly amount' },
+  dcaNote: {
+    th: 'กองทุนดัชนีไม่จ่ายอะไรเข้ากระเป๋าทุกเดือน มันจึงไม่ขยับเส้นชัยของเกมนี้เลยสักบาท สิ่งที่มันทำคือโตทบต้นไปเรื่อย ๆ ในช่องความมั่งคั่งสุทธิ ตัดอัตโนมัติแปลว่าไม่ต้องตัดสินใจใหม่ทุกเดือน ซึ่งเป็นเหตุผลเดียวที่คนส่วนใหญ่ทำได้ต่อเนื่อง เดือนไหนเงินไม่พอ ระบบจะข้ามให้เอง',
+    en: 'An index fund pays nothing into your pocket each month, so it never moves this game’s finish line by a single baht. What it does is compound quietly inside your net worth. A standing order means the decision is not made again every month, which is the only reason most people keep it up; a month with too little cash is simply skipped.',
+  },
   taxFundTag: { th: 'ปลายปี', en: 'December' },
   taxFundTitle: { th: 'ซื้อกองทุนลดหย่อนภาษีไหม', en: 'A tax-deductible fund, before the year ends' },
   taxFundBody: {
