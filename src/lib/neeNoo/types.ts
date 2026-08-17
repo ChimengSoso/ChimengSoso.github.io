@@ -97,7 +97,10 @@ export interface Profession {
   name: Loc;
   blurb: Loc;
   salary: number;
-  taxes: number;
+  // No `taxes` field: it used to be a hand-written figure per job and it had
+  // drifted a long way from the real ladder (a ฿22,000 salary was billed ฿900 a
+  // month when it actually owes nothing at all). Tax is computed from income
+  // now, by category, in `taxBill`.
   /** food, transport, phone… everything not itemised as a debt payment */
   otherExpenses: number;
   childCost: number;

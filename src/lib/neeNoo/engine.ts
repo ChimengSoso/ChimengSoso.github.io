@@ -349,28 +349,157 @@ export function childExpense(s: GameState): number {
   return Math.round(s.childBorn.reduce((sum, born) => sum + per * childStage(s, born).scale, 0));
 }
 
+/* ------------------------------------------------------------- income tax */
+
 /**
- * Income tax follows the income. Once the salary is gone there is no payslip to
- * tax, so the line is recomputed at the same effective rate against what is
- * actually coming in. It shrinks at the moment of quitting and grows again as
- * the portfolio does, which is what makes the fast track breathable.
+ * เงินได้สุทธิ run through มาตรา 48(1). The first ฿150,000 is exempt rather than
+ * zero-rated, which comes to the same thing here.
  */
-export function taxes(s: GameState): number {
-  const p = profession(s);
-  // Tax follows the payslip, not the job title. The card's figure is the tax on
-  // this job's full salary, so anyone earning less than that (a new joiner on
-  // entry pay, a pilot working off a bond, a shop in a slump) pays the same
-  // share of a smaller number rather than the veteran's whole bill.
-  if (!s.quit) {
-    const full = p.salary * payLevel(s);
-    const share = full > 0 ? salary(s) / full : 0;
-    return Math.round(p.taxes * payLevel(s) * share);
+export const TAX_BRACKETS: { size: number; rate: number }[] = [
+  { size: 150000, rate: 0 },
+  { size: 150000, rate: 0.05 },
+  { size: 200000, rate: 0.1 },
+  { size: 250000, rate: 0.15 },
+  { size: 250000, rate: 0.2 },
+  { size: 1000000, rate: 0.25 },
+  { size: 3000000, rate: 0.3 },
+  { size: Number.POSITIVE_INFINITY, rate: 0.35 },
+];
+/** ค่าลดหย่อนส่วนตัว and ค่าลดหย่อนบุตร, the two every player has */
+export const ALLOWANCE_SELF = 60000;
+export const ALLOWANCE_CHILD = 30000;
+/** 40(1): half the pay, capped, which is why big salaries lose this race */
+export const SALARY_DEDUCT_RATE = 0.5;
+export const SALARY_DEDUCT_CAP = 100000;
+/** 40(5) flat deduction for buildings and land let out */
+export const RENT_DEDUCT = 0.3;
+/** 40(8) flat deduction for a trade */
+export const BIZ_DEDUCT = 0.6;
+/** 40(4) dividends: withheld at source and the taxpayer may stop there */
+export const DIVIDEND_TAX = 0.1;
+
+export interface TaxSlice {
+  gross: number;
+  deduct: number;
+  taxable: number;
+}
+
+export interface TaxBill {
+  /** 40(1): the payslip, and a civil-service pension, which is taxed like one */
+  salary: TaxSlice;
+  /** 40(5): rent from property */
+  rent: TaxSlice;
+  /** 40(8): profit from a trade */
+  business: TaxSlice;
+  /** 40(4): dividends and interest, settled at source and off the ladder */
+  dividendGross: number;
+  allowance: number;
+  net: number;
+  ladderYear: number;
+  dividendYear: number;
+  corpYear: number;
+  year: number;
+  month: number;
+}
+
+/** Tax on เงินได้สุทธิ for one year, walked bracket by bracket. */
+export function ladderTax(net: number): number {
+  let left = Math.max(0, net);
+  let owed = 0;
+  for (const b of TAX_BRACKETS) {
+    if (left <= 0) break;
+    const slice = Math.min(left, b.size);
+    owed += slice * b.rate;
+    left -= slice;
   }
-  // Inside a company the rate is flat and only the half taken out as salary or
-  // dividend is taxed personally; the rest is left to compound in the company.
-  if (s.incorporated) return Math.round(passiveIncome(s) * CORP_TAX_RATE * 0.5);
-  const rate = p.salary > 0 ? p.taxes / p.salary : 0;
-  return Math.round(passiveIncome(s) * rate);
+  return owed;
+}
+
+/** The marginal rate the next baht of ladder income would meet. */
+export function marginalRate(net: number): number {
+  let left = Math.max(0, net);
+  let rate = 0;
+  for (const b of TAX_BRACKETS) {
+    rate = b.rate;
+    if (left < b.size) break;
+    left -= b.size;
+  }
+  return rate;
+}
+
+const taxSlice = (gross: number, deduct: number): TaxSlice => ({
+  gross,
+  deduct,
+  taxable: Math.max(0, gross - deduct),
+});
+
+/** Monthly cash flow from the holdings that fall into one category of income. */
+function incomeFrom(s: GameState, pick: (a: Asset) => boolean): number {
+  return Math.max(0, s.assets.filter(pick).reduce((sum, a) => sum + assetCashflow(a), 0));
+}
+
+/**
+ * The whole bill, by category, because in Thailand the category is the point.
+ *
+ * The same ฿50,000 a month is taxed three different ways depending on where it
+ * came from: a payslip climbs the ladder with a deduction capped at ฿100,000 a
+ * year, rent climbs the same ladder but only 70% of it is counted, a trade only
+ * 40%, and dividends leave the ladder entirely at a flat 10%. Which one is
+ * cheapest changes as the player climbs, which is the argument the whole game
+ * is making, and it was invisible while passive income was taxed at nothing at
+ * all until the day you quit.
+ */
+export function taxBill(s: GameState): TaxBill {
+  const p = profession(s);
+  // A civil-service pension is 40(1) income like any wage. The social-security
+  // old-age benefit and the state's ฿600 allowance are both exempt, so neither
+  // of those ever reaches this line.
+  const payYear = (salary(s) + (p.pension === 'civil' ? pensionIncome(s) : 0)) * 12;
+  const salaryLine = taxSlice(payYear, Math.min(payYear * SALARY_DEDUCT_RATE, SALARY_DEDUCT_CAP));
+
+  const rentYear = incomeFrom(s, (a) => a.kind === 'property') * 12;
+  const bizYear = incomeFrom(s, (a) => a.kind === 'business') * 12;
+  const divYear = incomeFrom(s, (a) => a.kind === 'stock' || a.kind === 'gold') * 12;
+
+  // Inside a company the rent and the trade are the company's income, not
+  // yours, so they leave your ladder and meet the company's rate instead. The
+  // full two-pocket company is a separate piece of work; this keeps the old
+  // behaviour coherent with the new model until then.
+  const inCompany = s.incorporated;
+  const rentLine = taxSlice(inCompany ? 0 : rentYear, inCompany ? 0 : rentYear * RENT_DEDUCT);
+  const bizLine = taxSlice(inCompany ? 0 : bizYear, inCompany ? 0 : bizYear * BIZ_DEDUCT);
+  const corpYear = inCompany ? (rentYear + bizYear) * CORP_TAX_RATE * 0.5 : 0;
+
+  const allowance = ALLOWANCE_SELF + s.children * ALLOWANCE_CHILD;
+  const net = Math.max(0, salaryLine.taxable + rentLine.taxable + bizLine.taxable - allowance);
+  const ladderYear = ladderTax(net);
+  const dividendYear = divYear * DIVIDEND_TAX;
+  const year = ladderYear + dividendYear + corpYear;
+
+  return {
+    salary: salaryLine,
+    rent: rentLine,
+    business: bizLine,
+    dividendGross: divYear,
+    allowance,
+    net,
+    ladderYear,
+    dividendYear,
+    corpYear,
+    year,
+    month: Math.round(year / 12),
+  };
+}
+
+export function taxes(s: GameState): number {
+  return taxBill(s).month;
+}
+
+/** The tax a profession's starting salary alone would attract, for the setup screen. */
+export function startingTax(p: Profession): number {
+  const payYear = p.salary * 12;
+  const taxable = Math.max(0, payYear - Math.min(payYear * SALARY_DEDUCT_RATE, SALARY_DEDUCT_CAP));
+  return Math.round(ladderTax(Math.max(0, taxable - ALLOWANCE_SELF)) / 12);
 }
 
 export function debtPayments(s: GameState): number {
@@ -2128,8 +2257,11 @@ export function donate(s: GameState, amount: number): void {
  * bigger than you is simply a cost.
  */
 export function corpSaving(s: GameState): number {
+  if (s.incorporated) return 0;
   const personal = taxes(s);
-  const corporate = Math.round(passiveIncome(s) * CORP_TAX_RATE * 0.5) + CORP_MONTHLY_COST;
+  // The same bill with the rent and the trade moved across, which is the only
+  // part a company changes, plus the accountant it changes it with.
+  const corporate = taxes({ ...s, incorporated: true }) + CORP_MONTHLY_COST;
   return personal - corporate;
 }
 

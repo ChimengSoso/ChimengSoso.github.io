@@ -222,6 +222,41 @@ const description =
     /* A row that is a heads-up rather than a monthly bill says so under itself,
        so the figure beside it is never read as part of the cash-flow total. */
     .nn-rows .nn-rownote{display:block;font-size:0.7rem;line-height:1.35;opacity:0.75;}
+    /* A statement row that can explain itself. Styled as the label it replaces
+       so the sheet still scans as a list, with only the marker to say it opens. */
+    .nn-why{
+      background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;
+      display:inline-flex;align-items:center;gap:0.3rem;text-align:left;
+      border-bottom:1px dashed currentColor;
+    }
+    .nn-why span{
+      font-size:0.62rem;line-height:1;font-weight:700;
+      width:0.95rem;height:0.95rem;flex:none;border-radius:50%;
+      display:inline-flex;align-items:center;justify-content:center;
+      background:var(--nn-line);color:var(--nn-ink);
+    }
+    .nn-why:hover span, .nn-why:focus-visible span{background:var(--nn-gold);color:#10151f;}
+    /* Working shown as a table, scrolling inside its own card so a narrow phone
+       never scrolls the whole dialog sideways. */
+    .nn-tbl{margin:0.9rem 0;overflow-x:auto;border:1px solid var(--nn-line);border-radius:0.6rem;background:rgba(0,0,0,0.18);}
+    .nn-tbl table{border-collapse:collapse;width:100%;font-size:0.78rem;}
+    .nn-tbl caption{
+      text-align:left;padding:0.5rem 0.7rem;font-size:0.66rem;letter-spacing:0.08em;
+      text-transform:uppercase;color:var(--nn-muted);border-bottom:1px solid var(--nn-line);
+    }
+    .nn-tbl th, .nn-tbl td{padding:0.4rem 0.7rem;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+    .nn-tbl thead th{font-size:0.66rem;color:var(--nn-muted);font-weight:600;}
+    .nn-tbl tbody th{text-align:left;font-weight:600;white-space:normal;}
+    .nn-tbl tbody th small{display:block;font-weight:400;font-size:0.66rem;color:var(--nn-muted);}
+    .nn-tbl tbody tr + tr{border-top:1px solid var(--nn-line);}
+    .nn-tbl .muted{color:var(--nn-muted);}
+    /* The bracket the player is standing in right now. */
+    .nn-tbl .nn-taxhere{background:rgba(214,168,74,0.14);}
+    .nn-tbl .nn-taxhere th{color:var(--nn-gold);}
+    .nn-tbl figcaption, .nn-tbl + figcaption{font-size:0.7rem;}
+    .nn-tbl figcaption{padding:0.45rem 0.7rem;color:var(--nn-muted);border-top:1px solid var(--nn-line);}
+    .facts dt small{display:block;font-weight:400;font-size:0.66rem;color:var(--nn-muted);}
+    .facts dd small{display:block;font-weight:400;font-size:0.66rem;color:var(--nn-muted);}
     .nn-sec{
       margin-top:0.9rem;
       padding-top:0.7rem;
@@ -978,6 +1013,10 @@ const description =
       fastIncomeLoss,
       severance,
       taxes,
+      taxBill,
+      startingTax,
+      marginalRate,
+      TAX_BRACKETS,
       checkEscape,
       checkTier,
       acceptBaby,
@@ -1109,6 +1148,7 @@ const description =
     } from '../../lib/neeNoo/engine';
     import { TILE_SHORT, UI } from '../../lib/neeNoo/ui-text';
     import type { GameState, Lang, Loc } from '../../lib/neeNoo/types';
+    import type { TaxSlice } from '../../lib/neeNoo/engine';
 
     const SAVE_KEY = 'neeNooSave';
     const LANG_KEY = 'neeNooLang';
@@ -1126,7 +1166,7 @@ const description =
     let pickedDream = dreams[0]?.id ?? '';
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
-    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | null = null;
+    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | null = null;
     /** the player dismissed the result card to look at (or screenshot) the board */
     let endingClosed = false;
     /** which debt row has its breakdown open */
@@ -1256,7 +1296,7 @@ const description =
     function professionPreview(id: string): { expenses: number; cashflow: number } {
       const p = professionById.get(id);
       if (!p) return { expenses: 0, cashflow: 0 };
-      const expenses = p.taxes + p.otherExpenses + p.debts.reduce((sum, d) => sum + d.payment, 0);
+      const expenses = startingTax(p) + p.otherExpenses + p.debts.reduce((sum, d) => sum + d.payment, 0);
       return { expenses, cashflow: p.salary - expenses };
     }
 
@@ -1516,7 +1556,9 @@ const description =
         <div class="nn-sec">
           <h3>${T(UI.expenses)}</h3>
           <dl class="nn-rows">
-            <dt>${T(UI.taxes)}</dt><dd>${money(taxes(s))}</dd>
+            <!-- The one number on the sheet nobody can reproduce in their head,
+                 so it opens its own working. -->
+            <dt><button type="button" class="nn-why" data-act="taxwhy">${T(UI.taxes)}<span aria-hidden="true">?</span></button></dt><dd>${money(taxes(s))}</dd>
             <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
             ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})</dt><dd>${money(childExpense(s))}</dd>` : ''}
             ${tuitionRow(s)}
@@ -1724,11 +1766,95 @@ const description =
       // A finished game keeps its result on screen until the player dismisses
       // it. Nobody should be rushed off a win they just spent 80 turns earning.
       if ((s.phase === 'won' || s.phase === 'lost') && !endingClosed) return endingDialog(s);
+      if (modal === 'tax') return taxDialog(s);
       if (modal === 'fastIntro') return fastIntroDialog(s);
       // Sits on top of the rescue card, since borrowing is one of the two ways
       // out of it.
       if (modal === 'borrow') return borrowDialog(s);
       return pendingDialog(s);
+    }
+
+    /**
+     * The tax line, shown as the sum it actually is.
+     *
+     * Each category is laid out the way a filing is: what came in, what the code
+     * lets you take off it, and what is left to be taxed. The three that climb
+     * the ladder are added up, the allowances come off, and the brackets are
+     * walked one at a time so the player can see which one they are standing in
+     * and what the next baht would cost. Dividends sit apart, because they are
+     * settled at source and never reach the ladder at all.
+     */
+    function taxDialog(s: GameState): string {
+      const b = taxBill(s);
+      const perMonth = (n: number): string => money(n / 12);
+      const cat = (label: Loc, note: Loc, line: TaxSlice): string =>
+        line.gross <= 0
+          ? ''
+          : `<tr><th>${T(label)}<small>${T(note)}</small></th>
+              <td>${perMonth(line.gross)}</td>
+              <td class="pos">-${perMonth(line.deduct)}</td>
+              <td><b>${perMonth(line.taxable)}</b></td></tr>`;
+
+      // Only the brackets the player has actually reached, plus the one they are
+      // standing in, so a ฿26,000 salary does not scroll through eight rows to
+      // find out it owes ฿8.
+      let left = b.net;
+      const rows: string[] = [];
+      let floor = 0;
+      for (const br of TAX_BRACKETS) {
+        const slice = Math.min(Math.max(0, left), br.size);
+        const top = Number.isFinite(br.size) ? floor + br.size : Number.POSITIVE_INFINITY;
+        const here = slice > 0 && left > 0;
+        rows.push(`<tr class="${here && left <= br.size ? 'nn-taxhere' : ''}">
+          <th>${money(floor)}${Number.isFinite(top) ? ` - ${money(top)}` : '+'}</th>
+          <td>${Math.round(br.rate * 100)}%</td>
+          <td>${slice > 0 ? money(slice) : '—'}</td>
+          <td class="${slice > 0 && br.rate > 0 ? 'neg' : 'muted'}">${slice > 0 ? money(slice * br.rate) : '—'}</td>
+        </tr>`);
+        left -= slice;
+        floor = Number.isFinite(top) ? top : floor;
+        if (left <= 0) break;
+      }
+
+      return `<div class="kind">${T(UI.taxes)}</div>
+        <h2 id="nn-dlg-title">${T(UI.taxWhyTitle)}</h2>
+        <p class="story">${T(UI.taxWhyBody)}</p>
+        <figure class="nn-tbl">
+          <table>
+            <caption>${T(UI.taxByCategory)}</caption>
+            <thead><tr><th>${T(UI.taxCatHead)}</th><th>${T(UI.taxGross)}</th><th>${T(UI.taxDeduct)}</th><th>${T(UI.taxTaxable)}</th></tr></thead>
+            <tbody>
+              ${cat(UI.taxCatSalary, UI.taxCatSalaryNote, b.salary)}
+              ${cat(UI.taxCatRent, UI.taxCatRentNote, b.rent)}
+              ${cat(UI.taxCatBiz, UI.taxCatBizNote, b.business)}
+            </tbody>
+          </table>
+          <figcaption>${T(UI.taxPerMonthNote)}</figcaption>
+        </figure>
+        <dl class="facts">
+          <dt>${T(UI.taxAllowance)}</dt><dd class="pos">-${perMonth(b.allowance)}</dd>
+          <!-- The bridge between the two tables: the first is per month because
+               that is how the sheet reads, the ladder is per year because that
+               is how the law is written and how everyone quotes it. -->
+          <dt class="nn-rowsplit">${T(UI.taxNet)}<small>${T(UI.taxNetBridge)}</small></dt>
+          <dd class="nn-rowsplit"><b>${perMonth(b.net)}</b><small>${money(b.net)}${T(UI.perYear)}</small></dd>
+        </dl>
+        <figure class="nn-tbl">
+          <table>
+            <caption>${T(UI.taxLadder)}</caption>
+            <thead><tr><th>${T(UI.taxBand)}</th><th>${T(UI.taxRate)}</th><th>${T(UI.taxInBand)}</th><th>${T(UI.taxOwed)}</th></tr></thead>
+            <tbody>${rows.join('')}</tbody>
+          </table>
+          <figcaption>${T(UI.taxYearNote)} · ${T(UI.taxMarginalNow)} ${Math.round(marginalRate(b.net) * 100)}%</figcaption>
+        </figure>
+        <dl class="facts">
+          <dt>${T(UI.taxFromLadder)}<small>${money(b.ladderYear)}${T(UI.perYear)}</small></dt><dd class="neg">${perMonth(b.ladderYear)}</dd>
+          ${b.dividendGross > 0 ? `<dt>${T(UI.taxDividend)}<small>${T(UI.taxDividendNote)}</small></dt><dd class="neg">${perMonth(b.dividendYear)}</dd>` : ''}
+          ${b.corpYear > 0 ? `<dt>${T(UI.taxCorp)}</dt><dd class="neg">${perMonth(b.corpYear)}</dd>` : ''}
+          <dt class="nn-rowsplit">${T(UI.taxTotalMonth)}</dt><dd class="nn-rowsplit neg"><b>${money(b.month)}</b></dd>
+        </dl>
+        <p class="nn-warnline">${T(UI.taxDisclaimer)}</p>
+        <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.ok)}</button></div>`;
     }
 
     function rulesDialog(): string {
@@ -2685,6 +2811,9 @@ const description =
         }
         case 'rules':
           modal = 'rules';
+          break;
+        case 'taxwhy':
+          modal = 'tax';
           break;
         case 'restart':
           modal = state ? 'confirmRestart' : null;

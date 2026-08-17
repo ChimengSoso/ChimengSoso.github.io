@@ -108,8 +108,7 @@ export const professions: Profession[] = [
       en: 'The smallest salary in the game, but also the lightest expenses. The finish line is closer than it looks.',
     },
     salary: 22000,
-    taxes: 900,
-    otherExpenses: 6000,
+    otherExpenses: 6900,
     childCost: 1300,
     cash: 30000,
     debts: [
@@ -131,8 +130,7 @@ export const professions: Profession[] = [
       en: 'Stable, already has a house and a car, but the student loan still shows up every month.',
     },
     salary: 26000,
-    taxes: 1300,
-    otherExpenses: 6500,
+    otherExpenses: 7800,
     childCost: 1500,
     cash: 30000,
     debts: [
@@ -156,8 +154,7 @@ export const professions: Profession[] = [
       en: 'Works hard and earns more than the teacher, but the bigger house eats more of it.',
     },
     salary: 34000,
-    taxes: 2100,
-    otherExpenses: 7500,
+    otherExpenses: 9200,
     childCost: 1700,
     cash: 35000,
     debts: [
@@ -181,8 +178,7 @@ export const professions: Profession[] = [
       en: 'Already a business owner, but the income still depends on standing behind the counter, so it counts as salary.',
     },
     salary: 38000,
-    taxes: 1800,
-    otherExpenses: 8200,
+    otherExpenses: 9400,
     childCost: 1800,
     cash: 35000,
     debts: [
@@ -204,8 +200,7 @@ export const professions: Profession[] = [
       en: 'Good salary, big house, nice car, and expenses that grew exactly as fast as the salary did.',
     },
     salary: 48000,
-    taxes: 3600,
-    otherExpenses: 10400,
+    otherExpenses: 12400,
     childCost: 2100,
     cash: 50000,
     debts: [
@@ -228,8 +223,7 @@ export const professions: Profession[] = [
       en: 'The most starting cash of the mid-salary group, so the investing can start earlier.',
     },
     salary: 60000,
-    taxes: 5200,
-    otherExpenses: 13000,
+    otherExpenses: 15200,
     childCost: 2300,
     cash: 70000,
     debts: [
@@ -251,8 +245,7 @@ export const professions: Profession[] = [
       en: 'The second-highest salary, yet it takes eighty-four thousand a month of passive income to get out.',
     },
     salary: 110000,
-    taxes: 13000,
-    otherExpenses: 24000,
+    otherExpenses: 24100,
     childCost: 3600,
     cash: 150000,
     debts: [
@@ -276,8 +269,7 @@ export const professions: Profession[] = [
       en: 'The highest salary in the game and the most left over, but also the most distant finish line: a hundred and ten thousand a month of passive income.',
     },
     salary: 150000,
-    taxes: 19000,
-    otherExpenses: 32000,
+    otherExpenses: 28100,
     childCost: 4200,
     cash: 250000,
     debts: [
