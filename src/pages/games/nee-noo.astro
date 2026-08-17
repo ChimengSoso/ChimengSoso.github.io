@@ -187,17 +187,22 @@ const description =
     /* --------------------------------------------------------------- game */
     .nn-grid{
       display:grid;
-      grid-template-columns:minmax(0,19rem) minmax(0,1fr) minmax(0,17rem);
+      /* The board is capped at 34rem however wide the window is, so the middle
+         column is sized to it and the width left over goes to the two columns
+         that actually have numbers in them. */
+      grid-template-columns:minmax(0,20rem) minmax(0,34rem) minmax(0,20rem);
+      justify-content:center;
       gap:1rem;
       align-items:start;
     }
-    @media (max-width:1080px){
-      .nn-grid{grid-template-columns:minmax(0,1fr) minmax(0,17rem);}
-      .nn-play{order:-1;grid-column:1 / -1;}
+    .nn-mid{display:grid;gap:1rem;}
+    @media (max-width:1180px){
+      .nn-grid{grid-template-columns:minmax(0,1fr) minmax(0,19rem);}
+      .nn-mid{order:-1;grid-column:1 / -1;}
     }
     @media (max-width:760px){
       .nn-grid{grid-template-columns:minmax(0,1fr);}
-      .nn-play{grid-column:auto;}
+      .nn-mid{grid-column:auto;}
     }
     .nn-panel{
       background:var(--nn-panel);
@@ -265,6 +270,27 @@ const description =
     .nn-seedrow{display:flex;align-items:center;gap:0.5rem;margin-top:1rem;font-size:0.78rem;color:var(--nn-muted);}
     .nn-seedrow input{max-width:11rem;}
     .nn-seednote{margin-top:0.3rem;}
+    /* A settings card that is a line until it is asked to be more. */
+    .nn-savings{padding:0;border:1px solid var(--nn-line);border-radius:0.7rem;overflow:hidden;}
+    .nn-savehead{
+      display:flex;align-items:center;justify-content:space-between;gap:0.6rem;width:100%;
+      padding:0.6rem 0.7rem;background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;
+    }
+    .nn-savehead:hover{background:rgba(255,255,255,0.03);}
+    .nn-savehead .nm b{display:block;font-size:0.82rem;color:var(--nn-ink);}
+    .nn-savehead .nm small{display:block;font-size:0.7rem;color:var(--nn-muted);}
+    .nn-savemore{font-size:0.7rem;color:var(--nn-green-bright);white-space:nowrap;}
+    .nn-savebody{padding:0 0.7rem 0.7rem;display:grid;gap:0.7rem;}
+    .nn-savebody .nn-sec{padding:0;border:0;background:none;}
+    /* Two columns of label-and-value, then a row for whatever is wrong. */
+    .nn-statgrid{display:grid;grid-template-columns:1fr 1fr;gap:0.3rem 0.8rem;}
+    .nn-statgrid span{display:flex;justify-content:space-between;gap:0.5rem;background:none;padding:0;}
+    .nn-statgrid i{font-style:normal;color:var(--nn-muted);}
+    .nn-statgrid b{font-weight:600;color:var(--nn-ink);font-variant-numeric:tabular-nums;}
+    .nn-statwarn{margin-top:0.4rem;}
+    .nn-statwarn:empty{display:none;}
+    .nn-borrowbtn{width:100%;margin-top:0.6rem;}
+    .nn-metergoal{margin-top:0.3rem;font-size:0.68rem;color:var(--nn-muted);text-align:center;}
     .nn-report{border:1px solid var(--nn-line);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(0,0,0,0.18);}
     .nn-dca{border:1px solid rgba(47,158,92,0.22);border-radius:0.7rem;padding:0.7rem 0.8rem;}
     .nn-dcaset{margin-top:0.5rem;flex-wrap:wrap;}
@@ -1073,13 +1099,21 @@ const description =
     <section data-screen="setup"></section>
 
     <section data-screen="game" hidden>
+      <!-- Three columns that each mean something: what came in and went out
+           this month on the left, what is happening right now in the middle,
+           and what is owned and owed on the right. The two sides are the two
+           financial statements, which is a distinction the game can teach for
+           free by laying them out apart. -->
       <div class="nn-grid">
         <aside class="nn-panel" data-sheet></aside>
-        <main class="nn-panel nn-play">
-          <div class="nn-board" data-board></div>
-          <div class="nn-controls" data-controls></div>
-        </main>
-        <aside class="nn-panel" data-logpanel></aside>
+        <div class="nn-mid">
+          <main class="nn-panel nn-play">
+            <div class="nn-board" data-board></div>
+            <div class="nn-controls" data-controls></div>
+          </main>
+          <aside class="nn-panel" data-logpanel></aside>
+        </div>
+        <aside class="nn-panel" data-balance></aside>
       </div>
     </section>
 
@@ -1377,6 +1411,8 @@ const description =
     let openDebt: string | null = null;
     /** the full portfolio is on screen rather than the newest few */
     let assetsExpanded = false;
+    /** the savings switches are open for editing rather than folded away */
+    let savingsOpen = false;
 
     /* --- animation state (never saved: it only describes the turn in flight) --- */
     /** a turn is playing out; the roll buttons stay disabled until it finishes */
@@ -1649,14 +1685,119 @@ const description =
       const host = root.querySelector<HTMLElement>('[data-sheet]');
       if (!host) return;
       const passive = passiveIncome(s);
-      const income = totalIncome(s);
-      const expenses = totalExpenses(s);
       const cf = monthlyCashflow(s);
-      const onFast = s.phase === 'fast' || s.phase === 'won';
 
-      // Every loan on the sheet, whether it stands on its own or rides along
-      // with an asset, opens the same breakdown: what this month's payment is
-      // actually buying, and when the thing finally ends.
+      const tierName = TIER_NAMES[Math.max(s.tier, tierOf(s)) - 1];
+      const owned = ownedDreams(s);
+
+      host.innerHTML = `<h2>${T(UI.monthTitle)}</h2>
+        <!-- The headline figures sit above everything, so a screenshot of the
+             top of the panel already tells the whole story. -->
+        <div class="nn-hero">
+          <!-- Every money word on this panel opens its own definition, with
+               this game's figures already in it. -->
+          <span class="nn-hero-label">${term('netWorth', UI.netWorth)}</span>
+          <strong class="nn-hero-figure ${cls(netWorth(s))}">${money(netWorth(s))}</strong>
+          <!-- Owning the company means owning its net assets, so they are part
+               of this figure. What they are worth as spendable money is less,
+               because getting them out is a taxable event, and saying so here is
+               the difference between a lesson and a scoreboard. -->
+          ${s.incorporated && corpEquity(s) !== 0
+            ? `<p class="nn-hero-note">${T(UI.worthIfCashedOut)} <b>${money(worthAfterWindingUp(s))}</b></p>`
+            : ''}
+          <div class="nn-hero-sub">
+            <span><i>${term('passive', s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${money(householdIncome(s))}${T(UI.perMonth)}</b></span>
+            <span><i>${term('cashflow', UI.cashflow)}</i><b class="${cls(cf)}">${signed(cf)}</b></span>
+            <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
+          </div>
+          <p class="nn-hero-tier">${T(UI.tier)} ${Math.max(s.tier, tierOf(s))} · ${tierName ? T(tierName) : ''}${owned.length ? ` · ${T(UI.dreamCollection)} ${owned.length}/${dreams.length}` : ''}</p>
+        </div>
+        <div class="nn-sec">
+          <h3>${T(UI.income)}</h3>
+          <dl class="nn-rows">
+            <!-- The job was named on the setup screen and nowhere else, so
+                 finishing a course and walking into a different career changed
+                 nothing the player could actually see. -->
+            <dt>${T(UI.jobLabel)}</dt><dd>${T(profession(s).name)}${s.entryPay < 1 ? ` <small class="muted">${Math.round(s.entryPay * 100)}%</small>` : ''}</dd>
+            <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
+            ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
+            ${s.incorporated ? `<dt>${T(UI.drawLabel)}</dt><dd class="pos">${money(drawTaken(s))}</dd>` : ''}
+            ${childAllowance(s) > 0 ? `<dt>${T(UI.childAllowanceLabel)}</dt><dd class="pos">${money(childAllowance(s))}</dd>` : ''}
+            <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
+          </dl>
+        </div>
+        <div class="nn-sec">
+          <h3>${T(UI.expenses)}</h3>
+          <dl class="nn-rows">
+            <!-- The one number on the sheet nobody can reproduce in their head,
+                 so it opens its own working. -->
+            <dt><button type="button" class="nn-why" data-act="taxwhy">${T(UI.taxes)}<span aria-hidden="true">?</span></button></dt><dd>${money(taxes(s))}</dd>
+            <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
+            <!-- The bills that stand where a loan was declined. They are listed
+                 separately from the rest of living because the player chose
+                 them, and because they are what the mortgage row would say. -->
+            ${rentCost(s) > 0 ? `<dt>${T(UI.rentLabel)}</dt><dd>${money(rentCost(s))}</dd>` : ''}
+            ${commuteCost(s) > 0 ? `<dt>${T(UI.commuteLabel)}</dt><dd>${money(commuteCost(s))}</dd>` : ''}
+            ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})<span class="nn-rownote">${T(UI.childHalfNote)} ${money(childExpenseGross(s))}</span></dt><dd>${money(childExpense(s))}</dd>` : ''}
+            <!-- The two lines a household has that a single person does not.
+                 They are listed apart from the children's own costs because
+                 they are separate decisions with separate ways out. -->
+            ${childPremium(s) > 0 ? `<dt>${T(UI.childCoverLabel)}</dt><dd>${money(childPremium(s))}</dd>` : ''}
+            ${partnerCost(s) > 0 ? `<dt>${T(UI.partnerLabel)}</dt><dd>${money(partnerCost(s))}</dd>` : ''}
+            ${tuitionRow(s)}
+<!-- The accountant is the company's bill, not the player's. It is listed in
+                 the company block below; leaving it here as well showed it twice
+                 while only charging it once. -->
+            ${s.insuranceCover > 0 ? `<dt>${T(UI.premium)}</dt><dd>${money(insurancePremium(s))}</dd>` : ''}
+            ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
+          </dl>
+        </div>
+        <div class="nn-big nn-cashrow">
+          <span>${term('cashflow', UI.cashflow)}</span>
+          <strong class="${cls(cf)}">${signed(cf)}</strong>
+        </div>
+        <!-- The company's own books. Without this the player had a structure
+             they could not see and could not feel: money went in, a tax rate
+             changed somewhere, and nothing on the sheet ever said "this is the
+             company's, not yours". -->
+        ${s.incorporated ? `<div class="nn-sec nn-corp">
+          <h3>${T(UI.corpTitle)}</h3>
+          <dl class="nn-rows">
+            <dt>${T(UI.corpRevenue)}</dt><dd class="${corpRevenue(s) > 0 ? 'pos' : ''}">${money(corpRevenue(s))}</dd>
+            <dt class="sub">${T(UI.corpDrawOut)}</dt><dd class="sub">-${money(drawTaken(s))}</dd>
+            <dt class="sub">${T(UI.accounting)}</dt><dd class="sub">-${money(CORP_MONTHLY_COST)}</dd>
+            <dt class="sub">${T(UI.corpTaxLabel)}</dt><dd class="sub">-${money(corpTaxMonthly(s))}</dd>
+            <dt class="nn-rowsplit">${T(UI.corpRetained)}</dt><dd class="nn-rowsplit ${cls(corpRetained(s))}">${signed(corpRetained(s))}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>
+            <dt class="nn-total">${term('equity', UI.corpEquityLabel)}</dt><dd class="nn-total ${cls(corpEquity(s))}">${money(corpEquity(s))}</dd>
+          </dl>
+          <button type="button" class="nn-btn nn-btn-gold nn-corpbtn" data-act="corp">${T(UI.corpManage)}</button>
+        </div>` : ''}
+`;
+
+      renderBalance(root, s);
+    }
+
+
+
+    /**
+     * The other statement: what is owned and what is owed, plus the two
+     * standing orders that decide how much of a wage never reaches the wallet.
+     *
+     * It was all one column before, which put a number that changes every month
+     * next to a switch nobody touches twice, and left the right-hand third of a
+     * desktop window empty for the whole game.
+     */
+    function renderBalance(root: Root, s: GameState): void {
+      const host = root.querySelector<HTMLElement>('[data-balance]');
+      if (!host) return;
+      const onFast = s.phase === 'fast' || s.phase === 'won';
+      const owned = ownedDreams(s);
+      const impactTotal = s.assets.reduce((n, a) => n + (a.impact ?? 0), 0);
+
+      // Every loan here, whether it stands on its own or rides along with an
+      // asset, opens the same breakdown: what this month's payment is actually
+      // buying, and when the thing finally ends.
       const loanBody = (balance: number, payment: number, rate: number, lead: string, extra: string): string => {
         const interest = balance * rate;
         const principal = Math.max(0, payment - interest);
@@ -1859,46 +2000,47 @@ const description =
         // alone in that case.
         : assetDebt(s) > 0 ? '' : `<p class="nn-empty">${T(UI.noDebts)}</p>`;
 
-      const tierName = TIER_NAMES[Math.max(s.tier, tierOf(s)) - 1];
-      const owned = ownedDreams(s);
-      const impactTotal = s.assets.reduce((n, a) => n + (a.impact ?? 0), 0);
 
-      host.innerHTML = `<h2>${T(UI.statement)}</h2>
-        <!-- The headline figures sit above everything, so a screenshot of the
-             top of the panel already tells the whole story. -->
-        <div class="nn-hero">
-          <!-- Every money word on this panel opens its own definition, with
-               this game's figures already in it. -->
-          <span class="nn-hero-label">${term('netWorth', UI.netWorth)}</span>
-          <strong class="nn-hero-figure ${cls(netWorth(s))}">${money(netWorth(s))}</strong>
-          <!-- Owning the company means owning its net assets, so they are part
-               of this figure. What they are worth as spendable money is less,
-               because getting them out is a taxable event, and saying so here is
-               the difference between a lesson and a scoreboard. -->
-          ${s.incorporated && corpEquity(s) !== 0
-            ? `<p class="nn-hero-note">${T(UI.worthIfCashedOut)} <b>${money(worthAfterWindingUp(s))}</b></p>`
-            : ''}
-          <div class="nn-hero-sub">
-            <span><i>${term('passive', s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${money(householdIncome(s))}${T(UI.perMonth)}</b></span>
-            <span><i>${term('cashflow', UI.cashflow)}</i><b class="${cls(cf)}">${signed(cf)}</b></span>
-            <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
-          </div>
-          <p class="nn-hero-tier">${T(UI.tier)} ${Math.max(s.tier, tierOf(s))} · ${tierName ? T(tierName) : ''}${owned.length ? ` · ${T(UI.dreamCollection)} ${owned.length}/${dreams.length}` : ''}</p>
+      host.innerHTML = `<h2>${T(UI.ownTitle)}</h2>
+        <div class="nn-sec">
+          <h3>${term('assets', UI.assets)}</h3>
+          ${assetRows}
         </div>
         <div class="nn-sec">
-          <h3>${T(UI.income)}</h3>
-          <dl class="nn-rows">
-            <!-- The job was named on the setup screen and nowhere else, so
-                 finishing a course and walking into a different career changed
-                 nothing the player could actually see. -->
-            <dt>${T(UI.jobLabel)}</dt><dd>${T(profession(s).name)}${s.entryPay < 1 ? ` <small class="muted">${Math.round(s.entryPay * 100)}%</small>` : ''}</dd>
-            <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
-            ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
-            ${s.incorporated ? `<dt>${T(UI.drawLabel)}</dt><dd class="pos">${money(drawTaken(s))}</dd>` : ''}
-            ${childAllowance(s) > 0 ? `<dt>${T(UI.childAllowanceLabel)}</dt><dd class="pos">${money(childAllowance(s))}</dd>` : ''}
-            <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
-          </dl>
+          <h3>${term('liabilities', UI.liabilities)}</h3>
+          <!-- Mortgages live inside their own asset rows, so without this block
+               the liabilities heading reported a fraction of what is owed. -->
+          ${totalDebt(s) > 0 ? `<dl class="nn-rows nn-debtsum">
+            <dt class="nn-total">${T(UI.totalDebt)}</dt><dd class="nn-total neg">${money(totalDebt(s))}</dd>
+            <dt class="sub">${T(UI.personalDebt)}</dt><dd class="sub">${money(personalDebt(s))}</dd>
+            <dt class="sub">${T(UI.assetDebt)}</dt><dd class="sub">${money(assetDebt(s))}</dd>
+            <dt class="nn-rowsplit">${term('debtService', UI.debtService)}</dt><dd class="nn-rowsplit neg">${money(totalDebtService(s))}${T(UI.perMonth)}</dd>
+          </dl>` : ''}
+          ${debtRows}
+          <!-- The way into new debt sits with the debt, not under the dice. -->
+          ${s.phase === 'rat' && !busy ? `<button type="button" class="nn-btn nn-btn-quiet nn-borrowbtn" data-act="borrow">${T(UI.borrowBtn)}</button>` : ''}
         </div>
+
+        ${onFast ? `<div class="nn-sec">
+          <h3>${T(UI.dreamCollection)} ${owned.length}/${dreams.length}</h3>
+          ${owned.length ? `<ul class="nn-dreamlist">${owned.map((d) => `<li><b>${T(d.title)}</b><small>${money(d.cost)}</small></li>`).join('')}</ul>` : ''}
+          <p class="nn-empty">${dreamsDone(s) ? T(UI.allDreamsDone) : `${T(UI.yourDream)}: ${T(dreamById.get(s.dreamId)?.title ?? UI.notYet)} · ${money(dreamById.get(s.dreamId)?.cost ?? 0)}`}</p>
+        </div>
+        <p class="nn-empty" style="margin-top:.6rem">${T(UI.fastGoalLabel)} ${money(fastGoal(s))}${T(UI.perMonth)}</p>` : ''}
+        <!-- Two switches that are set once and then never touched again, so
+             they are folded away behind a line that says where they stand. A
+             number that changes every month and a switch that changes once a
+             game do not belong at the same size. -->
+        ${salary(s) > 0 || dcaValue(s) > 0 || pfPot(s) > 0 ? `<div class="nn-sec nn-savings">
+          <button type="button" class="nn-savehead" data-act="savings" aria-expanded="${savingsOpen}">
+            <span class="nm"><b>${T(UI.savingsTitle)}</b><small>${[
+              hasProvidentFund(s) ? `${T(UI.pfPotLabel)} ${money(pfPot(s))}` : '',
+              s.dcaMonthly > 0 ? `${T(UI.dcaMonthlyLabel)} ${money(s.dcaMonthly)}` : '',
+              dcaValue(s) > 0 ? `${T(UI.dcaWorth)} ${money(dcaValue(s))}` : '',
+            ].filter(Boolean).join(' · ') || T(UI.savingsNone)}</small></span>
+            <span class="nn-savemore">${T(savingsOpen ? UI.savingsClose : UI.savingsEdit)}</span>
+          </button>
+          ${savingsOpen ? `<div class="nn-savebody">
         <!-- The payslip's own deductions, kept apart from ordinary spending
              because one of them is not spending at all: it is savings the
              employer doubles on the way in. -->
@@ -1915,7 +2057,7 @@ const description =
             <span>${T(UI.pfSetRate)}</span>
             ${pfRateOptions().map((r) => `<button type="button" data-act="pfrate" data-id="${r}" aria-pressed="${Math.abs(r - s.pfRate) < 0.001}">${Math.round(r * 100)}%</button>`).join('')}
           </div>
-          <p class="nn-empty">${T(UI.pfNote)}</p>` : ''}
+          <p class="nn-empty"><button type="button" class="nn-why" data-act="define" data-id="providentFund">${T(UI.pfWhy)}<span aria-hidden="true">?</span></button></p>` : ''}
         </div>` : ''}
         <!-- The standing order. It sits with the payslip because that is when
              it happens, and because the decision it represents is the same
@@ -1933,80 +2075,10 @@ const description =
             <button type="button" class="nn-btn" data-act="setdca">${T(UI.setIt)}</button>
             ${dcaValue(s) > 0 ? `<button type="button" class="nn-mini" data-act="selldca">${T(UI.sellNow)}</button>` : ''}
           </div>
-          <p class="nn-empty">${T(UI.dcaNote)}</p>
+          <p class="nn-empty"><button type="button" class="nn-why" data-act="define" data-id="dca">${T(UI.dcaWhy)}<span aria-hidden="true">?</span></button></p>
         </div>` : ''}
-        <div class="nn-sec">
-          <h3>${T(UI.expenses)}</h3>
-          <dl class="nn-rows">
-            <!-- The one number on the sheet nobody can reproduce in their head,
-                 so it opens its own working. -->
-            <dt><button type="button" class="nn-why" data-act="taxwhy">${T(UI.taxes)}<span aria-hidden="true">?</span></button></dt><dd>${money(taxes(s))}</dd>
-            <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
-            <!-- The bills that stand where a loan was declined. They are listed
-                 separately from the rest of living because the player chose
-                 them, and because they are what the mortgage row would say. -->
-            ${rentCost(s) > 0 ? `<dt>${T(UI.rentLabel)}</dt><dd>${money(rentCost(s))}</dd>` : ''}
-            ${commuteCost(s) > 0 ? `<dt>${T(UI.commuteLabel)}</dt><dd>${money(commuteCost(s))}</dd>` : ''}
-            ${s.childBorn.length > 0 ? `<dt>${T(UI.childrenCost)} (${s.childBorn.map((b) => `${childStage(s, b).years}`).join(', ')} ${T(UI.yearsUnit) || 'yr'})<span class="nn-rownote">${T(UI.childHalfNote)} ${money(childExpenseGross(s))}</span></dt><dd>${money(childExpense(s))}</dd>` : ''}
-            <!-- The two lines a household has that a single person does not.
-                 They are listed apart from the children's own costs because
-                 they are separate decisions with separate ways out. -->
-            ${childPremium(s) > 0 ? `<dt>${T(UI.childCoverLabel)}</dt><dd>${money(childPremium(s))}</dd>` : ''}
-            ${partnerCost(s) > 0 ? `<dt>${T(UI.partnerLabel)}</dt><dd>${money(partnerCost(s))}</dd>` : ''}
-            ${tuitionRow(s)}
-<!-- The accountant is the company's bill, not the player's. It is listed in
-                 the company block below; leaving it here as well showed it twice
-                 while only charging it once. -->
-            ${s.insuranceCover > 0 ? `<dt>${T(UI.premium)}</dt><dd>${money(insurancePremium(s))}</dd>` : ''}
-            ${s.debts.map((d) => `<dt class="sub">${T(debtLabel(d.key))}</dt><dd>${money(d.payment)}</dd>`).join('')}
-          </dl>
-        </div>
-        <div class="nn-big nn-cashrow">
-          <span>${term('cashflow', UI.cashflow)}</span>
-          <strong class="${cls(cf)}">${signed(cf)}</strong>
-        </div>
-        <!-- The company's own books. Without this the player had a structure
-             they could not see and could not feel: money went in, a tax rate
-             changed somewhere, and nothing on the sheet ever said "this is the
-             company's, not yours". -->
-        ${s.incorporated ? `<div class="nn-sec nn-corp">
-          <h3>${T(UI.corpTitle)}</h3>
-          <dl class="nn-rows">
-            <dt>${T(UI.corpRevenue)}</dt><dd class="${corpRevenue(s) > 0 ? 'pos' : ''}">${money(corpRevenue(s))}</dd>
-            <dt class="sub">${T(UI.corpDrawOut)}</dt><dd class="sub">-${money(drawTaken(s))}</dd>
-            <dt class="sub">${T(UI.accounting)}</dt><dd class="sub">-${money(CORP_MONTHLY_COST)}</dd>
-            <dt class="sub">${T(UI.corpTaxLabel)}</dt><dd class="sub">-${money(corpTaxMonthly(s))}</dd>
-            <dt class="nn-rowsplit">${T(UI.corpRetained)}</dt><dd class="nn-rowsplit ${cls(corpRetained(s))}">${signed(corpRetained(s))}${T(UI.perMonth)}</dd>
-            <dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>
-            <dt class="nn-total">${term('equity', UI.corpEquityLabel)}</dt><dd class="nn-total ${cls(corpEquity(s))}">${money(corpEquity(s))}</dd>
-          </dl>
-          <button type="button" class="nn-btn nn-btn-gold nn-corpbtn" data-act="corp">${T(UI.corpManage)}</button>
+          </div>` : ''}
         </div>` : ''}
-        <div class="nn-sec">
-          <h3>${term('assets', UI.assets)}</h3>
-          ${assetRows}
-        </div>
-        <div class="nn-sec">
-          <h3>${term('liabilities', UI.liabilities)}</h3>
-          <!-- Mortgages live inside their own asset rows, so without this block
-               the liabilities heading reported a fraction of what is owed. -->
-          ${totalDebt(s) > 0 ? `<dl class="nn-rows nn-debtsum">
-            <dt class="nn-total">${T(UI.totalDebt)}</dt><dd class="nn-total neg">${money(totalDebt(s))}</dd>
-            <dt class="sub">${T(UI.personalDebt)}</dt><dd class="sub">${money(personalDebt(s))}</dd>
-            <dt class="sub">${T(UI.assetDebt)}</dt><dd class="sub">${money(assetDebt(s))}</dd>
-            <dt class="nn-rowsplit">${term('debtService', UI.debtService)}</dt><dd class="nn-rowsplit neg">${money(totalDebtService(s))}${T(UI.perMonth)}</dd>
-          </dl>` : ''}
-          ${debtRows}
-        </div>
-        <div class="nn-big">
-          <span>${T(UI.karma)}</span><strong class="${s.karma >= 0 ? 'pos' : 'neg'}">${s.karma > 0 ? '+' : ''}${s.karma}</strong>
-        </div>
-        ${onFast ? `<div class="nn-sec">
-          <h3>${T(UI.dreamCollection)} ${owned.length}/${dreams.length}</h3>
-          ${owned.length ? `<ul class="nn-dreamlist">${owned.map((d) => `<li><b>${T(d.title)}</b><small>${money(d.cost)}</small></li>`).join('')}</ul>` : ''}
-          <p class="nn-empty">${dreamsDone(s) ? T(UI.allDreamsDone) : `${T(UI.yourDream)}: ${T(dreamById.get(s.dreamId)?.title ?? UI.notYet)} · ${money(dreamById.get(s.dreamId)?.cost ?? 0)}`}</p>
-        </div>
-        <p class="nn-empty" style="margin-top:.6rem">${T(UI.fastGoalLabel)} ${money(fastGoal(s))}${T(UI.perMonth)}</p>` : ''}
         ${legacyUnlocked(s) ? `<div class="nn-sec nn-legacy-sec">
           <h3>${T(UI.legacyTitle)}</h3>
           <dl class="nn-rows">
@@ -2018,7 +2090,7 @@ const description =
           </dl>
           <div class="nn-big"><span>${T(UI.legacyTitle)}</span><strong class="pos">${money(legacyTotal(s))}</strong></div>
         </div>` : ''}
-        ${expenses > 0 && !onFast ? `<p class="nn-empty" style="margin-top:.6rem">${T(UI.escapeNeed)} ${money(expenses)}${T(UI.perMonth)} · ${T(UI.income)} ${money(income)}</p>` : ''}`;
+`;
     }
 
     /* -------------------------------------------------------------- board */
@@ -2081,6 +2153,9 @@ const description =
           <div class="nn-meterwrap">
             <div class="nn-meterlabel"><span>${onFast ? T(UI.fastProgressLabel) : T(UI.progress)}</span><span>${pct}%</span></div>
             <div class="nn-meter"><div class="nn-meter-fill${onFast ? ' gold' : ''}" style="width:${pct}%"></div></div>
+            <!-- The two numbers the meter is made of, under the meter itself
+                 rather than in a line at the foot of another column. -->
+            ${onFast ? '' : `<p class="nn-metergoal">${money(householdIncome(s))} ${T(UI.ofNeeded)} ${money(totalExpenses(s))}${T(UI.perMonth)}</p>`}
           </div>
         </div>`;
     }
@@ -2121,7 +2196,6 @@ const description =
       if (!host) return;
       const rollable = canRoll(s) && !busy;
       const two = s.charityTurns > 0;
-      const borrowable = s.phase === 'rat' && maxBorrow(s) >= LOAN_STEP && !busy;
 
       if (s.phase === 'won' || s.phase === 'lost') {
         host.innerHTML = `
@@ -2142,7 +2216,7 @@ const description =
              that is a real choice between two rolls rather than a second way to
              do the same thing. -->
         ${two ? `<button type="button" class="nn-btn nn-btn-gold" data-act="roll" data-id="2" ${rollable ? '' : 'disabled'}>${T(UI.roll2)}</button>` : ''}
-        ${borrowable ? `<button type="button" class="nn-btn" data-act="borrow">${T(UI.borrowBtn)}</button>` : ''}
+
         <!-- The company used to be reachable only from the legacy tile, which
              needs every dream bought first, so most players never met it. It is
              a decision about a portfolio, so it belongs wherever the portfolio
@@ -2156,10 +2230,17 @@ const description =
           <button type="button" data-act="speed" data-id="fast" aria-pressed="${speed === 'fast'}">${T(UI.speedFast)}</button>
           <button type="button" data-act="speed" data-id="off" aria-pressed="${speed === 'off'}">${T(UI.speedOff)}</button>
         </div>
-        <div class="nn-status">
-          <span>${T(UI.turn)} ${s.turn}</span>
-          <span>${T(UI.months)} ${s.months}</span>
-          <span>${T(UI.age)} ${ageYears(s)} ${T(UI.yearsUnit)}</span>
+        <!-- Facts on the left of each pair, values on the right, so the eye
+             reads down a column instead of hunting along a sentence. Anything
+             that is a warning drops to its own row underneath. -->
+        <div class="nn-status nn-statgrid">
+          <span><i>${T(UI.turn)}</i><b>${s.turn}</b></span>
+          <span><i>${T(UI.months)}</i><b>${s.months}</b></span>
+          <span><i>${T(UI.age)}</i><b>${ageYears(s)} ${T(UI.yearsUnit)}</b></span>
+          <span><i>${T(UI.karma)}</i><b class="${s.karma > 0 ? 'pos' : s.karma < 0 ? 'neg' : ''}">${s.karma > 0 ? '+' : ''}${s.karma}</b></span>
+          ${s.pet ? `<span><i>${T(UI.petAtHome)}</i><b>${T(petPhrase(s))}</b></span>` : ''}
+        </div>
+        <div class="nn-status nn-statwarn">
           ${retireLine(s)}
           ${s.study ? `<span class="warn">${T(UI.studyLabel)} ${T(UI.studyYearOf)} ${studyYear(s).done}/${studyYear(s).total} · ${T(UI.studyingTo)} ${T(professionById.get(s.study.targetId)?.name ?? UI.notYet)}</span>` : ''}
           <!-- Cover was invisible: the player paid the premium, twenty turns
@@ -2171,7 +2252,6 @@ const description =
             ? `<span class="${s.carCoverMonths <= 2 ? 'warn' : 'pos'}">${T(UI.coverChip)} ${s.carCoverMonths} ${T(UI.monthsWord)}</span>`
             : `<span class="neg">${T(UI.coverNone)}</span>`}
           ${s.rateDrift !== 0 ? `<span class="${s.rateDrift > 0 ? 'neg' : 'pos'}">${T(UI.rateNow)} ${ratePercentYear(floatingRate(s))}%</span>` : ''}
-          ${s.pet ? `<span>${T(UI.petAtHome)} ${T(petPhrase(s))}</span>` : ''}
           ${s.bondMonths > 0 ? `<span class="warn">${T(UI.bondActive)} ${s.bondMonths}</span>` : ''}
           ${s.slumpMonths > 0 ? `<span class="neg">${T(UI.slumpActive)} ${s.slumpMonths}</span>` : ''}
           ${s.skipTurns > 0 ? `<span class="neg">${T(UI.skipping)} ${s.skipTurns}</span>` : ''}
@@ -2521,6 +2601,25 @@ const description =
         term: UI.gloDown,
         body: UI.gloDownBody,
         rows: () => [] as [Loc, string, string][],
+      },
+      providentFund: {
+        term: UI.pfPotLabel,
+        body: UI.pfNote,
+        rows: (s: GameState) => [
+          [UI.pfOwn, money(pfContribution(s)), ''],
+          [UI.pfMatch, money(pfMatch(s)), 'pos'],
+          [UI.pfPotLabel, money(pfPot(s)), 'pos'],
+          [UI.pfIfTakenNow, money(pfCashOut(s)), ''],
+        ] as [Loc, string, string][],
+      },
+      dca: {
+        term: UI.dcaTitle,
+        body: UI.dcaNote,
+        rows: (s: GameState) => [
+          [UI.dcaMonthlyLabel, money(s.dcaMonthly), ''],
+          [UI.dcaPaidIn, money(dcaPaidIn(s)), ''],
+          [UI.dcaWorth, money(dcaValue(s)), cls(dcaGain(s))],
+        ] as [Loc, string, string][],
       },
     } satisfies Record<string, { term: Loc; body: Loc; rows: (s: GameState) => [Loc, string, string][] }>;
 
@@ -3756,6 +3855,9 @@ const description =
           break;
         case 'pfrate':
           if (s && id !== undefined) setPfRate(s, Number(id));
+          break;
+        case 'savings':
+          savingsOpen = !savingsOpen;
           break;
         case 'moreassets':
           assetsExpanded = !assetsExpanded;

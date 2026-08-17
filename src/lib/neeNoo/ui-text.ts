@@ -35,6 +35,16 @@ export const UI = {
 
   /* statement */
   statement: { th: 'งบการเงินของคุณ', en: 'Your financial statement' },
+  /** the two statements, named so the columns say what kind of number they hold */
+  monthTitle: { th: 'เดือนนี้ เงินเข้า-ออก', en: 'This month, in and out' },
+  ownTitle: { th: 'ตกลงมีอะไร ติดอะไร', en: 'What you own, what you owe' },
+  savingsTitle: { th: 'เงินออมอัตโนมัติ', en: 'Money that saves itself' },
+  savingsEdit: { th: 'แก้ไข', en: 'Edit' },
+  savingsNone: { th: 'ยังไม่ได้ตั้งอะไรไว้เลย', en: 'nothing set up yet' },
+  pfWhy: { th: 'ทำไมกองทุนนี้ถึงคุ้มที่สุด', en: 'Why this one beats everything' },
+  dcaWhy: { th: 'ทำไมตัดอัตโนมัติถึงได้ผล', en: 'Why a standing order works' },
+  ofNeeded: { th: 'จาก', en: 'of' },
+  savingsClose: { th: 'ปิด', en: 'Done' },
   income: { th: 'รายได้', en: 'Income' },
   passive: { th: 'เงินไหลเข้า (passive)', en: 'Passive income' },
   expenses: { th: 'รายจ่าย', en: 'Expenses' },
