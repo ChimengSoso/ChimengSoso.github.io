@@ -111,6 +111,12 @@ export interface Profession {
   // now, by category, in `taxBill`.
   /** food, transport, phone… everything not itemised as a debt payment */
   otherExpenses: number;
+  /**
+   * What one child costs this household every month, day to day, before school
+   * fees and before anything the cards charge separately. It is the whole
+   * household's figure: half of it lands on the player's statement, because
+   * there is somebody else in the house paying the other half.
+   */
   childCost: number;
   cash: number;
   /** interest rates are filled in from DEBT_RATE when the game starts */
@@ -270,6 +276,14 @@ export interface DoodadCard {
   insurable?: boolean;
   /** only happens to somebody who owns a car; skipped entirely for those who do not */
   needsCar?: boolean;
+  /** only reaches a household with children in it */
+  needsChild?: boolean;
+  /** only reaches somebody who has a partner to have it with */
+  needsPartner?: boolean;
+  /** a bill the children's health cover would have paid most of */
+  insurableChild?: boolean;
+  /** saying yes to this one starts the children's health cover */
+  buysChildCover?: boolean;
   /** the bill is for the animal in the house, so its name belongs in the words */
   pet?: boolean;
   /** paying it means the player started writing, which may pay off years later */
@@ -448,6 +462,16 @@ export interface GameState {
   coverDue: boolean;
   /** started writing back in the rat race, which the fast track can pay off */
   wroteBook: boolean;
+  /**
+   * There is somebody else in this life. It arrives with the first child, on
+   * the grounds that the game was already assuming one: a household with
+   * children in it has anniversaries, birthdays that are not yours, and meals
+   * that cost more than the food. Their own income is deliberately not
+   * modelled; what is modelled is only what leaves your side of the table.
+   */
+  partner: boolean;
+  /** the children's health cover is in force, and its premium is being paid */
+  childInsured: boolean;
   /**
    * The animal in the house, rolled at the start of the game. The vet bill used
    * to arrive for a creature with no species and no name, which is a bill
