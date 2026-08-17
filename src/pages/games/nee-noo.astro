@@ -1111,6 +1111,9 @@ const description =
       acceptFriendHelp,
       assetCashflow,
       assetValue,
+      ownsThing,
+      ownSale,
+      sellOwn,
       homeValue,
       carValue,
       applyForLoan,
@@ -3060,6 +3063,21 @@ const description =
             </div>`;
           })
           .join('');
+        // The house and the car sit at the bottom of the list on purpose: they
+        // raise the most and they cost the most to have sold, and a player
+        // scanning downwards should meet the holdings first.
+        const ownRow = (kind: 'home' | 'car', label: Loc): string => {
+          if (!ownsThing(s, kind)) return '';
+          const o = ownSale(s, kind);
+          return `<div class="nn-sellrow">
+            <span class="nm"><b>${T(label)}</b><small>${T(UI.offerPrice)} <b class="${o.raise > 0 ? 'pos' : 'neg'}">${money(o.raise)}</b>
+              <br>${T(UI.halfPrice)} ${money(o.price)}${o.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(o.debt)}` : ''}
+              ${o.shortfall > 0 ? `<br><b class="neg">${T(UI.stillOwed)} ${money(o.shortfall)}</b> · ${T(UI.deficiencyPay)} ${money(Math.round(o.shortfall * DEFICIENCY_PAY_RATE))}${T(UI.perMonth)}` : ''}
+              <br><b class="neg">${T(kind === 'home' ? UI.thenRent : UI.thenCommute)} ${money(o.newCost)}${T(UI.perMonth)}</b></small></span>
+            <button type="button" class="nn-btn nn-btn-danger" data-act="sellown" data-id="${kind}">${T(UI.fireSaleBtn)}</button>
+          </div>`;
+        };
+        const ownRows = ownRow('home', UI.homeOwned) + ownRow('car', UI.carOwned);
         const useless = s.assets.length > 0 && s.assets.every((a) => fireSaleValue(a, a.qty) <= 0);
         return `<div class="kind">${T(UI.rescueTitle)}</div>
           <h2 id="nn-dlg-title">${money(s.cash)}</h2>
@@ -3070,7 +3088,7 @@ const description =
         </div>` : ''}
           ${s.phase === 'rat' && s.months < s.loanBlockedUntil ? `<p class="nn-warnline">${T(UI.loanBlocked).replace('{month}', String(s.loanBlockedUntil))}</p>` : ''}
           ${useless ? `<p class="nn-warnline">${T(UI.allUnderwater)}</p>` : ''}
-          <div style="margin-top:1rem">${rows}</div>`;
+          <div style="margin-top:1rem">${rows}${ownRows}</div>`;
       }
 
       if (p.kind === 'fastbonus' || p.kind === 'fastsetback') {
@@ -3696,6 +3714,9 @@ const description =
           break;
         case 'repay':
           if (id) repay(s, id);
+          break;
+        case 'sellown':
+          if (id === 'home' || id === 'car') sellOwn(s, id);
           break;
         case 'firesale':
           if (id) fireSale(s, id, qtyOf(panel, id));

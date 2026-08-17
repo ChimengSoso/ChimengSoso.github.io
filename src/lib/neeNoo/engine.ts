@@ -2990,6 +2990,70 @@ export function applyForLoan(s: GameState, amount: number): LoanOutcome {
   return value < wanted ? 'partial' : 'approved';
 }
 
+/* --------------------------------------- selling the roof and the wheels */
+
+/**
+ * The house and the car can be sold too, and in a bad month they are usually
+ * the largest things anybody owns. Leaving them out of the rescue would have
+ * the game declare bankruptcy at somebody whose own statement says they own a
+ * million baht of property, which is the kind of contradiction a player is
+ * right to shout at. Selling the roof means renting from the next month; the
+ * car means paying to get about. Both are what really happens.
+ */
+export type OwnKind = 'home' | 'car';
+
+export function ownsThing(s: GameState, kind: OwnKind): boolean {
+  return kind === 'home' ? s.hasHome && homeValue(s) > 0 : s.hasCar && carValue(s) > 0;
+}
+
+/**
+ * A forced sale of a home or a car does not fetch half price the way a
+ * distressed stake in somebody's laundromat does: these are ordinary markets
+ * with real buyers, and the discount is the cost of needing the money this
+ * month rather than next year.
+ */
+export const OWN_FIRE_RATE: Record<OwnKind, number> = { home: 0.8, car: 0.75 };
+
+export function ownSale(s: GameState, kind: OwnKind): { price: number; debt: number; raise: number; shortfall: number; newCost: number } {
+  const price = kind === 'home' ? homeValue(s) : carValue(s);
+  const half = Math.round(price * OWN_FIRE_RATE[kind]);
+  const debt = s.debts.find((d) => d.key === kind)?.balance ?? 0;
+  // What the alternative will cost from next month, which is the part of this
+  // decision that outlives the panic.
+  const pay = profession(s).debts.find((d) => d.key === kind)?.payment ?? 0;
+  const newCost = Math.round(pay * (kind === 'home' ? RENT_VS_MORTGAGE : COMMUTE_VS_CAR) * priceLevel(s));
+  return { price: half, debt, raise: Math.max(0, half - debt), shortfall: Math.max(0, debt - half), newCost };
+}
+
+export function sellOwn(s: GameState, kind: OwnKind): void {
+  if (!ownsThing(s, kind)) return;
+  const { price, raise, shortfall, newCost } = ownSale(s, kind);
+  const label = debtLabel(kind);
+  s.cash += raise;
+  s.debts = s.debts.filter((d) => d.key !== kind);
+  if (kind === 'home') s.hasHome = false;
+  else {
+    s.hasCar = false;
+    // No car, no policy, and no renewal notice on its anniversary either.
+    s.carCoverMonths = 0;
+    s.coverDue = false;
+  }
+  if (shortfall > 0) {
+    const payment = Math.round(shortfall * DEFICIENCY_PAY_RATE);
+    addDebt(s, 'bank', shortfall, payment);
+  }
+  note(
+    s,
+    {
+      th: `ขาย${label.th.replace('ผ่อน', '')}ด่วนได้ ${money(price)}${shortfall > 0 ? ` หักหนี้แล้วยังขาดอีก ${money(shortfall)} ที่ต้องตามใช้ต่อ` : ` เหลือเข้ากระเป๋า ${money(raise)}`} จากนี้มีรายจ่ายใหม่เดือนละ ${money(newCost)}`,
+      en: `Sold the ${kind === 'home' ? 'house' : 'car'} in a hurry for ${money(price)}${shortfall > 0 ? `, still ${money(shortfall)} short after the loan` : `, leaving ${money(raise)}`}. From now there is ${money(newCost)} a month to pay instead.`,
+    },
+    'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
 export function canRepay(s: GameState, key: string): boolean {
   const d = s.debts.find((x) => x.key === key);
   if (!d) return false;
@@ -3158,7 +3222,9 @@ export function checkTrouble(s: GameState): void {
     s.pending = { kind: 'friend' };
     return;
   }
-  const canFireSale = s.assets.length > 0;
+  // The roof and the wheels are sellable too, so nobody is declared bankrupt
+  // while their own statement shows a house they could have put on the market.
+  const canFireSale = s.assets.length > 0 || ownsThing(s, 'home') || ownsThing(s, 'car');
   // A refusal that still leaves the borrow button working is not a refusal.
   const canBorrowMore = canApplyForLoan(s);
   // Money sitting in the company is still a way out, just an expensive one, so
