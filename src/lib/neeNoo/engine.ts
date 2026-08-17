@@ -207,8 +207,14 @@ export function salary(s: GameState): number {
   return Math.round(base);
 }
 
-export function totalIncome(s: GameState): number {
+export function earnedIncome(s: GameState): number {
   return salary(s) + pensionIncome(s) + passiveIncome(s) + drawTaken(s);
+}
+
+export function totalIncome(s: GameState): number {
+  // The state's child allowance is exempt income, so it lands here and never
+  // reaches the tax ladder.
+  return earnedIncome(s) + childAllowance(s);
 }
 
 /* ----------------------------------------------------------------- company */
@@ -527,6 +533,25 @@ export function childStage(s: GameState, bornMonth: number): { years: number; sc
   let stage = childStages[0];
   for (const t of childStages) if (years >= t.fromAge) stage = t;
   return { years, scale: stage.scale, label: stage.label };
+}
+
+/**
+ * เงินอุดหนุนเพื่อการเลี้ยงดูเด็กแรกเกิด: ฿600 a month per child under six, for
+ * households under ฿100,000 a year a head. It is small, it is real, and it is
+ * the only thing the state hands a young family in this game. Somebody on a
+ * ฿22,000 wage with three small children qualifies; the doctor does not, and
+ * both of those are worth seeing.
+ */
+export const CHILD_ALLOWANCE = 600;
+export const CHILD_ALLOWANCE_AGE = 6;
+export const CHILD_ALLOWANCE_INCOME = 100000;
+
+export function childAllowance(s: GameState): number {
+  const heads = 2 + s.children;
+  const yearly = (earnedIncome(s) * 12) / heads;
+  if (yearly > CHILD_ALLOWANCE_INCOME) return 0;
+  const small = s.childBorn.filter((b) => childStage(s, b).years < CHILD_ALLOWANCE_AGE).length;
+  return small * CHILD_ALLOWANCE;
 }
 
 export function childExpense(s: GameState): number {
@@ -1223,6 +1248,10 @@ export function createGame(
     // allows and never touch it again, so that is where the game starts them.
     pfRate: professionById.get(professionId)?.pension === 'none' ? 0 : 0.03,
     pfPot: 0,
+    lotterySpent: 0,
+    lotteryWon: 0,
+    chairIn: 0,
+    chairDue: null,
     interestPaid: 0,
     monthsUnderwater: 0,
     fireSales: 0,
@@ -1634,6 +1663,8 @@ export interface ReportCard {
   benchmarkGap: number;
   taxPaid: number;
   refundsTaken: number;
+  lotterySpent: number;
+  lotteryWon: number;
 }
 
 /**
@@ -1662,6 +1693,8 @@ export function reportCard(s: GameState): ReportCard {
     ),
     taxPaid: Math.round(s.taxPaid),
     refundsTaken: Math.round(s.refundsTaken),
+    lotterySpent: Math.round(s.lotterySpent),
+    lotteryWon: Math.round(s.lotteryWon),
   };
 }
 
@@ -2042,6 +2075,17 @@ function monthPassed(s: GameState): void {
   if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
   markAnnual(s);
   driftRates(s);
+  if (s.chairDue !== null && s.months >= s.chairDue) {
+    const back = Math.round(s.chairIn * CHAIR_RETURN);
+    s.cash += back;
+    note(
+      s,
+      { th: `วงแชร์ครบรอบ ได้เงินคืน ${money(back)} จากที่ลงไป ${money(Math.round(s.chairIn))}`, en: `The circle came round: ${money(back)} back on ${money(Math.round(s.chairIn))} put in.` },
+      'good',
+    );
+    s.chairIn = 0;
+    s.chairDue = null;
+  }
   advanceStudy(s);
   // Rents are renegotiated once a year and recover only part of what inflation
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
@@ -2575,6 +2619,48 @@ export function uninsuredCost(s: GameState, card: DoodadCard): number {
   return card.perChild ? Math.round(base * s.children * HOUSEHOLD_SHARE) : base;
 }
 
+/* ------------------------------------------------- the money nobody records */
+
+/**
+ * The government lottery, at its own odds.
+ *
+ * The prize structure below is the real one, reduced to the four tiers anybody
+ * actually checks. The whole draw pays back about sixty satang for every baht
+ * of ticket sales, which is a worse deal than every debt in this game is a bad
+ * deal, and it is the most popular financial product in the country. Playing it
+ * a hundred times is the only honest way to explain that.
+ */
+export const LOTTERY_PRIZES: { chance: number; multiple: number }[] = [
+  // ฿6,000,000 on a ฿100 ticket, one in a million
+  { chance: 1 / 1000000, multiple: 60000 },
+  { chance: 1 / 200000, multiple: 2000 },
+  { chance: 1 / 20000, multiple: 400 },
+  { chance: 1 / 1000, multiple: 150 },
+  // the three-digit and two-digit tails, which is what most winners ever see
+  { chance: 4 / 1000, multiple: 40 },
+  { chance: 1 / 100, multiple: 20 },
+];
+
+/** What a ticket returns this draw, as a multiple of what it cost. */
+function lotteryDraw(s: GameState): number {
+  const roll = rand(s);
+  let floor = 0;
+  for (const tier of LOTTERY_PRIZES) {
+    floor += tier.chance;
+    if (roll < floor) return tier.multiple;
+  }
+  return 0;
+}
+
+/**
+ * A savings circle. Money goes out now and a larger sum comes back later, or
+ * does not: the organiser disappears often enough that everybody knows somebody
+ * it happened to.
+ */
+export const CHAIR_RETURN = 1.12;
+export const CHAIR_RUNS_OFF = 0.12;
+export const CHAIR_MONTHS = 10;
+
 export function payDoodad(s: GameState): void {
   if (s.pending?.kind !== 'doodad') return;
   const card = doodadById.get(s.pending.cardId);
@@ -2605,6 +2691,54 @@ export function payDoodad(s: GameState): void {
   // line is read by the same person, and "ค่ารักษา{petName}" is the kind of
   // thing that only ever shows up once the game is being played.
   const named = fillCard(s, card.title);
+  if (card.lottery) {
+    s.cash -= cost;
+    const multiple = lotteryDraw(s);
+    const won = Math.round(cost * multiple);
+    s.cash += won;
+    s.lotterySpent += cost;
+    s.lotteryWon += won;
+    note(
+      s,
+      won > 0
+        ? { th: `ถูกหวย! ได้คืน ${money(won)} จากค่าตั๋ว ${money(cost)} งวดนี้`, en: `A winning ticket: ${money(won)} back on ${money(cost)} of tickets.` }
+        : { th: `ไม่ถูกสักใบ เสียไป ${money(cost)} รวมทั้งเกมซื้อหวยไปแล้ว ${money(s.lotterySpent)} ได้คืนมา ${money(s.lotteryWon)}`, en: `Nothing. ${money(cost)} gone, and ${money(s.lotterySpent)} spent on tickets all game against ${money(s.lotteryWon)} back.` },
+      won >= cost ? 'good' : 'bad',
+    );
+    s.pending = null;
+    checkTrouble(s);
+    return;
+  }
+  if (card.chair) {
+    s.cash -= cost;
+    // The circle either comes good in ten months or it does not come at all.
+    const safe = rand(s) > CHAIR_RUNS_OFF;
+    if (safe) {
+      s.chairIn += cost;
+      s.chairDue = s.months + CHAIR_MONTHS;
+      note(
+        s,
+        {
+          th: `ลงแชร์ ${money(cost)} ท้าววงบอกว่าอีก ${CHAIR_MONTHS} เดือนได้คืน ${money(Math.round(cost * CHAIR_RETURN))}`,
+          en: `Put ${money(cost)} into the circle. The organiser says ${money(Math.round(cost * CHAIR_RETURN))} comes back in ${CHAIR_MONTHS} months.`,
+        },
+        'plain',
+      );
+    } else {
+      note(
+        s,
+        {
+          th: `ลงแชร์ ${money(cost)} แล้วท้าววงหายไปพร้อมเงินทั้งวง ไม่มีสัญญา ไม่มีหลักประกัน ไม่มีใครให้ตามทวง`,
+          en: `Put ${money(cost)} into the circle, and the organiser vanished with all of it. No contract, no security, nobody to chase.`,
+        },
+        'bad',
+      );
+    }
+    if (card.social) s.karma += 1;
+    s.pending = null;
+    checkTrouble(s);
+    return;
+  }
   if (cost > 0) {
     s.cash -= cost;
     note(s, { th: `${named.th} จ่ายไป ${money(cost)}`, en: `${named.en}: paid ${money(cost)}.` }, 'bad');
@@ -4082,6 +4216,10 @@ export function parseSave(raw: string): GameState | null {
   if (!Number.isFinite(game.pfRate) || game.pfRate < 0) game.pfRate = 0;
   if (!Number.isFinite(game.pfPot) || game.pfPot < 0) game.pfPot = 0;
   if (!Number.isFinite(game.rateDrift)) game.rateDrift = 0;
+  if (!Number.isFinite(game.lotterySpent)) game.lotterySpent = 0;
+  if (!Number.isFinite(game.lotteryWon)) game.lotteryWon = 0;
+  if (!Number.isFinite(game.chairIn)) game.chairIn = 0;
+  if (game.chairDue === undefined) game.chairDue = null;
   for (const key of ['interestPaid', 'monthsUnderwater', 'fireSales', 'investedTotal', 'incomeBought', 'shadowPot', 'incomeReceived', 'taxPaid', 'refundsTaken'] as const) {
     if (!Number.isFinite(game[key])) game[key] = 0;
   }

@@ -284,6 +284,10 @@ export interface DoodadCard {
   insurableChild?: boolean;
   /** saying yes to this one starts the children's health cover */
   buysChildCover?: boolean;
+  /** a ticket, settled on the spot against the real odds */
+  lottery?: boolean;
+  /** a savings circle: money out now, a larger sum back later, on trust alone */
+  chair?: boolean;
   /** the bill is for the animal in the house, so its name belongs in the words */
   pet?: boolean;
   /** paying it means the player started writing, which may pay off years later */
@@ -502,6 +506,12 @@ export interface GameState {
    * game plays; they are what the player did, kept so the last screen can say
    * something more useful than whether the dice were kind.
    */
+  /** tickets bought and prizes taken, kept so the ending can print the ratio */
+  lotterySpent: number;
+  lotteryWon: number;
+  /** money in a savings circle, and the month it is supposed to come back */
+  chairIn: number;
+  chairDue: number | null;
   interestPaid: number;
   monthsUnderwater: number;
   fireSales: number;

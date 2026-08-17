@@ -628,6 +628,7 @@ export const UI = {
   /* ------------------------------------------------------------- the animal */
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
   partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
+  childAllowanceLabel: { th: 'เงินอุดหนุนเด็กแรกเกิดจากรัฐ', en: 'State child allowance' },
   payrollTitle: { th: 'หักจากเงินเดือน', en: 'Taken from the payslip' },
   floating: { th: 'ลอยตัวแล้ว', en: 'floating now' },
   payingMinimum: { th: 'จ่ายขั้นต่ำ', en: 'minimum only' },
@@ -647,6 +648,13 @@ export const UI = {
   reportUnderwater: { th: 'เดือนที่เงินสดติดลบ', en: 'Months spent overdrawn' },
   reportFireSales: { th: 'จำนวนครั้งที่ต้องขายด่วน', en: 'Times you had to sell in a hurry' },
   reportIncomeGot: { th: 'เงินที่ทรัพย์สินจ่ายคืนมาแล้วทั้งหมด', en: 'What those holdings have paid you' },
+  reportLottery: { th: 'หวย ได้คืน / ที่ซื้อไป', en: 'Lottery, back against spent' },
+  seedLabel: { th: 'รหัสสำรับไพ่ (ไม่ใส่ก็ได้)', en: 'Deck code (optional)' },
+  seedPlaceholder: { th: 'เว้นว่าง = สุ่มใหม่', en: 'blank for a fresh shuffle' },
+  seedNote: {
+    th: 'ใส่ตัวเลขเดียวกัน แล้วทุกคนจะได้ลูกเต๋าและการ์ดชุดเดียวกันทั้งเกม เอาไว้ให้ทั้งห้องเล่นสำรับเดียวกันแล้วมาเทียบกันตอนจบว่าใครตัดสินใจต่างกันตรงไหน',
+    en: 'Type the same number and everyone gets the same dice and the same cards all game. It is here so a whole room can play one deck and compare decisions at the end rather than luck.',
+  },
   reportBenchmark: { th: 'ถ้าเอาเงินก้อนเดียวกันใส่กองทุนดัชนีไว้เฉย ๆ', en: 'The same money, left in an index fund' },
   reportGap: { th: 'สิ่งที่คุณเลือก เทียบกับปล่อยไว้เฉย ๆ', en: 'Your choices, against doing nothing' },
   reportBeat: {
