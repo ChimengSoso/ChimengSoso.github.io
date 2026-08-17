@@ -19,6 +19,8 @@ import {
   childStages,
   marketById,
   marketCards,
+  petNames,
+  petSpecies,
   professionById,
   professions,
   studyRouteById,
@@ -150,7 +152,11 @@ function draw(s: GameState, deck: string[], refill: string[]): string {
 function drawDoodad(s: GameState): string {
   // The renewal notice is not in the deck at all: it arrives on its own
   // anniversary, the way a real policy does.
-  const pool = doodads.filter((c) => !c.annual && c.id !== 'x-insurance').map((c) => c.id);
+  // Nothing happens to a car that was never bought, so a player who declined
+  // one is never billed for a clutch, a crash or a policy.
+  const pool = doodads
+    .filter((c) => !c.annual && c.id !== 'x-insurance' && (s.hasCar || !c.needsCar))
+    .map((c) => c.id);
   const allowed = new Set(pool);
   s.decks.doodad = s.decks.doodad.filter((id) => allowed.has(id));
   return draw(s, s.decks.doodad, pool);
@@ -376,6 +382,33 @@ export function payLevel(s: GameState): number {
 
 export function livingCost(s: GameState): number {
   return Math.round(profession(s).otherExpenses * priceLevel(s));
+}
+
+/**
+ * Renting the same roof costs more every month than paying the loan on it, and
+ * unlike the loan it never ends. That is the whole trade: no debt, no transfer
+ * fee and no repairs, against a bill that is still there in thirty years.
+ */
+export const RENT_VS_MORTGAGE = 1.05;
+/** Ride-hailing, taxis on the days it rains, and the hours the bus costs instead. */
+export const COMMUTE_VS_CAR = 0.62;
+
+/** What the profession would have been paying on the loan that was declined. */
+function skippedPayment(s: GameState, key: 'home' | 'car'): number {
+  return profession(s).debts.find((d) => d.key === key)?.payment ?? 0;
+}
+
+export function rentCost(s: GameState): number {
+  return s.hasHome ? 0 : Math.round(skippedPayment(s, 'home') * RENT_VS_MORTGAGE * priceLevel(s));
+}
+
+export function commuteCost(s: GameState): number {
+  return s.hasCar ? 0 : Math.round(skippedPayment(s, 'car') * COMMUTE_VS_CAR * priceLevel(s));
+}
+
+/** The bills that stand in for the things the player chose not to buy. */
+export function housingCost(s: GameState): number {
+  return rentCost(s) + commuteCost(s);
 }
 
 export function ageMonths(s: GameState): number {
@@ -651,7 +684,7 @@ export function totalDebtService(s: GameState): number {
  * company's account, before the company works out what it owes.
  */
 export function totalExpenses(s: GameState): number {
-  return taxes(s) + livingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
+  return taxes(s) + livingCost(s) + housingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
 }
 
 export function monthlyCashflow(s: GameState): number {
@@ -662,13 +695,33 @@ export function assetValue(a: Asset): number {
   return a.pricePerUnit * a.qty;
 }
 
+/**
+ * A house does not stop being worth money because the loan on it is on the
+ * other page. Both figures come from the day the game started: property is
+ * carried up with prices, and a car loses a seventh of what is left of it every
+ * year, which is why a three-year-old car and a five-year loan are such a
+ * familiar combination of numbers.
+ */
+export const CAR_DEPRECIATION = 0.86;
+export const HOME_DRIFT = 0.025;
+
+export function homeValue(s: GameState): number {
+  if (!s.hasHome) return 0;
+  return Math.round(s.ownValue.home * Math.pow(1 + HOME_DRIFT, yearsElapsed(s)));
+}
+
+export function carValue(s: GameState): number {
+  if (!s.hasCar) return 0;
+  return Math.round(s.ownValue.car * Math.max(0.1, Math.pow(CAR_DEPRECIATION, yearsElapsed(s))));
+}
+
 /** What the player owns outright, with nothing of the company's counted. */
 export function personalWorth(s: GameState): number {
   const assets = s.assets
     .filter((a) => !isCorpAsset(a))
     .reduce((sum, a) => sum + assetValue(a) - a.debt, 0);
   const debts = s.debts.reduce((sum, d) => sum + d.balance, 0);
-  return s.cash + assets - debts;
+  return s.cash + assets + homeValue(s) + carValue(s) - debts;
 }
 
 /**
@@ -692,13 +745,6 @@ export function netWorth(s: GameState): number {
 export function worthAfterWindingUp(s: GameState): number {
   const equity = corpEquity(s);
   return personalWorth(s) + (equity > 0 ? Math.round(equity * (1 - DIVIDEND_TAX)) : equity);
-}
-
-export function loanCeiling(s: GameState): number {
-  // Measured against the bills the loan is not part of, so drawing on it never
-  // raises the player's own credit limit.
-  const base = totalExpenses(s) - (s.debts.find((d) => d.key === 'bank')?.payment ?? 0);
-  return Math.round((base * LOAN_EXPENSE_CAP) / LOAN_STEP) * LOAN_STEP;
 }
 
 export function bankBalance(s: GameState): number {
@@ -733,7 +779,21 @@ const money = (n: number): string => `฿${Math.round(n).toLocaleString('en-US')
 
 /* ------------------------------------------------------------------- setup */
 
-export function createGame(professionId: string, dreamId: string, seed: number): GameState {
+/**
+ * The two things every player used to be handed with the paperwork already
+ * signed. Leaving them out is a real option with a real price, not a discount.
+ */
+export interface StartChoices {
+  car: boolean;
+  home: boolean;
+}
+
+export function createGame(
+  professionId: string,
+  dreamId: string,
+  seed: number,
+  choices: StartChoices = { car: true, home: true },
+): GameState {
   const p = professionById.get(professionId);
   if (!p) throw new Error(`unknown profession: ${professionId}`);
 
@@ -750,7 +810,21 @@ export function createGame(professionId: string, dreamId: string, seed: number):
     cash: p.cash,
     children: 0,
     assets: [],
-    debts: p.debts.map((d) => ({ ...d, rate: DEBT_RATE[d.key] })),
+    debts: p.debts
+      .filter((d) => (d.key === 'car' ? choices.car : d.key === 'home' ? choices.home : true))
+      .map((d) => ({ ...d, rate: DEBT_RATE[d.key] })),
+    hasCar: choices.car && p.debts.some((d) => d.key === 'car'),
+    hasHome: choices.home && p.debts.some((d) => d.key === 'home'),
+    // A loan is written against most of the value, not all of it: the house is
+    // worth more than what is owed on it from the first day, the car is worth
+    // only a little more and stops being so within a year.
+    ownValue: {
+      home: Math.round((p.debts.find((d) => d.key === 'home')?.balance ?? 0) * 1.25),
+      car: Math.round((p.debts.find((d) => d.key === 'car')?.balance ?? 0) * 1.15),
+    },
+    loanBlockedUntil: 0,
+    credit: { onTime: 0, late: 0, cleared: 0, refused: 0 },
+    pet: null,
     quit: false,
     quitOffered: false,
     tier: 1,
@@ -803,11 +877,72 @@ export function createGame(professionId: string, dreamId: string, seed: number):
   };
 
   refillAll(s);
+  s.pet = rollPet(s);
   note(s, {
     th: `เริ่มเกมในบทบาท "${p.name.th}" กระแสเงินสดตั้งต้นเดือนละ ${money(monthlyCashflow(s))}`,
     en: `Starting as "${p.name.en}" with ${money(monthlyCashflow(s))} of monthly cash flow.`,
   });
+  if (!choices.car || !choices.home) {
+    const lines: string[] = [];
+    const linesEn: string[] = [];
+    if (!choices.car && commuteCost(s) > 0) {
+      lines.push(`ไม่เอารถ ไม่มีค่างวด แต่ค่าเดินทางเดือนละ ${money(commuteCost(s))}`);
+      linesEn.push(`no car and no instalment, but ${money(commuteCost(s))} a month to get around`);
+    }
+    if (!choices.home && rentCost(s) > 0) {
+      lines.push(`ไม่ซื้อบ้าน ไม่มีหนี้บ้าน แต่ค่าเช่าเดือนละ ${money(rentCost(s))} ที่ไม่มีวันหมด`);
+      linesEn.push(`no house and no mortgage, but ${money(rentCost(s))} a month of rent that never ends`);
+    }
+    if (lines.length) note(s, { th: lines.join(' · '), en: linesEn.join(' · ') }, 'plain');
+  }
+  if (s.pet) {
+    note(
+      s,
+      {
+        th: `ที่บ้านมี${petSpeciesLabel(s).th}อยู่หนึ่งตัว ชื่อ${s.pet.name.th}`,
+        en: `There is a ${petSpeciesLabel(s).en} at home called ${s.pet.name.en}.`,
+      },
+      'plain',
+    );
+  }
   return s;
+}
+
+/* ------------------------------------------------------------------ the pet */
+
+function rollPet(s: GameState): { speciesId: string; name: Loc } {
+  const species = petSpecies[Math.floor(rand(s) * petSpecies.length)] ?? petSpecies[0];
+  const name = petNames[Math.floor(rand(s) * petNames.length)] ?? petNames[0];
+  return { speciesId: species?.id ?? 'dog', name: name ?? { th: 'ข้าวปั้น', en: 'Khao Pan' } };
+}
+
+export function petSpeciesLabel(s: GameState): Loc {
+  const found = petSpecies.find((x) => x.id === s.pet?.speciesId);
+  return found?.label ?? { th: 'สัตว์เลี้ยง', en: 'pet' };
+}
+
+/** "แมวชื่อโมจิ" — the creature as it should read inside a sentence. */
+export function petPhrase(s: GameState): Loc {
+  if (!s.pet) return { th: 'สัตว์เลี้ยง', en: 'the pet' };
+  const kind = petSpeciesLabel(s);
+  return { th: `${kind.th}ชื่อ${s.pet.name.th}`, en: `${s.pet.name.en} the ${kind.en}` };
+}
+
+/**
+ * Cards are written with a `{pet}` hole in them rather than with a species, so
+ * one vet bill can belong to whichever animal this particular game rolled.
+ */
+export function fillCard(s: GameState, text: Loc): Loc {
+  if (!text.th.includes('{pet') && !text.en.includes('{pet')) return text;
+  const pet = petPhrase(s);
+  // `{pet}` introduces the animal ("the cat called ปุยฝ้าย"); `{petName}` is for
+  // headings, where the species has already been said and the name alone reads
+  // like a name rather than a form field.
+  const name = s.pet?.name ?? { th: 'สัตว์เลี้ยง', en: 'the pet' };
+  return {
+    th: text.th.replaceAll('{petName}', name.th).replaceAll('{pet}', pet.th),
+    en: text.en.replaceAll('{petName}', name.en).replaceAll('{pet}', pet.en),
+  };
 }
 
 export const dealIdsOfSize = (size: DealSize): string[] =>
@@ -993,6 +1128,7 @@ export function amortize(s: GameState): void {
   }
   const cleared = s.debts.filter((d) => d.balance <= 0);
   for (const d of cleared) {
+    s.credit.cleared += 1;
     note(
       s,
       { th: `ผ่อน${debtLabel(d.key).th}หมดแล้ว รายจ่ายลดลง ${money(d.payment)}`, en: `${debtLabel(d.key).en} cleared: ${money(d.payment)} off the monthly bill.` },
@@ -1177,8 +1313,8 @@ export function schoolFee(s: GameState): number {
  */
 function markAnnual(s: GameState): void {
   // A policy comes up for renewal on its anniversary whether or not the deck
-  // feels like mentioning it.
-  if (s.months >= s.coverRenewMonth) s.coverDue = true;
+  // feels like mentioning it. Somebody with no car has nothing to insure.
+  if (s.hasCar && s.months >= s.coverRenewMonth) s.coverDue = true;
   const first = s.childBorn[0];
   if (first === undefined) return;
   const since = s.months - first;
@@ -1300,6 +1436,11 @@ function corpMonth(s: GameState): void {
 
 function monthPassed(s: GameState): void {
   s.months += 1;
+  // The bank's file is written one month at a time. A month that closed with
+  // money still in the account is a month the bills were met; one that closed
+  // overdrawn is the line an underwriter will find years later.
+  if (s.cash >= 0) s.credit.onTime += 1;
+  else s.credit.late += 1;
   corpMonth(s);
   if (s.bondMonths > 0) s.bondMonths -= 1;
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
@@ -1948,7 +2089,7 @@ export function payReward(s: GameState): void {
     s,
     rewardKind(s) === 'exam'
       ? { th: `ให้รางวัลลูกที่สอบได้ดี จ่ายไป ${money(cost)}`, en: `A reward for the exam results: ${money(cost)} spent.` }
-      : { th: `พาสัตว์เลี้ยงไปหาหมอและซื้อของให้ จ่ายไป ${money(cost)}`, en: `The vet and a few treats: ${money(cost)} spent.` },
+      : { th: `พา${petPhrase(s).th}ไปหาหมอและซื้อของให้ จ่ายไป ${money(cost)}`, en: `The vet and a few treats for ${petPhrase(s).en}: ${money(cost)} spent.` },
     'bad',
   );
   s.pending = null;
@@ -2500,7 +2641,7 @@ export function corpSaving(s: GameState): number {
  * lesson, it is a trap.
  */
 export function suggestedDraw(s: GameState): number {
-  const need = livingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
+  const need = livingCost(s) + housingCost(s) + childExpense(s) + debtPayments(s) + insurancePremium(s);
   return Math.ceil(need / 1000) * 1000;
 }
 
@@ -2621,14 +2762,138 @@ function addDebt(s: GameState, key: DebtKey, balance: number, payment: number): 
   }
 }
 
+/* ------------------------------------------------------- the bank's own view */
+
+/**
+ * Income a lender will actually put on the form. A payslip is worth its face
+ * value; rent and dividends are taken at a haircut, because a tenant can leave
+ * and a business can have a bad year, and the underwriter has seen both.
+ */
+export const PASSIVE_HAIRCUT = 0.7;
+/** Debt service the bank will not lend past, as a share of documented income. */
+export const DSR_LIMIT = 0.7;
+/** Below this nobody in the branch even pauses. */
+export const DSR_COMFORT = 0.4;
+/** Months a refusal stands before they will look at the file again. */
+export const LOAN_COOLDOWN = 2;
+
+export function documentedIncome(s: GameState): number {
+  const payslip = salary(s) + pensionIncome(s) + drawTaken(s);
+  const rest = (passiveIncome(s) + Math.max(0, corpRetained(s))) * PASSIVE_HAIRCUT;
+  return Math.max(0, Math.round(payslip + rest));
+}
+
+/**
+ * The ceiling is whichever binds first: three months of the bills, or the
+ * payment that would take total debt service to the regulatory line. The
+ * second one is what makes a big salary worth something at the counter.
+ */
+export function loanCeiling(s: GameState): number {
+  const bank = s.debts.find((d) => d.key === 'bank');
+  const byExpenses = (totalExpenses(s) - (bank?.payment ?? 0)) * LOAN_EXPENSE_CAP;
+  const room = DSR_LIMIT * documentedIncome(s) - (totalDebtService(s) - (bank?.payment ?? 0));
+  const byIncome = Math.max(0, room / LOAN_RATE);
+  return Math.round(Math.min(byExpenses, byIncome) / LOAN_STEP) * LOAN_STEP;
+}
+
 export function maxBorrow(s: GameState): number {
   return Math.max(0, loanCeiling(s) - bankBalance(s));
 }
 
-export function borrow(s: GameState, amount: number): void {
-  const steps = Math.floor(amount / LOAN_STEP);
-  const value = Math.min(steps * LOAN_STEP, maxBorrow(s));
-  if (value <= 0) return;
+/** The application is open at all: they have room and are not still refused. */
+export function canApplyForLoan(s: GameState): boolean {
+  return maxBorrow(s) >= LOAN_STEP && s.months >= s.loanBlockedUntil;
+}
+
+export type CreditVerdict = 'good' | 'fair' | 'poor';
+export interface CreditFactor {
+  id: 'income' | 'dsr' | 'history' | 'buffer';
+  verdict: CreditVerdict;
+  /** how much of the decision this line moved, in percentage points */
+  weight: number;
+}
+export interface CreditReview {
+  income: number;
+  /** monthly debt service if this loan were granted */
+  service: number;
+  dsr: number;
+  ceiling: number;
+  /** what they would actually hand over today, which may be less than asked */
+  offer: number;
+  chance: number;
+  factors: CreditFactor[];
+}
+
+/**
+ * The credit decision, from the other side of the desk.
+ *
+ * Nothing here is a dice roll dressed up as a rule: every line is something the
+ * player did and can see. How much documented income there is, how much of it
+ * is already committed to debt, how the last few months of bills actually went,
+ * and whether the application is being made from an overdrawn account. The dice
+ * only decide the marginal cases, which is also how it works in real life.
+ */
+export function creditReview(s: GameState, amount: number): CreditReview {
+  const income = documentedIncome(s);
+  const wanted = Math.max(LOAN_STEP, Math.floor(amount / LOAN_STEP) * LOAN_STEP);
+  const offer = Math.min(wanted, maxBorrow(s));
+  const service = totalDebtService(s) + offer * LOAN_RATE;
+  const dsr = income > 0 ? service / income : 1;
+  const factors: CreditFactor[] = [];
+
+  let chance = 0.95;
+  const bite = (id: CreditFactor['id'], delta: number, good: number, fair: number): void => {
+    chance += delta;
+    factors.push({ id, weight: Math.round(delta * 100), verdict: delta >= good ? 'good' : delta >= fair ? 'fair' : 'poor' });
+  };
+
+  // A payslip is the first thing they look for, and its absence is the loudest
+  // thing on the file. Built income softens it: enough of it and the branch is
+  // looking at a landlord rather than at somebody with no job.
+  const covered = income > 0 && income >= service * 1.8;
+  bite('income', noMoreSalary(s) ? (covered ? -0.1 : -0.3) : 0, 0, -0.15);
+  bite('dsr', dsr <= DSR_COMFORT ? 0 : -Math.min(0.5, (dsr - DSR_COMFORT) * 1.4), 0, -0.2);
+
+  const late = s.credit.late;
+  const record = Math.min(0.1, s.credit.onTime / 150) + Math.min(0.12, s.credit.cleared * 0.06) - Math.min(0.45, late * 0.14);
+  bite('history', record, 0.03, -0.1);
+
+  // Applying from an overdrawn account is the worst moment to ask, which is of
+  // course exactly when most people ask.
+  const buffer = s.cash < 0 ? -0.28 : s.cash >= totalExpenses(s) * 2 ? 0.05 : 0;
+  bite('buffer', buffer, 0.01, -0.1);
+
+  return { income, service, dsr, ceiling: loanCeiling(s), offer, chance: Math.min(0.98, Math.max(0.04, chance)), factors };
+}
+
+export type LoanOutcome = 'approved' | 'partial' | 'refused' | 'closed';
+
+/**
+ * Ask the bank. Approval is not automatic any more: the branch either grants
+ * what was asked for, grants the part it is comfortable with, or says no and
+ * means it for a couple of months.
+ */
+export function applyForLoan(s: GameState, amount: number): LoanOutcome {
+  if (!canApplyForLoan(s)) return 'closed';
+  const review = creditReview(s, amount);
+  const wanted = Math.max(LOAN_STEP, Math.floor(amount / LOAN_STEP) * LOAN_STEP);
+  if (rand(s) > review.chance) {
+    s.credit.refused += 1;
+    s.loanBlockedUntil = s.months + LOAN_COOLDOWN;
+    note(
+      s,
+      {
+        th: `ธนาคารไม่อนุมัติสินเชื่อ ${money(wanted)} ภาระหนี้ต่อรายได้อยู่ที่ ${Math.round(review.dsr * 100)}% ยื่นใหม่ได้อีกครั้งในอีก ${LOAN_COOLDOWN} เดือน`,
+        en: `The bank declined ฿${wanted.toLocaleString('en-US')}. Debt service would have been ${Math.round(review.dsr * 100)}% of documented income. They will look again in ${LOAN_COOLDOWN} months.`,
+      },
+      'bad',
+    );
+    checkTrouble(s);
+    return 'refused';
+  }
+
+  const value = review.offer;
+  if (value <= 0) return 'closed';
   s.cash += value;
   addDebt(s, 'bank', value, value * LOAN_RATE);
   note(
@@ -2637,13 +2902,14 @@ export function borrow(s: GameState, amount: number): void {
       // Thirteen, not eleven: at 2% a month on the balance, the first payment is
       // only 8% principal and the loan outlives the arithmetic people do in
       // their heads.
-      th: `กู้ธนาคาร ${money(value)} ผ่อนเดือนละ ${money(value * LOAN_RATE)} ประมาณ 13 เดือนจึงหมด`,
-      en: `Borrowed ${money(value)} at ${money(value * LOAN_RATE)} a month, clearing in about thirteen months.`,
+      th: `ธนาคารอนุมัติ ${money(value)}${value < wanted ? ` จากที่ขอ ${money(wanted)}` : ''} ผ่อนเดือนละ ${money(value * LOAN_RATE)} ประมาณ 13 เดือนจึงหมด`,
+      en: `Approved: ${money(value)}${value < wanted ? ` of the ${money(wanted)} asked for` : ''}, at ${money(value * LOAN_RATE)} a month, clearing in about thirteen months.`,
     },
     'bad',
   );
   checkEscape(s);
   checkTrouble(s);
+  return value < wanted ? 'partial' : 'approved';
 }
 
 export function canRepay(s: GameState, key: string): boolean {
@@ -2669,7 +2935,12 @@ export function repay(s: GameState, key: string, amount?: number): void {
   const freed = key === 'bank' ? d.payment * share : d.payment;
   d.balance -= value;
   d.payment = key === 'bank' ? Math.max(0, d.payment - freed) : 0;
-  if (d.balance <= 0) s.debts = s.debts.filter((x) => x.key !== key);
+  if (d.balance <= 0) {
+    // A loan seen all the way to the end is the one thing on the file that says
+    // more than a payslip does.
+    s.credit.cleared += 1;
+    s.debts = s.debts.filter((x) => x.key !== key);
+  }
 
   note(
     s,
@@ -2810,7 +3081,8 @@ export function checkTrouble(s: GameState): void {
     return;
   }
   const canFireSale = s.assets.length > 0;
-  const canBorrowMore = maxBorrow(s) >= LOAN_STEP;
+  // A refusal that still leaves the borrow button working is not a refusal.
+  const canBorrowMore = canApplyForLoan(s);
   // Money sitting in the company is still a way out, just an expensive one, so
   // nobody is declared bankrupt while their own company is solvent.
   const canDrawDown = s.incorporated && s.corpCash > 0;
@@ -3129,6 +3401,40 @@ export function parseSave(raw: string): GameState | null {
     game.workEndMonth = game.careerOver || game.quit ? game.months : null;
   }
   if (!Number.isFinite(game.entryPay) || game.entryPay <= 0) game.entryPay = 1;
+  // Saves from before the car and the house were a choice: they were handed to
+  // everybody, so a save that has either loan on it still owns the thing, and
+  // one whose loans are already paid off keeps them too rather than suddenly
+  // being charged rent for a house it owns outright.
+  if (typeof game.hasCar !== 'boolean') {
+    game.hasCar = professionById.get(game.professionId)?.debts.some((d) => d.key === 'car') ?? false;
+  }
+  if (typeof game.hasHome !== 'boolean') {
+    game.hasHome = professionById.get(game.professionId)?.debts.some((d) => d.key === 'home') ?? false;
+  }
+  if (!Number.isFinite(game.loanBlockedUntil)) game.loanBlockedUntil = 0;
+  const own = game.ownValue as Partial<GameState['ownValue']> | undefined;
+  if (!Number.isFinite(own?.home) || !Number.isFinite(own?.car)) {
+    // An old save never recorded what the two things were worth, so they are
+    // read back from the loans the profession started with.
+    const started = professionById.get(game.professionId)?.debts ?? [];
+    game.ownValue = {
+      home: game.hasHome ? Math.round((started.find((d) => d.key === 'home')?.balance ?? 0) * 1.25) : 0,
+      car: game.hasCar ? Math.round((started.find((d) => d.key === 'car')?.balance ?? 0) * 1.15) : 0,
+    };
+  }
+  const file = game.credit as Partial<GameState['credit']> | undefined;
+  game.credit = {
+    // An old save has a payment record; it simply was not being written down.
+    // Crediting the months already survived is the honest reading of it.
+    onTime: Number.isFinite(file?.onTime) ? (file?.onTime ?? 0) : game.months,
+    late: Number.isFinite(file?.late) ? (file?.late ?? 0) : 0,
+    cleared: Number.isFinite(file?.cleared) ? (file?.cleared ?? 0) : 0,
+    refused: Number.isFinite(file?.refused) ? (file?.refused ?? 0) : 0,
+  };
+  const pet = game.pet as { speciesId?: unknown; name?: { th?: unknown; en?: unknown } } | null | undefined;
+  if (!pet || typeof pet.speciesId !== 'string' || typeof pet.name?.th !== 'string' || typeof pet.name?.en !== 'string') {
+    game.pet = rollPet(game);
+  }
   if (!Array.isArray(game.lastRoll)) game.lastRoll = [];
   if (typeof game.prices !== 'object' || game.prices === null) game.prices = {};
   return game;

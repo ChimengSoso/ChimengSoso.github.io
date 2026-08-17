@@ -91,6 +91,34 @@ export const childStages: { fromAge: number; scale: number; label: Loc }[] = [
   { fromAge: 12, scale: 2.4, label: { th: 'มัธยม', en: 'secondary' } },
 ];
 
+/**
+ * The animal in the house. A vet bill for "a pet" is an abstraction nobody
+ * grumbles about; a vet bill for a cat called ลูกชิ้น is a thing that happened
+ * to somebody. The species and the name are rolled at the start of the game and
+ * kept for its whole length, so the same creature keeps showing up.
+ */
+export const petSpecies: { id: string; label: Loc }[] = [
+  { id: 'dog', label: { th: 'หมา', en: 'dog' } },
+  { id: 'cat', label: { th: 'แมว', en: 'cat' } },
+  { id: 'rabbit', label: { th: 'กระต่าย', en: 'rabbit' } },
+  { id: 'parrot', label: { th: 'นกแก้ว', en: 'parrot' } },
+  { id: 'goldfish', label: { th: 'ปลาทอง', en: 'goldfish' } },
+  { id: 'hamster', label: { th: 'หนูแฮมสเตอร์', en: 'hamster' } },
+];
+
+export const petNames: Loc[] = [
+  { th: 'ข้าวปั้น', en: 'Khao Pan' },
+  { th: 'ลูกชิ้น', en: 'Look Chin' },
+  { th: 'โมจิ', en: 'Mochi' },
+  { th: 'ปุยฝ้าย', en: 'Pui Fai' },
+  { th: 'ชาเย็น', en: 'Cha Yen' },
+  { th: 'ส้มโอ', en: 'Som O' },
+  { th: 'ก้อนหิน', en: 'Kon Hin' },
+  { th: 'เจ้าด่าง', en: 'Jao Dang' },
+  { th: 'ตังเม', en: 'Tang Mae' },
+  { th: 'ขนมปัง', en: 'Kanom Pang' },
+];
+
 /* ------------------------------------------------------------- professions */
 
 /**
@@ -305,6 +333,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 1500,
+    books: {
+      revenue: 12400,
+      profit: 620,
+      growth: 0.06,
+      gearing: 1.1,
+      pe: 18,
+      note: {
+        th: 'ขายของได้เยอะมาก แต่เหลือเป็นกำไรแค่ 5 สตางค์ต่อยอดขายหนึ่งบาท และสาขาใหม่ที่กำลังเปิดก็เปิดด้วยเงินกู้',
+        en: 'It sells a great deal and keeps five satang of every baht. The new branches are being opened with borrowed money.',
+      },
+    },
   },
   {
     id: 'd-trn',
@@ -321,6 +360,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 600,
+    books: {
+      revenue: 8900,
+      profit: 410,
+      growth: 0.24,
+      gearing: 1.9,
+      pe: 31,
+      note: {
+        th: 'รายได้โตปีละเกือบหนึ่งในสี่ ซึ่งเป็นเหตุผลที่ราคาแพงเมื่อเทียบกำไร คนซื้อกำลังจ่ายเงินให้กับการโตที่ยังไม่เกิด',
+        en: 'Revenue grows by nearly a quarter a year, which is why it is priced high against its profit. Buyers are paying for growth that has not happened yet.',
+      },
+    },
   },
   {
     id: 'd-solr',
@@ -337,6 +387,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0,
     maxQty: 3000,
+    books: {
+      revenue: 1200,
+      profit: -380,
+      growth: 0.41,
+      gearing: 2.8,
+      pe: 0,
+      note: {
+        th: 'ยังไม่เคยมีกำไรสักปี หนี้เกือบสามเท่าของทุน และรายได้ที่โตเร็วก็ยังตามรายจ่ายไม่ทัน ถูกเพราะมีเหตุผลของมัน',
+        en: 'It has never had a profitable year, it owes nearly three times its equity, and revenue is growing fast but still losing the race to costs. It is cheap for a reason.',
+      },
+    },
   },
   {
     id: 'd-bnk',
@@ -353,6 +414,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0.34,
     maxQty: 6000,
+    books: {
+      revenue: 96000,
+      profit: 21500,
+      growth: 0.03,
+      gearing: 0.6,
+      pe: 7.5,
+      note: {
+        th: 'โตช้าจนน่าเบื่อ แต่กำไรหนาและจ่ายออกมาเป็นเงินสดทุกเดือน ราคาต่อกำไรต่ำที่สุดในกระดาน',
+        en: 'Dull growth, thick profits, and it hands them over in cash every month. The lowest price against earnings on the board.',
+      },
+    },
   },
   {
     id: 'd-reit',
@@ -369,6 +441,17 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 0.75,
     maxQty: 4000,
+    books: {
+      revenue: 3100,
+      profit: 1450,
+      growth: 0.02,
+      gearing: 0.9,
+      pe: 11,
+      note: {
+        th: 'เกือบทุกบาทที่เก็บค่าเช่าได้ถูกจ่ายคืนผู้ถือหน่วย กองแบบนี้จึงโตช้าเป็นปกติ เพราะไม่ได้เก็บกำไรไว้ขยายตัวเอง',
+        en: 'Almost every baht of rent collected is paid back out to unit holders, so a fund like this grows slowly by design: it keeps nothing to expand with.',
+      },
+    },
   },
   {
     id: 'd-gold',
@@ -1409,6 +1492,7 @@ export const doodads: DoodadCard[] = [
     story: { th: 'คลัตช์เริ่มลื่นมาสองอาทิตย์แล้ว วันนี้มันตัดสินใจแทนคุณ', en: 'The clutch has been slipping for two weeks. Today it decided for you.' },
     scale: 1.3,
     insurable: true,
+    needsCar: true,
   },
   {
     id: 'x-dentist',
@@ -1455,9 +1539,10 @@ export const doodads: DoodadCard[] = [
   },
   {
     id: 'x-vet',
-    title: { th: 'ค่ารักษาสัตว์เลี้ยง', en: 'Vet bill' },
-    story: { th: 'หมาไปกินอะไรมาก็ไม่รู้ หมอบอกว่ามันจะหาย แต่กระเป๋าเงินคุณอาจไม่หาย', en: 'The dog ate something unidentifiable. The vet says it will recover; your wallet may not.' },
+    title: { th: 'ค่ารักษา{petName}', en: 'Vet bill for {petName}' },
+    story: { th: '{pet} ไปกินอะไรมาก็ไม่รู้ หมอบอกว่าเดี๋ยวก็หาย แต่กระเป๋าเงินคุณอาจไม่หาย', en: '{pet} ate something unidentifiable. The vet says it will recover; your wallet may not.' },
     scale: 0.85,
+    pet: true,
   },
   {
     id: 'x-trip',
@@ -1506,6 +1591,7 @@ export const doodads: DoodadCard[] = [
     },
     scale: 5,
     insurable: true,
+    needsCar: true,
   },
   {
     id: 'x-utility',
