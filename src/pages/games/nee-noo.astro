@@ -291,6 +291,12 @@ const description =
     .nn-statwarn:empty{display:none;}
     .nn-borrowbtn{width:100%;margin-top:0.6rem;}
     .nn-metergoal{margin-top:0.3rem;font-size:0.68rem;color:var(--nn-muted);text-align:center;}
+    /* A quiet chip beside a holding's name: the books it was bought on. */
+    .nn-booksbtn{
+      border:1px solid var(--nn-border);border-radius:6px;background:none;color:var(--nn-muted);
+      font:inherit;font-size:0.62rem;padding:0 0.32rem;margin-left:0.3rem;cursor:pointer;vertical-align:middle;
+    }
+    .nn-booksbtn:hover{border-color:var(--nn-green);color:var(--nn-green-bright);}
     .nn-report{border:1px solid var(--nn-line);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(0,0,0,0.18);}
     .nn-dca{border:1px solid rgba(47,158,92,0.22);border-radius:0.7rem;padding:0.7rem 0.8rem;}
     .nn-dcaset{margin-top:0.5rem;flex-wrap:wrap;}
@@ -1389,9 +1395,11 @@ const description =
     let seenLearn = false;
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
-    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | 'corp' | 'learn' | 'define' | null = null;
+    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
     /** which term the glossary popover is explaining */
     let defineKey: GlossaryKey | null = null;
+    /** which company's books are open on their own */
+    let booksKey: string | null = null;
     /**
      * The card the player has pushed aside to go and look at their own numbers.
      *
@@ -1919,8 +1927,11 @@ const description =
                   const pnl = `<span class="${up ? 'pos' : 'neg'}">${signed(gain)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
                   // Defaults to the whole holding; a share count can be typed in
                   // to take part of the position off instead.
+                  // A shareholder should be able to reread the books they
+                  // bought on, not only see them once at the till.
+                  const hasBooks = !!dealById.get(a.cardId)?.books || a.kind === 'gold';
                   return `<li class="nn-paper">
-                    <span class="nm"><b>${T(a.name)}</b><small>${a.qty} ${T(UI.units)} · ${T(UI.costBasis)} ${unitMoney(a.costPerUnit)} · ${T(UI.livePrice)} <span class="${up ? 'pos' : 'neg'}">${unitMoney(unit)}</span>
+                    <span class="nm"><b>${T(a.name)}${hasBooks ? ` <button type="button" class="nn-booksbtn" data-act="books" data-id="${a.cardId}" aria-label="${T(UI.booksTitle)}">${T(UI.booksShort)}</button>` : ''}</b><small>${a.qty} ${T(UI.units)} · ${T(UI.costBasis)} ${unitMoney(a.costPerUnit)} · ${T(UI.livePrice)} <span class="${up ? 'pos' : 'neg'}">${unitMoney(unit)}</span>
                       <br>${money(value)} · ${T(UI.unrealised)} ${pnl}</small></span>
                     <span class="nn-rowend">
                       ${a.qty > 1 ? `<input type="number" class="nn-paper-qty" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
@@ -2287,6 +2298,7 @@ const description =
       // A definition is asked for from inside another card, so it answers first
       // and hands the card back when it closes.
       if (modal === 'define' && s && defineKey) return defineDialog(s, defineKey);
+      if (modal === 'books' && booksKey) return booksDialog(booksKey);
       if (!s) return null;
       // A finished game keeps its result on screen until the player dismisses
       // it. Nobody should be rushed off a win they just spent 80 turns earning.
@@ -2639,6 +2651,17 @@ const description =
         <h2 id="nn-dlg-title">${T(entry.term)}</h2>
         <p class="story">${T(entry.body)}</p>
         ${rows.length ? `<dl class="facts">${rows.map(([l, v, c]) => `<dt>${T(l)}</dt><dd class="${c}">${v}</dd>`).join('')}</dl>` : ''}
+        <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button></div>`;
+    }
+
+    /** The annual report on its own, for a share already owned. */
+    function booksDialog(cardId: string): string {
+      const card = dealById.get(cardId);
+      if (!card) return '';
+      return `<div class="kind">${T(UI.booksTitle)}</div>
+        <h2 id="nn-dlg-title">${T(card.title)}</h2>
+        <p class="story">${T(card.story)}</p>
+        ${booksPanel(card)}
         <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button></div>`;
     }
 
@@ -3050,6 +3073,11 @@ const description =
               <dt>${T(UI.cash)}</dt><dd>${money(s.cash)}</dd>
             </dl>
             ${cheap && deal.cashflow > 0 ? `<p class="nn-warnline">${T(UI.cheapYieldNote)}</p>` : ''}
+            <!-- The market card buys the same share the deal card does, so it
+                 owes the reader the same page of the annual report. Without it
+                 a price move was the only thing on screen to judge by, which is
+                 exactly the habit this card is otherwise teaching against. -->
+            ${booksPanel(deal)}
             ${max > 1 ? `<div class="nn-qty"><label for="nn-buyqty">${T(UI.qty)} (1–${max})</label><input id="nn-buyqty" type="number" data-qty="buy" data-unit="${unit}" data-flow="${deal.cashflow}" data-max="${max}" min="1" max="${max}" value="${max}"></div>
             <p class="nn-empty" data-qty-note>${qtyNote(unit, deal.cashflow, max)}</p>` : ''}
             <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="marketbuy" ${max > 0 ? '' : 'disabled'}>${max > 0 ? T(UI.buy) : T(UI.cannotAfford)}</button></div>
@@ -3820,6 +3848,12 @@ const description =
           break;
         case 'showcard':
           hiddenCard = null;
+          break;
+        case 'books':
+          if (id) {
+            booksKey = id;
+            modal = 'books';
+          }
           break;
         case 'define':
           if (id && isGlossaryKey(id)) {
