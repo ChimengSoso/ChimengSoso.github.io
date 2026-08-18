@@ -159,6 +159,10 @@ export const UI = {
   other: { th: 'ค่าใช้จ่ายอื่น ๆ', en: 'Other living costs' },
   childrenCost: { th: 'ค่าเลี้ยงลูก', en: 'Cost of children' },
   cashflow: { th: 'กระแสเงินสดต่อเดือน', en: 'Monthly cash flow' },
+  /* On a card that is asking you to take something on, one unlabelled cash-flow
+     figure reads as what the decision pays you. These two say which is which. */
+  cashflowNow: { th: 'กระแสเงินสดตอนนี้ ยังไม่มีลูก', en: 'Cash flow today, before the child' },
+  cashflowAfter: { th: 'ถ้ารับ จะเหลือเดือนละ', en: 'If you say yes, left each month' },
   cash: { th: 'เงินสด', en: 'Cash' },
   assets: { th: 'สินทรัพย์', en: 'Assets' },
   liabilities: { th: 'หนี้สิน', en: 'Liabilities' },
@@ -209,13 +213,21 @@ export const UI = {
   },
   smallDeal: { th: 'ดีลเล็ก', en: 'Small deal' },
   bigDeal: { th: 'ดีลใหญ่', en: 'Big deal' },
+  /* What each deck holds, in the words someone who has never opened one would
+     use, and what the money next to it means. "20 ใบ" answered a question
+     nobody was asking. */
+  dealCashLine: { th: 'เงินสดที่ต้องควัก', en: 'cash to get in' },
+  smallDealKinds: { th: 'หุ้น ทอง คอนโด ร้านเล็ก ๆ', en: 'shares, gold, a condo, a small shop' },
+  bigDealKinds: { th: 'อพาร์ตเมนต์ โกดัง โรงแรม ที่ดินแปลงใหญ่', en: 'apartment blocks, warehouses, a hotel, big land' },
+  fastDealKinds: { th: 'พันธบัตร กองทุนดัชนี ทอง โรงงาน แฟรนไชส์', en: 'bonds, index funds, gold, a factory, franchises' },
+  megaDealKinds: { th: 'ธนาคาร โรงพยาบาล โรงไฟฟ้า นิคมอุตสาหกรรม', en: 'a bank, a hospital, a power plant, an industrial estate' },
+  cashOnHand: { th: 'เงินสดที่มีตอนนี้', en: 'Cash you hold now' },
   price: { th: 'ราคา', en: 'Price' },
   downPayment: { th: 'ใช้เงินสด', en: 'Cash needed' },
   loanTaken: { th: 'กู้เพิ่ม', en: 'Debt taken on' },
   monthlyIn: { th: 'เงินเข้าต่อเดือน', en: 'Monthly income' },
   totalCost: { th: 'รวมต้องจ่าย', en: 'Total to pay' },
   cappedAt: { th: 'ซื้อได้สูงสุด', en: 'capped at' },
-  cardsWord: { th: 'ใบ', en: 'cards' },
   deckOneWay: {
     th: 'เลือกกองไหนแล้วต้องเปิดการ์ดจากกองนั้น ย้อนกลับมาเลือกใหม่ไม่ได้ ไม่งั้นก็แอบดูทั้งสองกองแล้วค่อยเลือกอันที่ดีกว่า แต่จะไม่ซื้อการ์ดที่เปิดมาก็ได้',
     en: 'Once you pick a deck you open a card from that deck; there is no going back, or you could peek at both and take the better one. You are never forced to buy the card you drew.',
@@ -614,6 +626,43 @@ export const UI = {
     th: 'ธนาคารเพิ่งปฏิเสธคำขอไป แฟ้มยังไม่ถูกเปิดใหม่จนถึงเดือนที่ {month}',
     en: 'The bank just declined you. They will not reopen the file until month {month}.',
   },
+  /* ------------------------------------------------- renting, and buying out of it */
+  renting: { th: 'ที่อยู่: เช่าเขาอยู่', en: 'Where you live: rented' },
+  rentingNote: {
+    th: 'จ่ายค่าเช่าเดือนละ {rent} จ่ายไปสามสิบปีก็ยังไม่ได้เป็นเจ้าของ',
+    en: 'Rent of {rent} a month. Thirty years of it still leaves you owning nothing.',
+  },
+  buyHomeBtn: { th: 'ซื้อบ้าน', en: 'Buy a home' },
+  buyHomeTag: { th: 'ซื้อบ้านมือสอง', en: 'Buying a second-hand home' },
+  buyHomeTitle: { th: 'เลิกเช่า มาซื้อบ้านของตัวเอง', en: 'Stop renting, buy your own' },
+  buyHomeBody: {
+    th: 'ค่าเช่าที่จ่ายอยู่ไม่ได้สะสมเป็นความเป็นเจ้าของเลยสักบาท ถ้าจะมีบ้านต้องซื้อในราคาตลาดเหมือนคนอื่น จ่ายสดทั้งก้อน หรือวางดาวน์แล้วกู้ส่วนที่เหลือ ซึ่งธนาคารต้องอนุมัติก่อน',
+    en: 'Not one baht of the rent turns into ownership. Having a house means buying one at the market price like everybody else: the whole sum in cash, or a deposit with the rest borrowed, which the bank still has to agree to.',
+  },
+  buyHomePrice: { th: 'ราคาบ้านมือสอง', en: 'Asking price' },
+  buyHomePriceNote: {
+    th: 'บ้านระดับเดียวกับที่เช่าอยู่ คิดจากค่าเช่าต่อปีหารด้วยผลตอบแทน 4.5%',
+    en: 'The same sort of place you rent, priced off a 4.5% gross yield',
+  },
+  buyHomeDown: { th: 'เงินดาวน์', en: 'Deposit' },
+  buyHomeDownNote: { th: '15% ของราคาบ้าน', en: '15% of the price' },
+  buyHomeFees: { th: 'ค่าโอน ค่าจดจำนอง ค่าย้าย', en: 'Transfer, registration and moving' },
+  buyHomeCashNeed: { th: 'เงินสดที่ต้องใช้วันโอน', en: 'Cash needed on the day' },
+  buyHomeLoanLabel: { th: 'ยอดกู้', en: 'Amount borrowed' },
+  buyHomePayment: { th: 'ค่างวดใหม่ 20 ปี', en: 'New instalment, over twenty years' },
+  buyHomeRentEnds: { th: 'ค่าเช่าที่หายไป', en: 'Rent that stops' },
+  buyHomeSwing: { th: 'กระแสเงินสดจะเปลี่ยนไป', en: 'What cash flow does' },
+  buyHomeOverDsr: {
+    th: 'ภาระผ่อนรวมจะเกินเพดานที่ธนาคารรับได้ ยื่นไปก็ไม่ผ่าน ต้องลดหนี้ก้อนอื่นหรือหารายได้ประจำเพิ่มก่อน',
+    en: 'Total debt service would sit above their ceiling, so the application cannot go in. Clear other debt or raise documented income first.',
+  },
+  buyHomeNote: {
+    th: 'ซื้อแล้วบ้านขึ้นเป็นทรัพย์สินในงบ มูลค่าขยับตามราคาที่ดิน และค่าเช่าหยุดทันที แต่ค่างวดจะลอยตามดอกเบี้ยเหมือนบ้านหลังอื่นในเกม',
+    en: 'Once bought, the house sits on the asset side and drifts up with land prices, and the rent stops that month. The instalment floats with rates like every other mortgage here.',
+  },
+  buyHomeApply: { th: 'วางดาวน์แล้วยื่นกู้', en: 'Put the deposit down and apply' },
+  buyHomeOutright: { th: 'จ่ายสดทั้งก้อน {cash}', en: 'Pay {cash} outright' },
+
   loanRefused: { th: 'ไม่อนุมัติ', en: 'Declined' },
   loanPartial: { th: 'อนุมัติบางส่วน', en: 'Partly approved' },
   offerCut: { th: 'ขอเท่านี้ได้ แต่วงเงินที่เขาให้จริงคือ', en: 'You may ask for this, but the line they will actually grant is' },
@@ -623,8 +672,8 @@ export const UI = {
   commuteLabel: { th: 'ค่าเดินทาง (ไม่มีรถ)', en: 'Getting around (no car)' },
   setupStep3: { th: '3. ตั้งต้นชีวิต', en: '3. How you start out' },
   setupStep3Hint: {
-    th: 'เกมนี้เคยยัดรถกับบ้านพร้อมหนี้ใส่มือคุณตั้งแต่ตาแรก ทั้งที่มันคือการตัดสินใจที่คนส่วนใหญ่ได้เลือกจริง ๆ เลือกเอาว่าจะรับหนี้ก้อนนั้นไว้ หรือจะจ่ายอีกแบบหนึ่งแทน',
-    en: 'The game used to hand you a car and a house with the loans already signed, when that is the one decision most people really do get to make. Take the debt, or pay for it the other way.',
+    th: 'เกมนี้เคยยัดรถกับบ้านพร้อมหนี้ใส่มือคุณตั้งแต่ตาแรก ทั้งที่มันคือการตัดสินใจที่คนส่วนใหญ่ได้เลือกจริง ๆ เลือกเอาว่าจะรับหนี้ก้อนนั้นไว้ หรือจะจ่ายอีกแบบหนึ่งแทน บางอาชีพยังไม่มีบ้านให้เลือก ก็จะเห็นค่าเช่าแทน',
+    en: 'The game used to hand you a car and a house with the loans already signed, when that is the one decision most people really do get to make. Take the debt, or pay for it the other way. Some jobs have no house to decide about at all, and see their rent instead.',
   },
   takeCar: { th: 'ผ่อนรถต่อ', en: 'Keep the car' },
   skipCar: { th: 'ไม่มีรถ', en: 'No car' },
@@ -634,6 +683,13 @@ export const UI = {
   carSkipNote: { th: 'ไม่มีหนี้ ไม่มีค่าซ่อม ไม่ต้องต่อประกัน แต่ค่าเดินทาง {cost}/เดือน และมันไม่มีวันหมด', en: 'No debt, no repairs, no policy to renew, but {cost} a month to get around and it never ends.' },
   homeKeepNote: { th: 'ค่างวด {pay}/เดือน หนี้ {debt} ทุกงวดกัดเงินต้นลงเรื่อย ๆ', en: '{pay} a month against {debt} of debt, and every payment eats into the principal.' },
   homeSkipNote: { th: 'ไม่มีหนี้บ้านเลย แต่ค่าเช่า {cost}/เดือน จ่ายไปสามสิบปีก็ยังไม่ได้เป็นเจ้าของอะไร', en: 'No mortgage at all, but {cost} a month of rent, and thirty years of it still owns you nothing.' },
+  /* Two of the jobs never had a mortgage to decline. Leaving their row out made
+     the roof look free, so the row is here and simply has nothing to choose. */
+  noHomeTitle: { th: 'อาชีพนี้ยังไม่มีบ้านเป็นของตัวเอง', en: 'This job has no house of its own yet' },
+  noHomeNote: {
+    th: 'เช่าอยู่ เดือนละ {cost} ไม่มีหนี้บ้านให้เลือกรับหรือไม่รับ แต่ระหว่างเกมซื้อบ้านมือสองเองได้ ถ้าเก็บเงินดาวน์ไหวและธนาคารอนุมัติ',
+    en: 'Renting, at {cost} a month. There is no mortgage to take or leave, but a second-hand house can be bought during the game once the deposit is saved and the bank agrees.',
+  },
 
   /* ------------------------------------------------------------- the animal */
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
