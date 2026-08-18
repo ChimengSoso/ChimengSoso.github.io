@@ -403,6 +403,11 @@ export function livingCost(s: GameState): number {
  * Renting the same roof costs more every month than paying the loan on it, and
  * unlike the loan it never ends. That is the whole trade: no debt, no transfer
  * fee and no repairs, against a bill that is still there in thirty years.
+ *
+ * Nothing computes with this any more. It is the rule the `rent` figures in
+ * `professions` were set by, kept here so the next person to add a job knows
+ * what the number is supposed to be: a little above the instalment on the same
+ * house, and a real market rent for the jobs that own nothing.
  */
 export const RENT_VS_MORTGAGE = 1.05;
 /** Ride-hailing, taxis on the days it rains, and the hours the bus costs instead. */
@@ -413,8 +418,16 @@ function skippedPayment(s: GameState, key: 'home' | 'car'): number {
   return profession(s).debts.find((d) => d.key === key)?.payment ?? 0;
 }
 
+/**
+ * Rent was being derived from the mortgage the player turned down, which meant
+ * the two professions the game never handed a mortgage were charged nothing at
+ * all: an office worker who owned no house and paid no landlord either. Rent is
+ * its own figure on the profession now, so it exists whether or not a mortgage
+ * ever did, and it is a tenancy rather than a purchase in instalments: paying
+ * it for thirty years leaves you owning nothing.
+ */
 export function rentCost(s: GameState): number {
-  return s.hasHome ? 0 : Math.round(skippedPayment(s, 'home') * RENT_VS_MORTGAGE * priceLevel(s));
+  return s.hasHome ? 0 : Math.round(profession(s).rent * priceLevel(s));
 }
 
 export function commuteCost(s: GameState): number {
@@ -3600,6 +3613,21 @@ export function creditReview(s: GameState, amount: number): CreditReview {
   const wanted = Math.max(LOAN_STEP, Math.floor(amount / LOAN_STEP) * LOAN_STEP);
   const offer = Math.min(wanted, maxBorrow(s));
   const service = totalDebtService(s) + offer * LOAN_RATE;
+  const { chance, factors, dsr } = creditFactors(s, service, income);
+  return { income, service, dsr, ceiling: loanCeiling(s), offer, chance, factors };
+}
+
+/**
+ * The four lines the branch actually reads, given what the monthly bill would
+ * be if this application went through. The unsecured loan and the mortgage ask
+ * the same questions of the same file, so they share this and differ only in
+ * what they are lending against.
+ */
+function creditFactors(
+  s: GameState,
+  service: number,
+  income: number,
+): { chance: number; factors: CreditFactor[]; dsr: number } {
   const dsr = income > 0 ? service / income : 1;
   const factors: CreditFactor[] = [];
 
@@ -3625,7 +3653,7 @@ export function creditReview(s: GameState, amount: number): CreditReview {
   const buffer = s.cash < 0 ? -0.28 : s.cash >= totalExpenses(s) * 2 ? 0.05 : 0;
   bite('buffer', buffer, 0.01, -0.1);
 
-  return { income, service, dsr, ceiling: loanCeiling(s), offer, chance: Math.min(0.98, Math.max(0.04, chance)), factors };
+  return { chance: Math.min(0.98, Math.max(0.04, chance)), factors, dsr };
 }
 
 export type LoanOutcome = 'approved' | 'partial' | 'refused' | 'closed';
@@ -3705,7 +3733,12 @@ export function ownSale(s: GameState, kind: OwnKind): { price: number; debt: num
   // What the alternative will cost from next month, which is the part of this
   // decision that outlives the panic.
   const pay = profession(s).debts.find((d) => d.key === kind)?.payment ?? 0;
-  const newCost = Math.round(pay * (kind === 'home' ? RENT_VS_MORTGAGE : COMMUTE_VS_CAR) * priceLevel(s));
+  // Selling the roof means renting one, at the profession's own rent rather
+  // than at anything derived from the loan that just ended.
+  const newCost =
+    kind === 'home'
+      ? Math.round(profession(s).rent * priceLevel(s))
+      : Math.round(pay * COMMUTE_VS_CAR * priceLevel(s));
   return { price: half, debt, raise: Math.max(0, half - debt), shortfall: Math.max(0, debt - half), newCost };
 }
 
@@ -3736,6 +3769,156 @@ export function sellOwn(s: GameState, kind: OwnKind): void {
   );
   checkEscape(s);
   checkTrouble(s);
+}
+
+/* ------------------------------------------------- buying a roof of your own */
+
+/**
+ * What a second-hand house costs, and what it takes to stand in front of one.
+ *
+ * Renting is a tenancy: thirty years of it leaves you owning nothing, and the
+ * way out is to buy at the market price like anybody else. The price is read
+ * off the rent, because the two are the same house seen from opposite sides of
+ * the contract. Thai residential property changes hands at roughly a 4.5%
+ * gross yield, so a room that rents for ฿3,500 is a place that sells for around
+ * ฿900,000; a ฿33,600 house is a ฿9m one.
+ */
+export const HOME_YIELD = 0.045;
+/** The deposit a Thai bank wants on a second-hand home for a first-time buyer. */
+export const HOME_BUY_DOWN = 0.15;
+/** Transfer fee, mortgage registration, the lawyer, and the move itself. */
+export const HOME_BUY_FEES = 0.03;
+/** A new mortgage is written over twenty years, like the ones already in play. */
+export const NEW_MORTGAGE_MONTHS = 240;
+
+export function homePrice(s: GameState): number {
+  const yearly = profession(s).rent * 12 * priceLevel(s);
+  return Math.round(yearly / HOME_YIELD / 10000) * 10000;
+}
+
+/** The instalment that clears `balance` over `months` at a monthly rate. */
+function annuityPayment(balance: number, rate: number, months: number): number {
+  if (rate <= 0) return Math.round(balance / months);
+  return Math.round((balance * rate) / (1 - Math.pow(1 + rate, -months)));
+}
+
+export interface HomeQuote {
+  price: number;
+  down: number;
+  fees: number;
+  /** cash the closing needs when the rest is borrowed */
+  cashToBuy: number;
+  /** cash the closing needs when nothing is borrowed */
+  cashOutright: number;
+  loan: number;
+  payment: number;
+  rent: number;
+  income: number;
+  dsr: number;
+  chance: number;
+  factors: CreditFactor[];
+  blocked: boolean;
+  canPayCash: boolean;
+  canApply: boolean;
+  /** the bank's own line, before any dice are involved */
+  withinDsr: boolean;
+}
+
+export function homeQuote(s: GameState): HomeQuote {
+  const price = homePrice(s);
+  const down = Math.round(price * HOME_BUY_DOWN);
+  const fees = Math.round(price * HOME_BUY_FEES);
+  const loan = price - down;
+  const payment = annuityPayment(loan, floatingRate(s), NEW_MORTGAGE_MONTHS);
+  const income = documentedIncome(s);
+  const service = totalDebtService(s) + payment;
+  const { chance, factors, dsr } = creditFactors(s, service, income);
+  const blocked = s.months < s.loanBlockedUntil;
+  const withinDsr = dsr <= DSR_LIMIT;
+  return {
+    price,
+    down,
+    fees,
+    cashToBuy: down + fees,
+    cashOutright: price + fees,
+    loan,
+    payment,
+    rent: rentCost(s),
+    income,
+    dsr,
+    chance,
+    factors,
+    blocked,
+    canPayCash: s.cash >= price + fees,
+    canApply: !blocked && withinDsr && s.cash >= down + fees,
+    withinDsr,
+  };
+}
+
+/**
+ * The house is recorded at what it would have been worth on day one, because
+ * `homeValue` carries that figure forward with the property market. Writing
+ * today's price straight in would hand a buyer in year ten a decade of drift
+ * they never lived through.
+ */
+function takeHome(s: GameState, price: number): void {
+  s.hasHome = true;
+  s.ownValue.home = Math.round(price / Math.pow(1 + HOME_DRIFT, yearsElapsed(s)));
+}
+
+export type HomeBuyOutcome = 'bought' | 'refused' | 'short' | 'closed';
+
+export function buyHome(s: GameState, mode: 'cash' | 'loan'): HomeBuyOutcome {
+  if (s.hasHome) return 'closed';
+  const q = homeQuote(s);
+
+  if (mode === 'cash') {
+    if (!q.canPayCash) return 'short';
+    s.cash -= q.cashOutright;
+    takeHome(s, q.price);
+    note(
+      s,
+      {
+        th: `ซื้อบ้านมือสองด้วยเงินสด ${money(q.price)} บวกค่าโอนและค่าย้าย ${money(q.fees)} ไม่มีหนี้ ไม่มีค่าเช่าอีกต่อไป`,
+        en: `Bought a second-hand house outright for ${money(q.price)} plus ${money(q.fees)} in fees and moving. No loan, and no more rent.`,
+      },
+      'good',
+    );
+    checkTrouble(s);
+    return 'bought';
+  }
+
+  if (q.blocked || !q.withinDsr) return 'closed';
+  if (s.cash < q.cashToBuy) return 'short';
+  if (rand(s) > q.chance) {
+    s.credit.refused += 1;
+    s.loanBlockedUntil = s.months + LOAN_COOLDOWN;
+    note(
+      s,
+      {
+        th: `ธนาคารไม่อนุมัติสินเชื่อบ้าน ${money(q.loan)} ภาระหนี้ต่อรายได้จะขึ้นไปที่ ${Math.round(q.dsr * 100)}% ยื่นใหม่ได้ในอีก ${LOAN_COOLDOWN} เดือน ระหว่างนี้ยังต้องเช่าอยู่เหมือนเดิม`,
+        en: `The bank declined a ${money(q.loan)} mortgage: debt service would have reached ${Math.round(q.dsr * 100)}% of documented income. They will look again in ${LOAN_COOLDOWN} months, and the rent carries on meanwhile.`,
+      },
+      'bad',
+    );
+    checkTrouble(s);
+    return 'refused';
+  }
+
+  s.cash -= q.cashToBuy;
+  addDebt(s, 'home', q.loan, q.payment);
+  takeHome(s, q.price);
+  note(
+    s,
+    {
+      th: `ซื้อบ้านมือสอง ${money(q.price)} วางดาวน์ ${money(q.down)} ค่าโอนและค่าย้าย ${money(q.fees)} ที่เหลือกู้ ${money(q.loan)} ผ่อนเดือนละ ${money(q.payment)} ยาว 20 ปี ค่าเช่าเดือนละ ${money(q.rent)} จบลงตรงนี้`,
+      en: `Bought a second-hand house for ${money(q.price)}: ${money(q.down)} down, ${money(q.fees)} in fees and moving, ${money(q.loan)} borrowed at ${money(q.payment)} a month for twenty years. The ${money(q.rent)} rent stops here.`,
+    },
+    'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+  return 'bought';
 }
 
 export function canRepay(s: GameState, key: string): boolean {

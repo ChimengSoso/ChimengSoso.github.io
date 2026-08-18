@@ -150,6 +150,10 @@ const description =
     }
     .nn-pick:hover{border-color:var(--nn-green);}
     .nn-pick[aria-pressed="true"]{border-color:var(--nn-green);background:#1c2a25;box-shadow:0 0 0 1px var(--nn-green) inset;}
+    /* A row that states a fact rather than offering a choice: no hover, no
+       pressed state, and a muted edge so it does not read as pickable. */
+    .nn-pick.is-locked{cursor:default;border-style:dashed;background:transparent;}
+    .nn-pick.is-locked:hover{border-color:var(--nn-border);}
     .nn-pick h3{font-size:0.95rem;color:#fff;margin-bottom:0.2rem;}
     .nn-pick p{font-size:0.78rem;color:var(--nn-muted);line-height:1.6;}
     .nn-pick dl{display:grid;grid-template-columns:auto 1fr;gap:0.1rem 0.6rem;margin-top:0.6rem;font-size:0.76rem;}
@@ -651,6 +655,15 @@ const description =
       font-weight:600;
     }
     .nn-rows dt.nn-rowsplit{color:var(--nn-ink);}
+    /* Card dialogs were asking for the same closing line and never getting it:
+       the rule above only ever matched the balance sheet. */
+    .nn-dlg .facts .nn-rowsplit{
+      border-top:1px solid var(--nn-border);
+      padding-top:0.34rem;
+      margin-top:0.22rem;
+      font-weight:600;
+    }
+    .nn-dlg .facts dt.nn-rowsplit{color:var(--nn-ink);}
     .nn-debtsum{margin-bottom:0.55rem;}
     .nn-debtsum .nn-total{font-size:0.9rem;font-weight:700;}
     .nn-rows .nn-rowhead{
@@ -1180,7 +1193,6 @@ const description =
       severance,
       taxes,
       taxBill,
-      startingTax,
       marginalRate,
       TAX_BRACKETS,
       checkEscape,
@@ -1208,7 +1220,8 @@ const description =
       creditReview,
       documentedIncome,
       DSR_LIMIT,
-      RENT_VS_MORTGAGE,
+      homeQuote,
+      buyHome,
       COMMUTE_VS_CAR,
       fillCard,
       petPhrase,
@@ -1405,7 +1418,7 @@ const description =
     let seenLearn = false;
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
-    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
+    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'buyhome' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
     /** which term the glossary popover is explaining */
     let defineKey: GlossaryKey | null = null;
     /** which company's books are open on their own */
@@ -1587,21 +1600,16 @@ const description =
 
     /**
      * The preview has to price the same life the player is about to start, so
-     * declining the car swaps its instalment for the fare, and declining the
-     * house swaps the mortgage for rent. Showing the untouched figure while the
-     * switches say otherwise is how a setup screen lies to somebody.
+     * it starts one: a throwaway game with the switches as they stand, read for
+     * its own two figures. The hand-rolled sum this replaces had drifted from
+     * the real statement by the social-security and provident-fund lines, and
+     * quietly charged no rent at all to the jobs that never had a mortgage.
+     * Adding up the same life twice is how a setup screen ends up lying.
      */
     function professionPreview(id: string): { expenses: number; cashflow: number } {
-      const p = professionById.get(id);
-      if (!p) return { expenses: 0, cashflow: 0 };
-      const kept = p.debts.filter((d) => (d.key === 'car' ? startCar : d.key === 'home' ? startHome : true));
-      const swapped =
-        (startCar ? 0 : (p.debts.find((d) => d.key === 'car')?.payment ?? 0) * COMMUTE_VS_CAR) +
-        (startHome ? 0 : (p.debts.find((d) => d.key === 'home')?.payment ?? 0) * RENT_VS_MORTGAGE);
-      const expenses = Math.round(
-        startingTax(p) + p.otherExpenses + kept.reduce((sum, d) => sum + d.payment, 0) + swapped,
-      );
-      return { expenses, cashflow: p.salary - expenses };
+      if (!professionById.has(id)) return { expenses: 0, cashflow: 0 };
+      const preview = createGame(id, pickedDream, 1, { car: startCar, home: startHome });
+      return { expenses: totalExpenses(preview), cashflow: monthlyCashflow(preview) };
     }
 
     /** The two starting-life switches, as they stand before the game exists. */
@@ -1659,8 +1667,24 @@ const description =
         taken: boolean,
       ): string => {
         const debt = startingDebt(pickedProfession, key);
-        if (!debt) return '';
-        const alt = Math.round(debt.payment * (key === 'car' ? COMMUTE_VS_CAR : RENT_VS_MORTGAGE));
+        // No mortgage to decide about does not mean no roof to pay for. The row
+        // stays, showing the tenancy that is already running, so nobody reads a
+        // missing row as a missing bill.
+        if (!debt) {
+          if (key === 'car') return '';
+          const rent = professionById.get(pickedProfession)?.rent ?? 0;
+          return `<div class="nn-swap nn-swap-fixed">
+            <div class="nn-pick is-locked">
+              <h3>${T(UI.noHomeTitle)}</h3>
+              <p>${T(UI.noHomeNote).replace('{cost}', money(rent))}</p>
+            </div>
+          </div>`;
+        }
+        // The rent quoted here is the figure the game will actually charge, not
+        // a second calculation of it that could drift from the first.
+        const alt = key === 'car'
+          ? Math.round(debt.payment * COMMUTE_VS_CAR)
+          : (professionById.get(pickedProfession)?.rent ?? 0);
         return `<div class="nn-swap">
           <div class="nn-swapside">
             <button type="button" class="nn-pick" data-act="pick-${key}" data-id="yes" aria-pressed="${taken}">
@@ -1890,6 +1914,15 @@ const description =
           : '',
         s.hasCar && carValue(s) > 0
           ? `<li><span class="nm"><b>${T(UI.carOwned)}</b><small>${T(UI.carNote)}</small></span><span class="amt">${money(carValue(s))}</span></li>`
+          : '',
+        // A tenant owns no roof, so the asset side has nothing to show and the
+        // player had no way of knowing the game would ever let them buy one.
+        // The row says what renting is worth on this page — nothing — and
+        // carries the way out.
+        !s.hasHome && s.phase === 'rat'
+          ? `<li><span class="nm"><b>${T(UI.renting)}</b><small>${T(UI.rentingNote).replace('{rent}', money(rentCost(s)))}</small></span>
+              <span class="nn-rowend"><span class="amt muted">${money(0)}</span>
+              <button type="button" class="nn-mini" data-act="buyhome">${T(UI.buyHomeBtn)}</button></span></li>`
           : '',
       ].join('');
 
@@ -2325,6 +2358,7 @@ const description =
       // Sits on top of the rescue card, since borrowing is one of the two ways
       // out of it.
       if (modal === 'borrow') return borrowDialog(s);
+      if (modal === 'buyhome') return buyHomeDialog(s);
       if (cardIsHidden(s)) return null;
       return pendingDialog(s);
     }
@@ -2763,6 +2797,51 @@ const description =
         </div>`;
     }
 
+    /**
+     * Buying a roof, at the price the market asks rather than by resuming a
+     * contract that was declined years ago. Both ways in are on the card: the
+     * whole price in cash, or a deposit and a twenty-year mortgage the bank
+     * still has to agree to. The rent it would end is next to both of them,
+     * because that is the number the decision is actually made against.
+     */
+    function buyHomeDialog(s: GameState): string {
+      const q = homeQuote(s);
+      const band = q.chance >= 0.8 ? UI.chanceHigh : q.chance >= 0.5 ? UI.chanceMid : UI.chanceLow;
+      const bandCls = q.chance >= 0.8 ? 'pos' : q.chance >= 0.5 ? '' : 'neg';
+      const swing = q.payment - q.rent;
+      return `<div class="kind">${T(UI.buyHomeTag)}</div>
+        <h2 id="nn-dlg-title">${T(UI.buyHomeTitle)}</h2>
+        <p class="story">${T(UI.buyHomeBody)}</p>
+        <dl class="facts">
+          <dt>${T(UI.buyHomePrice)}<small>${T(UI.buyHomePriceNote)}</small></dt><dd>${money(q.price)}</dd>
+          <dt>${T(UI.buyHomeDown)}<small>${T(UI.buyHomeDownNote)}</small></dt><dd>${money(q.down)}</dd>
+          <dt>${T(UI.buyHomeFees)}</dt><dd>${money(q.fees)}</dd>
+          <dt class="nn-rowsplit">${T(UI.buyHomeCashNeed)}</dt><dd class="nn-rowsplit ${q.cashToBuy > s.cash ? 'neg' : ''}">${money(q.cashToBuy)}</dd>
+          <dt>${T(UI.cashOnHand)}</dt><dd>${money(s.cash)}</dd>
+          <dt class="nn-rowsplit">${T(UI.buyHomeLoanLabel)}</dt><dd class="nn-rowsplit">${money(q.loan)}</dd>
+          <dt>${T(UI.buyHomePayment)}</dt><dd class="neg">${money(q.payment)}${T(UI.perMonth)}</dd>
+          <dt>${T(UI.buyHomeRentEnds)}</dt><dd class="pos">-${money(q.rent)}${T(UI.perMonth)}</dd>
+          <dt class="nn-rowsplit">${T(UI.buyHomeSwing)}</dt><dd class="nn-rowsplit ${cls(-swing)}">${signed(-swing)}${T(UI.perMonth)}</dd>
+        </dl>
+        <div class="nn-credit">
+          <h3>${T(UI.creditTitle)}</h3>
+          <dl class="facts">
+            <dt>${T(UI.docIncome)}</dt><dd>${money(q.income)}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.dsrLabel)}</dt><dd class="${q.dsr > DSR_LIMIT * 0.85 ? 'neg' : ''}">${Math.round(q.dsr * 100)}%</dd>
+            <dt>${T(UI.dsrCeiling)}</dt><dd>${Math.round(DSR_LIMIT * 100)}%</dd>
+            <dt class="nn-rowsplit">${T(UI.creditChance)}</dt><dd class="nn-rowsplit ${bandCls}">${T(band)}</dd>
+          </dl>
+        </div>
+        ${q.blocked ? `<p class="nn-warnline">${T(UI.loanBlocked).replace('{month}', String(s.loanBlockedUntil))}</p>` : ''}
+        ${!q.withinDsr ? `<p class="nn-warnline">${T(UI.buyHomeOverDsr)}</p>` : ''}
+        <p class="nn-empty">${T(UI.buyHomeNote)}</p>
+        <div class="nn-acts">
+          <button type="button" class="nn-btn nn-btn-go" data-act="buyhome-loan" ${q.canApply ? '' : 'disabled'}>${T(UI.buyHomeApply)}</button>
+          <button type="button" class="nn-btn nn-btn-gold" data-act="buyhome-cash" ${q.canPayCash ? '' : 'disabled'}>${T(UI.buyHomeOutright).replace('{cash}', money(q.cashOutright))}</button>
+          <button type="button" class="nn-btn nn-btn-quiet" data-act="closemodal">${T(UI.cancel)}</button>
+        </div>`;
+    }
+
     function fastIntroDialog(s: GameState): string {
       const dream = dreamById.get(s.dreamId);
       return `<div class="kind">${T(UI.fastTitle)}</div>
@@ -2881,11 +2960,25 @@ const description =
      * can do is say what kind of money each one asks for.
      */
     function deckRange(size: 'small' | 'big' | 'fast' | 'mega'): string {
-      const cards = deals.filter((d) => d.size === size);
-      const downs = cards.map((d) => d.down);
+      const downs = deals.filter((d) => d.size === size).map((d) => d.down);
       const low = Math.min(...downs);
       const high = Math.max(...downs);
-      return `${cards.length} ${T(UI.cardsWord)} · ${money(low)}–${money(high)}`;
+      return `${money(low)}–${money(high)}<small>${T(UI.dealCashLine)}</small>`;
+    }
+
+    /**
+     * The deck description a first-timer can act on. The count of cards in a
+     * pile ("20 ใบ") is true and useless: you cannot pick which one comes out,
+     * so the only thing worth knowing before choosing a pile is what sort of
+     * thing is in it and what it asks for in cash.
+     */
+    function deckKinds(size: 'small' | 'big' | 'fast' | 'mega'): string {
+      const label =
+        size === 'small' ? UI.smallDealKinds
+        : size === 'big' ? UI.bigDealKinds
+        : size === 'fast' ? UI.fastDealKinds
+        : UI.megaDealKinds;
+      return `<small>${T(label)}</small>`;
     }
 
     /**
@@ -2958,8 +3051,9 @@ const description =
           <h2 id="nn-dlg-title">${T(UI.chooseDeal)}</h2>
           <p class="story">${T(UI.chooseDealHint)}</p>
           <dl class="facts">
-            <dt>${T(UI.smallDeal)}</dt><dd>${deckRange('small')}</dd>
-            <dt>${T(UI.bigDeal)}</dt><dd>${deckRange('big')}</dd>
+            <dt>${T(UI.smallDeal)}${deckKinds('small')}</dt><dd>${deckRange('small')}</dd>
+            <dt>${T(UI.bigDeal)}${deckKinds('big')}</dt><dd>${deckRange('big')}</dd>
+            <dt class="nn-rowsplit">${T(UI.cashOnHand)}</dt><dd class="nn-rowsplit">${money(s.cash)}</dd>
           </dl>
           <p class="nn-warnline">${T(UI.deckOneWay)}</p>
           <div class="nn-acts">
@@ -2974,8 +3068,9 @@ const description =
           <h2 id="nn-dlg-title">${T(UI.chooseDeal)}</h2>
           <p class="story">${T(UI.chooseFastHint)}</p>
           <dl class="facts">
-            <dt>${T(UI.fastDealBtn)}</dt><dd>${deckRange('fast')}</dd>
-            <dt>${T(UI.megaDealBtn)}</dt><dd>${deckRange('mega')}</dd>
+            <dt>${T(UI.fastDealBtn)}${deckKinds('fast')}</dt><dd>${deckRange('fast')}</dd>
+            <dt>${T(UI.megaDealBtn)}${deckKinds('mega')}</dt><dd>${deckRange('mega')}</dd>
+            <dt class="nn-rowsplit">${T(UI.cashOnHand)}</dt><dd class="nn-rowsplit">${money(s.cash)}</dd>
           </dl>
           <p class="nn-warnline">${T(UI.deckOneWay)}</p>
           <div class="nn-acts">
@@ -3206,6 +3301,20 @@ const description =
 
       if (p.kind === 'baby') {
         const full = s.children >= MAX_CHILDREN;
+        /*
+         * One unlabelled cash-flow line on a card that is asking you to take on
+         * a child reads as what the child pays you, which is the opposite of
+         * the truth. Both numbers go on the card now, and the second one is
+         * measured rather than estimated: say yes on a throwaway copy of the
+         * game and read the statement back off it, so the figure can never
+         * drift from what the green button actually does.
+         */
+        const flowNow = monthlyCashflow(s);
+        const flowAfter = (() => {
+          const copy = structuredClone(s);
+          acceptBaby(copy);
+          return monthlyCashflow(copy);
+        })();
         return `<div class="kind">${T(UI.tileBaby)}</div>
           <h2 id="nn-dlg-title">${T(UI.tileBaby)}</h2>
           <p class="story">${T(UI.babyBody)}</p>
@@ -3218,7 +3327,8 @@ const description =
             <dt>${T(UI.childCostNow)}</dt><dd class="neg">${money(nextChildCost(s))}${T(UI.perMonth)}</dd>
             <dt>${T(UI.childCostLater)}</dt><dd class="neg">${money(Math.round(nextChildCost(s) * 2.4))}${T(UI.perMonth)}</dd>
             ${s.children === 0 ? `<dt>${T(UI.partnerLabel)}</dt><dd class="neg">${money(Math.round(livingCost(s) * PARTNER_SHARE))}${T(UI.perMonth)}</dd>` : ''}
-            <dt>${T(UI.cashflow)}</dt><dd class="${cls(monthlyCashflow(s))}">${signed(monthlyCashflow(s))}${T(UI.perMonth)}</dd>
+            <dt class="nn-rowsplit">${T(UI.cashflowNow)}</dt><dd class="nn-rowsplit ${cls(flowNow)}">${signed(flowNow)}${T(UI.perMonth)}</dd>
+            <dt>${T(UI.cashflowAfter)}</dt><dd class="${cls(flowAfter)}">${signed(flowAfter)}${T(UI.perMonth)}</dd>
           </dl>
           <p class="nn-empty">${T(UI.childShareNote)}</p>`}
           <div class="nn-acts">
@@ -3918,6 +4028,9 @@ const description =
         case 'borrow':
           modal = 'borrow';
           break;
+        case 'buyhome':
+          modal = 'buyhome';
+          break;
         case 'speed':
           speed = id === 'fast' ? 'fast' : id === 'off' ? 'off' : 'normal';
           saveSpeed();
@@ -4105,6 +4218,14 @@ const description =
           if (outcome !== 'refused') modal = null;
           break;
         }
+        // A refusal keeps the card open so the reason can be read; a purchase
+        // closes it, since the sheet behind it has just changed.
+        case 'buyhome-loan':
+          if (buyHome(s, 'loan') === 'bought') modal = null;
+          break;
+        case 'buyhome-cash':
+          if (buyHome(s, 'cash') === 'bought') modal = null;
+          break;
         case 'sellnow':
           if (id) sellPaper(s, id, qtyOf(panel, id));
           break;
