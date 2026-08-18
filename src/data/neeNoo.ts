@@ -126,17 +126,23 @@ export const petNames: Loc[] = [
  * starting monthly cash flow lands between about 2.1 and 3.3. The spread is
  * deliberate, since the point of the game is that a bigger salary does not
  * shorten the run, but nobody should be handed an unplayable ratio either.
+ *
+ * Renting sits above that band on purpose. The office worker starts at about
+ * 4.6 because the rent is on the bar and never comes off it, and any job that
+ * declines its mortgage lands in the same place: a tenant's finish line is
+ * further away than an owner's, which is the thing renting actually costs.
  */
 export const professions: Profession[] = [
   {
     id: 'office',
     name: { th: 'พนักงานออฟฟิศ', en: 'Office worker' },
     blurb: {
-      th: 'เงินเดือนน้อยที่สุดในเกม แต่รายจ่ายก็เบาที่สุด เส้นชัยอยู่ใกล้กว่าที่คิด',
-      en: 'The smallest salary in the game, but also the lightest expenses. The finish line is closer than it looks.',
+      th: 'เงินเดือนน้อยที่สุดในเกม รายจ่ายก็เบาที่สุด แต่ยังไม่มีบ้านเป็นของตัวเอง ค่าเช่าจึงมาทุกเดือนและไม่มีวันจบ',
+      en: 'The smallest salary in the game and the lightest expenses, but no house of your own: the rent arrives every month and never ends.',
     },
-    salary: 22000,
-    otherExpenses: 6900,
+    salary: 25000,
+    otherExpenses: 6400,
+    rent: 3500,
     childCost: 4000,
     cash: 30000,
     debts: [
@@ -159,6 +165,7 @@ export const professions: Profession[] = [
     },
     salary: 26000,
     otherExpenses: 7800,
+    rent: 3360,
     childCost: 4600,
     cash: 30000,
     debts: [
@@ -183,6 +190,7 @@ export const professions: Profession[] = [
     },
     salary: 34000,
     otherExpenses: 9200,
+    rent: 5800,
     childCost: 5600,
     cash: 35000,
     debts: [
@@ -202,11 +210,12 @@ export const professions: Profession[] = [
     id: 'cafe',
     name: { th: 'เจ้าของร้านกาแฟ', en: 'Coffee shop owner' },
     blurb: {
-      th: 'เป็นเจ้าของกิจการแล้ว แต่รายได้ยังผูกกับการยืนชงเอง จึงยังนับเป็นเงินเดือน',
-      en: 'Already a business owner, but the income still depends on standing behind the counter, so it counts as salary.',
+      th: 'เป็นเจ้าของกิจการแล้ว แต่รายได้ยังผูกกับการยืนชงเอง จึงยังนับเป็นเงินเดือน ส่วนที่อยู่ยังเช่าเขาอยู่',
+      en: 'Already a business owner, but the income still depends on standing behind the counter, so it counts as salary. The roof is still rented.',
     },
-    salary: 38000,
-    otherExpenses: 9400,
+    salary: 42000,
+    otherExpenses: 8800,
+    rent: 5000,
     childCost: 6000,
     cash: 35000,
     debts: [
@@ -229,6 +238,7 @@ export const professions: Profession[] = [
     },
     salary: 48000,
     otherExpenses: 12400,
+    rent: 9450,
     childCost: 7200,
     cash: 50000,
     debts: [
@@ -252,6 +262,7 @@ export const professions: Profession[] = [
     },
     salary: 60000,
     otherExpenses: 15200,
+    rent: 12600,
     childCost: 8400,
     cash: 70000,
     debts: [
@@ -274,6 +285,7 @@ export const professions: Profession[] = [
     },
     salary: 110000,
     otherExpenses: 24100,
+    rent: 25200,
     childCost: 13000,
     cash: 150000,
     debts: [
@@ -298,6 +310,7 @@ export const professions: Profession[] = [
     },
     salary: 150000,
     otherExpenses: 28100,
+    rent: 33600,
     childCost: 16000,
     cash: 250000,
     debts: [
