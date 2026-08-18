@@ -109,8 +109,17 @@ export interface Profession {
   // drifted a long way from the real ladder (a ฿22,000 salary was billed ฿900 a
   // month when it actually owes nothing at all). Tax is computed from income
   // now, by category, in `taxBill`.
-  /** food, transport, phone… everything not itemised as a debt payment */
+  /** food, transport, phone… everything not itemised as a debt payment, and never a roof */
   otherExpenses: number;
+  /**
+   * What this person pays a landlord in the months they do not own the roof
+   * they sleep under. Every profession has one, whether or not the game hands
+   * them a mortgage: the two jobs that start without a house were living rent
+   * free, which is the one thing nobody in Thailand does. For the jobs that do
+   * start with a mortgage this is that instalment plus a bit, because the same
+   * roof always costs more to rent than to owe money on.
+   */
+  rent: number;
   /**
    * What one child costs this household every month, day to day, before school
    * fees and before anything the cards charge separately. It is the whole
