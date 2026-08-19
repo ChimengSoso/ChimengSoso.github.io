@@ -1403,6 +1403,9 @@ const description =
       DSR_LIMIT,
       homeQuote,
       buyHome,
+      BOND_CUT,
+      corpDistributable,
+      payLevel,
       cashSunkPerUnit,
       DIVIDEND_TAX,
       occupancyRate,
@@ -1642,6 +1645,12 @@ const description =
     let seenLearn = false;
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
+    /**
+     * The breakdowns opened on the way down to the one on screen. Opening a
+     * definition from inside another pushes the one being left, so the back
+     * button can walk out the way it came in; closing the dialog empties it.
+     */
+    let defineTrail: string[] = [];
     let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'buyhome' | 'movein' | 'changelog' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
     /** which term the glossary popover is explaining */
     let defineKey: GlossaryKey | null = null;
@@ -2923,6 +2932,18 @@ const description =
       return s.assets.reduce((n, a) => n + assetValue(a), 0) + homeValue(s) + carValue(s);
     }
 
+    /**
+     * One line of a breakdown: what it is, what it says, how it is coloured,
+     * and optionally the name of its own breakdown.
+     *
+     * The fourth element is what makes the thing recursive. A player looking at
+     * "รายได้ ฿41,010" is told it is a salary plus a director's wage, and the
+     * next question is always where the salary itself came from. The key is a
+     * plain string rather than `GlossaryKey` because the keys are the names of
+     * the object this type is used to build; it is checked at render time.
+     */
+    type GlossaryRow = [Loc, string, string, string?];
+
     const GLOSSARY = {
       netWorth: {
         term: UI.gloNetWorth,
@@ -2930,29 +2951,29 @@ const description =
         rows: (s: GameState) => [
           // The house and the car belong in this sum or the four rows do not
           // add up to the figure at the top of the panel.
-          [UI.assets, money(ownedTotal(s)), 'pos'],
+          [UI.assets, money(ownedTotal(s)), 'pos', 'assets'],
           [UI.cash, money(s.cash), cls(s.cash)],
-          [UI.totalDebt, `-${money(totalDebt(s))}`, 'neg'],
+          [UI.totalDebt, `-${money(totalDebt(s))}`, 'neg', 'liabilities'],
           [UI.netWorth, money(netWorth(s)), cls(netWorth(s))],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       cashflow: {
         term: UI.gloCashflow,
         body: UI.gloCashflowBody,
         rows: (s: GameState) => [
-          [UI.income, money(totalIncome(s)), 'pos'],
-          [UI.expenses, `-${money(totalExpenses(s))}`, 'neg'],
+          [UI.income, money(totalIncome(s)), 'pos', 'income'],
+          [UI.expenses, `-${money(totalExpenses(s))}`, 'neg', 'expenses'],
           [UI.cashflow, signed(monthlyCashflow(s)), cls(monthlyCashflow(s))],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       passive: {
         term: UI.gloPassive,
         body: UI.gloPassiveBody,
         rows: (s: GameState) => [
-          [UI.passive, money(householdIncome(s)), 'pos'],
-          [UI.expenses, money(totalExpenses(s)), 'neg'],
+          [UI.passive, money(householdIncome(s)), 'pos', 'holdings'],
+          [UI.expenses, money(totalExpenses(s)), 'neg', 'expenses'],
           [UI.escapeNeed, money(Math.max(0, totalExpenses(s) - householdIncome(s))), ''],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       assets: {
         term: UI.gloAssets,
@@ -2960,16 +2981,16 @@ const description =
         rows: (s: GameState) => [
           [UI.assets, money(ownedTotal(s)), ''],
           [UI.passive, money(passiveIncome(s) + corpRevenue(s)), 'pos'],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       liabilities: {
         term: UI.gloLiabilities,
         body: UI.gloLiabilitiesBody,
         rows: (s: GameState) => [
-          [UI.personalDebt, money(personalDebt(s)), 'neg'],
+          [UI.personalDebt, money(personalDebt(s)), 'neg', 'debtService'],
           [UI.assetDebt, money(assetDebt(s)), 'neg'],
           [UI.totalDebt, money(totalDebt(s)), 'neg'],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       debtService: {
         term: UI.gloDebtService,
@@ -2978,7 +2999,7 @@ const description =
           [UI.debtService, money(totalDebtService(s)), 'neg'],
           [UI.docIncome, money(documentedIncome(s)), ''],
           [UI.dsrLabel, `${documentedIncome(s) > 0 ? Math.round((totalDebtService(s) / documentedIncome(s)) * 100) : 0}%`, ''],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       equity: {
         term: UI.gloEquity,
@@ -2987,12 +3008,12 @@ const description =
           [UI.corpCash, money(s.corpCash), ''],
           [UI.corpEquityLabel, money(corpEquity(s)), cls(corpEquity(s))],
           [UI.worthIfCashedOut, money(worthAfterWindingUp(s)), ''],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       down: {
         term: UI.gloDown,
         body: UI.gloDownBody,
-        rows: () => [] as [Loc, string, string][],
+        rows: () => [] as GlossaryRow[],
       },
       providentFund: {
         term: UI.pfPotLabel,
@@ -3002,7 +3023,7 @@ const description =
           [UI.pfMatch, money(pfMatch(s)), 'pos'],
           [UI.pfPotLabel, money(pfPot(s)), 'pos'],
           [UI.pfIfTakenNow, money(pfCashOut(s)), ''],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       dca: {
         term: UI.dcaTitle,
@@ -3011,7 +3032,7 @@ const description =
           [UI.dcaMonthlyLabel, money(s.dcaMonthly), ''],
           [UI.dcaPaidIn, money(dcaPaidIn(s)), ''],
           [UI.dcaWorth, money(dcaValue(s)), cls(dcaGain(s))],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       // Totals a player can see but could not previously take apart. Each one
       // lists the lines that were added up to make it, in the order they were
@@ -3021,18 +3042,18 @@ const description =
         body: UI.gloAssetsTotalBody,
         rows: (s: GameState) => [
           [UI.cashInHand, money(s.cash), cls(s.cash)],
-          ...(s.incorporated ? [[UI.corpCash, money(s.corpCash), cls(s.corpCash)] as [Loc, string, string]] : []),
-          [UI.thingsYouOwn, money(ownedTotal(s)), ''],
+          ...(s.incorporated ? [[UI.corpCash, money(s.corpCash), cls(s.corpCash)] as GlossaryRow] : []),
+          [UI.thingsYouOwn, money(ownedTotal(s)), '', 'assets'],
           [UI.assetsTotal, money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0)), 'pos'],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       expenses: {
         term: UI.expenses,
         body: UI.gloExpensesBody,
         rows: (s: GameState) => [
-          [UI.taxes, money(taxes(s) + ssoContribution(s) + pfContribution(s)), 'neg'],
-          [UI.otherExpenses, money(livingCost(s)), 'neg'],
-          ...(housingCost(s) > 0 ? [[UI.housingLine, money(housingCost(s)), 'neg'] as [Loc, string, string]] : []),
+          [UI.taxes, money(taxes(s) + ssoContribution(s) + pfContribution(s)), 'neg', 'payroll'],
+          [UI.otherExpenses, money(livingCost(s)), 'neg', 'living'],
+          ...(housingCost(s) > 0 ? [[UI.housingLine, money(housingCost(s)), 'neg', 'housing'] as GlossaryRow] : []),
           ...(childExpense(s) + childPremium(s) + partnerCost(s) > 0
             ? [[UI.familyLine, money(childExpense(s) + childPremium(s) + partnerCost(s)), 'neg'] as [Loc, string, string]]
             : []),
@@ -3040,23 +3061,94 @@ const description =
           // netted out of that holding's income, so adding it here would
           // charge it to the player twice and the column would not add up.
           [UI.debtsOwn, money(debtPayments(s)), 'neg'],
-          ...(insurancePremium(s) > 0 ? [[UI.premium, money(insurancePremium(s)), 'neg'] as [Loc, string, string]] : []),
+          ...(insurancePremium(s) > 0 ? [[UI.premium, money(insurancePremium(s)), 'neg'] as GlossaryRow] : []),
           [UI.expensesIsBar, money(totalExpenses(s)), 'neg'],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
       income: {
         term: UI.income,
         body: UI.gloIncomeBody,
         rows: (s: GameState) => [
-          [UI.salary, money(salary(s)), noMoreSalary(s) ? 'muted' : 'pos'],
-          ...(pensionIncome(s) > 0 ? [[pensionLabelOf(s), money(pensionIncome(s)), 'pos'] as [Loc, string, string]] : []),
-          ...(drawTaken(s) > 0 ? [[UI.drawLabel, money(drawTaken(s)), 'pos'] as [Loc, string, string]] : []),
-          ...(childAllowance(s) > 0 ? [[UI.childAllowanceLabel, money(childAllowance(s)), 'pos'] as [Loc, string, string]] : []),
-          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : ''],
+          [UI.salary, money(salary(s)), noMoreSalary(s) ? 'muted' : 'pos', 'salary'],
+          ...(pensionIncome(s) > 0 ? [[pensionLabelOf(s), money(pensionIncome(s)), 'pos'] as GlossaryRow] : []),
+          ...(drawTaken(s) > 0 ? [[UI.drawLabel, money(drawTaken(s)), 'pos', 'draw'] as GlossaryRow] : []),
+          ...(childAllowance(s) > 0 ? [[UI.childAllowanceLabel, money(childAllowance(s)), 'pos'] as GlossaryRow] : []),
+          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : '', 'holdings'],
           [UI.income, money(totalIncome(s)), 'pos'],
-        ] as [Loc, string, string][],
+        ] as GlossaryRow[],
       },
-    } satisfies Record<string, { term: Loc; body: Loc; rows: (s: GameState) => [Loc, string, string][] }>;
+      // The bottom of the ladder: figures that are not sums of other rows on
+      // the page but of things that happened to the player, which is exactly
+      // the part nobody could see. A salary is a starting wage that has been
+      // raised, cut for a bond, or paid at a beginner's rate; rent is a figure
+      // that inflation has been walking upward since the first turn.
+      salary: {
+        term: UI.salary,
+        body: UI.gloSalaryBody,
+        rows: (s: GameState) => [
+          [UI.gloSalaryStart, money(profession(s).salary), ''],
+          [UI.gloSalaryRaise, `×${payLevel(s).toFixed(2)}`, payLevel(s) > 1 ? 'pos' : ''],
+          ...(s.entryPay < 1 ? [[UI.gloSalaryEntry, `×${s.entryPay.toFixed(2)}`, 'neg'] as GlossaryRow] : []),
+          ...(s.bondMonths > 0 ? [[UI.gloSalaryBond, `-${Math.round(BOND_CUT * 100)}%`, 'neg'] as GlossaryRow] : []),
+          ...(s.slumpMonths > 0 ? [[UI.gloSalarySlump, `-${Math.round(s.slumpCut * 100)}%`, 'neg'] as GlossaryRow] : []),
+          [UI.salary, money(salary(s)), noMoreSalary(s) ? 'muted' : 'pos'],
+          [UI.gloSalaryYears, `${Math.floor(s.months / 12)} ${T(UI.yearsUnit) || 'years'}`, 'muted'],
+        ] as GlossaryRow[],
+      },
+      draw: {
+        term: UI.drawLabel,
+        body: UI.gloDrawBody,
+        rows: (s: GameState) => [
+          [UI.gloDrawSet, money(s.corpDraw), ''],
+          [UI.corpRevenue, money(corpRevenue(s)), 'pos'],
+          [UI.gloDrawPaid, money(drawTaken(s)), 'pos'],
+          [UI.corpRetained, signed(corpRetained(s)), cls(corpRetained(s))],
+        ] as GlossaryRow[],
+      },
+      // What the holdings themselves pay, line by line, which is the only way
+      // to see that one empty building is what moved the total.
+      holdings: {
+        term: UI.passive,
+        body: UI.gloHoldingsBody,
+        rows: (s: GameState) => [
+          ...s.assets
+            .filter((a) => !isCorpAsset(a))
+            .map((a) => [a.name, signed(assetCashflow(a)), cls(assetCashflow(a))] as GlossaryRow),
+          ...(s.incorporated ? [[UI.householdIncomeLabel, signed(corpDistributable(s)), cls(corpDistributable(s))] as GlossaryRow] : []),
+          [UI.passive, money(householdIncome(s)), 'pos'],
+        ] as GlossaryRow[],
+      },
+      payroll: {
+        term: UI.taxes,
+        body: UI.gloPayrollBody,
+        rows: (s: GameState) => [
+          [UI.taxes, money(taxes(s)), 'neg'],
+          ...(ssoContribution(s) > 0 ? [[UI.ssoLabel, money(ssoContribution(s)), 'neg'] as GlossaryRow] : []),
+          ...(pfContribution(s) > 0 ? [[UI.pfOwn, money(pfContribution(s)), 'neg'] as GlossaryRow] : []),
+          [UI.gloPayrollTotal, money(taxes(s) + ssoContribution(s) + pfContribution(s)), 'neg'],
+        ] as GlossaryRow[],
+      },
+      living: {
+        term: UI.otherExpenses,
+        body: UI.gloLivingBody,
+        rows: (s: GameState) => [
+          [UI.gloLivingStart, money(profession(s).otherExpenses), ''],
+          [UI.gloLivingInflation, `×${priceLevel(s).toFixed(2)}`, 'neg'],
+          [UI.otherExpenses, money(livingCost(s)), 'neg'],
+        ] as GlossaryRow[],
+      },
+      housing: {
+        term: UI.housingLine,
+        body: UI.gloHousingBody,
+        rows: (s: GameState) => [
+          ...(rentCost(s) > 0 ? [[UI.rentLabel, money(rentCost(s)), 'neg'] as GlossaryRow] : []),
+          ...(commuteCost(s) > 0 ? [[UI.commuteLabel, money(commuteCost(s)), 'neg'] as GlossaryRow] : []),
+          ...(rentCost(s) > 0 ? [[UI.gloHousingRentBase, money(profession(s).rent), 'muted'] as GlossaryRow] : []),
+          [UI.gloLivingInflation, `×${priceLevel(s).toFixed(2)}`, 'muted'],
+          [UI.housingLine, money(housingCost(s)), 'neg'],
+        ] as GlossaryRow[],
+      },
+    } satisfies Record<string, { term: Loc; body: Loc; rows: (s: GameState) => GlossaryRow[] }>;
 
     type GlossaryKey = keyof typeof GLOSSARY;
 
@@ -3153,14 +3245,38 @@ const description =
       return `<button type="button" class="nn-why" data-act="define" data-id="${key}">${T(label)}<span aria-hidden="true">?</span></button>`;
     }
 
+    /**
+     * A breakdown, with its own rows tappable where they have one.
+     *
+     * The first version of this stopped one level down: it said the income was
+     * a salary plus a director's wage and left the player to wonder where a
+     * salary of ฿26,010 came from when the job card said ฿25,000. Any row that
+     * names a breakdown is drawn as a button, and the trail of what was opened
+     * on the way down is kept so there is a way back up.
+     */
     function defineDialog(s: GameState, key: GlossaryKey): string {
       const entry = GLOSSARY[key];
       const rows = entry.rows(s);
+      const cells = rows
+        .map(([label, value, colour, into]) => {
+          const drill = into !== undefined && isGlossaryKey(into) && into !== key;
+          return `<dt>${T(label)}</dt><dd class="${colour}">${
+            drill ? `<button type="button" class="nn-whynum" data-act="define" data-id="${into}">${value}</button>` : value
+          }</dd>`;
+        })
+        .join('');
+      const trail = defineTrail.length
+        ? `<button type="button" class="nn-btn nn-btn-quiet" data-act="defineback">${T(UI.backOneLevel)} ${T(GLOSSARY[defineTrail[defineTrail.length - 1] as GlossaryKey].term)}</button>`
+        : '';
       return `<div class="kind">${T(UI.whatIsIt)}</div>
         <h2 id="nn-dlg-title">${T(entry.term)}</h2>
         <p class="story">${T(entry.body)}</p>
-        ${rows.length ? `<dl class="facts">${rows.map(([l, v, c]) => `<dt>${T(l)}</dt><dd class="${c}">${v}</dd>`).join('')}</dl>` : ''}
-        <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button></div>`;
+        ${rows.length ? `<dl class="facts">${cells}</dl>` : ''}
+        ${rows.some((r) => r[3] !== undefined) ? `<p class="nn-empty">${T(UI.tapToGoDeeper)}</p>` : ''}
+        <div class="nn-acts">
+          ${trail}
+          <button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button>
+        </div>`;
     }
 
     /** The annual report on its own, for a share already owned. */
@@ -4563,10 +4679,20 @@ const description =
           break;
         case 'define':
           if (id && isGlossaryKey(id)) {
+            // Opening one breakdown from inside another is a step down, not a
+            // new dialog: the one being left goes on the trail.
+            if (modal === 'define' && defineKey && defineKey !== id) defineTrail.push(defineKey);
+            else if (modal !== 'define') defineTrail = [];
             defineKey = id;
             modal = 'define';
           }
           break;
+        case 'defineback': {
+          const back = defineTrail.pop();
+          if (back && isGlossaryKey(back)) defineKey = back;
+          else modal = null;
+          break;
+        }
         case 'corp':
           modal = 'corp';
           break;
@@ -4582,6 +4708,7 @@ const description =
           break;
         case 'closemodal':
           modal = null;
+          defineTrail = [];
           break;
         case 'opendebt':
           openDebt = openDebt === id ? null : (id ?? null);

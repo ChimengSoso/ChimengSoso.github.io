@@ -274,6 +274,46 @@ export const UI = {
 
   /* The asset side of the balance panel, totalled the way a balance sheet is:
      cash included, because that is where a sold building goes. */
+  /* Digging into a figure that is itself made of figures. */
+  tapToGoDeeper: { th: 'ตัวเลขที่ขีดเส้นใต้กดต่อได้ ดูได้ว่ามันมาจากอะไรอีกที', en: 'The underlined figures open up too, one level further down.' },
+  backOneLevel: { th: 'ย้อนกลับไป', en: 'Back to' },
+  gloSalaryBody: {
+    th: 'เงินเดือนบนงบไม่เท่ากับเงินเดือนที่เขียนบนการ์ดอาชีพ เพราะมันโดนคูณด้วยการขึ้นเงินเดือนที่ผ่านมาแล้ว และโดนหักถ้าคุณเพิ่งเปลี่ยนสายหรือติดสัญญาอยู่',
+    en: 'The salary on the statement is not the one printed on the job card: pay rises have multiplied it, and starting a new field or sitting under a bond cuts it.',
+  },
+  gloSalaryStart: { th: 'เงินเดือนตั้งต้นของอาชีพ', en: 'The job’s starting wage' },
+  gloSalaryRaise: { th: 'ขึ้นเงินเดือนสะสมมาแล้ว', en: 'Pay rises so far' },
+  gloSalaryEntry: { th: 'เข้าสายใหม่ ได้เท่าเด็กจบใหม่', en: 'New to this field, paid as a beginner' },
+  gloSalaryBond: { th: 'ติดสัญญาชดใช้ทุน', en: 'Under a bond' },
+  gloSalarySlump: { th: 'ช่วงธุรกิจซบ', en: 'A slow patch in the business' },
+  gloSalaryYears: { th: 'เล่นมาแล้ว', en: 'Played so far' },
+  gloDrawBody: {
+    th: 'เงินเดือนกรรมการคือเงินที่บริษัทจ่ายให้คุณ บริษัทจ่ายได้เท่าที่มีรายรับกับเงินสดในบัญชี ถ้าตั้งไว้สูงกว่าที่บริษัทหาได้ กำไรสะสมจะติดลบ',
+    en: 'A director’s salary is the company paying you, out of its revenue and its account. Set it above what the company earns and its retained profit goes negative.',
+  },
+  gloDrawSet: { th: 'ที่ตั้งไว้', en: 'What you set' },
+  gloDrawPaid: { th: 'ที่บริษัทจ่ายจริง', en: 'What it actually pays' },
+  gloHoldingsBody: {
+    th: 'เงินไหลเข้าคือผลรวมของทุกอย่างที่คุณถืออยู่ ห้องที่ว่างอยู่จะติดลบเพราะยังต้องผ่อน บรรทัดนี้แหละที่ต้องสูงกว่ารายจ่ายถึงจะออกจากวงล้อได้',
+    en: 'Passive income is every holding added together; an empty unit shows negative because its instalment carries on. This is the line that has to clear the expenses.',
+  },
+  gloPayrollBody: {
+    th: 'สามอย่างที่ถูกหักจากเงินเดือนก่อนถึงมือคุณ ภาษีเงินได้ ประกันสังคม และเงินสะสมกองทุนสำรองเลี้ยงชีพ สองอย่างหลังไม่ได้หายไปไหน มันไปอยู่ในสิทธิ์และในกองทุนของคุณเอง',
+    en: 'The three things taken off a wage before it reaches you: income tax, social security, and your provident-fund contribution. The last two are not gone, they are your own entitlement and your own fund.',
+  },
+  gloPayrollTotal: { th: 'หักจากเงินเดือนรวม', en: 'Taken off the wage in total' },
+  gloLivingBody: {
+    th: 'ค่ากินอยู่ของอาชีพนี้ คูณด้วยค่าครองชีพที่ขึ้นมาตั้งแต่เริ่มเกม เงินเฟ้อ 3% ต่อปีทบไปเรื่อย ๆ ส่วนค่างวดหนี้ไม่ขยับตาม',
+    en: 'What this job spends on living, multiplied by how far prices have risen since the game began. Inflation compounds at 3% a year; the instalments on old loans do not move at all.',
+  },
+  gloLivingStart: { th: 'ค่ากินอยู่ตั้งต้น', en: 'Starting cost of living' },
+  gloLivingInflation: { th: 'ค่าครองชีพขึ้นมาแล้ว', en: 'Prices have risen by' },
+  gloHousingBody: {
+    th: 'ค่าที่อยู่กับค่าเดินทางของคนที่ไม่ได้เป็นเจ้าของบ้านหรือรถ ทั้งสองอย่างขึ้นตามเงินเฟ้อทุกปี และไม่มีวันจบเหมือนค่างวด',
+    en: 'What a roof and getting around cost when you own neither. Both rise with inflation every year, and unlike an instalment neither ever ends.',
+  },
+  gloHousingRentBase: { th: 'ค่าเช่าตั้งต้นของอาชีพ', en: 'The job’s starting rent' },
+
   /* The version chip and its notes. */
   changelogTag: { th: 'บันทึกการเปลี่ยนแปลง', en: 'Changelog' },
   changelogTitle: { th: 'เกมนี้เปลี่ยนอะไรไปบ้าง', en: 'What has changed in this game' },
