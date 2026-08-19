@@ -715,6 +715,8 @@ const description =
     .nn-hero-sub span{display:flex;flex-direction:column;gap:0.1rem;min-width:0;}
     .nn-hero-sub i{font-style:normal;font-size:0.68rem;color:var(--nn-muted);}
     .nn-hero-sub b{font-size:0.82rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    /* A caption for a list of money, in the same key as the section heading. */
+    .nn-seccap{font-size:0.76rem;color:var(--nn-muted);margin-bottom:0.35rem;}
     .nn-hero-tier{
       margin-top:0.55rem;
       font-size:0.72rem;
@@ -1739,7 +1741,14 @@ const description =
     const T = (l: Loc): string => l[lang];
     const money = (n: number): string => `฿${Math.round(n).toLocaleString('en-US')}`;
     const signed = (n: number): string => `${n >= 0 ? '+' : '-'}${money(Math.abs(n))}`;
-    const cls = (n: number): string => (n >= 0 ? 'pos' : 'neg');
+    /**
+     * Green for money gained, red for money lost, and nothing at all for zero.
+     * Colouring ฿0 green put seven bright figures on one panel, two of which
+     * were zeroes, and the colour stopped carrying any meaning.
+     */
+    /** A deduction line: the minus belongs to money that actually left. */
+    const taken = (n: number): string => (n === 0 ? money(0) : `-${money(n)}`);
+    const cls = (n: number): string => (n === 0 ? 'muted' : n > 0 ? 'pos' : 'neg');
     /**
      * A per-unit price, which is the one place rounding to whole baht lies: a
      * ฿5 share that has fallen to ฿6.40 printed as "฿6", and the loss beside it
@@ -2001,20 +2010,21 @@ const description =
         <!-- The headline figures sit above everything, so a screenshot of the
              top of the panel already tells the whole story. -->
         <div class="nn-hero">
-          <!-- Every money word on this panel opens its own definition, with
-               this game's figures already in it. -->
-          <span class="nn-hero-label">${term('netWorth', UI.netWorth)}</span>
+          <!-- One control per fact. The figure is the thing people question, so
+               the figure is the button; putting a "?" on the word beside it as
+               well gave every row two doors into the same room. -->
+          <span class="nn-hero-label">${T(UI.netWorth)}</span>
           <strong class="nn-hero-figure ${cls(netWorth(s))}">${why('netWorth', money(netWorth(s)))}</strong>
           <!-- Owning the company means owning its net assets, so they are part
                of this figure. What they are worth as spendable money is less,
                because getting them out is a taxable event, and saying so here is
                the difference between a lesson and a scoreboard. -->
-          ${s.incorporated && corpEquity(s) !== 0
-            ? `<p class="nn-hero-note">${T(UI.worthIfCashedOut)} <b>${money(worthAfterWindingUp(s))}</b></p>`
-            : ''}
+          <!-- Cash flow used to sit here as well as at the foot of the
+               statement: the same number, under the same word, twice on one
+               panel, with four ways to open its breakdown between them. It is
+               kept where it belongs, at the end of the sum it comes from. -->
           <div class="nn-hero-sub">
-            <span><i>${term('passive', s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${why('passive', `${money(householdIncome(s))}${T(UI.perMonth)}`)}</b></span>
-            <span><i>${term('cashflow', UI.cashflow)}</i><b class="${cls(cf)}">${why('cashflow', signed(cf))}</b></span>
+            <span><i>${T(s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${why('passive', `${money(householdIncome(s))}${T(UI.perMonth)}`)}</b></span>
             <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
           </div>
           <p class="nn-hero-tier">${T(UI.tier)} ${Math.max(s.tier, tierOf(s))} · ${tierName ? T(tierName) : ''}${owned.length ? ` · ${T(UI.dreamCollection)} ${owned.length}/${dreams.length}` : ''}</p>
@@ -2028,25 +2038,24 @@ const description =
             : ''}
         </div>
         <div class="nn-sec">
-          <h3>${term('income', UI.income)} <span class="nn-sectotal">${why('income', money(totalIncome(s)))}</span></h3>
+          <h3>${T(UI.income)} <span class="nn-sectotal">${why('income', money(totalIncome(s)))}</span></h3>
+          <!-- The job is a caption for this list, not a line in it: every other
+               row here is a sum of money and that one is a name. -->
+          <p class="nn-seccap">${T(profession(s).name)}${s.entryPay < 1 ? ` · ${Math.round(s.entryPay * 100)}%` : ''}</p>
           <dl class="nn-rows">
-            <!-- The job was named on the setup screen and nowhere else, so
-                 finishing a course and walking into a different career changed
-                 nothing the player could actually see. -->
-            <dt>${T(UI.jobLabel)}</dt><dd>${T(profession(s).name)}${s.entryPay < 1 ? ` <small class="muted">${Math.round(s.entryPay * 100)}%</small>` : ''}</dd>
             <dt>${T(UI.salary)}</dt><dd class="${noMoreSalary(s) ? 'muted' : ''}">${noMoreSalary(s) ? T(s.quit ? UI.salaryGone : UI.salaryEnded) : money(salary(s))}</dd>
             ${pensionIncome(s) > 0 ? `<dt>${T(pensionLabelOf(s))}</dt><dd class="pos">${money(pensionIncome(s))}</dd>` : ''}
             ${s.incorporated ? `<dt>${T(UI.drawLabel)}</dt><dd class="pos">${money(drawTaken(s))}</dd>` : ''}
             ${childAllowance(s) > 0 ? `<dt>${T(UI.childAllowanceLabel)}</dt><dd class="pos">${money(childAllowance(s))}</dd>` : ''}
-            <dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>
+            ${passive !== 0 || s.assets.length > 0 ? `<dt>${T(s.incorporated ? UI.passiveMine : UI.passive)}</dt><dd class="${passive > 0 ? 'pos' : ''}">${money(passive)}</dd>` : ''}
           </dl>
         </div>
         <div class="nn-sec">
-          <h3>${term('expenses', UI.expenses)} <span class="nn-sectotal">${why('expenses', money(totalExpenses(s)))}</span></h3>
+          <h3>${T(UI.expenses)} <span class="nn-sectotal">${why('expenses', money(totalExpenses(s)))}</span></h3>
           <dl class="nn-rows">
             <!-- The one number on the sheet nobody can reproduce in their head,
                  so it opens its own working. -->
-            <dt><button type="button" class="nn-why" data-act="taxwhy">${T(UI.taxes)}<span aria-hidden="true">?</span></button></dt><dd>${money(taxes(s))}</dd>
+            <dt>${T(UI.taxes)}</dt><dd><button type="button" class="nn-whynum" data-act="taxwhy">${money(taxes(s))}</button></dd>
             <dt>${T(UI.other)}</dt><dd>${money(livingCost(s))}</dd>
             <!-- The bills that stand where a loan was declined. They are listed
                  separately from the rest of living because the player chose
@@ -2068,7 +2077,7 @@ const description =
           </dl>
         </div>
         <div class="nn-big nn-cashrow">
-          <span>${term('cashflow', UI.cashflow)}</span>
+          <span>${T(UI.cashflow)}</span>
           <strong class="${cls(cf)}">${why('cashflow', signed(cf))}</strong>
         </div>
         <!-- The company's own books. Without this the player had a structure
@@ -2079,12 +2088,14 @@ const description =
           <h3>${T(UI.corpTitle)}</h3>
           <dl class="nn-rows">
             <dt>${T(UI.corpRevenue)}</dt><dd class="${corpRevenue(s) > 0 ? 'pos' : ''}">${money(corpRevenue(s))}</dd>
-            <dt class="sub">${T(UI.corpDrawOut)}</dt><dd class="sub">-${money(drawTaken(s))}</dd>
-            <dt class="sub">${T(UI.accounting)}</dt><dd class="sub">-${money(CORP_MONTHLY_COST)}</dd>
-            <dt class="sub">${T(UI.corpTaxLabel)}</dt><dd class="sub">-${money(corpTaxMonthly(s))}</dd>
+            <!-- "-฿0" is not a deduction, it is a rounding artefact wearing a
+                 minus sign. A line that takes nothing says nothing. -->
+            <dt class="sub">${T(UI.corpDrawOut)}</dt><dd class="sub">${taken(drawTaken(s))}</dd>
+            <dt class="sub">${T(UI.accounting)}</dt><dd class="sub">${taken(CORP_MONTHLY_COST)}</dd>
+            <dt class="sub">${T(UI.corpTaxLabel)}</dt><dd class="sub">${taken(corpTaxMonthly(s))}</dd>
             <dt class="nn-rowsplit">${T(UI.corpRetained)}</dt><dd class="nn-rowsplit ${cls(corpRetained(s))}">${signed(corpRetained(s))}${T(UI.perMonth)}</dd>
             <dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>
-            <dt class="nn-total">${term('equity', UI.corpEquityLabel)}</dt><dd class="nn-total ${cls(corpEquity(s))}">${money(corpEquity(s))}</dd>
+            <dt class="nn-total">${T(UI.corpEquityLabel)}</dt><dd class="nn-total ${cls(corpEquity(s))}">${why('equity', money(corpEquity(s)))}</dd>
           </dl>
           <button type="button" class="nn-btn nn-btn-gold nn-corpbtn" data-act="corp">${T(UI.corpManage)}</button>
         </div>` : ''}
@@ -2955,6 +2966,12 @@ const description =
           [UI.cash, money(s.cash), cls(s.cash)],
           [UI.totalDebt, `-${money(totalDebt(s))}`, 'neg', 'liabilities'],
           [UI.netWorth, money(netWorth(s)), cls(netWorth(s))],
+          // The caveat used to be a sentence under the headline figure, which
+          // is a lot of words to put above the board for something that is
+          // really a footnote on how this number is worked out.
+          ...(s.incorporated && corpEquity(s) !== 0
+            ? [[UI.worthIfCashedOut, money(worthAfterWindingUp(s)), 'muted', 'equity'] as GlossaryRow]
+            : []),
         ] as GlossaryRow[],
       },
       cashflow: {
