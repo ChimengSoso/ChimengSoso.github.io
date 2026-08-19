@@ -275,6 +275,22 @@ export const UI = {
   /* The asset side of the balance panel, totalled the way a balance sheet is:
      cash included, because that is where a sold building goes. */
   assetsTotal: { th: 'ทรัพย์สินรวม', en: 'Total assets' },
+  gloAssetsTotalBody: {
+    th: 'ทุกอย่างที่เป็นของคุณตอนนี้รวมกัน เงินสดในมือนับด้วย เพราะพอขายของอะไรไป มันไม่ได้หายไปไหน มันย้ายมาอยู่บรรทัดเงินสด ยอดรวมบรรทัดนี้จึงไม่ลดตอนขายของได้กำไร',
+    en: 'Everything you own right now, cash included, because a thing you sell does not vanish: it moves to the cash line. That is why this total does not fall when you sell something at a profit.',
+  },
+  gloExpensesBody: {
+    th: 'รายจ่ายทุกบรรทัดรวมกันต่อเดือน ตัวเลขนี้คือเส้นชัยของเกม เพราะคุณชนะเมื่อเงินไหลเข้าที่ไม่ต้องทำงานสูงกว่ามัน รายจ่ายยิ่งโต เส้นชัยยิ่งถอย',
+    en: 'Every expense line added up for one month. This figure is the finish line: you win when income that does not need you passes it, so every new expense pushes the line further away.',
+  },
+  gloIncomeBody: {
+    th: 'เงินเข้าทุกทางต่อเดือน แต่มีแค่บรรทัดเดียวที่นับเป็นชัยชนะคือเงินไหลเข้าที่ไม่ต้องทำงาน เงินเดือนหยุดวันที่คุณหยุด',
+    en: 'Everything arriving in a month. Only one line counts toward winning, the income that does not depend on you: the salary stops the day you do.',
+  },
+  housingLine: { th: 'ค่าที่อยู่และค่าเดินทาง', en: 'Roof and getting around' },
+  familyLine: { th: 'ค่าครอบครัว', en: 'Family' },
+  otherExpenses: { th: 'ค่ากินอยู่ทั่วไป', en: 'Everyday living' },
+  debtsOwn: { th: 'ผ่อนหนี้ส่วนตัว', en: 'Instalments on your own debts' },
   cashInHand: { th: 'เงินสดในมือ', en: 'Cash in hand' },
   thingsYouOwn: { th: 'ของที่ถืออยู่', en: 'Things you hold' },
 

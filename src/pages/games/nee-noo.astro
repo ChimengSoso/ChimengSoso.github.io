@@ -245,6 +245,18 @@ const description =
       background:var(--nn-line);color:var(--nn-ink);
     }
     .nn-why:hover span, .nn-why:focus-visible span{background:var(--nn-gold);color:#10151f;}
+    /* The same offer made by the number instead of the word: a gold dashed rule
+       under a figure, which is the one piece of decoration on this page that
+       always means "there is working behind this". */
+    .nn-whynum{
+      background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;
+      border-bottom:1px dashed var(--nn-gold);
+      text-align:right;
+    }
+    .nn-whynum:hover, .nn-whynum:focus-visible{color:var(--nn-gold);}
+    /* A section heading carries its own total, so the sum is next to the name
+       of the thing being summed rather than at the bottom of the list. */
+    .nn-sectotal{float:right;font-size:0.8rem;font-weight:600;color:var(--nn-ink);text-transform:none;letter-spacing:0;}
     /* Working shown as a table, scrolling inside its own card so a narrow phone
        never scrolls the whole dialog sideways. */
     .nn-tbl{margin:0.9rem 0;overflow-x:auto;border:1px solid var(--nn-line);border-radius:0.6rem;background:rgba(0,0,0,0.18);}
@@ -1317,6 +1329,8 @@ const description =
       petPhrase,
       rentCost,
       commuteCost,
+      housingCost,
+      debtPayments,
       buyDeal,
       buyDream,
       pickDream,
@@ -1877,7 +1891,7 @@ const description =
           <!-- Every money word on this panel opens its own definition, with
                this game's figures already in it. -->
           <span class="nn-hero-label">${term('netWorth', UI.netWorth)}</span>
-          <strong class="nn-hero-figure ${cls(netWorth(s))}">${money(netWorth(s))}</strong>
+          <strong class="nn-hero-figure ${cls(netWorth(s))}">${why('netWorth', money(netWorth(s)))}</strong>
           <!-- Owning the company means owning its net assets, so they are part
                of this figure. What they are worth as spendable money is less,
                because getting them out is a taxable event, and saying so here is
@@ -1886,8 +1900,8 @@ const description =
             ? `<p class="nn-hero-note">${T(UI.worthIfCashedOut)} <b>${money(worthAfterWindingUp(s))}</b></p>`
             : ''}
           <div class="nn-hero-sub">
-            <span><i>${term('passive', s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${money(householdIncome(s))}${T(UI.perMonth)}</b></span>
-            <span><i>${term('cashflow', UI.cashflow)}</i><b class="${cls(cf)}">${signed(cf)}</b></span>
+            <span><i>${term('passive', s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${why('passive', `${money(householdIncome(s))}${T(UI.perMonth)}`)}</b></span>
+            <span><i>${term('cashflow', UI.cashflow)}</i><b class="${cls(cf)}">${why('cashflow', signed(cf))}</b></span>
             <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
           </div>
           <p class="nn-hero-tier">${T(UI.tier)} ${Math.max(s.tier, tierOf(s))} · ${tierName ? T(tierName) : ''}${owned.length ? ` · ${T(UI.dreamCollection)} ${owned.length}/${dreams.length}` : ''}</p>
@@ -1901,7 +1915,7 @@ const description =
             : ''}
         </div>
         <div class="nn-sec">
-          <h3>${T(UI.income)}</h3>
+          <h3>${term('income', UI.income)} <span class="nn-sectotal">${why('income', money(totalIncome(s)))}</span></h3>
           <dl class="nn-rows">
             <!-- The job was named on the setup screen and nowhere else, so
                  finishing a course and walking into a different career changed
@@ -1915,7 +1929,7 @@ const description =
           </dl>
         </div>
         <div class="nn-sec">
-          <h3>${T(UI.expenses)}</h3>
+          <h3>${term('expenses', UI.expenses)} <span class="nn-sectotal">${why('expenses', money(totalExpenses(s)))}</span></h3>
           <dl class="nn-rows">
             <!-- The one number on the sheet nobody can reproduce in their head,
                  so it opens its own working. -->
@@ -1942,7 +1956,7 @@ const description =
         </div>
         <div class="nn-big nn-cashrow">
           <span>${term('cashflow', UI.cashflow)}</span>
-          <strong class="${cls(cf)}">${signed(cf)}</strong>
+          <strong class="${cls(cf)}">${why('cashflow', signed(cf))}</strong>
         </div>
         <!-- The company's own books. Without this the player had a structure
              they could not see and could not feel: money went in, a tax rate
@@ -2228,7 +2242,7 @@ const description =
                the only figure that moved on this panel moved down. The total
                at the top now includes it, so a sale reads as the swap it is. -->
           <dl class="nn-rows nn-assetsum">
-            <dt class="nn-total">${T(UI.assetsTotal)}</dt><dd class="nn-total">${money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0))}</dd>
+            <dt class="nn-total">${term('assetsTotal', UI.assetsTotal)}</dt><dd class="nn-total">${why('assetsTotal', money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0)))}</dd>
             <dt>${T(UI.cashInHand)}</dt><dd class="${cls(s.cash)}">${money(s.cash)}</dd>
             ${s.incorporated ? `<dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>` : ''}
             <dt>${T(UI.thingsYouOwn)}</dt><dd>${money(ownedTotal(s))}</dd>
@@ -2240,10 +2254,10 @@ const description =
           <!-- Mortgages live inside their own asset rows, so without this block
                the liabilities heading reported a fraction of what is owed. -->
           ${totalDebt(s) > 0 ? `<dl class="nn-rows nn-debtsum">
-            <dt class="nn-total">${T(UI.totalDebt)}</dt><dd class="nn-total neg">${money(totalDebt(s))}</dd>
+            <dt class="nn-total">${term('liabilities', UI.totalDebt)}</dt><dd class="nn-total neg">${why('liabilities', money(totalDebt(s)))}</dd>
             <dt class="sub">${T(UI.personalDebt)}</dt><dd class="sub">${money(personalDebt(s))}</dd>
             <dt class="sub">${T(UI.assetDebt)}</dt><dd class="sub">${money(assetDebt(s))}</dd>
-            <dt class="nn-rowsplit">${term('debtService', UI.debtService)}</dt><dd class="nn-rowsplit neg">${money(totalDebtService(s))}${T(UI.perMonth)}</dd>
+            <dt class="nn-rowsplit">${term('debtService', UI.debtService)}</dt><dd class="nn-rowsplit neg">${why('debtService', `${money(totalDebtService(s))}${T(UI.perMonth)}`)}</dd>
           </dl>` : ''}
           ${debtRows}
           <!-- The way into new debt sits with the debt, not under the dice. -->
@@ -2894,11 +2908,67 @@ const description =
           [UI.dcaWorth, money(dcaValue(s)), cls(dcaGain(s))],
         ] as [Loc, string, string][],
       },
+      // Totals a player can see but could not previously take apart. Each one
+      // lists the lines that were added up to make it, in the order they were
+      // added, so the figure stops being something the game asserts.
+      assetsTotal: {
+        term: UI.assetsTotal,
+        body: UI.gloAssetsTotalBody,
+        rows: (s: GameState) => [
+          [UI.cashInHand, money(s.cash), cls(s.cash)],
+          ...(s.incorporated ? [[UI.corpCash, money(s.corpCash), cls(s.corpCash)] as [Loc, string, string]] : []),
+          [UI.thingsYouOwn, money(ownedTotal(s)), ''],
+          [UI.assetsTotal, money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0)), 'pos'],
+        ] as [Loc, string, string][],
+      },
+      expenses: {
+        term: UI.expenses,
+        body: UI.gloExpensesBody,
+        rows: (s: GameState) => [
+          [UI.taxes, money(taxes(s) + ssoContribution(s) + pfContribution(s)), 'neg'],
+          [UI.otherExpenses, money(livingCost(s)), 'neg'],
+          ...(housingCost(s) > 0 ? [[UI.housingLine, money(housingCost(s)), 'neg'] as [Loc, string, string]] : []),
+          ...(childExpense(s) + childPremium(s) + partnerCost(s) > 0
+            ? [[UI.familyLine, money(childExpense(s) + childPremium(s) + partnerCost(s)), 'neg'] as [Loc, string, string]]
+            : []),
+          // The personal debts only. A mortgage on a holding is already
+          // netted out of that holding's income, so adding it here would
+          // charge it to the player twice and the column would not add up.
+          [UI.debtsOwn, money(debtPayments(s)), 'neg'],
+          ...(insurancePremium(s) > 0 ? [[UI.premium, money(insurancePremium(s)), 'neg'] as [Loc, string, string]] : []),
+          [UI.expensesIsBar, money(totalExpenses(s)), 'neg'],
+        ] as [Loc, string, string][],
+      },
+      income: {
+        term: UI.income,
+        body: UI.gloIncomeBody,
+        rows: (s: GameState) => [
+          [UI.salary, money(salary(s)), noMoreSalary(s) ? 'muted' : 'pos'],
+          ...(pensionIncome(s) > 0 ? [[pensionLabelOf(s), money(pensionIncome(s)), 'pos'] as [Loc, string, string]] : []),
+          ...(drawTaken(s) > 0 ? [[UI.drawLabel, money(drawTaken(s)), 'pos'] as [Loc, string, string]] : []),
+          ...(childAllowance(s) > 0 ? [[UI.childAllowanceLabel, money(childAllowance(s)), 'pos'] as [Loc, string, string]] : []),
+          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : ''],
+          [UI.income, money(totalIncome(s)), 'pos'],
+        ] as [Loc, string, string][],
+      },
     } satisfies Record<string, { term: Loc; body: Loc; rows: (s: GameState) => [Loc, string, string][] }>;
 
     type GlossaryKey = keyof typeof GLOSSARY;
 
     const isGlossaryKey = (k: string): k is GlossaryKey => Object.prototype.hasOwnProperty.call(GLOSSARY, k);
+
+    /**
+     * The figure itself, tappable, showing the lines it was added up from.
+     *
+     * A total nobody can take apart is something the game asserts rather than
+     * something the player can check, and the ones on this panel are sums of
+     * five or six things. Tapping the number opens the same breakdown the word
+     * next to it opens, because whichever half of the row somebody prods, the
+     * question they are asking is the same one.
+     */
+    function why(key: GlossaryKey, rendered: string, extra = ''): string {
+      return `<button type="button" class="nn-whynum ${extra}" data-act="define" data-id="${key}">${rendered}</button>`;
+    }
 
     /** A tappable term: the word itself, with the dotted underline that says so. */
     function term(key: GlossaryKey, label: Loc): string {
