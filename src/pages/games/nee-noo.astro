@@ -2026,7 +2026,7 @@ const description =
                panel, with four ways to open its breakdown between them. It is
                kept where it belongs, at the end of the sum it comes from. -->
           <div class="nn-hero-sub">
-            <span><i>${T(s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${why('passive', `${money(householdIncome(s))}${T(UI.perMonth)}`)}</b></span>
+            <span><i>${T(s.incorporated ? UI.householdIncomeLabel : UI.passive)}</i><b class="${householdIncome(s) > 0 ? 'pos' : ''}">${why(s.incorporated ? 'household' : 'holdings', `${money(householdIncome(s))}${T(UI.perMonth)}`)}</b></span>
             <span><i>${T(UI.cash)}</i><b class="${cls(s.cash)}" data-cash>${money(shownCash)}</b></span>
           </div>
           <p class="nn-hero-tier">${T(UI.tier)} ${Math.max(s.tier, tierOf(s))} · ${tierName ? T(tierName) : ''}${owned.length ? ` · ${T(UI.dreamCollection)} ${owned.length}/${dreams.length}` : ''}</p>
@@ -3023,7 +3023,7 @@ const description =
           // exactly, which means being careful about which side the company
           // sits on: its holdings and its debts are inside its equity, so they
           // are left out of the two lines above it rather than counted twice.
-          [UI.thingsYouOwn, money(heldValue(s)), 'pos', 'assets'],
+          [UI.heldPersonal, money(heldValue(s)), 'pos', 'heldPersonal'],
           [UI.cash, money(s.cash), cls(s.cash)],
           ...(lockedSavings(s) > 0 ? [[UI.lockedSavings, money(lockedSavings(s)), 'pos', 'lockedSavings'] as GlossaryRow] : []),
           ...(s.incorporated ? [[UI.corpEquityLabel, signed(corpEquity(s)), cls(corpEquity(s)), 'equity'] as GlossaryRow] : []),
@@ -3063,11 +3063,33 @@ const description =
         rows: (s: GameState) => [
           ...(s.hasHome && homeValue(s) > 0 ? [[UI.homeOwned, money(homeValue(s)), ''] as GlossaryRow] : []),
           ...(s.hasCar && carValue(s) > 0 ? [[UI.carOwned, money(carValue(s)), ''] as GlossaryRow] : []),
+          // Held in the company's name or in the player's, it is still theirs,
+          // and the figure this list is opened from counts both. Listing only
+          // the personal ones answered a ฿6.1m question with ฿67,646.
+          ...s.assets.map(
+            (a) => [
+              isCorpAsset(a) ? { th: `${a.name.th} (${UI.ownedByCorp.th})`, en: `${a.name.en} (${UI.ownedByCorp.en})` } : a.name,
+              money(assetValue(a)),
+              '',
+            ] as GlossaryRow,
+          ),
+          [UI.thingsYouOwn, money(ownedTotal(s)), 'pos'],
+        ] as GlossaryRow[],
+      },
+      // Net worth counts the company through its equity, so the holdings line
+      // beside it must be the personal ones only. Pointing it at the list that
+      // includes the company's would have been the same bug in the other
+      // direction.
+      heldPersonal: {
+        term: UI.heldPersonal,
+        body: UI.gloHeldPersonalBody,
+        rows: (s: GameState) => [
+          ...(s.hasHome && homeValue(s) > 0 ? [[UI.homeOwned, money(homeValue(s)), ''] as GlossaryRow] : []),
+          ...(s.hasCar && carValue(s) > 0 ? [[UI.carOwned, money(carValue(s)), ''] as GlossaryRow] : []),
           ...s.assets
             .filter((a) => !isCorpAsset(a))
             .map((a) => [a.name, money(assetValue(a)), ''] as GlossaryRow),
-          [UI.thingsYouOwn, money(heldValue(s)), 'pos'],
-          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : '', 'holdings'],
+          [UI.heldPersonal, money(heldValue(s)), 'pos'],
         ] as GlossaryRow[],
       },
       lockedSavings: {
@@ -3204,15 +3226,35 @@ const description =
       },
       // What the holdings themselves pay, line by line, which is the only way
       // to see that one empty building is what moved the total.
+      // Only the holdings that actually pay something, and only the ones in the
+      // player's own name: this breakdown is opened from a figure that means
+      // exactly that, and it has to come to exactly that figure. Gold and a
+      // speculative share pay nothing every month, so listing them here as
+      // "+฿0" filled the list with rows that were not part of the sum.
       holdings: {
         term: UI.passive,
         body: UI.gloHoldingsBody,
         rows: (s: GameState) => [
           ...s.assets
-            .filter((a) => !isCorpAsset(a))
+            .filter((a) => !isCorpAsset(a) && assetCashflow(a) !== 0)
             .map((a) => [a.name, signed(assetCashflow(a)), cls(assetCashflow(a))] as GlossaryRow),
-          ...(s.incorporated ? [[UI.householdIncomeLabel, signed(corpDistributable(s)), cls(corpDistributable(s))] as GlossaryRow] : []),
-          [UI.passive, money(householdIncome(s)), 'pos'],
+          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : ''],
+          ...(s.assets.some((a) => !isCorpAsset(a) && assetCashflow(a) === 0)
+            ? [[UI.gloPaysNothing, T(UI.gloPaysNothingNote), 'muted'] as GlossaryRow]
+            : []),
+        ] as GlossaryRow[],
+      },
+      // The household's figure is the personal one plus whatever the company
+      // clears after its own costs and its own tax. Those two are different
+      // sums and used to share a breakdown, which is why opening ฿0 of personal
+      // income answered ฿10,569.
+      household: {
+        term: UI.householdIncomeLabel,
+        body: UI.gloHouseholdBody,
+        rows: (s: GameState) => [
+          [UI.passiveMine, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : '', 'holdings'],
+          ...(s.incorporated ? [[UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s)), 'equity'] as GlossaryRow] : []),
+          [UI.householdIncomeLabel, money(householdIncome(s)), 'pos'],
         ] as GlossaryRow[],
       },
       payroll: {

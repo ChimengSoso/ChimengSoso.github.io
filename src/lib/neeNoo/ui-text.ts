@@ -306,6 +306,17 @@ export const UI = {
   },
   gloDrawSet: { th: 'ที่ตั้งไว้', en: 'What you set' },
   gloDrawPaid: { th: 'ที่บริษัทจ่ายจริง', en: 'What it actually pays' },
+  heldPersonal: { th: 'ของที่ถืออยู่ในชื่อคุณ', en: 'Held in your own name' },
+  gloHeldPersonalBody: {
+    th: 'ทรัพย์สินที่อยู่ในชื่อคุณเอง ไม่รวมของที่โอนเข้าบริษัทไปแล้ว เพราะของพวกนั้นนับผ่านบรรทัดส่วนของผู้ถือหุ้นแทน ถ้านับสองที่ ความมั่งคั่งสุทธิจะบวกเกินจริง',
+    en: 'What stands in your own name, not counting anything moved into the company: that side is counted through its equity instead. Counting it twice would inflate the net-worth figure.',
+  },
+  gloPaysNothing: { th: 'ทองกับหุ้นที่ไม่ปันผล', en: 'Gold and shares that pay nothing' },
+  gloPaysNothingNote: { th: 'ไม่อยู่ในรายการนี้ เพราะไม่จ่ายอะไรทุกเดือน', en: 'not in this list: they pay nothing monthly' },
+  gloHouseholdBody: {
+    th: 'เงินไหลเข้าของทั้งครัวเรือน คือของที่คุณถือเองบวกกับส่วนที่บริษัททำได้หลังหักค่าบัญชีและภาษีนิติบุคคลแล้ว สองก้อนนี้คนละกระเป๋ากัน เกมนับรวมเพราะมันจ่ายค่ากินอยู่ของบ้านเดียวกัน',
+    en: 'What the household lives on: your own holdings plus whatever the company clears after its accountant and its own tax. Two different pockets, counted together because they feed the same house.',
+  },
   gloHoldingsBody: {
     th: 'เงินไหลเข้าคือผลรวมของทุกอย่างที่คุณถืออยู่ ห้องที่ว่างอยู่จะติดลบเพราะยังต้องผ่อน บรรทัดนี้แหละที่ต้องสูงกว่ารายจ่ายถึงจะออกจากวงล้อได้',
     en: 'Passive income is every holding added together; an empty unit shows negative because its instalment carries on. This is the line that has to clear the expenses.',
