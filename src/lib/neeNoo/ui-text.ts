@@ -146,7 +146,7 @@ export const UI = {
     th: 'ซื้อในนามบริษัท รายได้จากตัวนี้จะเข้าบริษัทและเสียภาษีอัตรานิติบุคคล แต่จะเอามาใช้ส่วนตัวต้องถอนออกมาก่อน',
     en: 'Bought in the company’s name, its income belongs to the company and meets the company’s rate. Spending it personally means taking it out first.',
   },
-  householdIncomeLabel: { th: 'เงินไหลเข้ารวมทั้งครัวเรือน', en: 'Household income' },
+  householdIncomeLabel: { th: 'เงินไหลเข้า (รวมบริษัท)', en: 'Passive income (incl. company)' },
   passiveMine: { th: 'เงินไหลเข้าในชื่อคุณเอง', en: 'In your own name' },
   worthIfCashedOut: {
     th: 'ถ้าเลิกบริษัทแล้วถอนออกมาทั้งหมดวันนี้ เหลือจริง',
