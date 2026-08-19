@@ -163,7 +163,9 @@ function drawDoodad(s: GameState): string {
         && (!c.needsChild || s.children > 0)
         && (!c.needsPartner || s.partner)
         // Nobody is offered cover they already hold.
-        && (!c.buysChildCover || !s.childInsured),
+        && (!c.buysChildCover || !s.childInsured)
+        // No animal, no vet.
+        && (!c.pet || s.pet !== null),
     )
     .map((c) => c.id);
   const allowed = new Set(pool);
@@ -183,8 +185,50 @@ export function profession(s: GameState): Profession {
   return p;
 }
 
+/* --------------------------------------------------------------- occupancy */
+
+/** Months an average tenant stays when a card does not say otherwise. */
+export const TENANT_STAY_DEFAULT = 18;
+/** Chance an empty tenancy is filled in a month when a card does not say otherwise. */
+export const RELET_DEFAULT = 0.6;
+
+/** A holding somebody rents from you, and can therefore walk out of. */
+export function isTenanted(a: Asset): boolean {
+  return (a.tenants ?? 0) > 0 && a.qty > 0;
+}
+
+/** Separate tenancies across the whole holding: 3 blocks of 12 rooms is 36. */
+export function tenancies(a: Asset): number {
+  return isTenanted(a) ? (a.tenants ?? 0) * a.qty : 0;
+}
+
+/** Tenancies earning nothing this month: empty ones, plus the one you live in. */
+export function idleTenancies(a: Asset): number {
+  if (!isTenanted(a)) return 0;
+  return Math.min(tenancies(a), (a.vacant ?? 0) + (a.livedIn ? 1 : 0));
+}
+
+/**
+ * What a holding actually hands over this month.
+ *
+ * `cashflowPerUnit` is the rent of a full building net of its instalment, so an
+ * empty tenancy does not simply pay nothing: the loan on it is still due. The
+ * rent is grossed back up, the empty share is taken off it, and the whole
+ * instalment is subtracted again. With nothing empty this comes back to exactly
+ * the old figure, which is why every income path can keep calling this.
+ */
 export function assetCashflow(a: Asset): number {
-  return a.cashflowPerUnit * a.qty;
+  const idle = idleTenancies(a);
+  if (idle <= 0) return a.cashflowPerUnit * a.qty;
+  const total = tenancies(a);
+  const gross = a.cashflowPerUnit * a.qty + a.mortgagePay;
+  return Math.round((gross * (total - idle)) / total - a.mortgagePay);
+}
+
+/** The share of the rent that turns up over a long run, given the card's numbers. */
+export function occupancyRate(stay: number, relet: number): number {
+  const empty = relet > 0 ? 1 / relet : 1;
+  return stay / (stay + empty);
 }
 
 /**
@@ -427,7 +471,16 @@ function skippedPayment(s: GameState, key: 'home' | 'car'): number {
  * it for thirty years leaves you owning nothing.
  */
 export function rentCost(s: GameState): number {
-  return s.hasHome ? 0 : Math.round(profession(s).rent * priceLevel(s));
+  return s.hasHome || livesInOwnPlace(s) ? 0 : Math.round(profession(s).rent * priceLevel(s));
+}
+
+/** The holding the player moved into, if they moved into one of their own. */
+export function homeAsset(s: GameState): Asset | undefined {
+  return s.assets.find((a) => a.livedIn && a.qty > 0);
+}
+
+export function livesInOwnPlace(s: GameState): boolean {
+  return homeAsset(s) !== undefined;
 }
 
 export function commuteCost(s: GameState): number {
@@ -1183,6 +1236,13 @@ const money = (n: number): string => `฿${Math.round(n).toLocaleString('en-US')
 export interface StartChoices {
   car: boolean;
   home: boolean;
+  /**
+   * The animal in the house. `undefined` lets the game roll one, `null` means
+   * nobody is keeping one, and a value is whatever the player picked. Not
+   * everybody has a pet, and being billed by a vet for an animal you never
+   * agreed to is the kind of small wrongness that makes the rest feel made up.
+   */
+  pet?: { speciesId: string; name: Loc } | null;
 }
 
 export function createGame(
@@ -1302,7 +1362,12 @@ export function createGame(
   };
 
   refillAll(s);
-  s.pet = rollPet(s);
+  // The roll happens either way, even when its answer is thrown away: two
+  // players sharing a deck code must draw the same cards all game, and that
+  // only holds if they have taken the same number of turns off the generator.
+  const rolled = rollPet(s);
+  // `undefined` is "surprise me"; an explicit null is "no animals, thank you".
+  s.pet = choices.pet === undefined ? rolled : choices.pet;
   note(s, {
     th: `เริ่มเกมในบทบาท "${p.name.th}" กระแสเงินสดตั้งต้นเดือนละ ${money(monthlyCashflow(s))}`,
     en: `Starting as "${p.name.en}" with ${money(monthlyCashflow(s))} of monthly cash flow.`,
@@ -1335,7 +1400,7 @@ export function createGame(
 
 /* ------------------------------------------------------------------ the pet */
 
-function rollPet(s: GameState): { speciesId: string; name: Loc } {
+export function rollPet(s: GameState): { speciesId: string; name: Loc } {
   const species = petSpecies[Math.floor(rand(s) * petSpecies.length)] ?? petSpecies[0];
   const name = petNames[Math.floor(rand(s) * petNames.length)] ?? petNames[0];
   return { speciesId: species?.id ?? 'dog', name: name ?? { th: 'ข้าวปั้น', en: 'Khao Pan' } };
@@ -2151,7 +2216,59 @@ export function checkRetirement(s: GameState): void {
   );
 }
 
+/**
+ * Who moved out this month, and who moved in.
+ *
+ * Every tenancy is rolled on its own, which is the whole point: one condo is a
+ * coin flip that empties the entire holding, while a block of twelve rooms
+ * loses one at a time and barely notices. Nobody who has owned both would call
+ * those the same risk, and averaging them into a flat haircut would have hidden
+ * the only interesting thing about it.
+ *
+ * The unit the player lives in is taken out of the pool first. It cannot be
+ * vacated by anybody but them.
+ */
+function rollVacancies(s: GameState): void {
+  for (const a of s.assets) {
+    if (!isTenanted(a)) continue;
+    const rentable = tenancies(a) - (a.livedIn ? 1 : 0);
+    if (rentable <= 0) {
+      a.vacant = 0;
+      continue;
+    }
+    const held = Math.min(a.vacant ?? 0, rentable);
+    const leave = 1 / Math.max(1, a.tenantStay ?? TENANT_STAY_DEFAULT);
+    const relet = a.reletChance ?? RELET_DEFAULT;
+    let left = 0;
+    let filled = 0;
+    for (let i = 0; i < rentable - held; i += 1) if (rand(s) < leave) left += 1;
+    for (let i = 0; i < held; i += 1) if (rand(s) < relet) filled += 1;
+    const now = Math.min(rentable, Math.max(0, held + left - filled));
+    a.vacant = now;
+    if (left > 0) {
+      note(
+        s,
+        {
+          th: `${a.name.th} ผู้เช่าย้ายออก ${left} ราย เดือนนี้ว่าง ${now} จาก ${rentable} ค่าเช่าหายไปตามส่วน แต่ค่างวดยังจ่ายเต็ม`,
+          en: `${a.name.en}: ${left} tenant${left > 1 ? 's' : ''} moved out, leaving ${now} of ${rentable} empty. The rent goes with them; the instalment does not.`,
+        },
+        'bad',
+      );
+    } else if (filled > 0 && now === 0) {
+      note(
+        s,
+        {
+          th: `${a.name.th} หาผู้เช่าใหม่ได้ครบแล้ว ค่าเช่ากลับมาเต็มเดือนหน้า`,
+          en: `${a.name.en} is fully let again, and the rent is back to full from next month.`,
+        },
+        'good',
+      );
+    }
+  }
+}
+
 function payday(s: GameState): void {
+  rollVacancies(s);
   const cf = monthlyCashflow(s);
   s.cash += cf;
   monthPassed(s);
@@ -2177,6 +2294,7 @@ function payday(s: GameState): void {
 function fastPayday(s: GameState): void {
   // No salary out here, but the bills did not stop, so a fast-track month is
   // passive income minus expenses just like any other month.
+  rollVacancies(s);
   const cf = monthlyCashflow(s);
   s.cash += cf;
   monthPassed(s);
@@ -2316,6 +2434,13 @@ export function buyDeal(s: GameState, qty: number, by: Buyer = 'me'): void {
       asset.volatility = card.volatility;
       asset.baseCashflow = card.cashflow;
     }
+    // A tenanted building arrives full. Everything after that is the dice.
+    if (card.tenants !== undefined) {
+      asset.tenants = card.tenants;
+      asset.vacant = 0;
+      if (card.tenantStay !== undefined) asset.tenantStay = card.tenantStay;
+      if (card.reletChance !== undefined) asset.reletChance = card.reletChance;
+    }
     if (card.impact !== undefined) asset.impact = card.impact * n;
     if (buyer === 'corp') asset.owner = 'corp';
     s.assets.push(asset);
@@ -2445,6 +2570,22 @@ export function marketUnitPrice(card: MarketCard, a: Asset): number {
   return a.cashflowPerUnit * card.monthsMultiple;
 }
 
+/**
+ * The cash a holding has actually taken, per unit.
+ *
+ * `costPerUnit` is only the deposit. Every instalment since, and any lump used
+ * to clear the loan early, is money that went into this thing too, and a gain
+ * measured against the deposit alone reports a ฿630,000 profit as ฿2,340,000
+ * the moment somebody pays a mortgage off. What is left of the original loan is
+ * still the bank's, so it does not count.
+ */
+export function cashSunkPerUnit(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  const startDebt = card?.debt ?? 0;
+  const owedPerUnit = a.qty > 0 ? a.debt / a.qty : 0;
+  return a.costPerUnit + Math.max(0, startDebt - owedPerUnit);
+}
+
 export function sellToMarket(s: GameState, assetUid: string, qty: number): void {
   if (s.pending?.kind !== 'market') return;
   const card = marketById.get(s.pending.cardId);
@@ -2456,7 +2597,7 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
   // Debt travels with the units being sold.
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
   const proceeds = unit * n - debtShare;
-  const gain = proceeds - (a.costPerUnit * n);
+  const gain = proceeds - cashSunkPerUnit(a) * n;
 
   settle(s, a, proceeds);
   a.qty -= n;
@@ -3921,6 +4062,84 @@ export function buyHome(s: GameState, mode: 'cash' | 'loan'): HomeBuyOutcome {
   return 'bought';
 }
 
+/* ----------------------------------------------- living in what you bought */
+
+/**
+ * A landlord who rents can stop renting by moving into one of their own units.
+ *
+ * The arithmetic is rarely in favour of it and the game says so out loud on the
+ * card: you save the rent you pay, and you give up the rent you collect, which
+ * for anything bigger than a small room is the worse side of the trade. It is
+ * offered anyway, because "อยู่บ้านตัวเอง" is a real decision real people make
+ * for reasons that are not on a spreadsheet, and watching the number move is
+ * the only way to see what it costs.
+ */
+export interface MoveInQuote {
+  /** rent to the landlord that stops */
+  rentSaved: number;
+  /** rent from a tenant that stops */
+  rentLost: number;
+  /** what the month does, negative when moving in is the worse deal */
+  swing: number;
+}
+
+export function canMoveIn(s: GameState, uid: string): boolean {
+  if (s.hasHome || livesInOwnPlace(s)) return false;
+  const a = s.assets.find((x) => x.uid === uid);
+  return !!a && isTenanted(a) && !isCorpAsset(a) && (dealById.get(a.cardId)?.livable ?? false);
+}
+
+export function moveInQuote(s: GameState, uid: string): MoveInQuote {
+  const a = s.assets.find((x) => x.uid === uid);
+  const rentSaved = rentCost(s);
+  if (!a || !isTenanted(a)) return { rentSaved, rentLost: 0, swing: rentSaved };
+  const before = assetCashflow(a);
+  // Measured rather than derived: put the player in the flat on a copy and read
+  // the holding again, so the figure on the card is the figure the button gives.
+  const after = assetCashflow({ ...a, livedIn: true });
+  const rentLost = before - after;
+  return { rentSaved, rentLost, swing: rentSaved - rentLost };
+}
+
+export function moveIn(s: GameState, uid: string): void {
+  if (!canMoveIn(s, uid)) return;
+  const a = s.assets.find((x) => x.uid === uid);
+  if (!a) return;
+  const q = moveInQuote(s, uid);
+  a.livedIn = true;
+  // The unit is yours now, so it is not one of the empty ones any more.
+  a.vacant = Math.max(0, Math.min(a.vacant ?? 0, tenancies(a) - 1));
+  note(
+    s,
+    {
+      th: `ย้ายเข้าไปอยู่ใน ${a.name.th} เอง ค่าเช่าที่เคยจ่ายเดือนละ ${money(q.rentSaved)} หายไป แต่ค่าเช่าที่เคยเก็บได้ ${money(q.rentLost)} ก็หายไปด้วย รวมแล้วเดือนละ ${q.swing >= 0 ? '+' : ''}${money(q.swing)}`,
+      en: `Moved into ${a.name.en}. The ${money(q.rentSaved)} of rent you paid stops, and so does the ${money(q.rentLost)} you collected: ${q.swing >= 0 ? '+' : ''}${money(q.swing)} a month.`,
+    },
+    q.swing >= 0 ? 'good' : 'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
+export function moveOut(s: GameState): void {
+  const a = homeAsset(s);
+  if (!a) return;
+  a.livedIn = false;
+  // Nobody is waiting on the doorstep: the unit goes back on the market empty
+  // and has to be let like any other.
+  a.vacant = Math.min(tenancies(a), (a.vacant ?? 0) + 1);
+  note(
+    s,
+    {
+      th: `ย้ายออกจาก ${a.name.th} กลับไปเช่าเขาอยู่เดือนละ ${money(rentCost(s))} ส่วนห้องที่เพิ่งว่างต้องหาผู้เช่าใหม่เอง`,
+      en: `Moved out of ${a.name.en} and back into rented rooms at ${money(rentCost(s))} a month. The unit you left now has to find a tenant.`,
+    },
+    'plain',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
 export function canRepay(s: GameState, key: string): boolean {
   const d = s.debts.find((x) => x.key === key);
   if (!d) return false;
@@ -4322,6 +4541,17 @@ export function parseSave(raw: string): GameState | null {
     if (Number.isFinite(a.mortgagePay) && a.mortgagePay > 0) continue;
     const card = a.debt > 0 ? dealById.get(a.cardId) : undefined;
     a.mortgagePay = card?.mortgagePay ? card.mortgagePay * a.qty : 0;
+  }
+  // Holdings bought before anybody could move out. They take the tenancy count
+  // from the card they came from and start fully let, which is where they have
+  // effectively been sitting all along.
+  for (const a of game.assets) {
+    const card = dealById.get(a.cardId);
+    if (card?.tenants === undefined) continue;
+    if (!Number.isFinite(a.tenants)) a.tenants = card.tenants;
+    if (!Number.isFinite(a.tenantStay) && card.tenantStay !== undefined) a.tenantStay = card.tenantStay;
+    if (!Number.isFinite(a.reletChance) && card.reletChance !== undefined) a.reletChance = card.reletChance;
+    if (!Number.isFinite(a.vacant)) a.vacant = 0;
   }
   if (!Number.isFinite(game.tier)) game.tier = tierOf(game);
   if (!Number.isFinite(game.escapeIncome)) game.escapeIncome = 0;

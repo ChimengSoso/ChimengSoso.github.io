@@ -42,8 +42,27 @@ export interface Asset {
    * it, so clearing the debt hands this amount back as extra monthly income.
    */
   mortgagePay: number;
-  /** monthly cash flow per unit (can be 0 for capital-gain plays) */
+  /**
+   * Monthly cash flow per unit at full occupancy (can be 0 for capital-gain
+   * plays). What actually arrives is this less whatever is standing empty, and
+   * `assetCashflow` is the one place that subtraction happens.
+   */
   cashflowPerUnit: number;
+  /**
+   * How many separate tenancies one unit holds: 1 for a condo, 12 for an
+   * apartment block, 24 for a student dorm. Absent on anything nobody rents
+   * (shares, gold, land, a business you run yourself), which is also how the
+   * game knows this holding can stand empty at all.
+   */
+  tenants?: number;
+  /** average months a tenant stays before giving notice */
+  tenantStay?: number;
+  /** chance per month that an empty tenancy finds somebody new */
+  reletChance?: number;
+  /** tenancies currently empty, counted across the whole holding */
+  vacant?: number;
+  /** the player moved into one of these units, so it earns nothing and pays no rent */
+  livedIn?: boolean;
   /**
    * Held by the company rather than by the player personally. Absent means
    * personal, so every save written before the company existed reads correctly.
@@ -213,9 +232,25 @@ export interface DealCard {
   debt: number;
   /** monthly mortgage payment per unit, already deducted from `cashflow` */
   mortgagePay?: number;
-  /** monthly cash flow per unit */
+  /** monthly cash flow per unit, with every tenancy filled */
   cashflow: number;
   maxQty: number;
+  /**
+   * Nobody rents a building forever. `tenants` is how many separate tenancies
+   * one unit holds, `tenantStay` how long the average one lasts, `reletChance`
+   * how likely an empty one is filled in a given month. Together they decide
+   * how much of `cashflow` actually turns up, and how lumpy it is: a single
+   * condo is all or nothing, a 24-room dorm loses a room at a time.
+   *
+   * Set on tenanted property only. Anything without `tenants` never stands
+   * empty, which is right for shares, gold, bare land, and a business the
+   * player runs themselves.
+   */
+  tenants?: number;
+  tenantStay?: number;
+  reletChance?: number;
+  /** somewhere a person could actually live, so the player may move in */
+  livable?: boolean;
   /**
    * A young business does not sit still. Each month there is a chance its cash
    * flow steps up or down by this share, and a small chance it folds outright.

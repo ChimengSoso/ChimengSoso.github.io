@@ -226,6 +226,79 @@ export const UI = {
   downPayment: { th: 'ใช้เงินสด', en: 'Cash needed' },
   loanTaken: { th: 'กู้เพิ่ม', en: 'Debt taken on' },
   monthlyIn: { th: 'เงินเข้าต่อเดือน', en: 'Monthly income' },
+  /* Rented property carries two rents: the one on the brochure and the one that
+     survives the months nobody is living there. */
+  monthlyInFull: { th: 'เงินเข้าต่อเดือน ถ้าผู้เช่าเต็ม', en: 'Monthly income, fully let' },
+  monthlyInReal: { th: 'เฉลี่ยจริงหลังหักช่วงว่าง', en: 'Average once empty months are counted' },
+  occupancyNote: { th: 'ระยะยาวมีผู้เช่าราว {pct}% ของเวลา', en: 'tenanted about {pct}% of the time' },
+  vacantNow: { th: 'ตอนนี้ว่าง {n} จาก {all}', en: '{n} of {all} standing empty' },
+  fullyLet: { th: 'ผู้เช่าเต็มทุกห้อง', en: 'fully let' },
+  livedInHere: { th: 'คุณอยู่เองห้องหนึ่ง', en: 'you live in one of these' },
+  moveInBtn: { th: 'ย้ายเข้าอยู่เอง', en: 'Move in' },
+  moveOutBtn: { th: 'ย้ายออก ปล่อยเช่าต่อ', en: 'Move out and let it' },
+  moveInTitle: { th: 'ย้ายเข้าไปอยู่เอง', en: 'Move into your own place' },
+  moveInBody: {
+    th: 'คุณเช่าเขาอยู่ ทั้งที่ตัวเองเป็นเจ้าของห้องให้คนอื่นเช่า ย้ายเข้าไปอยู่เองก็ได้ ค่าเช่าที่จ่ายจะหายไป แต่ห้องนั้นก็เลิกเก็บค่าเช่าเหมือนกัน ตัวเลขข้างล่างคือผลรวมจริง ๆ ของสองอย่างนี้',
+    en: 'You rent from a landlord while renting a place out yourself. You can move in: the rent you pay stops, and so does the rent that unit collects. The line below is what the two come to together.',
+  },
+  /* The warning under the headline figures when the month is losing money. */
+  cashflowNegative: {
+    th: 'เดือนนี้ติดลบ {gap} เงินสดที่มีพอประคองอีกราว {months} เดือน',
+    en: 'This month loses {gap}. The cash on hand covers about {months} more months.',
+  },
+  cashflowNegativeFast: {
+    th: 'ออกจากวงล้อแล้วไม่ถูกดึงกลับ แต่เดือนนี้ยังติดลบ {gap} จริง ๆ เงินสดพอประคองอีกราว {months} เดือน ห้องว่างหรือกิจการแผ่วทำแบบนี้ได้',
+    en: 'Leaving the wheel is permanent, but this month still loses {gap} and the cash covers about {months} more. An empty unit or a slow business does this.',
+  },
+  /* The company desk: which way the money travels, and what it looks like
+     when it lands. */
+  dirCorpToYouMonthly: { th: 'บริษัท → คุณ ทุกเดือน', en: 'company → you, monthly' },
+  dirCorpToYouOnce: { th: 'บริษัท → คุณ ครั้งเดียว', en: 'company → you, once' },
+  dirYouToCorp: { th: 'คุณ → บริษัท ครั้งเดียว', en: 'you → company, once' },
+  drawWhy: {
+    th: 'ตั้งเงินเดือนที่บริษัทจ่ายให้คุณทุกเดือน บริษัทหักเป็นค่าใช้จ่ายได้ แต่คุณต้องเอาไปเสียภาษีบุคคลธรรมดา',
+    en: 'The wage the company pays you every month. The company deducts it; you pay income tax on it.',
+  },
+  fundWhy: {
+    th: 'โอนเงินสดของคุณเข้าไปเป็นทุนบริษัท ไม่เสียภาษีทั้งสองฝั่ง เอาไว้ให้บริษัทมีเงินพอไปซื้อดีลในนามบริษัท',
+    en: 'Move your own cash into the company. No tax either side; it is how the company gets enough to buy deals in its own name.',
+  },
+  corpPaysYou: { th: 'บริษัทจ่ายคุณจริง', en: 'The company actually pays you' },
+  corpKeepsAfter: { th: 'บริษัทเหลือกำไรต่อเดือน', en: 'and keeps, monthly' },
+  corpCannotPayAll: { th: 'รายรับบริษัทไม่พอจ่ายเท่าที่ตั้ง', en: 'revenue cannot cover the figure set' },
+  dividendWithheld: { th: 'หัก ณ ที่จ่าย 10%', en: 'withheld at 10%' },
+  landsInYourPocket: { th: 'เข้ากระเป๋าคุณจริง', en: 'lands in your pocket' },
+  corpCashAfter: { th: 'เงินบริษัทจะเหลือ', en: 'company cash after' },
+  yourCashAfter: { th: 'เงินสดคุณจะเหลือ', en: 'your cash after' },
+  fundNoTax: { th: 'ไม่มีภาษีตรงนี้', en: 'no tax on this move' },
+
+  /* The asset side of the balance panel, totalled the way a balance sheet is:
+     cash included, because that is where a sold building goes. */
+  assetsTotal: { th: 'ทรัพย์สินรวม', en: 'Total assets' },
+  cashInHand: { th: 'เงินสดในมือ', en: 'Cash in hand' },
+  thingsYouOwn: { th: 'ของที่ถืออยู่', en: 'Things you hold' },
+
+  /* A sale is three things at once: cash in, debt gone, income gone. */
+  debtGoesToo: { th: 'หนี้ที่ติดไปกับมัน', en: 'debt that goes with it' },
+  cashToYou: { th: 'เงินสดที่จะได้จริง', en: 'Cash you actually get' },
+  gainVsCost: { th: 'กำไรจากเงินที่ลงไป', en: 'gain on the cash you put in' },
+  lossVsCost: { th: 'ขาดทุนจากเงินที่ลงไป', en: 'loss on the cash you put in' },
+  incomeGoesToo: { th: 'เงินไหลเข้าที่หายไป', en: 'income that stops' },
+  taxFundStepNote: { th: 'ซื้อเป็นก้อนละ {step} เท่านั้น', en: 'sold in units of {step}' },
+  taxFundRounded: { th: 'จะซื้อจริง', en: 'will actually buy' },
+  livingOwn: { th: 'ที่อยู่: อยู่ห้องตัวเอง', en: 'Where you live: your own place' },
+  livingOwnNote: { th: 'อยู่ใน {name} ไม่มีค่าเช่าต้องจ่าย และห้องนี้ก็ไม่เก็บค่าเช่าใคร', en: 'Living in {name}. No rent to pay, and no rent collected from it either.' },
+  moveInSaved: { th: 'ค่าเช่าที่เลิกจ่าย', en: 'Rent you stop paying' },
+  moveInLost: { th: 'ค่าเช่าที่เลิกเก็บ', en: 'Rent you stop collecting' },
+  moveInSwing: { th: 'รวมแล้วเดือนละ', en: 'Net, every month' },
+  moveInWorse: {
+    th: 'อยู่เองแล้วแย่ลง เพราะห้องที่คุณอยู่เก็บค่าเช่าได้มากกว่าค่าเช่าที่คุณจ่ายอยู่ ถ้าอยากอยู่เองก็อยู่ได้ แค่ให้รู้ว่าจ่ายค่าอะไรอยู่',
+    en: 'Moving in costs you money: the unit collects more than the rent you pay. Do it if you want to, but do it knowing the price.',
+  },
+  moveInBetter: {
+    th: 'อยู่เองแล้วดีขึ้น เพราะค่าเช่าที่คุณจ่ายอยู่แพงกว่าค่าเช่าที่ห้องนี้เก็บได้',
+    en: 'Moving in leaves you better off: the rent you pay is more than this unit brings in.',
+  },
   totalCost: { th: 'รวมต้องจ่าย', en: 'Total to pay' },
   cappedAt: { th: 'ซื้อได้สูงสุด', en: 'capped at' },
   deckOneWay: {
@@ -692,6 +765,29 @@ export const UI = {
   },
 
   /* ------------------------------------------------------------- the animal */
+  petStep: { th: '4. สัตว์เลี้ยงที่บ้าน', en: '4. The animal at home' },
+  petStepHint: {
+    th: 'เกมสุ่มมาให้ก่อนแล้ว ถ้าไม่ถูกใจกดสุ่มใหม่ ตั้งเองก็ได้ หรือจะไม่เลี้ยงเลยก็ได้',
+    en: 'The game picked one for you. Roll again, name your own, or keep no pet at all.',
+  },
+  petIs: { th: 'ที่บ้านมี', en: 'At home there is' },
+  petCalled: { th: 'ชื่อ', en: 'called' },
+  petNoneLine: { th: 'ไม่เลี้ยงสัตว์ ไม่มีค่าอาหาร ค่าวัคซีน หรือค่าหมอสัตว์ตลอดเกม', en: 'No pet: no food, no vaccinations and no vet bills all game.' },
+  petReroll: { th: 'สุ่มใหม่', en: 'Roll again' },
+  petTakeOne: { th: 'ขอเลี้ยงสักตัว', en: 'Take a pet after all' },
+  petCustom: { th: 'ตั้งเอง', en: 'Choose it myself' },
+  petNone: { th: 'ไม่เลี้ยง', en: 'No pet' },
+  petSpeciesLabel: { th: 'เลี้ยงอะไร', en: 'What kind' },
+  petNameLabel: { th: 'ชื่ออะไร', en: 'Its name' },
+  petNamePlaceholder: { th: 'พิมพ์ชื่อได้เลย', en: 'type a name' },
+  petCostNote: {
+    th: 'มีสัตว์เลี้ยงแล้วจะมีการ์ดค่าหมอสัตว์โผล่มาเป็นระยะ และมันจะเรียกชื่อตัวนี้',
+    en: 'With a pet in the house, vet bills turn up from time to time, and they use this name.',
+  },
+  petNoCostNote: {
+    th: 'ไม่เลี้ยงแล้วการ์ดค่าหมอสัตว์จะไม่ถูกแจกเลยทั้งเกม',
+    en: 'With no pet, the vet card is never dealt at all.',
+  },
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
   partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
   childAllowanceLabel: { th: 'เงินอุดหนุนเด็กแรกเกิดจากรัฐ', en: 'State child allowance' },
@@ -722,10 +818,12 @@ export const UI = {
   diceSkipping: { th: 'รอบนี้อดทอย', en: 'a turn is being skipped' },
   diceNotNow: { th: 'ยังทอยไม่ได้', en: 'not just now' },
   seedLabel: { th: 'รหัสสำรับไพ่ (ไม่ใส่ก็ได้)', en: 'Deck code (optional)' },
-  seedPlaceholder: { th: 'เว้นว่าง = สุ่มใหม่', en: 'blank for a fresh shuffle' },
+  seedPlaceholder: { th: 'เช่น 2569 · เว้นว่าง = สุ่มใหม่ทุกครั้ง', en: 'e.g. 2569 · blank shuffles fresh' },
+  /* "รหัสสำรับไพ่" meant nothing to anybody who had not seen a seeded game
+     before, so the copy now leads with what to type and what it buys you. */
   seedNote: {
-    th: 'ใส่ตัวเลขเดียวกัน แล้วทุกคนจะได้ลูกเต๋าและการ์ดชุดเดียวกันทั้งเกม เอาไว้ให้ทั้งห้องเล่นสำรับเดียวกันแล้วมาเทียบกันตอนจบว่าใครตัดสินใจต่างกันตรงไหน',
-    en: 'Type the same number and everyone gets the same dice and the same cards all game. It is here so a whole room can play one deck and compare decisions at the end rather than luck.',
+    th: 'ตัวเลขนี้คือสำรับ ใส่ 2569 แล้วบอกเลขนี้กับเพื่อน ทุกคนจะทอยได้แต้มเดียวกัน เจอการ์ดใบเดียวกัน เรียงลำดับเดียวกันตั้งแต่ตาแรกจนจบเกม ต่างกันแค่ว่าใครตัดสินใจยังไง จบแล้วเทียบกันได้เลยว่าใครเล่นดีกว่า ไม่ใช่ใครดวงดีกว่า ถ้าเว้นว่างไว้ เกมจะสุ่มสำรับใหม่ให้เอง',
+    en: 'The number is the deck. Type 2569, give that number to a friend, and you both roll the same dice and meet the same cards in the same order from the first turn to the last, differing only in what you decide. At the end the comparison is who played better rather than who drew better. Leave it blank and the game shuffles a fresh deck.',
   },
   reportBenchmark: { th: 'ถ้าเอาเงินก้อนเดียวกันใส่กองทุนดัชนีไว้เฉย ๆ', en: 'The same money, left in an index fund' },
   reportGap: { th: 'สิ่งที่คุณเลือก เทียบกับปล่อยไว้เฉย ๆ', en: 'Your choices, against doing nothing' },
