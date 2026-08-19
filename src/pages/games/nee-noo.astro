@@ -2120,6 +2120,9 @@ const description =
       const onFast = s.phase === 'fast' || s.phase === 'won';
       const owned = ownedDreams(s);
       const impactTotal = s.assets.reduce((n, a) => n + (a.impact ?? 0), 0);
+      // Whether saying which pocket a holding is in tells the reader anything.
+      // Once every holding is the company's, the badge on every row is noise.
+      const mixedOwners = s.assets.some(isCorpAsset) && s.assets.some((a) => !isCorpAsset(a));
 
       // Every loan here, whether it stands on its own or rides along with an
       // asset, opens the same breakdown: what this month's payment is actually
@@ -2239,18 +2242,20 @@ const description =
             .map((a) => {
               const flow = assetCashflow(a);
               const open = nested || openDebt === a.uid;
-              // A holding in the company's name has to say so on its own row, or
-              // the two pockets blur back into one on the only screen that lists
-              // what is actually owned.
-              const owner = isCorpAsset(a) ? `<span class="nn-owner">${T(UI.ownedByCorp)}</span> ` : '';
-              // A rented building says how much of it is actually earning. The
-              // income figure alone cannot tell a bad month from a bad deal.
+              // A holding in the company's name says so, but only while that
+              // tells the two pockets apart. When every row carries the same
+              // gold badge the badge is decoration, so it is dropped once
+              // nothing is held personally.
+              const owner = isCorpAsset(a) && mixedOwners ? `<span class="nn-owner">${T(UI.ownedByCorp)}</span> ` : '';
+              // A rented building says how much of it is standing empty. Saying
+              // "fully let" on every row instead put a green phrase on four
+              // rows in a row and left nothing for the one row that mattered.
               const idle = idleTenancies(a);
               const empty = idle - (a.livedIn ? 1 : 0);
-              const let_ = isTenanted(a)
+              const let_ = isTenanted(a) && (empty > 0 || a.livedIn)
                 ? ` · ${empty > 0
                     ? `<span class="neg">${T(UI.vacantNow).replace('{n}', String(empty)).replace('{all}', String(tenancies(a)))}</span>`
-                    : `<span class="pos">${T(UI.fullyLet)}</span>`}${a.livedIn ? ` · ${T(UI.livedInHere)}` : ''}`
+                    : ''}${a.livedIn ? `${empty > 0 ? ' · ' : ''}${T(UI.livedInHere)}` : ''}`
                 : '';
               const meta = `${owner}${a.qty > 1 ? `${a.qty} ${T(UI.units)} · ` : ''}${money(assetValue(a))}${a.debt > 0 ? ` · ${T(UI.liabilities)} ${money(a.debt)} · ${T(UI.mortgageOn)} ${money(a.mortgagePay)}` : ''}${let_}`;
               // A holding that costs money every month has to say so; showing
@@ -2359,14 +2364,14 @@ const description =
 
       host.innerHTML = `<h2>${T(UI.ownTitle)}</h2>
         <div class="nn-sec">
-          <h3>${term('assets', UI.assets)}</h3>
-          <!-- Cash belongs on this side of the page. Leaving it out of the list
-               made every sale look like a loss: the building left the column,
-               the money it turned into was up in the header somewhere else, and
-               the only figure that moved on this panel moved down. The total
-               at the top now includes it, so a sale reads as the swap it is. -->
+          <!-- The heading carries the total, the way the statement's headings
+               do. It used to be a heading, then a row repeating the heading
+               with the total on it, then the parts: three lines to say one
+               thing. Cash is among the parts because a sold building becomes
+               cash, and a total that leaves it out reports every sale as a
+               loss. -->
+          <h3>${T(UI.assets)} <span class="nn-sectotal">${why('assetsTotal', money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0)))}</span></h3>
           <dl class="nn-rows nn-assetsum">
-            <dt class="nn-total">${term('assetsTotal', UI.assetsTotal)}</dt><dd class="nn-total">${why('assetsTotal', money(ownedTotal(s) + s.cash + (s.incorporated ? s.corpCash : 0)))}</dd>
             <dt>${T(UI.cashInHand)}</dt><dd class="${cls(s.cash)}">${money(s.cash)}</dd>
             ${s.incorporated ? `<dt>${T(UI.corpCash)}</dt><dd class="${cls(s.corpCash)}">${money(s.corpCash)}</dd>` : ''}
             <dt>${T(UI.thingsYouOwn)}</dt><dd>${money(ownedTotal(s))}</dd>
@@ -2374,14 +2379,13 @@ const description =
           ${assetRows}
         </div>
         <div class="nn-sec">
-          <h3>${term('liabilities', UI.liabilities)}</h3>
           <!-- Mortgages live inside their own asset rows, so without this block
                the liabilities heading reported a fraction of what is owed. -->
+          <h3>${T(UI.liabilities)} <span class="nn-sectotal neg">${why('liabilities', money(totalDebt(s)))}</span></h3>
           ${totalDebt(s) > 0 ? `<dl class="nn-rows nn-debtsum">
-            <dt class="nn-total">${term('liabilities', UI.totalDebt)}</dt><dd class="nn-total neg">${why('liabilities', money(totalDebt(s)))}</dd>
             <dt class="sub">${T(UI.personalDebt)}</dt><dd class="sub">${money(personalDebt(s))}</dd>
             <dt class="sub">${T(UI.assetDebt)}</dt><dd class="sub">${money(assetDebt(s))}</dd>
-            <dt class="nn-rowsplit">${term('debtService', UI.debtService)}</dt><dd class="nn-rowsplit neg">${why('debtService', `${money(totalDebtService(s))}${T(UI.perMonth)}`)}</dd>
+            <dt class="nn-rowsplit">${T(UI.debtService)}</dt><dd class="nn-rowsplit neg">${why('debtService', `${money(totalDebtService(s))}${T(UI.perMonth)}`)}</dd>
           </dl>` : ''}
           ${debtRows}
           <!-- The way into new debt sits with the debt, not under the dice. -->
@@ -2938,6 +2942,30 @@ const description =
      * somebody else's numbers in it is a textbook; a definition with yours in it
      * is an explanation.
      */
+    /**
+     * The three pieces of net worth that are the player's own, kept apart from
+     * the company's so that a breakdown of the figure adds up to the figure.
+     * `heldValue` is what personal holdings are worth before the loans on them,
+     * `yourDebt` is every loan those holdings and the player carry, and the
+     * company's side of the ledger is its equity and nothing else.
+     */
+    function heldValue(s: GameState): number {
+      return s.assets
+        .filter((a) => !isCorpAsset(a))
+        .reduce((n, a) => n + assetValue(a), 0) + homeValue(s) + carValue(s);
+    }
+
+    function yourDebt(s: GameState): number {
+      return s.assets
+        .filter((a) => !isCorpAsset(a))
+        .reduce((n, a) => n + a.debt, 0) + s.debts.reduce((n, d) => n + d.balance, 0);
+    }
+
+    /** Money that is real but cannot be spent this month. */
+    function lockedSavings(s: GameState): number {
+      return pfCashOut(s) + taxFundValue(s) + dcaValue(s);
+    }
+
     /** Everything owned at today's prices: holdings, plus the house and the car. */
     function ownedTotal(s: GameState): number {
       return s.assets.reduce((n, a) => n + assetValue(a), 0) + homeValue(s) + carValue(s);
@@ -2960,11 +2988,15 @@ const description =
         term: UI.gloNetWorth,
         body: UI.gloNetWorthBody,
         rows: (s: GameState) => [
-          // The house and the car belong in this sum or the four rows do not
-          // add up to the figure at the top of the panel.
-          [UI.assets, money(ownedTotal(s)), 'pos', 'assets'],
+          // These five have to come to the figure at the top of the panel
+          // exactly, which means being careful about which side the company
+          // sits on: its holdings and its debts are inside its equity, so they
+          // are left out of the two lines above it rather than counted twice.
+          [UI.thingsYouOwn, money(heldValue(s)), 'pos', 'assets'],
           [UI.cash, money(s.cash), cls(s.cash)],
-          [UI.totalDebt, `-${money(totalDebt(s))}`, 'neg', 'liabilities'],
+          ...(lockedSavings(s) > 0 ? [[UI.lockedSavings, money(lockedSavings(s)), 'pos', 'lockedSavings'] as GlossaryRow] : []),
+          ...(s.incorporated ? [[UI.corpEquityLabel, signed(corpEquity(s)), cls(corpEquity(s)), 'equity'] as GlossaryRow] : []),
+          [UI.totalDebt, `-${money(yourDebt(s))}`, 'neg', 'liabilities'],
           [UI.netWorth, money(netWorth(s)), cls(netWorth(s))],
           // The caveat used to be a sentence under the headline figure, which
           // is a lot of words to put above the board for something that is
@@ -2995,9 +3027,26 @@ const description =
       assets: {
         term: UI.gloAssets,
         body: UI.gloAssetsBody,
+        // It used to answer "what are your assets worth" with the total it had
+        // just been asked about. The only useful answer is the list.
         rows: (s: GameState) => [
-          [UI.assets, money(ownedTotal(s)), ''],
-          [UI.passive, money(passiveIncome(s) + corpRevenue(s)), 'pos'],
+          ...(s.hasHome && homeValue(s) > 0 ? [[UI.homeOwned, money(homeValue(s)), ''] as GlossaryRow] : []),
+          ...(s.hasCar && carValue(s) > 0 ? [[UI.carOwned, money(carValue(s)), ''] as GlossaryRow] : []),
+          ...s.assets
+            .filter((a) => !isCorpAsset(a))
+            .map((a) => [a.name, money(assetValue(a)), ''] as GlossaryRow),
+          [UI.thingsYouOwn, money(heldValue(s)), 'pos'],
+          [UI.passive, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : '', 'holdings'],
+        ] as GlossaryRow[],
+      },
+      lockedSavings: {
+        term: UI.lockedSavings,
+        body: UI.gloLockedBody,
+        rows: (s: GameState) => [
+          ...(pfCashOut(s) > 0 ? [[UI.pfPotLabel, money(pfCashOut(s)), 'pos', 'providentFund'] as GlossaryRow] : []),
+          ...(taxFundValue(s) > 0 ? [[UI.taxFundHolding, money(taxFundValue(s)), 'pos'] as GlossaryRow] : []),
+          ...(dcaValue(s) > 0 ? [[UI.dcaWorth, money(dcaValue(s)), 'pos', 'dca'] as GlossaryRow] : []),
+          [UI.lockedSavings, money(lockedSavings(s)), 'pos'],
         ] as GlossaryRow[],
       },
       liabilities: {

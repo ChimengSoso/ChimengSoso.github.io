@@ -330,6 +330,11 @@ export const UI = {
   tagRemoved: { th: 'เอาออก', en: 'removed' },
 
   assetsTotal: { th: 'ทรัพย์สินรวม', en: 'Total assets' },
+  lockedSavings: { th: 'เงินออมที่ถอนไม่ได้ตอนนี้', en: 'Savings you cannot touch yet' },
+  gloLockedBody: {
+    th: 'เงินก้อนที่เป็นของคุณจริง แต่เอาออกมาใช้เดือนนี้ไม่ได้ กองทุนสำรองเลี้ยงชีพต้องออกจากงานก่อน กองทุนลดหย่อนภาษีติดล็อกสิบปี ส่วนเงินออมอัตโนมัติถอนได้แต่ถอนแล้วก็หมดวินัยพอดี ตัวเลขนี้คิดตามที่จะได้จริงหลังหักภาษีแล้ว',
+    en: 'Money that is yours but not available this month: the provident fund needs the job to end, the tax-deductible fund is locked for ten years, and the automatic savings can be pulled out at the cost of the habit. The figure is what would actually be handed over after tax.',
+  },
   gloAssetsTotalBody: {
     th: 'ทุกอย่างที่เป็นของคุณตอนนี้รวมกัน เงินสดในมือนับด้วย เพราะพอขายของอะไรไป มันไม่ได้หายไปไหน มันย้ายมาอยู่บรรทัดเงินสด ยอดรวมบรรทัดนี้จึงไม่ลดตอนขายของได้กำไร',
     en: 'Everything you own right now, cash included, because a thing you sell does not vanish: it moves to the cash line. That is why this total does not fall when you sell something at a profit.',
