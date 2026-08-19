@@ -702,7 +702,7 @@ export const UI = {
   megaDealBtn: { th: 'ดีลระดับนายทุน', en: 'Capitalist deal' },
   sellBiz: { th: 'ขายกิจการ', en: 'Sell the business' },
   closeBiz: { th: 'ปิดกิจการ', en: 'Close it down' },
-  bizExitNote: { th: 'ขายเองได้ทันทีที่ 18 เท่าของกำไรต่อเดือน ถ้ารอคนซื้อบนช่องตลาดจะได้ 40 ถึง 60 เท่า', en: 'A private sale pays 18x monthly profit today. Waiting for a buyer on a market tile pays 40 to 60x.' },
+  bizExitNote: { th: 'ขายเองได้ทันทีที่ 70% ของมูลค่ากิจการ ถ้ารอคนซื้อบนช่องตลาดจะได้ 130% ถึง 160% และมูลค่ากิจการเดินตามกำไรของมันเอง', en: 'A private sale pays 70% of what the business is worth today. Waiting for a buyer on a market tile pays 130% to 160%, and what it is worth follows what it earns.' },
   growing: { th: 'กำลังโต', en: 'growing' },
   shrinking: { th: 'กำลังแผ่ว', en: 'softening' },
   swingLabel: { th: 'รายได้แกว่งได้ถึง', en: 'Income can swing by' },
