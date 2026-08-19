@@ -21,6 +21,7 @@ import {
   marketCards,
   petNames,
   petSpecies,
+  priceModels,
   professionById,
   professions,
   studyRouteById,
@@ -88,13 +89,21 @@ export const BOND_CUT = 0.25;
  */
 export const INSURED_SHARE = 0.1;
 export const COVER_MONTHS = 12;
-/** monthly interest on the debt a profession starts with, and on asset mortgages */
+/**
+ * Monthly interest on the debt a profession starts with, and on asset mortgages.
+ *
+ * The student loan is the one rate here that is set by statute rather than by a
+ * bank. Since the 2023 amendment to the กยศ. act the fund may charge no more
+ * than 1% a year, with the late-payment penalty capped at 0.5% and repayments
+ * applied to principal before interest. It had been sitting at 2.4% a year here,
+ * which is more than double what the law allows.
+ */
 export const DEBT_RATE: Record<DebtKey, number> = {
   home: 0.0035,
   car: 0.005,
   card: 0.015,
   retail: 0.01,
-  student: 0.002,
+  student: 0.00083,
   /** 2% a month, around 24% a year: an unsecured personal loan, not a mortgage */
   bank: 0.02,
 };
@@ -163,7 +172,9 @@ function drawDoodad(s: GameState): string {
         && (!c.needsChild || s.children > 0)
         && (!c.needsPartner || s.partner)
         // Nobody is offered cover they already hold.
-        && (!c.buysChildCover || !s.childInsured),
+        && (!c.buysChildCover || !s.childInsured)
+        // No animal, no vet.
+        && (!c.pet || s.pet !== null),
     )
     .map((c) => c.id);
   const allowed = new Set(pool);
@@ -183,8 +194,50 @@ export function profession(s: GameState): Profession {
   return p;
 }
 
+/* --------------------------------------------------------------- occupancy */
+
+/** Months an average tenant stays when a card does not say otherwise. */
+export const TENANT_STAY_DEFAULT = 18;
+/** Chance an empty tenancy is filled in a month when a card does not say otherwise. */
+export const RELET_DEFAULT = 0.6;
+
+/** A holding somebody rents from you, and can therefore walk out of. */
+export function isTenanted(a: Asset): boolean {
+  return (a.tenants ?? 0) > 0 && a.qty > 0;
+}
+
+/** Separate tenancies across the whole holding: 3 blocks of 12 rooms is 36. */
+export function tenancies(a: Asset): number {
+  return isTenanted(a) ? (a.tenants ?? 0) * a.qty : 0;
+}
+
+/** Tenancies earning nothing this month: empty ones, plus the one you live in. */
+export function idleTenancies(a: Asset): number {
+  if (!isTenanted(a)) return 0;
+  return Math.min(tenancies(a), (a.vacant ?? 0) + (a.livedIn ? 1 : 0));
+}
+
+/**
+ * What a holding actually hands over this month.
+ *
+ * `cashflowPerUnit` is the rent of a full building net of its instalment, so an
+ * empty tenancy does not simply pay nothing: the loan on it is still due. The
+ * rent is grossed back up, the empty share is taken off it, and the whole
+ * instalment is subtracted again. With nothing empty this comes back to exactly
+ * the old figure, which is why every income path can keep calling this.
+ */
 export function assetCashflow(a: Asset): number {
-  return a.cashflowPerUnit * a.qty;
+  const idle = idleTenancies(a);
+  if (idle <= 0) return a.cashflowPerUnit * a.qty;
+  const total = tenancies(a);
+  const gross = a.cashflowPerUnit * a.qty + a.mortgagePay;
+  return Math.round((gross * (total - idle)) / total - a.mortgagePay);
+}
+
+/** The share of the rent that turns up over a long run, given the card's numbers. */
+export function occupancyRate(stay: number, relet: number): number {
+  const empty = relet > 0 ? 1 / relet : 1;
+  return stay / (stay + empty);
 }
 
 /**
@@ -427,7 +480,16 @@ function skippedPayment(s: GameState, key: 'home' | 'car'): number {
  * it for thirty years leaves you owning nothing.
  */
 export function rentCost(s: GameState): number {
-  return s.hasHome ? 0 : Math.round(profession(s).rent * priceLevel(s));
+  return s.hasHome || livesInOwnPlace(s) ? 0 : Math.round(profession(s).rent * priceLevel(s));
+}
+
+/** The holding the player moved into, if they moved into one of their own. */
+export function homeAsset(s: GameState): Asset | undefined {
+  return s.assets.find((a) => a.livedIn && a.qty > 0);
+}
+
+export function livesInOwnPlace(s: GameState): boolean {
+  return homeAsset(s) !== undefined;
 }
 
 export function commuteCost(s: GameState): number {
@@ -1087,7 +1149,17 @@ export function monthlyCashflow(s: GameState): number {
 }
 
 export function assetValue(a: Asset): number {
+  // A business is worth what it earns, which is the whole thesis of the game
+  // and the one thing the statement used to get wrong: a shut-down cafe sat
+  // there at its full purchase price, and one that doubled its takings never
+  // gained a baht on paper.
+  if (a.kind === 'business') return businessValue(a);
   return a.pricePerUnit * a.qty;
+}
+
+/** Per unit, so a part sale can be priced from the same figure. */
+export function unitValue(a: Asset): number {
+  return a.qty > 0 ? assetValue(a) / a.qty : 0;
 }
 
 /**
@@ -1140,8 +1212,14 @@ export function netWorth(s: GameState): number {
  * been deferring, not a bill it cancelled.
  */
 export function worthAfterWindingUp(s: GameState): number {
-  const equity = corpEquity(s);
-  return personalWorth(s) + (equity > 0 ? Math.round(equity * (1 - DIVIDEND_TAX)) : equity);
+  if (!s.incorporated) return netWorth(s);
+  // Measured against what the button does rather than estimated: the tax falls
+  // on the cash being distributed, not on the buildings, and the liquidator and
+  // the Land Department both want paying on the way out. The old formula
+  // withheld 10% of the whole equity and forgot the fees, so the figure on the
+  // panel was never the figure anybody would end up with.
+  const q = windUpQuote(s);
+  return netWorth(s) - q.tax - q.fee - q.transfer;
 }
 
 export function bankBalance(s: GameState): number {
@@ -1183,6 +1261,13 @@ const money = (n: number): string => `฿${Math.round(n).toLocaleString('en-US')
 export interface StartChoices {
   car: boolean;
   home: boolean;
+  /**
+   * The animal in the house. `undefined` lets the game roll one, `null` means
+   * nobody is keeping one, and a value is whatever the player picked. Not
+   * everybody has a pet, and being billed by a vet for an animal you never
+   * agreed to is the kind of small wrongness that makes the rest feel made up.
+   */
+  pet?: { speciesId: string; name: Loc } | null;
 }
 
 export function createGame(
@@ -1302,7 +1387,12 @@ export function createGame(
   };
 
   refillAll(s);
-  s.pet = rollPet(s);
+  // The roll happens either way, even when its answer is thrown away: two
+  // players sharing a deck code must draw the same cards all game, and that
+  // only holds if they have taken the same number of turns off the generator.
+  const rolled = rollPet(s);
+  // `undefined` is "surprise me"; an explicit null is "no animals, thank you".
+  s.pet = choices.pet === undefined ? rolled : choices.pet;
   note(s, {
     th: `เริ่มเกมในบทบาท "${p.name.th}" กระแสเงินสดตั้งต้นเดือนละ ${money(monthlyCashflow(s))}`,
     en: `Starting as "${p.name.en}" with ${money(monthlyCashflow(s))} of monthly cash flow.`,
@@ -1335,7 +1425,7 @@ export function createGame(
 
 /* ------------------------------------------------------------------ the pet */
 
-function rollPet(s: GameState): { speciesId: string; name: Loc } {
+export function rollPet(s: GameState): { speciesId: string; name: Loc } {
   const species = petSpecies[Math.floor(rand(s) * petSpecies.length)] ?? petSpecies[0];
   const name = petNames[Math.floor(rand(s) * petNames.length)] ?? petNames[0];
   return { speciesId: species?.id ?? 'dog', name: name ?? { th: 'ข้าวปั้น', en: 'Khao Pan' } };
@@ -2062,6 +2152,7 @@ function corpMonth(s: GameState): void {
 
 function monthPassed(s: GameState): void {
   s.months += 1;
+  driftPrices(s);
   pfMonth(s);
   s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
   s.shadowPot *= 1 + DCA_RETURN / 12;
@@ -2151,7 +2242,59 @@ export function checkRetirement(s: GameState): void {
   );
 }
 
+/**
+ * Who moved out this month, and who moved in.
+ *
+ * Every tenancy is rolled on its own, which is the whole point: one condo is a
+ * coin flip that empties the entire holding, while a block of twelve rooms
+ * loses one at a time and barely notices. Nobody who has owned both would call
+ * those the same risk, and averaging them into a flat haircut would have hidden
+ * the only interesting thing about it.
+ *
+ * The unit the player lives in is taken out of the pool first. It cannot be
+ * vacated by anybody but them.
+ */
+function rollVacancies(s: GameState): void {
+  for (const a of s.assets) {
+    if (!isTenanted(a)) continue;
+    const rentable = tenancies(a) - (a.livedIn ? 1 : 0);
+    if (rentable <= 0) {
+      a.vacant = 0;
+      continue;
+    }
+    const held = Math.min(a.vacant ?? 0, rentable);
+    const leave = 1 / Math.max(1, a.tenantStay ?? TENANT_STAY_DEFAULT);
+    const relet = a.reletChance ?? RELET_DEFAULT;
+    let left = 0;
+    let filled = 0;
+    for (let i = 0; i < rentable - held; i += 1) if (rand(s) < leave) left += 1;
+    for (let i = 0; i < held; i += 1) if (rand(s) < relet) filled += 1;
+    const now = Math.min(rentable, Math.max(0, held + left - filled));
+    a.vacant = now;
+    if (left > 0) {
+      note(
+        s,
+        {
+          th: `${a.name.th} ผู้เช่าย้ายออก ${left} ราย เดือนนี้ว่าง ${now} จาก ${rentable} ค่าเช่าหายไปตามส่วน แต่ค่างวดยังจ่ายเต็ม`,
+          en: `${a.name.en}: ${left} tenant${left > 1 ? 's' : ''} moved out, leaving ${now} of ${rentable} empty. The rent goes with them; the instalment does not.`,
+        },
+        'bad',
+      );
+    } else if (filled > 0 && now === 0) {
+      note(
+        s,
+        {
+          th: `${a.name.th} หาผู้เช่าใหม่ได้ครบแล้ว ค่าเช่ากลับมาเต็มเดือนหน้า`,
+          en: `${a.name.en} is fully let again, and the rent is back to full from next month.`,
+        },
+        'good',
+      );
+    }
+  }
+}
+
 function payday(s: GameState): void {
+  rollVacancies(s);
   const cf = monthlyCashflow(s);
   s.cash += cf;
   monthPassed(s);
@@ -2177,6 +2320,7 @@ function payday(s: GameState): void {
 function fastPayday(s: GameState): void {
   // No salary out here, but the bills did not stop, so a fast-track month is
   // passive income minus expenses just like any other month.
+  rollVacancies(s);
   const cf = monthlyCashflow(s);
   s.cash += cf;
   monthPassed(s);
@@ -2258,10 +2402,26 @@ export function purseOf(s: GameState, by: Buyer): number {
   return by === 'corp' ? s.corpCash : s.cash;
 }
 
+/**
+ * How many units a card will actually sell.
+ *
+ * A building is one building: `maxQty` on a property or a business card is the
+ * seller having two shophouses and not three. Listed paper is not like that.
+ * Nothing in Thai law stops anybody buying as much of a listed share as their
+ * money covers; the thresholds that exist (disclosure, and the mandatory tender
+ * offer at a quarter of the votes) are about taking control of a company, which
+ * is not what a player buying dividends is doing. So the cap on traded symbols
+ * is affordability and nothing else.
+ */
+export function tradedFreely(card: DealCard): boolean {
+  return !!card.symbol;
+}
+
 export function maxAffordable(s: GameState, card: DealCard, by: Buyer = 'me'): number {
   const per = dealDown(s, card);
+  const ceiling = tradedFreely(card) ? Number.POSITIVE_INFINITY : card.maxQty;
   if (per <= 0) return card.maxQty;
-  return Math.max(0, Math.min(card.maxQty, Math.floor(purseOf(s, by) / per)));
+  return Math.max(0, Math.min(ceiling, Math.floor(purseOf(s, by) / per)));
 }
 
 /** True where a company buying this would actually be the sensible move. */
@@ -2316,6 +2476,13 @@ export function buyDeal(s: GameState, qty: number, by: Buyer = 'me'): void {
       asset.volatility = card.volatility;
       asset.baseCashflow = card.cashflow;
     }
+    // A tenanted building arrives full. Everything after that is the dice.
+    if (card.tenants !== undefined) {
+      asset.tenants = card.tenants;
+      asset.vacant = 0;
+      if (card.tenantStay !== undefined) asset.tenantStay = card.tenantStay;
+      if (card.reletChance !== undefined) asset.reletChance = card.reletChance;
+    }
     if (card.impact !== undefined) asset.impact = card.impact * n;
     if (buyer === 'corp') asset.owner = 'corp';
     s.assets.push(asset);
@@ -2346,7 +2513,50 @@ export function passDeal(s: GameState): void {
 /** Ceiling and floor on how far a volatile holding can drift from where it started. */
 export const SWING_MAX = 3;
 /** Sale price of a business sold privately, as a multiple of its monthly profit. */
-export const BIZ_EXIT_MULTIPLE = 18;
+/**
+ * What a quick private sale fetches, as a share of what the business is worth.
+ *
+ * Selling a business in a hurry, with no broker and no auction, really does go
+ * at a discount of roughly a third: that is the illiquidity discount, and it is
+ * the same idea whatever the business is. A flat "18x monthly profit" was that
+ * discount for a noodle stall and an 83% markdown for a water utility, because
+ * a small shop trades at 25x monthly and infrastructure at over 100x.
+ */
+export const BIZ_EXIT_SHARE = 0.7;
+
+/**
+ * The multiple this particular business trades at, taken from the price its own
+ * card was written with. A ฿250,000 cafe earning ฿9,000 a month is a 28x
+ * business; a ฿90m school earning ฿860,000 is a 105x one. Both are what those
+ * things really change hands for, so the multiple belongs to the card rather
+ * than to the game.
+ *
+ * A card bought while losing money has no multiple of its own, so it borrows
+ * the one implied by the top of its own swing range, which is the number the
+ * price was set against in the first place.
+ */
+export function bizMultiple(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  if (!card) return 0;
+  const per = card.cashflow + (card.mortgagePay ?? 0);
+  const base = per > 0 ? per : Math.abs(per) * SWING_MAX;
+  return base > 0 ? card.price / base : 0;
+}
+
+/**
+ * Fittings, fit-out, the lease: what is left to sell when the takings are gone.
+ * Without a floor, buying a cafe that loses money would wipe its whole price
+ * off the statement the moment it was bought, and a business that folds would
+ * be worth literally nothing, which no liquidator has ever found to be true.
+ */
+export const BIZ_SALVAGE_RATE = 0.3;
+
+export function businessValue(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  const salvage = (card?.price ?? a.pricePerUnit) * (card?.salvage ?? BIZ_SALVAGE_RATE) * a.qty;
+  const earned = operatingCashflow(a) * bizMultiple(a);
+  return Math.max(0, Math.round(Math.max(earned, salvage)));
+}
 
 /**
  * A month in the life of the businesses that do not sit still. Most months
@@ -2368,7 +2578,7 @@ export function driftBusinesses(s: GameState): void {
         s,
         {
           th: `${a.name.th} ไปต่อไม่ไหว ปิดกิจการแล้ว รายได้จากตัวนี้เหลือศูนย์ ขายซากได้จากหน้างบ`,
-          en: `${a.name.th} could not carry on and has shut down. Its income is now zero; what is left can be sold from the statement.`,
+          en: `${a.name.en} could not carry on and has shut down. Its income is now zero; what is left can be sold from the statement.`,
         },
         'bad',
       );
@@ -2406,26 +2616,60 @@ export function canSellBusiness(a: Asset): boolean {
   return a.kind === 'business';
 }
 
+/**
+ * What a business earns before its own loan instalment.
+ *
+ * A deal card's `cashflow` is already net of `mortgagePay`, so a buyer's
+ * multiple has to be applied to the figure *before* the instalment. Multiplying
+ * the levered number and then subtracting the whole loan again charges the
+ * gearing twice: it is how a ฿200m airline came to carry an offer price of
+ * minus ฿66m, with the "sale" taking ฿94m out of the seller's pocket.
+ */
+export function operatingCashflow(a: Asset): number {
+  return assetCashflow(a) + (a.debt > 0 ? a.mortgagePay : 0);
+}
+
+/** The price a private buyer puts on the business itself, loan not deducted. */
+export function businessExitPrice(a: Asset): number {
+  return Math.max(0, Math.round(businessValue(a) * BIZ_EXIT_SHARE));
+}
+
 export function businessExitValue(a: Asset): number {
-  return Math.max(0, Math.round(assetCashflow(a) * BIZ_EXIT_MULTIPLE - a.debt));
+  return Math.max(0, businessExitPrice(a) - a.debt);
+}
+
+/** What the lender is still owed once a sale at this price has been applied. */
+export function businessExitShortfall(a: Asset): number {
+  return Math.max(0, a.debt - businessExitPrice(a));
 }
 
 export function sellBusiness(s: GameState, assetUid: string): void {
   const a = s.assets.find((x) => x.uid === assetUid);
   if (!a || !canSellBusiness(a)) return;
   const proceeds = businessExitValue(a);
-  const gain = proceeds - a.costPerUnit * a.qty;
+  // Walking away from a geared business used to delete the loan with it, which
+  // made a private sale the cheapest way in the game to erase ฿67m of debt.
+  const shortfall = businessExitShortfall(a);
+  const gain = proceeds - shortfall - a.costPerUnit * a.qty;
   settle(s, a, proceeds);
   s.assets = s.assets.filter((x) => x.uid !== a.uid);
+  if (shortfall > 0) {
+    const payment = Math.round(shortfall * DEFICIENCY_PAY_RATE);
+    addDebt(s, 'bank', shortfall, payment);
+  }
   note(
     s,
     {
-      th: proceeds > 0
-        ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
-        : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
-      en: proceeds > 0
-        ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
-        : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
+      th: shortfall > 0
+        ? `ขาย ${a.name.th} เองแบบรีบ ๆ ที่ ${Math.round(BIZ_EXIT_SHARE * 100)}% ของมูลค่ากิจการ ได้ ${money(businessExitPrice(a))} ซึ่งไม่พอปิดหนี้ เหลือส่วนต่าง ${money(shortfall)} ที่ต้องผ่อนต่อเดือนละ ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))}`
+        : proceeds > 0
+          ? `ขาย ${a.name.th} เองแบบรีบ ๆ ที่ ${Math.round(BIZ_EXIT_SHARE * 100)}% ของมูลค่ากิจการ ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
+          : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
+      en: shortfall > 0
+        ? `Sold ${a.name.en} privately at ${Math.round(BIZ_EXIT_SHARE * 100)}% of what it is worth for ${money(businessExitPrice(a))}, which did not clear the loan. ${money(shortfall)} is still owed, at ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))} a month.`
+        : proceeds > 0
+          ? `Sold ${a.name.en} privately at ${Math.round(BIZ_EXIT_SHARE * 100)}% of what it is worth for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
+          : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
     },
     gain >= 0 ? 'good' : 'bad',
   );
@@ -2439,10 +2683,32 @@ export function marketMatches(s: GameState, card: MarketCard): Asset[] {
   return s.assets.filter((a) => a.kind === 'business' && a.cashflowPerUnit > 0);
 }
 
-export function marketUnitPrice(card: MarketCard, a: Asset): number {
-  if (card.type === 'price') return card.price;
-  if (card.type === 'offer') return a.pricePerUnit * card.multiplier;
-  return a.cashflowPerUnit * card.monthsMultiple;
+export function marketUnitPrice(card: MarketCard, a: Asset, s?: GameState): number {
+  // The card has already moved the price by the time anything renders, so the
+  // quote is simply what the symbol is trading at now.
+  if (card.type === 'price') return s?.prices[card.symbol] ?? a.pricePerUnit;
+  if (card.type === 'offer') return unitValue(a) * card.multiplier;
+  // A buyer bids a premium on what the business is worth, the same way the
+  // property buyers bid a premium on what a building is worth. Quoting a flat
+  // number of months instead priced a hospital on a noodle-stall yardstick and
+  // came out negative once its loan was taken off.
+  return Math.max(0, unitValue(a) * card.share);
+}
+
+/**
+ * The cash a holding has actually taken, per unit.
+ *
+ * `costPerUnit` is only the deposit. Every instalment since, and any lump used
+ * to clear the loan early, is money that went into this thing too, and a gain
+ * measured against the deposit alone reports a ฿630,000 profit as ฿2,340,000
+ * the moment somebody pays a mortgage off. What is left of the original loan is
+ * still the bank's, so it does not count.
+ */
+export function cashSunkPerUnit(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  const startDebt = card?.debt ?? 0;
+  const owedPerUnit = a.qty > 0 ? a.debt / a.qty : 0;
+  return a.costPerUnit + Math.max(0, startDebt - owedPerUnit);
 }
 
 export function sellToMarket(s: GameState, assetUid: string, qty: number): void {
@@ -2452,25 +2718,43 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
   const a = s.assets.find((x) => x.uid === assetUid);
   if (!a) return;
   const n = Math.max(1, Math.min(qty, a.qty));
-  const unit = marketUnitPrice(card, a);
+  const unit = marketUnitPrice(card, a, s);
   // Debt travels with the units being sold.
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
-  const proceeds = unit * n - debtShare;
-  const gain = proceeds - (a.costPerUnit * n);
+  const net = unit * n - debtShare;
+  // A sale never reaches into the seller's pocket. When the price does not
+  // clear the loan the buyer's money all goes to the lender and what is left
+  // owing follows the seller out, exactly as it does at a forced sale.
+  const proceeds = Math.max(0, net);
+  const shortfall = Math.round(Math.max(0, -net));
+  const gain = net - cashSunkPerUnit(a) * n;
 
   settle(s, a, proceeds);
   a.qty -= n;
   a.debt -= debtShare;
   if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
 
-  note(
-    s,
-    {
-      th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
-      en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
-    },
-    gain >= 0 ? 'good' : 'bad',
-  );
+  if (shortfall > 0) {
+    const payment = Math.round(shortfall * DEFICIENCY_PAY_RATE);
+    addDebt(s, 'bank', shortfall, payment);
+    note(
+      s,
+      {
+        th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ที่ ${money(unit * n)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} กิจการไม่อยู่แล้วแต่หนี้ยังอยู่`,
+        en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(unit * n)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The business is gone and the debt is not.`,
+      },
+      'bad',
+    );
+  } else {
+    note(
+      s,
+      {
+        th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
+        en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
+      },
+      gain >= 0 ? 'good' : 'bad',
+    );
+  }
   checkEscape(s);
   checkTrouble(s);
 }
@@ -2514,15 +2798,56 @@ export function sellPaper(s: GameState, assetUid: string, qty: number): void {
   checkTrouble(s);
 }
 
+/** Writes a new price for one symbol into the state and into every holding of it. */
+function setPrice(s: GameState, symbol: string, price: number): void {
+  const value = Math.max(0.01, Math.round(price * 100) / 100);
+  s.prices[symbol] = value;
+  for (const a of s.assets) {
+    if (a.symbol === symbol) a.pricePerUnit = value;
+  }
+}
+
 export function applyMarketPrice(s: GameState): void {
   if (s.pending?.kind !== 'market') return;
   const card = marketById.get(s.pending.cardId);
   if (card && card.type === 'price') {
-    s.prices[card.symbol] = card.price;
-    for (const a of s.assets) {
-      if (a.symbol === card.symbol) a.pricePerUnit = card.price;
-    }
+    // The news moves the price it finds, rather than replacing it with a number
+    // somebody typed years ago.
+    setPrice(s, card.symbol, (s.prices[card.symbol] ?? 1) * card.move);
   }
+}
+
+/**
+ * A month of market movement, for everything that trades.
+ *
+ * The walk is the standard one: a small trend, a random step whose size is the
+ * thing's volatility, and a gentle pull back toward where the trend says it
+ * should be. Without the pull a forty-year game eventually produces a share
+ * worth more than the country; without the random step the player is simply
+ * handed a savings account and told it is the stock market.
+ *
+ * `rand` is uniform, so three of them are added and centred: the sum of a few
+ * flat draws is bell-shaped, which is close enough to the real distribution of
+ * monthly returns for a board game and costs nothing.
+ */
+export function driftPrices(s: GameState): void {
+  const years = s.months / 12;
+  for (const [symbol, model] of Object.entries(priceModels)) {
+    const now = s.prices[symbol];
+    if (!Number.isFinite(now) || now === undefined) continue;
+    const base = basePrice(symbol);
+    if (base <= 0) continue;
+    const anchor = base * Math.pow(1 + model.drift, years);
+    const monthVol = model.vol / Math.sqrt(12);
+    const z = (rand(s) + rand(s) + rand(s) - 1.5) * 2;
+    const stepped = now * (1 + model.drift / 12 + monthVol * z);
+    setPrice(s, symbol, stepped + (anchor - stepped) * model.pull);
+  }
+}
+
+/** What a symbol was worth on day one, read off the card that introduced it. */
+function basePrice(symbol: string): number {
+  return deals.find((d) => d.symbol === symbol)?.price ?? 0;
 }
 
 /**
@@ -2554,10 +2879,14 @@ export function symbolDeal(s: GameState, symbol: string): DealCard | undefined {
 export function marketBuy(s: GameState): { card: DealCard; unit: number; max: number } | null {
   if (s.pending?.kind !== 'market') return null;
   const news = marketById.get(s.pending.cardId);
-  if (!news || news.type !== 'price' || news.price <= 0) return null;
+  if (!news || news.type !== 'price') return null;
+  const unit = s.prices[news.symbol] ?? 0;
+  if (unit <= 0) return null;
   const card = symbolDeal(s, news.symbol);
   if (!card) return null;
-  return { card, unit: news.price, max: Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / news.price))) };
+  // The market tile sells the same paper on the same terms as the deal card.
+  const ceiling = tradedFreely(card) ? Number.POSITIVE_INFINITY : card.maxQty;
+  return { card, unit, max: Math.max(0, Math.min(ceiling, Math.floor(s.cash / unit))) };
 }
 
 export function buyFromMarket(s: GameState, qty: number): void {
@@ -3450,6 +3779,88 @@ export function incorporate(s: GameState): void {
   checkTier(s);
 }
 
+/* -------------------------------------------------- closing the company down */
+
+/**
+ * Winding the company up.
+ *
+ * The game would let you open one and never close it, which is worse than
+ * unrealistic: the accountant's ฿8,000 a month runs forever, so a player who
+ * incorporated early and later sold the buildings was left paying rent on a
+ * shell with no door out. It also printed "if you wound the company up today
+ * you would keep ฿X" under the headline figure, which is a strange thing to
+ * say about something nobody could do.
+ *
+ * A real ชำระบัญชี is a resolution, a registration, a liquidator, a notice to
+ * creditors and a final set of accounts, and it takes months rather than a
+ * turn. The three things that actually reach the player's pocket are modelled:
+ * the liquidator and the final filings are charged as one fee, anything the
+ * company still holds is transferred back at the same Land Department rate it
+ * paid going in, and whatever is left in the account is distributed with the
+ * same 10% withheld as any other dividend.
+ */
+export const CORP_CLOSE_COST = 15000;
+
+export interface WindUpQuote {
+  /** the liquidator, the final accounts and the filings */
+  fee: number;
+  /** the Land Department again, on the way back out */
+  transfer: number;
+  /** cash in the company before anything is taken off it */
+  potGross: number;
+  /** withheld on the distribution */
+  tax: number;
+  /** what actually lands in the player's own account */
+  cashOut: number;
+  /** holdings that come back into the player's name */
+  returning: Asset[];
+  /** the monthly bill that stops */
+  savedMonthly: number;
+  affordable: boolean;
+}
+
+export function windUpQuote(s: GameState): WindUpQuote {
+  const returning = s.assets.filter(isCorpAsset);
+  const transfer = Math.round(returning.reduce((sum, a) => sum + assetValue(a), 0) * CORP_TRANSFER_RATE);
+  const potGross = Math.max(0, Math.round(s.corpCash));
+  const tax = Math.round(potGross * DIVIDEND_TAX);
+  const bill = CORP_CLOSE_COST + transfer;
+  return {
+    fee: CORP_CLOSE_COST,
+    transfer,
+    potGross,
+    tax,
+    cashOut: potGross - tax,
+    returning,
+    savedMonthly: CORP_MONTHLY_COST,
+    // The bill can be met out of what the company is about to hand over.
+    affordable: s.cash + (potGross - tax) >= bill,
+  };
+}
+
+export function windUpCompany(s: GameState): boolean {
+  if (!s.incorporated) return false;
+  const q = windUpQuote(s);
+  if (!q.affordable) return false;
+  for (const a of q.returning) delete a.owner;
+  s.cash += q.cashOut - q.fee - q.transfer;
+  s.corpCash = 0;
+  s.corpDraw = 0;
+  s.incorporated = false;
+  note(
+    s,
+    {
+      th: `ปิดบริษัทแล้ว จ่ายค่าชำระบัญชีและปิดงบ ${money(q.fee)}${q.transfer > 0 ? ` ค่าโอนทรัพย์สินกลับมาชื่อคุณ ${money(q.transfer)}` : ''}${q.potGross > 0 ? ` เงินในบริษัท ${money(q.potGross)} จ่ายคืนตัวเองหักภาษี ณ ที่จ่าย ${money(q.tax)}` : ''} จากนี้ไม่มีค่าบัญชีเดือนละ ${money(q.savedMonthly)} อีก`,
+      en: `The company is wound up: ${money(q.fee)} for the liquidator and the final accounts${q.transfer > 0 ? `, ${money(q.transfer)} to move the holdings back into your name` : ''}${q.potGross > 0 ? `, and ${money(q.potGross)} distributed with ${money(q.tax)} withheld` : ''}. The ${money(q.savedMonthly)} a month of accounting stops here.`,
+    },
+    'plain',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+  checkTier(s);
+  return true;
+}
+
 /** Change the director's salary. The one lever the whole structure turns on. */
 export function setDraw(s: GameState, amount: number): void {
   if (!s.incorporated) return;
@@ -3921,6 +4332,84 @@ export function buyHome(s: GameState, mode: 'cash' | 'loan'): HomeBuyOutcome {
   return 'bought';
 }
 
+/* ----------------------------------------------- living in what you bought */
+
+/**
+ * A landlord who rents can stop renting by moving into one of their own units.
+ *
+ * The arithmetic is rarely in favour of it and the game says so out loud on the
+ * card: you save the rent you pay, and you give up the rent you collect, which
+ * for anything bigger than a small room is the worse side of the trade. It is
+ * offered anyway, because "อยู่บ้านตัวเอง" is a real decision real people make
+ * for reasons that are not on a spreadsheet, and watching the number move is
+ * the only way to see what it costs.
+ */
+export interface MoveInQuote {
+  /** rent to the landlord that stops */
+  rentSaved: number;
+  /** rent from a tenant that stops */
+  rentLost: number;
+  /** what the month does, negative when moving in is the worse deal */
+  swing: number;
+}
+
+export function canMoveIn(s: GameState, uid: string): boolean {
+  if (s.hasHome || livesInOwnPlace(s)) return false;
+  const a = s.assets.find((x) => x.uid === uid);
+  return !!a && isTenanted(a) && !isCorpAsset(a) && (dealById.get(a.cardId)?.livable ?? false);
+}
+
+export function moveInQuote(s: GameState, uid: string): MoveInQuote {
+  const a = s.assets.find((x) => x.uid === uid);
+  const rentSaved = rentCost(s);
+  if (!a || !isTenanted(a)) return { rentSaved, rentLost: 0, swing: rentSaved };
+  const before = assetCashflow(a);
+  // Measured rather than derived: put the player in the flat on a copy and read
+  // the holding again, so the figure on the card is the figure the button gives.
+  const after = assetCashflow({ ...a, livedIn: true });
+  const rentLost = before - after;
+  return { rentSaved, rentLost, swing: rentSaved - rentLost };
+}
+
+export function moveIn(s: GameState, uid: string): void {
+  if (!canMoveIn(s, uid)) return;
+  const a = s.assets.find((x) => x.uid === uid);
+  if (!a) return;
+  const q = moveInQuote(s, uid);
+  a.livedIn = true;
+  // The unit is yours now, so it is not one of the empty ones any more.
+  a.vacant = Math.max(0, Math.min(a.vacant ?? 0, tenancies(a) - 1));
+  note(
+    s,
+    {
+      th: `ย้ายเข้าไปอยู่ใน ${a.name.th} เอง ค่าเช่าที่เคยจ่ายเดือนละ ${money(q.rentSaved)} หายไป แต่ค่าเช่าที่เคยเก็บได้ ${money(q.rentLost)} ก็หายไปด้วย รวมแล้วเดือนละ ${q.swing >= 0 ? '+' : ''}${money(q.swing)}`,
+      en: `Moved into ${a.name.en}. The ${money(q.rentSaved)} of rent you paid stops, and so does the ${money(q.rentLost)} you collected: ${q.swing >= 0 ? '+' : ''}${money(q.swing)} a month.`,
+    },
+    q.swing >= 0 ? 'good' : 'bad',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
+export function moveOut(s: GameState): void {
+  const a = homeAsset(s);
+  if (!a) return;
+  a.livedIn = false;
+  // Nobody is waiting on the doorstep: the unit goes back on the market empty
+  // and has to be let like any other.
+  a.vacant = Math.min(tenancies(a), (a.vacant ?? 0) + 1);
+  note(
+    s,
+    {
+      th: `ย้ายออกจาก ${a.name.th} กลับไปเช่าเขาอยู่เดือนละ ${money(rentCost(s))} ส่วนห้องที่เพิ่งว่างต้องหาผู้เช่าใหม่เอง`,
+      en: `Moved out of ${a.name.en} and back into rented rooms at ${money(rentCost(s))} a month. The unit you left now has to find a tenant.`,
+    },
+    'plain',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+}
+
 export function canRepay(s: GameState, key: string): boolean {
   const d = s.debts.find((x) => x.key === key);
   if (!d) return false;
@@ -4016,7 +4505,7 @@ export const DEFICIENCY_PAY_RATE = 0.03;
 
 export function fireSaleValue(a: Asset, qty: number): number {
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * qty : 0;
-  return Math.max(0, a.pricePerUnit * FIRE_SALE_RATE * qty - debtShare);
+  return Math.max(0, unitValue(a) * FIRE_SALE_RATE * qty - debtShare);
 }
 
 /**
@@ -4029,7 +4518,7 @@ export function fireSaleValue(a: Asset, qty: number): number {
  */
 export function fireSaleShortfall(a: Asset, qty: number): number {
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * qty : 0;
-  return Math.max(0, debtShare - a.pricePerUnit * FIRE_SALE_RATE * qty);
+  return Math.max(0, debtShare - unitValue(a) * FIRE_SALE_RATE * qty);
 }
 
 export function fireSale(s: GameState, assetUid: string, qty: number): void {
@@ -4040,6 +4529,9 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
   const proceeds = fireSaleValue(a, n);
   const shortfall = Math.round(fireSaleShortfall(a, n));
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
+  // Read before the holding is cut down, since a business's own value is
+  // worked out from the income of the units still standing.
+  const raised = unitValue(a) * FIRE_SALE_RATE * n;
 
   // Selling the company's building pays the company. Getting that money into a
   // personal account still costs a dividend, which is the point: a company is
@@ -4056,8 +4548,8 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
     note(
       s,
       {
-        th: `ขายทอดตลาด ${name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้ ${money(a.pricePerUnit * FIRE_SALE_RATE * n)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} ทรัพย์ไม่อยู่แล้วแต่หนี้ยังอยู่`,
-        en: `${name.en}${n > 1 ? ` ×${n}` : ''} went under the hammer for ${money(a.pricePerUnit * FIRE_SALE_RATE * n)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The asset is gone and the debt is not.`,
+        th: `ขายทอดตลาด ${name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้ ${money(raised)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} ทรัพย์ไม่อยู่แล้วแต่หนี้ยังอยู่`,
+        en: `${name.en}${n > 1 ? ` ×${n}` : ''} went under the hammer for ${money(raised)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The asset is gone and the debt is not.`,
       },
       'bad',
     );
@@ -4322,6 +4814,17 @@ export function parseSave(raw: string): GameState | null {
     if (Number.isFinite(a.mortgagePay) && a.mortgagePay > 0) continue;
     const card = a.debt > 0 ? dealById.get(a.cardId) : undefined;
     a.mortgagePay = card?.mortgagePay ? card.mortgagePay * a.qty : 0;
+  }
+  // Holdings bought before anybody could move out. They take the tenancy count
+  // from the card they came from and start fully let, which is where they have
+  // effectively been sitting all along.
+  for (const a of game.assets) {
+    const card = dealById.get(a.cardId);
+    if (card?.tenants === undefined) continue;
+    if (!Number.isFinite(a.tenants)) a.tenants = card.tenants;
+    if (!Number.isFinite(a.tenantStay) && card.tenantStay !== undefined) a.tenantStay = card.tenantStay;
+    if (!Number.isFinite(a.reletChance) && card.reletChance !== undefined) a.reletChance = card.reletChance;
+    if (!Number.isFinite(a.vacant)) a.vacant = 0;
   }
   if (!Number.isFinite(game.tier)) game.tier = tierOf(game);
   if (!Number.isFinite(game.escapeIncome)) game.escapeIncome = 0;
