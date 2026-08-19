@@ -274,6 +274,21 @@ export const UI = {
 
   /* The asset side of the balance panel, totalled the way a balance sheet is:
      cash included, because that is where a sold building goes. */
+  /* The version chip and its notes. */
+  changelogTag: { th: 'บันทึกการเปลี่ยนแปลง', en: 'Changelog' },
+  changelogTitle: { th: 'เกมนี้เปลี่ยนอะไรไปบ้าง', en: 'What has changed in this game' },
+  changelogBody: {
+    th: 'เกมนี้ยังแก้อยู่เรื่อย ๆ เลขเวอร์ชันมุมบนซ้ายบอกว่าคุณกำลังเล่นรุ่นไหน ถ้าจะติชมหรือแจ้งบัค บอกเลขนี้มาด้วยจะช่วยได้มาก เพราะบางอย่างที่เจอเมื่อวานอาจถูกแก้ไปแล้ววันนี้',
+    en: 'This game is still being worked on. The number under the title says which build you are playing; quoting it with a comment or a bug report helps a lot, because what you hit yesterday may already be gone today.',
+  },
+  changelogFresh: { th: 'รุ่น {version} เพิ่งออกใหม่ นี่คือสิ่งที่เปลี่ยนไป', en: 'Version {version} is new. Here is what changed.' },
+  versionNew: { th: 'มีรุ่นใหม่ กดอ่านว่าเปลี่ยนอะไร', en: 'New version: tap to read what changed' },
+  versionSeen: { th: 'กดดูบันทึกการเปลี่ยนแปลง', en: 'Tap for the changelog' },
+  tagAdded: { th: 'เพิ่ม', en: 'added' },
+  tagChanged: { th: 'เปลี่ยน', en: 'changed' },
+  tagFixed: { th: 'แก้บัค', en: 'fixed' },
+  tagRemoved: { th: 'เอาออก', en: 'removed' },
+
   assetsTotal: { th: 'ทรัพย์สินรวม', en: 'Total assets' },
   gloAssetsTotalBody: {
     th: 'ทุกอย่างที่เป็นของคุณตอนนี้รวมกัน เงินสดในมือนับด้วย เพราะพอขายของอะไรไป มันไม่ได้หายไปไหน มันย้ายมาอยู่บรรทัดเงินสด ยอดรวมบรรทัดนี้จึงไม่ลดตอนขายของได้กำไร',
