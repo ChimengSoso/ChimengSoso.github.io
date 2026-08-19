@@ -1149,7 +1149,17 @@ export function monthlyCashflow(s: GameState): number {
 }
 
 export function assetValue(a: Asset): number {
+  // A business is worth what it earns, which is the whole thesis of the game
+  // and the one thing the statement used to get wrong: a shut-down cafe sat
+  // there at its full purchase price, and one that doubled its takings never
+  // gained a baht on paper.
+  if (a.kind === 'business') return businessValue(a);
   return a.pricePerUnit * a.qty;
+}
+
+/** Per unit, so a part sale can be priced from the same figure. */
+export function unitValue(a: Asset): number {
+  return a.qty > 0 ? assetValue(a) / a.qty : 0;
 }
 
 /**
@@ -2503,7 +2513,50 @@ export function passDeal(s: GameState): void {
 /** Ceiling and floor on how far a volatile holding can drift from where it started. */
 export const SWING_MAX = 3;
 /** Sale price of a business sold privately, as a multiple of its monthly profit. */
-export const BIZ_EXIT_MULTIPLE = 18;
+/**
+ * What a quick private sale fetches, as a share of what the business is worth.
+ *
+ * Selling a business in a hurry, with no broker and no auction, really does go
+ * at a discount of roughly a third: that is the illiquidity discount, and it is
+ * the same idea whatever the business is. A flat "18x monthly profit" was that
+ * discount for a noodle stall and an 83% markdown for a water utility, because
+ * a small shop trades at 25x monthly and infrastructure at over 100x.
+ */
+export const BIZ_EXIT_SHARE = 0.7;
+
+/**
+ * The multiple this particular business trades at, taken from the price its own
+ * card was written with. A ฿250,000 cafe earning ฿9,000 a month is a 28x
+ * business; a ฿90m school earning ฿860,000 is a 105x one. Both are what those
+ * things really change hands for, so the multiple belongs to the card rather
+ * than to the game.
+ *
+ * A card bought while losing money has no multiple of its own, so it borrows
+ * the one implied by the top of its own swing range, which is the number the
+ * price was set against in the first place.
+ */
+export function bizMultiple(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  if (!card) return 0;
+  const per = card.cashflow + (card.mortgagePay ?? 0);
+  const base = per > 0 ? per : Math.abs(per) * SWING_MAX;
+  return base > 0 ? card.price / base : 0;
+}
+
+/**
+ * Fittings, fit-out, the lease: what is left to sell when the takings are gone.
+ * Without a floor, buying a cafe that loses money would wipe its whole price
+ * off the statement the moment it was bought, and a business that folds would
+ * be worth literally nothing, which no liquidator has ever found to be true.
+ */
+export const BIZ_SALVAGE_RATE = 0.3;
+
+export function businessValue(a: Asset): number {
+  const card = dealById.get(a.cardId);
+  const salvage = (card?.price ?? a.pricePerUnit) * (card?.salvage ?? BIZ_SALVAGE_RATE) * a.qty;
+  const earned = operatingCashflow(a) * bizMultiple(a);
+  return Math.max(0, Math.round(Math.max(earned, salvage)));
+}
 
 /**
  * A month in the life of the businesses that do not sit still. Most months
@@ -2578,7 +2631,7 @@ export function operatingCashflow(a: Asset): number {
 
 /** The price a private buyer puts on the business itself, loan not deducted. */
 export function businessExitPrice(a: Asset): number {
-  return Math.max(0, Math.round(operatingCashflow(a) * BIZ_EXIT_MULTIPLE));
+  return Math.max(0, Math.round(businessValue(a) * BIZ_EXIT_SHARE));
 }
 
 export function businessExitValue(a: Asset): number {
@@ -2608,14 +2661,14 @@ export function sellBusiness(s: GameState, assetUid: string): void {
     s,
     {
       th: shortfall > 0
-        ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(businessExitPrice(a))} ซึ่งไม่พอปิดหนี้ เหลือส่วนต่าง ${money(shortfall)} ที่ต้องผ่อนต่อเดือนละ ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))}`
+        ? `ขาย ${a.name.th} เองแบบรีบ ๆ ที่ ${Math.round(BIZ_EXIT_SHARE * 100)}% ของมูลค่ากิจการ ได้ ${money(businessExitPrice(a))} ซึ่งไม่พอปิดหนี้ เหลือส่วนต่าง ${money(shortfall)} ที่ต้องผ่อนต่อเดือนละ ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))}`
         : proceeds > 0
-          ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
+          ? `ขาย ${a.name.th} เองแบบรีบ ๆ ที่ ${Math.round(BIZ_EXIT_SHARE * 100)}% ของมูลค่ากิจการ ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
           : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
       en: shortfall > 0
-        ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(businessExitPrice(a))}, which did not clear the loan. ${money(shortfall)} is still owed, at ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))} a month.`
+        ? `Sold ${a.name.en} privately at ${Math.round(BIZ_EXIT_SHARE * 100)}% of what it is worth for ${money(businessExitPrice(a))}, which did not clear the loan. ${money(shortfall)} is still owed, at ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))} a month.`
         : proceeds > 0
-          ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
+          ? `Sold ${a.name.en} privately at ${Math.round(BIZ_EXIT_SHARE * 100)}% of what it is worth for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
           : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
     },
     gain >= 0 ? 'good' : 'bad',
@@ -2634,12 +2687,12 @@ export function marketUnitPrice(card: MarketCard, a: Asset, s?: GameState): numb
   // The card has already moved the price by the time anything renders, so the
   // quote is simply what the symbol is trading at now.
   if (card.type === 'price') return s?.prices[card.symbol] ?? a.pricePerUnit;
-  if (card.type === 'offer') return a.pricePerUnit * card.multiplier;
-  // Priced off what the business earns before its own instalment, and never
-  // below zero: a cafe losing ฿3,000 a month used to be "bought" for minus
-  // ฿180,000, which billed the seller for giving it away.
-  const per = a.qty > 0 ? operatingCashflow(a) / a.qty : 0;
-  return Math.max(0, per * card.monthsMultiple);
+  if (card.type === 'offer') return unitValue(a) * card.multiplier;
+  // A buyer bids a premium on what the business is worth, the same way the
+  // property buyers bid a premium on what a building is worth. Quoting a flat
+  // number of months instead priced a hospital on a noodle-stall yardstick and
+  // came out negative once its loan was taken off.
+  return Math.max(0, unitValue(a) * card.share);
 }
 
 /**
@@ -4452,7 +4505,7 @@ export const DEFICIENCY_PAY_RATE = 0.03;
 
 export function fireSaleValue(a: Asset, qty: number): number {
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * qty : 0;
-  return Math.max(0, a.pricePerUnit * FIRE_SALE_RATE * qty - debtShare);
+  return Math.max(0, unitValue(a) * FIRE_SALE_RATE * qty - debtShare);
 }
 
 /**
@@ -4465,7 +4518,7 @@ export function fireSaleValue(a: Asset, qty: number): number {
  */
 export function fireSaleShortfall(a: Asset, qty: number): number {
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * qty : 0;
-  return Math.max(0, debtShare - a.pricePerUnit * FIRE_SALE_RATE * qty);
+  return Math.max(0, debtShare - unitValue(a) * FIRE_SALE_RATE * qty);
 }
 
 export function fireSale(s: GameState, assetUid: string, qty: number): void {
@@ -4476,6 +4529,9 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
   const proceeds = fireSaleValue(a, n);
   const shortfall = Math.round(fireSaleShortfall(a, n));
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
+  // Read before the holding is cut down, since a business's own value is
+  // worked out from the income of the units still standing.
+  const raised = unitValue(a) * FIRE_SALE_RATE * n;
 
   // Selling the company's building pays the company. Getting that money into a
   // personal account still costs a dividend, which is the point: a company is
@@ -4492,8 +4548,8 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
     note(
       s,
       {
-        th: `ขายทอดตลาด ${name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้ ${money(a.pricePerUnit * FIRE_SALE_RATE * n)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} ทรัพย์ไม่อยู่แล้วแต่หนี้ยังอยู่`,
-        en: `${name.en}${n > 1 ? ` ×${n}` : ''} went under the hammer for ${money(a.pricePerUnit * FIRE_SALE_RATE * n)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The asset is gone and the debt is not.`,
+        th: `ขายทอดตลาด ${name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้ ${money(raised)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} ทรัพย์ไม่อยู่แล้วแต่หนี้ยังอยู่`,
+        en: `${name.en}${n > 1 ? ` ×${n}` : ''} went under the hammer for ${money(raised)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The asset is gone and the debt is not.`,
       },
       'bad',
     );

@@ -564,6 +564,9 @@ export const deals: DealCard[] = [
     cashflow: -3000,
     maxQty: 1,
     volatility: 0.35,
+    // Almost all of this price is counter, machine and fit-out rather than a
+    // name anyone knows yet, so most of it survives even if nobody ever comes.
+    salvage: 0.7,
   },
   {
     id: 'd-rooms',
@@ -1562,21 +1565,21 @@ export const marketCards: MarketCard[] = [
   {
     id: 'm-biz-buyer',
     type: 'bizOffer',
-    monthsMultiple: 60,
+    share: 1.6,
     title: { th: 'มีคนขอซื้อกิจการของคุณ', en: 'Someone wants to buy your business' },
     story: {
-      th: 'ผู้ซื้อประเมินราคาแบบคลาสสิก คือกำไรต่อเดือนคูณ 60 (ห้าปี) แล้วจ่ายสด',
-      en: 'The buyer uses the classic yardstick: monthly profit times 60 (five years), paid in cash.',
+      th: 'ผู้ซื้ออยากได้กิจการนี้ไปต่อยอดของเดิมที่เขามีอยู่ เลยยอมจ่าย 160% ของมูลค่ากิจการตอนนี้ แล้วจ่ายสด',
+      en: 'The buyer wants it to bolt onto something they already run, and will pay 160% of what the business is worth today, in cash.',
     },
   },
   {
     id: 'm-biz-buyer2',
     type: 'bizOffer',
-    monthsMultiple: 40,
+    share: 1.3,
     title: { th: 'คู่แข่งเสนอซื้อกิจการ', en: 'A competitor bids for your business' },
     story: {
-      th: 'คู่แข่งอยากตัดหน้าคุณ แต่ให้ราคาแค่กำไรต่อเดือนคูณ 40 ขายหรือไม่ขายก็ได้',
-      en: 'A rival wants you out of the way, but only offers forty months of profit. Take it or leave it.',
+      th: 'คู่แข่งอยากตัดหน้าคุณ แต่ให้แค่ 130% ของมูลค่ากิจการตอนนี้ ขายหรือไม่ขายก็ได้',
+      en: 'A rival wants you out of the way, but only bids 130% of what the business is worth today. Take it or leave it.',
     },
   },
 ];

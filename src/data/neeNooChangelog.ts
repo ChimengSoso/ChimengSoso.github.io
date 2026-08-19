@@ -30,10 +30,24 @@ export interface Release {
 
 export const releases: Release[] = [
   {
-    version: '0.5.1',
+    version: '0.6.0',
     dateISO: '2026-08-20',
-    codename: { th: 'กดเลขแล้วได้คำตอบจริง', en: 'Tap a figure, get its real answer' },
+    codename: { th: 'กิจการมีมูลค่าตามที่มันทำได้', en: 'A business is worth what it earns' },
     entries: [
+      {
+        kind: 'changed',
+        text: {
+          th: 'มูลค่ากิจการในงบเดินตามกำไรของมันเองแล้ว ร้านที่กำไรโตขึ้นเท่าตัวมูลค่าก็ขึ้นเท่าตัว ร้านที่เจ๊งจนกำไรเหลือศูนย์เหลือแค่ค่าซากประมาณ 30% ของราคาที่ซื้อมา เมื่อก่อนงบบอกราคาที่ซื้อมาตลอดกาลไม่ว่ากิจการจะเป็นยังไง',
+          en: 'What a business is worth on the statement now follows what it earns. One that doubles its takings doubles in value; one that stops earning falls to roughly 30% of its price, the second-hand worth of its equipment. It used to sit at the purchase price for ever, whatever happened to it.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'การ์ดคนซื้อกิจการเปลี่ยนจาก "กำไรต่อเดือนคูณ 40 ถึง 60" เป็น "130% ถึง 160% ของมูลค่ากิจการตอนนี้" แบบเดียวกับการ์ดคนซื้ออสังหา ตัวคูณตัวเดียวใช้กับร้านชานมกับโรงพยาบาลไม่ได้ เพราะร้านเล็กซื้อขายกันที่ราว 25 เท่าของกำไรต่อเดือน ส่วนโครงสร้างพื้นฐานอยู่ที่ราว 100 เท่า ซึ่งเป็นราคาจริงของทั้งสองแบบ ส่วนการขายเองแบบรีบ ๆ ได้ 70% ของมูลค่า',
+          en: 'The business-buyer cards now bid 130% to 160% of what the business is worth today, the same way the property buyers bid on a building, instead of a flat 40 to 60 months of profit. One multiple cannot cover a milk-tea franchise and a hospital: small shops really do change hands at about 25 times monthly profit and infrastructure at about 100. A quick private sale pays 70% of the value.',
+        },
+      },
       {
         kind: 'fixed',
         text: {

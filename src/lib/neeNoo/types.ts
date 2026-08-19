@@ -258,6 +258,14 @@ export interface DealCard {
    * businesses whose fortunes swing with a trend).
    */
   volatility?: number;
+  /**
+   * How much of the price survives as saleable stuff when a business stops
+   * earning: second-hand equipment, the fit-out, the lease. Defaults to
+   * `BIZ_SALVAGE_RATE`. A shop being opened from scratch is nearly all fit-out
+   * and no goodwill, so it carries a much higher figure than a going concern
+   * bought for its takings.
+   */
+  salvage?: number;
   /** the country notices this one: counts toward the capitalist's legacy */
   impact?: number;
   /**
@@ -301,8 +309,8 @@ export type MarketCard =
   | { id: string; type: 'price'; symbol: string; move: number; title: Loc; story: Loc }
   /** a buyer for property/land matching `tag`, paying sticker price × multiplier */
   | { id: string; type: 'offer'; tag: string; multiplier: number; title: Loc; story: Loc }
-  /** a buyer for any business, paying its monthly cash flow × `monthsMultiple` */
-  | { id: string; type: 'bizOffer'; monthsMultiple: number; title: Loc; story: Loc };
+  /** a buyer for any business, bidding `share` of what it is worth today */
+  | { id: string; type: 'bizOffer'; share: number; title: Loc; story: Loc };
 
 export interface DoodadCard {
   id: string;
