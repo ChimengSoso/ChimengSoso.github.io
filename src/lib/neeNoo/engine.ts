@@ -2378,10 +2378,26 @@ export function purseOf(s: GameState, by: Buyer): number {
   return by === 'corp' ? s.corpCash : s.cash;
 }
 
+/**
+ * How many units a card will actually sell.
+ *
+ * A building is one building: `maxQty` on a property or a business card is the
+ * seller having two shophouses and not three. Listed paper is not like that.
+ * Nothing in Thai law stops anybody buying as much of a listed share as their
+ * money covers; the thresholds that exist (disclosure, and the mandatory tender
+ * offer at a quarter of the votes) are about taking control of a company, which
+ * is not what a player buying dividends is doing. So the cap on traded symbols
+ * is affordability and nothing else.
+ */
+export function tradedFreely(card: DealCard): boolean {
+  return !!card.symbol;
+}
+
 export function maxAffordable(s: GameState, card: DealCard, by: Buyer = 'me'): number {
   const per = dealDown(s, card);
+  const ceiling = tradedFreely(card) ? Number.POSITIVE_INFINITY : card.maxQty;
   if (per <= 0) return card.maxQty;
-  return Math.max(0, Math.min(card.maxQty, Math.floor(purseOf(s, by) / per)));
+  return Math.max(0, Math.min(ceiling, Math.floor(purseOf(s, by) / per)));
 }
 
 /** True where a company buying this would actually be the sensible move. */
@@ -2745,7 +2761,9 @@ export function marketBuy(s: GameState): { card: DealCard; unit: number; max: nu
   if (unit <= 0) return null;
   const card = symbolDeal(s, news.symbol);
   if (!card) return null;
-  return { card, unit, max: Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / unit))) };
+  // The market tile sells the same paper on the same terms as the deal card.
+  const ceiling = tradedFreely(card) ? Number.POSITIVE_INFINITY : card.maxQty;
+  return { card, unit, max: Math.max(0, Math.min(ceiling, Math.floor(s.cash / unit))) };
 }
 
 export function buyFromMarket(s: GameState, qty: number): void {
