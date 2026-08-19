@@ -425,7 +425,7 @@ export const deals: DealCard[] = [
     price: 40,
     down: 40,
     debt: 0,
-    cashflow: 0.34,
+    cashflow: 0.22,
     maxQty: 6000,
     books: {
       revenue: 96000,
@@ -452,7 +452,7 @@ export const deals: DealCard[] = [
     price: 100,
     down: 100,
     debt: 0,
-    cashflow: 0.75,
+    cashflow: 0.58,
     maxQty: 4000,
     books: {
       revenue: 3100,
@@ -476,11 +476,11 @@ export const deals: DealCard[] = [
       th: 'ทองไม่ให้ดอกผลสักบาท มันแค่รอวันที่ราคาขึ้น และรอเป็น',
       en: 'Gold pays no income at all. It just waits for the price to rise, and it is very good at waiting.',
     },
-    price: 42000,
-    down: 42000,
+    price: 68000,
+    down: 68000,
     debt: 0,
     cashflow: 0,
-    maxQty: 30,
+    maxQty: 18,
   },
   /* ---- small: property ---- */
   {
@@ -497,8 +497,12 @@ export const deals: DealCard[] = [
     down: 60000,
     debt: 1140000,
     mortgagePay: 6300,
-    cashflow: 3500,
+    cashflow: 3950,
     maxQty: 1,
+    tenants: 1,
+    tenantStay: 36,
+    reletChance: 0.6,
+    livable: true,
   },
   /*
    * The three cards below are the only ones in the deck that cost money every
@@ -537,8 +541,12 @@ export const deals: DealCard[] = [
     down: 60000,
     debt: 1140000,
     mortgagePay: 6300,
-    cashflow: -1500,
+    cashflow: -130,
     maxQty: 2,
+    tenants: 1,
+    tenantStay: 10,
+    reletChance: 0.35,
+    livable: true,
   },
   {
     id: 'd-cafenew',
@@ -556,6 +564,9 @@ export const deals: DealCard[] = [
     cashflow: -3000,
     maxQty: 1,
     volatility: 0.35,
+    // Almost all of this price is counter, machine and fit-out rather than a
+    // name anyone knows yet, so most of it survives even if nobody ever comes.
+    salvage: 0.7,
   },
   {
     id: 'd-rooms',
@@ -571,8 +582,12 @@ export const deals: DealCard[] = [
     down: 35000,
     debt: 665000,
     mortgagePay: 3700,
-    cashflow: 2100,
+    cashflow: 2640,
     maxQty: 1,
+    tenants: 2,
+    tenantStay: 18,
+    reletChance: 0.6,
+    livable: true,
   },
   {
     id: 'd-house',
@@ -588,8 +603,12 @@ export const deals: DealCard[] = [
     down: 90000,
     debt: 1710000,
     mortgagePay: 9400,
-    cashflow: 5000,
+    cashflow: 6090,
     maxQty: 1,
+    tenants: 1,
+    tenantStay: 24,
+    reletChance: 0.55,
+    livable: true,
   },
   {
     id: 'd-townhouse',
@@ -605,8 +624,12 @@ export const deals: DealCard[] = [
     down: 48000,
     debt: 902000,
     mortgagePay: 5000,
-    cashflow: 2900,
+    cashflow: 3630,
     maxQty: 1,
+    tenants: 1,
+    tenantStay: 18,
+    reletChance: 0.6,
+    livable: true,
   },
   {
     id: 'd-shop1',
@@ -622,8 +645,12 @@ export const deals: DealCard[] = [
     down: 120000,
     debt: 2280000,
     mortgagePay: 12500,
-    cashflow: 7200,
+    cashflow: 8290,
     maxQty: 1,
+    tenants: 1,
+    tenantStay: 36,
+    reletChance: 0.5,
+    livable: true,
   },
   {
     id: 'd-land',
@@ -737,8 +764,12 @@ export const deals: DealCard[] = [
     down: 450000,
     debt: 8550000,
     mortgagePay: 47000,
-    cashflow: 26000,
+    cashflow: 32760,
     maxQty: 1,
+    tenants: 12,
+    tenantStay: 18,
+    reletChance: 0.6,
+    livable: true,
   },
   {
     id: 'd-shophouse',
@@ -754,8 +785,12 @@ export const deals: DealCard[] = [
     down: 325000,
     debt: 6175000,
     mortgagePay: 34000,
-    cashflow: 19000,
+    cashflow: 23010,
     maxQty: 1,
+    tenants: 2,
+    tenantStay: 24,
+    reletChance: 0.55,
+    livable: true,
   },
   {
     id: 'd-dorm',
@@ -771,8 +806,12 @@ export const deals: DealCard[] = [
     down: 550000,
     debt: 10450000,
     mortgagePay: 57500,
-    cashflow: 32000,
+    cashflow: 42660,
     maxQty: 1,
+    tenants: 24,
+    tenantStay: 12,
+    reletChance: 0.7,
+    livable: true,
   },
   {
     id: 'd-warehouse',
@@ -788,8 +827,11 @@ export const deals: DealCard[] = [
     down: 600000,
     debt: 11400000,
     mortgagePay: 62700,
-    cashflow: 36000,
+    cashflow: 40110,
     maxQty: 1,
+    tenants: 1,
+    tenantStay: 60,
+    reletChance: 0.4,
   },
   {
     id: 'd-hotel',
@@ -805,8 +847,11 @@ export const deals: DealCard[] = [
     down: 750000,
     debt: 14250000,
     mortgagePay: 78400,
-    cashflow: 45000,
+    cashflow: 86130,
     maxQty: 1,
+    tenants: 15,
+    tenantStay: 4,
+    reletChance: 0.75,
   },
   {
     id: 'd-restaurant',
@@ -875,7 +920,7 @@ export const deals: DealCard[] = [
     price: 100000,
     down: 100000,
     debt: 0,
-    cashflow: 420,
+    cashflow: 235,
     maxQty: 400,
   },
   {
@@ -891,7 +936,7 @@ export const deals: DealCard[] = [
     price: 100000,
     down: 100000,
     debt: 0,
-    cashflow: 680,
+    cashflow: 415,
     maxQty: 300,
   },
   {
@@ -907,7 +952,7 @@ export const deals: DealCard[] = [
     price: 10000,
     down: 10000,
     debt: 0,
-    cashflow: 26,
+    cashflow: 15,
     maxQty: 3000,
   },
   {
@@ -920,11 +965,11 @@ export const deals: DealCard[] = [
       th: 'ยังไม่ให้ดอกผลเหมือนเดิม และยังรอเป็นเหมือนเดิม รวมกองกับทองที่คุณถือมาตั้งแต่ยังอยู่ในวงล้อ',
       en: 'Still pays nothing, still very good at waiting. It stacks with whatever gold you carried out of the rat race.',
     },
-    price: 42000,
-    down: 42000,
+    price: 68000,
+    down: 68000,
     debt: 0,
     cashflow: 0,
-    maxQty: 200,
+    maxQty: 124,
   },
   {
     id: 'ff-setx',
@@ -939,7 +984,7 @@ export const deals: DealCard[] = [
     price: 1000,
     down: 1000,
     debt: 0,
-    cashflow: 5,
+    cashflow: 2.5,
     maxQty: 20000,
   },
   {
@@ -1038,8 +1083,12 @@ export const deals: DealCard[] = [
     down: 6000000,
     debt: 18000000,
     mortgagePay: 100000,
-    cashflow: 180000,
+    cashflow: 238570,
     maxQty: 2,
+    tenants: 30,
+    tenantStay: 8,
+    reletChance: 0.6,
+    livable: true,
     volatility: 0.15,
   },
   {
@@ -1056,8 +1105,11 @@ export const deals: DealCard[] = [
     down: 4500000,
     debt: 13500000,
     mortgagePay: 75000,
-    cashflow: 145000,
+    cashflow: 163350,
     maxQty: 2,
+    tenants: 40,
+    tenantStay: 24,
+    reletChance: 0.5,
   },
   {
     id: 'ff-cold',
@@ -1168,8 +1220,11 @@ export const deals: DealCard[] = [
     down: 80000000,
     debt: 240000000,
     mortgagePay: 1200000,
-    cashflow: 2100000,
+    cashflow: 2255500,
     maxQty: 1,
+    tenants: 20,
+    tenantStay: 60,
+    reletChance: 0.35,
     impact: 18000,
   },
   {
@@ -1229,6 +1284,39 @@ export const deals: DealCard[] = [
   },
 ];
 
+/* ----------------------------------------------------------- traded prices */
+
+/**
+ * How each traded thing behaves between market cards.
+ *
+ * Prices used to sit perfectly still unless a card came up, so a player could
+ * reach eighty years old holding gold at the price they paid for it in their
+ * thirties. Every month now moves them: `drift` is the long-run trend a year,
+ * `vol` is how far a year can wander off it, and `pull` is how strongly the
+ * price is dragged back toward the trend line afterwards.
+ *
+ * The figures are set against what these things have actually done. Thai gold
+ * ran from around ฿20,000 a baht-weight in the mid-2010s to an all-time high
+ * above ฿80,000 in January 2026 and was back near ฿68,000 by that August: a
+ * long climb with drops of fifteen percent inside a year, which is what a 7%
+ * trend and 18% annual volatility looks like. The index fund carries the Thai
+ * market's long-run price growth with its dividend paid separately, single
+ * shares swing two to three times as hard as the index, and bonds barely move
+ * at all but are pulled firmly back to par, because that is what they redeem at.
+ */
+export const priceModels: Record<string, { drift: number; vol: number; pull: number }> = {
+  GOLD: { drift: 0.07, vol: 0.18, pull: 0.006 },
+  SETX: { drift: 0.06, vol: 0.16, pull: 0.01 },
+  MKT: { drift: 0.05, vol: 0.34, pull: 0.015 },
+  TRN: { drift: 0.06, vol: 0.32, pull: 0.015 },
+  SOLR: { drift: 0.07, vol: 0.4, pull: 0.015 },
+  BNK: { drift: 0.04, vol: 0.24, pull: 0.02 },
+  REIT: { drift: 0.03, vol: 0.18, pull: 0.025 },
+  CORPB: { drift: 0, vol: 0.05, pull: 0.15 },
+  GOVB: { drift: 0, vol: 0.04, pull: 0.18 },
+  MMF: { drift: 0, vol: 0.005, pull: 0.4 },
+};
+
 /* ------------------------------------------------------------ market cards */
 
 export const marketCards: MarketCard[] = [
@@ -1236,8 +1324,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-mkt-up',
     type: 'price',
     symbol: 'MKT',
-    price: 28,
-    title: { th: 'MKT พุ่งเป็น 28 บาท', en: 'MKT jumps to ฿28' },
+    move: 2.8,
+    title: { th: 'MKT พุ่งขึ้น 180% เป็น {price}', en: 'MKT jumps 180% to {price}' },
     story: {
       th: 'ห้างประกาศผลประกอบการดีกว่าคาด นักวิเคราะห์แห่ปรับเป้าราคาขึ้นพร้อมกัน',
       en: 'The chain beat its earnings forecast and every analyst raised their target at once.',
@@ -1247,8 +1335,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-mkt-down',
     type: 'price',
     symbol: 'MKT',
-    price: 4,
-    title: { th: 'MKT ร่วงเหลือ 4 บาท', en: 'MKT slides to ฿4' },
+    move: 0.4,
+    title: { th: 'MKT ร่วง 60% เหลือ {price}', en: 'MKT slides 60% to {price}' },
     story: {
       th: 'ข่าวลือว่าจะปิดสาขาต่างจังหวัด คนแห่ขายทิ้ง ราคาถูกลงกว่าครึ่ง',
       en: 'A rumour about closing upcountry branches sent everyone to the exit; the price more than halved.',
@@ -1258,8 +1346,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-trn-up',
     type: 'price',
     symbol: 'TRN',
-    price: 60,
-    title: { th: 'TRN พุ่งเป็น 60 บาท', en: 'TRN jumps to ฿60' },
+    move: 2.4,
+    title: { th: 'TRN พุ่งขึ้น 140% เป็น {price}', en: 'TRN jumps 140% to {price}' },
     story: {
       th: 'ได้สัญญาขนส่งให้แพลตฟอร์มอีคอมเมิร์ซรายใหญ่ ราคาวิ่งขึ้นสองวันติด',
       en: 'It won the delivery contract for a major e-commerce platform and ran up for two straight days.',
@@ -1269,8 +1357,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-trn-down',
     type: 'price',
     symbol: 'TRN',
-    price: 12,
-    title: { th: 'TRN ร่วงเหลือ 12 บาท', en: 'TRN drops to ฿12' },
+    move: 0.48,
+    title: { th: 'TRN ร่วง 52% เหลือ {price}', en: 'TRN drops 52% to {price}' },
     story: {
       th: 'น้ำมันแพงขึ้น ต้นทุนขนส่งพุ่ง กำไรไตรมาสนี้หายไปเกือบหมด',
       en: 'Fuel got expensive, delivery costs spiked, and this quarter’s profit nearly vanished.',
@@ -1280,8 +1368,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-solr-up',
     type: 'price',
     symbol: 'SOLR',
-    price: 14,
-    title: { th: 'SOLR พุ่งเป็น 14 บาท', en: 'SOLR jumps to ฿14' },
+    move: 2.8,
+    title: { th: 'SOLR พุ่งขึ้น 180% เป็น {price}', en: 'SOLR jumps 180% to {price}' },
     story: {
       th: 'รัฐประกาศรับซื้อไฟจากโซลาร์เพิ่ม หุ้นเล็กตัวนี้เด้งแรงกว่าตัวใหญ่',
       en: 'The state raised how much solar power it will buy, and this small cap bounced harder than the big ones.',
@@ -1291,8 +1379,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-solr-down',
     type: 'price',
     symbol: 'SOLR',
-    price: 2,
-    title: { th: 'SOLR ร่วงเหลือ 2 บาท', en: 'SOLR falls to ฿2' },
+    move: 0.4,
+    title: { th: 'SOLR ร่วง 60% เหลือ {price}', en: 'SOLR falls 60% to {price}' },
     story: {
       th: 'บริษัทขาดทุนอีกปี ต้องเพิ่มทุน ผู้ถือหุ้นเดิมโดนลดสัดส่วน',
       en: 'Another loss-making year forced a capital raise, diluting everyone who already held it.',
@@ -1302,8 +1390,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-bnk-up',
     type: 'price',
     symbol: 'BNK',
-    price: 75,
-    title: { th: 'BNK พุ่งเป็น 75 บาท', en: 'BNK jumps to ฿75' },
+    move: 1.875,
+    title: { th: 'BNK ขึ้น 88% เป็น {price}', en: 'BNK rises 88% to {price}' },
     story: {
       th: 'ดอกเบี้ยขาขึ้นทำให้ธนาคารกำไรดี ราคาหุ้นวิ่งตามเกือบเท่าตัว',
       en: 'Rising interest rates fattened bank profits and nearly doubled the share price.',
@@ -1313,8 +1401,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-reit-up',
     type: 'price',
     symbol: 'REIT',
-    price: 145,
-    title: { th: 'REIT ขึ้นเป็นหน่วยละ 145 บาท', en: 'REIT rises to ฿145 per unit' },
+    move: 1.45,
+    title: { th: 'REIT ขึ้น 45% เป็นหน่วยละ {price}', en: 'REIT rises 45% to {price} per unit' },
     story: {
       th: 'กองทุนซื้อตึกเพิ่มอีกสองแห่ง ค่าเช่ารวมโตขึ้น คนอยากถือมากขึ้น',
       en: 'The fund bought two more buildings, total rent grew, and demand for units followed.',
@@ -1324,8 +1412,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-up',
     type: 'price',
     symbol: 'GOLD',
-    price: 58000,
-    title: { th: 'ทองขึ้นเป็นบาทละ 58,000', en: 'Gold rises to ฿58,000 per baht-weight' },
+    move: 1.381,
+    title: { th: 'ทองขึ้น 38% เป็นบาทละ {price}', en: 'Gold rises 38% to {price} per baht-weight' },
     story: {
       th: 'ตลาดโลกผันผวน คนแห่เข้าซื้อทองเป็นที่หลบภัย ร้านทองคนแน่นตั้งแต่เช้า',
       en: 'Global markets wobbled, everyone ran to gold as shelter, and the gold shops were packed from dawn.',
@@ -1335,8 +1423,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-up2',
     type: 'price',
     symbol: 'GOLD',
-    price: 49000,
-    title: { th: 'ทองขึ้นเป็นบาทละ 49,000', en: 'Gold rises to ฿49,000 per baht-weight' },
+    move: 1.167,
+    title: { th: 'ทองขึ้น 17% เป็นบาทละ {price}', en: 'Gold rises 17% to {price} per baht-weight' },
     story: {
       th: 'ธนาคารกลางหลายประเทศทยอยซื้อทองเข้าคลัง ราคาขยับขึ้นช้า ๆ แต่ไม่ยอมลง',
       en: 'Central banks kept adding to their reserves, and the price crept up without ever slipping back.',
@@ -1346,8 +1434,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-down2',
     type: 'price',
     symbol: 'GOLD',
-    price: 38000,
-    title: { th: 'ทองลงเหลือบาทละ 38,000', en: 'Gold slips to ฿38,000 per baht-weight' },
+    move: 0.905,
+    title: { th: 'ทองย่อลง 10% เหลือบาทละ {price}', en: 'Gold slips 10% to {price} per baht-weight' },
     story: {
       th: 'ค่าเงินแข็งขึ้น ราคาทองในประเทศเลยย่อลงทั้งที่ราคาทองโลกแทบไม่ขยับ',
       en: 'The currency strengthened, so the local gold price eased even though the world price barely moved.',
@@ -1357,8 +1445,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-bnk-down',
     type: 'price',
     symbol: 'BNK',
-    price: 22,
-    title: { th: 'BNK ร่วงเหลือ 22 บาท', en: 'BNK slides to ฿22' },
+    move: 0.55,
+    title: { th: 'BNK ร่วง 45% เหลือ {price}', en: 'BNK slides 45% to {price}' },
     story: {
       th: 'ธนาคารตั้งสำรองหนี้เสียก้อนใหญ่ กำไรหด และประกาศลดปันผลลงในปีหน้า',
       en: 'The bank set aside a large provision for bad loans, profit shrank, and next year’s dividend was cut.',
@@ -1368,8 +1456,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-reit-down',
     type: 'price',
     symbol: 'REIT',
-    price: 62,
-    title: { th: 'REIT ร่วงเหลือหน่วยละ 62 บาท', en: 'REIT falls to ฿62 per unit' },
+    move: 0.62,
+    title: { th: 'REIT ร่วง 38% เหลือหน่วยละ {price}', en: 'REIT falls 38% to {price} per unit' },
     story: {
       th: 'ตึกในกองทุนสองแห่งผู้เช่ารายใหญ่ย้ายออก ค่าเช่าที่เก็บได้ลดลงทั้งกอง',
       en: 'Anchor tenants left two of the fund’s buildings, and collected rent fell across the whole portfolio.',
@@ -1379,8 +1467,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-down',
     type: 'price',
     symbol: 'GOLD',
-    price: 33000,
-    title: { th: 'ทองลงเหลือบาทละ 33,000', en: 'Gold drops to ฿33,000 per baht-weight' },
+    move: 0.786,
+    title: { th: 'ทองร่วง 21% เหลือบาทละ {price}', en: 'Gold drops 21% to {price} per baht-weight' },
     story: {
       th: 'ตลาดหุ้นโลกกลับมาคึกคัก คนขายทองออกไปหาของที่ให้ผลตอบแทนมากกว่าการรอ',
       en: 'World stock markets perked up and people sold gold for things that pay more than waiting does.',
@@ -1390,8 +1478,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-setx-up',
     type: 'price',
     symbol: 'SETX',
-    price: 1380,
-    title: { th: 'ดัชนีหุ้นไทยขึ้น หน่วยละ 1,380', en: 'The Thai index climbs to ฿1,380 a unit' },
+    move: 1.38,
+    title: { th: 'ดัชนีหุ้นไทยขึ้น 38% เป็นหน่วยละ {price}', en: 'The Thai index climbs 38% to {price} a unit' },
     story: {
       th: 'ต่างชาติกลับมาซื้อสุทธิติดกันหกสัปดาห์ กองทุนดัชนีขึ้นตามทั้งตลาดโดยไม่ต้องเลือกหุ้นถูกสักตัว',
       en: 'Six straight weeks of foreign buying lifted the whole market, and the index fund with it, without picking a single winner.',
@@ -1401,8 +1489,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-setx-down',
     type: 'price',
     symbol: 'SETX',
-    price: 720,
-    title: { th: 'ดัชนีหุ้นไทยร่วง เหลือหน่วยละ 720', en: 'The Thai index falls to ฿720 a unit' },
+    move: 0.72,
+    title: { th: 'ดัชนีหุ้นไทยร่วง 28% เหลือหน่วยละ {price}', en: 'The Thai index falls 28% to {price} a unit' },
     story: {
       th: 'ข่าวการเมืองกับกำไรบริษัทที่ต่ำกว่าคาดมาพร้อมกัน ตลาดลงยกแผงและกองทุนดัชนีก็ลงยกแผงเหมือนกัน',
       en: 'Politics and a disappointing earnings season arrived together. The market fell across the board, and so did the fund.',
@@ -1412,8 +1500,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-corpb-down',
     type: 'price',
     symbol: 'CORPB',
-    price: 74000,
-    title: { th: 'หุ้นกู้ถูกลดอันดับ เหลือใบละ 74,000', en: 'The corporate bonds are downgraded to ฿74,000' },
+    move: 0.74,
+    title: { th: 'หุ้นกู้ถูกลดอันดับ ราคาเหลือ {price}', en: 'The corporate bonds are downgraded to {price}' },
     story: {
       th: 'บริษัทผู้ออกโดนหั่นเครดิตเรตติ้ง ราคาหุ้นกู้ในตลาดรองร่วงทันที นี่คือส่วนต่างดอกเบี้ยที่คุณได้มาแลกกับอะไร',
       en: 'The issuer was downgraded and the secondary price fell at once. This is what that extra yield was paying you for.',
@@ -1423,8 +1511,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-govb-up',
     type: 'price',
     symbol: 'GOVB',
-    price: 112000,
-    title: { th: 'ดอกเบี้ยขาลง พันธบัตรขึ้นเป็นใบละ 112,000', en: 'Rates fall and the bonds rise to ฿112,000' },
+    move: 1.12,
+    title: { th: 'ดอกเบี้ยขาลง พันธบัตรขึ้นเป็น {price}', en: 'Rates fall and the bonds rise to {price}' },
     story: {
       th: 'แบงก์ชาติลดดอกเบี้ย พันธบัตรเก่าที่จ่ายดอกสูงกว่าจึงมีคนอยากได้ ราคาเลยขึ้น',
       en: 'The central bank cut rates, so older bonds paying the higher coupon became worth having, and their price rose.',
@@ -1437,8 +1525,8 @@ export const marketCards: MarketCard[] = [
     multiplier: 1.3,
     title: { th: 'มีคนขอซื้อคอนโดของคุณ', en: 'A buyer wants your condo' },
     story: {
-      th: 'นายหน้าโทรมาว่ามีลูกค้าต่างชาติอยากได้ห้องในตึกนี้ ให้ราคา 130% ของราคาที่คุณซื้อ',
-      en: 'An agent calls: a foreign client wants a unit in your building and offers 130% of what you paid.',
+      th: 'นายหน้าโทรมาว่ามีลูกค้าต่างชาติอยากได้ห้องในตึกนี้ ให้ราคา 130% ของราคาบ้านตอนนี้',
+      en: 'An agent calls: a foreign client wants a unit in your building and offers 130% of what it is worth now.',
     },
   },
   {
@@ -1448,8 +1536,8 @@ export const marketCards: MarketCard[] = [
     multiplier: 2,
     title: { th: 'ผู้รับเหมาขอซื้อที่ดิน', en: 'A developer wants your land' },
     story: {
-      th: 'ถนนตัดใหม่ประกาศแล้วจริง ๆ ผู้รับเหมาเสนอซื้อสองเท่าของราคาที่คุณซื้อมา',
-      en: 'The new road was announced after all, and a developer offers double what you paid.',
+      th: 'ถนนตัดใหม่ประกาศแล้วจริง ๆ ผู้รับเหมาเสนอซื้อสองเท่าของราคาที่ดินตอนนี้',
+      en: 'The new road was announced after all, and a developer offers double what the land is worth now.',
     },
   },
   {
@@ -1459,8 +1547,8 @@ export const marketCards: MarketCard[] = [
     multiplier: 1.25,
     title: { th: 'นักลงทุนขอซื้ออพาร์ตเมนต์/หอพัก', en: 'An investor wants your apartment block' },
     story: {
-      th: 'กองทุนอสังหาฯ กำลังกว้านซื้อตึกปล่อยเช่า เสนอ 125% ของราคาที่คุณซื้อ',
-      en: 'A property fund is buying rental blocks and offers 125% of your purchase price.',
+      th: 'กองทุนอสังหาฯ กำลังกว้านซื้อตึกปล่อยเช่า เสนอ 125% ของราคาตึกตอนนี้',
+      en: 'A property fund is buying rental blocks and offers 125% of what the block is worth now.',
     },
   },
   {
@@ -1470,28 +1558,28 @@ export const marketCards: MarketCard[] = [
     multiplier: 1.35,
     title: { th: 'ครอบครัวหนึ่งขอซื้อบ้านเช่าของคุณ', en: 'A family wants to buy your rental house' },
     story: {
-      th: 'ผู้เช่าเดิมชอบบ้านหลังนี้มากจนขอซื้อเลย ให้ราคา 135% ของที่คุณจ่ายไป',
-      en: 'Your tenants love the house enough to buy it, at 135% of what you paid.',
+      th: 'ผู้เช่าเดิมชอบบ้านหลังนี้มากจนขอซื้อเลย ให้ราคา 135% ของราคาบ้านตอนนี้',
+      en: 'Your tenants love the house enough to buy it, at 135% of what it is worth now.',
     },
   },
   {
     id: 'm-biz-buyer',
     type: 'bizOffer',
-    monthsMultiple: 60,
+    share: 1.6,
     title: { th: 'มีคนขอซื้อกิจการของคุณ', en: 'Someone wants to buy your business' },
     story: {
-      th: 'ผู้ซื้อประเมินราคาแบบคลาสสิก คือกำไรต่อเดือนคูณ 60 (ห้าปี) แล้วจ่ายสด',
-      en: 'The buyer uses the classic yardstick: monthly profit times 60 (five years), paid in cash.',
+      th: 'ผู้ซื้ออยากได้กิจการนี้ไปต่อยอดของเดิมที่เขามีอยู่ เลยยอมจ่าย 160% ของมูลค่ากิจการตอนนี้ แล้วจ่ายสด',
+      en: 'The buyer wants it to bolt onto something they already run, and will pay 160% of what the business is worth today, in cash.',
     },
   },
   {
     id: 'm-biz-buyer2',
     type: 'bizOffer',
-    monthsMultiple: 40,
+    share: 1.3,
     title: { th: 'คู่แข่งเสนอซื้อกิจการ', en: 'A competitor bids for your business' },
     story: {
-      th: 'คู่แข่งอยากตัดหน้าคุณ แต่ให้ราคาแค่กำไรต่อเดือนคูณ 40 ขายหรือไม่ขายก็ได้',
-      en: 'A rival wants you out of the way, but only offers forty months of profit. Take it or leave it.',
+      th: 'คู่แข่งอยากตัดหน้าคุณ แต่ให้แค่ 130% ของมูลค่ากิจการตอนนี้ ขายหรือไม่ขายก็ได้',
+      en: 'A rival wants you out of the way, but only bids 130% of what the business is worth today. Take it or leave it.',
     },
   },
 ];

@@ -146,7 +146,7 @@ export const UI = {
     th: 'ซื้อในนามบริษัท รายได้จากตัวนี้จะเข้าบริษัทและเสียภาษีอัตรานิติบุคคล แต่จะเอามาใช้ส่วนตัวต้องถอนออกมาก่อน',
     en: 'Bought in the company’s name, its income belongs to the company and meets the company’s rate. Spending it personally means taking it out first.',
   },
-  householdIncomeLabel: { th: 'เงินไหลเข้ารวมทั้งครัวเรือน', en: 'Household income' },
+  householdIncomeLabel: { th: 'เงินไหลเข้า (รวมบริษัท)', en: 'Passive income (incl. company)' },
   passiveMine: { th: 'เงินไหลเข้าในชื่อคุณเอง', en: 'In your own name' },
   worthIfCashedOut: {
     th: 'ถ้าเลิกบริษัทแล้วถอนออกมาทั้งหมดวันนี้ เหลือจริง',
@@ -226,6 +226,199 @@ export const UI = {
   downPayment: { th: 'ใช้เงินสด', en: 'Cash needed' },
   loanTaken: { th: 'กู้เพิ่ม', en: 'Debt taken on' },
   monthlyIn: { th: 'เงินเข้าต่อเดือน', en: 'Monthly income' },
+  /* Rented property carries two rents: the one on the brochure and the one that
+     survives the months nobody is living there. */
+  monthlyInFull: { th: 'เงินเข้าต่อเดือน ถ้าผู้เช่าเต็ม', en: 'Monthly income, fully let' },
+  monthlyInReal: { th: 'เฉลี่ยจริงหลังหักช่วงว่าง', en: 'Average once empty months are counted' },
+  occupancyNote: { th: 'ระยะยาวมีผู้เช่าราว {pct}% ของเวลา', en: 'tenanted about {pct}% of the time' },
+  vacantNow: { th: 'ตอนนี้ว่าง {n} จาก {all}', en: '{n} of {all} standing empty' },
+  fullyLet: { th: 'ผู้เช่าเต็มทุกห้อง', en: 'fully let' },
+  livedInHere: { th: 'คุณอยู่เองห้องหนึ่ง', en: 'you live in one of these' },
+  moveInBtn: { th: 'ย้ายเข้าอยู่เอง', en: 'Move in' },
+  moveOutBtn: { th: 'ย้ายออก ปล่อยเช่าต่อ', en: 'Move out and let it' },
+  moveInTitle: { th: 'ย้ายเข้าไปอยู่เอง', en: 'Move into your own place' },
+  moveInBody: {
+    th: 'คุณเช่าเขาอยู่ ทั้งที่ตัวเองเป็นเจ้าของห้องให้คนอื่นเช่า ย้ายเข้าไปอยู่เองก็ได้ ค่าเช่าที่จ่ายจะหายไป แต่ห้องนั้นก็เลิกเก็บค่าเช่าเหมือนกัน ตัวเลขข้างล่างคือผลรวมจริง ๆ ของสองอย่างนี้',
+    en: 'You rent from a landlord while renting a place out yourself. You can move in: the rent you pay stops, and so does the rent that unit collects. The line below is what the two come to together.',
+  },
+  /* The warning under the headline figures when the month is losing money. */
+  cashflowNegative: {
+    th: 'เดือนนี้ติดลบ {gap} เงินสดที่มีพอประคองอีกราว {months} เดือน',
+    en: 'This month loses {gap}. The cash on hand covers about {months} more months.',
+  },
+  cashflowNegativeFast: {
+    th: 'ออกจากวงล้อแล้วไม่ถูกดึงกลับ แต่เดือนนี้ยังติดลบ {gap} จริง ๆ เงินสดพอประคองอีกราว {months} เดือน ห้องว่างหรือกิจการแผ่วทำแบบนี้ได้',
+    en: 'Leaving the wheel is permanent, but this month still loses {gap} and the cash covers about {months} more. An empty unit or a slow business does this.',
+  },
+  /* The company desk: which way the money travels, and what it looks like
+     when it lands. */
+  dirCorpToYouMonthly: { th: 'บริษัท → คุณ ทุกเดือน', en: 'company → you, monthly' },
+  dirCorpToYouOnce: { th: 'บริษัท → คุณ ครั้งเดียว', en: 'company → you, once' },
+  dirYouToCorp: { th: 'คุณ → บริษัท ครั้งเดียว', en: 'you → company, once' },
+  dirCorpGone: { th: 'ปิดถาวร', en: 'closed for good' },
+  windUpTitle: { th: 'ปิดบริษัท (ชำระบัญชี)', en: 'Wind the company up' },
+  windUpWhy: {
+    th: 'บริษัทที่ไม่มีอะไรอยู่ในนั้นแล้วก็ยังกินค่าบัญชีทุกเดือน ปิดได้ ทรัพย์สินโอนกลับมาเป็นชื่อคุณโดยเสียค่าโอนอีกรอบเท่าตอนขาเข้า เงินในบริษัทจ่ายคืนตัวเองโดยหักภาษี ณ ที่จ่าย 10% เหมือนปันผล ของจริงต้องจดเลิก ตั้งผู้ชำระบัญชี แจ้งเจ้าหนี้ และปิดงบ ใช้เวลาเป็นเดือน ค่าใช้จ่ายก้อนนี้คือทั้งกระบวนการนั้น',
+    en: 'A company with nothing left in it still eats its accounting fee every month. Closing it moves the holdings back into your name at the same transfer rate they paid going in, and pays out its account with the same 10% withheld as a dividend. In real life this means registering the dissolution, appointing a liquidator, notifying creditors and filing final accounts over several months; this fee is that whole process.',
+  },
+  windUpFee: { th: 'ค่าชำระบัญชีและปิดงบ', en: 'Liquidator and final accounts' },
+  windUpTransfer: { th: 'ค่าโอนทรัพย์สิน {n} รายการกลับมาชื่อคุณ', en: 'Moving {n} holdings back into your name' },
+  windUpPot: { th: 'เงินในบริษัทที่จ่ายคืน', en: 'The company account, distributed' },
+  windUpNet: { th: 'สุทธิเข้ากระเป๋าคุณ', en: 'Net into your own pocket' },
+  windUpSaved: { th: 'ค่าบัญชีที่ไม่ต้องจ่ายอีก', en: 'Accounting you stop paying' },
+  windUpFlow: { th: 'กระแสเงินสดต่อเดือนจะเปลี่ยนไป', en: 'What the month does afterwards' },
+  windUpBtn: { th: 'ปิดบริษัท', en: 'Wind it up' },
+  drawWhy: {
+    th: 'ตั้งเงินเดือนที่บริษัทจ่ายให้คุณทุกเดือน บริษัทหักเป็นค่าใช้จ่ายได้ แต่คุณต้องเอาไปเสียภาษีบุคคลธรรมดา',
+    en: 'The wage the company pays you every month. The company deducts it; you pay income tax on it.',
+  },
+  fundWhy: {
+    th: 'โอนเงินสดของคุณเข้าไปเป็นทุนบริษัท ไม่เสียภาษีทั้งสองฝั่ง เอาไว้ให้บริษัทมีเงินพอไปซื้อดีลในนามบริษัท',
+    en: 'Move your own cash into the company. No tax either side; it is how the company gets enough to buy deals in its own name.',
+  },
+  corpPaysYou: { th: 'บริษัทจ่ายคุณจริง', en: 'The company actually pays you' },
+  corpKeepsAfter: { th: 'บริษัทเหลือกำไรต่อเดือน', en: 'and keeps, monthly' },
+  corpCannotPayAll: { th: 'รายรับบริษัทไม่พอจ่ายเท่าที่ตั้ง', en: 'revenue cannot cover the figure set' },
+  dividendWithheld: { th: 'หัก ณ ที่จ่าย 10%', en: 'withheld at 10%' },
+  landsInYourPocket: { th: 'เข้ากระเป๋าคุณจริง', en: 'lands in your pocket' },
+  corpCashAfter: { th: 'เงินบริษัทจะเหลือ', en: 'company cash after' },
+  yourCashAfter: { th: 'เงินสดคุณจะเหลือ', en: 'your cash after' },
+  fundNoTax: { th: 'ไม่มีภาษีตรงนี้', en: 'no tax on this move' },
+
+  /* The asset side of the balance panel, totalled the way a balance sheet is:
+     cash included, because that is where a sold building goes. */
+  /* Digging into a figure that is itself made of figures. */
+  tapToGoDeeper: { th: 'ตัวเลขที่ขีดเส้นใต้กดต่อได้ ดูได้ว่ามันมาจากอะไรอีกที', en: 'The underlined figures open up too, one level further down.' },
+  backOneLevel: { th: 'ย้อนกลับไป', en: 'Back to' },
+  gloSalaryBody: {
+    th: 'เงินเดือนบนงบไม่เท่ากับเงินเดือนที่เขียนบนการ์ดอาชีพ เพราะมันโดนคูณด้วยการขึ้นเงินเดือนที่ผ่านมาแล้ว และโดนหักถ้าคุณเพิ่งเปลี่ยนสายหรือติดสัญญาอยู่',
+    en: 'The salary on the statement is not the one printed on the job card: pay rises have multiplied it, and starting a new field or sitting under a bond cuts it.',
+  },
+  gloSalaryStart: { th: 'เงินเดือนตั้งต้นของอาชีพ', en: 'The job’s starting wage' },
+  gloSalaryRaise: { th: 'ขึ้นเงินเดือนสะสมมาแล้ว', en: 'Pay rises so far' },
+  gloSalaryEntry: { th: 'เข้าสายใหม่ ได้เท่าเด็กจบใหม่', en: 'New to this field, paid as a beginner' },
+  gloSalaryBond: { th: 'ติดสัญญาชดใช้ทุน', en: 'Under a bond' },
+  gloSalarySlump: { th: 'ช่วงธุรกิจซบ', en: 'A slow patch in the business' },
+  gloSalaryYears: { th: 'เล่นมาแล้ว', en: 'Played so far' },
+  gloDrawBody: {
+    th: 'เงินเดือนกรรมการคือเงินที่บริษัทจ่ายให้คุณ บริษัทจ่ายได้เท่าที่มีรายรับกับเงินสดในบัญชี ถ้าตั้งไว้สูงกว่าที่บริษัทหาได้ กำไรสะสมจะติดลบ',
+    en: 'A director’s salary is the company paying you, out of its revenue and its account. Set it above what the company earns and its retained profit goes negative.',
+  },
+  gloDrawSet: { th: 'ที่ตั้งไว้', en: 'What you set' },
+  gloDrawPaid: { th: 'ที่บริษัทจ่ายจริง', en: 'What it actually pays' },
+  pfPotGross: { th: 'ยอดสะสมทั้งหมดในกองทุน', en: 'The pot in total' },
+  pfNetLabel: { th: 'กองทุนสำรองเลี้ยงชีพ ถ้าถอนตอนนี้', en: 'Provident fund, if taken now' },
+  pfTaxIfEarly: { th: 'ถ้าถอนก่อนอายุ 55 โดนหัก 10%', en: 'Taken before 55, 10% goes in tax' },
+  gloDrawSeparate: { th: 'เงินเดือนกรรมการ', en: 'The director’s salary' },
+  gloDrawSeparateNote: { th: 'นับอยู่ในรายได้ของคุณแล้ว ไม่หักซ้ำตรงนี้', en: 'already counted as your own income, not deducted again here' },
+  corpHoldings: { th: 'ทรัพย์สินในบริษัท หักหนี้ของมันแล้ว', en: 'What the company holds, after its own loans' },
+  gloYourDebt: { th: 'หนี้ในชื่อคุณเอง', en: 'Debt in your own name' },
+  gloYourDebtBody: {
+    th: 'หนี้ที่คุณเป็นลูกหนี้เอง ทั้งหนี้ส่วนตัวและหนี้ที่ติดมากับทรัพย์สินในชื่อคุณ ไม่รวมหนี้ของบริษัท เพราะหนี้ก้อนนั้นถูกหักในบรรทัดส่วนของผู้ถือหุ้นไปแล้ว ถ้าหักสองที่ ความมั่งคั่งสุทธิจะติดลบเกินจริง',
+    en: 'What you personally owe: your own loans and the ones riding on holdings in your name. The company’s borrowing is not here, because its equity line already has it netted off; subtracting it twice would understate your net worth.',
+  },
+  gloCorpProfitBody: {
+    th: 'เดือนหนึ่งของบริษัท ค่าเช่าที่ตึกของบริษัทเก็บได้ หักเงินเดือนกรรมการที่จ่ายให้คุณ หักค่าบัญชี แล้วหักภาษีนิติบุคคล เหลือเท่าไหร่คือส่วนที่สะสมอยู่ในบริษัท ถ้าติดลบแปลว่าบริษัทกินเงินสดตัวเองอยู่',
+    en: 'One month of the company: the rent its buildings collect, less the salary it pays you, less the accountant, less its own tax. What is left builds up in its account; a negative figure means it is eating its own cash.',
+  },
+  gloCorpRevenueBody: {
+    th: 'ค่าเช่าที่ทรัพย์สินในนามบริษัทเก็บได้ต่อเดือน หักค่างวดของมันเองแล้ว ห้องที่ว่างอยู่จะติดลบเพราะยังต้องผ่อน',
+    en: 'What the holdings in the company’s name collect each month, after their own instalments. An empty unit shows negative, because the instalment carries on.',
+  },
+  heldPersonal: { th: 'ของที่ถืออยู่ในชื่อคุณ', en: 'Held in your own name' },
+  gloHeldPersonalBody: {
+    th: 'ทรัพย์สินที่อยู่ในชื่อคุณเอง ไม่รวมของที่โอนเข้าบริษัทไปแล้ว เพราะของพวกนั้นนับผ่านบรรทัดส่วนของผู้ถือหุ้นแทน ถ้านับสองที่ ความมั่งคั่งสุทธิจะบวกเกินจริง',
+    en: 'What stands in your own name, not counting anything moved into the company: that side is counted through its equity instead. Counting it twice would inflate the net-worth figure.',
+  },
+  gloPaysNothing: { th: 'ทองกับหุ้นที่ไม่ปันผล', en: 'Gold and shares that pay nothing' },
+  gloPaysNothingNote: { th: 'ไม่อยู่ในรายการนี้ เพราะไม่จ่ายอะไรทุกเดือน', en: 'not in this list: they pay nothing monthly' },
+  gloHouseholdBody: {
+    th: 'เงินไหลเข้าของทั้งครัวเรือน คือของที่คุณถือเองบวกกับส่วนที่บริษัททำได้หลังหักค่าบัญชีและภาษีนิติบุคคลแล้ว สองก้อนนี้คนละกระเป๋ากัน เกมนับรวมเพราะมันจ่ายค่ากินอยู่ของบ้านเดียวกัน',
+    en: 'What the household lives on: your own holdings plus whatever the company clears after its accountant and its own tax. Two different pockets, counted together because they feed the same house.',
+  },
+  gloHoldingsBody: {
+    th: 'เงินไหลเข้าคือผลรวมของทุกอย่างที่คุณถืออยู่ ห้องที่ว่างอยู่จะติดลบเพราะยังต้องผ่อน บรรทัดนี้แหละที่ต้องสูงกว่ารายจ่ายถึงจะออกจากวงล้อได้',
+    en: 'Passive income is every holding added together; an empty unit shows negative because its instalment carries on. This is the line that has to clear the expenses.',
+  },
+  gloPayrollBody: {
+    th: 'สามอย่างที่ถูกหักจากเงินเดือนก่อนถึงมือคุณ ภาษีเงินได้ ประกันสังคม และเงินสะสมกองทุนสำรองเลี้ยงชีพ สองอย่างหลังไม่ได้หายไปไหน มันไปอยู่ในสิทธิ์และในกองทุนของคุณเอง',
+    en: 'The three things taken off a wage before it reaches you: income tax, social security, and your provident-fund contribution. The last two are not gone, they are your own entitlement and your own fund.',
+  },
+  gloPayrollTotal: { th: 'หักจากเงินเดือนรวม', en: 'Taken off the wage in total' },
+  gloLivingBody: {
+    th: 'ค่ากินอยู่ของอาชีพนี้ คูณด้วยค่าครองชีพที่ขึ้นมาตั้งแต่เริ่มเกม เงินเฟ้อ 3% ต่อปีทบไปเรื่อย ๆ ส่วนค่างวดหนี้ไม่ขยับตาม',
+    en: 'What this job spends on living, multiplied by how far prices have risen since the game began. Inflation compounds at 3% a year; the instalments on old loans do not move at all.',
+  },
+  gloLivingStart: { th: 'ค่ากินอยู่ตั้งต้น', en: 'Starting cost of living' },
+  gloLivingInflation: { th: 'ค่าครองชีพขึ้นมาแล้ว', en: 'Prices have risen by' },
+  gloHousingBody: {
+    th: 'ค่าที่อยู่กับค่าเดินทางของคนที่ไม่ได้เป็นเจ้าของบ้านหรือรถ ทั้งสองอย่างขึ้นตามเงินเฟ้อทุกปี และไม่มีวันจบเหมือนค่างวด',
+    en: 'What a roof and getting around cost when you own neither. Both rise with inflation every year, and unlike an instalment neither ever ends.',
+  },
+  gloHousingRentBase: { th: 'ค่าเช่าตั้งต้นของอาชีพ', en: 'The job’s starting rent' },
+
+  /* The version chip and its notes. */
+  changelogTag: { th: 'บันทึกการเปลี่ยนแปลง', en: 'Changelog' },
+  changelogTitle: { th: 'เกมนี้เปลี่ยนอะไรไปบ้าง', en: 'What has changed in this game' },
+  changelogBody: {
+    th: 'เกมนี้ยังแก้อยู่เรื่อย ๆ เลขเวอร์ชันมุมบนซ้ายบอกว่าคุณกำลังเล่นรุ่นไหน ถ้าจะติชมหรือแจ้งบัค บอกเลขนี้มาด้วยจะช่วยได้มาก เพราะบางอย่างที่เจอเมื่อวานอาจถูกแก้ไปแล้ววันนี้',
+    en: 'This game is still being worked on. The number under the title says which build you are playing; quoting it with a comment or a bug report helps a lot, because what you hit yesterday may already be gone today.',
+  },
+  changelogFresh: { th: 'รุ่น {version} เพิ่งออกใหม่ นี่คือสิ่งที่เปลี่ยนไป', en: 'Version {version} is new. Here is what changed.' },
+  versionNew: { th: 'มีรุ่นใหม่ กดอ่านว่าเปลี่ยนอะไร', en: 'New version: tap to read what changed' },
+  versionSeen: { th: 'กดดูบันทึกการเปลี่ยนแปลง', en: 'Tap for the changelog' },
+  tagAdded: { th: 'เพิ่ม', en: 'added' },
+  tagChanged: { th: 'เปลี่ยน', en: 'changed' },
+  tagFixed: { th: 'แก้บัค', en: 'fixed' },
+  tagRemoved: { th: 'เอาออก', en: 'removed' },
+
+  assetsTotal: { th: 'ทรัพย์สินรวม', en: 'Total assets' },
+  lockedSavings: { th: 'เงินออมที่ถอนไม่ได้ตอนนี้', en: 'Savings you cannot touch yet' },
+  gloLockedBody: {
+    th: 'เงินก้อนที่เป็นของคุณจริง แต่เอาออกมาใช้เดือนนี้ไม่ได้ กองทุนสำรองเลี้ยงชีพต้องออกจากงานก่อน กองทุนลดหย่อนภาษีติดล็อกสิบปี ส่วนเงินออมอัตโนมัติถอนได้แต่ถอนแล้วก็หมดวินัยพอดี ตัวเลขนี้คิดตามที่จะได้จริงหลังหักภาษีแล้ว',
+    en: 'Money that is yours but not available this month: the provident fund needs the job to end, the tax-deductible fund is locked for ten years, and the automatic savings can be pulled out at the cost of the habit. The figure is what would actually be handed over after tax.',
+  },
+  gloAssetsTotalBody: {
+    th: 'ทุกอย่างที่เป็นของคุณตอนนี้รวมกัน เงินสดในมือนับด้วย เพราะพอขายของอะไรไป มันไม่ได้หายไปไหน มันย้ายมาอยู่บรรทัดเงินสด ยอดรวมบรรทัดนี้จึงไม่ลดตอนขายของได้กำไร',
+    en: 'Everything you own right now, cash included, because a thing you sell does not vanish: it moves to the cash line. That is why this total does not fall when you sell something at a profit.',
+  },
+  gloExpensesBody: {
+    th: 'รายจ่ายทุกบรรทัดรวมกันต่อเดือน ตัวเลขนี้คือเส้นชัยของเกม เพราะคุณชนะเมื่อเงินไหลเข้าที่ไม่ต้องทำงานสูงกว่ามัน รายจ่ายยิ่งโต เส้นชัยยิ่งถอย',
+    en: 'Every expense line added up for one month. This figure is the finish line: you win when income that does not need you passes it, so every new expense pushes the line further away.',
+  },
+  gloIncomeBody: {
+    th: 'เงินเข้าทุกทางต่อเดือน แต่มีแค่บรรทัดเดียวที่นับเป็นชัยชนะคือเงินไหลเข้าที่ไม่ต้องทำงาน เงินเดือนหยุดวันที่คุณหยุด',
+    en: 'Everything arriving in a month. Only one line counts toward winning, the income that does not depend on you: the salary stops the day you do.',
+  },
+  housingLine: { th: 'ค่าที่อยู่และค่าเดินทาง', en: 'Roof and getting around' },
+  familyLine: { th: 'ค่าครอบครัว', en: 'Family' },
+  otherExpenses: { th: 'ค่ากินอยู่ทั่วไป', en: 'Everyday living' },
+  debtsOwn: { th: 'ผ่อนหนี้ส่วนตัว', en: 'Instalments on your own debts' },
+  cashInHand: { th: 'เงินสดในมือ', en: 'Cash in hand' },
+  thingsYouOwn: { th: 'ของที่ถืออยู่', en: 'Things you hold' },
+
+  /* A sale is three things at once: cash in, debt gone, income gone. */
+  debtGoesToo: { th: 'หนี้ที่ติดไปกับมัน', en: 'debt that goes with it' },
+  cashToYou: { th: 'เงินสดที่จะได้จริง', en: 'Cash you actually get' },
+  saleShortfall: { th: 'ราคานี้ไม่พอปิดหนี้ ขายแล้วยังเหลือหนี้', en: 'The price does not clear the loan; still owed after the sale' },
+  gainVsCost: { th: 'กำไรจากเงินที่ลงไป', en: 'gain on the cash you put in' },
+  lossVsCost: { th: 'ขาดทุนจากเงินที่ลงไป', en: 'loss on the cash you put in' },
+  incomeGoesToo: { th: 'เงินไหลเข้าที่หายไป', en: 'income that stops' },
+  taxFundStepNote: { th: 'ซื้อเป็นก้อนละ {step} เท่านั้น', en: 'sold in units of {step}' },
+  taxFundRounded: { th: 'จะซื้อจริง', en: 'will actually buy' },
+  livingOwn: { th: 'ที่อยู่: อยู่ห้องตัวเอง', en: 'Where you live: your own place' },
+  livingOwnNote: { th: 'อยู่ใน {name} ไม่มีค่าเช่าต้องจ่าย และห้องนี้ก็ไม่เก็บค่าเช่าใคร', en: 'Living in {name}. No rent to pay, and no rent collected from it either.' },
+  moveInSaved: { th: 'ค่าเช่าที่เลิกจ่าย', en: 'Rent you stop paying' },
+  moveInLost: { th: 'ค่าเช่าที่เลิกเก็บ', en: 'Rent you stop collecting' },
+  moveInSwing: { th: 'รวมแล้วเดือนละ', en: 'Net, every month' },
+  moveInWorse: {
+    th: 'อยู่เองแล้วแย่ลง เพราะห้องที่คุณอยู่เก็บค่าเช่าได้มากกว่าค่าเช่าที่คุณจ่ายอยู่ ถ้าอยากอยู่เองก็อยู่ได้ แค่ให้รู้ว่าจ่ายค่าอะไรอยู่',
+    en: 'Moving in costs you money: the unit collects more than the rent you pay. Do it if you want to, but do it knowing the price.',
+  },
+  moveInBetter: {
+    th: 'อยู่เองแล้วดีขึ้น เพราะค่าเช่าที่คุณจ่ายอยู่แพงกว่าค่าเช่าที่ห้องนี้เก็บได้',
+    en: 'Moving in leaves you better off: the rent you pay is more than this unit brings in.',
+  },
   totalCost: { th: 'รวมต้องจ่าย', en: 'Total to pay' },
   cappedAt: { th: 'ซื้อได้สูงสุด', en: 'capped at' },
   deckOneWay: {
@@ -369,8 +562,8 @@ export const UI = {
   debtService: { th: 'ผ่อนรวมต่อเดือน', en: 'Debt service a month' },
   noDebt: { th: 'ไม่มีหนี้สินเลย', en: 'No debt at all' },
   buyAtThisPrice: { th: 'ซื้อที่ราคานี้', en: 'Buy at this price' },
-  belowNormal: { th: 'ถูกกว่าราคาปกติ', en: 'below its usual price' },
-  aboveNormal: { th: 'แพงกว่าราคาปกติ', en: 'above its usual price' },
+  belowNormal: { th: 'ข่าวนี้กดราคาลง', en: 'this news knocked it down' },
+  aboveNormal: { th: 'ข่าวนี้ดันราคาขึ้น', en: 'this news pushed it up' },
   yearlyYield: { th: 'ผลตอบแทนต่อปี', en: 'Yield a year' },
   cheapYieldNote: {
     th: 'ราคาลง แต่เงินที่มันจ่ายให้ต่อหน่วยยังเท่าเดิม ถ้ามันจ่ายได้เท่าเดิมจริง ซื้อตอนนี้ก็เท่ากับได้ผลตอบแทนต่อเงินที่จ่ายสูงขึ้น',
@@ -509,7 +702,7 @@ export const UI = {
   megaDealBtn: { th: 'ดีลระดับนายทุน', en: 'Capitalist deal' },
   sellBiz: { th: 'ขายกิจการ', en: 'Sell the business' },
   closeBiz: { th: 'ปิดกิจการ', en: 'Close it down' },
-  bizExitNote: { th: 'ขายเองได้ทันทีที่ 18 เท่าของกำไรต่อเดือน ถ้ารอคนซื้อบนช่องตลาดจะได้ 40 ถึง 60 เท่า', en: 'A private sale pays 18x monthly profit today. Waiting for a buyer on a market tile pays 40 to 60x.' },
+  bizExitNote: { th: 'ขายเองได้ทันทีที่ 70% ของมูลค่ากิจการ ถ้ารอคนซื้อบนช่องตลาดจะได้ 130% ถึง 160% และมูลค่ากิจการเดินตามกำไรของมันเอง', en: 'A private sale pays 70% of what the business is worth today. Waiting for a buyer on a market tile pays 130% to 160%, and what it is worth follows what it earns.' },
   growing: { th: 'กำลังโต', en: 'growing' },
   shrinking: { th: 'กำลังแผ่ว', en: 'softening' },
   swingLabel: { th: 'รายได้แกว่งได้ถึง', en: 'Income can swing by' },
@@ -692,6 +885,29 @@ export const UI = {
   },
 
   /* ------------------------------------------------------------- the animal */
+  petStep: { th: '4. สัตว์เลี้ยงที่บ้าน', en: '4. The animal at home' },
+  petStepHint: {
+    th: 'เกมสุ่มมาให้ก่อนแล้ว ถ้าไม่ถูกใจกดสุ่มใหม่ ตั้งเองก็ได้ หรือจะไม่เลี้ยงเลยก็ได้',
+    en: 'The game picked one for you. Roll again, name your own, or keep no pet at all.',
+  },
+  petIs: { th: 'ที่บ้านมี', en: 'At home there is' },
+  petCalled: { th: 'ชื่อ', en: 'called' },
+  petNoneLine: { th: 'ไม่เลี้ยงสัตว์ ไม่มีค่าอาหาร ค่าวัคซีน หรือค่าหมอสัตว์ตลอดเกม', en: 'No pet: no food, no vaccinations and no vet bills all game.' },
+  petReroll: { th: 'สุ่มใหม่', en: 'Roll again' },
+  petTakeOne: { th: 'ขอเลี้ยงสักตัว', en: 'Take a pet after all' },
+  petCustom: { th: 'ตั้งเอง', en: 'Choose it myself' },
+  petNone: { th: 'ไม่เลี้ยง', en: 'No pet' },
+  petSpeciesLabel: { th: 'เลี้ยงอะไร', en: 'What kind' },
+  petNameLabel: { th: 'ชื่ออะไร', en: 'Its name' },
+  petNamePlaceholder: { th: 'พิมพ์ชื่อได้เลย', en: 'type a name' },
+  petCostNote: {
+    th: 'มีสัตว์เลี้ยงแล้วจะมีการ์ดค่าหมอสัตว์โผล่มาเป็นระยะ และมันจะเรียกชื่อตัวนี้',
+    en: 'With a pet in the house, vet bills turn up from time to time, and they use this name.',
+  },
+  petNoCostNote: {
+    th: 'ไม่เลี้ยงแล้วการ์ดค่าหมอสัตว์จะไม่ถูกแจกเลยทั้งเกม',
+    en: 'With no pet, the vet card is never dealt at all.',
+  },
   petAtHome: { th: 'สัตว์เลี้ยงที่บ้าน', en: 'At home' },
   partnerLabel: { th: 'ค่าใช้จ่ายกับคู่ชีวิต', en: 'Life with somebody else' },
   childAllowanceLabel: { th: 'เงินอุดหนุนเด็กแรกเกิดจากรัฐ', en: 'State child allowance' },
@@ -722,10 +938,12 @@ export const UI = {
   diceSkipping: { th: 'รอบนี้อดทอย', en: 'a turn is being skipped' },
   diceNotNow: { th: 'ยังทอยไม่ได้', en: 'not just now' },
   seedLabel: { th: 'รหัสสำรับไพ่ (ไม่ใส่ก็ได้)', en: 'Deck code (optional)' },
-  seedPlaceholder: { th: 'เว้นว่าง = สุ่มใหม่', en: 'blank for a fresh shuffle' },
+  seedPlaceholder: { th: 'เช่น 2569 · เว้นว่าง = สุ่มใหม่ทุกครั้ง', en: 'e.g. 2569 · blank shuffles fresh' },
+  /* "รหัสสำรับไพ่" meant nothing to anybody who had not seen a seeded game
+     before, so the copy now leads with what to type and what it buys you. */
   seedNote: {
-    th: 'ใส่ตัวเลขเดียวกัน แล้วทุกคนจะได้ลูกเต๋าและการ์ดชุดเดียวกันทั้งเกม เอาไว้ให้ทั้งห้องเล่นสำรับเดียวกันแล้วมาเทียบกันตอนจบว่าใครตัดสินใจต่างกันตรงไหน',
-    en: 'Type the same number and everyone gets the same dice and the same cards all game. It is here so a whole room can play one deck and compare decisions at the end rather than luck.',
+    th: 'ตัวเลขนี้คือสำรับ ใส่ 2569 แล้วบอกเลขนี้กับเพื่อน ทุกคนจะทอยได้แต้มเดียวกัน เจอการ์ดใบเดียวกัน เรียงลำดับเดียวกันตั้งแต่ตาแรกจนจบเกม ต่างกันแค่ว่าใครตัดสินใจยังไง จบแล้วเทียบกันได้เลยว่าใครเล่นดีกว่า ไม่ใช่ใครดวงดีกว่า ถ้าเว้นว่างไว้ เกมจะสุ่มสำรับใหม่ให้เอง',
+    en: 'The number is the deck. Type 2569, give that number to a friend, and you both roll the same dice and meet the same cards in the same order from the first turn to the last, differing only in what you decide. At the end the comparison is who played better rather than who drew better. Leave it blank and the game shuffles a fresh deck.',
   },
   reportBenchmark: { th: 'ถ้าเอาเงินก้อนเดียวกันใส่กองทุนดัชนีไว้เฉย ๆ', en: 'The same money, left in an index fund' },
   reportGap: { th: 'สิ่งที่คุณเลือก เทียบกับปล่อยไว้เฉย ๆ', en: 'Your choices, against doing nothing' },
