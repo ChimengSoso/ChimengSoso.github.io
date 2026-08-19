@@ -1523,7 +1523,7 @@ export const marketCards: MarketCard[] = [
     title: { th: 'มีคนขอซื้อคอนโดของคุณ', en: 'A buyer wants your condo' },
     story: {
       th: 'นายหน้าโทรมาว่ามีลูกค้าต่างชาติอยากได้ห้องในตึกนี้ ให้ราคา 130% ของราคาบ้านตอนนี้',
-      en: 'An agent calls: a foreign client wants a unit in your building and offers 130% of what you paid.',
+      en: 'An agent calls: a foreign client wants a unit in your building and offers 130% of what it is worth now.',
     },
   },
   {
@@ -1545,7 +1545,7 @@ export const marketCards: MarketCard[] = [
     title: { th: 'นักลงทุนขอซื้ออพาร์ตเมนต์/หอพัก', en: 'An investor wants your apartment block' },
     story: {
       th: 'กองทุนอสังหาฯ กำลังกว้านซื้อตึกปล่อยเช่า เสนอ 125% ของราคาตึกตอนนี้',
-      en: 'A property fund is buying rental blocks and offers 125% of your purchase price.',
+      en: 'A property fund is buying rental blocks and offers 125% of what the block is worth now.',
     },
   },
   {
@@ -1556,7 +1556,7 @@ export const marketCards: MarketCard[] = [
     title: { th: 'ครอบครัวหนึ่งขอซื้อบ้านเช่าของคุณ', en: 'A family wants to buy your rental house' },
     story: {
       th: 'ผู้เช่าเดิมชอบบ้านหลังนี้มากจนขอซื้อเลย ให้ราคา 135% ของราคาบ้านตอนนี้',
-      en: 'Your tenants love the house enough to buy it, at 135% of what you paid.',
+      en: 'Your tenants love the house enough to buy it, at 135% of what it is worth now.',
     },
   },
   {
