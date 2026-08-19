@@ -1597,7 +1597,7 @@ const description =
     import { TILE_SHORT, UI } from '../../lib/neeNoo/ui-text';
     import { GAME_VERSION, releases } from '../../data/neeNooChangelog';
     import type { ChangeKind } from '../../data/neeNooChangelog';
-    import type { DealCard, GameState, Lang, Loc } from '../../lib/neeNoo/types';
+    import type { Asset, DealCard, GameState, Lang, Loc } from '../../lib/neeNoo/types';
     import type { TaxSlice } from '../../lib/neeNoo/engine';
 
     const SAVE_KEY = 'neeNooSave';
@@ -1751,6 +1751,12 @@ const description =
     /** A deduction line: the minus belongs to money that actually left. */
     const taken = (n: number): string => (n === 0 ? money(0) : `-${money(n)}`);
     const cls = (n: number): string => (n === 0 ? 'muted' : n > 0 ? 'pos' : 'neg');
+    /**
+     * A holding's name in a list that mixes both pockets. Without the marker two
+     * condos read as the same purchase made twice.
+     */
+    const holdingName = (a: Asset): Loc =>
+      isCorpAsset(a) ? { th: `${a.name.th} (${UI.ownedByCorp.th})`, en: `${a.name.en} (${UI.ownedByCorp.en})` } : a.name;
     /**
      * A per-unit price, which is the one place rounding to whole baht lies: a
      * ฿5 share that has fallen to ฿6.40 printed as "฿6", and the loss beside it
@@ -3066,13 +3072,7 @@ const description =
           // Held in the company's name or in the player's, it is still theirs,
           // and the figure this list is opened from counts both. Listing only
           // the personal ones answered a ฿6.1m question with ฿67,646.
-          ...s.assets.map(
-            (a) => [
-              isCorpAsset(a) ? { th: `${a.name.th} (${UI.ownedByCorp.th})`, en: `${a.name.en} (${UI.ownedByCorp.en})` } : a.name,
-              money(assetValue(a)),
-              '',
-            ] as GlossaryRow,
-          ),
+          ...s.assets.map((a) => [holdingName(a), money(assetValue(a)), ''] as GlossaryRow),
           [UI.thingsYouOwn, money(ownedTotal(s)), 'pos'],
         ] as GlossaryRow[],
       },
@@ -3105,8 +3105,8 @@ const description =
           [UI.corpRevenue, money(corpRevenue(s)), 'pos', 'holdingsCorp'],
           [UI.accounting, `-${money(CORP_MONTHLY_COST)}`, 'neg'],
           [UI.corpTaxLabel, `-${money(corpTaxMonthly(s))}`, 'neg'],
-          [UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s))],
           [UI.gloDrawSeparate, `${money(drawTaken(s))} · ${T(UI.gloDrawSeparateNote)}`, 'muted', 'draw'],
+          [UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s))],
         ] as GlossaryRow[],
       },
       // What the company's own buildings pay it, which is where its revenue
@@ -3144,14 +3144,24 @@ const description =
           [UI.lockedSavings, money(lockedSavings(s)), 'pos'],
         ] as GlossaryRow[],
       },
+      // Two subtotals told the player nothing they could act on: a seven-figure
+      // lump with no answer to "owed on what?". Every loan is named here, and
+      // the group subtotals only appear when a group has more than one line to
+      // sum up.
       liabilities: {
         term: UI.gloLiabilities,
         body: UI.gloLiabilitiesBody,
-        rows: (s: GameState) => [
-          [UI.personalDebt, money(personalDebt(s)), 'neg'],
-          [UI.assetDebt, money(assetDebt(s)), 'neg'],
-          [UI.totalDebt, money(totalDebt(s)), 'neg'],
-        ] as GlossaryRow[],
+        rows: (s: GameState) => {
+          const owing = s.assets.filter((a) => a.debt > 0);
+          return [
+            ...s.debts.map((d) => [debtLabel(d.key), money(d.balance), 'neg'] as GlossaryRow),
+            ...(s.debts.length > 1 ? [[UI.personalDebt, money(personalDebt(s)), 'neg'] as GlossaryRow] : []),
+            ...owing.map((a) => [holdingName(a), money(a.debt), 'neg'] as GlossaryRow),
+            ...(owing.length > 1 ? [[UI.assetDebt, money(assetDebt(s)), 'neg'] as GlossaryRow] : []),
+            [UI.debtService, money(totalDebtService(s)), 'muted', 'debtService'] as GlossaryRow,
+            [UI.totalDebt, money(totalDebt(s)), 'neg'],
+          ] as GlossaryRow[];
+        },
       },
       debtService: {
         term: UI.gloDebtService,
@@ -3160,7 +3170,7 @@ const description =
           ...s.debts.map((d) => [debtLabel(d.key), money(d.payment), 'neg'] as GlossaryRow),
           ...s.assets
             .filter((a) => a.debt > 0 && a.mortgagePay > 0)
-            .map((a) => [a.name, money(a.mortgagePay), 'neg'] as GlossaryRow),
+            .map((a) => [holdingName(a), money(a.mortgagePay), 'neg'] as GlossaryRow),
           [UI.dsrLabel, `${documentedIncome(s) > 0 ? Math.round((totalDebtService(s) / documentedIncome(s)) * 100) : 0}%`, 'muted'],
           [UI.debtService, money(totalDebtService(s)), 'neg'],
         ] as GlossaryRow[],
@@ -3256,11 +3266,13 @@ const description =
         rows: (s: GameState) => [
           [UI.gloSalaryStart, money(profession(s).salary), ''],
           [UI.gloSalaryRaise, `×${payLevel(s).toFixed(2)}`, payLevel(s) > 1 ? 'pos' : ''],
+          // Sits beside the multiplier it explains, and out of the last row,
+          // which every other page in here reserves for the figure itself.
+          [UI.gloSalaryYears, `${Math.floor(s.months / 12)} ${T(UI.yearsUnit) || 'years'}`, 'muted'],
           ...(s.entryPay < 1 ? [[UI.gloSalaryEntry, `×${s.entryPay.toFixed(2)}`, 'neg'] as GlossaryRow] : []),
           ...(s.bondMonths > 0 ? [[UI.gloSalaryBond, `-${Math.round(BOND_CUT * 100)}%`, 'neg'] as GlossaryRow] : []),
           ...(s.slumpMonths > 0 ? [[UI.gloSalarySlump, `-${Math.round(s.slumpCut * 100)}%`, 'neg'] as GlossaryRow] : []),
           [UI.salary, money(salary(s)), noMoreSalary(s) ? 'muted' : 'pos'],
-          [UI.gloSalaryYears, `${Math.floor(s.months / 12)} ${T(UI.yearsUnit) || 'years'}`, 'muted'],
         ] as GlossaryRow[],
       },
       draw: {

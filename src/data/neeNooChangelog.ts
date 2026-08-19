@@ -30,6 +30,41 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.5.1',
+    dateISO: '2026-08-20',
+    codename: { th: 'กดเลขแล้วได้คำตอบจริง', en: 'Tap a figure, get its real answer' },
+    entries: [
+      {
+        kind: 'fixed',
+        text: {
+          th: 'กดตัวเลขแล้วหน้าที่เปิดออกมาเคยตอบคนละเลขกับที่กด เช่นกดหนี้ในชื่อตัวเองแล้วได้หนี้รวมทั้งของบริษัท กดกำไรที่เข้าครัวเรือนแล้วได้กำไรที่ค้างอยู่ในบริษัท ตอนนี้ทุกเส้นทางจบที่เลขเดียวกับที่กดเข้าไป',
+          en: 'A figure you tapped could open a page that added up to something else: your own debt opened the company total, the profit reaching the household opened the profit still sitting in the company. Every route now ends on the figure it was opened from.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'หน้าหนี้สินแจกแจงทีละก้อนแล้ว ผ่อนรถ บัตรเครดิต กยศ. และค่างวดของแต่ละตึกแยกบรรทัด พร้อมบอกว่าตึกไหนถืออยู่ในนามบริษัท และกดต่อไปดูยอดผ่อนรวมต่อเดือนได้',
+          en: 'The liabilities page now names every loan: car, card, student loan and the balance riding on each building, marking which ones the company holds, with a tap through to what they cost a month.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'หน้าที่แจกแจงตัวเลขทุกหน้าจบบรรทัดสุดท้ายที่ยอดรวมเสมอ บรรทัดหมายเหตุย้ายขึ้นไปอยู่ข้างตัวเลขที่มันอธิบาย',
+          en: 'Every breakdown ends its last line on the total. Notes moved up to sit beside the number they explain.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'หน้ากองทุนสำรองเลี้ยงชีพแสดงครบทั้งยอดสะสม ภาษีที่โดนหักถ้าถอนก่อนอายุ 55 และเงินที่ได้จริง จากเดิมที่จบด้วยยอดก่อนหักภาษี',
+          en: 'The provident fund page shows the pot, the tax taken if it is cashed out before 55, and what actually arrives. It used to stop at the pre-tax figure.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.5.0',
     dateISO: '2026-08-19',
     codename: { th: 'ผู้เช่าย้ายออก ราคาขยับ', en: 'Tenants leave, prices move' },
