@@ -3027,13 +3027,13 @@ const description =
           [UI.cash, money(s.cash), cls(s.cash)],
           ...(lockedSavings(s) > 0 ? [[UI.lockedSavings, money(lockedSavings(s)), 'pos', 'lockedSavings'] as GlossaryRow] : []),
           ...(s.incorporated ? [[UI.corpEquityLabel, signed(corpEquity(s)), cls(corpEquity(s)), 'equity'] as GlossaryRow] : []),
-          [UI.totalDebt, `-${money(yourDebt(s))}`, 'neg', 'liabilities'],
+          [UI.gloYourDebt, `-${money(yourDebt(s))}`, 'neg', 'yourDebt'],
           [UI.netWorth, money(netWorth(s)), cls(netWorth(s))],
           // The caveat used to be a sentence under the headline figure, which
           // is a lot of words to put above the board for something that is
           // really a footnote on how this number is worked out.
           ...(s.incorporated && corpEquity(s) !== 0
-            ? [[UI.worthIfCashedOut, money(worthAfterWindingUp(s)), 'muted', 'equity'] as GlossaryRow]
+            ? [[UI.worthIfCashedOut, money(worthAfterWindingUp(s)), 'muted'] as GlossaryRow]
             : []),
         ] as GlossaryRow[],
       },
@@ -3092,11 +3092,53 @@ const description =
           [UI.heldPersonal, money(heldValue(s)), 'pos'],
         ] as GlossaryRow[],
       },
+      // The company's own month. The household figure points here, because a
+      // monthly flow cannot be explained by a balance-sheet page.
+      corpProfit: {
+        term: UI.corpKeepsAfter,
+        body: UI.gloCorpProfitBody,
+        // The director's salary is deliberately not subtracted here. It is
+        // already counted as the player's own income on the line above this
+        // one, so taking it off again would report the household as poorer
+        // than it is and would not come to the figure that opened this page.
+        rows: (s: GameState) => [
+          [UI.corpRevenue, money(corpRevenue(s)), 'pos', 'holdingsCorp'],
+          [UI.accounting, `-${money(CORP_MONTHLY_COST)}`, 'neg'],
+          [UI.corpTaxLabel, `-${money(corpTaxMonthly(s))}`, 'neg'],
+          [UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s))],
+          [UI.gloDrawSeparate, `${money(drawTaken(s))} · ${T(UI.gloDrawSeparateNote)}`, 'muted', 'draw'],
+        ] as GlossaryRow[],
+      },
+      // What the company's own buildings pay it, which is where its revenue
+      // comes from and the only part of it the player chose.
+      holdingsCorp: {
+        term: UI.corpRevenue,
+        body: UI.gloCorpRevenueBody,
+        rows: (s: GameState) => [
+          ...s.assets
+            .filter((a) => isCorpAsset(a) && assetCashflow(a) !== 0)
+            .map((a) => [a.name, signed(assetCashflow(a)), cls(assetCashflow(a))] as GlossaryRow),
+          [UI.corpRevenue, money(corpRevenue(s)), 'pos'],
+        ] as GlossaryRow[],
+      },
+      // Debt in the player's own name, which is what net worth subtracts. The
+      // company's loans are inside its equity and must not be counted here too.
+      yourDebt: {
+        term: UI.gloYourDebt,
+        body: UI.gloYourDebtBody,
+        rows: (s: GameState) => [
+          ...s.debts.map((d) => [debtLabel(d.key), money(d.balance), 'neg'] as GlossaryRow),
+          ...s.assets
+            .filter((a) => !isCorpAsset(a) && a.debt > 0)
+            .map((a) => [a.name, money(a.debt), 'neg'] as GlossaryRow),
+          [UI.gloYourDebt, money(yourDebt(s)), 'neg'],
+        ] as GlossaryRow[],
+      },
       lockedSavings: {
         term: UI.lockedSavings,
         body: UI.gloLockedBody,
         rows: (s: GameState) => [
-          ...(pfCashOut(s) > 0 ? [[UI.pfPotLabel, money(pfCashOut(s)), 'pos', 'providentFund'] as GlossaryRow] : []),
+          ...(pfCashOut(s) > 0 ? [[UI.pfNetLabel, money(pfCashOut(s)), 'pos', 'providentFund'] as GlossaryRow] : []),
           ...(taxFundValue(s) > 0 ? [[UI.taxFundHolding, money(taxFundValue(s)), 'pos'] as GlossaryRow] : []),
           ...(dcaValue(s) > 0 ? [[UI.dcaWorth, money(dcaValue(s)), 'pos', 'dca'] as GlossaryRow] : []),
           [UI.lockedSavings, money(lockedSavings(s)), 'pos'],
@@ -3106,7 +3148,7 @@ const description =
         term: UI.gloLiabilities,
         body: UI.gloLiabilitiesBody,
         rows: (s: GameState) => [
-          [UI.personalDebt, money(personalDebt(s)), 'neg', 'debtService'],
+          [UI.personalDebt, money(personalDebt(s)), 'neg'],
           [UI.assetDebt, money(assetDebt(s)), 'neg'],
           [UI.totalDebt, money(totalDebt(s)), 'neg'],
         ] as GlossaryRow[],
@@ -3115,18 +3157,24 @@ const description =
         term: UI.gloDebtService,
         body: UI.gloDebtServiceBody,
         rows: (s: GameState) => [
+          ...s.debts.map((d) => [debtLabel(d.key), money(d.payment), 'neg'] as GlossaryRow),
+          ...s.assets
+            .filter((a) => a.debt > 0 && a.mortgagePay > 0)
+            .map((a) => [a.name, money(a.mortgagePay), 'neg'] as GlossaryRow),
+          [UI.dsrLabel, `${documentedIncome(s) > 0 ? Math.round((totalDebtService(s) / documentedIncome(s)) * 100) : 0}%`, 'muted'],
           [UI.debtService, money(totalDebtService(s)), 'neg'],
-          [UI.docIncome, money(documentedIncome(s)), ''],
-          [UI.dsrLabel, `${documentedIncome(s) > 0 ? Math.round((totalDebtService(s) / documentedIncome(s)) * 100) : 0}%`, ''],
         ] as GlossaryRow[],
       },
       equity: {
         term: UI.gloEquity,
         body: UI.gloEquityBody,
+        // It used to end on what the player's whole net worth would be after
+        // winding the company up, which is a figure about the player, inside a
+        // breakdown of a figure about the company.
         rows: (s: GameState) => [
-          [UI.corpCash, money(s.corpCash), ''],
+          [UI.corpCash, money(s.corpCash), cls(s.corpCash)],
+          [UI.corpHoldings, money(corpEquity(s) - s.corpCash), ''],
           [UI.corpEquityLabel, money(corpEquity(s)), cls(corpEquity(s))],
-          [UI.worthIfCashedOut, money(worthAfterWindingUp(s)), ''],
         ] as GlossaryRow[],
       },
       down: {
@@ -3140,8 +3188,9 @@ const description =
         rows: (s: GameState) => [
           [UI.pfOwn, money(pfContribution(s)), ''],
           [UI.pfMatch, money(pfMatch(s)), 'pos'],
-          [UI.pfPotLabel, money(pfPot(s)), 'pos'],
-          [UI.pfIfTakenNow, money(pfCashOut(s)), ''],
+          [UI.pfPotGross, money(pfPot(s)), 'pos'],
+          [UI.pfTaxIfEarly, `-${money(pfPot(s) - pfCashOut(s))}`, 'neg'],
+          [UI.pfIfTakenNow, money(pfCashOut(s)), 'pos'],
         ] as GlossaryRow[],
       },
       dca: {
@@ -3220,8 +3269,8 @@ const description =
         rows: (s: GameState) => [
           [UI.gloDrawSet, money(s.corpDraw), ''],
           [UI.corpRevenue, money(corpRevenue(s)), 'pos'],
-          [UI.gloDrawPaid, money(drawTaken(s)), 'pos'],
           [UI.corpRetained, signed(corpRetained(s)), cls(corpRetained(s))],
+          [UI.drawLabel, money(drawTaken(s)), 'pos'],
         ] as GlossaryRow[],
       },
       // What the holdings themselves pay, line by line, which is the only way
@@ -3253,12 +3302,12 @@ const description =
         body: UI.gloHouseholdBody,
         rows: (s: GameState) => [
           [UI.passiveMine, money(passiveIncome(s)), passiveIncome(s) > 0 ? 'pos' : '', 'holdings'],
-          ...(s.incorporated ? [[UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s)), 'equity'] as GlossaryRow] : []),
+          ...(s.incorporated ? [[UI.corpKeepsAfter, signed(corpDistributable(s)), cls(corpDistributable(s)), 'corpProfit'] as GlossaryRow] : []),
           [UI.householdIncomeLabel, money(householdIncome(s)), 'pos'],
         ] as GlossaryRow[],
       },
       payroll: {
-        term: UI.taxes,
+        term: UI.gloPayrollTotal,
         body: UI.gloPayrollBody,
         rows: (s: GameState) => [
           [UI.taxes, money(taxes(s)), 'neg'],

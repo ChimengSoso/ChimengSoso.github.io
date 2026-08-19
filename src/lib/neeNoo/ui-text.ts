@@ -306,6 +306,25 @@ export const UI = {
   },
   gloDrawSet: { th: 'ที่ตั้งไว้', en: 'What you set' },
   gloDrawPaid: { th: 'ที่บริษัทจ่ายจริง', en: 'What it actually pays' },
+  pfPotGross: { th: 'ยอดสะสมทั้งหมดในกองทุน', en: 'The pot in total' },
+  pfNetLabel: { th: 'กองทุนสำรองเลี้ยงชีพ ถ้าถอนตอนนี้', en: 'Provident fund, if taken now' },
+  pfTaxIfEarly: { th: 'ถ้าถอนก่อนอายุ 55 โดนหัก 10%', en: 'Taken before 55, 10% goes in tax' },
+  gloDrawSeparate: { th: 'เงินเดือนกรรมการ', en: 'The director’s salary' },
+  gloDrawSeparateNote: { th: 'นับอยู่ในรายได้ของคุณแล้ว ไม่หักซ้ำตรงนี้', en: 'already counted as your own income, not deducted again here' },
+  corpHoldings: { th: 'ทรัพย์สินในบริษัท หักหนี้ของมันแล้ว', en: 'What the company holds, after its own loans' },
+  gloYourDebt: { th: 'หนี้ในชื่อคุณเอง', en: 'Debt in your own name' },
+  gloYourDebtBody: {
+    th: 'หนี้ที่คุณเป็นลูกหนี้เอง ทั้งหนี้ส่วนตัวและหนี้ที่ติดมากับทรัพย์สินในชื่อคุณ ไม่รวมหนี้ของบริษัท เพราะหนี้ก้อนนั้นถูกหักในบรรทัดส่วนของผู้ถือหุ้นไปแล้ว ถ้าหักสองที่ ความมั่งคั่งสุทธิจะติดลบเกินจริง',
+    en: 'What you personally owe: your own loans and the ones riding on holdings in your name. The company’s borrowing is not here, because its equity line already has it netted off; subtracting it twice would understate your net worth.',
+  },
+  gloCorpProfitBody: {
+    th: 'เดือนหนึ่งของบริษัท ค่าเช่าที่ตึกของบริษัทเก็บได้ หักเงินเดือนกรรมการที่จ่ายให้คุณ หักค่าบัญชี แล้วหักภาษีนิติบุคคล เหลือเท่าไหร่คือส่วนที่สะสมอยู่ในบริษัท ถ้าติดลบแปลว่าบริษัทกินเงินสดตัวเองอยู่',
+    en: 'One month of the company: the rent its buildings collect, less the salary it pays you, less the accountant, less its own tax. What is left builds up in its account; a negative figure means it is eating its own cash.',
+  },
+  gloCorpRevenueBody: {
+    th: 'ค่าเช่าที่ทรัพย์สินในนามบริษัทเก็บได้ต่อเดือน หักค่างวดของมันเองแล้ว ห้องที่ว่างอยู่จะติดลบเพราะยังต้องผ่อน',
+    en: 'What the holdings in the company’s name collect each month, after their own instalments. An empty unit shows negative, because the instalment carries on.',
+  },
   heldPersonal: { th: 'ของที่ถืออยู่ในชื่อคุณ', en: 'Held in your own name' },
   gloHeldPersonalBody: {
     th: 'ทรัพย์สินที่อยู่ในชื่อคุณเอง ไม่รวมของที่โอนเข้าบริษัทไปแล้ว เพราะของพวกนั้นนับผ่านบรรทัดส่วนของผู้ถือหุ้นแทน ถ้านับสองที่ ความมั่งคั่งสุทธิจะบวกเกินจริง',
