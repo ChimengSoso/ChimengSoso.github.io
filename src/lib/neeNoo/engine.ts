@@ -89,13 +89,21 @@ export const BOND_CUT = 0.25;
  */
 export const INSURED_SHARE = 0.1;
 export const COVER_MONTHS = 12;
-/** monthly interest on the debt a profession starts with, and on asset mortgages */
+/**
+ * Monthly interest on the debt a profession starts with, and on asset mortgages.
+ *
+ * The student loan is the one rate here that is set by statute rather than by a
+ * bank. Since the 2023 amendment to the กยศ. act the fund may charge no more
+ * than 1% a year, with the late-payment penalty capped at 0.5% and repayments
+ * applied to principal before interest. It had been sitting at 2.4% a year here,
+ * which is more than double what the law allows.
+ */
 export const DEBT_RATE: Record<DebtKey, number> = {
   home: 0.0035,
   car: 0.005,
   card: 0.015,
   retail: 0.01,
-  student: 0.002,
+  student: 0.00083,
   /** 2% a month, around 24% a year: an unsecured personal loan, not a mortgage */
   bank: 0.02,
 };
@@ -1194,8 +1202,14 @@ export function netWorth(s: GameState): number {
  * been deferring, not a bill it cancelled.
  */
 export function worthAfterWindingUp(s: GameState): number {
-  const equity = corpEquity(s);
-  return personalWorth(s) + (equity > 0 ? Math.round(equity * (1 - DIVIDEND_TAX)) : equity);
+  if (!s.incorporated) return netWorth(s);
+  // Measured against what the button does rather than estimated: the tax falls
+  // on the cash being distributed, not on the buildings, and the liquidator and
+  // the Land Department both want paying on the way out. The old formula
+  // withheld 10% of the whole equity and forgot the fees, so the figure on the
+  // panel was never the figure anybody would end up with.
+  const q = windUpQuote(s);
+  return netWorth(s) - q.tax - q.fee - q.transfer;
 }
 
 export function bankBalance(s: GameState): number {
@@ -3654,6 +3668,88 @@ export function incorporate(s: GameState): void {
   );
   checkEscape(s);
   checkTier(s);
+}
+
+/* -------------------------------------------------- closing the company down */
+
+/**
+ * Winding the company up.
+ *
+ * The game would let you open one and never close it, which is worse than
+ * unrealistic: the accountant's ฿8,000 a month runs forever, so a player who
+ * incorporated early and later sold the buildings was left paying rent on a
+ * shell with no door out. It also printed "if you wound the company up today
+ * you would keep ฿X" under the headline figure, which is a strange thing to
+ * say about something nobody could do.
+ *
+ * A real ชำระบัญชี is a resolution, a registration, a liquidator, a notice to
+ * creditors and a final set of accounts, and it takes months rather than a
+ * turn. The three things that actually reach the player's pocket are modelled:
+ * the liquidator and the final filings are charged as one fee, anything the
+ * company still holds is transferred back at the same Land Department rate it
+ * paid going in, and whatever is left in the account is distributed with the
+ * same 10% withheld as any other dividend.
+ */
+export const CORP_CLOSE_COST = 15000;
+
+export interface WindUpQuote {
+  /** the liquidator, the final accounts and the filings */
+  fee: number;
+  /** the Land Department again, on the way back out */
+  transfer: number;
+  /** cash in the company before anything is taken off it */
+  potGross: number;
+  /** withheld on the distribution */
+  tax: number;
+  /** what actually lands in the player's own account */
+  cashOut: number;
+  /** holdings that come back into the player's name */
+  returning: Asset[];
+  /** the monthly bill that stops */
+  savedMonthly: number;
+  affordable: boolean;
+}
+
+export function windUpQuote(s: GameState): WindUpQuote {
+  const returning = s.assets.filter(isCorpAsset);
+  const transfer = Math.round(returning.reduce((sum, a) => sum + assetValue(a), 0) * CORP_TRANSFER_RATE);
+  const potGross = Math.max(0, Math.round(s.corpCash));
+  const tax = Math.round(potGross * DIVIDEND_TAX);
+  const bill = CORP_CLOSE_COST + transfer;
+  return {
+    fee: CORP_CLOSE_COST,
+    transfer,
+    potGross,
+    tax,
+    cashOut: potGross - tax,
+    returning,
+    savedMonthly: CORP_MONTHLY_COST,
+    // The bill can be met out of what the company is about to hand over.
+    affordable: s.cash + (potGross - tax) >= bill,
+  };
+}
+
+export function windUpCompany(s: GameState): boolean {
+  if (!s.incorporated) return false;
+  const q = windUpQuote(s);
+  if (!q.affordable) return false;
+  for (const a of q.returning) delete a.owner;
+  s.cash += q.cashOut - q.fee - q.transfer;
+  s.corpCash = 0;
+  s.corpDraw = 0;
+  s.incorporated = false;
+  note(
+    s,
+    {
+      th: `ปิดบริษัทแล้ว จ่ายค่าชำระบัญชีและปิดงบ ${money(q.fee)}${q.transfer > 0 ? ` ค่าโอนทรัพย์สินกลับมาชื่อคุณ ${money(q.transfer)}` : ''}${q.potGross > 0 ? ` เงินในบริษัท ${money(q.potGross)} จ่ายคืนตัวเองหักภาษี ณ ที่จ่าย ${money(q.tax)}` : ''} จากนี้ไม่มีค่าบัญชีเดือนละ ${money(q.savedMonthly)} อีก`,
+      en: `The company is wound up: ${money(q.fee)} for the liquidator and the final accounts${q.transfer > 0 ? `, ${money(q.transfer)} to move the holdings back into your name` : ''}${q.potGross > 0 ? `, and ${money(q.potGross)} distributed with ${money(q.tax)} withheld` : ''}. The ${money(q.savedMonthly)} a month of accounting stops here.`,
+    },
+    'plain',
+  );
+  checkEscape(s);
+  checkTrouble(s);
+  checkTier(s);
+  return true;
 }
 
 /** Change the director's salary. The one lever the whole structure turns on. */

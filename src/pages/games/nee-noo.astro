@@ -1405,6 +1405,8 @@ const description =
       DSR_LIMIT,
       homeQuote,
       buyHome,
+      windUpQuote,
+      windUpCompany,
       BOND_CUT,
       corpDistributable,
       payLevel,
@@ -2816,6 +2818,11 @@ const description =
       }
 
       const draw = drawTaken(s);
+      const wind = windUpQuote(s);
+      const windSwing = (() => {
+        const copy = structuredClone(s);
+        return windUpCompany(copy) ? monthlyCashflow(copy) - monthlyCashflow(s) : 0;
+      })();
       // What one more ฿10,000 of salary would cost, both ways, so the trade is a
       // number rather than a feeling.
       const step = 10000;
@@ -2862,6 +2869,30 @@ const description =
             <button type="button" class="nn-btn" data-act="fundcorp" ${s.cash > 0 ? '' : 'disabled'}>${T(UI.putIn)}</button>
           </div>
           <p class="nn-empty" data-live-note="fund">${fundNote(s, 0)}</p>
+        </div>
+        <!-- The way out. A structure with no exit is a trap, and this one was
+             charging ฿8,000 a month for the privilege. -->
+        <div class="nn-corpact">
+          <h3>${T(UI.windUpTitle)} <span class="nn-corpdir">${T(UI.dirCorpGone)}</span></h3>
+          <p class="nn-corpwhy">${T(UI.windUpWhy)}</p>
+          <dl class="facts">
+            <dt>${T(UI.windUpFee)}</dt><dd class="neg">-${money(wind.fee)}</dd>
+            ${wind.returning.length > 0 ? `<dt>${T(UI.windUpTransfer).replace('{n}', String(wind.returning.length))}</dt><dd class="neg">-${money(wind.transfer)}</dd>` : ''}
+            ${wind.potGross > 0 ? `<dt>${T(UI.windUpPot)}</dt><dd class="pos">${money(wind.potGross)}</dd>
+            <dt>${T(UI.dividendWithheld)}</dt><dd class="neg">-${money(wind.tax)}</dd>` : ''}
+            <dt class="nn-rowsplit">${T(UI.windUpNet)}</dt>
+            <dd class="nn-rowsplit ${cls(wind.cashOut - wind.fee - wind.transfer)}">${signed(wind.cashOut - wind.fee - wind.transfer)}</dd>
+            <dt>${T(UI.windUpSaved)}</dt><dd class="pos">+${money(wind.savedMonthly)}${T(UI.perMonth)}</dd>
+            <!-- The director's salary stops and the rents come back into the
+                 player's own name. Measured on a copy of the game rather than
+                 described, because the two do not cancel out and which way it
+                 lands depends on how much the company was really earning. -->
+            <dt class="nn-rowsplit">${T(UI.windUpFlow)}</dt>
+            <dd class="nn-rowsplit ${cls(windSwing)}">${signed(windSwing)}${T(UI.perMonth)}</dd>
+          </dl>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-danger" data-act="windup" ${wind.affordable ? '' : 'disabled'}>${T(wind.affordable ? UI.windUpBtn : UI.cannotAfford)}</button>
+          </div>
         </div>
         <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.ok)}</button></div>`;
     }
@@ -4790,6 +4821,11 @@ const description =
           break;
         case 'buyhome':
           modal = 'buyhome';
+          break;
+        // Closing the company leaves nothing on this desk to manage, so the
+        // desk closes with it.
+        case 'windup':
+          if (s && windUpCompany(s)) modal = null;
           break;
         // The pet row on the setup screen. Rolling again from "no pet" is how
         // somebody changes their mind without hunting for a different button.
