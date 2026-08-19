@@ -62,6 +62,27 @@ export const releases: Release[] = [
           en: 'The provident fund page shows the pot, the tax taken if it is cashed out before 55, and what actually arrives. It used to stop at the pre-tax figure.',
         },
       },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'ขายกิจการที่กู้มาซื้อ เคยกลายเป็นเราต้องจ่ายเงินให้คนซื้อ เพราะราคาที่เสนอคิดจากกำไรหลังหักค่างวดแล้วยังเอาหนี้ทั้งก้อนมาหักซ้ำอีกรอบ ตอนนี้คิดจากกำไรก่อนหักค่างวด ไม่มีทางติดลบ และถ้าราคาไม่พอปิดหนี้ ส่วนต่างจะกลายเป็นหนี้ที่ยังต้องผ่อนต่อ แทนที่หนี้จะหายไปเฉย ๆ',
+          en: 'Selling a business bought with a loan could take money out of your pocket: the offer was priced off profit after the instalment and then had the whole loan subtracted again. It is now priced off profit before the instalment, never goes negative, and any part the price cannot clear stays as a debt instead of quietly vanishing.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'ช่องกรอกจำนวนหน่วยตอนขาย ทำให้ตัวเลขข้างบนเปลี่ยนตามแล้ว ทั้งหน้าขายด่วนและแถวทองกับหุ้นในงบ เมื่อก่อนกรอก 3 จาก 12 แต่ตัวเลขยังเป็นของ 12',
+          en: 'Typing a smaller quantity into a sell box now re-prices the row above it, both in the forced-sale panel and on the gold and share rows. Typing 3 of 12 used to leave the figures showing all 12.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'ข้อความอังกฤษของการ์ดผู้ซื้อบ้าน คอนโด และอพาร์ตเมนต์ เขียนว่าเสนอราคาเป็นเปอร์เซ็นต์ของราคาที่ซื้อมา ทั้งที่คิดจากราคาตอนนี้ และข้อความตอนกิจการปิดตัวยังขึ้นชื่อภาษาไทยในเวอร์ชันอังกฤษ',
+          en: 'The English on the condo, apartment and house buyer cards said the offer was a percentage of what you paid, when it is a percentage of today’s price, and the business-shutdown line still printed the Thai name in English.',
+        },
+      },
     ],
   },
   {

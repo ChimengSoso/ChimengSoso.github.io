@@ -1442,6 +1442,7 @@ const description =
       canSellNow,
       canSellBusiness,
       businessExitValue,
+      businessExitShortfall,
       sellBusiness,
       estateTax,
       estateTaxable,
@@ -2274,25 +2275,20 @@ const description =
                 // button and the price it would fetch today.
                 if (canSellNow(a)) {
                   const unit = livePrice(s, a);
-                  const value = unit * a.qty;
-                  const up = unit >= a.costPerUnit;
                   // What was paid, what it is worth now, and the gap as a
                   // percentage. Without the cost basis the price on the row was
                   // a number with nothing to be measured against, so a holding
                   // 40% under water looked exactly like one 40% up.
-                  const gain = (unit - a.costPerUnit) * a.qty;
-                  const pct = a.costPerUnit > 0 ? (unit / a.costPerUnit - 1) * 100 : 0;
-                  const pnl = `<span class="${up ? 'pos' : 'neg'}">${signed(gain)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
                   // Defaults to the whole holding; a share count can be typed in
-                  // to take part of the position off instead.
+                  // to take part of the position off instead, and the figures
+                  // follow what is typed rather than staying on the full stack.
                   // A shareholder should be able to reread the books they
                   // bought on, not only see them once at the till.
                   const hasBooks = !!dealById.get(a.cardId)?.books || a.kind === 'gold';
                   return `<li class="nn-paper">
-                    <span class="nm"><b>${T(a.name)}${hasBooks ? ` <button type="button" class="nn-booksbtn" data-act="books" data-id="${a.cardId}" aria-label="${T(UI.booksTitle)}">${T(UI.booksShort)}</button>` : ''}</b><small>${a.qty} ${T(UI.units)} · ${T(UI.costBasis)} ${unitMoney(a.costPerUnit)} · ${T(UI.livePrice)} <span class="${up ? 'pos' : 'neg'}">${unitMoney(unit)}</span>
-                      <br>${money(value)} · ${T(UI.unrealised)} ${pnl}</small></span>
+                    <span class="nm"><b>${T(a.name)}${hasBooks ? ` <button type="button" class="nn-booksbtn" data-act="books" data-id="${a.cardId}" aria-label="${T(UI.booksTitle)}">${T(UI.booksShort)}</button>` : ''}</b><small data-papernote="${a.uid}">${paperRowNote(a, unit, a.qty)}</small></span>
                     <span class="nn-rowend">
-                      ${a.qty > 1 ? `<input type="number" class="nn-paper-qty" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
+                      ${a.qty > 1 ? `<input type="number" class="nn-paper-qty" data-qty="${a.uid}" data-paper="${a.uid}" data-unit-price="${unit}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
                       <button type="button" class="nn-mini" data-act="sellnow" data-id="${a.uid}">${T(UI.sellNow)}</button>
                     </span>
                   </li>`;
@@ -2306,6 +2302,7 @@ const description =
                     : a.cashflowPerUnit < base * 0.95 ? ` · <span class="neg">${T(UI.shrinking)}</span>` : ''
                     : '';
                   const exit = businessExitValue(a);
+                  const owedAfter = businessExitShortfall(a);
                   // Three things on one line is one too many for a 340px
                   // panel, so the figure and the button travel together and
                   // drop to their own line when the name needs the width.
@@ -2313,7 +2310,7 @@ const description =
                     <span class="nm"><b>${T(a.name)}</b><small>${meta}${trend}${a.impact ? ` · ${T(UI.impactLabel)} ${a.impact.toLocaleString('en-US')}` : ''}</small></span>
                     <span class="nn-rowend">
                       ${amt}
-                      <button type="button" class="nn-mini" data-act="sellbiz" data-id="${a.uid}" title="${T(UI.bizExitNote)}">${exit > 0 ? `${T(UI.sellBiz)} ${money(exit)}` : T(UI.closeBiz)}</button>
+                      <button type="button" class="nn-mini" data-act="sellbiz" data-id="${a.uid}" title="${owedAfter > 0 ? `${T(UI.saleShortfall)} ${money(owedAfter)}` : T(UI.bizExitNote)}">${exit > 0 ? `${T(UI.sellBiz)} ${money(exit)}` : T(UI.closeBiz)}</button>
                     </span>
                   </li>`;
                 }
@@ -3874,6 +3871,37 @@ const description =
       return `${T(UI.totalCost)} <b>${money(total)}</b>${income !== 0 ? ` · ${T(UI.monthlyIn)} <b class="${cls(income)}">${signed(income)}${T(UI.perMonth)}</b>` : ''}`;
     }
 
+    /**
+     * The forced-sale row, priced for the number of units actually typed.
+     *
+     * The figures used to be worked out once for the whole holding while the
+     * box beside them let a player sell three rooms of twelve, so the money
+     * raised, the debt left over and the income lost were all somebody else's
+     * sale.
+     */
+    function fireRowNote(a: Asset, qty: number): string {
+      const n = Math.max(1, Math.min(qty, a.qty));
+      const raised = fireSaleValue(a, n);
+      const short = fireSaleShortfall(a, n);
+      const half = a.pricePerUnit * FIRE_SALE_RATE * n;
+      const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
+      const flow = a.qty > 0 ? (assetCashflow(a) / a.qty) * n : 0;
+      return `${T(UI.offerPrice)} <b class="${raised > 0 ? 'pos' : 'neg'}">${money(raised)}</b>${a.qty > 1 ? ` (${n} ${T(UI.units)})` : ''}
+                <br>${T(UI.halfPrice)} ${money(half)}${debtShare > 0 ? ` · ${T(UI.minusItsDebt)} ${money(debtShare)}` : ''}${flow > 0 ? ` · ${T(UI.andLoses)} ${money(flow)}${T(UI.perMonth)}` : ''}
+                ${short > 0 ? `<br><b class="neg">${T(UI.stillOwed)} ${money(short)}</b> · ${T(UI.deficiencyPay)} ${money(Math.round(short * DEFICIENCY_PAY_RATE))}${T(UI.perMonth)}` : ''}`;
+    }
+
+    /** The traded-paper row, priced for the number of units actually typed. */
+    function paperRowNote(a: Asset, unit: number, qty: number): string {
+      const n = Math.max(1, Math.min(qty, a.qty));
+      const up = unit >= a.costPerUnit;
+      const gain = (unit - a.costPerUnit) * n;
+      const pct = a.costPerUnit > 0 ? (unit / a.costPerUnit - 1) * 100 : 0;
+      const pnl = `<span class="${up ? 'pos' : 'neg'}">${signed(gain)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
+      return `${n} ${T(UI.units)} · ${T(UI.costBasis)} ${unitMoney(a.costPerUnit)} · ${T(UI.livePrice)} <span class="${up ? 'pos' : 'neg'}">${unitMoney(unit)}</span>
+                      <br>${money(unit * n)} · ${T(UI.unrealised)} ${pnl}`;
+    }
+
     function pendingDialog(s: GameState): string | null {
       const p = s.pending;
       if (!p) return null;
@@ -4013,12 +4041,18 @@ const description =
                 // sells for more than it cost and still shrinks the asset
                 // column, because the loan leaves with it: without these four
                 // lines the sheet afterwards looks like a mistake.
-                const cash = unit - debtShare;
-                const gain = cash - cashSunkPerUnit(a);
+                const net = unit - debtShare;
+                // Floored, because the sale itself is floored: a price that
+                // does not clear the loan pays nothing and leaves the rest
+                // owing, rather than billing the seller for the difference.
+                const cash = Math.max(0, net);
+                const shortfall = Math.max(0, -net);
+                const gain = net - cashSunkPerUnit(a);
                 const flowLost = a.qty > 0 ? assetCashflow(a) / a.qty : 0;
                 return `<div class="nn-sellrow">
                   <span class="nm"><b>${T(a.name)}</b><small>${T(UI.offerPrice)} ${money(unit)}${a.qty > 1 ? ` / ${T(UI.units)}` : ''}${debtShare > 0 ? ` · ${T(UI.debtGoesToo)} ${money(debtShare)}` : ''}
                     <br>${T(UI.cashToYou)} <b class="${cls(cash)}">${money(cash)}</b>${a.qty > 1 ? ` / ${T(UI.units)}` : ''} · ${T(gain >= 0 ? UI.gainVsCost : UI.lossVsCost)} <b class="${cls(gain)}">${signed(gain)}</b>
+                    ${shortfall > 0 ? `<br>${T(UI.saleShortfall)} <b class="neg">${money(shortfall)}</b>` : ''}
                     ${flowLost !== 0 ? `<br>${T(UI.incomeGoesToo)} <b class="${cls(-flowLost)}">${signed(-flowLost)}${T(UI.perMonth)}</b>` : ''}</small></span>
                   ${a.qty > 1 ? `<input type="number" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
                   <button type="button" class="nn-btn" data-act="sell" data-id="${a.uid}">${T(UI.sell)}</button>
@@ -4378,15 +4412,9 @@ const description =
           .slice()
           .sort((a, b) => fireSaleValue(b, b.qty) - fireSaleValue(a, a.qty))
           .map((a) => {
-            const raised = fireSaleValue(a, a.qty);
-            const short = fireSaleShortfall(a, a.qty);
-            const half = a.pricePerUnit * FIRE_SALE_RATE * a.qty;
-            const flow = assetCashflow(a);
             return `<div class="nn-sellrow">
-              <span class="nm"><b>${T(a.name)}</b><small>${T(UI.offerPrice)} <b class="${raised > 0 ? 'pos' : 'neg'}">${money(raised)}</b>${a.qty > 1 ? ` (${a.qty} ${T(UI.units)})` : ''}
-                <br>${T(UI.halfPrice)} ${money(half)}${a.debt > 0 ? ` · ${T(UI.minusItsDebt)} ${money(a.debt)}` : ''}${flow > 0 ? ` · ${T(UI.andLoses)} ${money(flow)}${T(UI.perMonth)}` : ''}
-                ${short > 0 ? `<br><b class="neg">${T(UI.stillOwed)} ${money(short)}</b> · ${T(UI.deficiencyPay)} ${money(Math.round(short * DEFICIENCY_PAY_RATE))}${T(UI.perMonth)}` : ''}</small></span>
-              ${a.qty > 1 ? `<input type="number" data-qty="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
+              <span class="nm"><b>${T(a.name)}</b><small data-fsnote="${a.uid}">${fireRowNote(a, a.qty)}</small></span>
+              ${a.qty > 1 ? `<input type="number" data-qty="${a.uid}" data-fs="${a.uid}" min="1" max="${a.qty}" value="${a.qty}" aria-label="${T(UI.qty)}">` : ''}
               <button type="button" class="nn-btn nn-btn-danger" data-act="firesale" data-id="${a.uid}">${T(UI.fireSaleBtn)}</button>
             </div>`;
           })
@@ -5314,6 +5342,22 @@ const description =
               : kind === 'dividend' ? dividendNote(state, n)
               : fundNote(state, n);
           }
+          return;
+        }
+        // A part sale is a different sale. Both of these rows carry their own
+        // arithmetic, so the row re-prices itself for the number in the box.
+        if (el.dataset.fs !== undefined && state) {
+          const a = state.assets.find((x) => x.uid === el.dataset.fs);
+          const note = panelOf(root, el).querySelector<HTMLElement>(`[data-fsnote="${el.dataset.fs}"]`);
+          const typed = Number.parseInt(el.value, 10);
+          if (a && note) note.innerHTML = fireRowNote(a, Number.isFinite(typed) ? typed : 1);
+          return;
+        }
+        if (el.dataset.paper !== undefined && state) {
+          const a = state.assets.find((x) => x.uid === el.dataset.paper);
+          const note = panelOf(root, el).querySelector<HTMLElement>(`[data-papernote="${el.dataset.paper}"]`);
+          const typed = Number.parseInt(el.value, 10);
+          if (a && note) note.innerHTML = paperRowNote(a, Number(el.dataset.unitPrice ?? 0), Number.isFinite(typed) ? typed : 1);
           return;
         }
         if ('tf' in el.dataset) {

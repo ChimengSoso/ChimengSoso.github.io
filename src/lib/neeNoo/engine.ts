@@ -2525,7 +2525,7 @@ export function driftBusinesses(s: GameState): void {
         s,
         {
           th: `${a.name.th} ไปต่อไม่ไหว ปิดกิจการแล้ว รายได้จากตัวนี้เหลือศูนย์ ขายซากได้จากหน้างบ`,
-          en: `${a.name.th} could not carry on and has shut down. Its income is now zero; what is left can be sold from the statement.`,
+          en: `${a.name.en} could not carry on and has shut down. Its income is now zero; what is left can be sold from the statement.`,
         },
         'bad',
       );
@@ -2563,26 +2563,60 @@ export function canSellBusiness(a: Asset): boolean {
   return a.kind === 'business';
 }
 
+/**
+ * What a business earns before its own loan instalment.
+ *
+ * A deal card's `cashflow` is already net of `mortgagePay`, so a buyer's
+ * multiple has to be applied to the figure *before* the instalment. Multiplying
+ * the levered number and then subtracting the whole loan again charges the
+ * gearing twice: it is how a ฿200m airline came to carry an offer price of
+ * minus ฿66m, with the "sale" taking ฿94m out of the seller's pocket.
+ */
+export function operatingCashflow(a: Asset): number {
+  return assetCashflow(a) + (a.debt > 0 ? a.mortgagePay : 0);
+}
+
+/** The price a private buyer puts on the business itself, loan not deducted. */
+export function businessExitPrice(a: Asset): number {
+  return Math.max(0, Math.round(operatingCashflow(a) * BIZ_EXIT_MULTIPLE));
+}
+
 export function businessExitValue(a: Asset): number {
-  return Math.max(0, Math.round(assetCashflow(a) * BIZ_EXIT_MULTIPLE - a.debt));
+  return Math.max(0, businessExitPrice(a) - a.debt);
+}
+
+/** What the lender is still owed once a sale at this price has been applied. */
+export function businessExitShortfall(a: Asset): number {
+  return Math.max(0, a.debt - businessExitPrice(a));
 }
 
 export function sellBusiness(s: GameState, assetUid: string): void {
   const a = s.assets.find((x) => x.uid === assetUid);
   if (!a || !canSellBusiness(a)) return;
   const proceeds = businessExitValue(a);
-  const gain = proceeds - a.costPerUnit * a.qty;
+  // Walking away from a geared business used to delete the loan with it, which
+  // made a private sale the cheapest way in the game to erase ฿67m of debt.
+  const shortfall = businessExitShortfall(a);
+  const gain = proceeds - shortfall - a.costPerUnit * a.qty;
   settle(s, a, proceeds);
   s.assets = s.assets.filter((x) => x.uid !== a.uid);
+  if (shortfall > 0) {
+    const payment = Math.round(shortfall * DEFICIENCY_PAY_RATE);
+    addDebt(s, 'bank', shortfall, payment);
+  }
   note(
     s,
     {
-      th: proceeds > 0
-        ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
-        : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
-      en: proceeds > 0
-        ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
-        : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
+      th: shortfall > 0
+        ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(businessExitPrice(a))} ซึ่งไม่พอปิดหนี้ เหลือส่วนต่าง ${money(shortfall)} ที่ต้องผ่อนต่อเดือนละ ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))}`
+        : proceeds > 0
+          ? `ขาย ${a.name.th} ให้ผู้ซื้อรายย่อยที่ ${BIZ_EXIT_MULTIPLE} เท่าของกำไรต่อเดือน ได้ ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`
+          : `ปิด ${a.name.th} ทิ้ง ไม่เหลือมูลค่าให้ขาย ขาดทุนเต็มจำนวน ${money(Math.abs(gain))}`,
+      en: shortfall > 0
+        ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(businessExitPrice(a))}, which did not clear the loan. ${money(shortfall)} is still owed, at ${money(Math.round(shortfall * DEFICIENCY_PAY_RATE))} a month.`
+        : proceeds > 0
+          ? `Sold ${a.name.en} privately at ${BIZ_EXIT_MULTIPLE}x monthly profit for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`
+          : `Closed ${a.name.en} down with nothing left to sell, for a full loss of ${money(Math.abs(gain))}.`,
     },
     gain >= 0 ? 'good' : 'bad',
   );
@@ -2601,7 +2635,11 @@ export function marketUnitPrice(card: MarketCard, a: Asset, s?: GameState): numb
   // quote is simply what the symbol is trading at now.
   if (card.type === 'price') return s?.prices[card.symbol] ?? a.pricePerUnit;
   if (card.type === 'offer') return a.pricePerUnit * card.multiplier;
-  return a.cashflowPerUnit * card.monthsMultiple;
+  // Priced off what the business earns before its own instalment, and never
+  // below zero: a cafe losing ฿3,000 a month used to be "bought" for minus
+  // ฿180,000, which billed the seller for giving it away.
+  const per = a.qty > 0 ? operatingCashflow(a) / a.qty : 0;
+  return Math.max(0, per * card.monthsMultiple);
 }
 
 /**
@@ -2630,22 +2668,40 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
   const unit = marketUnitPrice(card, a, s);
   // Debt travels with the units being sold.
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
-  const proceeds = unit * n - debtShare;
-  const gain = proceeds - cashSunkPerUnit(a) * n;
+  const net = unit * n - debtShare;
+  // A sale never reaches into the seller's pocket. When the price does not
+  // clear the loan the buyer's money all goes to the lender and what is left
+  // owing follows the seller out, exactly as it does at a forced sale.
+  const proceeds = Math.max(0, net);
+  const shortfall = Math.round(Math.max(0, -net));
+  const gain = net - cashSunkPerUnit(a) * n;
 
   settle(s, a, proceeds);
   a.qty -= n;
   a.debt -= debtShare;
   if (a.qty <= 0) s.assets = s.assets.filter((x) => x.uid !== a.uid);
 
-  note(
-    s,
-    {
-      th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
-      en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
-    },
-    gain >= 0 ? 'good' : 'bad',
-  );
+  if (shortfall > 0) {
+    const payment = Math.round(shortfall * DEFICIENCY_PAY_RATE);
+    addDebt(s, 'bank', shortfall, payment);
+    note(
+      s,
+      {
+        th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ที่ ${money(unit * n)} ธนาคารรับไปหักหนี้ทั้งก้อนแต่ยังไม่พอ เหลือส่วนต่างที่ต้องตามใช้ต่อ ${money(shortfall)} ผ่อนเดือนละ ${money(payment)} กิจการไม่อยู่แล้วแต่หนี้ยังอยู่`,
+        en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(unit * n)}. The lender took all of it and is still ${money(shortfall)} short, now owed at ${money(payment)} a month. The business is gone and the debt is not.`,
+      },
+      'bad',
+    );
+  } else {
+    note(
+      s,
+      {
+        th: `ขาย ${a.name.th}${n > 1 ? ` ${n} หน่วย` : ''} ได้เงินสด ${money(proceeds)} (${gain >= 0 ? 'กำไร' : 'ขาดทุน'} ${money(Math.abs(gain))})`,
+        en: `Sold ${a.name.en}${n > 1 ? ` ×${n}` : ''} for ${money(proceeds)} (${gain >= 0 ? 'gain' : 'loss'} ${money(Math.abs(gain))}).`,
+      },
+      gain >= 0 ? 'good' : 'bad',
+    );
+  }
   checkEscape(s);
   checkTrouble(s);
 }

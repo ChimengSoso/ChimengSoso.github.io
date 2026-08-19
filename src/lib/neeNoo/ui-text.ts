@@ -400,6 +400,7 @@ export const UI = {
   /* A sale is three things at once: cash in, debt gone, income gone. */
   debtGoesToo: { th: 'หนี้ที่ติดไปกับมัน', en: 'debt that goes with it' },
   cashToYou: { th: 'เงินสดที่จะได้จริง', en: 'Cash you actually get' },
+  saleShortfall: { th: 'ราคานี้ไม่พอปิดหนี้ ขายแล้วยังเหลือหนี้', en: 'The price does not clear the loan; still owed after the sale' },
   gainVsCost: { th: 'กำไรจากเงินที่ลงไป', en: 'gain on the cash you put in' },
   lossVsCost: { th: 'ขาดทุนจากเงินที่ลงไป', en: 'loss on the cash you put in' },
   incomeGoesToo: { th: 'เงินไหลเข้าที่หายไป', en: 'income that stops' },
