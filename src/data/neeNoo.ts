@@ -425,7 +425,7 @@ export const deals: DealCard[] = [
     price: 40,
     down: 40,
     debt: 0,
-    cashflow: 0.34,
+    cashflow: 0.22,
     maxQty: 6000,
     books: {
       revenue: 96000,
@@ -452,7 +452,7 @@ export const deals: DealCard[] = [
     price: 100,
     down: 100,
     debt: 0,
-    cashflow: 0.75,
+    cashflow: 0.58,
     maxQty: 4000,
     books: {
       revenue: 3100,
@@ -917,7 +917,7 @@ export const deals: DealCard[] = [
     price: 100000,
     down: 100000,
     debt: 0,
-    cashflow: 420,
+    cashflow: 235,
     maxQty: 400,
   },
   {
@@ -933,7 +933,7 @@ export const deals: DealCard[] = [
     price: 100000,
     down: 100000,
     debt: 0,
-    cashflow: 680,
+    cashflow: 415,
     maxQty: 300,
   },
   {
@@ -949,7 +949,7 @@ export const deals: DealCard[] = [
     price: 10000,
     down: 10000,
     debt: 0,
-    cashflow: 26,
+    cashflow: 15,
     maxQty: 3000,
   },
   {
@@ -981,7 +981,7 @@ export const deals: DealCard[] = [
     price: 1000,
     down: 1000,
     debt: 0,
-    cashflow: 5,
+    cashflow: 2.5,
     maxQty: 20000,
   },
   {
