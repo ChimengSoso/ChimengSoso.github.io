@@ -21,6 +21,7 @@ import {
   marketCards,
   petNames,
   petSpecies,
+  priceModels,
   professionById,
   professions,
   studyRouteById,
@@ -2127,6 +2128,7 @@ function corpMonth(s: GameState): void {
 
 function monthPassed(s: GameState): void {
   s.months += 1;
+  driftPrices(s);
   pfMonth(s);
   s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
   s.shadowPot *= 1 + DCA_RETURN / 12;
@@ -2564,8 +2566,10 @@ export function marketMatches(s: GameState, card: MarketCard): Asset[] {
   return s.assets.filter((a) => a.kind === 'business' && a.cashflowPerUnit > 0);
 }
 
-export function marketUnitPrice(card: MarketCard, a: Asset): number {
-  if (card.type === 'price') return card.price;
+export function marketUnitPrice(card: MarketCard, a: Asset, s?: GameState): number {
+  // The card has already moved the price by the time anything renders, so the
+  // quote is simply what the symbol is trading at now.
+  if (card.type === 'price') return s?.prices[card.symbol] ?? a.pricePerUnit;
   if (card.type === 'offer') return a.pricePerUnit * card.multiplier;
   return a.cashflowPerUnit * card.monthsMultiple;
 }
@@ -2593,7 +2597,7 @@ export function sellToMarket(s: GameState, assetUid: string, qty: number): void 
   const a = s.assets.find((x) => x.uid === assetUid);
   if (!a) return;
   const n = Math.max(1, Math.min(qty, a.qty));
-  const unit = marketUnitPrice(card, a);
+  const unit = marketUnitPrice(card, a, s);
   // Debt travels with the units being sold.
   const debtShare = a.qty > 0 ? (a.debt / a.qty) * n : 0;
   const proceeds = unit * n - debtShare;
@@ -2655,15 +2659,56 @@ export function sellPaper(s: GameState, assetUid: string, qty: number): void {
   checkTrouble(s);
 }
 
+/** Writes a new price for one symbol into the state and into every holding of it. */
+function setPrice(s: GameState, symbol: string, price: number): void {
+  const value = Math.max(0.01, Math.round(price * 100) / 100);
+  s.prices[symbol] = value;
+  for (const a of s.assets) {
+    if (a.symbol === symbol) a.pricePerUnit = value;
+  }
+}
+
 export function applyMarketPrice(s: GameState): void {
   if (s.pending?.kind !== 'market') return;
   const card = marketById.get(s.pending.cardId);
   if (card && card.type === 'price') {
-    s.prices[card.symbol] = card.price;
-    for (const a of s.assets) {
-      if (a.symbol === card.symbol) a.pricePerUnit = card.price;
-    }
+    // The news moves the price it finds, rather than replacing it with a number
+    // somebody typed years ago.
+    setPrice(s, card.symbol, (s.prices[card.symbol] ?? 1) * card.move);
   }
+}
+
+/**
+ * A month of market movement, for everything that trades.
+ *
+ * The walk is the standard one: a small trend, a random step whose size is the
+ * thing's volatility, and a gentle pull back toward where the trend says it
+ * should be. Without the pull a forty-year game eventually produces a share
+ * worth more than the country; without the random step the player is simply
+ * handed a savings account and told it is the stock market.
+ *
+ * `rand` is uniform, so three of them are added and centred: the sum of a few
+ * flat draws is bell-shaped, which is close enough to the real distribution of
+ * monthly returns for a board game and costs nothing.
+ */
+export function driftPrices(s: GameState): void {
+  const years = s.months / 12;
+  for (const [symbol, model] of Object.entries(priceModels)) {
+    const now = s.prices[symbol];
+    if (!Number.isFinite(now) || now === undefined) continue;
+    const base = basePrice(symbol);
+    if (base <= 0) continue;
+    const anchor = base * Math.pow(1 + model.drift, years);
+    const monthVol = model.vol / Math.sqrt(12);
+    const z = (rand(s) + rand(s) + rand(s) - 1.5) * 2;
+    const stepped = now * (1 + model.drift / 12 + monthVol * z);
+    setPrice(s, symbol, stepped + (anchor - stepped) * model.pull);
+  }
+}
+
+/** What a symbol was worth on day one, read off the card that introduced it. */
+function basePrice(symbol: string): number {
+  return deals.find((d) => d.symbol === symbol)?.price ?? 0;
 }
 
 /**
@@ -2695,10 +2740,12 @@ export function symbolDeal(s: GameState, symbol: string): DealCard | undefined {
 export function marketBuy(s: GameState): { card: DealCard; unit: number; max: number } | null {
   if (s.pending?.kind !== 'market') return null;
   const news = marketById.get(s.pending.cardId);
-  if (!news || news.type !== 'price' || news.price <= 0) return null;
+  if (!news || news.type !== 'price') return null;
+  const unit = s.prices[news.symbol] ?? 0;
+  if (unit <= 0) return null;
   const card = symbolDeal(s, news.symbol);
   if (!card) return null;
-  return { card, unit: news.price, max: Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / news.price))) };
+  return { card, unit, max: Math.max(0, Math.min(card.maxQty, Math.floor(s.cash / unit))) };
 }
 
 export function buyFromMarket(s: GameState, qty: number): void {

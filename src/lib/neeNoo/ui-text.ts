@@ -442,8 +442,8 @@ export const UI = {
   debtService: { th: 'ผ่อนรวมต่อเดือน', en: 'Debt service a month' },
   noDebt: { th: 'ไม่มีหนี้สินเลย', en: 'No debt at all' },
   buyAtThisPrice: { th: 'ซื้อที่ราคานี้', en: 'Buy at this price' },
-  belowNormal: { th: 'ถูกกว่าราคาปกติ', en: 'below its usual price' },
-  aboveNormal: { th: 'แพงกว่าราคาปกติ', en: 'above its usual price' },
+  belowNormal: { th: 'ข่าวนี้กดราคาลง', en: 'this news knocked it down' },
+  aboveNormal: { th: 'ข่าวนี้ดันราคาขึ้น', en: 'this news pushed it up' },
   yearlyYield: { th: 'ผลตอบแทนต่อปี', en: 'Yield a year' },
   cheapYieldNote: {
     th: 'ราคาลง แต่เงินที่มันจ่ายให้ต่อหน่วยยังเท่าเดิม ถ้ามันจ่ายได้เท่าเดิมจริง ซื้อตอนนี้ก็เท่ากับได้ผลตอบแทนต่อเงินที่จ่ายสูงขึ้น',

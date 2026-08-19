@@ -3443,7 +3443,7 @@ const description =
         const rows = matches.length
           ? matches
               .map((a) => {
-                const unit = marketUnitPrice(card, a);
+                const unit = marketUnitPrice(card, a, s);
                 const debtShare = a.qty > 0 ? a.debt / a.qty : 0;
                 // What the sale does, before it is made. A leveraged building
                 // sells for more than it cost and still shrinks the asset
@@ -3469,7 +3469,11 @@ const description =
         let buyBox = '';
         if (offer) {
           const { card: deal, unit, max } = offer;
-          const gap = deal.price > 0 ? (unit - deal.price) / deal.price : 0;
+          // Compared against where the price was standing before this card hit
+          // it, not against the number printed on the original deal card years
+          // ago: with prices that drift, "usual" is a moving thing.
+          const before = card.type === 'price' && card.move > 0 ? unit / card.move : deal.price;
+          const gap = before > 0 ? (unit - before) / before : 0;
           const cheap = gap <= -0.01;
           const badge = Math.abs(gap) >= 0.01
             ? ` <span class="${cheap ? 'pos' : 'neg'}">${T(cheap ? UI.belowNormal : UI.aboveNormal)} ${Math.abs(Math.round(gap * 100))}%</span>`
@@ -3497,8 +3501,14 @@ const description =
         // flat "you hold nothing" underneath a developer waving a cheque.
         const empty = !rows && !buyBox ? `<p class="story nn-but">${T(UI.butNoHolding)}</p>` : '';
         const idle = matches.length || offer;
+        // A price card announces the number it produced, and that number is
+        // whatever the symbol had drifted to before the news hit it.
+        const quoted = card.type === 'price' ? (s.prices[card.symbol] ?? 0) : 0;
+        const headline = card.type === 'price'
+          ? T(card.title).replace('{price}', quoted >= 100 ? money(quoted) : unitMoney(quoted))
+          : T(card.title);
         return `<div class="kind">${T(UI.tileMarket)}</div>
-          <h2 id="nn-dlg-title">${T(card.title)}</h2>
+          <h2 id="nn-dlg-title">${headline}</h2>
           <p class="story">${T(card.story)}</p>
           <div style="margin-top:1rem">${rows}${empty}</div>
           ${buyBox}

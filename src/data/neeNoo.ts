@@ -476,11 +476,11 @@ export const deals: DealCard[] = [
       th: 'ทองไม่ให้ดอกผลสักบาท มันแค่รอวันที่ราคาขึ้น และรอเป็น',
       en: 'Gold pays no income at all. It just waits for the price to rise, and it is very good at waiting.',
     },
-    price: 42000,
-    down: 42000,
+    price: 68000,
+    down: 68000,
     debt: 0,
     cashflow: 0,
-    maxQty: 30,
+    maxQty: 18,
   },
   /* ---- small: property ---- */
   {
@@ -962,11 +962,11 @@ export const deals: DealCard[] = [
       th: 'ยังไม่ให้ดอกผลเหมือนเดิม และยังรอเป็นเหมือนเดิม รวมกองกับทองที่คุณถือมาตั้งแต่ยังอยู่ในวงล้อ',
       en: 'Still pays nothing, still very good at waiting. It stacks with whatever gold you carried out of the rat race.',
     },
-    price: 42000,
-    down: 42000,
+    price: 68000,
+    down: 68000,
     debt: 0,
     cashflow: 0,
-    maxQty: 200,
+    maxQty: 124,
   },
   {
     id: 'ff-setx',
@@ -1281,6 +1281,39 @@ export const deals: DealCard[] = [
   },
 ];
 
+/* ----------------------------------------------------------- traded prices */
+
+/**
+ * How each traded thing behaves between market cards.
+ *
+ * Prices used to sit perfectly still unless a card came up, so a player could
+ * reach eighty years old holding gold at the price they paid for it in their
+ * thirties. Every month now moves them: `drift` is the long-run trend a year,
+ * `vol` is how far a year can wander off it, and `pull` is how strongly the
+ * price is dragged back toward the trend line afterwards.
+ *
+ * The figures are set against what these things have actually done. Thai gold
+ * ran from around ฿20,000 a baht-weight in the mid-2010s to an all-time high
+ * above ฿80,000 in January 2026 and was back near ฿68,000 by that August: a
+ * long climb with drops of fifteen percent inside a year, which is what a 7%
+ * trend and 18% annual volatility looks like. The index fund carries the Thai
+ * market's long-run price growth with its dividend paid separately, single
+ * shares swing two to three times as hard as the index, and bonds barely move
+ * at all but are pulled firmly back to par, because that is what they redeem at.
+ */
+export const priceModels: Record<string, { drift: number; vol: number; pull: number }> = {
+  GOLD: { drift: 0.07, vol: 0.18, pull: 0.006 },
+  SETX: { drift: 0.06, vol: 0.16, pull: 0.01 },
+  MKT: { drift: 0.05, vol: 0.34, pull: 0.015 },
+  TRN: { drift: 0.06, vol: 0.32, pull: 0.015 },
+  SOLR: { drift: 0.07, vol: 0.4, pull: 0.015 },
+  BNK: { drift: 0.04, vol: 0.24, pull: 0.02 },
+  REIT: { drift: 0.03, vol: 0.18, pull: 0.025 },
+  CORPB: { drift: 0, vol: 0.05, pull: 0.15 },
+  GOVB: { drift: 0, vol: 0.04, pull: 0.18 },
+  MMF: { drift: 0, vol: 0.005, pull: 0.4 },
+};
+
 /* ------------------------------------------------------------ market cards */
 
 export const marketCards: MarketCard[] = [
@@ -1288,8 +1321,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-mkt-up',
     type: 'price',
     symbol: 'MKT',
-    price: 28,
-    title: { th: 'MKT พุ่งเป็น 28 บาท', en: 'MKT jumps to ฿28' },
+    move: 2.8,
+    title: { th: 'MKT พุ่งขึ้น 180% เป็น {price}', en: 'MKT jumps 180% to {price}' },
     story: {
       th: 'ห้างประกาศผลประกอบการดีกว่าคาด นักวิเคราะห์แห่ปรับเป้าราคาขึ้นพร้อมกัน',
       en: 'The chain beat its earnings forecast and every analyst raised their target at once.',
@@ -1299,8 +1332,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-mkt-down',
     type: 'price',
     symbol: 'MKT',
-    price: 4,
-    title: { th: 'MKT ร่วงเหลือ 4 บาท', en: 'MKT slides to ฿4' },
+    move: 0.4,
+    title: { th: 'MKT ร่วง 60% เหลือ {price}', en: 'MKT slides 60% to {price}' },
     story: {
       th: 'ข่าวลือว่าจะปิดสาขาต่างจังหวัด คนแห่ขายทิ้ง ราคาถูกลงกว่าครึ่ง',
       en: 'A rumour about closing upcountry branches sent everyone to the exit; the price more than halved.',
@@ -1310,8 +1343,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-trn-up',
     type: 'price',
     symbol: 'TRN',
-    price: 60,
-    title: { th: 'TRN พุ่งเป็น 60 บาท', en: 'TRN jumps to ฿60' },
+    move: 2.4,
+    title: { th: 'TRN พุ่งขึ้น 140% เป็น {price}', en: 'TRN jumps 140% to {price}' },
     story: {
       th: 'ได้สัญญาขนส่งให้แพลตฟอร์มอีคอมเมิร์ซรายใหญ่ ราคาวิ่งขึ้นสองวันติด',
       en: 'It won the delivery contract for a major e-commerce platform and ran up for two straight days.',
@@ -1321,8 +1354,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-trn-down',
     type: 'price',
     symbol: 'TRN',
-    price: 12,
-    title: { th: 'TRN ร่วงเหลือ 12 บาท', en: 'TRN drops to ฿12' },
+    move: 0.48,
+    title: { th: 'TRN ร่วง 52% เหลือ {price}', en: 'TRN drops 52% to {price}' },
     story: {
       th: 'น้ำมันแพงขึ้น ต้นทุนขนส่งพุ่ง กำไรไตรมาสนี้หายไปเกือบหมด',
       en: 'Fuel got expensive, delivery costs spiked, and this quarter’s profit nearly vanished.',
@@ -1332,8 +1365,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-solr-up',
     type: 'price',
     symbol: 'SOLR',
-    price: 14,
-    title: { th: 'SOLR พุ่งเป็น 14 บาท', en: 'SOLR jumps to ฿14' },
+    move: 2.8,
+    title: { th: 'SOLR พุ่งขึ้น 180% เป็น {price}', en: 'SOLR jumps 180% to {price}' },
     story: {
       th: 'รัฐประกาศรับซื้อไฟจากโซลาร์เพิ่ม หุ้นเล็กตัวนี้เด้งแรงกว่าตัวใหญ่',
       en: 'The state raised how much solar power it will buy, and this small cap bounced harder than the big ones.',
@@ -1343,8 +1376,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-solr-down',
     type: 'price',
     symbol: 'SOLR',
-    price: 2,
-    title: { th: 'SOLR ร่วงเหลือ 2 บาท', en: 'SOLR falls to ฿2' },
+    move: 0.4,
+    title: { th: 'SOLR ร่วง 60% เหลือ {price}', en: 'SOLR falls 60% to {price}' },
     story: {
       th: 'บริษัทขาดทุนอีกปี ต้องเพิ่มทุน ผู้ถือหุ้นเดิมโดนลดสัดส่วน',
       en: 'Another loss-making year forced a capital raise, diluting everyone who already held it.',
@@ -1354,8 +1387,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-bnk-up',
     type: 'price',
     symbol: 'BNK',
-    price: 75,
-    title: { th: 'BNK พุ่งเป็น 75 บาท', en: 'BNK jumps to ฿75' },
+    move: 1.875,
+    title: { th: 'BNK ขึ้น 88% เป็น {price}', en: 'BNK rises 88% to {price}' },
     story: {
       th: 'ดอกเบี้ยขาขึ้นทำให้ธนาคารกำไรดี ราคาหุ้นวิ่งตามเกือบเท่าตัว',
       en: 'Rising interest rates fattened bank profits and nearly doubled the share price.',
@@ -1365,8 +1398,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-reit-up',
     type: 'price',
     symbol: 'REIT',
-    price: 145,
-    title: { th: 'REIT ขึ้นเป็นหน่วยละ 145 บาท', en: 'REIT rises to ฿145 per unit' },
+    move: 1.45,
+    title: { th: 'REIT ขึ้น 45% เป็นหน่วยละ {price}', en: 'REIT rises 45% to {price} per unit' },
     story: {
       th: 'กองทุนซื้อตึกเพิ่มอีกสองแห่ง ค่าเช่ารวมโตขึ้น คนอยากถือมากขึ้น',
       en: 'The fund bought two more buildings, total rent grew, and demand for units followed.',
@@ -1376,8 +1409,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-up',
     type: 'price',
     symbol: 'GOLD',
-    price: 58000,
-    title: { th: 'ทองขึ้นเป็นบาทละ 58,000', en: 'Gold rises to ฿58,000 per baht-weight' },
+    move: 1.381,
+    title: { th: 'ทองขึ้น 38% เป็นบาทละ {price}', en: 'Gold rises 38% to {price} per baht-weight' },
     story: {
       th: 'ตลาดโลกผันผวน คนแห่เข้าซื้อทองเป็นที่หลบภัย ร้านทองคนแน่นตั้งแต่เช้า',
       en: 'Global markets wobbled, everyone ran to gold as shelter, and the gold shops were packed from dawn.',
@@ -1387,8 +1420,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-up2',
     type: 'price',
     symbol: 'GOLD',
-    price: 49000,
-    title: { th: 'ทองขึ้นเป็นบาทละ 49,000', en: 'Gold rises to ฿49,000 per baht-weight' },
+    move: 1.167,
+    title: { th: 'ทองขึ้น 17% เป็นบาทละ {price}', en: 'Gold rises 17% to {price} per baht-weight' },
     story: {
       th: 'ธนาคารกลางหลายประเทศทยอยซื้อทองเข้าคลัง ราคาขยับขึ้นช้า ๆ แต่ไม่ยอมลง',
       en: 'Central banks kept adding to their reserves, and the price crept up without ever slipping back.',
@@ -1398,8 +1431,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-down2',
     type: 'price',
     symbol: 'GOLD',
-    price: 38000,
-    title: { th: 'ทองลงเหลือบาทละ 38,000', en: 'Gold slips to ฿38,000 per baht-weight' },
+    move: 0.905,
+    title: { th: 'ทองย่อลง 10% เหลือบาทละ {price}', en: 'Gold slips 10% to {price} per baht-weight' },
     story: {
       th: 'ค่าเงินแข็งขึ้น ราคาทองในประเทศเลยย่อลงทั้งที่ราคาทองโลกแทบไม่ขยับ',
       en: 'The currency strengthened, so the local gold price eased even though the world price barely moved.',
@@ -1409,8 +1442,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-bnk-down',
     type: 'price',
     symbol: 'BNK',
-    price: 22,
-    title: { th: 'BNK ร่วงเหลือ 22 บาท', en: 'BNK slides to ฿22' },
+    move: 0.55,
+    title: { th: 'BNK ร่วง 45% เหลือ {price}', en: 'BNK slides 45% to {price}' },
     story: {
       th: 'ธนาคารตั้งสำรองหนี้เสียก้อนใหญ่ กำไรหด และประกาศลดปันผลลงในปีหน้า',
       en: 'The bank set aside a large provision for bad loans, profit shrank, and next year’s dividend was cut.',
@@ -1420,8 +1453,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-reit-down',
     type: 'price',
     symbol: 'REIT',
-    price: 62,
-    title: { th: 'REIT ร่วงเหลือหน่วยละ 62 บาท', en: 'REIT falls to ฿62 per unit' },
+    move: 0.62,
+    title: { th: 'REIT ร่วง 38% เหลือหน่วยละ {price}', en: 'REIT falls 38% to {price} per unit' },
     story: {
       th: 'ตึกในกองทุนสองแห่งผู้เช่ารายใหญ่ย้ายออก ค่าเช่าที่เก็บได้ลดลงทั้งกอง',
       en: 'Anchor tenants left two of the fund’s buildings, and collected rent fell across the whole portfolio.',
@@ -1431,8 +1464,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-gold-down',
     type: 'price',
     symbol: 'GOLD',
-    price: 33000,
-    title: { th: 'ทองลงเหลือบาทละ 33,000', en: 'Gold drops to ฿33,000 per baht-weight' },
+    move: 0.786,
+    title: { th: 'ทองร่วง 21% เหลือบาทละ {price}', en: 'Gold drops 21% to {price} per baht-weight' },
     story: {
       th: 'ตลาดหุ้นโลกกลับมาคึกคัก คนขายทองออกไปหาของที่ให้ผลตอบแทนมากกว่าการรอ',
       en: 'World stock markets perked up and people sold gold for things that pay more than waiting does.',
@@ -1442,8 +1475,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-setx-up',
     type: 'price',
     symbol: 'SETX',
-    price: 1380,
-    title: { th: 'ดัชนีหุ้นไทยขึ้น หน่วยละ 1,380', en: 'The Thai index climbs to ฿1,380 a unit' },
+    move: 1.38,
+    title: { th: 'ดัชนีหุ้นไทยขึ้น 38% เป็นหน่วยละ {price}', en: 'The Thai index climbs 38% to {price} a unit' },
     story: {
       th: 'ต่างชาติกลับมาซื้อสุทธิติดกันหกสัปดาห์ กองทุนดัชนีขึ้นตามทั้งตลาดโดยไม่ต้องเลือกหุ้นถูกสักตัว',
       en: 'Six straight weeks of foreign buying lifted the whole market, and the index fund with it, without picking a single winner.',
@@ -1453,8 +1486,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-setx-down',
     type: 'price',
     symbol: 'SETX',
-    price: 720,
-    title: { th: 'ดัชนีหุ้นไทยร่วง เหลือหน่วยละ 720', en: 'The Thai index falls to ฿720 a unit' },
+    move: 0.72,
+    title: { th: 'ดัชนีหุ้นไทยร่วง 28% เหลือหน่วยละ {price}', en: 'The Thai index falls 28% to {price} a unit' },
     story: {
       th: 'ข่าวการเมืองกับกำไรบริษัทที่ต่ำกว่าคาดมาพร้อมกัน ตลาดลงยกแผงและกองทุนดัชนีก็ลงยกแผงเหมือนกัน',
       en: 'Politics and a disappointing earnings season arrived together. The market fell across the board, and so did the fund.',
@@ -1464,8 +1497,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-corpb-down',
     type: 'price',
     symbol: 'CORPB',
-    price: 74000,
-    title: { th: 'หุ้นกู้ถูกลดอันดับ เหลือใบละ 74,000', en: 'The corporate bonds are downgraded to ฿74,000' },
+    move: 0.74,
+    title: { th: 'หุ้นกู้ถูกลดอันดับ ราคาเหลือ {price}', en: 'The corporate bonds are downgraded to {price}' },
     story: {
       th: 'บริษัทผู้ออกโดนหั่นเครดิตเรตติ้ง ราคาหุ้นกู้ในตลาดรองร่วงทันที นี่คือส่วนต่างดอกเบี้ยที่คุณได้มาแลกกับอะไร',
       en: 'The issuer was downgraded and the secondary price fell at once. This is what that extra yield was paying you for.',
@@ -1475,8 +1508,8 @@ export const marketCards: MarketCard[] = [
     id: 'm-govb-up',
     type: 'price',
     symbol: 'GOVB',
-    price: 112000,
-    title: { th: 'ดอกเบี้ยขาลง พันธบัตรขึ้นเป็นใบละ 112,000', en: 'Rates fall and the bonds rise to ฿112,000' },
+    move: 1.12,
+    title: { th: 'ดอกเบี้ยขาลง พันธบัตรขึ้นเป็น {price}', en: 'Rates fall and the bonds rise to {price}' },
     story: {
       th: 'แบงก์ชาติลดดอกเบี้ย พันธบัตรเก่าที่จ่ายดอกสูงกว่าจึงมีคนอยากได้ ราคาเลยขึ้น',
       en: 'The central bank cut rates, so older bonds paying the higher coupon became worth having, and their price rose.',
