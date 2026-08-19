@@ -63,6 +63,69 @@ const description =
     /* The back link gets its own line so the title starts at the container's
        real left edge, in line with everything below it. */
     .nn-head{margin-bottom:1.5rem;}
+    /* The version chip: monospace, quiet, and out of the way until there is
+       something new behind it, at which point it grows a gold dot. Loud enough
+       to notice on the second visit, never loud enough to compete with the
+       board. */
+    .nn-ver{
+      display:inline-flex;
+      align-items:center;
+      gap:0.35rem;
+      margin-top:0.5rem;
+      padding:0.18rem 0.5rem;
+      border:1px solid var(--nn-border);
+      border-radius:999px;
+      background:var(--nn-panel);
+      color:var(--nn-muted);
+      font-family:"JetBrains Mono", monospace;
+      font-size:0.66rem;
+      letter-spacing:.4px;
+      cursor:pointer;
+      transition:color .15s, border-color .15s;
+    }
+    .nn-ver:hover, .nn-ver:focus-visible{color:var(--nn-gold);border-color:var(--nn-gold);}
+    .nn-ver .nn-verdot{
+      width:0.4rem;height:0.4rem;border-radius:50%;
+      background:var(--nn-gold);
+      box-shadow:0 0 0 3px rgba(226,178,60,.18);
+    }
+    .nn-ver.is-new{color:var(--nn-gold);border-color:rgba(226,178,60,.5);}
+    /* One release per block, newest first, with the tag telling you in one word
+       whether a line is something new, something changed, or something that was
+       simply wrong before. */
+    .nn-rel{margin:1.1rem 0 0;padding-top:0.9rem;border-top:1px dashed var(--nn-border);}
+    .nn-rel:first-of-type{border-top:none;padding-top:0;margin-top:0.6rem;}
+    .nn-relhead{display:flex;align-items:baseline;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;}
+    .nn-relver{font-family:"JetBrains Mono", monospace;font-size:0.9rem;font-weight:700;color:#fff;}
+    .nn-relname{font-size:0.82rem;color:var(--nn-gold);}
+    .nn-reldate{font-size:0.7rem;color:var(--nn-muted);margin-left:auto;font-variant-numeric:tabular-nums;}
+    .nn-rel ul{list-style:none;display:grid;gap:0.4rem;}
+    .nn-rel li{display:flex;gap:0.5rem;font-size:0.79rem;line-height:1.65;color:var(--nn-ink);}
+    .nn-tag{
+      flex:none;
+      align-self:flex-start;
+      margin-top:0.15rem;
+      padding:0.05rem 0.4rem;
+      border-radius:5px;
+      font-family:"JetBrains Mono", monospace;
+      font-size:0.6rem;
+      letter-spacing:.3px;
+      text-transform:uppercase;
+      white-space:nowrap;
+    }
+    .nn-tag-added{background:rgba(47,158,92,.16);color:var(--nn-green-bright);}
+    .nn-tag-changed{background:rgba(226,178,60,.16);color:var(--nn-gold);}
+    .nn-tag-fixed{background:rgba(90,140,220,.16);color:#8fb6f0;}
+    .nn-tag-removed{background:rgba(217,83,79,.16);color:var(--nn-red-soft);}
+    .nn-relnew{
+      margin:0 0 0.6rem;
+      padding:0.45rem 0.6rem;
+      border:1px solid rgba(226,178,60,.4);
+      border-radius:9px;
+      background:rgba(226,178,60,.1);
+      font-size:0.75rem;
+      color:var(--nn-gold);
+    }
     .nn-headrow{
       display:flex;
       flex-wrap:wrap;
@@ -1199,6 +1262,12 @@ const description =
           <h1 data-i18n="gameTitle">หนีหนู</h1>
           <p class="nn-tier" data-tier hidden></p>
           <p class="nn-sub" data-i18n="gameSub">เกมกระดานการเงินที่คุณชนะเมื่อเงินไหลเข้าต่อเดือน มากกว่ารายจ่ายต่อเดือน</p>
+          <!-- The build, where a player can read it off a screenshot. Feedback
+               about a game that changes every day is worth much less without
+               it: "the bank never lends to me" is a different sentence in two
+               different versions. Filled in by the script so the number lives
+               in one place. -->
+          <button type="button" class="nn-ver" data-act="changelog" data-ver hidden></button>
         </div>
         <div class="nn-tools">
           <button type="button" class="nn-btn" data-act="rules" data-i18n="rules">กติกา</button>
@@ -1495,6 +1564,8 @@ const description =
       totalIncome,
     } from '../../lib/neeNoo/engine';
     import { TILE_SHORT, UI } from '../../lib/neeNoo/ui-text';
+    import { GAME_VERSION, releases } from '../../data/neeNooChangelog';
+    import type { ChangeKind } from '../../data/neeNooChangelog';
     import type { DealCard, GameState, Lang, Loc } from '../../lib/neeNoo/types';
     import type { TaxSlice } from '../../lib/neeNoo/engine';
 
@@ -1502,6 +1573,15 @@ const description =
     const LANG_KEY = 'neeNooLang';
     const LEARN_KEY = 'neeNooLearned';
     const SPEED_KEY = 'neeNooSpeed';
+    /** the newest version this device has already been shown the notes for */
+    const SEEN_VERSION_KEY = 'neeNooSeenVersion';
+    /**
+     * Whether this visit is the one where the version changed. Read once at
+     * boot and kept, because opening the notes marks them read: asking storage
+     * again at render time would always answer "no" and the banner saying which
+     * release is the new one would never appear.
+     */
+    let versionWasNew = false;
 
     type Root = HTMLElement & { __neeNoo?: boolean };
     /** how long the turn animation is allowed to take; a full game is 100+ turns */
@@ -1538,7 +1618,7 @@ const description =
     let seenLearn = false;
     /** fires once per escape, unlike the ending which stays on screen */
     let seenFastIntro = false;
-    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'buyhome' | 'movein' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
+    let modal: 'rules' | 'confirmRestart' | 'fastIntro' | 'borrow' | 'buyhome' | 'movein' | 'changelog' | 'tax' | 'corp' | 'learn' | 'define' | 'books' | null = null;
     /** which term the glossary popover is explaining */
     let defineKey: GlossaryKey | null = null;
     /** which company's books are open on their own */
@@ -2525,6 +2605,7 @@ const description =
 
     function dialogHtml(s: GameState | null): string | null {
       if (modal === 'rules') return rulesDialog();
+      if (modal === 'changelog') return changelogDialog();
       if (modal === 'learn') return learnDialog();
       if (modal === 'confirmRestart') return confirmRestartDialog();
       // A definition is asked for from inside another card, so it answers first
@@ -2968,6 +3049,79 @@ const description =
      */
     function why(key: GlossaryKey, rendered: string, extra = ''): string {
       return `<button type="button" class="nn-whynum ${extra}" data-act="define" data-id="${key}">${rendered}</button>`;
+    }
+
+    /* ------------------------------------------------------------ versions */
+
+    /**
+     * Which version this device last read the notes for, and whether that is
+     * behind the one it is now running.
+     */
+    function seenVersion(): string {
+      try {
+        return localStorage.getItem(SEEN_VERSION_KEY) ?? '';
+      } catch {
+        return '';
+      }
+    }
+
+    function markVersionSeen(): void {
+      try {
+        localStorage.setItem(SEEN_VERSION_KEY, GAME_VERSION);
+      } catch {
+        /* ignore private mode */
+      }
+    }
+
+    const versionIsNew = (): boolean => seenVersion() !== GAME_VERSION;
+
+    /** Paints the chip in the header, with its dot when there is something unread. */
+    function renderVersion(root: Root): void {
+      const chip = root.querySelector<HTMLElement>('[data-ver]');
+      if (!chip) return;
+      const fresh = versionIsNew();
+      chip.hidden = false;
+      chip.classList.toggle('is-new', fresh);
+      chip.innerHTML = `${fresh ? '<span class="nn-verdot" aria-hidden="true"></span>' : ''}v${GAME_VERSION}`;
+      chip.setAttribute('aria-label', `${T(UI.changelogTitle)} v${GAME_VERSION}`);
+      chip.title = T(fresh ? UI.versionNew : UI.versionSeen);
+    }
+
+    /**
+     * The notes themselves. Newest release first, every line tagged with what
+     * it did, and the release the player has not read yet called out at the top
+     * so a returning player knows which block is the new one.
+     */
+    function changelogDialog(): string {
+      const TAGS: Record<ChangeKind, Loc> = {
+        added: UI.tagAdded,
+        changed: UI.tagChanged,
+        fixed: UI.tagFixed,
+        removed: UI.tagRemoved,
+      };
+      const unread = versionWasNew;
+      const blocks = releases
+        .map(
+          (r) => `<div class="nn-rel">
+            <div class="nn-relhead">
+              <span class="nn-relver">v${r.version}</span>
+              <span class="nn-relname">${T(r.codename)}</span>
+              <span class="nn-reldate">${r.dateISO}</span>
+            </div>
+            <ul>${r.entries
+              .map(
+                (e) => `<li><span class="nn-tag nn-tag-${e.kind}">${T(TAGS[e.kind])}</span><span>${T(e.text)}</span></li>`,
+              )
+              .join('')}</ul>
+          </div>`,
+        )
+        .join('');
+      return `<div class="kind">${T(UI.changelogTag)}</div>
+        <h2 id="nn-dlg-title">${T(UI.changelogTitle)}</h2>
+        <p class="story">${T(UI.changelogBody)}</p>
+        ${unread ? `<p class="nn-relnew">${T(UI.changelogFresh).replace('{version}', GAME_VERSION)}</p>` : ''}
+        ${blocks}
+        <div class="nn-acts"><button type="button" class="nn-btn nn-btn-go" data-act="closemodal">${T(UI.close)}</button></div>`;
     }
 
     /** A tappable term: the word itself, with the dotted underline that says so. */
@@ -4001,6 +4155,8 @@ const description =
       const game = root.querySelector<HTMLElement>('[data-screen="game"]');
       if (!setup || !game) return;
 
+      renderVersion(root);
+
       if (!state) {
         setup.hidden = false;
         game.hidden = true;
@@ -4409,6 +4565,12 @@ const description =
         case 'borrow':
           modal = 'borrow';
           break;
+        // Opening the notes is what counts as having read them, whether the
+        // player opened them or the game did it for them.
+        case 'changelog':
+          modal = 'changelog';
+          markVersionSeen();
+          break;
         case 'buyhome':
           modal = 'buyhome';
           break;
@@ -4706,6 +4868,19 @@ const description =
       // one moment it is worth reading. Anybody with a game already saved, or
       // who has read it once on this device, goes straight to the board.
       if (!seenLearn && !saved) modal = 'learn';
+
+      // Somebody who has played before deserves to be told the game changed
+      // under them, once, on the visit it changed. Somebody arriving for the
+      // first time has no older version to be surprised by, so their chip is
+      // marked read on the spot and they are shown nothing.
+      const returning = !!saved || seenVersion() !== '';
+      versionWasNew = returning && versionIsNew();
+      if (!returning) {
+        markVersionSeen();
+      } else if (versionWasNew && modal === null) {
+        modal = 'changelog';
+        markVersionSeen();
+      }
 
       // A turn whose timers were frozen by a backgrounded tab must not leave the
       // board dead. The watchdog is the load-bearing half: a disabled button
