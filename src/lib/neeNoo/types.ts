@@ -291,8 +291,14 @@ export interface Fundamentals {
 }
 
 export type MarketCard =
-  /** a quoted price for one traded symbol — sell (or top up) at this price */
-  | { id: string; type: 'price'; symbol: string; price: number; title: Loc; story: Loc }
+  /**
+   * News that moves one traded symbol, as a multiple of whatever it is trading
+   * at when the card comes up. It used to carry an absolute price, which made
+   * the card a reset button: gold could climb for thirty years and a single
+   * draw would drop it back to a number written in 2026. `move` is the size of
+   * the jump, and the title fills in the resulting price with `{price}`.
+   */
+  | { id: string; type: 'price'; symbol: string; move: number; title: Loc; story: Loc }
   /** a buyer for property/land matching `tag`, paying sticker price × multiplier */
   | { id: string; type: 'offer'; tag: string; multiplier: number; title: Loc; story: Loc }
   /** a buyer for any business, paying its monthly cash flow × `monthsMultiple` */
