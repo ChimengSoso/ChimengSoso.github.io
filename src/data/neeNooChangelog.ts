@@ -30,6 +30,104 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.7.0',
+    dateISO: '2026-08-22',
+    codename: { th: 'ตลาดที่ลงได้จริง', en: 'A market that can actually fall' },
+    entries: [
+      {
+        kind: 'changed',
+        text: {
+          th: 'กองทุนดัชนีสุ่มผลตอบแทน "รายปี" ครั้งเดียวแล้วทยอยเดินทีละเดือน จากเดิมที่สุ่มใหม่ทุกเดือนแล้วหารสิบสอง ซึ่งฟังดูผันผวนแต่จริง ๆ แล้วหักล้างกันเองจนปีที่แย่ที่สุดเท่าที่เป็นไปได้คือประมาณ -2% ตอนนี้ปีที่แย่จริง ๆ ลงได้ถึง -40% กว่า และกองทุนสำรองเลี้ยงชีพกับกองทุนลดหย่อนภาษีก็ลงตามไปด้วย เพราะทั้งสามกองห่อหุ้มตลาดเดียวกัน ผลตอบแทนระยะยาวยังอยู่ที่ 7% ต่อปีเท่าเดิม',
+          en: 'The index fund now draws one return for the whole year and lives through it month by month, instead of redrawing every month and dividing by twelve. That sounded volatile and was not: twelve draws cancel, so the worst year the fund could possibly have was about -2%. A bad year can now take more than 40%, and the provident fund and the tax-break fund fall with it, because all three wrap the same market. The long-run return is still 7% a year.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ปีไหนที่ตลาดลงหนัก จะมีการ์ดขึ้นมาถามตรง ๆ ว่าจะหยุดคำสั่งซื้อกองทุนรายเดือนไว้ก่อนไหม พร้อมบอกว่าปีนี้พอร์ตหายไปกี่บาท นี่คือคำถามเดียวกับที่คนจริง ๆ ต้องตอบทุกครั้งที่ตลาดลง และคำตอบของมันคือสิ่งที่ตัดสินพอร์ตทั้งชีวิต',
+          en: 'When a year falls hard a card asks outright whether to stop the monthly standing order, and says how much came off the fund this year. It is the same question anybody with a fund faces every time a market falls, and the answer to it decides a portfolio.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลตอบแทนอสังหาฯ ให้เช่าปรับใหม่ทั้งสำรับให้ตรงกับของจริงในไทย และต่างกันตามประเภทแทนที่จะเท่ากันหมด คอนโดกลางเมืองราว 5% ต่อปี ห้องเช่าใกล้โรงงานราว 8.5% หอพักราว 9% โรงแรม 11% จากเดิมที่ทุกใบอยู่ที่ 10.3% ถึง 13.2% เท่ากันหมด และเงินดาวน์เปลี่ยนจาก 5% ทุกใบ เป็น 10% ถึง 30% ตามประเภท เพราะโกดังกับโรงแรมไม่ใช่สินเชื่อบ้าน ผลคือการเลือกว่าจะซื้อใบไหนกลายเป็นการตัดสินใจจริง ไม่ใช่ซื้ออะไรก็ชนะ',
+          en: 'Rental yields across the whole deck were rebuilt to match what Thai property actually pays, and to differ by type instead of being one number: a city condo about 5% a year, rooms by a factory about 8.5%, a dormitory 9%, a hotel 11%, where every card used to sit between 10.3% and 13.2%. Deposits moved from a flat 5% to between 10% and 30% by type, because a warehouse and a hotel are not home loans. Choosing which building to buy is now a decision rather than a formality.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'กิจการเล็กแทบทุกใบมีความผันผวนแล้ว ร้านซักผ้าเคยจ่ายเท่าเดิมทุกเดือนติดต่อกันสามสิบปี ตอนนี้รายได้ขยับขึ้นลงเหมือนร้านจริง และร้านอาหาร รถเข็น ร้านชานม คาเฟ่ มีโอกาสปิดกิจการตามอัตราของตัวเอง เมื่อก่อนมีแค่ 6 ใบจาก 49 ใบที่ขยับได้เลย',
+          en: 'Nearly every small business now moves. A coin laundry used to pay the same amount every month for thirty years; its takings now rise and fall like a real one, and restaurants, carts, milk-tea shops and cafes can close for good at a rate of their own. Only 6 of the 49 cards used to move at all.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'เพิ่มอาชีพ "ไรเดอร์ส่งอาหาร" เงินเดือนต่ำสุดในเกม เหลือเก็บเดือนละสี่ร้อยบาท มีบัตรเครดิตหมุนอยู่ ไม่มีนายจ้าง ไม่มีบำนาญ ทุกอาชีพก่อนหน้านี้เริ่มเกมด้วยเงินเหลือ 18% ถึง 29% ของรายได้ ซึ่งข้ามสถานการณ์ที่ครัวเรือนไทยจำนวนมากอยู่จริงไปทั้งก้อน ที่นั่งนี้ภารกิจแรกไม่ใช่การลงทุน แต่คือการทำให้เหลือเงิน',
+          en: 'A new seat: the delivery rider, on the smallest wage in the game, with four hundred baht left at the end of the month and a credit card revolving. No employer and no pension. Every other job opens with 18% to 29% of its income left over, which quietly assumes away the situation a great many Thai households are actually in. Here the first job is not investing; it is having anything left.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'งบแสดงสองบรรทัดที่ไม่เคยแสดงมาก่อน คือเก็บได้กี่เปอร์เซ็นต์ของเงินที่เข้ามา และเงินสดพอจ่ายบิลได้กี่เดือน สองตัวนี้คือตัวที่ผู้เล่นสั่งได้เองทั้งหมดและทำนายตอนจบได้ดีที่สุด ตัวหลังเคยมีอยู่แล้วแต่มีแค่ธนาคารที่เห็นตอนพิจารณาสินเชื่อ',
+          en: 'The statement now carries two lines it never showed: the share of income you keep, and how many months of bills the cash would cover. They are the two numbers most under the player’s own hand and the two that predict the ending best. The bank could already see the second one; the player could not.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ใบสรุปตอนจบเพิ่มบรรทัดวินิจฉัย บอกตรง ๆ ว่ารูรั่วที่ใหญ่ที่สุดของเกมนั้นคืออะไร เลือกจากตัวเลขที่เก็บไว้อยู่แล้ว เช่นเดือนที่เงินสดติดลบ ดอกเบี้ยที่จ่ายมากกว่าเงินที่ลงทุน หรือกองเงินสดไว้เฉย ๆ หลายปี หน้าที่มีแต่ตัวเลขโดยไม่มีใครจัดอันดับให้ คือหน้าที่ไม่มีใครได้อะไรกลับไป',
+          en: 'The ending card now names the single biggest leak of that game, chosen from tallies it was already keeping: months spent overdrawn, interest that outgrew the investing, cash left sitting for years. A page of numbers nobody ranks is a page nobody learns from.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'นักบินเคยถูกระงับใบอนุญาตเกือบทุกเกม การ์ดตกงานเปิดขึ้นราวปีละ 0.7 ครั้ง แต่โอกาสตรวจร่างกายไม่ผ่านตั้งไว้ 15% ต่อครั้งและไต่ถึง 60% ตามอายุ ผลจากการทดลองเล่น 20 เกมคือนักบินเสียใบอนุญาตครบทั้ง 20 เกม และล้มละลายไป 17 เกม ตอนนี้อยู่ที่ราวหนึ่งในสี่ของทั้งชีวิตการบิน ซึ่งยังเป็นความเสี่ยงอาชีพที่หนักที่สุดในเกม แต่รอดได้ถ้าสร้างรายได้ไว้ก่อน',
+          en: 'The pilot used to lose the licence in nearly every game. The layoff tile comes round about 0.7 times a year while the medical was set to fail at 15% a time, rising to 60% with age: across twenty test games all twenty pilots were grounded and seventeen went bankrupt after it. It now works out at roughly one flying career in four, still the heaviest career risk in the game and survivable by anybody who built income first.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'การ์ดตกงานเลิกถือว่า "เปิดการ์ด = ตกงาน" แล้ว การ์ดเปิดราวปีละ 0.7 ครั้ง แต่เดิมทุกครั้งที่เปิดคือตกงานจริง ครูเสียเดือนละครั้ง โปรแกรมเมอร์เสีย 4 เดือนทุกครั้ง คิดเป็นชีวิตการทำงานที่ไม่มีเงินเดือน 6% ถึง 23% ในประเทศที่อัตราว่างงานจริงราว 1% ตอนนี้แต่ละครั้งจะสุ่มว่าเป็นข่าวประเภทไหน ส่วนใหญ่คือ "รอบนี้ไม่ถึงโต๊ะคุณ" ผลคือสัดส่วนชีวิตที่ไม่มีเงินเดือนเหลือ 0.5% สำหรับข้าราชการและพยาบาล 4.4% สำหรับออฟฟิศกับวิศวกร และ 5.8% สำหรับโปรแกรมเมอร์ ซึ่งยังเรียงลำดับความเสี่ยงเหมือนเดิมทุกอาชีพ',
+          en: 'The layoff card no longer treats every landing as the thing itself. It comes round about 0.7 times a year, and each landing used to be a real redundancy: a month for the teacher, four for the developer, which reads as a working life with 6% to 23% of its months unpaid in a country whose unemployment rate is about 1%. Each landing now rolls for what kind of news it is, and most of the time it did not reach your desk. The share of a career spent unpaid comes out at 0.5% for a civil servant or a nurse, 4.4% for the office worker and the engineer, and 5.8% for the developer, which keeps every profession in the order it was written in.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'เพิ่มผลลัพธ์ "ปีนี้ไม่มีการปรับเงินเดือน" ให้การ์ดตกงาน งานยังอยู่ครบแต่ขั้นเงินเดือนปีนั้นหายไปเลย และไม่ได้ไล่คืนทีหลัง ทั้งบันไดจึงสั้นลงหนึ่งขั้นไปตลอดอาชีพ แพทย์ที่โดนแช่หนึ่งปีตอนปีที่สิบ เสียเงินเดือนเดือนละ ฿4,306 ไปจนเกษียณ เกิดราวสิบสองปีครั้ง นี่คือการลดเงินเดือนที่ไม่มีใครออกจดหมายแจ้ง และเงินเฟ้อ 3% ต่อปีเก็บของมันไปเงียบ ๆ ทุกปี',
+          en: 'The layoff card gained a third outcome: no rise this year. The desk is untouched and the rung is gone for good, never caught up later, so the whole ladder stays one step shorter for the rest of the career. A doctor frozen once in year ten is ฿4,306 a month poorer until retirement. It happens about once every twelve years. It is a pay cut nobody writes a letter about, and 3% inflation collects on it quietly every year after.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'เรียนจบสายที่ต้องมีใบอนุญาตแล้วยังไม่ได้เริ่มงานทันที ต้องรอรอบเรียกตัว นักบินรอเฉลี่ย 7 เดือน พยาบาลกับครูราว 2 เดือน ระหว่างรอไม่มีเงินเดือนแต่รายจ่ายเดินต่อ เพราะค่าเรียนไม่ใช่ส่วนที่แพงที่สุดของการเปลี่ยนสาย',
+          en: 'Qualifying in a licensed field no longer means starting work that week. The pilot waits about seven months for a seat, a nurse or a teacher about two, with no wage and the bills carrying on, because the tuition was never the expensive part of changing careers.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'เงินเดือนหลังเปลี่ยนสายไต่กลับปีละ 20% ของช่องว่าง จากเดิมที่โดนหักถาวรตลอดชีวิต คนที่ย้ายสายแล้วทำได้จริงไม่ได้เป็นเด็กใหม่ไปตลอด',
+          en: 'The entry-pay haircut after retraining now closes by a fifth of the gap every year instead of standing for life. Nobody who can do the work stays the new one for ever.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ปรับสมดุลอาชีพให้กลับเข้ากรอบที่ตั้งไว้เอง ครูเคยได้เส้นชัยต่ำที่สุดพร้อมบำนาญข้าราชการจนเป็นที่นั่งที่ง่ายที่สุด ส่วนแพทย์หลุดกรอบไปอยู่ที่ 3.79 ตอนนี้ทั้งสองอยู่ในช่วง 2.9 ถึง 3.2 ตามที่กติกาในโค้ดประกาศไว้',
+          en: 'Two seats were pulled back inside the band the rules set for themselves. The teacher had both the lowest finish line and a civil-service pension, which made it the easiest chair in the game; the doctor had drifted out to 3.79. Both now sit between 2.9 and 3.2.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.6.0',
     dateISO: '2026-08-20',
     codename: { th: 'กิจการมีมูลค่าตามที่มันทำได้', en: 'A business is worth what it earns' },

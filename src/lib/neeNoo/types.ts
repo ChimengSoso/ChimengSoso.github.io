@@ -117,7 +117,7 @@ export type PensionKind = 'civil' | 'sso' | 'none';
  * who fails a medical is finished flying that day, while the teacher's salary is
  * the dullest and safest number in the game.
  */
-export type CareerRisk = 'grounded' | 'layoff' | 'slump' | 'steady' | 'normal';
+export type CareerRisk = 'grounded' | 'layoff' | 'slump' | 'gig' | 'steady' | 'normal';
 
 export interface Profession {
   id: string;
@@ -258,6 +258,14 @@ export interface DealCard {
    * businesses whose fortunes swing with a trend).
    */
   volatility?: number;
+  /**
+   * The chance, in any one month, that this business closes for good. Left
+   * unset it falls back to the old rule, where anything at or above 0.25
+   * volatility folded on a 4% monthly roll: right for a startup, far too brutal
+   * for a noodle shop that swings about but rarely dies. Set it on the cards
+   * that should be able to fail at a rate of their own.
+   */
+  failRate?: number;
   /**
    * How much of the price survives as saleable stuff when a business stops
    * earning: second-hand equipment, the fit-out, the lease. Defaults to
@@ -445,7 +453,9 @@ export type Pending =
   | { kind: 'quit' }
   /** a friend steps in because the player has been generous before */
   | { kind: 'friend' }
-  | { kind: 'tierUp'; tier: number };
+  | { kind: 'tierUp'; tier: number }
+  /** the index fund has had a bad year and the standing order is still running */
+  | { kind: 'crash' };
 
 export type Phase = 'rat' | 'fast' | 'won' | 'lost';
 
@@ -587,6 +597,20 @@ export interface GameState {
   dcaMonthly: number;
   dcaPot: number;
   dcaPaid: number;
+  /**
+   * The return the index fund is having *this* year, drawn once every twelve
+   * months and then spread smoothly across them.
+   *
+   * It used to be redrawn every single month around a 7% average, which sounds
+   * volatile and is not: twelve independent draws average out, so the worst
+   * year the fund could possibly have was about -2%. A market does not work
+   * that way. One draw a year, from a distribution with a real left tail, is
+   * what makes a crash something the player has to sit through rather than
+   * something the arithmetic quietly cancels.
+   */
+  marketYear: number;
+  /** a bad market year has been drawn and the player has not been told yet */
+  crashDue: boolean;
   taxFundPot: number;
   taxFundYear: number;
   taxFundFirst: number | null;
@@ -658,6 +682,25 @@ export interface GameState {
    * field means walking in at the bottom of it.
    */
   entryPay: number;
+  /**
+   * The month `entryPay` was last set. Starting over means starting at the
+   * bottom, but not staying there for life: the gap closes a little every year
+   * from here, which is what actually happens to somebody who changes field and
+   * turns out to be good at the new one.
+   */
+  entryPayFrom: number | null;
+  /**
+   * Months still to wait before the new licensed job actually starts. The
+   * licence is the cheap part; the queue for a seat is the part that ends
+   * careers before they begin.
+   */
+  jobWait: number;
+  /**
+   * Years the employer withheld the annual rise. Subtracted from the compounding
+   * in `payLevel`, so a frozen year is not caught up later: the whole ladder
+   * stays one rung shorter for the rest of the career.
+   */
+  payFreezeYears: number;
   skipTurns: number;
   /** turns left on the "give and it comes back" charity bonus (choose 1 or 2 dice) */
   charityTurns: number;
