@@ -598,7 +598,7 @@ export const deals: DealCard[] = [
     down: 250000,
     debt: 0,
     cashflow: -3000,
-    failRate: 0.018,
+    failRate: 0.0038,
     maxQty: 1,
     volatility: 0.35,
     // Almost all of this price is counter, machine and fit-out rather than a
@@ -772,7 +772,7 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 9000,
     volatility: 0.18,
-    failRate: 0.008,
+    failRate: 0.0017,
     maxQty: 1,
   },
   {
@@ -790,7 +790,7 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 5400,
     volatility: 0.2,
-    failRate: 0.01,
+    failRate: 0.0019,
     maxQty: 2,
   },
   /* ---- big deals ---- */
@@ -912,7 +912,7 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 31000,
     volatility: 0.22,
-    failRate: 0.012,
+    failRate: 0.0022,
     maxQty: 1,
   },
   {
@@ -930,7 +930,7 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 46000,
     volatility: 0.14,
-    failRate: 0.005,
+    failRate: 0.001,
     maxQty: 1,
   },
   {
@@ -1049,7 +1049,7 @@ export const deals: DealCard[] = [
     down: 700000,
     debt: 0,
     cashflow: 34000,
-    failRate: 0.03,
+    failRate: 0.019,
     maxQty: 4,
     volatility: 0.3,
   },
@@ -1068,7 +1068,7 @@ export const deals: DealCard[] = [
     debt: 0,
     cashflow: 90000,
     volatility: 0.16,
-    failRate: 0.006,
+    failRate: 0.001,
     maxQty: 2,
   },
   {
@@ -1299,7 +1299,7 @@ export const deals: DealCard[] = [
     debt: 150000000,
     mortgagePay: 750000,
     cashflow: 1400000,
-    failRate: 0.006,
+    failRate: 0.0014,
     maxQty: 1,
     volatility: 0.35,
     impact: 9000,
