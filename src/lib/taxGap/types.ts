@@ -133,7 +133,6 @@ export interface Profile {
   hasSpouseNoIncome: boolean;
   childrenBefore2561: number;
   childrenFrom2561: number;
-  maternity: number;
   /** Parents aged 60+ in the player's care, including a spouse's. */
   parentsInCare: number;
   disabledInCare: number;
@@ -201,6 +200,18 @@ export interface Score {
   capitalRetained: number;
   /** Deductible room left on the table, ignoring the budget. */
   headroomUnused: number;
+  /** Cash committed beyond what the player said they could afford. */
+  overBudget: number;
+  /**
+   * Cash committed above a slot's own ceiling, which the return simply will
+   * not count. The money is still the player's; the deduction is not.
+   */
+  overCap: number;
+  /**
+   * Deductible cash that landed below the exempt band, where the ladder has
+   * run out and the next baht saves nothing.
+   */
+  wasted: number;
   /** 0..100 against par. 100 means the budget could not have done better. */
   percentOfPar: number;
 }

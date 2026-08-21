@@ -246,6 +246,12 @@ const groups: { id: string; name: string; blurb: string }[] = [
     .par-fill{display:block;height:100%;width:0;background:var(--nn-green);transition:width .3s ease;}
     .par-txt{font-size:0.72rem;color:var(--nn-muted);margin-top:0.4rem;line-height:1.7;}
 
+    .par-flag{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(217,83,79,.12);border:1px solid rgba(217,83,79,.35);color:#f0918d;
+    }
+
     .btns{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;}
     button.act{
       font-family:inherit;font-size:0.78rem;padding:0.5rem 0.9rem;border-radius:9px;cursor:pointer;
@@ -463,6 +469,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
           <div class="par">
             <div class="par-track"><span class="par-fill" id="par-fill"></span></div>
             <p class="par-txt" id="par-txt"></p>
+            <p class="par-flag" id="par-flags" hidden></p>
           </div>
           <div class="btns">
             <button type="button" class="act primary" id="btn-best">เติมให้ดีที่สุดตามงบ</button>
@@ -477,7 +484,9 @@ const groups: { id: string; name: string; blurb: string }[] = [
         <details class="src">
           <summary>กติกาที่เกมใช้ และสิ่งที่ยังไม่รวมให้</summary>
           <ul>
-            {rules.caveats.map((c) => <li>{c}</li>)}
+            {Object.values(RULES_BY_YEAR).map((r) =>
+              r.caveats.map((c) => <li data-caveat={r.year} hidden={r.year !== DEFAULT_YEAR}>{c}</li>),
+            )}
             <li>อ้างอิง: <a href="https://www.rd.go.th/557.html" target="_blank" rel="noopener noreferrer">กรมสรรพากร — ผู้มีเงินได้มีสิทธิหักลดหย่อนอะไรได้บ้าง?</a></li>
             <li>รองรับเฉพาะเงินได้ประเภทเงินเดือนและค่าจ้าง มาตรา 40(1) และ 40(2) ยังไม่รองรับรายได้ฟรีแลนซ์หรือธุรกิจ</li>
           </ul>
@@ -671,6 +680,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
           const top = Math.max(1000, Math.min(h.effectiveCap, 1_000_000));
           range.max = String(Math.round(top));
           range.step = String(top > 200_000 ? 5000 : 1000);
+          range.dataset.capped = '1';
         }
         const saveEl = $<HTMLElement>(`[data-save="${id}"]`);
         if (saveEl) {
@@ -687,6 +697,10 @@ const groups: { id: string; name: string; blurb: string }[] = [
         if (fill) fill.style.width = `${Math.min(100, (used / pot.cap) * 100)}%`;
         const txt = $<HTMLElement>(`[data-pottxt="${pot.id}"]`);
         if (txt) txt.textContent = `ใช้ไปแล้ว ${money(used)} เหลือ ${money(Math.max(0, pot.cap - used))} บาท`;
+      }
+
+      for (const li of all<HTMLElement>('[data-caveat]')) {
+        li.hidden = li.dataset.caveat !== String(rules.year);
       }
 
       const donationCap = $<HTMLElement>('[data-cap="donation:cap"]');
@@ -733,10 +747,28 @@ const groups: { id: string; name: string; blurb: string }[] = [
 
       const parFill = $<HTMLElement>('#par-fill');
       if (parFill) parFill.style.width = `${score.percentOfPar}%`;
+      // Two ways to lose that the tax figure alone will never show: paying more
+      // than you said you could afford, and paying after the ladder bottomed
+      // out. Both look like a perfect score without being told about.
+      const flags: string[] = [];
+      if (score.overBudget > 0) {
+        flags.push(`เกินเงินเย็นที่บอกไว้ ${money(score.overBudget)} บาท`);
+      }
+      if (score.overCap > 0) {
+        flags.push(`มี ${money(score.overCap)} บาทที่ใส่เกินเพดานของช่องนั้น ส่วนที่เกินกรอกในแบบไม่ได้ จึงไม่ได้ช่วยลดภาษี`);
+      }
+      if (score.wasted > 0) {
+        flags.push(`มี ${money(score.wasted)} บาทที่ลดหย่อนได้จริงแต่ไม่ได้ลดภาษีเลย เพราะเงินได้สุทธิลงมาถึงขั้นยกเว้นก่อนแล้ว`);
+      }
       put(
         '#par-txt',
         `คะแนนเทียบกับการเล่นที่ดีที่สุดตามงบ ${score.percentOfPar}% · ใช้เงินสดไป ${money(score.cashSpent)} บาท ยังเป็นทรัพย์สินของคุณอยู่ ${money(score.capitalRetained)} บาท · ช่องที่ยังว่างรวมอีก ${money(score.headroomUnused)} บาท`,
       );
+      const flagEl = $<HTMLElement>('#par-flags');
+      if (flagEl) {
+        flagEl.hidden = flags.length === 0;
+        flagEl.textContent = flags.join(' · ');
+      }
 
       const lesson = levelById(levelId)?.lesson ?? '';
       const lessonEl = $<HTMLElement>('#lesson');
@@ -774,6 +806,19 @@ const groups: { id: string; name: string; blurb: string }[] = [
       });
     }
     for (const el of all<HTMLInputElement>('[data-num]')) {
+      // On blur, not on input: clamping mid-keystroke rewrites "6" into the
+      // ceiling before the player has finished typing "60000".
+      el.addEventListener('change', () => {
+        const key = el.dataset.num ?? '';
+        const slider = $<HTMLInputElement>(`[data-range="${key}"]`);
+        const ceiling = slider?.dataset.capped === '1' ? Number(slider.max) : Infinity;
+        if (Number.isFinite(ceiling) && valueOf(key) > ceiling) {
+          setValue(key, ceiling);
+          el.value = String(ceiling);
+          if (slider) slider.value = String(ceiling);
+          refresh();
+        }
+      });
       el.addEventListener('input', () => {
         const key = el.dataset.num ?? '';
         const v = Number(el.value);
