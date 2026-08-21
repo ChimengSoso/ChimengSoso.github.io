@@ -2447,6 +2447,7 @@ function monthPassed(s: GameState): void {
     let moved = 0;
     for (const a of s.assets) {
       if (a.kind !== 'property' && a.kind !== 'business') continue;
+      if (a.closed) continue;
       // Only something already collecting rent has a rent to raise. Indexing a
       // holding that loses money simply made the loss 3% worse every year and
       // then reported it as "no rent to raise yet".
@@ -2583,6 +2584,7 @@ function fastPayday(s: GameState): void {
   amortize(s);
   driftBusinesses(s);
   checkTier(s);
+  checkTrouble(s);
   claimDue(s);
 }
 
@@ -2815,6 +2817,9 @@ export function businessValue(a: Asset): number {
 export function driftBusinesses(s: GameState): void {
   for (const a of s.assets) {
     if (!a.volatility || a.qty <= 0) continue;
+    // Shut is shut. Without this a business that folded while underwater walked
+    // straight back off zero on the next roll and carried on trading.
+    if (a.closed) continue;
     const roll = rand(s);
     const base = a.baseCashflow ?? a.cashflowPerUnit;
     if (base === 0) continue;
@@ -2825,6 +2830,7 @@ export function driftBusinesses(s: GameState): void {
     const fails = dealById.get(a.cardId)?.failRate ?? (a.volatility >= 0.25 ? 0.04 : 0);
     if (fails > 0 && roll < fails && a.cashflowPerUnit !== 0) {
       a.cashflowPerUnit = 0;
+      a.closed = true;
       note(
         s,
         {
@@ -4942,11 +4948,20 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
 /* --------------------------------------------------------------- outcomes */
 
 export function checkTrouble(s: GameState): void {
-  // Only the wheel can bankrupt you. On the fast track a bad card can push cash
-  // below zero, but the next income tile always refills it and every purchase
-  // already checks the balance, so there is nothing to rescue.
-  if (s.phase !== 'rat') return;
+  if (s.phase !== 'rat' && s.phase !== 'fast') return;
   if (s.cash >= 0) {
+    if (s.pending?.kind === 'rescue') s.pending = null;
+    return;
+  }
+  // The fast track used to be exempt from all of this, on the grounds that a
+  // bad card can push cash below zero out there but the next income tile always
+  // refills it. That premise holds only while the income is still bigger than
+  // the bills. Once the holdings decay past that line nothing refills anything,
+  // and a player could sit at minus seven million with ฿181 a month coming in,
+  // no rescue card, no fire sale offered and no ending, watching the number
+  // fall for another forty years. So the exemption now asks whether the income
+  // really is coming: a dip somebody can cover is still nobody's business.
+  if (s.phase === 'fast' && householdIncome(s) >= totalExpenses(s)) {
     if (s.pending?.kind === 'rescue') s.pending = null;
     return;
   }

@@ -30,6 +30,34 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.7.1',
+    dateISO: '2026-08-22',
+    codename: { th: 'ปิดแล้วปิดเลย และมีพื้นให้ตก', en: 'Shut stays shut, and there is a floor' },
+    entries: [
+      {
+        kind: 'fixed',
+        text: {
+          th: 'อัตราปิดกิจการที่เพิ่งใส่ไปใน 0.7.0 ตั้งไว้สูงเกินไปมาก ตัวเลขถูกเลือกให้ดูสมเหตุผลเป็นรายปี แต่มันถูกทอยทุกเดือนและกิจการที่ปิดแล้วเปิดใหม่ไม่ได้ ยอดสะสมสามสิบปีจึงกลายเป็นเกือบแน่นอน รถเข็นกับร้านอาหารปิด 99% ร้านชานม 96% ตอนนี้คำนวณย้อนจากอัตรารอดที่ต้องการแทน ห้าปีแรกรอด 87% ถึง 95% สามสิบปีรอด 43% ถึง 67% ส่วนสตาร์ทอัพยังตายเป็นส่วนใหญ่ตามเดิม',
+          en: 'The closure rates added in 0.7.0 were far too high. The figures were picked to look sensible read as a year, but they are rolled every month and a closed business never reopens, so the thirty-year total came out near-certain: 99% for the food cart and the restaurant, 96% for the milk-tea shop. They are now worked backwards from a target survival rate instead: 87% to 95% alive after five years, 43% to 67% after thirty. A startup still mostly dies.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'กิจการที่ซื้อมาตอนขาดทุนแล้วปิดตัวไป กลับมาเปิดเองเดือนถัดไป เพราะการปิดกิจการทำเครื่องหมายด้วยรายได้เป็นศูนย์เฉย ๆ ซึ่งใช้ได้กับกิจการที่กำไรอยู่ (คูณศูนย์ก็ยังศูนย์) แต่กิจการที่ติดลบขยับแบบบวกลบทีละก้อน มันจึงเดินออกจากศูนย์ได้ทันที วัดจากการ์ดคาเฟ่เปิดใหม่ 74% ปิดตัวลงระหว่างสามสิบปี แต่เหลือปิดจริงตอนจบแค่ 6% ตอนนี้ปิดแล้วปิดเลย',
+          en: 'A business bought while losing money would fold and then reopen by itself the next month. A closure was marked only by cash flow reaching zero, which holds for a profitable business because the drift multiplies and zero times anything is zero, but one bought underwater steps by fixed amounts and simply walked back off zero. On the new-cafe card, 74% folded at some point across thirty years and only 6% were still shut at the end. Shut is now shut.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'เส้นทางเร็วไม่มีพื้นรองรับ เงินสดติดลบได้ไม่จำกัดโดยไม่มีการ์ดขายด่วน ไม่มีการ์ดกู้ และไม่มีจอจบเกม เดิมเขียนไว้ว่าตั้งใจ เพราะ "ช่องรายได้ถัดไปจะเติมเงินให้เสมอ" ซึ่งจริงตอนกิจการเล็กจ่ายเท่าเดิมตลอดกาล พอกิจการขยับขึ้นลงได้ เคสที่เจอคือคนที่ออกจากหนูสำเร็จตั้งแต่ปีที่หก พอถึงปีที่ห้าสิบเหลือเงินไหลเข้าเดือนละ ฿181 สู้รายจ่าย ฿43,401 เงินสดติดลบ ฿7.27 ล้าน แล้วนั่งดูตัวเลขไหลลงต่ออีกสี่สิบสี่ปีโดยไม่มีอะไรเกิดขึ้น ตอนนี้ถ้าเงินไหลเข้าไม่พอจ่ายบิลแล้วเงินสดติดลบ การ์ดขายด่วนจะขึ้นเหมือนตอนอยู่ในวงหนู และล้มละลายได้จริงถ้าไม่เหลืออะไรให้ขาย ส่วนเงินสดที่แกว่งติดลบชั่วคราวทั้งที่รายได้ยังท่วมรายจ่าย ยังไม่มีใครมากวนเหมือนเดิม',
+          en: 'The fast track had no floor: cash could fall without limit with no rescue card, no fire sale offered and no ending. That exemption was deliberate, on the grounds that the next income tile always refills it, which held while small businesses paid the same amount for ever. Now that they move, one run escaped the wheel in year six and by year fifty had ฿181 a month coming in against ฿43,401 of bills and ฿7.27 million of negative cash, with another forty-four years of watching it fall. The rescue card now appears out there too, once the income has stopped covering the bills, and bankruptcy is real if there is nothing left to sell. A dip while the income still covers everything is left alone, exactly as before.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.7.0',
     dateISO: '2026-08-22',
     codename: { th: 'ตลาดที่ลงได้จริง', en: 'A market that can actually fall' },

@@ -73,6 +73,18 @@ export interface Asset {
   owner?: 'corp';
   /** see DealCard.volatility; carried so the holding keeps swinging after purchase */
   volatility?: number;
+  /**
+   * This business has shut down for good.
+   *
+   * Zero cash flow used to be the only marker, and for a business bought while
+   * profitable that works, because the drift is multiplicative and zero times
+   * anything is still zero. A business bought *underwater* steps by a fixed
+   * slice of its own size instead, so the month after it folded the same drift
+   * moved it off zero again and the shop reopened by itself. Measured on the
+   * new-cafe card, 74% of them folded at some point in thirty years and only 6%
+   * were still shut at the end.
+   */
+  closed?: boolean;
   /** cash flow the day it was bought, used to cap how far a swing can run */
   baseCashflow?: number;
   impact?: number;
@@ -259,11 +271,18 @@ export interface DealCard {
    */
   volatility?: number;
   /**
-   * The chance, in any one month, that this business closes for good. Left
-   * unset it falls back to the old rule, where anything at or above 0.25
-   * volatility folded on a 4% monthly roll: right for a startup, far too brutal
-   * for a noodle shop that swings about but rarely dies. Set it on the cards
-   * that should be able to fail at a rate of their own.
+   * The chance, in any one month, that this business closes for good.
+   *
+   * **Read this as a thirty-year number, not a monthly one.** The rate is
+   * applied every single month and a closed business never reopens, so the
+   * figure that matters is `1 - (1 - failRate) ** 360`. The first pass at these
+   * numbers was picked to look sensible per year and came out at 96% to 99%
+   * certain closure across a career: a milk-tea shop that survived thirty years
+   * was a one-in-twenty-five event. The values here are worked backwards from a
+   * target survival rate instead, and any new one should be too.
+   *
+   * Left unset it falls back to the old rule, where anything at or above 0.25
+   * volatility folded on a 4% monthly roll.
    */
   failRate?: number;
   /**
