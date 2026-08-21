@@ -67,7 +67,7 @@ export function rawAmounts(profile: Profile, rules: TaxYearRules): Record<SlotId
     spouse: profile.hasSpouseNoIncome ? 60_000 : 0,
     children: perHead('children', profile.childrenBefore2561),
     childrenLater: perHead('childrenLater', profile.childrenFrom2561),
-    maternity: Math.max(0, profile.maternity),
+    maternity: chosen('maternity'),
     parents: perHead('parents', profile.parentsInCare),
     disabled: perHead('disabled', profile.disabledInCare),
     socialSecurity: socialSecurityPaid(profile, rules),
@@ -249,6 +249,19 @@ export function buyableSlots(rules: TaxYearRules): SlotDef[] {
 }
 
 /**
+ * The most deduction that is worth buying at all.
+ *
+ * Deductions push net income down one baht at a time, so once net income
+ * reaches the top of the exempt band the next baht saves nothing. Any cash
+ * committed past that point is simply spent. This is the line the plan stops
+ * at, and it is why a large budget on a modest salary is left partly unspent.
+ */
+function usefulDeduction(profile: Profile, rules: TaxYearRules): number {
+  const exemptTop = rules.brackets.filter((b) => b.rate === 0).pop()?.upTo ?? 0;
+  return Math.max(0, computeTax(profile, rules).netIncome - exemptTop);
+}
+
+/**
  * The best the budget could possibly have done.
  *
  * For tax alone the answer is dull and worth saying out loud: every deductible
@@ -260,13 +273,17 @@ export function buyableSlots(rules: TaxYearRules): SlotDef[] {
  * afterwards, so par fills the highest-retention slots first: RMF units stay
  * yours, an insurance premium mostly does not. The returned plan is the
  * allocation that hits par while keeping the most capital.
+ *
+ * It also refuses to spend past `usefulDeduction`. A button labelled "the best
+ * you could do" that talks the player into a premium after their tax already
+ * hit zero is giving bad advice, however good the arithmetic underneath is.
  */
 export function bestPlan(
   profile: Profile,
   rules: TaxYearRules = rulesFor(profile.year),
 ): { plan: Partial<Record<SlotId, number>>; deployed: number; retained: number } {
   const plan: Partial<Record<SlotId, number>> = {};
-  let budgetLeft = Math.max(0, profile.budget);
+  let budgetLeft = Math.min(Math.max(0, profile.budget), usefulDeduction(profile, rules));
   let deployed = 0;
   let retained = 0;
 
@@ -300,10 +317,12 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
   const { plan, retained } = bestPlan(bareProfile(profile), rules);
   const best = computeTax({ ...bareProfile(profile), amounts: plan }, rules);
 
-  const cashSpent = buyableSlots(rules).reduce(
-    (sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0),
-    0,
-  );
+  // Donations are not slots, but they still come out of the same wallet, so
+  // they belong in the budget accounting like anything else the player buys.
+  const donated = Math.max(0, profile.donationGeneral) + Math.max(0, profile.donationEDonation);
+  const cashSpent =
+    buyableSlots(rules).reduce((sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0), 0) +
+    donated;
   const capitalRetained = baht(
     buyableSlots(rules).reduce(
       (sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0) * (s.retention ?? 0),
@@ -311,9 +330,11 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     ),
   );
 
-  const headroomUnused = allHeadroom(profile, rules)
-    .filter((h) => h.slot.costsCash)
-    .reduce((sum, h) => sum + h.left, 0);
+  const cashRows = allHeadroom(profile, rules).filter((h) => h.slot.costsCash);
+  const headroomUnused = cashRows.reduce((sum, h) => sum + h.left, 0);
+  /** Of the cash committed, the part the return will actually accept. */
+  const deductibleSpent =
+    cashRows.reduce((sum, h) => sum + h.used, 0) + played.donationAllowed;
 
   const taxSaved = baseline.tax - played.tax;
   const bestSaving = baseline.tax - best.tax;
@@ -327,6 +348,13 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     cashSpent,
     capitalRetained,
     headroomUnused,
+    overBudget: Math.max(0, cashSpent - Math.max(0, profile.budget)),
+    // Two different leaks, and telling the player the wrong one is worse than
+    // telling them nothing: money above a slot's ceiling never becomes a
+    // deduction at all, while money below the exempt band is a real deduction
+    // that simply has no tax left to remove.
+    overCap: Math.max(0, cashSpent - deductibleSpent),
+    wasted: Math.max(0, deductibleSpent - usefulDeduction(bareProfile(profile), rules)),
     // Par counts the money kept as well as the tax dodged, so stuffing the
     // budget into a premium the player did not want cannot score full marks.
     percentOfPar:

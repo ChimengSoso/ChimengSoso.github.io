@@ -32,7 +32,6 @@ const blank = (over: Partial<Profile>): Profile => ({
   hasSpouseNoIncome: false,
   childrenBefore2561: 0,
   childrenFrom2561: 0,
-  maternity: 0,
   parentsInCare: 0,
   disabledInCare: 0,
   budget: 60_000,
