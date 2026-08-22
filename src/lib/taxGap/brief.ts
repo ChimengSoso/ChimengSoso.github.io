@@ -27,8 +27,17 @@ export function buildBrief(profile: Profile, rules: TaxYearRules = rulesFor(prof
   const score = scoreProfile(profile, rules);
   const rows = allHeadroom(profile, rules);
 
+  // A per-head slot's ceiling is a rate times a headcount, so printing the
+  // ceiling of someone who has declared nobody prints a zero, and a zero here
+  // reads as "the law allows you nothing" rather than "you have not said how
+  // many people you support". Quote the rate instead.
+  const statutoryText = (h: Headroom): string =>
+    h.slot.perHead
+      ? `${money(h.slot.perHead.amount)} ต่อคน (สูงสุด ${h.slot.perHead.maxHeads} คน)`
+      : capText(h.statutoryCap);
+
   const line = (h: Headroom): string =>
-    `| ${h.slot.name} | ${capText(h.statutoryCap)} | ${capText(h.effectiveCap)} | ${money(h.used)} | ${money(h.left)} | ${bindingLabel[h.binding]} |`;
+    `| ${h.slot.name} | ${statutoryText(h)} | ${capText(h.effectiveCap)} | ${money(h.used)} | ${money(h.left)} | ${bindingLabel[h.binding]} |`;
 
   const claimed = rows.filter((h) => h.used > 0);
   const spare = rows.filter((h) => h.slot.costsCash && h.left > 0);
@@ -74,6 +83,7 @@ export function buildBrief(profile: Profile, rules: TaxYearRules = rulesFor(prof
     `- ตัวเลขชุดนี้อ้างอิงกฎหมายที่ตรวจสอบล่าสุดเมื่อ ${rules.verifiedOn} จากประกาศของกรมสรรพากร`,
     ...rules.caveats.map((c) => `- ${c}`),
     '- ช่องที่มีเงื่อนไขผูกมัดระยะยาว อย่าแนะนำให้ซื้อเต็มเพดานโดยไม่ถามเรื่องสภาพคล่องก่อน RMF ต้องถือจนอายุ 55 และซื้อต่อเนื่อง Thai ESG ถือ 5 ปี ประกันชีวิตต้องคุ้มครอง 10 ปีขึ้นไป',
+    '- ช่องที่คิดตามจำนวนคน เช่น บุตร บิดามารดา คนพิการ เพดานจริงจะเป็น 0 ถ้ายังไม่ได้ระบุจำนวนคน ไม่ได้แปลว่ากฎหมายไม่ให้สิทธิ ถ้าคอลัมน์นั้นเป็น 0 ให้ถามก่อนว่ามีคนในอุปการะไหม',
     '- ช่วยตรวจด้วยว่ามีสิทธิที่ยังไม่ได้กรอกไหม เช่น ดอกเบี้ยบ้าน พ่อแม่ที่อายุเกิน 60 ประกันสุขภาพพ่อแม่ หรือมาตรการรายปีของปีนี้',
   ].join('\n');
 }

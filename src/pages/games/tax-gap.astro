@@ -880,8 +880,16 @@ const groups: { id: string; name: string; blurb: string }[] = [
 
     $<HTMLButtonElement>('#btn-best')?.addEventListener('click', () => {
       readForm();
-      const cleared: Profile = { ...profile, amounts: {}, donationGeneral: 0, donationEDonation: 0 };
-      profile = { ...cleared, amounts: bestPlan(cleared).plan };
+      // Only the slots the budget can actually buy get replanned. Interest
+      // already paid to a bank, or a child already born, is not a purchase to
+      // optimise, and wiping it would raise the player's tax with a button
+      // that promises the opposite.
+      const kept: Profile['amounts'] = {};
+      for (const slot of rulesFor(profile.year).slots) {
+        if (!slot.costsCash && profile.amounts[slot.id]) kept[slot.id] = profile.amounts[slot.id];
+      }
+      const cleared: Profile = { ...profile, amounts: kept, donationGeneral: 0, donationEDonation: 0 };
+      profile = { ...cleared, amounts: { ...kept, ...bestPlan(cleared).plan } };
       writeForm();
       render();
     });
