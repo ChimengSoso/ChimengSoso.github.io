@@ -30,6 +30,34 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.8.1',
+    dateISO: '2026-08-22',
+    codename: { th: 'เงินเดือนที่ตามค่าครองชีพทัน', en: 'A wage that keeps up with the shopping' },
+    entries: [
+      {
+        kind: 'changed',
+        text: {
+          th: 'ขั้นเงินเดือนทุกอาชีพขยับขึ้นมาอยู่รอบ ๆ เงินเฟ้อ ของเดิมอยู่ที่ 0% ถึง 4% ปะทะเงินเฟ้อ 3% แปลว่าค่าจ้างจริงลดลงทุกปีเกือบทุกอาชีพ วัดเป็นตัวเลข ค่าจ้างจริงของครูเหลือ 75% ของเดือนแรกเมื่อทำงานครบ 20 ปี พนักงานออฟฟิศเหลือ 82% ส่วนไรเดอร์กับเจ้าของร้านกาแฟที่ตั้งไว้ 0% เหลือ 41% เมื่อครบ 30 ปี ซึ่งไทยไม่ได้เป็นแบบนั้น ค่าจ้างเฉลี่ยโตนำเงินเฟ้ออยู่เล็กน้อย ระบบราชการปรับฐานเงินเดือนเป็นระยะ และเจ้าของร้านขึ้นราคาเมนูสัปดาห์เดียวกับที่ต้นทุนขึ้น ตอนนี้เจ้าของร้านกาแฟกับครูค่าจ้างจริงคงที่ ออฟฟิศ พยาบาล นักบิน โตจริงปีละ 0.5% วิศวกรกับแพทย์ 1% โปรแกรมเมอร์ 1.5% เหลือไรเดอร์อาชีพเดียวที่ยังถอยหลัง เพราะค่ารอบต่อเที่ยวถูกกดจริง เรื่องนี้ไม่ได้ทำให้เกมชนะง่ายขึ้นโดยตรง เพราะเงินเดือนไม่เคยนับเป็นเงินไหลเข้า มันขยับแค่ความเร็วในการซื้อทรัพย์สิน ไม่ได้ขยับเส้นชัยสักบาท',
+          en: 'Every profession now gets a rise somewhere around inflation. The old rates ran 0% to 4% against 3% inflation, so almost everybody spent a career losing ground: a teacher was on 75% of their starting pay in real terms after twenty years, an office worker on 82%, and the rider and the cafe owner, both written at 0%, on 41% after thirty. Thailand has not done that. Average wages have grown a little ahead of prices, the civil service revises its base pay every few years, and a shop owner puts the menu up the same week the beans do. The cafe owner and the teacher now hold their real pay, the office worker, the nurse and the pilot gain about 0.5% a year, the engineer and the doctor 1%, the developer 1.5%, and the rider is the only one still going backwards, because per-trip rates really are squeezed. None of it makes the game easier to win: a salary never counts as passive income, so a rise moves how fast assets can be bought and never moves the finish line.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'รายได้ของกิจการเคยตามเงินเฟ้อแค่ 70% เท่ากับค่าเช่า ซึ่งเป็นคนละเรื่องกัน เจ้าของบ้านเช่าติดสัญญาที่ยังไม่หมดอายุ และติดผู้เช่าที่จะย้ายออกถ้าขึ้นเต็มจำนวน แต่ร้านค้าไม่ติดทั้งสองอย่าง พอต้นทุนขึ้น 3% เมนูก็ขึ้น 3% การใช้ตัวเลขเดียวกันทั้งคู่จึงเขียนการถดถอยจริงปีละ 0.9% ฝังไว้ในกิจการทุกใบบนกระดาน ตอนนี้ค่าเช่ายังตาม 70% เหมือนเดิม ส่วนกิจการตามเต็ม 100%',
+          en: 'Business takings followed inflation only 70% of the way, on the same setting as rent, which is a different thing. A landlord is bound by a lease that has not run out and by a tenant who will leave if asked for the whole increase; a shop is bound by neither, and when costs rise 3% the menu rises 3%. Running both through one number wrote a permanent 0.9%-a-year real decline into every business on the board. Rent still follows 70% of the way; businesses now follow all of it.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลรวมสองข้อบน วัดจากบอทเล่นครบ 60 ปีแบบ "มีลูก" อาชีพละ 25 เกม และลงทุนจริงจัง (กันเงินสำรองไว้เดือนเดียวก่อนซื้อ) จำนวนเกมที่ออกจากวงหนูได้ขยับจาก 6 เป็น 24 (เจ้าของร้านกาแฟ) 6 เป็น 18 (ออฟฟิศ) 5 เป็น 14 (ครู) 16 เป็น 21 (พยาบาล) และ 17 เป็น 23 (แพทย์) อายุกลางที่ออกได้อยู่ราวปีที่ 18 ถึง 31 ของการทำงาน ไรเดอร์ยังอยู่ที่ 2 จาก 25 ซึ่งตั้งใจให้เป็นโหมดยากตั้งแต่แรก',
+          en: 'The two changes above, measured over 60-year games with children accepted, 25 per profession, played to invest rather than to hoard (one month of expenses kept back before buying): escapes went from 6 to 24 for the cafe owner, 6 to 18 for the office worker, 5 to 14 for the teacher, 16 to 21 for the nurse and 17 to 23 for the doctor, with a median of eighteen to thirty-one working years to get there. The rider stays at 2 out of 25, which is what that card is for.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.8.0',
     dateISO: '2026-08-22',
     codename: { th: 'เงินเก็บก็นับ และกิจการเลิกเน่าเอง', en: 'Savings count, and a business stops rotting on its own' },
