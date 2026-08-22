@@ -436,6 +436,16 @@ export const INFLATION = 0.03;
  * renewed, and a tenant who is asked for the whole increase leaves.
  */
 export const RENT_FOLLOW = 0.7;
+/**
+ * Business takings, on the other hand, index in full.
+ *
+ * A landlord is bound by a lease until it is renewed and by a tenant who will
+ * leave if asked for the whole increase. A shop is bound by neither: when the
+ * beans and the wages and the gas go up 3%, the menu goes up 3%, and it goes up
+ * the week the costs do. Running both through the same 0.7 quietly wrote a
+ * permanent 0.9%-a-year real decline into every business on the board.
+ */
+export const BIZ_FOLLOW = 1;
 
 export function yearsElapsed(s: GameState): number {
   return Math.floor(s.months / 12);
@@ -2495,10 +2505,10 @@ function monthPassed(s: GameState): void {
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
   // gift inflation hands to anyone holding long debt.
   if (s.months % 12 === 0) {
-    const step = 1 + INFLATION * RENT_FOLLOW;
     let moved = 0;
     for (const a of s.assets) {
       if (a.kind !== 'property' && a.kind !== 'business') continue;
+      const step = 1 + INFLATION * (a.kind === 'business' ? BIZ_FOLLOW : RENT_FOLLOW);
       if (a.closed) continue;
       // Only something already collecting rent has a rent to raise. Indexing a
       // holding that loses money simply made the loss 3% worse every year and

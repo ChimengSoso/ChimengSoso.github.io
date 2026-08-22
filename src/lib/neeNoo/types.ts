@@ -166,7 +166,23 @@ export interface Profession {
   /** age the salary stops; 0 means this work has no fixed end */
   retireAge: number;
   pension: PensionKind;
-  /** annual pay rise as a share — deliberately below inflation for most jobs */
+  /**
+   * Annual pay rise, as a share of the current wage.
+   *
+   * Read these against INFLATION rather than against zero: what the player
+   * feels is the gap between the two. They used to run 0% to 4% against 3%
+   * inflation, which meant a career of falling real pay for nearly everybody
+   * and a 59% real pay cut over thirty years for the rider and the cafe owner.
+   * Thailand has not done that: nominal wage growth has run a little ahead of
+   * prices, the civil service revises its base pay every few years, and a shop
+   * owner puts the menu up the same week the beans do. So the rates sit around
+   * inflation now, spread across it in the order the jobs deserve, and the
+   * rider is the only one still losing ground.
+   *
+   * None of this makes the game easier to *win*: a salary never counts towards
+   * passive income, so a rise moves how fast assets can be bought and never
+   * moves the finish line by a baht.
+   */
   raise: number;
   risk: CareerRisk;
   /** true when the job legally needs a degree, so a short course cannot reach it */
