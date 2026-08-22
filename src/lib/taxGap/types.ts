@@ -200,6 +200,12 @@ export interface Score {
   capitalRetained: number;
   /** Deductible room left on the table, ignoring the budget. */
   headroomUnused: number;
+  /**
+   * The part of that room that would still claw tax back. Room below the
+   * exempt band is legal but worthless, and headlining the larger figure talks
+   * players into buying deductions that do nothing.
+   */
+  usefulRoomLeft: number;
   /** Cash committed beyond what the player said they could afford. */
   overBudget: number;
   /**

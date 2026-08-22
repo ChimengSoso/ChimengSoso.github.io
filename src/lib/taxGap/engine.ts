@@ -145,10 +145,14 @@ export function headroomFor(
   const potCap = pot ? Math.max(0, pot.cap - potTakenBefore(slot, rules, gross, raw)) : Infinity;
 
   const effectiveCap = Math.min(statutoryCap, incomeCap, potCap);
+  // Ties are common and the order matters: a life-insurance premium whose
+  // statutory ceiling and untouched shared pot are both 100,000 must not be
+  // reported as pot-limited, or the player goes hunting for a competitor that
+  // is not there. Blame the pot only when it is genuinely the tightest.
   let binding: BindingCap = 'none';
-  if (effectiveCap === potCap && pot) binding = 'pot';
-  else if (effectiveCap === incomeCap && slot.incomeShare !== undefined) binding = 'income';
-  else if (Number.isFinite(statutoryCap)) binding = 'statutory';
+  if (effectiveCap === incomeCap && slot.incomeShare !== undefined) binding = 'income';
+  else if (effectiveCap === statutoryCap && Number.isFinite(statutoryCap)) binding = 'statutory';
+  else if (effectiveCap === potCap && pot) binding = 'pot';
 
   const used = Math.min(raw[slot.id], effectiveCap);
   return {
@@ -332,6 +336,10 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
 
   const cashRows = allHeadroom(profile, rules).filter((h) => h.slot.costsCash);
   const headroomUnused = cashRows.reduce((sum, h) => sum + h.left, 0);
+  // Legal room and useful room are different sizes, and only one of them is
+  // worth acting on: past the exempt band the ladder has nothing left to give,
+  // so a slot's remaining ceiling stops meaning anything.
+  const usefulRoomLeft = Math.min(headroomUnused, usefulDeduction(profile, rules));
   /** Of the cash committed, the part the return will actually accept. */
   const deductibleSpent =
     cashRows.reduce((sum, h) => sum + h.used, 0) + played.donationAllowed;
@@ -348,6 +356,7 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     cashSpent,
     capitalRetained,
     headroomUnused,
+    usefulRoomLeft,
     overBudget: Math.max(0, cashSpent - Math.max(0, profile.budget)),
     // Two different leaks, and telling the player the wrong one is worse than
     // telling them nothing: money above a slot's ceiling never becomes a
