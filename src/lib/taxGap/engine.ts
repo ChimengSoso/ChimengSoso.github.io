@@ -324,6 +324,17 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
   // Donations are not slots, but they still come out of the same wallet, so
   // they belong in the budget accounting like anything else the player buys.
   const donated = Math.max(0, profile.donationGeneral) + Math.max(0, profile.donationEDonation);
+  // An e-Donation deducts at double what it cost, so its deduction and its
+  // price are different numbers. Comparing one against the other lets a
+  // doubled donation cancel out real waste somewhere else, so work out how
+  // much donation *cash* the cap actually absorbed. The doubled baht buys the
+  // most deduction per baht spent, so it fills the cap first.
+  const eDonated = Math.max(0, profile.donationEDonation);
+  const eDeducted = Math.min(eDonated * rules.donationMultiplierEDonation, played.donationCap);
+  const donationCashUsed = baht(
+    eDeducted / rules.donationMultiplierEDonation +
+      Math.min(Math.max(0, profile.donationGeneral), played.donationCap - eDeducted),
+  );
   const cashSpent =
     buyableSlots(rules).reduce((sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0), 0) +
     donated;
@@ -340,9 +351,11 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
   // worth acting on: past the exempt band the ladder has nothing left to give,
   // so a slot's remaining ceiling stops meaning anything.
   const usefulRoomLeft = Math.min(headroomUnused, usefulDeduction(profile, rules));
-  /** Of the cash committed, the part the return will actually accept. */
+  /** Of the cash committed, the deduction the return will actually grant. */
   const deductibleSpent =
     cashRows.reduce((sum, h) => sum + h.used, 0) + played.donationAllowed;
+  /** The same thing measured in cash, which is what an over-spend is made of. */
+  const cashAccepted = cashRows.reduce((sum, h) => sum + h.used, 0) + donationCashUsed;
 
   const taxSaved = baseline.tax - played.tax;
   const bestSaving = baseline.tax - best.tax;
@@ -362,7 +375,7 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     // telling them nothing: money above a slot's ceiling never becomes a
     // deduction at all, while money below the exempt band is a real deduction
     // that simply has no tax left to remove.
-    overCap: Math.max(0, cashSpent - deductibleSpent),
+    overCap: Math.max(0, cashSpent - cashAccepted),
     wasted: Math.max(0, deductibleSpent - usefulDeduction(bareProfile(profile), rules)),
     // Par counts the money kept as well as the tax dodged, so stuffing the
     // budget into a premium the player did not want cannot score full marks.
