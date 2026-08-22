@@ -853,6 +853,13 @@ const description =
     .nn-paper-qty:focus{outline:2px solid var(--nn-green);outline-offset:1px;}
     .nn-list li{position:relative;}
     .nn-pop-debt{top:.15rem;right:.6rem;font-size:.72rem;}
+    .nn-subhead{
+      margin:1rem 0 0.35rem;
+      font-size:0.7rem;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      color:var(--nn-muted);
+    }
     .nn-warnline{
       margin-top:0.4rem;
       font-size:0.72rem;
@@ -1516,6 +1523,9 @@ const description =
       taxFundRefundRate,
       taxFundValue,
       taxFundUnlocked,
+      taxFundBreakValue,
+      breakTaxFund,
+      pfPayout,
       TAXFUND_STEP,
       TAXFUND_LOCK_YEARS,
       pfContribution,
@@ -4500,6 +4510,27 @@ const description =
           </div>`;
         };
         const ownRows = ownRow('home', UI.homeOwned) + ownRow('car', UI.carOwned);
+        // The funds go above the holdings, because taking money out of a fund
+        // costs nothing that the player is living in or earning from, and it is
+        // what anybody would actually reach for first. Every row here must line
+        // up with what rescueFunds() counts, or the game can declare somebody
+        // solvent while showing them no way to prove it.
+        const fundRow = (label: Loc, hint: Loc, amount: number, act: string): string => {
+          if (amount <= 0) return '';
+          return `<div class="nn-sellrow">
+            <span class="nm"><b>${T(label)}</b><small>${T(UI.offerPrice)} <b class="pos">${money(amount)}</b><br>${T(hint)}</small></span>
+            <button type="button" class="nn-btn nn-btn-gold" data-act="${act}">${T(UI.rescueTakeIt)}</button>
+          </div>`;
+        };
+        const fundRows =
+          fundRow(UI.rescueSellDca, UI.rescueSellDcaNote, Math.round(s.dcaPot), 'rescue-dca')
+          + fundRow(
+            UI.rescueSellFund,
+            taxFundUnlocked(s) ? UI.rescueFundFree : UI.rescueFundLocked,
+            taxFundBreakValue(s),
+            'rescue-fund',
+          )
+          + fundRow(UI.rescueSellPf, UI.rescueSellPfNote, noMoreSalary(s) ? pfCashOut(s) : 0, 'rescue-pf');
         const useless = s.assets.length > 0 && s.assets.every((a) => fireSaleValue(a, a.qty) <= 0);
         return `<div class="kind">${T(UI.rescueTitle)}</div>
           <h2 id="nn-dlg-title">${money(s.cash)}</h2>
@@ -4510,6 +4541,7 @@ const description =
         </div>` : ''}
           ${s.phase === 'rat' && s.months < s.loanBlockedUntil ? `<p class="nn-warnline">${T(UI.loanBlocked).replace('{month}', String(s.loanBlockedUntil))}</p>` : ''}
           ${useless ? `<p class="nn-warnline">${T(UI.allUnderwater)}</p>` : ''}
+          ${fundRows ? `<p class="nn-subhead">${T(UI.rescueFundsHead)}</p><div>${fundRows}</div>` : ''}
           <div style="margin-top:1rem">${rows}${ownRows}</div>`;
       }
 
@@ -5258,6 +5290,18 @@ const description =
           break;
         case 'sellown':
           if (id === 'home' || id === 'car') sellOwn(s, id);
+          break;
+        case 'rescue-dca':
+          sellDca(s);
+          checkTrouble(s);
+          break;
+        case 'rescue-fund':
+          breakTaxFund(s);
+          checkTrouble(s);
+          break;
+        case 'rescue-pf':
+          pfPayout(s);
+          checkTrouble(s);
           break;
         case 'firesale':
           if (id) fireSale(s, id, qtyOf(panel, id));

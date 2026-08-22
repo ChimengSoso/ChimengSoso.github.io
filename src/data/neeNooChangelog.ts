@@ -30,6 +30,48 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.8.0',
+    dateISO: '2026-08-22',
+    codename: { th: 'เงินเก็บก็นับ และกิจการเลิกเน่าเอง', en: 'Savings count, and a business stops rotting on its own' },
+    entries: [
+      {
+        kind: 'fixed',
+        text: {
+          th: 'ล้มละลายได้ทั้งที่มีเงินเป็นล้านอยู่ในกองทุน การตัดสินว่า "ไม่เหลือทางออกแล้ว" ดูแค่สินทรัพย์ บ้าน รถ เงินในบริษัท และวงเงินกู้ ไม่เคยดูกองทุนดัชนี กองทุนลดหย่อนภาษี หรือกองทุนสำรองเลี้ยงชีพเลย และการ์ดขายด่วนก็ไม่มีปุ่มถอนกองทุนให้ วัดจากเกมที่จบด้วยล้มละลาย 170 เกม พบว่ามีเงินค้างในกองทุนทั้ง 170 เกม เฉลี่ย 44.4 ล้านบาท หนักสุดคือนักบินอายุ 76 ที่โดนประกาศล้มละลายเพราะเงินสดติดลบ 210,313 บาท ขณะถือกองทุนอยู่ 530 ล้านบาท ตอนนี้การ์ดขายด่วนมีแถวเงินเก็บอยู่บนสุด และเกมจะไม่ประกาศล้มละลายตราบใดที่ยังมีอะไรถอนได้',
+          en: 'You could be declared bankrupt while holding millions in a fund. The test for "there is no way out" looked at holdings, the house, the car, company cash and the credit line, and never at the index fund, the tax fund or the provident fund; the rescue card had no button for any of them either. Across 170 bankruptcies, all 170 had money in a fund, an average of ฿44.4m, the worst being a pilot declared bankrupt at seventy-six over ฿210,313 of overdraft while holding ฿530m. Savings now sit at the top of the rescue card, and nobody is declared bankrupt while something is still withdrawable.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ถอนกองทุนลดหย่อนภาษีก่อนครบกำหนดได้แล้ว โดยเสียค่าคืนสิทธิ์ภาษี 20% ของยอด ซึ่งเป็นรูปร่างคร่าว ๆ ของการคืนค่าลดหย่อนที่เคยใช้ไปพร้อมเงินเพิ่ม แพงพอที่จะไม่มีใครแตะถ้ายังมีทางอื่น แต่ก็ไม่ใช่กุญแจที่หายไปแล้ว',
+          en: 'The tax fund can be broken before its lock is up, at a fifth of the pot. That is roughly the shape of paying back the relief already claimed with a surcharge on top: painful enough that nobody reaches for it while anything else is left, but no longer a padlock with the key thrown away.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'กิจการที่กำไรเน่าตายด้วยคณิตศาสตร์ ไม่ใช่ด้วยโชค การขยับใช้คูณ (1+v) ตอนขึ้น และ (1−v) ตอนลง ซึ่งดูสมมาตรแต่ไม่ใช่ ขึ้นหนึ่งครั้งลงหนึ่งครั้งเหลือ 1−v² ของเดิม กิจการทั่วไปจึงหดลงไม่ว่าจะขึ้นบ่อยแค่ไหน จำลอง 400 ครั้ง ร้านที่ทำเงินเดือนละ 10,000 บาท ค่าผันผวน 0.35 เหลือเดือนละ 34 บาทหลังผ่านไป 30 ปี โดยไม่เคยทอยปิดกิจการสักครั้ง ค่าผันผวน 0.20 เหลือ 4,516 บาท ความผันผวนกลายเป็นภาษีที่เก็บจากความกล้าล้วน ๆ ตอนนี้ขึ้นด้วย (1+v) ลงด้วย 1/(1+v) และเหรียญยุติธรรม 50/50 ขึ้นแล้วลงจึงกลับที่เดิมพอดี สิ่งที่พรากกิจการไปคือการปิดกิจการเท่านั้น ส่วนกิจการที่ซื้อมาตอนขาดทุนยังขยับแบบบวกลบและยังเอนขึ้นเหมือนเดิม เพราะนั่นคือเหตุผลเดียวที่จะซื้อมัน',
+          en: 'A profitable business decayed by arithmetic rather than by luck. It stepped up by (1 + v) and down by (1 - v), which looks even and is not: one step up and one step down leave 1 - v² of what was there, so the typical business shrank however often it went up. Over 400 simulated careers a shop earning ฿10,000 a month at v = 0.35 was earning ฿34 after thirty years without ever failing a closure roll, and ฿4,516 at v = 0.20. Volatility was a pure tax on daring. The pair is now (1 + v) and 1/(1 + v) on a fair coin, so up-then-down lands exactly where it started and the only thing that takes a business away is closing. A business bought underwater still steps in fixed amounts with the old upward pull, because that is the only reason to buy one.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'เพดานการขยับของกิจการไม่มีพื้นคู่กัน ขึ้นได้ไม่เกินสามเท่าแต่ลงได้ถึงศูนย์ เพดานจึงสะท้อนขาขึ้นกลับลงมาขณะที่ขาลงวิ่งได้เต็มที่ ต่อให้การขยับยุติธรรมแล้ว กิจการค่าผันผวน 0.20 ก็ยังหล่นจาก 10,000 เหลือ 4,038 บาทใน 30 ปี ทั้งที่ถอดเพดานออกแล้วอยู่ที่ 10,000 พอดี ตอนนี้กิจการที่กำไรแกว่งอยู่ระหว่างหนึ่งในสามถึงสามเท่าของรายได้ตั้งต้น',
+          en: 'The swing had a ceiling with no floor facing it: three times up, but all the way to zero down, so the cap reflected the upside while the downside ran free. Even with the steps made fair, a v = 0.20 business still fell from ฿10,000 to ฿4,038 over thirty years, where removing the cap alone left it at exactly ฿10,000. A profitable business now swings between a third of its takings and three times them.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลรวมของสามข้อบน วัดจากบอทเล่นครบ 60 ปี อาชีพละ 25 เกม แบบไม่มีลูก จำนวนเกมที่จบด้วยล้มละลายลดลงจาก 24 เหลือ 10 (เจ้าของร้านกาแฟ) 16 เหลือ 4 (พนักงานออฟฟิศ) 12 เหลือ 0 (พยาบาล) 10 เหลือ 2 (แพทย์) และ 3 เหลือ 0 (นักบิน) ที่สำคัญกว่าคือเงินไหลเข้าตอนจบเกมไม่ได้เป็นศูนย์อีกแล้ว เมื่อก่อนออกจากวงหนูได้ที่เดือนละ 20,639 บาท แล้วเหลือ 2,040 บาทในอีก 20 ปี ตอนนี้เกมเดียวกันเหลือ 12,885 บาท เส้นทางเร็วเลิกเป็นทางลงทางเดียว',
+          en: 'The three fixes above, measured over 60-year games, 25 per profession, no children: bankruptcies fell from 24 to 10 for the cafe owner, 16 to 4 for the office worker, 12 to 0 for the nurse, 10 to 2 for the doctor and 3 to 0 for the pilot. More to the point, income at the end of a game is no longer zero. One office run used to leave the wheel at ฿20,639 a month and be down to ฿2,040 twenty years later; the same run now holds ฿12,885. The fast track has stopped being a one-way slope.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.7.1',
     dateISO: '2026-08-22',
     codename: { th: 'ปิดแล้วปิดเลย และมีพื้นให้ตก', en: 'Shut stays shut, and there is a floor' },
