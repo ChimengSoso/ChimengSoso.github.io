@@ -73,7 +73,7 @@ export function buildBrief(profile: Profile, rules: TaxYearRules = rulesFor(prof
     '',
     '## สรุปการเล่นรอบนี้',
     '',
-    `- ถ้าไม่ทำอะไรเลยนอกจากสิทธิพื้นฐาน ภาษีจะเป็น ${money(score.baselineTax)} บาท`,
+    `- ถ้ายังไม่ได้ซื้ออะไรเพิ่มปีนี้ แต่กรอกสิทธิที่มีอยู่แล้วครบ ภาษีจะเป็น ${money(score.baselineTax)} บาท`,
     `- ตอนนี้ประหยัดไปได้ ${money(score.taxSaved)} บาท โดยใช้เงินสด ${money(score.cashSpent)} บาท ซึ่งยังเป็นทรัพย์สินของตัวเองอยู่ ${money(score.capitalRetained)} บาท`,
     `- ช่องที่ยังว่างและซื้อเพิ่มได้: ${spare.length > 0 ? spare.map((h) => `${h.slot.name} เหลือ ${money(h.left)}`).join(' · ') : 'ไม่เหลือแล้ว'}`,
     `- สิทธิที่ใช้ไปแล้ว: ${claimed.map((h) => h.slot.name).join(', ')}`,

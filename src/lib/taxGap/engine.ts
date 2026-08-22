@@ -242,9 +242,21 @@ export function computeTax(profile: Profile, rules: TaxYearRules = rulesFor(prof
   };
 }
 
-/** A profile stripped back to the allowances nobody has to buy. */
-function bareProfile(profile: Profile): Profile {
-  return { ...profile, amounts: {}, donationGeneral: 0, donationEDonation: 0 };
+/**
+ * The same player, before they spent anything this year.
+ *
+ * Only the slots the budget pays for are cleared. Interest already handed to a
+ * bank, or a child already born, is not part of the decision being scored, and
+ * clearing it would move the yardstick: the comparison would credit the plan
+ * for a deduction the player already had, and the exempt band would appear
+ * further away than it really is.
+ */
+function beforeSpending(profile: Profile, rules: TaxYearRules): Profile {
+  const amounts: Profile['amounts'] = {};
+  for (const slot of rules.slots) {
+    if (!slot.costsCash && profile.amounts[slot.id]) amounts[slot.id] = profile.amounts[slot.id];
+  }
+  return { ...profile, amounts, donationGeneral: 0, donationEDonation: 0 };
 }
 
 /** Slots the player pays for out of this year's budget. */
@@ -315,11 +327,12 @@ export function bestPlan(
 
 /** How the player did, against doing nothing and against playing perfectly. */
 export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(profile.year)): Score {
-  const baseline = computeTax(bareProfile(profile), rules);
+  const unspent = beforeSpending(profile, rules);
+  const baseline = computeTax(unspent, rules);
   const played = computeTax(profile, rules);
 
-  const { plan, retained } = bestPlan(bareProfile(profile), rules);
-  const best = computeTax({ ...bareProfile(profile), amounts: plan }, rules);
+  const { plan, retained } = bestPlan(unspent, rules);
+  const best = computeTax({ ...unspent, amounts: { ...unspent.amounts, ...plan } }, rules);
 
   // Donations are not slots, but they still come out of the same wallet, so
   // they belong in the budget accounting like anything else the player buys.
@@ -376,7 +389,7 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     // deduction at all, while money below the exempt band is a real deduction
     // that simply has no tax left to remove.
     overCap: Math.max(0, cashSpent - cashAccepted),
-    wasted: Math.max(0, deductibleSpent - usefulDeduction(bareProfile(profile), rules)),
+    wasted: Math.max(0, deductibleSpent - usefulDeduction(unspent, rules)),
     // Par counts the money kept as well as the tax dodged, so stuffing the
     // budget into a premium the player did not want cannot score full marks.
     percentOfPar:

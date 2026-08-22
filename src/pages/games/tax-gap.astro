@@ -260,6 +260,14 @@ const groups: { id: string; name: string; blurb: string }[] = [
       background:rgba(217,83,79,.12);border:1px solid rgba(217,83,79,.35);color:#f0918d;
     }
 
+    /* A question, not a warning: the game cannot know whether the player
+       actually has a mortgage, so this must not be styled as a mistake. */
+    .par-ask{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(212,175,101,.1);border:1px solid rgba(212,175,101,.3);color:#d8c08a;
+    }
+
     .btns{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;}
     button.act{
       font-family:inherit;font-size:0.78rem;padding:0.5rem 0.9rem;border-radius:9px;cursor:pointer;
@@ -479,6 +487,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
             <div class="par-track"><span class="par-fill" id="par-fill"></span></div>
             <p class="par-txt" id="par-txt"></p>
             <p class="par-flag" id="par-flags" hidden></p>
+            <p class="par-ask" id="par-ask" hidden></p>
           </div>
           <div class="btns">
             <button type="button" class="act primary" id="btn-best">เติมให้ดีที่สุดตามงบ</button>
@@ -805,6 +814,29 @@ const groups: { id: string; name: string; blurb: string }[] = [
       if (flagEl) {
         flagEl.hidden = flags.length === 0;
         flagEl.textContent = flags.join(' · ');
+      }
+
+      // The cheapest deduction on the board is the one that costs nothing,
+      // because the money already left the player's pocket. Par cannot mark
+      // these down, since an empty box may simply mean the player has no
+      // mortgage and no children, so ask instead of scoring.
+      const askEl = $<HTMLElement>('#par-ask');
+      if (askEl) {
+        // Only the ones with a box of their own. A childless player has not
+        // "left the children box empty"; that figure comes from the counters
+        // at the top of the form, and naming it here would turn a helpful
+        // nudge into a list of seven things nobody is going to read.
+        const free = rows.filter(
+          (h) =>
+            !h.slot.costsCash &&
+            h.used === 0 &&
+            document.querySelector(`[data-num="${h.slot.id}"]`) !== null,
+        );
+        const worth = free.length > 0 && tax.tax > 0;
+        askEl.hidden = !worth;
+        askEl.textContent = worth
+          ? `ยังว่างอยู่โดยไม่ต้องจ่ายเพิ่มเลย: ${free.map((h) => h.slot.name).join(' · ')} ถ้าคุณเข้าเงื่อนไขข้อไหน กรอกได้เลย เงินก้อนนั้นออกจากกระเป๋าไปแล้ว`
+          : '';
       }
 
       const lesson = levelById(levelId)?.lesson ?? '';
