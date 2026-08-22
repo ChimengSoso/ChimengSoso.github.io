@@ -876,6 +876,58 @@ export function sellTaxFund(s: GameState): void {
   checkEscape(s);
 }
 
+/**
+ * What breaking the lock early costs.
+ *
+ * An RMF or an SSF cashed in before its time is not confiscated: the deductions
+ * already claimed have to go back to the Revenue Department, with a surcharge
+ * on top. A fifth of the pot is the rough shape of that for somebody who has
+ * been paying in for a few years at a middling band, and it is deliberately
+ * painful enough that nobody reaches for it while there is anything else left.
+ */
+export const TAXFUND_BREAK_PENALTY = 0.2;
+
+/** What the tax fund would put in the hand right now, lock or no lock. */
+export function taxFundBreakValue(s: GameState): number {
+  if (s.taxFundPot <= 0) return 0;
+  if (taxFundUnlocked(s)) return taxFundValue(s);
+  return Math.round(s.taxFundPot * (1 - TAXFUND_BREAK_PENALTY));
+}
+
+/**
+ * Cash the tax fund in mid-lock, paying the penalty for it.
+ *
+ * This exists because the game used to declare people bankrupt while they were
+ * holding one. The rescue card offered a loan, a fire sale, the car and the
+ * house, and nothing else, and `checkTrouble` counted exactly those when it
+ * decided there was no way out, so a pot of any size was invisible to both.
+ * Measured across 170 bankruptcies, all 170 of them had money in a fund, an
+ * average of ฿44.4m; the worst was a pilot declared bankrupt at seventy-six
+ * over ฿210,313 of overdraft while holding ฿530m.
+ */
+export function breakTaxFund(s: GameState): void {
+  const value = taxFundBreakValue(s);
+  if (value <= 0) return;
+  const penalty = Math.round(s.taxFundPot) - value;
+  s.cash += value;
+  s.taxFundPot = 0;
+  s.taxFundFirst = null;
+  note(
+    s,
+    penalty > 0
+      ? {
+          th: `ถอนกองทุนลดหย่อนภาษีก่อนครบกำหนด ได้เงินสด ${money(value)} เสียค่าคืนสิทธิ์ภาษี ${money(penalty)}`,
+          en: `Broke the tax fund early for ${money(value)} in hand, after ${money(penalty)} of reclaimed relief.`,
+        }
+      : {
+          th: `ขายกองทุนลดหย่อนภาษีที่ครบกำหนดแล้ว ได้เงินสด ${money(value)}`,
+          en: `Sold the matured tax fund for ${money(value)}.`,
+        },
+    penalty > 0 ? 'bad' : 'good',
+  );
+  checkEscape(s);
+}
+
 export function declineTaxFund(s: GameState): void {
   s.taxFundDue = false;
   s.pending = null;
@@ -2843,6 +2895,8 @@ export function driftBusinesses(s: GameState): void {
     }
     if (roll > 0.45) continue;
 
+    // Up a little more often than down, which is what gives a business bought
+    // underwater its pull back towards the surface.
     const up = roll < 0.245;
     // A venture bought underwater steps by a fixed slice of its own size. A
     // multiplicative step cannot work there: multiplying a loss by 1.35 deepens
@@ -2850,10 +2904,34 @@ export function driftBusinesses(s: GameState): void {
     // business may climb all the way into profit, which is the only reason to
     // buy one, and may sink twice as deep first.
     const reach = Math.abs(base) * SWING_MAX;
+    // A profitable business steps by a *ratio*, and a ratio has to be undone by
+    // its reciprocal rather than by its mirror image. Stepping up by (1 + v) and
+    // down by (1 - v) looks even and is not: a step up and a step down leave
+    // 1 - v² of what was there, so the typical business shrank however often it
+    // went up. With the old numbers a ฿10,000-a-month cafe at v = 0.35 was
+    // earning ฿34 after thirty years, without ever once failing its closure
+    // roll, and the mean was down too because the swing is capped at three
+    // times but floored at zero. Volatility was a pure tax on daring.
+    //
+    // The pair is (1 + v) and 1/(1 + v) instead, so up-then-down is exactly
+    // where it started, and the coin is fair rather than 24.5-to-20.5, so the
+    // median business holds its size and only the closure roll takes it away.
+    // The upward bias stays on the underwater branch, where the steps are
+    // additive and it is the only reason to buy a loss-making business at all.
+    const grow = 1 + a.volatility;
     const next = base < 0
       ? a.cashflowPerUnit + (up ? 1 : -1) * Math.abs(base) * a.volatility
-      : a.cashflowPerUnit * (up ? 1 + a.volatility : 1 - a.volatility);
-    const capped = Math.max(base < 0 ? -reach : 0, Math.min(reach, next));
+      : a.cashflowPerUnit * (rand(s) < 0.5 ? grow : 1 / grow);
+    // The ceiling has to have a floor facing it. A cap at three times with a
+    // floor at zero is a reflecting barrier on the way up and open country on
+    // the way down, so even a perfectly fair walk drifts under it: with the
+    // reciprocal steps in place and nothing else changed, a v = 0.2 business
+    // still fell from ฿10,000 to ฿4,038 over thirty years, and removing the cap
+    // alone left it at exactly ฿10,000. A profitable business therefore swings
+    // between a third of its takings and three times them, and the thing that
+    // actually ends it is the closure roll, not a slow bleed nobody can see.
+    const floor = base < 0 ? -reach : Math.abs(base) / SWING_MAX;
+    const capped = Math.max(floor, Math.min(reach, next));
     if (Math.round(capped) === Math.round(a.cashflowPerUnit)) continue;
     const delta = (capped - a.cashflowPerUnit) * a.qty;
     a.cashflowPerUnit = capped;
@@ -4947,6 +5025,19 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
 
 /* --------------------------------------------------------------- outcomes */
 
+/**
+ * Every baht sitting in a fund that a rescue could actually reach.
+ *
+ * The provident fund is in here at its after-tax value because a player who has
+ * left the job can take it, and the tax fund at its break value because the
+ * lock has a price rather than a padlock. Anything counted here has to have a
+ * button on the rescue card, or the solvency test and the card disagree and the
+ * player is told they have a way out that the screen does not offer.
+ */
+export function rescueFunds(s: GameState): number {
+  return Math.round(s.dcaPot) + taxFundBreakValue(s) + (noMoreSalary(s) ? pfCashOut(s) : 0);
+}
+
 export function checkTrouble(s: GameState): void {
   if (s.phase !== 'rat' && s.phase !== 'fast') return;
   if (s.cash >= 0) {
@@ -4977,7 +5068,10 @@ export function checkTrouble(s: GameState): void {
   // Money sitting in the company is still a way out, just an expensive one, so
   // nobody is declared bankrupt while their own company is solvent.
   const canDrawDown = s.incorporated && s.corpCash > 0;
-  if (!canFireSale && !canBorrowMore && !canDrawDown) {
+  // Savings are a way out too. Leaving them out of this test is what made every
+  // loss in the game a false one; see rescueFunds.
+  const canCashOut = rescueFunds(s) > 0;
+  if (!canFireSale && !canBorrowMore && !canDrawDown && !canCashOut) {
     s.phase = 'lost';
     s.pending = null;
     note(

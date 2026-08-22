@@ -652,10 +652,28 @@ export const UI = {
   /* rescue */
   rescueTitle: { th: 'เงินสดติดลบ', en: 'Cash has gone negative' },
   rescueBody: {
-    th: 'ต้องหาเงินสดมาให้กลับเป็นบวกก่อนถึงจะเดินต่อได้ เลือกกู้ธนาคาร (ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ราว 11 เดือนหมด) หรือขายสินทรัพย์ด่วนที่ครึ่งราคา',
-    en: 'You must get back above zero before playing on: borrow from the bank (repaying 10% of the amount drawn each month, clearing in about eleven months) or fire-sell an asset at half price.',
+    th: 'ต้องหาเงินสดมาให้กลับเป็นบวกก่อนถึงจะเดินต่อได้ เลือกกู้ธนาคาร (ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ราว 11 เดือนหมด) ถอนเงินเก็บที่มีอยู่ หรือขายสินทรัพย์ด่วนที่ครึ่งราคา',
+    en: 'You must get back above zero before playing on: borrow from the bank (repaying 10% of the amount drawn each month, clearing in about eleven months), take money out of the funds you already hold, or fire-sell an asset at half price.',
   },
   fireSaleBtn: { th: 'ขายด่วนครึ่งราคา', en: 'Fire-sell at half price' },
+  rescueFundsHead: { th: 'เงินเก็บที่ถอนออกมาได้', en: 'Savings you can reach' },
+  rescueSellDca: { th: 'ขายกองทุนดัชนี', en: 'Sell the index fund' },
+  rescueSellDcaNote: {
+    th: 'ขายได้ทุกเมื่อ ไม่มีค่าปรับ กำไรจากกองทุนรวมในไทยไม่เสียภาษี',
+    en: 'Sellable any time with no penalty; mutual-fund gains are not taxed in Thailand.',
+  },
+  rescueSellFund: { th: 'ถอนกองทุนลดหย่อนภาษี', en: 'Cash in the tax fund' },
+  rescueFundLocked: {
+    th: 'ยังไม่ครบกำหนด ถอนได้แต่ต้องคืนสิทธิ์ภาษีที่เคยใช้ไป',
+    en: 'Still inside the lock: you can take it, but the relief already claimed goes back.',
+  },
+  rescueFundFree: { th: 'ครบกำหนดแล้ว ถอนได้เต็มจำนวน', en: 'Matured: take the whole lot.' },
+  rescueSellPf: { th: 'ถอนกองทุนสำรองเลี้ยงชีพ', en: 'Cash out the provident fund' },
+  rescueSellPfNote: {
+    th: 'ออกจากงานแล้วถอนได้ ก่อนอายุ 55 หักภาษี 10%',
+    en: 'Available once the job has ended; taxed 10% before fifty-five.',
+  },
+  rescueTakeIt: { th: 'ถอนออกมา', en: 'Take it' },
   borrowTitle: { th: 'กู้เงินฉุกเฉิน', en: 'Emergency loan' },
   borrowBody: {
     th: 'ธนาคารดูว่าคุณผ่อนไหวแค่ไหน จึงให้กู้ได้ไม่เกินรายจ่าย 3 เดือนของคุณ กู้เป็นขั้นละ 10,000 ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ประมาณ 11 เดือนก็หมด',
