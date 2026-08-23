@@ -241,6 +241,19 @@ const groups: { id: string; name: string; blurb: string }[] = [
     }
     .next b{color:var(--nn-gold);font-family:"JetBrains Mono", monospace;}
 
+    /* The half of the trade the tax figure never shows. */
+    .life{
+      margin-top:0.9rem;padding:0.6rem 0.7rem;border-radius:10px;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);
+    }
+    .life-row{display:flex;justify-content:space-between;align-items:baseline;gap:0.6rem;}
+    .life-row + .life-row{margin-top:0.3rem;}
+    .life-k{font-size:0.72rem;color:var(--nn-muted);}
+    .life-v{font-size:0.95rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    .life-row.now .life-v{font-size:1.15rem;font-weight:700;}
+    .life-note{font-size:0.7rem;line-height:1.7;color:var(--nn-muted);margin:0.45rem 0 0;}
+    .life-note.tight{color:#f0918d;}
+
     .par{margin-top:0.9rem;}
     .par-track{height:8px;border-radius:999px;background:#101724;overflow:hidden;}
     .par-fill{display:block;height:100%;width:0;background:var(--nn-green);transition:width .3s ease;}
@@ -480,6 +493,17 @@ const groups: { id: string; name: string; blurb: string }[] = [
           <div class="duo">
             <div><div class="n" id="out-net">0</div><div class="l">เงินได้สุทธิ</div></div>
             <div><div class="n" id="out-saved">0</div><div class="l">ภาษีที่ประหยัดได้แล้ว</div></div>
+          </div>
+          <div class="life" id="out-life">
+            <div class="life-row">
+              <span class="life-k">เหลือใช้เฉลี่ยเดือนละ ก่อนวางแผน</span>
+              <span class="life-v" id="out-life-before">0</span>
+            </div>
+            <div class="life-row now">
+              <span class="life-k">เหลือใช้เฉลี่ยเดือนละ หลังวางแผน</span>
+              <span class="life-v" id="out-life-after">0</span>
+            </div>
+            <p class="life-note" id="out-life-note"></p>
           </div>
           <div id="ladder">
             {rules.brackets.map((b, i) => (
@@ -800,7 +824,8 @@ const groups: { id: string; name: string; blurb: string }[] = [
           `ภาษีทั้งปี ${money(tax.tax)} บาท เงินได้สุทธิ ${money(tax.netIncome)} บาท ` +
           (tax.marginalRate > 0
             ? `บาทถัดไปที่ลดหย่อนคืนคุณ ${Math.round(tax.marginalRate * 100)}% ลดหย่อนเพิ่มได้อีก ${money(score.usefulRoomLeft)} บาทที่ยังลดภาษีได้จริง`
-            : 'อยู่ในขั้นยกเว้นภาษีแล้ว');
+            : 'อยู่ในขั้นยกเว้นภาษีแล้ว') +
+          ` เงินเหลือใช้เฉลี่ยเดือนละ ${money(score.monthlyLeftAfter)} บาท`;
       }, 500);
 
       const parFill = $<HTMLElement>('#par-fill');
@@ -826,6 +851,43 @@ const groups: { id: string; name: string; blurb: string }[] = [
       if (flagEl) {
         flagEl.hidden = flags.length === 0;
         flagEl.textContent = flags.join(' · ');
+      }
+
+      // The trade, stated in the unit people budget in. The saving is quoted
+      // per month too, so the two halves can be read against each other, and
+      // the timing gap is spelled out because the months are felt now while
+      // the refund arrives with next year's filing.
+      put('#out-life-before', money(score.monthlyLeftBefore));
+      put('#out-life-after', money(score.monthlyLeftAfter));
+      const drop = score.monthlyLeftBefore - score.monthlyLeftAfter;
+      // A bonus lands once, so spreading it over twelve months flatters every
+      // month that is not the month it arrived. Say so rather than letting the
+      // average be read as a payslip.
+      const bonusCaveat =
+        profile.bonus > 0
+          ? ` ตัวเลขนี้เกลี่ยโบนัส ${money(profile.bonus)} บาทลงทั้งปีแล้ว เดือนที่ไม่มีโบนัสจะเหลือน้อยกว่านี้`
+          : '';
+      const noteEl = $<HTMLElement>('#out-life-note');
+      if (noteEl) {
+        const tight = score.monthlyLeftAfter < 0;
+        noteEl.classList.toggle('tight', tight);
+        if (tight) {
+          noteEl.textContent =
+            'ตามแผนนี้เงินที่ต้องกันไว้มากกว่าเงินที่เข้ามาทั้งปี ภาษีจะลดลงจริง แต่ระหว่างปีคุณจะไม่มีเงินพอใช้';
+        } else if (drop <= 0) {
+          noteEl.textContent =
+            'ยังไม่ได้กันเงินไปไหน ตัวเลขนี้คือเงินที่เข้ามาหลังหักภาษีและประกันสังคม' + bonusCaveat;
+        } else {
+          // The drop already nets the refund off, so the three figures have to
+          // be laid out as sticker minus refund equals drop. Quoting the drop
+          // as the sticker and then subtracting the refund again would charge
+          // the player twice for the same saving.
+          const sticker = (score.cashSpent - score.alreadyPaid) / 12;
+          noteEl.textContent =
+            `ต้องกันเดือนละ ${money(sticker)} บาท ได้ภาษีคืนเฉลี่ยเดือนละ ${money(score.taxSaved / 12)} บาท ` +
+            `สุทธิแล้วเงินใช้ต่อเดือนหายไป ${money(drop)} บาท และภาษีก้อนนั้นจะกลับมาตอนยื่นแบบปีหน้า ไม่ใช่เดือนนี้` +
+            bonusCaveat;
+        }
       }
 
       // Money paid earlier in the year is shown per slot as well as in total,

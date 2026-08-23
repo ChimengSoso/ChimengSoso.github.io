@@ -398,6 +398,14 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
   const taxSaved = baseline.tax - played.tax;
   const bestSaving = baseline.tax - best.tax;
 
+  // What is actually left to live on. Social security is real money off the
+  // payslip, so it comes out here even though it is also a deduction; the
+  // purchases come out too, because a fund unit cannot buy groceries.
+  const gross = assessableIncome(profile);
+  const sso = socialSecurityPaid(profile, rules);
+  const monthlyLeftBefore = baht((gross - baseline.tax - sso) / 12);
+  const monthlyLeftAfter = baht((gross - played.tax - sso - newCashSpent) / 12);
+
   return {
     baselineTax: baseline.tax,
     playedTax: played.tax,
@@ -418,6 +426,12 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     wasted: Math.max(0, deductibleSpent - usefulDeduction(unspent, rules)),
     // Par counts the money kept as well as the tax dodged, so stuffing the
     // budget into a premium the player did not want cannot score full marks.
+    monthlyLeftBefore,
+    monthlyLeftAfter,
+    // The sticker price minus the tax it hands back. Worth separating, because
+    // the two do not arrive together: the months are felt now and the refund
+    // lands with next year's filing.
+    monthlyRealCost: Math.max(0, baht((newCashSpent - taxSaved) / 12)),
     percentOfPar:
       bestSaving + retained <= 0
         ? 100
