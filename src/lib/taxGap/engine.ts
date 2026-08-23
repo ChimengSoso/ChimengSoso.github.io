@@ -254,9 +254,22 @@ export function computeTax(profile: Profile, rules: TaxYearRules = rulesFor(prof
 function beforeSpending(profile: Profile, rules: TaxYearRules): Profile {
   const amounts: Profile['amounts'] = {};
   for (const slot of rules.slots) {
-    if (!slot.costsCash && profile.amounts[slot.id]) amounts[slot.id] = profile.amounts[slot.id];
+    if (!slot.costsCash && profile.amounts[slot.id]) {
+      amounts[slot.id] = profile.amounts[slot.id];
+      continue;
+    }
+    // A fund bought in March is spent money too. It belongs on the same side
+    // of the line as the mortgage interest: part of where the player already
+    // stands, not part of the decision being scored.
+    const already = paidInto(profile, slot.id);
+    if (already > 0) amounts[slot.id] = already;
   }
   return { ...profile, amounts, donationGeneral: 0, donationEDonation: 0 };
+}
+
+/** What a slot already held before this planning session, never more than it holds now. */
+function paidInto(profile: Profile, id: SlotId): number {
+  return clamp(Math.max(0, profile.paid?.[id] ?? 0), 0, Math.max(0, profile.amounts[id] ?? 0));
 }
 
 /** Slots the player pays for out of this year's budget. */
@@ -298,7 +311,9 @@ export function bestPlan(
   profile: Profile,
   rules: TaxYearRules = rulesFor(profile.year),
 ): { plan: Partial<Record<SlotId, number>>; deployed: number; retained: number } {
-  const plan: Partial<Record<SlotId, number>> = {};
+  // Seeded with what the player already holds, so a fund bought in March is a
+  // floor the plan builds on instead of an allocation it is free to undo.
+  const plan: Partial<Record<SlotId, number>> = { ...profile.amounts };
   let budgetLeft = Math.min(Math.max(0, profile.budget), usefulDeduction(profile, rules));
   let deployed = 0;
   let retained = 0;
@@ -316,7 +331,7 @@ export function bestPlan(
     const room = headroomFor(slot, trial, rules, raw).left;
     const put = Math.min(room, budgetLeft);
     if (put <= 0) continue;
-    plan[slot.id] = put;
+    plan[slot.id] = (plan[slot.id] ?? 0) + put;
     budgetLeft -= put;
     deployed += put;
     retained += put * (slot.retention ?? 0);
@@ -351,9 +366,19 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
   const cashSpent =
     buyableSlots(rules).reduce((sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0), 0) +
     donated;
+  // The budget is what is left to commit, so it is only ever charged for money
+  // that has not left the account yet.
+  const alreadyPaid = buyableSlots(rules).reduce((sum, s) => sum + paidInto(profile, s.id), 0);
+  const newCashSpent = Math.max(0, cashSpent - alreadyPaid);
+  // Only this year's purchases, because the tax saving it is scored beside is
+  // also only this year's. Crediting a fund bought in March on one side of the
+  // comparison but not the other would hand out free marks.
   const capitalRetained = baht(
     buyableSlots(rules).reduce(
-      (sum, s) => sum + Math.max(0, profile.amounts[s.id] ?? 0) * (s.retention ?? 0),
+      (sum, s) =>
+        sum +
+        Math.max(0, Math.max(0, profile.amounts[s.id] ?? 0) - paidInto(profile, s.id)) *
+          (s.retention ?? 0),
       0,
     ),
   );
@@ -383,7 +408,8 @@ export function scoreProfile(profile: Profile, rules: TaxYearRules = rulesFor(pr
     capitalRetained,
     headroomUnused,
     usefulRoomLeft,
-    overBudget: Math.max(0, cashSpent - Math.max(0, profile.budget)),
+    overBudget: Math.max(0, newCashSpent - Math.max(0, profile.budget)),
+    alreadyPaid,
     // Two different leaks, and telling the player the wrong one is worse than
     // telling them nothing: money above a slot's ceiling never becomes a
     // deduction at all, while money below the exempt band is a real deduction
