@@ -140,6 +140,15 @@ export interface Profile {
   budget: number;
   /** What they have put in each slot. Missing means zero. */
   amounts: Partial<Record<SlotId, number>>;
+  /**
+   * The part of `amounts` that was already paid earlier in the tax year.
+   *
+   * Somebody who bought RMF in March is not deciding whether to buy it; they
+   * are deciding what to do with what is left. Money marked here still counts
+   * as a deduction, but it stops competing for this year's budget and the
+   * planner treats it as a floor rather than something it may undo.
+   */
+  paid?: Partial<Record<SlotId, number>>;
   /** Donations, kept apart because their ceiling is computed last. */
   donationGeneral: number;
   donationEDonation: number;
@@ -208,6 +217,8 @@ export interface Score {
   usefulRoomLeft: number;
   /** Cash committed beyond what the player said they could afford. */
   overBudget: number;
+  /** Cash already paid before this planning session, excluded from the budget. */
+  alreadyPaid: number;
   /**
    * Cash committed above a slot's own ceiling, which the return simply will
    * not count. The money is still the player's; the deduction is not.

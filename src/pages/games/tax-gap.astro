@@ -268,6 +268,14 @@ const groups: { id: string; name: string; blurb: string }[] = [
       background:rgba(212,175,101,.1);border:1px solid rgba(212,175,101,.3);color:#d8c08a;
     }
 
+    .par-paid{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(90,150,220,.1);border:1px solid rgba(90,150,220,.3);color:#9fc3e8;
+    }
+    .cap.paid{border-color:rgba(90,150,220,.45);}
+    .cap.paid i{color:#9fc3e8;}
+
     .btns{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;}
     button.act{
       font-family:inherit;font-size:0.78rem;padding:0.5rem 0.9rem;border-radius:9px;cursor:pointer;
@@ -421,6 +429,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
                       <span class="cap" data-capkind="pot"><b>เหลือในกระปุกร่วม</b><i data-cap={`${s.id}:pot`}>—</i></span>
                     )}
                     <span class="cap real"><b>เพดานจริงของคุณ</b><i data-cap={`${s.id}:effective`}>—</i></span>
+                    {s.costsCash && <span class="cap paid" data-paid={s.id} hidden><b>จ่ายไปแล้วก่อนหน้านี้</b><i data-paidamt={s.id}>0</i></span>}
                   </div>
                   {editable.has(s.id) && (
                     <div class="row">
@@ -488,10 +497,12 @@ const groups: { id: string; name: string; blurb: string }[] = [
             <p class="par-txt" id="par-txt"></p>
             <p class="par-flag" id="par-flags" hidden></p>
             <p class="par-ask" id="par-ask" hidden></p>
+            <p class="par-paid" id="paid-note" hidden></p>
           </div>
           <div class="btns">
             <button type="button" class="act primary" id="btn-best">เติมให้ดีที่สุดตามงบ</button>
             <button type="button" class="act" id="btn-clear">ล้างที่กรอก</button>
+            <button type="button" class="act" id="btn-paid">ยอดนี้จ่ายไปแล้ว</button>
             <button type="button" class="act" id="btn-copy">คัดลอกบรีฟให้ AI</button>
           </div>
           <p class="copied" id="copied" hidden>คัดลอกแล้ว เอาไปวางในแชท AI ได้เลย</p>
@@ -575,6 +586,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
       levelId = lvl.id;
       profile = { ...structuredClone(lvl.profile), ...saved.profile };
       profile.amounts = { ...(saved.profile.amounts ?? {}) };
+      profile.paid = { ...(saved.profile.paid ?? {}) };
     }
 
     function save(): void {
@@ -808,13 +820,33 @@ const groups: { id: string; name: string; blurb: string }[] = [
       }
       put(
         '#par-txt',
-        `คะแนนเทียบกับการเล่นที่ดีที่สุดตามงบ ${score.percentOfPar}% · ใช้เงินสดไป ${money(score.cashSpent)} บาท ยังเป็นทรัพย์สินของคุณอยู่ ${money(score.capitalRetained)} บาท · ช่องที่ยังว่างและยังลดภาษีได้จริงอีก ${money(score.usefulRoomLeft)} บาท (เพดานรวมทุกช่องคือ ${money(score.headroomUnused)} แต่ส่วนที่เกินไม่ช่วยอะไรแล้ว)`,
+        `คะแนนเทียบกับการเล่นที่ดีที่สุดตามงบ ${score.percentOfPar}% · ใช้เงินสดไป ${money(score.cashSpent - score.alreadyPaid)} บาท ยังเป็นทรัพย์สินของคุณอยู่ ${money(score.capitalRetained)} บาท · ช่องที่ยังว่างและยังลดภาษีได้จริงอีก ${money(score.usefulRoomLeft)} บาท (เพดานรวมทุกช่องคือ ${money(score.headroomUnused)} แต่ส่วนที่เกินไม่ช่วยอะไรแล้ว)`,
       );
       const flagEl = $<HTMLElement>('#par-flags');
       if (flagEl) {
         flagEl.hidden = flags.length === 0;
         flagEl.textContent = flags.join(' · ');
       }
+
+      // Money paid earlier in the year is shown per slot as well as in total,
+      // because the whole point is that these baht are not up for decision.
+      for (const el of all<HTMLElement>('[data-paid]')) {
+        const id = el.dataset.paid ?? '';
+        const already = Math.min(profile.paid?.[id as SlotId] ?? 0, valueOf(id));
+        el.hidden = already <= 0;
+        const amt = $<HTMLElement>(`[data-paidamt="${id}"]`);
+        if (amt) amt.textContent = money(already);
+      }
+      const paidNote = $<HTMLElement>('#paid-note');
+      if (paidNote) {
+        paidNote.hidden = score.alreadyPaid <= 0;
+        paidNote.textContent =
+          score.alreadyPaid > 0
+            ? `${money(score.alreadyPaid)} บาทถูกทำเครื่องหมายว่าจ่ายไปแล้วก่อนหน้านี้ ยอดนี้ไม่ถูกนับเข้าเงินเย็นของปีนี้ และปุ่มเติมให้ดีที่สุดจะไม่ไปยุ่งกับมัน`
+            : '';
+      }
+      const paidBtn = $<HTMLButtonElement>('#btn-paid');
+      if (paidBtn) paidBtn.textContent = score.alreadyPaid > 0 ? 'ยกเลิกเครื่องหมาย' : 'ยอดนี้จ่ายไปแล้ว';
 
       // The cheapest deduction on the board is the one that costs nothing,
       // because the money already left the player's pocket. Par cannot mark
@@ -926,7 +958,12 @@ const groups: { id: string; name: string; blurb: string }[] = [
       // that promises the opposite.
       const kept: Profile['amounts'] = {};
       for (const slot of rulesFor(profile.year).slots) {
-        if (!slot.costsCash && profile.amounts[slot.id]) kept[slot.id] = profile.amounts[slot.id];
+        if (!slot.costsCash && profile.amounts[slot.id]) {
+          kept[slot.id] = profile.amounts[slot.id];
+          continue;
+        }
+        const already = Math.min(profile.paid?.[slot.id] ?? 0, valueOf(slot.id));
+        if (already > 0) kept[slot.id] = already;
       }
       const cleared: Profile = { ...profile, amounts: kept, donationGeneral: 0, donationEDonation: 0 };
       profile = { ...cleared, amounts: { ...kept, ...bestPlan(cleared).plan } };
@@ -934,9 +971,28 @@ const groups: { id: string; name: string; blurb: string }[] = [
       render();
     });
 
+    // One control instead of a second box on every row: snapshot what is on the
+    // board now as "already paid", or drop the marks again.
+    $<HTMLButtonElement>('#btn-paid')?.addEventListener('click', () => {
+      readForm();
+      const marked = Object.values(profile.paid ?? {}).some((v) => (v ?? 0) > 0);
+      if (marked) {
+        profile.paid = {};
+      } else {
+        const snapshot: Profile['amounts'] = {};
+        for (const slot of rulesFor(profile.year).slots) {
+          if (!slot.costsCash) continue;
+          const v = Math.max(0, profile.amounts[slot.id] ?? 0);
+          if (v > 0) snapshot[slot.id] = v;
+        }
+        profile.paid = snapshot;
+      }
+      render();
+    });
+
     $<HTMLButtonElement>('#btn-clear')?.addEventListener('click', () => {
       readForm();
-      profile = { ...profile, amounts: {}, donationGeneral: 0, donationEDonation: 0 };
+      profile = { ...profile, amounts: {}, paid: {}, donationGeneral: 0, donationEDonation: 0 };
       writeForm();
       render();
     });
