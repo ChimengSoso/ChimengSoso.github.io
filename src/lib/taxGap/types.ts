@@ -231,4 +231,16 @@ export interface Score {
   wasted: number;
   /** 0..100 against par. 100 means the budget could not have done better. */
   percentOfPar: number;
+  /**
+   * Cash left to live on each month, before and after this year's buying.
+   *
+   * Tax is the number on screen; the rent is the number people actually feel.
+   * A plan that saves 20,000 in tax by locking away 200,000 costs real months
+   * of comfort, and a game that reports only the first half is selling
+   * something.
+   */
+  monthlyLeftBefore: number;
+  monthlyLeftAfter: number;
+  /** What a month of this plan costs once the tax coming back is counted. */
+  monthlyRealCost: number;
 }
