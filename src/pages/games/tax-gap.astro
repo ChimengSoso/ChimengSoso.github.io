@@ -162,7 +162,26 @@ const groups: { id: string; name: string; blurb: string }[] = [
     /* ---------------------------------------------------------- slots */
     .grp{margin-top:1.4rem;}
     .grp:first-of-type{margin-top:0;}
-    .grp-head{font-size:0.85rem;color:var(--nn-ink);font-weight:600;}
+    .grp-head{
+      font-size:0.85rem;color:var(--nn-ink);font-weight:600;cursor:pointer;
+      display:flex;align-items:baseline;gap:0.5rem;list-style:none;
+      padding:0.45rem 0.6rem;border-radius:9px;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);
+    }
+    .grp-head::-webkit-details-marker{display:none;}
+    /* The triangle is drawn here rather than left to the browser so it can sit
+       ahead of the name and turn with the group. */
+    .grp-head::before{
+      content:'';flex:none;width:0;height:0;
+      border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;
+      transform:rotate(0deg);transition:transform .15s ease;
+    }
+    .grp[open] > .grp-head::before{transform:rotate(90deg);}
+    .grp-head:hover{border-color:var(--nn-green);}
+    .grp-head:focus-visible{outline:2px solid var(--nn-green);outline-offset:2px;}
+    .grp-name{flex:1 1 auto;min-width:0;}
+    .grp-sum{flex:none;font-size:0.72rem;font-weight:400;color:var(--nn-muted);font-variant-numeric:tabular-nums;}
+    .grp[open] > .grp-blurb{margin-top:0.55rem;}
     .grp-blurb{font-size:0.74rem;color:var(--nn-muted);margin-bottom:0.7rem;line-height:1.7;}
 
     .slot{
@@ -342,7 +361,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
     .foot a{color:var(--nn-green-bright);text-decoration:underline;text-underline-offset:2px;}
 
     @media (prefers-reduced-motion: reduce){
-      .back svg,.lvl,.step-fill,.par-fill,button.act{transition:none;}
+      .back svg,.lvl,.step-fill,.par-fill,button.act,.grp-head::before{transition:none;}
       .back:hover svg{transform:none;}
     }
   </style>
@@ -440,8 +459,11 @@ const groups: { id: string; name: string; blurb: string }[] = [
           ))}
 
           {groups.map((g) => (
-            <div class="grp">
-              <p class="grp-head">{g.name}</p>
+            <details class="grp" data-group={g.id}>
+              <summary class="grp-head">
+                <span class="grp-name">{g.name}</span>
+                <span class="grp-sum" data-grpsum={g.id}></span>
+              </summary>
               <p class="grp-blurb">{g.blurb}</p>
               {rules.slots.filter((s) => s.group === g.id).map((s) => (
                 <div class="slot" data-slot={s.id}>
@@ -473,11 +495,14 @@ const groups: { id: string; name: string; blurb: string }[] = [
                   {s.lockIn && <p class="lock">{s.lockIn}</p>}
                 </div>
               ))}
-            </div>
+            </details>
           ))}
 
-          <div class="grp">
-            <p class="grp-head">เงินบริจาค</p>
+          <details class="grp" data-group="donation">
+            <summary class="grp-head">
+              <span class="grp-name">เงินบริจาค</span>
+              <span class="grp-sum" data-grpsum="donation"></span>
+            </summary>
             <p class="grp-blurb">คิดท้ายสุดเสมอ เพราะเพดาน 10% ใช้ฐานหลังหักค่าใช้จ่ายและลดหย่อนอื่นครบแล้ว</p>
             <div class="slot">
               <div class="slot-top"><span class="slot-name">บริจาคทั่วไป</span></div>
@@ -498,7 +523,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
                 <input type="number" min="0" step="1000" value="0" data-num="donationEDonation" inputmode="numeric" aria-label="เงินบริจาคผ่าน e-Donation เป็นตัวเลข" />
               </div>
             </div>
-          </div>
+          </details>
         </section>
       </div>
 
@@ -599,6 +624,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
     import { buildBrief } from '../../lib/taxGap/brief';
     import { rulesFor, DEFAULT_YEAR } from '../../lib/taxGap/rules';
     import { levels, levelById } from '../../lib/taxGap/levels';
+    import type { Level } from '../../lib/taxGap/levels';
     import type { Profile, SlotId } from '../../lib/taxGap/types';
 
     const STORAGE_KEY = 'taxGapState';
@@ -709,6 +735,33 @@ const groups: { id: string; name: string; blurb: string }[] = [
       const briefEl = $<HTMLElement>('#brief');
       const lvl = levelById(levelId);
       if (briefEl && lvl) briefEl.textContent = lvl.brief;
+      syncGroups(lvl);
+    }
+
+    /**
+     * Decide which groups start open.
+     *
+     * Nineteen slots unrolled at once is the first thing a newcomer sees, and
+     * most of them are irrelevant to the level in front of them. A group opens
+     * when it already holds a figure, when the level is about it, or when it is
+     * the savings group, which is where there is always something to do. Called
+     * only on a level change and on boot, never from render, so it can never
+     * fold a group back up while somebody is typing in it.
+     */
+    function syncGroups(lvl: Level | undefined): void {
+      const focus = new Set<string>(lvl?.focus ?? []);
+      const rules = rulesFor(profile.year);
+      for (const el of all<HTMLDetailsElement>('.grp')) {
+        const id = el.dataset.group ?? '';
+        if (id === 'donation') {
+          el.open = profile.donationGeneral > 0 || profile.donationEDonation > 0;
+          continue;
+        }
+        const mine = rules.slots.filter((s) => s.group === id);
+        const filled = mine.some((s) => valueOf(s.id) > 0 && s.costsCash);
+        const wanted = mine.some((s) => focus.has(s.id));
+        el.open = filled || wanted || id === 'invest';
+      }
     }
 
     function valueOf(key: string): number {
@@ -922,6 +975,36 @@ const groups: { id: string; name: string; blurb: string }[] = [
         }
       }
 
+      // A folded group still has to say what is inside it, or folding turns
+      // into hiding: the header carries what the group has claimed and how
+      // much of it is still going spare.
+      for (const el of all<HTMLElement>('[data-grpsum]')) {
+        const id = el.dataset.grpsum ?? '';
+        if (id === 'donation') {
+          el.textContent =
+            tax.donationAllowed > 0
+              ? `หักได้ ${money(tax.donationAllowed)} · เพดาน ${money(tax.donationCap)}`
+              : `เพดาน ${money(tax.donationCap)}`;
+          continue;
+        }
+        const mine = rows.filter((h) => h.slot.group === id);
+        const used = mine.reduce((sum, h) => sum + h.used, 0);
+        // Room only counts as room if there is a box to put it in. A childless
+        // player has no "spare" 60,000 for a second child, but a mortgage
+        // holder does have spare interest to claim.
+        const spare = mine.reduce(
+          (sum, h) =>
+            sum + (document.querySelector(`[data-num="${h.slot.id}"]`) !== null ? h.left : 0),
+          0,
+        );
+        el.textContent =
+          used > 0
+            ? `ใช้แล้ว ${money(used)}${spare > 0 ? ` · ว่างอีก ${money(spare)}` : ''}`
+            : spare > 0
+              ? `ยังว่าง ${money(spare)}`
+              : `${mine.length} ช่อง`;
+      }
+
       // Money paid earlier in the year is shown per slot as well as in total,
       // because the whole point is that these baht are not up for decision.
       for (const el of all<HTMLElement>('[data-paid]')) {
@@ -1066,6 +1149,9 @@ const groups: { id: string; name: string; blurb: string }[] = [
       const cleared: Profile = { ...profile, amounts: kept, donationGeneral: 0, donationEDonation: 0 };
       profile = { ...cleared, amounts: { ...kept, ...bestPlan(cleared).plan } };
       writeForm();
+      // The plan can drop money into a folded group, and money the player
+      // cannot see is money they cannot judge.
+      syncGroups(levelById(levelId));
       render();
     });
 
@@ -1092,6 +1178,7 @@ const groups: { id: string; name: string; blurb: string }[] = [
       readForm();
       profile = { ...profile, amounts: {}, paid: {}, donationGeneral: 0, donationEDonation: 0 };
       writeForm();
+      syncGroups(levelById(levelId));
       render();
     });
 
