@@ -29,6 +29,7 @@ import {
 } from '../../data/neeNoo';
 import type {
   Asset,
+  CareerRisk,
   DealCard,
   DealSize,
   Decks,
@@ -254,6 +255,8 @@ export function salary(s: GameState): number {
   if (noMoreSalary(s)) return 0;
   // A full-time course means no wage at all while it runs.
   if (s.study && studyRouteById.get(s.study.routeId)?.fullTime) return 0;
+  // Qualified, and still waiting for somebody to hire you.
+  if (s.jobWait > 0) return 0;
   let base = profession(s).salary * payLevel(s) * s.entryPay;
   if (s.bondMonths > 0) base *= 1 - BOND_CUT;
   if (s.slumpMonths > 0) base *= 1 - s.slumpCut;
@@ -433,6 +436,16 @@ export const INFLATION = 0.03;
  * renewed, and a tenant who is asked for the whole increase leaves.
  */
 export const RENT_FOLLOW = 0.7;
+/**
+ * Business takings, on the other hand, index in full.
+ *
+ * A landlord is bound by a lease until it is renewed and by a tenant who will
+ * leave if asked for the whole increase. A shop is bound by neither: when the
+ * beans and the wages and the gas go up 3%, the menu goes up 3%, and it goes up
+ * the week the costs do. Running both through the same 0.7 quietly wrote a
+ * permanent 0.9%-a-year real decline into every business on the board.
+ */
+export const BIZ_FOLLOW = 1;
 
 export function yearsElapsed(s: GameState): number {
   return Math.floor(s.months / 12);
@@ -443,9 +456,14 @@ export function priceLevel(s: GameState): number {
   return Math.pow(1 + INFLATION, yearsElapsed(s));
 }
 
-/** Pay rises compound too, and for most jobs they lose the race on purpose. */
+/**
+ * Pay rises compound too, and for most jobs they lose the race on purpose. A
+ * year the employer froze is a year that simply never counts: the ladder has
+ * one rung fewer for the rest of the career, which is why a freeze costs far
+ * more than the one year it is announced for.
+ */
 export function payLevel(s: GameState): number {
-  return Math.pow(1 + profession(s).raise, yearsElapsed(s));
+  return Math.pow(1 + profession(s).raise, Math.max(0, yearsElapsed(s) - s.payFreezeYears));
 }
 
 export function livingCost(s: GameState): number {
@@ -749,7 +767,7 @@ export function setPfRate(s: GameState, rate: number): void {
 
 /** Paid in, matched, and grown, once a month. */
 function pfMonth(s: GameState): void {
-  s.pfPot *= 1 + PF_RETURN / 12;
+  s.pfPot *= monthOf(PF_RETURN + (s.marketYear - MARKET_DRIFT) * PF_BETA);
   const own = pfContribution(s);
   if (own > 0) s.pfPot += own + pfMatch(s);
 }
@@ -868,6 +886,58 @@ export function sellTaxFund(s: GameState): void {
   checkEscape(s);
 }
 
+/**
+ * What breaking the lock early costs.
+ *
+ * An RMF or an SSF cashed in before its time is not confiscated: the deductions
+ * already claimed have to go back to the Revenue Department, with a surcharge
+ * on top. A fifth of the pot is the rough shape of that for somebody who has
+ * been paying in for a few years at a middling band, and it is deliberately
+ * painful enough that nobody reaches for it while there is anything else left.
+ */
+export const TAXFUND_BREAK_PENALTY = 0.2;
+
+/** What the tax fund would put in the hand right now, lock or no lock. */
+export function taxFundBreakValue(s: GameState): number {
+  if (s.taxFundPot <= 0) return 0;
+  if (taxFundUnlocked(s)) return taxFundValue(s);
+  return Math.round(s.taxFundPot * (1 - TAXFUND_BREAK_PENALTY));
+}
+
+/**
+ * Cash the tax fund in mid-lock, paying the penalty for it.
+ *
+ * This exists because the game used to declare people bankrupt while they were
+ * holding one. The rescue card offered a loan, a fire sale, the car and the
+ * house, and nothing else, and `checkTrouble` counted exactly those when it
+ * decided there was no way out, so a pot of any size was invisible to both.
+ * Measured across 170 bankruptcies, all 170 of them had money in a fund, an
+ * average of ฿44.4m; the worst was a pilot declared bankrupt at seventy-six
+ * over ฿210,313 of overdraft while holding ฿530m.
+ */
+export function breakTaxFund(s: GameState): void {
+  const value = taxFundBreakValue(s);
+  if (value <= 0) return;
+  const penalty = Math.round(s.taxFundPot) - value;
+  s.cash += value;
+  s.taxFundPot = 0;
+  s.taxFundFirst = null;
+  note(
+    s,
+    penalty > 0
+      ? {
+          th: `ถอนกองทุนลดหย่อนภาษีก่อนครบกำหนด ได้เงินสด ${money(value)} เสียค่าคืนสิทธิ์ภาษี ${money(penalty)}`,
+          en: `Broke the tax fund early for ${money(value)} in hand, after ${money(penalty)} of reclaimed relief.`,
+        }
+      : {
+          th: `ขายกองทุนลดหย่อนภาษีที่ครบกำหนดแล้ว ได้เงินสด ${money(value)}`,
+          en: `Sold the matured tax fund for ${money(value)}.`,
+        },
+    penalty > 0 ? 'bad' : 'good',
+  );
+  checkEscape(s);
+}
+
 export function declineTaxFund(s: GameState): void {
   s.taxFundDue = false;
   s.pending = null;
@@ -887,9 +957,53 @@ export function declineTaxFund(s: GameState): void {
  * player is worth. That contrast is the whole point of putting it in.
  */
 export const DCA_RETURN = 0.07;
-/** How far a year can land from the average, either way. */
-export const DCA_SWING = 0.18;
+/**
+ * How far one year lands from the average, as a standard deviation.
+ *
+ * The previous model drew a fresh number every month around the average and
+ * divided by twelve, which reads as volatile and is not: twelve independent
+ * draws cancel, so the worst year the fund could possibly have was about -2%.
+ * A whole generation of investors has been taught by exactly that kind of
+ * smooth line, and then sold everything the first time a real market took a
+ * third off. One draw a year, with a left tail long enough to hurt, is the
+ * only way the game can ask the question that actually matters.
+ *
+ * 19% is roughly what a broad equity fund has done historically.
+ */
+export const MARKET_SD = 0.19;
+/**
+ * The average of the yearly draws. It sits above `DCA_RETURN` on purpose:
+ * `DCA_RETURN` is what the fund compounds at over a lifetime, and a series of
+ * volatile years compounds to less than its own average (`-σ²/2`), so the
+ * average has to be higher for the long run to land where it should.
+ */
+export const MARKET_DRIFT = DCA_RETURN + (MARKET_SD * MARKET_SD) / 2;
+/** A year at or below this is bad enough to be put to the player as a decision. */
+export const MARKET_CRASH_LINE = -0.15;
+/** How much of the market's year the other two funds take. */
+export const TAXFUND_BETA = 0.8;
+export const PF_BETA = 0.45;
 export const DCA_STEP = 1000;
+
+/**
+ * The year the market is having, drawn once and then lived through month by
+ * month. A sum of three uniforms is near enough to a bell curve, and scaling it
+ * by two gives it a standard deviation of exactly one.
+ */
+export function drawMarketYear(s: GameState): number {
+  const z = (rand(s) + rand(s) + rand(s) - 1.5) * 2;
+  return Math.max(-0.55, Math.min(0.7, MARKET_DRIFT + z * MARKET_SD));
+}
+
+/** One month of a year that has already been drawn. */
+function monthOf(yearReturn: number): number {
+  return Math.pow(1 + Math.max(-0.95, yearReturn), 1 / 12);
+}
+
+/** What the fund is doing this year, as the player would read it off a page. */
+export function marketYearPercent(s: GameState): number {
+  return s.marketYear;
+}
 
 export function dcaValue(s: GameState): number {
   return Math.round(s.dcaPot);
@@ -926,10 +1040,7 @@ export function setDcaMonthly(s: GameState, amount: number): void {
  * card that follows would have been the bank's.
  */
 function dcaMonth(s: GameState): void {
-  // The market's own year, drawn once and then applied smoothly, so a run of
-  // months does not look like a coin being flipped every payday.
-  const drift = 1 + (DCA_RETURN + (rand(s) - 0.5) * DCA_SWING) / 12;
-  s.dcaPot *= drift;
+  s.dcaPot *= monthOf(s.marketYear);
   if (s.dcaMonthly <= 0) return;
   if (s.cash < s.dcaMonthly) return;
   s.cash -= s.dcaMonthly;
@@ -954,6 +1065,43 @@ export function sellDca(s: GameState, amount?: number): void {
     gain >= 0 ? 'good' : 'bad',
   );
   checkEscape(s);
+}
+
+/**
+ * What the fall has already taken off the pot, so the card can put a number on
+ * the fear rather than a percentage.
+ */
+export function crashLoss(s: GameState): number {
+  return Math.round(s.dcaPot * Math.max(0, -s.marketYear));
+}
+
+/** Keep the standing order running through the fall. */
+export function holdDca(s: GameState): void {
+  if (s.pending?.kind !== 'crash') return;
+  s.pending = null;
+  note(
+    s,
+    {
+      th: `ตลาดลง ${Math.round(-s.marketYear * 100)}% ปีนี้ แต่คำสั่งซื้อรายเดือนยังเดินต่อ เดือนที่ราคาถูกคือเดือนที่ได้หน่วยลงทุนเยอะที่สุด`,
+      en: `The market is down ${Math.round(-s.marketYear * 100)}% this year and the standing order keeps running. The cheap months are the ones that buy the most units.`,
+    },
+    'good',
+  );
+}
+
+/** Stop the standing order because the falling number is unbearable. */
+export function stopDcaNow(s: GameState): void {
+  if (s.pending?.kind !== 'crash') return;
+  s.pending = null;
+  s.dcaMonthly = 0;
+  note(
+    s,
+    {
+      th: `หยุดซื้อกองทุนรายเดือนไว้ก่อนจนกว่าตลาดจะนิ่ง ตั้งกลับได้ทุกเมื่อจากหน้างบ`,
+      en: `The standing order is paused until the market settles. It can be started again from the statement whenever you like.`,
+    },
+    'plain',
+  );
 }
 
 export const ALLOWANCE_SELF = 60000;
@@ -1142,6 +1290,28 @@ export function totalExpenses(s: GameState): number {
     taxes(s) + ssoContribution(s) + pfContribution(s) + livingCost(s) + housingCost(s)
     + partnerCost(s) + childExpense(s) + childPremium(s) + debtPayments(s) + insurancePremium(s)
   );
+}
+
+/**
+ * The share of everything coming in that is still there at the end of the
+ * month. Of every number on this statement it is the one most under the
+ * player's own control and the one that predicts the ending best, and until now
+ * it was the one number the game never showed anybody.
+ */
+export function savingsRate(s: GameState): number {
+  const income = totalIncome(s);
+  return income > 0 ? monthlyCashflow(s) / income : 0;
+}
+
+/**
+ * How many months of bills the cash in hand would cover with nothing else
+ * coming in. The bank has been quietly scoring this since the day the loan
+ * rules were written; the player could not see it.
+ */
+export function bufferMonths(s: GameState): number {
+  const bills = totalExpenses(s);
+  if (bills <= 0) return 0;
+  return Math.max(0, s.cash) / bills;
 }
 
 export function monthlyCashflow(s: GameState): number {
@@ -1362,6 +1532,8 @@ export function createGame(
     rateDrift: 0,
     cardMinimum: false,
     dcaMonthly: 0,
+    marketYear: DCA_RETURN,
+    crashDue: false,
     dcaPot: 0,
     dcaPaid: 0,
     taxFundPot: 0,
@@ -1374,6 +1546,9 @@ export function createGame(
     licenceDue: null,
     graduatedFrom: null,
     entryPay: 1,
+    entryPayFrom: null,
+    payFreezeYears: 0,
+    jobWait: 0,
     skipTurns: 0,
     charityTurns: 0,
     escapeIncome: 0,
@@ -1768,6 +1943,50 @@ export interface ReportCard {
   refundsTaken: number;
   lotterySpent: number;
   lotteryWon: number;
+  /**
+   * The single thing that cost this player the most, named. Everything else on
+   * this card is a number; a number nobody can rank is a number nobody learns
+   * from, so the game does the ranking and says one sentence about the worst of
+   * it. `verdict` is what to praise when there was nothing to fault.
+   */
+  leak: Leak;
+}
+
+/** Ordered worst-first by how much of a life each one quietly takes. */
+export type Leak =
+  | 'underwater'
+  | 'interest'
+  | 'firesale'
+  | 'lottery'
+  | 'idle'
+  | 'nothingBought'
+  | 'behindFund'
+  | 'clean';
+
+/**
+ * Which of the leaks was the real one.
+ *
+ * The order is the order a planner would actually rank them: living overdrawn
+ * beats everything, then interest large enough to have been a second portfolio,
+ * then selling under duress, then the tickets, then a pile of cash that sat
+ * still for years. Only when none of those bit does the card fall back to
+ * whether the whole effort beat leaving the money in a fund.
+ */
+function findLeak(s: GameState): Leak {
+  const invested = Math.round(s.investedTotal);
+  const gap = Math.round(
+    s.assets.reduce((sum, a) => sum + assetValue(a) - a.debt, 0) + s.incomeReceived - s.shadowPot,
+  );
+  if (s.monthsUnderwater >= 12) return 'underwater';
+  if (invested > 0 && s.interestPaid > invested) return 'interest';
+  if (s.fireSales >= 2) return 'firesale';
+  if (s.lotterySpent > 0 && s.lotteryWon < s.lotterySpent * 0.5 && s.lotterySpent > livingCost(s) * 6) {
+    return 'lottery';
+  }
+  if (invested === 0 && s.dcaPaid === 0 && s.taxFundPot === 0) return 'nothingBought';
+  if (s.months >= 60 && s.cash > totalExpenses(s) * 24 && s.dcaMonthly === 0) return 'idle';
+  if (invested > 0 && gap < 0) return 'behindFund';
+  return 'clean';
 }
 
 /**
@@ -1798,6 +2017,7 @@ export function reportCard(s: GameState): ReportCard {
     refundsTaken: Math.round(s.refundsTaken),
     lotterySpent: Math.round(s.lotterySpent),
     lotteryWon: Math.round(s.lotteryWon),
+    leak: findLeak(s),
   };
 }
 
@@ -1937,6 +2157,61 @@ function advanceStudy(s: GameState): void {
 }
 
 /** Walk into the new job. The wage starts below what the veterans there earn. */
+/**
+ * How many months a newly qualified person waits for a seat.
+ *
+ * The licence is the cheap part. Airlines hire in waves and a fresh cadet can
+ * sit on the list for a year or more; a nurse or a teacher walks into a
+ * shortage and starts almost at once. The wait is drawn rather than fixed
+ * because the queue is the risk, and a risk you can plan around is not one.
+ */
+export const JOB_WAIT_MAX: Record<string, number> = { pilot: 14, doctor: 6, engineer: 5, nurse: 3, teacher: 3 };
+
+/** How fast the entry-pay haircut closes: this share of the gap, every year. */
+export const PAY_CATCHUP = 0.2;
+
+/** One month closer to the first day of the new job. */
+function countJobWait(s: GameState): void {
+  if (s.jobWait <= 0) return;
+  s.jobWait -= 1;
+  note(
+    s,
+    s.jobWait > 0
+      ? {
+          th: `ยังรอเรียกตัวอยู่ ใบอนุญาตมีแล้วแต่ยังไม่มีที่ให้ลง เหลืออีกราว ${s.jobWait} เดือน เดือนนี้ไม่มีเงินเดือนเข้า`,
+          en: `Still on the list: the licence is in hand and there is no seat yet. About ${s.jobWait} month${s.jobWait > 1 ? 's' : ''} to go, and no wage this month.`,
+        }
+      : {
+          th: `เรียกตัวแล้ว เริ่มงาน${profession(s).name.th}เดือนหน้า เงินเดือนกลับมา`,
+          en: `The call came. The new job as ${profession(s).name.en} starts next month and the wage is back.`,
+        },
+    s.jobWait > 0 ? 'bad' : 'good',
+  );
+}
+
+/**
+ * The new-arrival discount wearing off. Somebody who changed field and turned
+ * out to be good at it does not spend thirty years on the junior rate; they
+ * close most of the gap inside five. Charging it for life made retraining look
+ * like a punishment the numbers never actually hand out.
+ */
+function catchUpPay(s: GameState): void {
+  if (s.entryPay >= 1 || s.entryPayFrom === null) return;
+  if ((s.months - s.entryPayFrom) % 12 !== 0 || s.months === s.entryPayFrom) return;
+  const before = s.entryPay;
+  s.entryPay = Math.min(1, s.entryPay + (1 - s.entryPay) * PAY_CATCHUP);
+  const gain = Math.round(profession(s).salary * payLevel(s) * (s.entryPay - before));
+  if (gain <= 0) return;
+  note(
+    s,
+    {
+      th: `ทำงานสายนี้มาครบอีกปี ได้ปรับฐานเงินเดือนขึ้นมาที่ ${Math.round(s.entryPay * 100)}% ของสายนี้ (+${money(gain)} ต่อเดือน) คนใหม่ที่ทำได้จริงไม่ได้เป็นคนใหม่ตลอดไป`,
+      en: `Another year in the new field and the base moves up to ${Math.round(s.entryPay * 100)}% of what it pays (+${money(gain)} a month). Nobody who can do the work stays the new one for ever.`,
+    },
+    'good',
+  );
+}
+
 export function switchCareer(s: GameState, targetId: string, route: StudyRoute): void {
   const next = professionById.get(targetId);
   if (!next) return;
@@ -1953,14 +2228,29 @@ export function switchCareer(s: GameState, targetId: string, route: StudyRoute):
   // Entry pay is modelled as a permanent haircut against this profession's
   // normal salary, which is what starting over actually feels like.
   s.entryPay = route.entrySalary;
+  s.entryPayFrom = s.months;
+  // A licensed field has a queue in front of it; an unlicensed one has a start
+  // date. The wait is drawn from the job being walked into, not from the course.
+  const longest = next.licensed ? (JOB_WAIT_MAX[next.id] ?? 4) : 0;
+  s.jobWait = longest > 0 ? Math.floor(rand(s) * (longest + 1)) : 0;
   note(
     s,
     {
-      th: `เรียนจบแล้ว เปลี่ยนจาก${before}มาเป็น${next.name.th} เริ่มที่ ${Math.round(route.entrySalary * 100)}% ของเงินเดือนสายนี้ เพราะคุณคือคนใหม่ของที่นี่`,
-      en: `Graduated and moved from ${before} to ${next.name.en}, starting at ${Math.round(route.entrySalary * 100)}% of what this job normally pays, because here you are the new one.`,
+      th: `เรียนจบแล้ว เปลี่ยนจาก${before}มาเป็น${next.name.th} เริ่มที่ ${Math.round(route.entrySalary * 100)}% ของเงินเดือนสายนี้ เพราะคุณคือคนใหม่ของที่นี่ แล้วจะขยับขึ้นปีละส่วนจากนี้`,
+      en: `Graduated and moved from ${before} to ${next.name.en}, starting at ${Math.round(route.entrySalary * 100)}% of what this job normally pays, because here you are the new one. It climbs back a little each year from now.`,
     },
     'good',
   );
+  if (s.jobWait > 0) {
+    note(
+      s,
+      {
+        th: `แต่ยังไม่ได้เริ่มงานทันที สายนี้ต้องรอรอบเรียกตัว อีกประมาณ ${s.jobWait} เดือน ระหว่างนี้ไม่มีเงินเดือน มีแต่รายจ่าย`,
+        en: `The job does not start today, though: this field hires in waves, and the call is about ${s.jobWait} month${s.jobWait > 1 ? 's' : ''} away. No wage until then, and the bills carry on.`,
+      },
+      'bad',
+    );
+  }
   checkEscape(s);
   checkTrouble(s);
 }
@@ -2059,6 +2349,15 @@ export function claimDue(s: GameState): boolean {
     s.pending = { kind: 'doodad', cardId: 'x-insurance' };
     return true;
   }
+  if (s.crashDue) {
+    s.crashDue = false;
+    // Only worth asking somebody who has a standing order to stop. A player
+    // with no fund watches the fall happen in the log like everybody else.
+    if (s.dcaMonthly > 0 || s.dcaPot > 0) {
+      s.pending = { kind: 'crash' };
+      return true;
+    }
+  }
   if (s.birthdayDue) {
     s.pending = { kind: 'birthday' };
     return true;
@@ -2152,10 +2451,19 @@ function corpMonth(s: GameState): void {
 
 function monthPassed(s: GameState): void {
   s.months += 1;
+  // A new market year, once every twelve months. Every fund in the game moves
+  // with it, because a provident fund, a tax-break fund and an index fund are
+  // three wrappers around the same market: they are not each other's
+  // diversification, and a player who finds that out here will not have to find
+  // it out with real money.
+  if (s.months % 12 === 1 || s.months === 1) {
+    s.marketYear = drawMarketYear(s);
+    if (s.marketYear <= MARKET_CRASH_LINE && s.months > 12) s.crashDue = true;
+  }
   driftPrices(s);
   pfMonth(s);
-  s.taxFundPot *= 1 + TAXFUND_RETURN / 12;
-  s.shadowPot *= 1 + DCA_RETURN / 12;
+  s.taxFundPot *= monthOf(TAXFUND_RETURN + (s.marketYear - MARKET_DRIFT) * TAXFUND_BETA);
+  s.shadowPot *= monthOf(s.marketYear);
   // What the holdings actually handed over this month. The fund's return is
   // inside its own value, so unless the rent is counted too the comparison is
   // rigged against the thing that pays monthly.
@@ -2176,6 +2484,8 @@ function monthPassed(s: GameState): void {
   corpMonth(s);
   if (s.bondMonths > 0) s.bondMonths -= 1;
   if (s.slumpMonths > 0) s.slumpMonths -= 1;
+  countJobWait(s);
+  catchUpPay(s);
   if (s.carCoverMonths > 0) s.carCoverMonths -= 1;
   markAnnual(s);
   driftRates(s);
@@ -2195,10 +2505,11 @@ function monthPassed(s: GameState): void {
   // took. Fixed-rate loan payments are not touched at all, which is the quiet
   // gift inflation hands to anyone holding long debt.
   if (s.months % 12 === 0) {
-    const step = 1 + INFLATION * RENT_FOLLOW;
     let moved = 0;
     for (const a of s.assets) {
       if (a.kind !== 'property' && a.kind !== 'business') continue;
+      const step = 1 + INFLATION * (a.kind === 'business' ? BIZ_FOLLOW : RENT_FOLLOW);
+      if (a.closed) continue;
       // Only something already collecting rent has a rent to raise. Indexing a
       // holding that loses money simply made the loss 3% worse every year and
       // then reported it as "no rent to raise yet".
@@ -2335,6 +2646,7 @@ function fastPayday(s: GameState): void {
   amortize(s);
   driftBusinesses(s);
   checkTier(s);
+  checkTrouble(s);
   claimDue(s);
 }
 
@@ -2567,13 +2879,20 @@ export function businessValue(a: Asset): number {
 export function driftBusinesses(s: GameState): void {
   for (const a of s.assets) {
     if (!a.volatility || a.qty <= 0) continue;
+    // Shut is shut. Without this a business that folded while underwater walked
+    // straight back off zero on the next roll and carried on trading.
+    if (a.closed) continue;
     const roll = rand(s);
     const base = a.baseCashflow ?? a.cashflowPerUnit;
     if (base === 0) continue;
 
-    // A high-volatility venture can fail outright; a steady one never does.
-    if (a.volatility >= 0.25 && roll < 0.04 && a.cashflowPerUnit !== 0) {
+    // How often this one can fold. A card may name its own rate; without one it
+    // falls back to the old rule, where only the wildest ventures could fail at
+    // all and they failed on a 4% monthly roll.
+    const fails = dealById.get(a.cardId)?.failRate ?? (a.volatility >= 0.25 ? 0.04 : 0);
+    if (fails > 0 && roll < fails && a.cashflowPerUnit !== 0) {
       a.cashflowPerUnit = 0;
+      a.closed = true;
       note(
         s,
         {
@@ -2586,6 +2905,8 @@ export function driftBusinesses(s: GameState): void {
     }
     if (roll > 0.45) continue;
 
+    // Up a little more often than down, which is what gives a business bought
+    // underwater its pull back towards the surface.
     const up = roll < 0.245;
     // A venture bought underwater steps by a fixed slice of its own size. A
     // multiplicative step cannot work there: multiplying a loss by 1.35 deepens
@@ -2593,10 +2914,34 @@ export function driftBusinesses(s: GameState): void {
     // business may climb all the way into profit, which is the only reason to
     // buy one, and may sink twice as deep first.
     const reach = Math.abs(base) * SWING_MAX;
+    // A profitable business steps by a *ratio*, and a ratio has to be undone by
+    // its reciprocal rather than by its mirror image. Stepping up by (1 + v) and
+    // down by (1 - v) looks even and is not: a step up and a step down leave
+    // 1 - v² of what was there, so the typical business shrank however often it
+    // went up. With the old numbers a ฿10,000-a-month cafe at v = 0.35 was
+    // earning ฿34 after thirty years, without ever once failing its closure
+    // roll, and the mean was down too because the swing is capped at three
+    // times but floored at zero. Volatility was a pure tax on daring.
+    //
+    // The pair is (1 + v) and 1/(1 + v) instead, so up-then-down is exactly
+    // where it started, and the coin is fair rather than 24.5-to-20.5, so the
+    // median business holds its size and only the closure roll takes it away.
+    // The upward bias stays on the underwater branch, where the steps are
+    // additive and it is the only reason to buy a loss-making business at all.
+    const grow = 1 + a.volatility;
     const next = base < 0
       ? a.cashflowPerUnit + (up ? 1 : -1) * Math.abs(base) * a.volatility
-      : a.cashflowPerUnit * (up ? 1 + a.volatility : 1 - a.volatility);
-    const capped = Math.max(base < 0 ? -reach : 0, Math.min(reach, next));
+      : a.cashflowPerUnit * (rand(s) < 0.5 ? grow : 1 / grow);
+    // The ceiling has to have a floor facing it. A cap at three times with a
+    // floor at zero is a reflecting barrier on the way up and open country on
+    // the way down, so even a perfectly fair walk drifts under it: with the
+    // reciprocal steps in place and nothing else changed, a v = 0.2 business
+    // still fell from ฿10,000 to ฿4,038 over thirty years, and removing the cap
+    // alone left it at exactly ฿10,000. A profitable business therefore swings
+    // between a third of its takings and three times them, and the thing that
+    // actually ends it is the closure roll, not a slow bleed nobody can see.
+    const floor = base < 0 ? -reach : Math.abs(base) / SWING_MAX;
+    const capped = Math.max(floor, Math.min(reach, next));
     if (Math.round(capped) === Math.round(a.cashflowPerUnit)) continue;
     const delta = (capped - a.cashflowPerUnit) * a.qty;
     a.cashflowPerUnit = capped;
@@ -3260,30 +3605,114 @@ export function severance(s: GameState): number {
  * to renew with age, so the number the player is quoted grows as they do.
  * Everyone else is on zero: nobody revokes a teacher's licence for turning 50.
  */
+/**
+ * The chance this particular medical is the one that ends the career.
+ *
+ * The figure has to be read against how often the card comes round, and that
+ * is the part the old numbers got wrong: the layoff tile is landed on about
+ * 0.7 times a year, so a 15% roll rising to 60% with age is not "rare", it is
+ * near-certain. Measured across twenty runs, all twenty pilots lost the licence
+ * and seventeen of them went bankrupt afterwards, which is not the job this
+ * card was written to describe.
+ *
+ * At these numbers a pilot who flies from thirty-three to sixty faces roughly a
+ * one-in-four chance of being grounded somewhere in there. That is still the
+ * heaviest career risk in the game, and it is survivable by somebody who built
+ * income before it happened, which is the entire point of putting it in.
+ */
 export function groundingRisk(s: GameState): number {
   if (profession(s).risk !== 'grounded') return 0;
-  return Math.min(0.6, 0.15 + 0.02 * Math.max(0, ageYears(s) - 40));
+  return Math.min(0.08, 0.006 + 0.002 * Math.max(0, ageYears(s) - 40));
 }
 
-export function careerShock(s: GameState, grounded = false): { months: number; ends: boolean; cut: number; cutMonths: number } {
-  switch (profession(s).risk) {
-    // A pilot who fails a medical does not get a second opinion and a fortnight
-    // off. That licence is how the salary existed, and it is gone. Passing the
-    // check is the usual outcome, which is why the job is worth taking at all.
-    case 'grounded':
-      return grounded
-        ? { months: 0, ends: true, cut: 0, cutMonths: 0 }
-        : { months: 2, ends: false, cut: 0, cutMonths: 0 };
-    case 'layoff':
-      return { months: 4, ends: false, cut: 0, cutMonths: 0 };
-    // Nobody lays off someone who works for themselves; the takings just fall.
-    case 'slump':
-      return { months: 0, ends: false, cut: 0.35, cutMonths: 8 };
-    case 'steady':
-      return { months: 1, ends: false, cut: 0, cutMonths: 0 };
-    default:
-      return { months: 2, ends: false, cut: 0, cutMonths: 0 };
+/**
+ * What a round of bad news at work does, and how often it does each thing.
+ *
+ * The card is landed on about 0.7 times a year, and the old rules treated every
+ * landing as the thing itself: every teacher lost a month, every developer lost
+ * four. Read against the frequency that is a working life with 6% to 23% of its
+ * months unpaid, in a country whose unemployment rate is about 1%. The card was
+ * never describing how often people lose jobs; it was describing how often the
+ * subject comes up.
+ *
+ * So a landing now rolls for what kind of news it is. Most of the time it
+ * happened to somebody else on the same floor, which costs nothing and is worth
+ * feeling anyway. Sometimes the job is safe and the raise is not, which is the
+ * quiet version nobody counts and inflation collects on regardless. And
+ * sometimes it is the real thing, at a severity that still differs sharply by
+ * seat, because that difference is the reason to care which seat you took.
+ *
+ * `miss` and `freeze` are shares of a single roll; whatever is left over is the
+ * real thing landing. A freeze is deliberately the rarer of the two soft
+ * outcomes even though it is the more common one in life, because here it never
+ * wears off: a skipped rung is skipped for the rest of the career, so at one
+ * freeze every twelve years a thirty-year run still loses about 7% of its final
+ * salary to years nobody wrote a letter about. The resulting share of a working life spent unpaid runs
+ * from 0.5% for a civil servant to 5.8% for a developer, which keeps the
+ * ordering the professions were written with and drops the magnitudes to
+ * something a Thai labour statistic would recognise.
+ */
+export interface ShockOdds {
+  /** it happened near you rather than to you */
+  miss: number;
+  /** the desk is safe and this year's rise is not */
+  freeze: number;
+  /** unpaid months when it does land, for anybody with an employer */
+  months: number;
+  /** for the self-employed there is no letter, only a fall in takings */
+  cut: number;
+  cutMonths: number;
+}
+
+export const SHOCK_ODDS: Record<CareerRisk, ShockOdds> = {
+  // A civil servant is not made redundant, and a nurse in a shortage is not
+  // either. What does reach them is a budget year with no rise in it.
+  steady: { miss: 0.8, freeze: 0.12, months: 1, cut: 0, cutMonths: 0 },
+  normal: { miss: 0.65, freeze: 0.1, months: 3, cut: 0, cutMonths: 0 },
+  // The longest gap in the game and the least likely to be handed out: paid
+  // best of the mid-range seats, least sure of next year.
+  layoff: { miss: 0.67, freeze: 0.08, months: 4, cut: 0, cutMonths: 0 },
+  // Airlines furlough in waves. The medical is rolled separately and is the
+  // only outcome in the game that ends a career outright.
+  grounded: { miss: 0.67, freeze: 0.08, months: 3, cut: 0, cutMonths: 0 },
+  // Nobody lays off someone who works for themselves; the street goes quiet.
+  slump: { miss: 0.4, freeze: 0, months: 0, cut: 0.25, cutMonths: 6 },
+  // Gig work has no layoff to give. Orders thin out, the app changes what it
+  // pays, the rain stops for a fortnight: the takings dip and come back, and
+  // nobody ever hands over a letter. A shallower cut than a shop's, because the
+  // rider can always work another hour, and that is the whole difference
+  // between having no employer and having no customers.
+  gig: { miss: 0.45, freeze: 0, months: 0, cut: 0.15, cutMonths: 4 },
+};
+
+export type ShockKind = 'miss' | 'freeze' | 'gap' | 'takings' | 'ends';
+
+export interface Shock {
+  kind: ShockKind;
+  months: number;
+  ends: boolean;
+  cut: number;
+  cutMonths: number;
+}
+
+/**
+ * Which of the three kinds of news this landing is. `roll` is one draw in
+ * [0,1); `grounded` is the separate medical, already rolled, and it outranks
+ * everything because a suspended licence is not a bad quarter.
+ */
+export function careerShock(s: GameState, grounded = false, roll = 1): Shock {
+  const risk = profession(s).risk;
+  if (risk === 'grounded' && grounded) {
+    return { kind: 'ends', months: 0, ends: true, cut: 0, cutMonths: 0 };
   }
+  const odds = SHOCK_ODDS[risk];
+  if (roll < odds.miss) return { kind: 'miss', months: 0, ends: false, cut: 0, cutMonths: 0 };
+  if (roll < odds.miss + odds.freeze) {
+    return { kind: 'freeze', months: 0, ends: false, cut: 0, cutMonths: 0 };
+  }
+  return odds.cutMonths > 0
+    ? { kind: 'takings', months: 0, ends: false, cut: odds.cut, cutMonths: odds.cutMonths }
+    : { kind: 'gap', months: odds.months, ends: false, cut: 0, cutMonths: 0 };
 }
 
 export function acceptDownsized(s: GameState): void {
@@ -3314,10 +3743,47 @@ export function acceptDownsized(s: GameState): void {
   // turns (see rollDice), not as one lump here, so the player watches it happen.
   // The severance lands up front, which is exactly how it feels: a cushion that
   // looks generous on the day and is gone before the job comes back.
-  const shock = careerShock(s, rand(s) < groundingRisk(s));
+  const shock = careerShock(s, rand(s) < groundingRisk(s), rand(s));
+  // The round went past this desk. No letter, no severance, and a fortnight of
+  // everybody reading the same news badly: the only thing that changed is what
+  // it feels like to have no buffer while it is happening.
+  if (shock.kind === 'miss') {
+    s.pending = null;
+    note(
+      s,
+      {
+        th: 'รอบเลิกจ้างผ่านไปแล้ว รอบนี้ไม่ถึงโต๊ะคุณ ยังมีงานทำ ยังมีเงินเดือน เหลือไว้แค่ความรู้สึกว่าถ้ามันถึงจริง ๆ ตอนนี้คุณมีเงินสำรองพอกี่เดือน',
+        en: 'The round came and went and did not reach your desk. The job is still there and so is the wage. What is left is the question of how many months of bills you could have covered if it had.',
+      },
+      'plain',
+    );
+    return;
+  }
+  // The job is safe and the rise is not. Nobody puts this in a letter and
+  // nobody counts it as a loss, and it is the most common of the three by a
+  // distance: a year of 3% inflation with no rise against it is a pay cut that
+  // never announces itself.
+  if (shock.kind === 'freeze') {
+    s.payFreezeYears += 1;
+    s.pending = null;
+    note(
+      s,
+      profession(s).raise > 0
+        ? {
+            th: `ปีนี้ไม่มีการปรับเงินเดือน งานยังอยู่ครบ แต่ค่าครองชีพขึ้น ${Math.round(INFLATION * 100)}% ส่วนเงินเดือนไม่ขึ้นตาม ปีนี้จึงเป็นการลดเงินเดือนที่ไม่มีใครประกาศ`,
+            en: `No rise this year. The job is untouched, the cost of living went up ${Math.round(INFLATION * 100)}%, and the wage did not follow. That is a pay cut nobody announced.`,
+          }
+        : {
+            th: 'รอบนี้ไม่มีอะไรถึงตัวคุณ งานแบบไม่มีนายจ้างไม่มีรอบปรับเงินเดือนให้ระงับอยู่แล้ว',
+            en: 'Nothing reached you this round. Work with no employer has no annual rise to withhold in the first place.',
+          },
+      'plain',
+    );
+    return;
+  }
   const pay = severance(s);
   s.cash += pay;
-  if (shock.ends) {
+  if (shock.kind === 'ends') {
     s.careerOver = true;
     s.workEndMonth = s.months;
     note(
@@ -3328,7 +3794,7 @@ export function acceptDownsized(s: GameState): void {
       },
       'bad',
     );
-  } else if (shock.cutMonths > 0) {
+  } else if (shock.kind === 'takings') {
     s.slumpMonths = shock.cutMonths;
     s.slumpCut = shock.cut;
     note(
@@ -4569,12 +5035,34 @@ export function fireSale(s: GameState, assetUid: string, qty: number): void {
 
 /* --------------------------------------------------------------- outcomes */
 
+/**
+ * Every baht sitting in a fund that a rescue could actually reach.
+ *
+ * The provident fund is in here at its after-tax value because a player who has
+ * left the job can take it, and the tax fund at its break value because the
+ * lock has a price rather than a padlock. Anything counted here has to have a
+ * button on the rescue card, or the solvency test and the card disagree and the
+ * player is told they have a way out that the screen does not offer.
+ */
+export function rescueFunds(s: GameState): number {
+  return Math.round(s.dcaPot) + taxFundBreakValue(s) + (noMoreSalary(s) ? pfCashOut(s) : 0);
+}
+
 export function checkTrouble(s: GameState): void {
-  // Only the wheel can bankrupt you. On the fast track a bad card can push cash
-  // below zero, but the next income tile always refills it and every purchase
-  // already checks the balance, so there is nothing to rescue.
-  if (s.phase !== 'rat') return;
+  if (s.phase !== 'rat' && s.phase !== 'fast') return;
   if (s.cash >= 0) {
+    if (s.pending?.kind === 'rescue') s.pending = null;
+    return;
+  }
+  // The fast track used to be exempt from all of this, on the grounds that a
+  // bad card can push cash below zero out there but the next income tile always
+  // refills it. That premise holds only while the income is still bigger than
+  // the bills. Once the holdings decay past that line nothing refills anything,
+  // and a player could sit at minus seven million with ฿181 a month coming in,
+  // no rescue card, no fire sale offered and no ending, watching the number
+  // fall for another forty years. So the exemption now asks whether the income
+  // really is coming: a dip somebody can cover is still nobody's business.
+  if (s.phase === 'fast' && householdIncome(s) >= totalExpenses(s)) {
     if (s.pending?.kind === 'rescue') s.pending = null;
     return;
   }
@@ -4590,7 +5078,10 @@ export function checkTrouble(s: GameState): void {
   // Money sitting in the company is still a way out, just an expensive one, so
   // nobody is declared bankrupt while their own company is solvent.
   const canDrawDown = s.incorporated && s.corpCash > 0;
-  if (!canFireSale && !canBorrowMore && !canDrawDown) {
+  // Savings are a way out too. Leaving them out of this test is what made every
+  // loss in the game a false one; see rescueFunds.
+  const canCashOut = rescueFunds(s) > 0;
+  if (!canFireSale && !canBorrowMore && !canDrawDown && !canCashOut) {
     s.phase = 'lost';
     s.pending = null;
     note(
@@ -4793,6 +5284,15 @@ export function parseSave(raw: string): GameState | null {
     game.dreamsOwned = legacy ? [game.dreamId] : [];
   }
   if (!Number.isFinite(game.karma)) game.karma = 0;
+  if (!Number.isFinite(game.marketYear)) game.marketYear = DCA_RETURN;
+  if (typeof game.crashDue !== 'boolean') game.crashDue = false;
+  if (!Number.isFinite(game.jobWait)) game.jobWait = 0;
+  if (!Number.isFinite(game.payFreezeYears)) game.payFreezeYears = 0;
+  // A save from before the haircut wore off starts its clock now rather than
+  // being handed five years of back pay it never earned.
+  if (game.entryPayFrom !== null && !Number.isFinite(game.entryPayFrom)) {
+    game.entryPayFrom = game.entryPay < 1 ? game.months : null;
+  }
   if (typeof game.friendHelpUsed !== 'boolean') game.friendHelpUsed = false;
   if (typeof game.endedByChoice !== 'boolean') game.endedByChoice = false;
   for (const d of game.debts) {

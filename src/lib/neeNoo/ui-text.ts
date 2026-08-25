@@ -652,10 +652,28 @@ export const UI = {
   /* rescue */
   rescueTitle: { th: 'เงินสดติดลบ', en: 'Cash has gone negative' },
   rescueBody: {
-    th: 'ต้องหาเงินสดมาให้กลับเป็นบวกก่อนถึงจะเดินต่อได้ เลือกกู้ธนาคาร (ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ราว 11 เดือนหมด) หรือขายสินทรัพย์ด่วนที่ครึ่งราคา',
-    en: 'You must get back above zero before playing on: borrow from the bank (repaying 10% of the amount drawn each month, clearing in about eleven months) or fire-sell an asset at half price.',
+    th: 'ต้องหาเงินสดมาให้กลับเป็นบวกก่อนถึงจะเดินต่อได้ เลือกกู้ธนาคาร (ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ราว 11 เดือนหมด) ถอนเงินเก็บที่มีอยู่ หรือขายสินทรัพย์ด่วนที่ครึ่งราคา',
+    en: 'You must get back above zero before playing on: borrow from the bank (repaying 10% of the amount drawn each month, clearing in about eleven months), take money out of the funds you already hold, or fire-sell an asset at half price.',
   },
   fireSaleBtn: { th: 'ขายด่วนครึ่งราคา', en: 'Fire-sell at half price' },
+  rescueFundsHead: { th: 'เงินเก็บที่ถอนออกมาได้', en: 'Savings you can reach' },
+  rescueSellDca: { th: 'ขายกองทุนดัชนี', en: 'Sell the index fund' },
+  rescueSellDcaNote: {
+    th: 'ขายได้ทุกเมื่อ ไม่มีค่าปรับ กำไรจากกองทุนรวมในไทยไม่เสียภาษี',
+    en: 'Sellable any time with no penalty; mutual-fund gains are not taxed in Thailand.',
+  },
+  rescueSellFund: { th: 'ถอนกองทุนลดหย่อนภาษี', en: 'Cash in the tax fund' },
+  rescueFundLocked: {
+    th: 'ยังไม่ครบกำหนด ถอนได้แต่ต้องคืนสิทธิ์ภาษีที่เคยใช้ไป',
+    en: 'Still inside the lock: you can take it, but the relief already claimed goes back.',
+  },
+  rescueFundFree: { th: 'ครบกำหนดแล้ว ถอนได้เต็มจำนวน', en: 'Matured: take the whole lot.' },
+  rescueSellPf: { th: 'ถอนกองทุนสำรองเลี้ยงชีพ', en: 'Cash out the provident fund' },
+  rescueSellPfNote: {
+    th: 'ออกจากงานแล้วถอนได้ ก่อนอายุ 55 หักภาษี 10%',
+    en: 'Available once the job has ended; taxed 10% before fifty-five.',
+  },
+  rescueTakeIt: { th: 'ถอนออกมา', en: 'Take it' },
   borrowTitle: { th: 'กู้เงินฉุกเฉิน', en: 'Emergency loan' },
   borrowBody: {
     th: 'ธนาคารดูว่าคุณผ่อนไหวแค่ไหน จึงให้กู้ได้ไม่เกินรายจ่าย 3 เดือนของคุณ กู้เป็นขั้นละ 10,000 ผ่อนคืนเดือนละ 10% ของยอดที่กู้ ประมาณ 11 เดือนก็หมด',
@@ -931,6 +949,76 @@ export const UI = {
   reportFireSales: { th: 'จำนวนครั้งที่ต้องขายด่วน', en: 'Times you had to sell in a hurry' },
   reportIncomeGot: { th: 'เงินที่ทรัพย์สินจ่ายคืนมาแล้วทั้งหมด', en: 'What those holdings have paid you' },
   reportLottery: { th: 'หวย ได้คืน / ที่ซื้อไป', en: 'Lottery, back against spent' },
+
+  /* The one line on the ending card that ranks everything above it. A page of
+     numbers nobody can order is a page nobody learns from. */
+  leakTitle: { th: 'ถ้าจะจำกลับไปข้อเดียว', en: 'If you take one thing away' },
+  leakUnderwater: {
+    th: 'รูรั่วที่ใหญ่ที่สุดของเกมนี้คือเดือนที่เงินสดติดลบ ทุกเดือนที่ปิดด้วยตัวแดงคือเดือนที่คุณจ่ายดอกเบี้ยแพงที่สุดในตลาด และเป็นเดือนที่ตัดสินใจอะไรดี ๆ ไม่ได้เลยเพราะไม่มีเงินให้เลือก กันชนสามเดือนไม่ใช่ความระแวง มันคือสิ่งที่ทำให้คุณยังเลือกได้',
+    en: 'The biggest leak in this game was the months that closed overdrawn. Every one of them charged you the most expensive interest on the market, and every one of them took your choices away, because nothing can be decided with an empty account. Three months of expenses in cash is not caution. It is what keeps the choosing yours.',
+  },
+  leakInterest: {
+    th: 'ดอกเบี้ยที่คุณจ่ายไปทั้งเกม มากกว่าเงินที่คุณเอาไปลงทุนเสียอีก แปลว่าเงินก้อนใหญ่ที่สุดที่คุณหาได้ ไม่ได้ไปอยู่กับคุณ มันไปอยู่กับคนให้กู้ ก่อนจะไปหาผลตอบแทน 8% ที่ไหน ให้ดูก่อนว่ามีหนี้ที่คิด 16% ค้างอยู่ไหม',
+    en: 'You paid more in interest across this game than you ever put into holdings. The largest sum you earned did not end up with you; it ended up with the lender. Before hunting an 8% return anywhere, check whether something is charging you 16%.',
+  },
+  leakFireSale: {
+    th: 'คุณต้องขายของทิ้งกลางคันหลายครั้ง การขายด่วนได้ราคาครึ่งเดียวเสมอ ไม่ใช่เพราะของไม่ดี แต่เพราะคนขายไม่มีเวลารอ สิ่งที่ทำให้ต้องรีบขายไม่เคยเป็นตัวทรัพย์สิน มันคือกันชนที่บางเกินไปตั้งแต่ต้น',
+    en: 'You were forced to sell in a hurry more than once, and a hurried sale always fetches about half. That is not the holding being bad; it is the seller having no time. What forces the sale is never the asset. It is a buffer that was too thin from the start.',
+  },
+  leakLottery: {
+    th: 'เงินที่หมดไปกับหวยตลอดเกม กลับมาไม่ถึงครึ่ง นี่ไม่ใช่เรื่องดวงไม่ดี มันคือสิ่งที่ตัวเลขบอกไว้ล่วงหน้าแล้วว่าจะเกิด เงินก้อนเดียวกันถ้าโอนเข้ากองทุนทุกงวดแทน จะเป็นคนละจำนวนกันเลย',
+    en: 'What went on lottery tickets across this game came back at less than half. That is not bad luck; it is the number the odds promised in advance. The same money moved into a fund on the same days would read very differently now.',
+  },
+  leakIdle: {
+    th: 'คุณกองเงินสดไว้เฉย ๆ นานหลายปี ทั้งที่ไม่มีหนี้จ่ออยู่ เงินสดไม่ได้ปลอดภัยอย่างที่รู้สึก มันแค่ขาดทุนช้าจนไม่มีใครสังเกต ปีละ 3% ที่เงินเฟ้อกินไป ไม่เคยมีใบแจ้งหนี้ส่งมาให้',
+    en: 'You sat on a large pile of cash for years with nothing pressing to pay. Cash is not as safe as it feels; it only loses slowly enough that nobody notices. The 3% a year inflation takes never sends an invoice.',
+  },
+  leakNothingBought: {
+    th: 'ทั้งเกมนี้ไม่มีเงินสักบาทที่ถูกเปลี่ยนเป็นทรัพย์สินที่ทำงานแทนคุณ ทุกบาทที่เข้ามาจึงต้องแลกด้วยเวลาของคุณเองทุกครั้ง เส้นชัยของเกมนี้ไม่ได้อยู่ที่เงินเดือนขึ้น มันอยู่ที่วันที่มีอย่างอื่นหาเงินให้คุณได้',
+    en: 'Not one baht in this whole game was turned into something that works while you do not. Every baht that arrived had to be bought with your own hours. The finish line here was never a bigger salary; it was the day something other than you was earning.',
+  },
+  leakBehindFund: {
+    th: 'ของทุกอย่างที่คุณเลือกเอง รวมแล้วยังทำได้ไม่เท่าการโอนเงินก้อนเดียวกันเข้ากองทุนดัชนีแล้วไม่ทำอะไรเลย นี่คือคำถามที่ผู้จัดการกองทุนทั้งโลกโดนถามทุกปี และส่วนใหญ่ก็ตอบไม่ได้เหมือนกัน',
+    en: 'Everything you picked, added up, still did less than moving the same money into a broad index fund and never touching it again. That is the question fund managers everywhere get asked once a year, and most of them cannot answer it either.',
+  },
+  leakClean: {
+    th: 'ไม่มีรูรั่วใหญ่ให้ชี้ในเกมนี้ ไม่มีเดือนที่ติดลบยาว ไม่มีการขายด่วน ดอกเบี้ยไม่กินเกินตัว เกมนี้จบด้วยการตัดสินใจ ไม่ใช่ด้วยลูกเต๋า',
+    en: 'There is no big leak to point at here. No long run of overdrawn months, no forced sales, no interest bill that outgrew the investing. This game ended on decisions rather than on dice.',
+  },
+
+  /* The two numbers the statement never showed anybody. */
+  saveRate: { th: 'เก็บได้กี่ % ของเงินที่เข้ามา', en: 'Share of income you keep' },
+  saveRateHint: {
+    th: 'เงินเหลือปลายเดือน หารด้วยเงินเข้าทั้งหมด เป็นตัวเลขเดียวบนงบนี้ที่คุณสั่งได้เองทั้งหมด ไม่ต้องรอลูกเต๋า',
+    en: 'What is left at the end of the month over everything that came in. Of every number on this statement it is the only one entirely under your own hand, with no dice involved.',
+  },
+  bufferLabel: { th: 'เงินสดพอจ่ายบิลได้กี่เดือน', en: 'Months of bills in the bank' },
+  bufferHint: {
+    th: 'เงินสดที่มีอยู่ หารด้วยรายจ่ายต่อเดือน ธนาคารดูตัวเลขนี้ทุกครั้งที่คุณขอกู้ ต่ำกว่าสามเดือนคือช่วงที่การ์ดใบเดียวทำให้ต้องขายของทิ้ง',
+    en: 'The cash in hand over one month of bills. The bank looks this up every time you apply for anything, and under three months is the range where a single card can force a sale.',
+  },
+  bufferUnit: { th: 'เดือน', en: 'months' },
+
+  /* The market year, and the decision that comes with a bad one. */
+  crashTitle: { th: 'ตลาดปีนี้ติดลบ', en: 'The market is down this year' },
+  crashBody: {
+    th: 'ปีนี้กองทุนดัชนีติดลบ กองทุนสำรองเลี้ยงชีพกับกองทุนลดหย่อนภาษีก็ลงตามไปด้วย เพราะทั้งสามกองคือห่อหุ้มของตลาดเดียวกัน ไม่ได้กระจายความเสี่ยงให้กันเลย ตอนนี้คุณมีสองทางเลือกจริง ๆ และมันคือทางเลือกเดียวกับที่คนจริง ๆ ต้องเลือกทุกครั้งที่ตลาดลง',
+    en: 'The index fund is down this year, and the provident fund and the tax-break fund went with it, because all three are wrappers around the same market and none of them is diversification from the others. There are two real choices here, and they are the same two anybody faces every time a market falls.',
+  },
+  crashKeep: { th: 'ซื้อต่อเหมือนเดิม', en: 'Keep buying' },
+  crashStop: { th: 'หยุดซื้อไว้ก่อน', en: 'Stop for now' },
+  crashKeepHint: {
+    th: 'เดือนที่ราคาถูกที่สุดคือเดือนที่เงินเท่าเดิมซื้อหน่วยลงทุนได้มากที่สุด',
+    en: 'The cheapest months are the ones where the same money buys the most units.',
+  },
+  crashStopHint: {
+    th: 'หยุดไว้ก่อนแล้วค่อยกลับมาตั้งใหม่ทีหลังจากหน้างบ',
+    en: 'Pause now and set it up again from the statement later.',
+  },
+  crashThisYear: { th: 'ผลตอบแทนกองทุนปีนี้', en: 'The fund this year' },
+  crashHolding: { th: 'มูลค่าที่หายไปจากพอร์ตปีนี้', en: 'Off the value of your fund this year' },
+  crashOrder: { th: 'คำสั่งซื้อรายเดือนที่ตั้งไว้', en: 'Your standing order' },
+  marketYearLabel: { th: 'ตลาดปีนี้', en: 'Market this year' },
   diceTap: { th: 'แตะลูกเต๋าเพื่อทอย', en: 'tap the dice to roll' },
   diceTapOne: { th: 'แตะเพื่อทอย 1 ลูก', en: 'tap to roll one' },
   diceRolling: { th: 'กำลังเดิน', en: 'moving' },

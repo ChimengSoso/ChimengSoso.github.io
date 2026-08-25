@@ -30,6 +30,202 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.8.1',
+    dateISO: '2026-08-22',
+    codename: { th: 'เงินเดือนที่ตามค่าครองชีพทัน', en: 'A wage that keeps up with the shopping' },
+    entries: [
+      {
+        kind: 'changed',
+        text: {
+          th: 'ขั้นเงินเดือนทุกอาชีพขยับขึ้นมาอยู่รอบ ๆ เงินเฟ้อ ของเดิมอยู่ที่ 0% ถึง 4% ปะทะเงินเฟ้อ 3% แปลว่าค่าจ้างจริงลดลงทุกปีเกือบทุกอาชีพ วัดเป็นตัวเลข ค่าจ้างจริงของครูเหลือ 75% ของเดือนแรกเมื่อทำงานครบ 20 ปี พนักงานออฟฟิศเหลือ 82% ส่วนไรเดอร์กับเจ้าของร้านกาแฟที่ตั้งไว้ 0% เหลือ 41% เมื่อครบ 30 ปี ซึ่งไทยไม่ได้เป็นแบบนั้น ค่าจ้างเฉลี่ยโตนำเงินเฟ้ออยู่เล็กน้อย ระบบราชการปรับฐานเงินเดือนเป็นระยะ และเจ้าของร้านขึ้นราคาเมนูสัปดาห์เดียวกับที่ต้นทุนขึ้น ตอนนี้เจ้าของร้านกาแฟกับครูค่าจ้างจริงคงที่ ออฟฟิศ พยาบาล นักบิน โตจริงปีละ 0.5% วิศวกรกับแพทย์ 1% โปรแกรมเมอร์ 1.5% เหลือไรเดอร์อาชีพเดียวที่ยังถอยหลัง เพราะค่ารอบต่อเที่ยวถูกกดจริง เรื่องนี้ไม่ได้ทำให้เกมชนะง่ายขึ้นโดยตรง เพราะเงินเดือนไม่เคยนับเป็นเงินไหลเข้า มันขยับแค่ความเร็วในการซื้อทรัพย์สิน ไม่ได้ขยับเส้นชัยสักบาท',
+          en: 'Every profession now gets a rise somewhere around inflation. The old rates ran 0% to 4% against 3% inflation, so almost everybody spent a career losing ground: a teacher was on 75% of their starting pay in real terms after twenty years, an office worker on 82%, and the rider and the cafe owner, both written at 0%, on 41% after thirty. Thailand has not done that. Average wages have grown a little ahead of prices, the civil service revises its base pay every few years, and a shop owner puts the menu up the same week the beans do. The cafe owner and the teacher now hold their real pay, the office worker, the nurse and the pilot gain about 0.5% a year, the engineer and the doctor 1%, the developer 1.5%, and the rider is the only one still going backwards, because per-trip rates really are squeezed. None of it makes the game easier to win: a salary never counts as passive income, so a rise moves how fast assets can be bought and never moves the finish line.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'รายได้ของกิจการเคยตามเงินเฟ้อแค่ 70% เท่ากับค่าเช่า ซึ่งเป็นคนละเรื่องกัน เจ้าของบ้านเช่าติดสัญญาที่ยังไม่หมดอายุ และติดผู้เช่าที่จะย้ายออกถ้าขึ้นเต็มจำนวน แต่ร้านค้าไม่ติดทั้งสองอย่าง พอต้นทุนขึ้น 3% เมนูก็ขึ้น 3% การใช้ตัวเลขเดียวกันทั้งคู่จึงเขียนการถดถอยจริงปีละ 0.9% ฝังไว้ในกิจการทุกใบบนกระดาน ตอนนี้ค่าเช่ายังตาม 70% เหมือนเดิม ส่วนกิจการตามเต็ม 100%',
+          en: 'Business takings followed inflation only 70% of the way, on the same setting as rent, which is a different thing. A landlord is bound by a lease that has not run out and by a tenant who will leave if asked for the whole increase; a shop is bound by neither, and when costs rise 3% the menu rises 3%. Running both through one number wrote a permanent 0.9%-a-year real decline into every business on the board. Rent still follows 70% of the way; businesses now follow all of it.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลรวมสองข้อบน วัดจากบอทเล่นครบ 60 ปีแบบ "มีลูก" อาชีพละ 25 เกม และลงทุนจริงจัง (กันเงินสำรองไว้เดือนเดียวก่อนซื้อ) จำนวนเกมที่ออกจากวงหนูได้ขยับจาก 6 เป็น 24 (เจ้าของร้านกาแฟ) 6 เป็น 18 (ออฟฟิศ) 5 เป็น 14 (ครู) 16 เป็น 21 (พยาบาล) และ 17 เป็น 23 (แพทย์) อายุกลางที่ออกได้อยู่ราวปีที่ 18 ถึง 31 ของการทำงาน ไรเดอร์ยังอยู่ที่ 2 จาก 25 ซึ่งตั้งใจให้เป็นโหมดยากตั้งแต่แรก',
+          en: 'The two changes above, measured over 60-year games with children accepted, 25 per profession, played to invest rather than to hoard (one month of expenses kept back before buying): escapes went from 6 to 24 for the cafe owner, 6 to 18 for the office worker, 5 to 14 for the teacher, 16 to 21 for the nurse and 17 to 23 for the doctor, with a median of eighteen to thirty-one working years to get there. The rider stays at 2 out of 25, which is what that card is for.',
+        },
+      },
+    ],
+  },
+  {
+    version: '0.8.0',
+    dateISO: '2026-08-22',
+    codename: { th: 'เงินเก็บก็นับ และกิจการเลิกเน่าเอง', en: 'Savings count, and a business stops rotting on its own' },
+    entries: [
+      {
+        kind: 'fixed',
+        text: {
+          th: 'ล้มละลายได้ทั้งที่มีเงินเป็นล้านอยู่ในกองทุน การตัดสินว่า "ไม่เหลือทางออกแล้ว" ดูแค่สินทรัพย์ บ้าน รถ เงินในบริษัท และวงเงินกู้ ไม่เคยดูกองทุนดัชนี กองทุนลดหย่อนภาษี หรือกองทุนสำรองเลี้ยงชีพเลย และการ์ดขายด่วนก็ไม่มีปุ่มถอนกองทุนให้ วัดจากเกมที่จบด้วยล้มละลาย 170 เกม พบว่ามีเงินค้างในกองทุนทั้ง 170 เกม เฉลี่ย 44.4 ล้านบาท หนักสุดคือนักบินอายุ 76 ที่โดนประกาศล้มละลายเพราะเงินสดติดลบ 210,313 บาท ขณะถือกองทุนอยู่ 530 ล้านบาท ตอนนี้การ์ดขายด่วนมีแถวเงินเก็บอยู่บนสุด และเกมจะไม่ประกาศล้มละลายตราบใดที่ยังมีอะไรถอนได้',
+          en: 'You could be declared bankrupt while holding millions in a fund. The test for "there is no way out" looked at holdings, the house, the car, company cash and the credit line, and never at the index fund, the tax fund or the provident fund; the rescue card had no button for any of them either. Across 170 bankruptcies, all 170 had money in a fund, an average of ฿44.4m, the worst being a pilot declared bankrupt at seventy-six over ฿210,313 of overdraft while holding ฿530m. Savings now sit at the top of the rescue card, and nobody is declared bankrupt while something is still withdrawable.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ถอนกองทุนลดหย่อนภาษีก่อนครบกำหนดได้แล้ว โดยเสียค่าคืนสิทธิ์ภาษี 20% ของยอด ซึ่งเป็นรูปร่างคร่าว ๆ ของการคืนค่าลดหย่อนที่เคยใช้ไปพร้อมเงินเพิ่ม แพงพอที่จะไม่มีใครแตะถ้ายังมีทางอื่น แต่ก็ไม่ใช่กุญแจที่หายไปแล้ว',
+          en: 'The tax fund can be broken before its lock is up, at a fifth of the pot. That is roughly the shape of paying back the relief already claimed with a surcharge on top: painful enough that nobody reaches for it while anything else is left, but no longer a padlock with the key thrown away.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'กิจการที่กำไรเน่าตายด้วยคณิตศาสตร์ ไม่ใช่ด้วยโชค การขยับใช้คูณ (1+v) ตอนขึ้น และ (1−v) ตอนลง ซึ่งดูสมมาตรแต่ไม่ใช่ ขึ้นหนึ่งครั้งลงหนึ่งครั้งเหลือ 1−v² ของเดิม กิจการทั่วไปจึงหดลงไม่ว่าจะขึ้นบ่อยแค่ไหน จำลอง 400 ครั้ง ร้านที่ทำเงินเดือนละ 10,000 บาท ค่าผันผวน 0.35 เหลือเดือนละ 34 บาทหลังผ่านไป 30 ปี โดยไม่เคยทอยปิดกิจการสักครั้ง ค่าผันผวน 0.20 เหลือ 4,516 บาท ความผันผวนกลายเป็นภาษีที่เก็บจากความกล้าล้วน ๆ ตอนนี้ขึ้นด้วย (1+v) ลงด้วย 1/(1+v) และเหรียญยุติธรรม 50/50 ขึ้นแล้วลงจึงกลับที่เดิมพอดี สิ่งที่พรากกิจการไปคือการปิดกิจการเท่านั้น ส่วนกิจการที่ซื้อมาตอนขาดทุนยังขยับแบบบวกลบและยังเอนขึ้นเหมือนเดิม เพราะนั่นคือเหตุผลเดียวที่จะซื้อมัน',
+          en: 'A profitable business decayed by arithmetic rather than by luck. It stepped up by (1 + v) and down by (1 - v), which looks even and is not: one step up and one step down leave 1 - v² of what was there, so the typical business shrank however often it went up. Over 400 simulated careers a shop earning ฿10,000 a month at v = 0.35 was earning ฿34 after thirty years without ever failing a closure roll, and ฿4,516 at v = 0.20. Volatility was a pure tax on daring. The pair is now (1 + v) and 1/(1 + v) on a fair coin, so up-then-down lands exactly where it started and the only thing that takes a business away is closing. A business bought underwater still steps in fixed amounts with the old upward pull, because that is the only reason to buy one.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'เพดานการขยับของกิจการไม่มีพื้นคู่กัน ขึ้นได้ไม่เกินสามเท่าแต่ลงได้ถึงศูนย์ เพดานจึงสะท้อนขาขึ้นกลับลงมาขณะที่ขาลงวิ่งได้เต็มที่ ต่อให้การขยับยุติธรรมแล้ว กิจการค่าผันผวน 0.20 ก็ยังหล่นจาก 10,000 เหลือ 4,038 บาทใน 30 ปี ทั้งที่ถอดเพดานออกแล้วอยู่ที่ 10,000 พอดี ตอนนี้กิจการที่กำไรแกว่งอยู่ระหว่างหนึ่งในสามถึงสามเท่าของรายได้ตั้งต้น',
+          en: 'The swing had a ceiling with no floor facing it: three times up, but all the way to zero down, so the cap reflected the upside while the downside ran free. Even with the steps made fair, a v = 0.20 business still fell from ฿10,000 to ฿4,038 over thirty years, where removing the cap alone left it at exactly ฿10,000. A profitable business now swings between a third of its takings and three times them.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลรวมของสามข้อบน วัดจากบอทเล่นครบ 60 ปี อาชีพละ 25 เกม แบบไม่มีลูก จำนวนเกมที่จบด้วยล้มละลายลดลงจาก 24 เหลือ 10 (เจ้าของร้านกาแฟ) 16 เหลือ 4 (พนักงานออฟฟิศ) 12 เหลือ 0 (พยาบาล) 10 เหลือ 2 (แพทย์) และ 3 เหลือ 0 (นักบิน) ที่สำคัญกว่าคือเงินไหลเข้าตอนจบเกมไม่ได้เป็นศูนย์อีกแล้ว เมื่อก่อนออกจากวงหนูได้ที่เดือนละ 20,639 บาท แล้วเหลือ 2,040 บาทในอีก 20 ปี ตอนนี้เกมเดียวกันเหลือ 12,885 บาท เส้นทางเร็วเลิกเป็นทางลงทางเดียว',
+          en: 'The three fixes above, measured over 60-year games, 25 per profession, no children: bankruptcies fell from 24 to 10 for the cafe owner, 16 to 4 for the office worker, 12 to 0 for the nurse, 10 to 2 for the doctor and 3 to 0 for the pilot. More to the point, income at the end of a game is no longer zero. One office run used to leave the wheel at ฿20,639 a month and be down to ฿2,040 twenty years later; the same run now holds ฿12,885. The fast track has stopped being a one-way slope.',
+        },
+      },
+    ],
+  },
+  {
+    version: '0.7.1',
+    dateISO: '2026-08-22',
+    codename: { th: 'ปิดแล้วปิดเลย และมีพื้นให้ตก', en: 'Shut stays shut, and there is a floor' },
+    entries: [
+      {
+        kind: 'fixed',
+        text: {
+          th: 'อัตราปิดกิจการที่เพิ่งใส่ไปใน 0.7.0 ตั้งไว้สูงเกินไปมาก ตัวเลขถูกเลือกให้ดูสมเหตุผลเป็นรายปี แต่มันถูกทอยทุกเดือนและกิจการที่ปิดแล้วเปิดใหม่ไม่ได้ ยอดสะสมสามสิบปีจึงกลายเป็นเกือบแน่นอน รถเข็นกับร้านอาหารปิด 99% ร้านชานม 96% ตอนนี้คำนวณย้อนจากอัตรารอดที่ต้องการแทน ห้าปีแรกรอด 87% ถึง 95% สามสิบปีรอด 43% ถึง 67% ส่วนสตาร์ทอัพยังตายเป็นส่วนใหญ่ตามเดิม',
+          en: 'The closure rates added in 0.7.0 were far too high. The figures were picked to look sensible read as a year, but they are rolled every month and a closed business never reopens, so the thirty-year total came out near-certain: 99% for the food cart and the restaurant, 96% for the milk-tea shop. They are now worked backwards from a target survival rate instead: 87% to 95% alive after five years, 43% to 67% after thirty. A startup still mostly dies.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'กิจการที่ซื้อมาตอนขาดทุนแล้วปิดตัวไป กลับมาเปิดเองเดือนถัดไป เพราะการปิดกิจการทำเครื่องหมายด้วยรายได้เป็นศูนย์เฉย ๆ ซึ่งใช้ได้กับกิจการที่กำไรอยู่ (คูณศูนย์ก็ยังศูนย์) แต่กิจการที่ติดลบขยับแบบบวกลบทีละก้อน มันจึงเดินออกจากศูนย์ได้ทันที วัดจากการ์ดคาเฟ่เปิดใหม่ 74% ปิดตัวลงระหว่างสามสิบปี แต่เหลือปิดจริงตอนจบแค่ 6% ตอนนี้ปิดแล้วปิดเลย',
+          en: 'A business bought while losing money would fold and then reopen by itself the next month. A closure was marked only by cash flow reaching zero, which holds for a profitable business because the drift multiplies and zero times anything is zero, but one bought underwater steps by fixed amounts and simply walked back off zero. On the new-cafe card, 74% folded at some point across thirty years and only 6% were still shut at the end. Shut is now shut.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'เส้นทางเร็วไม่มีพื้นรองรับ เงินสดติดลบได้ไม่จำกัดโดยไม่มีการ์ดขายด่วน ไม่มีการ์ดกู้ และไม่มีจอจบเกม เดิมเขียนไว้ว่าตั้งใจ เพราะ "ช่องรายได้ถัดไปจะเติมเงินให้เสมอ" ซึ่งจริงตอนกิจการเล็กจ่ายเท่าเดิมตลอดกาล พอกิจการขยับขึ้นลงได้ เคสที่เจอคือคนที่ออกจากหนูสำเร็จตั้งแต่ปีที่หก พอถึงปีที่ห้าสิบเหลือเงินไหลเข้าเดือนละ ฿181 สู้รายจ่าย ฿43,401 เงินสดติดลบ ฿7.27 ล้าน แล้วนั่งดูตัวเลขไหลลงต่ออีกสี่สิบสี่ปีโดยไม่มีอะไรเกิดขึ้น ตอนนี้ถ้าเงินไหลเข้าไม่พอจ่ายบิลแล้วเงินสดติดลบ การ์ดขายด่วนจะขึ้นเหมือนตอนอยู่ในวงหนู และล้มละลายได้จริงถ้าไม่เหลืออะไรให้ขาย ส่วนเงินสดที่แกว่งติดลบชั่วคราวทั้งที่รายได้ยังท่วมรายจ่าย ยังไม่มีใครมากวนเหมือนเดิม',
+          en: 'The fast track had no floor: cash could fall without limit with no rescue card, no fire sale offered and no ending. That exemption was deliberate, on the grounds that the next income tile always refills it, which held while small businesses paid the same amount for ever. Now that they move, one run escaped the wheel in year six and by year fifty had ฿181 a month coming in against ฿43,401 of bills and ฿7.27 million of negative cash, with another forty-four years of watching it fall. The rescue card now appears out there too, once the income has stopped covering the bills, and bankruptcy is real if there is nothing left to sell. A dip while the income still covers everything is left alone, exactly as before.',
+        },
+      },
+    ],
+  },
+  {
+    version: '0.7.0',
+    dateISO: '2026-08-22',
+    codename: { th: 'ตลาดที่ลงได้จริง', en: 'A market that can actually fall' },
+    entries: [
+      {
+        kind: 'changed',
+        text: {
+          th: 'กองทุนดัชนีสุ่มผลตอบแทน "รายปี" ครั้งเดียวแล้วทยอยเดินทีละเดือน จากเดิมที่สุ่มใหม่ทุกเดือนแล้วหารสิบสอง ซึ่งฟังดูผันผวนแต่จริง ๆ แล้วหักล้างกันเองจนปีที่แย่ที่สุดเท่าที่เป็นไปได้คือประมาณ -2% ตอนนี้ปีที่แย่จริง ๆ ลงได้ถึง -40% กว่า และกองทุนสำรองเลี้ยงชีพกับกองทุนลดหย่อนภาษีก็ลงตามไปด้วย เพราะทั้งสามกองห่อหุ้มตลาดเดียวกัน ผลตอบแทนระยะยาวยังอยู่ที่ 7% ต่อปีเท่าเดิม',
+          en: 'The index fund now draws one return for the whole year and lives through it month by month, instead of redrawing every month and dividing by twelve. That sounded volatile and was not: twelve draws cancel, so the worst year the fund could possibly have was about -2%. A bad year can now take more than 40%, and the provident fund and the tax-break fund fall with it, because all three wrap the same market. The long-run return is still 7% a year.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ปีไหนที่ตลาดลงหนัก จะมีการ์ดขึ้นมาถามตรง ๆ ว่าจะหยุดคำสั่งซื้อกองทุนรายเดือนไว้ก่อนไหม พร้อมบอกว่าปีนี้พอร์ตหายไปกี่บาท นี่คือคำถามเดียวกับที่คนจริง ๆ ต้องตอบทุกครั้งที่ตลาดลง และคำตอบของมันคือสิ่งที่ตัดสินพอร์ตทั้งชีวิต',
+          en: 'When a year falls hard a card asks outright whether to stop the monthly standing order, and says how much came off the fund this year. It is the same question anybody with a fund faces every time a market falls, and the answer to it decides a portfolio.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ผลตอบแทนอสังหาฯ ให้เช่าปรับใหม่ทั้งสำรับให้ตรงกับของจริงในไทย และต่างกันตามประเภทแทนที่จะเท่ากันหมด คอนโดกลางเมืองราว 5% ต่อปี ห้องเช่าใกล้โรงงานราว 8.5% หอพักราว 9% โรงแรม 11% จากเดิมที่ทุกใบอยู่ที่ 10.3% ถึง 13.2% เท่ากันหมด และเงินดาวน์เปลี่ยนจาก 5% ทุกใบ เป็น 10% ถึง 30% ตามประเภท เพราะโกดังกับโรงแรมไม่ใช่สินเชื่อบ้าน ผลคือการเลือกว่าจะซื้อใบไหนกลายเป็นการตัดสินใจจริง ไม่ใช่ซื้ออะไรก็ชนะ',
+          en: 'Rental yields across the whole deck were rebuilt to match what Thai property actually pays, and to differ by type instead of being one number: a city condo about 5% a year, rooms by a factory about 8.5%, a dormitory 9%, a hotel 11%, where every card used to sit between 10.3% and 13.2%. Deposits moved from a flat 5% to between 10% and 30% by type, because a warehouse and a hotel are not home loans. Choosing which building to buy is now a decision rather than a formality.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'กิจการเล็กแทบทุกใบมีความผันผวนแล้ว ร้านซักผ้าเคยจ่ายเท่าเดิมทุกเดือนติดต่อกันสามสิบปี ตอนนี้รายได้ขยับขึ้นลงเหมือนร้านจริง และร้านอาหาร รถเข็น ร้านชานม คาเฟ่ มีโอกาสปิดกิจการตามอัตราของตัวเอง เมื่อก่อนมีแค่ 6 ใบจาก 49 ใบที่ขยับได้เลย',
+          en: 'Nearly every small business now moves. A coin laundry used to pay the same amount every month for thirty years; its takings now rise and fall like a real one, and restaurants, carts, milk-tea shops and cafes can close for good at a rate of their own. Only 6 of the 49 cards used to move at all.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'เพิ่มอาชีพ "ไรเดอร์ส่งอาหาร" เงินเดือนต่ำสุดในเกม เหลือเก็บเดือนละสี่ร้อยบาท มีบัตรเครดิตหมุนอยู่ ไม่มีนายจ้าง ไม่มีบำนาญ ทุกอาชีพก่อนหน้านี้เริ่มเกมด้วยเงินเหลือ 18% ถึง 29% ของรายได้ ซึ่งข้ามสถานการณ์ที่ครัวเรือนไทยจำนวนมากอยู่จริงไปทั้งก้อน ที่นั่งนี้ภารกิจแรกไม่ใช่การลงทุน แต่คือการทำให้เหลือเงิน',
+          en: 'A new seat: the delivery rider, on the smallest wage in the game, with four hundred baht left at the end of the month and a credit card revolving. No employer and no pension. Every other job opens with 18% to 29% of its income left over, which quietly assumes away the situation a great many Thai households are actually in. Here the first job is not investing; it is having anything left.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'งบแสดงสองบรรทัดที่ไม่เคยแสดงมาก่อน คือเก็บได้กี่เปอร์เซ็นต์ของเงินที่เข้ามา และเงินสดพอจ่ายบิลได้กี่เดือน สองตัวนี้คือตัวที่ผู้เล่นสั่งได้เองทั้งหมดและทำนายตอนจบได้ดีที่สุด ตัวหลังเคยมีอยู่แล้วแต่มีแค่ธนาคารที่เห็นตอนพิจารณาสินเชื่อ',
+          en: 'The statement now carries two lines it never showed: the share of income you keep, and how many months of bills the cash would cover. They are the two numbers most under the player’s own hand and the two that predict the ending best. The bank could already see the second one; the player could not.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'ใบสรุปตอนจบเพิ่มบรรทัดวินิจฉัย บอกตรง ๆ ว่ารูรั่วที่ใหญ่ที่สุดของเกมนั้นคืออะไร เลือกจากตัวเลขที่เก็บไว้อยู่แล้ว เช่นเดือนที่เงินสดติดลบ ดอกเบี้ยที่จ่ายมากกว่าเงินที่ลงทุน หรือกองเงินสดไว้เฉย ๆ หลายปี หน้าที่มีแต่ตัวเลขโดยไม่มีใครจัดอันดับให้ คือหน้าที่ไม่มีใครได้อะไรกลับไป',
+          en: 'The ending card now names the single biggest leak of that game, chosen from tallies it was already keeping: months spent overdrawn, interest that outgrew the investing, cash left sitting for years. A page of numbers nobody ranks is a page nobody learns from.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'นักบินเคยถูกระงับใบอนุญาตเกือบทุกเกม การ์ดตกงานเปิดขึ้นราวปีละ 0.7 ครั้ง แต่โอกาสตรวจร่างกายไม่ผ่านตั้งไว้ 15% ต่อครั้งและไต่ถึง 60% ตามอายุ ผลจากการทดลองเล่น 20 เกมคือนักบินเสียใบอนุญาตครบทั้ง 20 เกม และล้มละลายไป 17 เกม ตอนนี้อยู่ที่ราวหนึ่งในสี่ของทั้งชีวิตการบิน ซึ่งยังเป็นความเสี่ยงอาชีพที่หนักที่สุดในเกม แต่รอดได้ถ้าสร้างรายได้ไว้ก่อน',
+          en: 'The pilot used to lose the licence in nearly every game. The layoff tile comes round about 0.7 times a year while the medical was set to fail at 15% a time, rising to 60% with age: across twenty test games all twenty pilots were grounded and seventeen went bankrupt after it. It now works out at roughly one flying career in four, still the heaviest career risk in the game and survivable by anybody who built income first.',
+        },
+      },
+      {
+        kind: 'fixed',
+        text: {
+          th: 'การ์ดตกงานเลิกถือว่า "เปิดการ์ด = ตกงาน" แล้ว การ์ดเปิดราวปีละ 0.7 ครั้ง แต่เดิมทุกครั้งที่เปิดคือตกงานจริง ครูเสียเดือนละครั้ง โปรแกรมเมอร์เสีย 4 เดือนทุกครั้ง คิดเป็นชีวิตการทำงานที่ไม่มีเงินเดือน 6% ถึง 23% ในประเทศที่อัตราว่างงานจริงราว 1% ตอนนี้แต่ละครั้งจะสุ่มว่าเป็นข่าวประเภทไหน ส่วนใหญ่คือ "รอบนี้ไม่ถึงโต๊ะคุณ" ผลคือสัดส่วนชีวิตที่ไม่มีเงินเดือนเหลือ 0.5% สำหรับข้าราชการและพยาบาล 4.4% สำหรับออฟฟิศกับวิศวกร และ 5.8% สำหรับโปรแกรมเมอร์ ซึ่งยังเรียงลำดับความเสี่ยงเหมือนเดิมทุกอาชีพ',
+          en: 'The layoff card no longer treats every landing as the thing itself. It comes round about 0.7 times a year, and each landing used to be a real redundancy: a month for the teacher, four for the developer, which reads as a working life with 6% to 23% of its months unpaid in a country whose unemployment rate is about 1%. Each landing now rolls for what kind of news it is, and most of the time it did not reach your desk. The share of a career spent unpaid comes out at 0.5% for a civil servant or a nurse, 4.4% for the office worker and the engineer, and 5.8% for the developer, which keeps every profession in the order it was written in.',
+        },
+      },
+      {
+        kind: 'added',
+        text: {
+          th: 'เพิ่มผลลัพธ์ "ปีนี้ไม่มีการปรับเงินเดือน" ให้การ์ดตกงาน งานยังอยู่ครบแต่ขั้นเงินเดือนปีนั้นหายไปเลย และไม่ได้ไล่คืนทีหลัง ทั้งบันไดจึงสั้นลงหนึ่งขั้นไปตลอดอาชีพ แพทย์ที่โดนแช่หนึ่งปีตอนปีที่สิบ เสียเงินเดือนเดือนละ ฿4,306 ไปจนเกษียณ เกิดราวสิบสองปีครั้ง นี่คือการลดเงินเดือนที่ไม่มีใครออกจดหมายแจ้ง และเงินเฟ้อ 3% ต่อปีเก็บของมันไปเงียบ ๆ ทุกปี',
+          en: 'The layoff card gained a third outcome: no rise this year. The desk is untouched and the rung is gone for good, never caught up later, so the whole ladder stays one step shorter for the rest of the career. A doctor frozen once in year ten is ฿4,306 a month poorer until retirement. It happens about once every twelve years. It is a pay cut nobody writes a letter about, and 3% inflation collects on it quietly every year after.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'เรียนจบสายที่ต้องมีใบอนุญาตแล้วยังไม่ได้เริ่มงานทันที ต้องรอรอบเรียกตัว นักบินรอเฉลี่ย 7 เดือน พยาบาลกับครูราว 2 เดือน ระหว่างรอไม่มีเงินเดือนแต่รายจ่ายเดินต่อ เพราะค่าเรียนไม่ใช่ส่วนที่แพงที่สุดของการเปลี่ยนสาย',
+          en: 'Qualifying in a licensed field no longer means starting work that week. The pilot waits about seven months for a seat, a nurse or a teacher about two, with no wage and the bills carrying on, because the tuition was never the expensive part of changing careers.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'เงินเดือนหลังเปลี่ยนสายไต่กลับปีละ 20% ของช่องว่าง จากเดิมที่โดนหักถาวรตลอดชีวิต คนที่ย้ายสายแล้วทำได้จริงไม่ได้เป็นเด็กใหม่ไปตลอด',
+          en: 'The entry-pay haircut after retraining now closes by a fifth of the gap every year instead of standing for life. Nobody who can do the work stays the new one for ever.',
+        },
+      },
+      {
+        kind: 'changed',
+        text: {
+          th: 'ปรับสมดุลอาชีพให้กลับเข้ากรอบที่ตั้งไว้เอง ครูเคยได้เส้นชัยต่ำที่สุดพร้อมบำนาญข้าราชการจนเป็นที่นั่งที่ง่ายที่สุด ส่วนแพทย์หลุดกรอบไปอยู่ที่ 3.79 ตอนนี้ทั้งสองอยู่ในช่วง 2.9 ถึง 3.2 ตามที่กติกาในโค้ดประกาศไว้',
+          en: 'Two seats were pulled back inside the band the rules set for themselves. The teacher had both the lowest finish line and a civil-service pension, which made it the easiest chair in the game; the doctor had drifted out to 3.79. Both now sit between 2.9 and 3.2.',
+        },
+      },
+    ],
+  },
+  {
     version: '0.6.0',
     dateISO: '2026-08-20',
     codename: { th: 'กิจการมีมูลค่าตามที่มันทำได้', en: 'A business is worth what it earns' },
