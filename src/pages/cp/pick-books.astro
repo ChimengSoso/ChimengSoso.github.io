@@ -1,0 +1,776 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'pick-books/';
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+
+    // cur[p] = แต้มมากสุด เมื่อดูหนังสือไปแล้ว i เล่ม และยังมี "บวกค้าง" อยู่ p เล่ม
+    // NEG = สถานะที่ไปไม่ถึง (ใช้ 0 ไม่ได้ เพราะ 0 เป็นแต้มที่ถูกต้องได้)
+    const long long NEG = LLONG_MIN / 4;
+    vector<long long> cur(n + 1, NEG), nxt(n + 1, NEG);
+    cur[0] = 0;
+
+    for (int i = 0; i < n; i++) {
+        fill(nxt.begin(), nxt.end(), NEG);
+        int lim = min(i, n - 1);          // ดูมา i เล่ม จะค้างเกิน i ไม่ได้
+        for (int p = 0; p <= lim; p++) {
+            long long v = cur[p];
+            if (v == NEG) continue;
+            // ไม่หยิบเล่มนี้เลย ทำได้เฉพาะตอนไม่มีบวกค้าง
+            if (p == 0) nxt[0] = max(nxt[0], v);
+            // ให้เล่มนี้เป็นบวก รอคู่ต่อไป
+            nxt[p + 1] = max(nxt[p + 1], v + a[i]);
+            // ให้เล่มนี้เป็นลบ ปิดจ๊อบกับบวกที่ค้างอยู่ 2 เล่ม
+            if (p >= 2) nxt[p - 2] = max(nxt[p - 2], v - a[i]);
+        }
+        swap(cur, nxt);
+    }
+
+    printf("%lld\\n", cur[0]);            // จบแบบไม่มีบวกค้าง = ทุกครั้งที่หยิบสมบูรณ์
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจสอบแบบซื่อ ๆ ลองหยิบทุกวิธีที่เป็นไปได้ ใช้ได้แค่กองเล็ก ๆ
+// เอาไว้สุ่มเทียบกับโค้ดจริงก่อนส่ง ไม่ใช่โค้ดที่ส่งเข้าระบบตัดสิน
+#include <bits/stdc++.h>
+using namespace std;
+
+long long best(vector<int> a) {
+    long long r = 0;                     // 0 = เลือกที่จะหยุดหยิบตรงนี้
+    for (size_t i = 0; i + 2 < a.size(); i++) {
+        vector<int> b = a;
+        long long gain = (long long)b[i] + b[i + 1] - b[i + 2];
+        b.erase(b.begin() + i, b.begin() + i + 3);
+        r = max(r, gain + best(b));
+    }
+    return r;
+}`;
+
+const dpLine = `// เล่มที่กำลังดูคือ a[i] และตอนนี้มีบวกค้างอยู่ p เล่ม
+nxt[p + 1] = max(nxt[p + 1], v + a[i]);               // ให้เป็นบวก
+if (p >= 2) nxt[p - 2] = max(nxt[p - 2], v - a[i]);   // ให้เป็นลบ`;
+---
+<CpProblemLayout href={href}>
+
+  <h2>โจทย์ · หยิบหนังสือ</h2>
+
+  <p>
+    คุณเข้าแถวสายจนโดนอาจารย์สั่งให้ไปจัดหนังสือในห้องสมุด หนังสือเรียนหนา ๆ กองใหญ่ จัดไปสักพักก็เบื่อ
+    พอดีถึงเวลาพักเที่ยงและอาจารย์ห้องสมุดไม่อยู่ คุณเลยคิดเกมขึ้นมาเล่นคนเดียวกับกองหนังสือตรงหน้า
+  </p>
+  <p>
+    กองหนึ่งมีหนังสือ <code>n</code> เล่มวางซ้อนกันอยู่ ทุกเล่มมีเลขเขียนไว้บนสัน
+    กติกาคือ <strong>หยิบออกได้ทีละ 3 เล่มที่อยู่ติดกันเท่านั้น</strong> และแต้มที่ได้จากการหยิบหนึ่งครั้งคือ
+    เอาเลขของ<strong>สองเล่มบน</strong>บวกกัน แล้ว<strong>หักด้วยเลขของเล่มล่างสุด</strong>ในสามเล่มนั้น
+    หยิบกี่ครั้งก็ได้ ไม่จำเป็นต้องหยิบจนหมดกอง ถ้าหยิบต่อแล้วเสียแต้มก็หยุดได้
+  </p>
+  <p>
+    คำถามคือ ถ้าเลือกได้อย่างอิสระว่าจะหยิบตรงไหนก่อนหลัง <strong>แต้มรวมมากที่สุดที่เป็นไปได้คือเท่าไหร่</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">โจทย์กำหนด · อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จำนวนหนังสือในกอง จากนั้นอีก <code>N</code> บรรทัด บรรทัดละหนึ่งจำนวน คือเลขบนสันหนังสือ <strong>ไล่จากบนลงล่าง</strong></li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ N ≤ 2 000</code> เลขบนสันเป็นจำนวนเต็มไม่ติดลบ ไม่เกิน <code>1 000 000</code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัวบรรทัดเดียว คือแต้มรวมที่มากที่สุด</li>
+      <li><strong>ข้อจำกัดเครื่อง:</strong> 1 วินาที และหน่วยความจำ 16 เมกะไบต์ (เลข 16 นี้จะกลับมามีบทบาททีหลัง)</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td>7<br />1<br />2<br />3<br />4<br />5<br />6<br />7</td><td>5</td></tr>
+      <tr><td>9<br />5<br />5<br />5<br />5<br />5<br />5<br />5<br />5<br />100</td><td>10</td></tr>
+      <tr><td>15<br />28<br />40<br />39<br />88<br />37<br />46<br />18<br />25<br />39<br />50<br />67<br />40<br />19<br />74<br />23</td><td>385</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">ชุดที่ 2 อ่านง่ายที่สุด มีเลข 5 อยู่แปดเล่ม แล้วมีเลข 100 นอนรออยู่ล่างสุด</p>
+
+  <hr class="divider" />
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+
+  <p>
+    ถ้าโจทย์บอกว่า "หยิบได้ทีละ 3 เล่มติดกัน แล้วจบ" ข้อนี้จบใน 3 บรรทัด ไล่ดูทุกตำแหน่งแล้วเก็บค่าที่ดีที่สุด
+    ตัวที่ทำให้มันมีชีวิตขึ้นมาคือคำว่า <strong>หยิบได้หลายครั้ง</strong> เพราะพอหนังสือ 3 เล่มหลุดออกไป
+    <strong>กองมันปิดช่องเอง</strong> เล่มที่เมื่อกี้อยู่คนละมุมของกองเลื่อนมาชนกันได้ กลายเป็นสามเล่มติดกันชุดใหม่ที่ตอนเริ่มไม่มีอยู่จริง
+  </p>
+
+  <ZoomableDiagram caption="หยิบเล่มที่ 2, 3, 4 ออก ได้ 2 + 3 − 4 = 1 แต้ม ผลข้างเคียงที่สำคัญกว่าแต้มคือ เล่ม 1 กับเล่ม 5 ที่ไม่เคยอยู่ติดกัน กลายเป็นเพื่อนบ้านกันทันที (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 700 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพสามช่อง ช่องซ้ายคือกองหนังสือเจ็ดเล่มเลข 1 ถึง 7 เรียงจากบนลงล่าง ช่องกลางไฮไลต์เล่มที่ 2 และ 3 เป็นบวก เล่มที่ 4 เป็นลบ ว่าถูกหยิบออกพร้อมกัน ได้แต้ม 2 บวก 3 ลบ 4 เท่ากับ 1 ช่องขวาคือกองที่เหลือสี่เล่ม คือ 1, 5, 6, 7 โดยเล่ม 1 กับเล่ม 5 ที่เดิมไม่ติดกัน ตอนนี้มาอยู่ติดกันแล้ว">
+      <text x="350" y="24" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">หยิบหนึ่งครั้ง แล้วกองปิดช่องเอง</text>
+
+      <text x="95" y="52" fill="#9aa7bd" font-size="11" text-anchor="middle">กองตอนเริ่ม</text>
+      <rect x="40" y="62" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="81" fill="#6b7690" font-size="9">เล่ม 1</text><text x="140" y="81" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">1</text>
+      <rect x="40" y="94" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="113" fill="#6b7690" font-size="9">เล่ม 2</text><text x="140" y="113" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">2</text>
+      <rect x="40" y="126" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="145" fill="#6b7690" font-size="9">เล่ม 3</text><text x="140" y="145" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">3</text>
+      <rect x="40" y="158" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="177" fill="#6b7690" font-size="9">เล่ม 4</text><text x="140" y="177" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">4</text>
+      <rect x="40" y="190" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="209" fill="#6b7690" font-size="9">เล่ม 5</text><text x="140" y="209" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">5</text>
+      <rect x="40" y="222" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="241" fill="#6b7690" font-size="9">เล่ม 6</text><text x="140" y="241" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">6</text>
+      <rect x="40" y="254" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="52" y="273" fill="#6b7690" font-size="9">เล่ม 7</text><text x="140" y="273" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">7</text>
+
+      <text x="205" y="150" fill="#7fce9f" font-size="10.5" text-anchor="middle">หยิบ 3 เล่มติดกัน</text>
+      <line x1="162" y1="168" x2="242" y2="168" stroke="#5b6b93" stroke-width="2"/>
+      <path d="M248 168 l-8 -5 l0 10 z" fill="#5b6b93"/>
+      <text x="205" y="188" fill="#4ade80" font-size="10.5" text-anchor="middle">2 + 3 − 4 = +1</text>
+
+      <text x="315" y="52" fill="#9aa7bd" font-size="11" text-anchor="middle">สามเล่มที่หยิบ</text>
+      <rect x="260" y="62" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="360" y="81" fill="#6b7690" font-size="13" text-anchor="end">1</text>
+      <rect x="260" y="94" width="110" height="28" rx="6" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="2"/>
+      <text x="272" y="113" fill="#7fce9f" font-size="9">บวก</text><text x="360" y="113" fill="#eafaf0" font-size="13" text-anchor="end" font-weight="700">2</text>
+      <rect x="260" y="126" width="110" height="28" rx="6" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="2"/>
+      <text x="272" y="145" fill="#7fce9f" font-size="9">บวก</text><text x="360" y="145" fill="#eafaf0" font-size="13" text-anchor="end" font-weight="700">3</text>
+      <rect x="260" y="158" width="110" height="28" rx="6" fill="rgba(214,69,69,0.16)" stroke="#d64545" stroke-width="2"/>
+      <text x="272" y="177" fill="#f08b8b" font-size="9">ลบ</text><text x="360" y="177" fill="#ffd9d9" font-size="13" text-anchor="end" font-weight="700">4</text>
+      <rect x="260" y="190" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="360" y="209" fill="#6b7690" font-size="13" text-anchor="end">5</text>
+      <rect x="260" y="222" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="360" y="241" fill="#6b7690" font-size="13" text-anchor="end">6</text>
+      <rect x="260" y="254" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="360" y="273" fill="#6b7690" font-size="13" text-anchor="end">7</text>
+
+      <text x="440" y="150" fill="#e0b400" font-size="10.5" text-anchor="middle">กองปิดช่อง</text>
+      <line x1="382" y1="168" x2="492" y2="168" stroke="#5b6b93" stroke-width="2"/>
+      <path d="M498 168 l-8 -5 l0 10 z" fill="#5b6b93"/>
+
+      <text x="565" y="52" fill="#9aa7bd" font-size="11" text-anchor="middle">กองหลังหยิบ</text>
+      <rect x="510" y="62" width="110" height="28" rx="6" fill="#1c2536" stroke="#e0b400" stroke-width="2"/>
+      <text x="522" y="81" fill="#6b7690" font-size="9">เล่ม 1</text><text x="610" y="81" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">1</text>
+      <rect x="510" y="94" width="110" height="28" rx="6" fill="#1c2536" stroke="#e0b400" stroke-width="2"/>
+      <text x="522" y="113" fill="#6b7690" font-size="9">เล่ม 5</text><text x="610" y="113" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">5</text>
+      <rect x="510" y="126" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="522" y="145" fill="#6b7690" font-size="9">เล่ม 6</text><text x="610" y="145" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">6</text>
+      <rect x="510" y="158" width="110" height="28" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="522" y="177" fill="#6b7690" font-size="9">เล่ม 7</text><text x="610" y="177" fill="#cdd6ea" font-size="13" text-anchor="end" font-weight="700">7</text>
+      <text x="565" y="205" fill="#e0b400" font-size="10.5" text-anchor="middle">เล่ม 1 กับ 5 มาติดกันแล้ว</text>
+      <text x="565" y="222" fill="#6b7690" font-size="10" text-anchor="middle">(ตอนเริ่มห่างกันสามเล่ม)</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ลองนึกถึงตัวอย่างชุดที่ 1 (เลข 1 ถึง 7 ตอบ 5) ถ้าหยิบสามเล่มล่างสุด <code>5, 6, 7</code> จะได้ 4 แต้ม ซึ่งเป็นการหยิบครั้งเดียวที่ให้แต้มสูงสุดในกองนี้
+      แต่คำตอบของโจทย์คือ 5 แปลว่ามีทางที่ดีกว่าการรีบคว้าก้อนใหญ่
+      คำถามที่ควรค้างอยู่ในหัวตอนนี้คือ <strong>การหยิบครั้งแรกที่ดูแล้วไม่คุ้ม มันไปเปิดทางให้ครั้งต่อไปยังไง</strong>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ลองเอง · กองหนังสือจำลอง</h2>
+
+  <p>
+    ก่อนไปดูเฉลย ลองเล่นกองข้างล่างนี้ก่อนครับ คลิกที่หนังสือ<strong>เล่มบนสุดของสามเล่ม</strong>ที่อยากหยิบ
+    ระบบจะหยิบเล่มนั้นกับอีกสองเล่มใต้มันออกไป แล้วปิดช่องกองให้เอง
+    ตัวเลข "ดีที่สุดที่ทำได้" คือคำตอบจริงของกองนั้น ลองไล่ให้ถึงดูครับ
+  </p>
+
+  <figure class="bookgame" data-bookgame>
+    <div class="bg-bar">
+      <div class="bg-piles" role="group" aria-label="เลือกกองหนังสือ">
+        <button type="button" class="bg-pile is-on" data-pile="0">กอง A</button>
+        <button type="button" class="bg-pile" data-pile="1">กอง B</button>
+        <button type="button" class="bg-pile" data-pile="2">กอง C</button>
+      </div>
+      <button type="button" class="bg-reset" data-reset>เริ่มกองนี้ใหม่</button>
+    </div>
+    <div class="bg-body">
+      <ol class="bg-stack" data-stack></ol>
+      <div class="bg-hud">
+        <p class="bg-stat"><span>แต้มสะสม</span><strong data-score>0</strong></p>
+        <p class="bg-stat"><span>ดีที่สุดที่ทำได้</span><strong class="bg-goal" data-best>0</strong></p>
+        <p class="bg-stat"><span>หยิบไปแล้ว</span><strong data-moves>0</strong></p>
+        <p class="bg-log" data-log aria-live="polite">คลิกเล่มบนสุดของสามเล่มที่อยากหยิบ</p>
+      </div>
+    </div>
+    <figcaption>กอง A คือกองที่หลอกคนเล่นได้เจ็บที่สุด ส่วนกอง B กับ C คือตัวอย่างชุดที่ 1 และ 2 ของโจทย์</figcaption>
+  </figure>
+
+  <p class="ns-cue">ลองเล่นให้หนำใจก่อนนะครับ พอมีคำตอบในใจแล้วค่อยเปิดเฉลย</p>
+
+  <hr class="divider-solid" />
+
+  <h2>เฉลย ตอนที่ 1 · ทำไมการรีบคว้าก้อนใหญ่ถึงแพ้</h2>
+
+  <Spoiler>
+    <p>
+      กอง A ในเกมคือ <code>9, 2, 9, 2, 9, 1</code> ถ้าเดินแบบ <strong>โลภ (greedy)</strong> คือมองหาการหยิบที่ได้แต้มเยอะที่สุดตอนนี้แล้วคว้าเลย
+      คุณจะเจอ <code>2 + 9 − 1 = 10</code> ที่สามเล่มล่าง คว้าไปก่อน เหลือ <code>9, 2, 9</code> ซึ่งหยิบได้อีกแค่ <code>9 + 2 − 9 = 2</code> รวมเป็น <strong>12 แต้ม</strong>
+    </p>
+    <p>
+      แต่คำตอบจริงคือ <strong>26 แต้ม</strong> ทางที่ถูกคือหยิบตรงกลางก่อน (<code>2, 9, 2</code> ได้ 9 แต้ม) เพื่อให้เลข 9 สองตัวที่อยู่หัวกองกับเกือบท้ายกอง
+      ซึ่ง<strong>ไม่เคยอยู่ติดกันเลย</strong> ได้มาเจอกัน แล้วหยิบทีเดียว <code>9 + 9 − 1 = 17</code> รวม 26
+    </p>
+    <p>
+      บทเรียนของข้อนี้อยู่ตรงนี้ครับ การหยิบไม่ได้มีหน้าที่แค่เก็บแต้ม มันมีหน้าที่ <strong>จับคู่</strong> ด้วย
+      เลขใหญ่ทุกตัวอยากได้เครื่องหมายบวก ส่วนเลขเล็กเหมาะกับการเป็นตัวที่โดนลบ การหยิบผิดจังหวะคือการเอาเลขใหญ่ไปนอนรวมกับเลขใหญ่ด้วยกัน
+      แล้วบังคับให้ตัวหนึ่งกลายเป็นตัวลบ
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · เปลี่ยนคำถามจาก "หยิบตรงไหน" เป็น "ใครได้บวก ใครได้ลบ"</h2>
+
+  <Spoiler>
+    <p>
+      ตราบใดที่ยังคิดเป็น "ลำดับของการหยิบ" เราจะติดอยู่กับกองที่เปลี่ยนรูปทุกครั้ง ซึ่งจำสถานะไม่ไหวแน่นอน
+      ท่ามาตรฐานคือ<strong>เลิกสนใจว่าหยิบก่อนหลังยังไง แล้วมองที่ผลลัพธ์ตอนจบแทน</strong>
+    </p>
+    <p>
+      เมื่อทุกอย่างจบลง หนังสือแต่ละเล่มมีชะตากรรมได้แค่ 3 แบบ คือ <strong>ได้เครื่องหมายบวก</strong> (เป็นหนึ่งในสองเล่มบนของครั้งที่หยิบมัน)
+      <strong>ได้เครื่องหมายลบ</strong> (เป็นเล่มล่างสุดของครั้งนั้น) หรือ <strong>ไม่ถูกหยิบเลย</strong>
+      แต้มรวมก็คือผลบวกของทุกเล่มตามเครื่องหมายของมัน เท่านั้นเอง งานที่เหลือคือหาว่า <strong>รูปแบบเครื่องหมายแบบไหนที่ทำได้จริง</strong>
+    </p>
+
+    <ZoomableDiagram caption="กอง A กับคำตอบ 26 แต้ม สังเกตว่าเส้นของการหยิบสองครั้งซ้อนกันสนิท ไขว้กันไม่ได้เลย เพราะกว่าเล่ม 1 จะได้เจอเล่ม 5 เล่มที่ขวางอยู่ต้องออกไปก่อนแล้ว (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="กองหนังสือหกเล่มเรียงจากซ้ายไปขวาคือ 9, 2, 9, 2, 9, 1 เครื่องหมายเหนือแต่ละเล่มคือ บวก บวก บวก ลบ บวก ลบ ตามลำดับ เส้นด้านล่างแสดงว่าการหยิบครั้งแรกจับเล่มที่ 2, 3 และ 4 ได้ 2 บวก 9 ลบ 2 เท่ากับ 9 แต้ม และการหยิบครั้งที่สองจับเล่มที่ 1, 5 และ 6 ได้ 9 บวก 9 ลบ 1 เท่ากับ 17 แต้ม รวม 26 แต้ม เส้นของครั้งแรกซ้อนอยู่ข้างในเส้นของครั้งที่สอง">
+        <text x="350" y="24" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">มองเป็นเครื่องหมาย แทนที่จะมองเป็นลำดับการหยิบ</text>
+        <text x="350" y="44" fill="#9aa7bd" font-size="11" text-anchor="middle">กอง A: 9, 2, 9, 2, 9, 1 (ซ้ายคือบนสุดของกอง)</text>
+
+        <text x="100" y="82" fill="#4ade80" font-size="19" text-anchor="middle" font-weight="700">+</text>
+        <text x="200" y="82" fill="#4ade80" font-size="19" text-anchor="middle" font-weight="700">+</text>
+        <text x="300" y="82" fill="#4ade80" font-size="19" text-anchor="middle" font-weight="700">+</text>
+        <text x="400" y="82" fill="#f08b8b" font-size="19" text-anchor="middle" font-weight="700">−</text>
+        <text x="500" y="82" fill="#4ade80" font-size="19" text-anchor="middle" font-weight="700">+</text>
+        <text x="600" y="82" fill="#f08b8b" font-size="19" text-anchor="middle" font-weight="700">−</text>
+
+        <rect x="60" y="92" width="80" height="44" rx="8" fill="rgba(74,222,128,0.14)" stroke="#4ade80" stroke-width="2"/>
+        <text x="100" y="121" fill="#eafaf0" font-size="16" text-anchor="middle" font-weight="700">9</text>
+        <rect x="160" y="92" width="80" height="44" rx="8" fill="rgba(74,222,128,0.14)" stroke="#4ade80" stroke-width="2"/>
+        <text x="200" y="121" fill="#eafaf0" font-size="16" text-anchor="middle" font-weight="700">2</text>
+        <rect x="260" y="92" width="80" height="44" rx="8" fill="rgba(74,222,128,0.14)" stroke="#4ade80" stroke-width="2"/>
+        <text x="300" y="121" fill="#eafaf0" font-size="16" text-anchor="middle" font-weight="700">9</text>
+        <rect x="360" y="92" width="80" height="44" rx="8" fill="rgba(214,69,69,0.16)" stroke="#d64545" stroke-width="2"/>
+        <text x="400" y="121" fill="#ffd9d9" font-size="16" text-anchor="middle" font-weight="700">2</text>
+        <rect x="460" y="92" width="80" height="44" rx="8" fill="rgba(74,222,128,0.14)" stroke="#4ade80" stroke-width="2"/>
+        <text x="500" y="121" fill="#eafaf0" font-size="16" text-anchor="middle" font-weight="700">9</text>
+        <rect x="560" y="92" width="80" height="44" rx="8" fill="rgba(214,69,69,0.16)" stroke="#d64545" stroke-width="2"/>
+        <text x="600" y="121" fill="#ffd9d9" font-size="16" text-anchor="middle" font-weight="700">1</text>
+
+        <text x="100" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 1</text>
+        <text x="200" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 2</text>
+        <text x="300" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 3</text>
+        <text x="400" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 4</text>
+        <text x="500" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 5</text>
+        <text x="600" y="152" fill="#6b7690" font-size="10" text-anchor="middle">เล่ม 6</text>
+
+        <path d="M200 162 L200 200 L400 200 L400 162" fill="none" stroke="#4ade80" stroke-width="2"/>
+        <line x1="300" y1="162" x2="300" y2="200" stroke="#4ade80" stroke-width="2"/>
+        <text x="300" y="218" fill="#7fce9f" font-size="11" text-anchor="middle">หยิบครั้งที่ 1 · 2 + 9 − 2 = 9</text>
+
+        <path d="M100 162 L100 248 L600 248 L600 162" fill="none" stroke="#e0b400" stroke-width="2"/>
+        <line x1="500" y1="162" x2="500" y2="248" stroke="#e0b400" stroke-width="2"/>
+        <text x="350" y="266" fill="#e0b400" font-size="11" text-anchor="middle">หยิบครั้งที่ 2 · 9 + 9 − 1 = 17</text>
+        <text x="350" y="288" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">รวม 26 แต้ม</text>
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 · กฎของเครื่องหมายที่ทำได้จริง</h2>
+
+  <Spoiler>
+    <p>
+      ไม่ใช่ทุกรูปแบบเครื่องหมายที่เกิดขึ้นได้ เช่นเล่มบนสุดของกองจะเป็นตัวลบไม่ได้เลย เพราะตัวลบต้องมีเพื่อนบวกอยู่<strong>เหนือมัน</strong>สองเล่ม
+      กฎที่แท้จริงจะเห็นชัดที่สุดเมื่อไล่จากบนกองลงล่างทีละเล่ม พร้อมถือ <strong>กองซ้อน (stack)</strong> ไว้ในมือ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แกะคำศัพท์</p>
+      <p>
+        <strong>stack</strong> อ่านว่า <strong>"สแต็ก"</strong> แปลตรง ๆ ว่า <strong>"กองที่ซ้อนทับกันขึ้นไป"</strong> คำเดียวกับกองฟางที่ซ้อนเป็นชั้น ๆ
+        ในทางโปรแกรม มันคือที่เก็บของซึ่ง<strong>ชิ้นที่ใส่ทีหลังจะถูกหยิบออกก่อน</strong> เหมือนกองจานที่วางซ้อนกัน คุณหยิบใบบนสุดเสมอ
+        ข้อนี้สนุกตรงที่โจทย์เป็นกองหนังสือของจริงอยู่แล้ว วิธีคิดเลยยืมของจริงมาใช้ได้ตรง ๆ
+      </p>
+    </div>
+    <p>เดินจากเล่มบนสุดลงล่างทีละเล่ม แล้วตัดสินใจว่าเล่มนี้จะเป็นอะไร</p>
+    <ul>
+      <li><strong>ให้เป็นบวก:</strong> ผลักมันเข้าสแต็ก มันกลายเป็น "บวกที่ยังรอคู่" เพิ่มอีกหนึ่งเล่ม</li>
+      <li><strong>ให้เป็นลบ:</strong> ทำได้ก็ต่อเมื่อในสแต็กมีบวกรออยู่<strong>อย่างน้อย 2 เล่ม</strong> มันจะกินสองเล่มบนสุดออกไป ปิดจ๊อบเป็นการหยิบหนึ่งครั้ง</li>
+      <li><strong>ไม่หยิบเลย:</strong> ทำได้ก็ต่อเมื่อ<strong>สแต็กว่าง</strong> ถ้ายังมีบวกค้างอยู่ แปลว่ามีเล่มข้างบนที่รอจับคู่ข้ามหัวเล่มนี้ลงมา ซึ่งจะข้ามได้ก็ต่อเมื่อเล่มนี้ถูกหยิบออกไปแล้ว</li>
+      <li><strong>ตอนจบ:</strong> สแต็กต้องว่าง ถ้ามีบวกค้างแปลว่ามีเล่มที่เราตั้งใจให้บวก แต่ไม่มีการหยิบครั้งไหนมารับมันจริง</li>
+    </ul>
+
+    <ZoomableDiagram caption="เดินทีละเล่มพร้อมสแต็กในมือ ความสูงของสแต็กคือจำนวนบวกที่ยังรอคู่ ทั้งเรื่องเหลือแค่ตัวเลขตัวเดียวนี้ ซึ่งคือสิ่งที่ทำให้ข้อนี้ยุบลงเป็นตารางเล็ก ๆ ได้ (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เจ็ดช่องเรียงจากซ้ายไปขวา ช่องแรกคือสถานะเริ่มต้น สแต็กว่าง แต้มศูนย์ จากนั้นไล่ทีละเล่ม เล่ม 9 เป็นบวก สแต็กสูงหนึ่ง เล่ม 2 เป็นบวก สูงสอง เล่ม 9 เป็นบวก สูงสาม เล่ม 2 เป็นลบ กินสองเล่มบนออกไป เหลือสูงหนึ่ง และได้ 9 แต้ม เล่ม 9 เป็นบวก สูงสอง และเล่ม 1 เป็นลบ กินสองเล่มที่เหลือ สแต็กว่าง แต้มรวม 26">
+        <text x="360" y="22" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">เดินทีละเล่ม แล้วดูแค่ "ตอนนี้มีบวกค้างกี่เล่ม"</text>
+
+        <line x1="20" y1="240" x2="700" y2="240" stroke="#2a3350" stroke-width="1.5"/>
+
+        <text x="60" y="52" fill="#9aa7bd" font-size="11" text-anchor="middle">เริ่ม</text>
+        <text x="60" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 0</text>
+        <text x="60" y="280" fill="#9aa7bd" font-size="10.5" text-anchor="middle">แต้ม 0</text>
+
+        <text x="170" y="52" fill="#4ade80" font-size="11" text-anchor="middle">เล่ม 9 · บวก</text>
+        <rect x="140" y="212" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="170" y="229" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <text x="170" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 1</text>
+        <text x="170" y="280" fill="#9aa7bd" font-size="10.5" text-anchor="middle">แต้ม 0</text>
+
+        <text x="280" y="52" fill="#4ade80" font-size="11" text-anchor="middle">เล่ม 2 · บวก</text>
+        <rect x="250" y="212" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="280" y="229" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <rect x="250" y="184" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="280" y="201" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">2</text>
+        <text x="280" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 2</text>
+        <text x="280" y="280" fill="#9aa7bd" font-size="10.5" text-anchor="middle">แต้ม 0</text>
+
+        <text x="390" y="52" fill="#4ade80" font-size="11" text-anchor="middle">เล่ม 9 · บวก</text>
+        <rect x="360" y="212" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="390" y="229" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <rect x="360" y="184" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="390" y="201" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">2</text>
+        <rect x="360" y="156" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="390" y="173" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <text x="390" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 3</text>
+        <text x="390" y="280" fill="#9aa7bd" font-size="10.5" text-anchor="middle">แต้ม 0</text>
+
+        <text x="500" y="52" fill="#f08b8b" font-size="11" text-anchor="middle">เล่ม 2 · ลบ</text>
+        <text x="500" y="69" fill="#6b7690" font-size="9.5" text-anchor="middle">กินสองเล่มบน</text>
+        <rect x="470" y="212" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="500" y="229" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <rect x="470" y="156" width="60" height="52" rx="5" fill="rgba(214,69,69,0.10)" stroke="#d64545" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="500" y="187" fill="#f08b8b" font-size="10.5" text-anchor="middle">2 กับ 9 ออก</text>
+        <text x="500" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 1</text>
+        <text x="500" y="280" fill="#4ade80" font-size="10.5" text-anchor="middle" font-weight="700">แต้ม 9</text>
+
+        <text x="610" y="52" fill="#4ade80" font-size="11" text-anchor="middle">เล่ม 9 · บวก</text>
+        <rect x="580" y="212" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="610" y="229" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <rect x="580" y="184" width="60" height="24" rx="5" fill="rgba(74,222,128,0.16)" stroke="#4ade80" stroke-width="1.5"/>
+        <text x="610" y="201" fill="#eafaf0" font-size="12" text-anchor="middle" font-weight="700">9</text>
+        <text x="610" y="262" fill="#6b7690" font-size="10" text-anchor="middle">ค้าง 2</text>
+        <text x="610" y="280" fill="#4ade80" font-size="10.5" text-anchor="middle" font-weight="700">แต้ม 9</text>
+
+        <text x="688" y="52" fill="#f08b8b" font-size="11" text-anchor="middle">เล่ม 1 · ลบ</text>
+        <rect x="660" y="184" width="56" height="52" rx="5" fill="rgba(214,69,69,0.10)" stroke="#d64545" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="688" y="215" fill="#f08b8b" font-size="10" text-anchor="middle">ออกหมด</text>
+        <text x="688" y="262" fill="#e0b400" font-size="10" text-anchor="middle" font-weight="700">ค้าง 0</text>
+        <text x="688" y="280" fill="#e0b400" font-size="10.5" text-anchor="middle" font-weight="700">แต้ม 26</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <details class="expander">
+      <summary>ทำไมกฎสแต็กถึงตรงกับการหยิบจริงเป๊ะ ๆ (สำหรับคนอยากได้เหตุผลเต็ม)</summary>
+      <div class="expander-body">
+        <p>
+          <strong>ทางไป (การหยิบจริงต้องเข้ากฎนี้):</strong> ตอนที่หยิบสามเล่ม <code>p</code>, <code>q</code>, <code>r</code> ออกพร้อมกัน
+          ทั้งสามต้องติดกัน ณ ตอนนั้น แปลว่าทุกเล่มที่เคยขวางระหว่าง <code>p</code> กับ <code>r</code> ถูกหยิบออกไปครบแล้ว
+          กลุ่มการหยิบจึงซ้อนกันเป็นชั้น ๆ ไขว้กันไม่ได้ ซึ่งพอไล่จากบนลงล่างก็คือกฎสแต็กพอดี
+        </p>
+        <p>
+          <strong>ทางกลับ (เข้ากฎนี้แล้วหยิบได้จริง):</strong> จับคู่ตามสแต็กจะได้กลุ่มสามเล่มที่<strong>ซ้อนกันสนิท</strong>
+          ให้หยิบกลุ่มที่อยู่ในสุดก่อน คือกลุ่มที่ไม่มีอะไรคั่นอยู่ข้างในแล้ว พอมันออกไป กลุ่มถัดขึ้นมาก็กลายเป็นกลุ่มในสุดแทน
+          ทำซ้ำจนหมด เป็นอันว่าลำดับการหยิบมีอยู่จริงเสมอ
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 · เหลือแค่ตารางเดียว</h2>
+
+  <Spoiler>
+    <p>
+      พอเรื่องทั้งหมดเหลือแค่ "เดินจากบนลงล่าง แล้วจำว่ามีบวกค้างกี่เล่ม" สิ่งที่ต้องจำก็มีแค่สองตัว
+      คือ<strong>ดูมาถึงเล่มที่เท่าไหร่</strong> กับ<strong>ค้างอยู่กี่เล่ม</strong> ที่เหลือเป็น <strong>DP</strong> ตรง ๆ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แกะคำศัพท์</p>
+      <p>
+        <strong>DP</strong> ย่อจาก <i>dynamic programming</i> อ่านว่า <strong>"ไดนามิก โปรแกรมมิง"</strong> ไทยแปลกันว่า <strong>"กำหนดการพลวัต"</strong>
+        ใจความคือ <strong>ตอบคำถามย่อยแล้วเก็บไว้ในตาราง เอาคำตอบเก่ามาต่อยอด</strong> จะได้ไม่คำนวณซ้ำ
+        คำว่า <i>dynamic</i> ในชื่อนี้ไม่ได้มีความหมายทางเทคนิคอะไร Richard Bellman คนตั้งชื่อเล่าเองว่าเลือกคำนี้เพราะฟังดูน่าประทับใจ
+        และเจ้านายที่คุมงบตอนนั้นเกลียดคำว่า "วิจัยคณิตศาสตร์" พอดี
+      </p>
+    </div>
+    <p>
+      ให้ <code>dp[i][p]</code> คือ<strong>แต้มมากที่สุด</strong>เมื่อพิจารณาหนังสือ <code>i</code> เล่มแรกไปแล้ว และเหลือบวกค้างอยู่ <code>p</code> เล่ม
+      เล่มถัดไปมีทางเลือกตามกฎเมื่อกี้ เขียนเป็นโค้ดได้สองบรรทัด
+    </p>
+    <CodeBlock code={dpLine} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      บวกกับทางเลือก "ไม่หยิบเลย" ที่ทำได้เฉพาะตอน <code>p</code> เป็น 0 คำตอบสุดท้ายคือ <code>dp[n][0]</code>
+      สถานะทั้งหมดมี <code>n × n</code> ช่อง แต่ละช่องทำงานคงที่ จึงเป็น <strong>O(n²)</strong> ที่ <code>n = 2 000</code> คือราวสี่ล้านครั้ง
+      เครื่องผมวิ่งจบใน <strong>26 มิลลิวินาที</strong> จากลิมิต 1 วินาที
+    </p>
+    <p>
+      จุดที่พลาดกันบ่อยคือค่าเริ่มต้น ช่องที่ยัง<strong>ไปไม่ถึง</strong>ต้องใส่ค่าติดลบมหาศาล ห้ามใส่ 0
+      เพราะ 0 เป็นแต้มที่ถูกต้องได้ (แปลว่าไม่หยิบอะไรเลย) ถ้าใส่ 0 ให้ทุกช่อง โปรแกรมจะเชื่อว่าตัวเองยืนอยู่ในสถานะที่ไปไม่ได้จริง
+      แล้วตอบเกินความจริง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+
+  <p>
+    เขียนแบบที่ใช้ส่งแข่งจริง คืออ่านอินพุตด้วย <code>scanf</code> ใช้อาร์เรย์สองแถวสลับกัน (แถวปัจจุบันกับแถวถัดไป)
+    และตั้งชื่อตัวแปรให้ตรงกับสิ่งที่มันเป็นจริง ๆ จะได้กลับมาอ่านรู้เรื่องตอนดีบั๊กในนาทีที่ 45
+  </p>
+
+  <details class="expander">
+    <summary>ดูโค้ดเฉลย C++ (เวลา O(n²) หน่วยความจำ O(n))</summary>
+    <div class="expander-body">
+      <CodeBlock code={solution} lang="cpp" title="solution.cpp" />
+      <p>
+        <code>swap(cur, nxt)</code> ท้ายลูปคือหัวใจของการประหยัดหน่วยความจำ เราไม่เคยเก็บตารางทั้งใบ เก็บแค่แถวที่กำลังใช้
+        เพราะแถวใหม่ขึ้นกับแถวก่อนหน้าเท่านั้น และ <code>swap</code> ของ <code>vector</code> คือการสลับตัวชี้ ไม่ได้ก็อปข้อมูล จึงเร็วคงที่
+      </p>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ดูโค้ดตัวตรวจสอบแบบซื่อ ๆ (ใช้สุ่มเทียบก่อนส่ง)</summary>
+    <div class="expander-body">
+      <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      <p>
+        ท่านี้เป็นนิสัยที่คุ้มที่สุดของการเขียนโปรแกรมแข่ง เขียนตัวช้าที่มั่นใจว่าถูก แล้วสุ่มกองเล็ก ๆ (เช่น 1 ถึง 10 เล่ม เลข 0 ถึง 15)
+        ยิงเทียบกับโค้ดจริงสักสองสามร้อยรอบ ความมั่นใจที่ได้ต่างจาก "อ่านโค้ดแล้วรู้สึกว่าถูก" คนละเรื่อง
+        เฉลยข้างบนผ่านทั้งตัวอย่างสามชุดของโจทย์ และการสุ่มเทียบ 400 รอบ
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider" />
+
+  <h2>ทำไมโจทย์ถึงให้หน่วยความจำแค่ 16 เมกะไบต์</h2>
+
+  <p>
+    ตอนแรกผมคิดว่าเลข 16 เมกะไบต์เป็นแค่ค่าเริ่มต้นเก่า ๆ ของระบบ แต่พอลองเดินทางที่คนส่วนใหญ่จะเดินก็เข้าใจ
+    วิธีที่นึกออกก่อนสำหรับปัญหาแนว "ลบของออกจากแถวแล้วแถวปิดช่อง" คือ <strong>DP บนช่วง (interval DP)</strong>
+    คือเก็บ <code>f[i][j]</code> ว่าช่วงตั้งแต่เล่ม <code>i</code> ถึงเล่ม <code>j</code> ถ้าเก็บกวาดออกให้หมดจะได้แต้มเท่าไหร่
+  </p>
+  <p>
+    ทางนั้นไปถึงคำตอบได้เหมือนกัน แต่ชนกำแพงสองด้านพร้อมกัน ด้านเวลาคือ <strong>O(n³)</strong> ที่ 2 000 เล่มคือแปดพันล้านครั้ง
+    ด้านหน่วยความจำคือตาราง <code>2 000 × 2 000</code> ช่อง ช่องละ 4 ไบต์ก็ <strong>16 เมกะไบต์พอดีเป๊ะ</strong> คือเต็มลิมิตตั้งแต่ยังไม่นับตัวแปรอื่น
+    ลิมิตนี้จึงเป็นการบอกเป็นนัยว่า <strong>คำตอบที่เขาต้องการใช้หน่วยความจำระดับแถวเดียว ไม่ใช่ตารางทั้งใบ</strong>
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับที่ใช้ได้กับข้ออื่นด้วย</p>
+    <p>
+      ลิมิตหน่วยความจำแปลก ๆ ในโจทย์แข่งมักเป็นคำใบ้ ไม่ใช่ความหยาบคายของผู้ออกโจทย์ ลองเอาขอบเขตของ <code>n</code> มายกกำลังสองคูณขนาดตัวแปรดูก่อนเลย
+      ถ้ามันชนลิมิตพอดี แปลว่าผู้ออกโจทย์ตั้งใจกันวิธีที่ใช้ตารางสองมิติออกไป
+    </p>
+  </div>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+
+  <p class="pull">
+    เลิกถามว่า "หยิบตรงไหนก่อน" แล้วถามว่า "เล่มไหนได้บวก เล่มไหนได้ลบ" ทั้งข้อจะยุบเหลือกฎเดียว
+    คือตัวลบต้องมีบวกค้างรออยู่สองเล่ม และสิ่งที่ต้องจำก็เหลือแค่ตัวเลขตัวเดียวว่าตอนนี้ค้างอยู่กี่เล่ม
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <p>โจทย์ต้นฉบับเป็นภาษาไทย ผมเรียบเรียงคำอธิบายใหม่ด้วยคำตัวเอง ส่วนวิธีคิดและโค้ดเป็นของผมเอง ตรวจกับตัวอย่างของโจทย์และการสุ่มเทียบแล้ว</p>
+  <ol class="references">
+    <li>โจทย์ "หยิบหนังสือ" จากคลังโจทย์ <a href="https://programming.in.th/" target="_blank" rel="noopener noreferrer">programming.in.th</a> ผู้แต่งโจทย์ วรภัทร จรางกูล (สืบค้น 26 สิงหาคม 2026)</li>
+    <li>โจทย์ต้นทางระบุว่าดัดแปลงจากข้อสอบพี่ช่วยน้อง โรงเรียนมหิดลวิทยานุสรณ์ พ.ศ. 2552</li>
+    <li>ที่มาของชื่อ dynamic programming จากคำบอกเล่าของ Richard Bellman ในอัตชีวประวัติ <i>Eye of the Hurricane: An Autobiography</i> (1984)</li>
+  </ol>
+
+</CpProblemLayout>
+
+<style>
+  /* กองหนังสือจำลอง (mini game) */
+  .bookgame{
+    margin:1.5rem 0 0.5rem;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:#0b1220;
+    padding:1rem 1.1rem 0.9rem;
+  }
+  .bg-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.5rem;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:0.9rem;
+  }
+  .bg-piles{display:flex;gap:0.4rem;flex-wrap:wrap;}
+  .bg-pile, .bg-reset{
+    font:inherit;
+    font-size:0.76rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.3rem 0.8rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .bg-pile:hover, .bg-reset:hover{border-color:var(--dl-emerald);color:#fff;}
+  .bg-pile.is-on{
+    border-color:var(--dl-emerald-bright);
+    color:#0b1220;
+    background:var(--dl-emerald-bright);
+    font-weight:700;
+  }
+  .bg-body{display:flex;flex-wrap:wrap;gap:1.2rem;align-items:flex-start;}
+  .bg-stack{
+    list-style:none;
+    padding:0;
+    margin:0;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    min-width:13rem;
+    flex:1 1 13rem;
+  }
+  /* ปุ่มหนังสือถูกสร้างด้วย JS จึงไม่มี data-astro-cid ต้องห่อ :global ไม่งั้นสไตล์ไม่ติด */
+  .bg-stack :global(li){margin:0;}
+  .bg-stack :global(.bg-book){
+    width:100%;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:0.6rem;
+    font:inherit;
+    font-size:0.9rem;
+    text-align:left;
+    padding:0.42rem 0.75rem;
+    border-radius:7px;
+    border:1px solid var(--dl-border);
+    background:#1c2536;
+    color:var(--dl-ink);
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease, transform .15s ease, opacity .18s ease;
+  }
+  .bg-stack :global(.bg-book:disabled){cursor:default;opacity:0.75;}
+  .bg-stack :global(.bg-idx){font-size:0.66rem;color:#6b7690;font-family:"JetBrains Mono", monospace;}
+  .bg-stack :global(.bg-val){font-weight:700;font-family:"Fira Code","Fira Mono",monospace;}
+  .bg-stack :global(.bg-book.is-target){
+    border-color:var(--dl-emerald-bright);
+    background:rgba(47,158,92,0.2);
+    transform:translateX(3px);
+  }
+  .bg-stack :global(.bg-book.is-target.is-minus){
+    border-color:var(--dl-red);
+    background:rgba(214,69,69,0.18);
+  }
+  .bg-stack :global(.bg-book.is-going){opacity:0;transform:translateX(24px);}
+  .bg-hud{flex:1 1 12rem;min-width:11rem;}
+  .bg-stat{
+    display:flex;
+    justify-content:space-between;
+    gap:0.6rem;
+    font-size:0.82rem;
+    color:var(--dl-muted);
+    margin:0.2rem 0;
+    border-bottom:1px dashed var(--dl-border);
+    padding-bottom:0.2rem;
+  }
+  .bg-stat strong{
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:var(--dl-ink);
+    font-weight:700;
+  }
+  .bg-stat strong.bg-goal{color:var(--dl-gold);}
+  .bg-log{
+    font-size:0.8rem;
+    color:var(--dl-muted);
+    margin-top:0.7rem;
+    line-height:1.6;
+    min-height:2.6em;
+  }
+  .bg-log.is-win{color:var(--dl-emerald-bright);font-weight:700;}
+  .bookgame figcaption{
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    margin-top:0.8rem;
+    line-height:1.6;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .bg-stack :global(.bg-book){transition:none;}
+    .bg-stack :global(.bg-book.is-target){transform:none;}
+    .bg-stack :global(.bg-book.is-going){opacity:1;transform:none;}
+  }
+</style>
+
+<script>
+  // กองหนังสือจำลอง: คลิกเล่มบนสุดของสามเล่มที่อยากหยิบ
+  // ค่า best ของแต่ละกองคือคำตอบจริง ใส่ไว้ตรง ๆ เพื่อไม่ให้โค้ดเฉลยหลุดมาอยู่ในหน้าเว็บ
+  interface Pile {
+    books: number[];
+    best: number;
+  }
+
+  const PILES: Pile[] = [
+    { books: [9, 2, 9, 2, 9, 1], best: 26 },
+    { books: [1, 2, 3, 4, 5, 6, 7], best: 5 },
+    { books: [5, 5, 5, 5, 5, 5, 5, 5, 100], best: 10 },
+  ];
+
+  function initOne(fig: HTMLElement): void {
+    if (fig.dataset.wired === '1') return;
+    const stackEl = fig.querySelector<HTMLOListElement>('[data-stack]');
+    const scoreEl = fig.querySelector<HTMLElement>('[data-score]');
+    const bestEl = fig.querySelector<HTMLElement>('[data-best]');
+    const movesEl = fig.querySelector<HTMLElement>('[data-moves]');
+    const logEl = fig.querySelector<HTMLElement>('[data-log]');
+    const resetBtn = fig.querySelector<HTMLButtonElement>('[data-reset]');
+    if (!stackEl || !scoreEl || !bestEl || !movesEl || !logEl || !resetBtn) return;
+    fig.dataset.wired = '1';
+
+    const calmer = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let pileIndex = 0;
+    let books: number[] = [];
+    let score = 0;
+    let moves = 0;
+    let busy = false;
+
+    function draw(): void {
+      if (!stackEl) return;
+      stackEl.replaceChildren();
+      books.forEach((value, i) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bg-book';
+        btn.dataset.i = String(i);
+        btn.disabled = i + 2 >= books.length;
+        const idx = document.createElement('span');
+        idx.className = 'bg-idx';
+        idx.textContent = `เล่ม ${i + 1}`;
+        const val = document.createElement('span');
+        val.className = 'bg-val';
+        val.textContent = String(value);
+        btn.append(idx, val);
+        btn.setAttribute(
+          'aria-label',
+          btn.disabled
+            ? `เล่มที่ ${i + 1} เลข ${value} หยิบไม่ได้ เพราะใต้มันเหลือไม่ถึงสองเล่ม`
+            : `หยิบเล่มที่ ${i + 1} ถึง ${i + 3} ได้ ${books[i]} บวก ${books[i + 1]} ลบ ${books[i + 2]}`,
+        );
+        li.append(btn);
+        stackEl.append(li);
+      });
+    }
+
+    function refreshHud(): void {
+      if (!scoreEl || !movesEl || !bestEl) return;
+      scoreEl.textContent = String(score);
+      movesEl.textContent = `${moves} ครั้ง`;
+      bestEl.textContent = String(PILES[pileIndex].best);
+    }
+
+    function say(text: string, win: boolean): void {
+      if (!logEl) return;
+      logEl.textContent = text;
+      logEl.classList.toggle('is-win', win);
+    }
+
+    function load(index: number): void {
+      pileIndex = index;
+      books = PILES[index].books.slice();
+      score = 0;
+      moves = 0;
+      busy = false;
+      draw();
+      refreshHud();
+      say('คลิกเล่มบนสุดของสามเล่มที่อยากหยิบ', false);
+    }
+
+    function highlight(i: number, on: boolean): void {
+      if (!stackEl) return;
+      const rows = stackEl.querySelectorAll<HTMLButtonElement>('.bg-book');
+      for (let k = i; k < i + 3 && k < rows.length; k++) {
+        rows[k].classList.toggle('is-target', on);
+        rows[k].classList.toggle('is-minus', on && k === i + 2);
+      }
+    }
+
+    function pick(i: number): void {
+      if (busy || i + 2 >= books.length) return;
+      const gain = books[i] + books[i + 1] - books[i + 2];
+      const detail = `${books[i]} + ${books[i + 1]} − ${books[i + 2]} = ${gain >= 0 ? '+' : ''}${gain}`;
+      const finish = (): void => {
+        books.splice(i, 3);
+        score += gain;
+        moves += 1;
+        busy = false;
+        draw();
+        refreshHud();
+        const best = PILES[pileIndex].best;
+        if (score === best) {
+          say(`${detail} · แต้มสะสม ${score} ตรงกับคำตอบที่ดีที่สุดของกองนี้แล้ว`, true);
+        } else if (books.length < 3) {
+          say(`${detail} · แต้มสะสม ${score} หยิบต่อไม่ได้แล้ว ดีที่สุดคือ ${best}`, false);
+        } else {
+          say(`${detail} · แต้มสะสม ${score}`, false);
+        }
+      };
+      if (calmer.matches) {
+        finish();
+        return;
+      }
+      busy = true;
+      if (stackEl) {
+        const rows = stackEl.querySelectorAll<HTMLButtonElement>('.bg-book');
+        for (let k = i; k < i + 3 && k < rows.length; k++) rows[k].classList.add('is-going');
+      }
+      window.setTimeout(finish, 180);
+    }
+
+    stackEl.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest<HTMLButtonElement>('.bg-book');
+      if (!btn || btn.disabled || !btn.dataset.i) return;
+      pick(Number(btn.dataset.i));
+    });
+
+    const hoverOn = (e: Event): void => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest<HTMLButtonElement>('.bg-book');
+      if (!btn || btn.disabled || !btn.dataset.i) return;
+      highlight(Number(btn.dataset.i), true);
+    };
+    const hoverOff = (e: Event): void => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest<HTMLButtonElement>('.bg-book');
+      if (!btn || !btn.dataset.i) return;
+      highlight(Number(btn.dataset.i), false);
+    };
+    stackEl.addEventListener('mouseover', hoverOn);
+    stackEl.addEventListener('mouseout', hoverOff);
+    stackEl.addEventListener('focusin', hoverOn);
+    stackEl.addEventListener('focusout', hoverOff);
+
+    resetBtn.addEventListener('click', () => load(pileIndex));
+
+    fig.querySelectorAll<HTMLButtonElement>('.bg-pile').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = Number(btn.dataset.pile ?? '0');
+        if (Number.isNaN(index) || !PILES[index]) return;
+        fig.querySelectorAll<HTMLButtonElement>('.bg-pile').forEach((b) => b.classList.remove('is-on'));
+        btn.classList.add('is-on');
+        load(index);
+      });
+    });
+
+    load(0);
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-bookgame]').forEach(initOne);
+  });
+</script>

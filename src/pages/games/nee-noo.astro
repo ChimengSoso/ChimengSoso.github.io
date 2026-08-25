@@ -411,6 +411,13 @@ const description =
     }
     .nn-booksbtn:hover{border-color:var(--nn-green);color:var(--nn-green-bright);}
     .nn-report{border:1px solid var(--nn-line);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(0,0,0,0.18);}
+    /* The ranking, set apart from the list it ranks. */
+    .nn-verdict{margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid var(--nn-line);}
+    .nn-verdict h4{margin:0 0 0.25rem;font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;opacity:0.7;}
+    .nn-verdict p{margin:0;font-size:0.86rem;line-height:1.6;}
+    /* The two lines that belong to the player rather than to the dice, so they
+       sit just under the cash-flow total instead of among the bills. */
+    .nn-vitals{margin-top:0.45rem;padding-top:0.45rem;border-top:1px dashed var(--nn-line);}
     .nn-dca{border:1px solid rgba(47,158,92,0.22);border-radius:0.7rem;padding:0.7rem 0.8rem;}
     .nn-dcaset{margin-top:0.5rem;flex-wrap:wrap;}
     .nn-payroll{border:1px solid rgba(47,158,92,0.3);border-radius:0.7rem;padding:0.7rem 0.8rem;background:rgba(47,158,92,0.05);}
@@ -846,6 +853,13 @@ const description =
     .nn-paper-qty:focus{outline:2px solid var(--nn-green);outline-offset:1px;}
     .nn-list li{position:relative;}
     .nn-pop-debt{top:.15rem;right:.6rem;font-size:.72rem;}
+    .nn-subhead{
+      margin:1rem 0 0.35rem;
+      font-size:0.7rem;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      color:var(--nn-muted);
+    }
     .nn-warnline{
       margin-top:0.4rem;
       font-size:0.72rem;
@@ -1509,6 +1523,9 @@ const description =
       taxFundRefundRate,
       taxFundValue,
       taxFundUnlocked,
+      taxFundBreakValue,
+      breakTaxFund,
+      pfPayout,
       TAXFUND_STEP,
       TAXFUND_LOCK_YEARS,
       pfContribution,
@@ -1595,12 +1612,32 @@ const description =
       takeInstalment,
       totalExpenses,
       totalIncome,
+      savingsRate,
+      bufferMonths,
+      holdDca,
+      stopDcaNow,
+      crashLoss,
     } from '../../lib/neeNoo/engine';
     import { TILE_SHORT, UI } from '../../lib/neeNoo/ui-text';
     import { GAME_VERSION, releases } from '../../data/neeNooChangelog';
     import type { ChangeKind } from '../../data/neeNooChangelog';
     import type { Asset, DealCard, GameState, Lang, Loc } from '../../lib/neeNoo/types';
-    import type { TaxSlice } from '../../lib/neeNoo/engine';
+    import type { Leak, TaxSlice } from '../../lib/neeNoo/engine';
+
+    /**
+     * The sentence that goes with each verdict. The engine picks which one; the
+     * page only knows how to say it in two languages.
+     */
+    const LEAK_TEXT: Record<Leak, Loc> = {
+      underwater: UI.leakUnderwater,
+      interest: UI.leakInterest,
+      firesale: UI.leakFireSale,
+      lottery: UI.leakLottery,
+      idle: UI.leakIdle,
+      nothingBought: UI.leakNothingBought,
+      behindFund: UI.leakBehindFund,
+      clean: UI.leakClean,
+    };
 
     const SAVE_KEY = 'neeNooSave';
     const LANG_KEY = 'neeNooLang';
@@ -1624,7 +1661,9 @@ const description =
     let lang: Lang = 'th';
     let speed: Speed = 'normal';
     let state: GameState | null = null;
-    let pickedProfession = professions[0]?.id ?? '';
+    // The list runs by wage, so the rider sorts to the top. The default stays
+    // the office worker: a first game should not open on the hardest seat.
+    let pickedProfession = professions.find((p) => p.id === 'office')?.id ?? professions[0]?.id ?? '';
     let pickedDream = dreams[0]?.id ?? '';
     /** the starting car and house, taken with their loans unless switched off */
     let startCar = true;
@@ -2090,6 +2129,18 @@ const description =
           <span>${T(UI.cashflow)}</span>
           <strong class="${cls(cf)}">${why('cashflow', signed(cf))}</strong>
         </div>
+        <!-- The two numbers a planner would look at before any of the ones
+             above, and the two the statement never used to show: how much of
+             what comes in stays, and how long the account would last on its
+             own. Both are derived from lines already on this sheet, which is
+             exactly why leaving them off was costing the player nothing to fix
+             and everything to not know. -->
+        <dl class="nn-rows nn-vitals">
+          <dt>${T(UI.saveRate)}<span class="nn-rownote">${T(UI.saveRateHint)}</span></dt>
+          <dd class="${savingsRate(s) >= 0.2 ? 'pos' : savingsRate(s) > 0 ? '' : 'neg'}">${Math.round(savingsRate(s) * 100)}%</dd>
+          <dt>${T(UI.bufferLabel)}<span class="nn-rownote">${T(UI.bufferHint)}</span></dt>
+          <dd class="${bufferMonths(s) >= 3 ? 'pos' : bufferMonths(s) >= 1 ? '' : 'neg'}">${bufferMonths(s) >= 10 ? Math.round(bufferMonths(s)) : bufferMonths(s).toFixed(1)} ${T(UI.bufferUnit)}</dd>
+        </dl>
         <!-- The company's own books. Without this the player had a structure
              they could not see and could not feel: money went in, a tax rate
              changed somewhere, and nothing on the sheet ever said "this is the
@@ -3722,7 +3773,7 @@ const description =
             <dt>${T(UI.reportInterest)}</dt><dd class="neg">${money(r.interestPaid)}</dd>
             <dt>${T(UI.reportTax)}</dt><dd class="neg">${money(r.taxPaid)}${r.refundsTaken > 0 ? ` <small class="pos">${T(UI.reportRefund)} ${money(r.refundsTaken)}</small>` : ''}</dd>
             <dt>${T(UI.reportInvested)}</dt><dd>${money(r.investedTotal)}</dd>
-            <dt>${T(UI.reportYield)}</dt><dd class="${r.yieldOnCost >= 0.06 ? 'pos' : r.yieldOnCost > 0 ? '' : 'neg'}">${(r.yieldOnCost * 100).toFixed(1)}%${T(UI.perYear)}</dd>
+            <dt>${T(UI.reportYield)}</dt><dd class="${r.yieldOnCost >= 0.06 && r.yieldOnCost <= 0.35 ? 'pos' : r.yieldOnCost > 0 ? '' : 'neg'}">${(r.yieldOnCost * 100).toFixed(1)}%${T(UI.perYear)}</dd>
             <dt>${T(UI.reportUnderwater)}</dt><dd class="${r.monthsUnderwater > 0 ? 'neg' : 'pos'}">${r.monthsUnderwater} ${T(UI.monthsUnit)}</dd>
             <dt>${T(UI.reportFireSales)}</dt><dd class="${r.fireSales > 0 ? 'neg' : 'pos'}">${r.fireSales}</dd>
             ${r.lotterySpent > 0 ? `<dt>${T(UI.reportLottery)}</dt><dd class="${r.lotteryWon >= r.lotterySpent ? 'pos' : 'neg'}">${money(r.lotteryWon)} / ${money(r.lotterySpent)} <small class="muted">${Math.round((r.lotteryWon / r.lotterySpent) * 100)}%</small></dd>` : ''}
@@ -3733,6 +3784,13 @@ const description =
             <dt class="nn-rowsplit">${T(UI.reportGap)}</dt><dd class="nn-rowsplit ${cls(r.benchmarkGap)}">${signed(r.benchmarkGap)}</dd>
           </dl>
           <p class="nn-empty">${T(r.benchmarkGap >= 0 ? UI.reportBeat : UI.reportLost)}</p>` : ''}
+          <!-- Everything above is a list. This is the ranking: the one line
+               that says which of those numbers actually cost this player the
+               game, chosen from the tallies rather than from the dice. -->
+          <div class="nn-verdict">
+            <h4>${T(UI.leakTitle)}</h4>
+            <p>${T(LEAK_TEXT[r.leak])}</p>
+          </div>
         </div>`;
         })()}
         <div class="nn-sec">
@@ -4381,6 +4439,23 @@ const description =
           </div>`;
       }
 
+      if (p.kind === 'crash') {
+        const drop = Math.round(-s.marketYear * 100);
+        return `<div class="kind">${T(UI.crashTitle)}</div>
+          <h2 id="nn-dlg-title" class="neg">-${drop}%</h2>
+          <p class="story">${T(UI.crashBody)}</p>
+          <dl class="facts">
+            <dt>${T(UI.crashThisYear)}</dt><dd class="neg">-${drop}%</dd>
+            ${s.dcaPot > 0 ? `<dt>${T(UI.crashHolding)}</dt><dd class="neg">${money(crashLoss(s))}</dd>` : ''}
+            ${s.dcaMonthly > 0 ? `<dt>${T(UI.crashOrder)}</dt><dd>${money(s.dcaMonthly)}${T(UI.perMonth)}</dd>` : ''}
+          </dl>
+          <div class="nn-acts">
+            <button type="button" class="nn-btn nn-btn-go" data-act="crash-keep">${T(UI.crashKeep)}</button>
+            <button type="button" class="nn-btn nn-btn-quiet" data-act="crash-stop">${T(UI.crashStop)}</button>
+          </div>
+          <p class="nn-warnline">${T(UI.crashKeepHint)}</p>`;
+      }
+
       if (p.kind === 'friend') {
         return `<div class="kind">${T(UI.friendTitle)}</div>
           <h2 id="nn-dlg-title">${T(UI.friendTitle)}</h2>
@@ -4435,6 +4510,27 @@ const description =
           </div>`;
         };
         const ownRows = ownRow('home', UI.homeOwned) + ownRow('car', UI.carOwned);
+        // The funds go above the holdings, because taking money out of a fund
+        // costs nothing that the player is living in or earning from, and it is
+        // what anybody would actually reach for first. Every row here must line
+        // up with what rescueFunds() counts, or the game can declare somebody
+        // solvent while showing them no way to prove it.
+        const fundRow = (label: Loc, hint: Loc, amount: number, act: string): string => {
+          if (amount <= 0) return '';
+          return `<div class="nn-sellrow">
+            <span class="nm"><b>${T(label)}</b><small>${T(UI.offerPrice)} <b class="pos">${money(amount)}</b><br>${T(hint)}</small></span>
+            <button type="button" class="nn-btn nn-btn-gold" data-act="${act}">${T(UI.rescueTakeIt)}</button>
+          </div>`;
+        };
+        const fundRows =
+          fundRow(UI.rescueSellDca, UI.rescueSellDcaNote, Math.round(s.dcaPot), 'rescue-dca')
+          + fundRow(
+            UI.rescueSellFund,
+            taxFundUnlocked(s) ? UI.rescueFundFree : UI.rescueFundLocked,
+            taxFundBreakValue(s),
+            'rescue-fund',
+          )
+          + fundRow(UI.rescueSellPf, UI.rescueSellPfNote, noMoreSalary(s) ? pfCashOut(s) : 0, 'rescue-pf');
         const useless = s.assets.length > 0 && s.assets.every((a) => fireSaleValue(a, a.qty) <= 0);
         return `<div class="kind">${T(UI.rescueTitle)}</div>
           <h2 id="nn-dlg-title">${money(s.cash)}</h2>
@@ -4445,6 +4541,7 @@ const description =
         </div>` : ''}
           ${s.phase === 'rat' && s.months < s.loanBlockedUntil ? `<p class="nn-warnline">${T(UI.loanBlocked).replace('{month}', String(s.loanBlockedUntil))}</p>` : ''}
           ${useless ? `<p class="nn-warnline">${T(UI.allUnderwater)}</p>` : ''}
+          ${fundRows ? `<p class="nn-subhead">${T(UI.rescueFundsHead)}</p><div>${fundRows}</div>` : ''}
           <div style="margin-top:1rem">${rows}${ownRows}</div>`;
       }
 
@@ -5129,6 +5226,12 @@ const description =
         case 'friend':
           acceptFriendHelp(s);
           break;
+        case 'crash-keep':
+          holdDca(s);
+          break;
+        case 'crash-stop':
+          stopDcaNow(s);
+          break;
         case 'tierok':
           s.pending = null;
           break;
@@ -5187,6 +5290,18 @@ const description =
           break;
         case 'sellown':
           if (id === 'home' || id === 'car') sellOwn(s, id);
+          break;
+        case 'rescue-dca':
+          sellDca(s);
+          checkTrouble(s);
+          break;
+        case 'rescue-fund':
+          breakTaxFund(s);
+          checkTrouble(s);
+          break;
+        case 'rescue-pf':
+          pfPayout(s);
+          checkTrouble(s);
           break;
         case 'firesale':
           if (id) fireSale(s, id, qtyOf(panel, id));

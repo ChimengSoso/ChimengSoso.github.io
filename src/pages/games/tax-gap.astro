@@ -1,0 +1,1215 @@
+---
+import '../../styles/fonts.css';
+import { footerSocialLinks } from '../../data/socialLinks';
+import { RULES_BY_YEAR, DEFAULT_YEAR } from '../../lib/taxGap/rules';
+import { levels } from '../../lib/taxGap/levels';
+
+const year = new Date().getFullYear();
+const title = 'ล่าช่องว่างภาษี: เกมวางแผนลดหย่อนภาษีไทย | ChimengSoso';
+const description =
+  'มินิเกมที่คำนวณภาษีเงินได้บุคคลธรรมดาให้จริง กรอกเงินเดือนตัวเดียว แล้วเห็นทันทีว่าแต่ละช่องลดหย่อนเหลือเพดานเท่าไหร่ รวมถึงคำตอบว่า RMF 30% คิดจากอะไร';
+
+/** The year whose slot list the page renders. Switching years re-renders in JS. */
+const rules = RULES_BY_YEAR[DEFAULT_YEAR];
+
+/** Rows the player types into. Everything else is derived from the top form. */
+const editable = new Set(
+  rules.slots.filter((s) => s.costsCash || s.id === 'homeLoanInterest' || s.id === 'maternity').map((s) => s.id),
+);
+
+const groups: { id: string; name: string; blurb: string }[] = [
+  { id: 'family', name: 'ตัวคุณและครอบครัว', blurb: 'เกมเติมให้จากแบบฟอร์มด้านบน ไม่ต้องกรอกซ้ำ' },
+  { id: 'given', name: 'สิทธิที่คุณมีอยู่แล้ว', blurb: 'จ่ายไปแล้วโดยไม่รู้ตัว เหลือแค่กรอกให้ครบ' },
+  { id: 'property', name: 'ที่อยู่อาศัย', blurb: 'เงินที่ออกจากกระเป๋าไปแล้วเมื่อปีที่ผ่านมา' },
+  { id: 'invest', name: 'เงินออม จ่ายแล้วยังเป็นเงินของคุณ', blurb: 'ลดภาษีได้และเงินต้นยังอยู่ครบ แลกกับเงื่อนไขเวลา' },
+  { id: 'protect', name: 'ความคุ้มครอง', blurb: 'ได้ความคุ้มครองกลับมา ไม่ใช่เงินต้น' },
+  { id: 'give', name: 'ให้ออกไป', blurb: 'เงินไม่กลับมา แต่ลดภาษีได้' },
+];
+---
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content={description} />
+  <meta name="theme-color" content="#0f1520" />
+  <title>{title}</title>
+  <link rel="canonical" href={Astro.url.href} />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
+  <link rel="icon" type="image/jpeg" href="/img.jpg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="ChimengSoso" />
+  <meta property="og:title" content="ล่าช่องว่างภาษี" />
+  <meta property="og:description" content={description} />
+  <meta property="og:url" content={Astro.url.href} />
+  <script is:inline defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "9e5cb1eb46564e6ea4b2c19ff35ad2ec", "spa": true}'></script>
+
+  <style is:global>
+    :root{
+      --nn-bg:#0f1520;
+      --nn-panel:#19212f;
+      --nn-panel-2:#131a26;
+      --nn-border:#2a3446;
+      --nn-border-soft:#212a3a;
+      --nn-ink:#e8edf6;
+      --nn-muted:#93a1b8;
+      --nn-green:#35a86a;
+      --nn-green-bright:#5fd694;
+      --nn-gold:#e2b23c;
+      --nn-red:#d9534f;
+      --nn-blue:#4d72a9;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    html{font-size:clamp(15px, 0.95rem + 0.22vw, 19px);}
+    html,body{
+      font-family:"Sarabun", system-ui, sans-serif;
+      background:var(--nn-bg);
+      color:var(--nn-ink);
+    }
+    *{scrollbar-width:thin;scrollbar-color:var(--nn-border) transparent;}
+    html{scrollbar-color:var(--nn-border) var(--nn-panel-2);}
+    ::-webkit-scrollbar{width:10px;height:10px;}
+    ::-webkit-scrollbar-track{background:transparent;}
+    html::-webkit-scrollbar-track{background:var(--nn-panel-2);}
+    ::-webkit-scrollbar-thumb{
+      background:var(--nn-border);
+      border-radius:999px;
+      border:2px solid transparent;
+      background-clip:padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover{background:#3b4a63;background-clip:padding-box;}
+    body{min-height:100vh;display:flex;flex-direction:column;}
+  </style>
+
+  <style>
+    .wrap{width:100%;max-width:64rem;margin:0 auto;padding:2.5rem 1rem 1rem;flex:1;}
+
+    .back{
+      display:flex;width:fit-content;align-items:center;gap:0.35rem;
+      font-size:0.8rem;color:var(--nn-muted);text-decoration:none;
+      margin-bottom:1.75rem;transition:color .15s;
+    }
+    .back:hover{color:var(--nn-green-bright);}
+    .back svg{width:14px;height:14px;flex-shrink:0;transition:transform .15s ease;}
+    .back:hover svg{transform:translateX(-3px);}
+
+    .tag{
+      display:inline-block;font-family:"JetBrains Mono", monospace;font-size:0.66rem;
+      background:var(--nn-green);color:#06210f;padding:0.25rem 0.75rem;
+      border-radius:1.25rem;text-transform:uppercase;letter-spacing:.4px;margin-bottom:0.875rem;
+    }
+    h1{font-size:1.75rem;color:#fff;margin-bottom:0.45rem;letter-spacing:-.3px;}
+    .lede{color:var(--nn-muted);font-size:0.9rem;line-height:1.85;max-width:44rem;}
+
+    .warn{
+      margin:1.4rem 0 0;padding:0.85rem 1rem;border-radius:12px;
+      background:rgba(226,178,60,.08);border:1px solid rgba(226,178,60,.3);
+      font-size:0.8rem;line-height:1.75;color:#e6d3a6;
+    }
+    .warn b{color:var(--nn-gold);}
+    .warn a{color:var(--nn-gold);}
+
+    /* ---------------------------------------------------------- levels */
+    .levels{display:flex;flex-wrap:wrap;gap:0.5rem;margin:1.75rem 0 0.9rem;}
+    .lvl{
+      font-size:0.78rem;padding:0.45rem 0.9rem;border-radius:999px;cursor:pointer;
+      background:var(--nn-panel);border:1px solid var(--nn-border);color:var(--nn-muted);
+      font-family:inherit;transition:border-color .15s, color .15s, background .15s;
+    }
+    .lvl:hover{border-color:var(--nn-green);color:var(--nn-ink);}
+    .lvl[aria-pressed="true"]{background:var(--nn-green);border-color:var(--nn-green);color:#06210f;font-weight:600;}
+    .brief{
+      background:var(--nn-panel-2);border:1px solid var(--nn-border-soft);border-left:3px solid var(--nn-green);
+      border-radius:0 12px 12px 0;padding:0.9rem 1.1rem;font-size:0.85rem;line-height:1.8;color:var(--nn-muted);
+    }
+
+    /* ---------------------------------------------------------- layout */
+    /* minmax(0,…) rather than a bare 1fr: a grid column's automatic minimum is
+       its content's min-content width, which a monospace figure and a nowrap
+       label between them push past a 375px screen. */
+    .board{display:grid;grid-template-columns:minmax(0,1fr);gap:1.25rem;margin-top:1.5rem;}
+    .main,.rail{min-width:0;}
+    @media (min-width:60rem){
+      .board{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start;}
+      .rail{position:sticky;top:1rem;}
+    }
+
+    .panel{
+      background:var(--nn-panel);border:1px solid var(--nn-border);
+      border-radius:16px;padding:1.15rem 1.25rem;
+    }
+    .panel + .panel{margin-top:1rem;}
+    .panel h2{
+      font-size:0.7rem;font-family:"JetBrains Mono", monospace;text-transform:uppercase;
+      letter-spacing:.7px;color:var(--nn-muted);margin-bottom:0.85rem;
+      padding-bottom:0.55rem;border-bottom:1px solid var(--nn-border-soft);
+    }
+
+    /* ---------------------------------------------------------- form */
+    .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:0.8rem;}
+    .field{display:flex;flex-direction:column;gap:0.3rem;}
+    .field label{font-size:0.74rem;color:var(--nn-muted);}
+    .field input,.field select{
+      font-family:"JetBrains Mono", monospace;font-size:0.9rem;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);border-radius:9px;
+      color:var(--nn-ink);padding:0.5rem 0.6rem;width:100%;
+    }
+    .field input:focus,.field select:focus{outline:2px solid var(--nn-green);outline-offset:1px;}
+    .checks{display:flex;flex-wrap:wrap;gap:1rem;margin-top:0.9rem;font-size:0.8rem;color:var(--nn-muted);}
+    .checks label{display:flex;align-items:center;gap:0.4rem;cursor:pointer;}
+    .checks input{accent-color:var(--nn-green);width:1rem;height:1rem;}
+
+    /* ---------------------------------------------------------- slots */
+    .grp{margin-top:1.4rem;}
+    .grp:first-of-type{margin-top:0;}
+    .grp-head{
+      font-size:0.85rem;color:var(--nn-ink);font-weight:600;cursor:pointer;
+      display:flex;align-items:baseline;gap:0.5rem;list-style:none;
+      padding:0.45rem 0.6rem;border-radius:9px;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);
+    }
+    .grp-head::-webkit-details-marker{display:none;}
+    /* The triangle is drawn here rather than left to the browser so it can sit
+       ahead of the name and turn with the group. */
+    .grp-head::before{
+      content:'';flex:none;width:0;height:0;
+      border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;
+      transform:rotate(0deg);transition:transform .15s ease;
+    }
+    .grp[open] > .grp-head::before{transform:rotate(90deg);}
+    .grp-head:hover{border-color:var(--nn-green);}
+    .grp-head:focus-visible{outline:2px solid var(--nn-green);outline-offset:2px;}
+    .grp-name{flex:1 1 auto;min-width:0;}
+    .grp-sum{flex:none;font-size:0.72rem;font-weight:400;color:var(--nn-muted);font-variant-numeric:tabular-nums;}
+    .grp[open] > .grp-blurb{margin-top:0.55rem;}
+    .grp-blurb{font-size:0.74rem;color:var(--nn-muted);margin-bottom:0.7rem;line-height:1.7;}
+
+    .slot{
+      background:var(--nn-panel-2);border:1px solid var(--nn-border-soft);
+      border-radius:12px;padding:0.8rem 0.9rem;margin-bottom:0.6rem;
+    }
+    .slot.empty{opacity:.5;}
+    .slot-top{display:flex;align-items:baseline;gap:0.5rem;flex-wrap:wrap;}
+    .slot-name{font-size:0.86rem;font-weight:600;color:var(--nn-ink);}
+    .slot-hint{font-size:0.73rem;color:var(--nn-muted);line-height:1.7;margin-top:0.25rem;}
+
+    .caps{display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.6rem;}
+    .cap{
+      display:inline-flex;align-items:baseline;gap:0.35rem;
+      font-size:0.68rem;padding:0.22rem 0.55rem;border-radius:7px;
+      background:#101724;border:1px solid var(--nn-border-soft);color:var(--nn-muted);
+    }
+    .cap b{font-weight:400;}
+    .cap i{font-style:normal;font-family:"JetBrains Mono", monospace;color:var(--nn-ink);}
+    /* The ceiling that is actually biting. Everything the player needs to know
+       about "30% of what?" is which of these three lights up. */
+    .cap.bind{border-color:var(--nn-gold);background:rgba(226,178,60,.1);color:#e6d3a6;}
+    .cap.bind i{color:var(--nn-gold);}
+    .cap.real{border-color:var(--nn-green);background:rgba(53,168,106,.12);}
+    .cap.real i{color:var(--nn-green-bright);font-weight:700;}
+
+    .row{display:flex;flex-wrap:wrap;align-items:center;gap:0.6rem;margin-top:0.65rem;}
+    .row input[type="range"]{flex:1;min-width:0;accent-color:var(--nn-green);}
+    .row input[type="number"]{
+      width:7.5rem;font-family:"JetBrains Mono", monospace;font-size:0.82rem;
+      background:var(--nn-bg);border:1px solid var(--nn-border);border-radius:8px;
+      color:var(--nn-ink);padding:0.35rem 0.5rem;text-align:right;
+    }
+    .save{font-size:0.72rem;color:var(--nn-green-bright);font-family:"JetBrains Mono", monospace;white-space:nowrap;}
+    .lock{
+      font-size:0.7rem;color:#c9a86a;line-height:1.7;margin-top:0.5rem;
+      padding-left:0.55rem;border-left:2px solid rgba(226,178,60,.4);
+    }
+    .fixed-amt{font-family:"JetBrains Mono", monospace;font-size:0.82rem;color:var(--nn-green-bright);margin-left:auto;}
+
+    .potnote{
+      font-size:0.72rem;color:var(--nn-muted);line-height:1.75;
+      background:#101724;border:1px dashed var(--nn-border);border-radius:10px;
+      padding:0.6rem 0.75rem;margin-bottom:0.7rem;
+    }
+    .potnote b{color:var(--nn-ink);}
+    .potbar{height:6px;border-radius:999px;background:var(--nn-border);overflow:hidden;margin-top:0.5rem;display:flex;}
+    .potbar span{display:block;height:100%;}
+
+    /* ---------------------------------------------------------- ladder */
+    .step{display:flex;align-items:center;gap:0.55rem;padding:0.3rem 0;font-size:0.74rem;}
+    .step-rate{
+      width:2.6rem;text-align:right;font-family:"JetBrains Mono", monospace;
+      color:var(--nn-muted);flex-shrink:0;
+    }
+    .step-track{flex:1;height:14px;border-radius:5px;background:#101724;overflow:hidden;position:relative;min-width:0;}
+    .step-fill{display:block;height:100%;width:0;background:var(--nn-blue);transition:width .25s ease;}
+    .step.here .step-rate{color:var(--nn-gold);font-weight:700;}
+    .step.here .step-fill{background:var(--nn-gold);}
+    .step.done .step-fill{background:var(--nn-green);}
+    .step-amt{
+      width:5.2rem;text-align:right;font-family:"JetBrains Mono", monospace;
+      color:var(--nn-muted);flex-shrink:0;font-size:0.7rem;
+    }
+
+    .big{display:flex;flex-direction:column;gap:0.15rem;margin-bottom:0.9rem;}
+    .big .n{font-family:"JetBrains Mono", monospace;font-size:1.9rem;color:#fff;line-height:1.1;}
+    .big .l{font-size:0.74rem;color:var(--nn-muted);}
+    .duo{display:grid;grid-template-columns:1fr 1fr;gap:0.8rem;margin-bottom:0.9rem;}
+    .duo .n{font-family:"JetBrains Mono", monospace;font-size:1.05rem;color:var(--nn-green-bright);}
+    .duo .l{font-size:0.7rem;color:var(--nn-muted);line-height:1.6;}
+
+    .next{
+      background:rgba(226,178,60,.1);border:1px solid rgba(226,178,60,.3);
+      border-radius:10px;padding:0.6rem 0.75rem;font-size:0.78rem;color:#e6d3a6;line-height:1.7;
+    }
+    .next b{color:var(--nn-gold);font-family:"JetBrains Mono", monospace;}
+
+    /* The half of the trade the tax figure never shows. */
+    .life{
+      margin-top:0.9rem;padding:0.6rem 0.7rem;border-radius:10px;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);
+    }
+    .life-row{display:flex;justify-content:space-between;align-items:baseline;gap:0.6rem;}
+    .life-row + .life-row{margin-top:0.3rem;}
+    .life-k{font-size:0.72rem;color:var(--nn-muted);}
+    .life-v{font-size:0.95rem;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    .life-row.now .life-v{font-size:1.15rem;font-weight:700;}
+    .life-note{font-size:0.7rem;line-height:1.7;color:var(--nn-muted);margin:0.45rem 0 0;}
+    .life-note.tight{color:#f0918d;}
+
+    .howto{
+      margin:0 0 1rem;padding:0.7rem 0.9rem 0.7rem 2.1rem;
+      background:var(--nn-panel);border:1px solid var(--nn-border);border-radius:10px;
+      font-size:0.78rem;line-height:1.85;color:var(--nn-muted);
+    }
+    .howto li + li{margin-top:0.2rem;}
+    .howto b{color:var(--nn-ink);}
+
+    .btn-help{margin:0.7rem 0 0;font-size:0.7rem;line-height:1.7;}
+    .btn-help dt{color:var(--nn-ink);font-weight:700;}
+    .btn-help dt + dd{margin:0 0 0.45rem;color:var(--nn-muted);}
+    .btn-help dd:last-child{margin-bottom:0;}
+
+    .par{margin-top:0.9rem;}
+    .par-track{height:8px;border-radius:999px;background:#101724;overflow:hidden;}
+    .par-fill{display:block;height:100%;width:0;background:var(--nn-green);transition:width .3s ease;}
+    .par-txt{font-size:0.72rem;color:var(--nn-muted);margin-top:0.4rem;line-height:1.7;}
+
+    /* Kept in the accessibility tree on purpose: this is the running commentary
+       for anyone who cannot see the figures change. */
+    .sr-only{
+      position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+    }
+    .row input:disabled{opacity:.4;cursor:not-allowed;}
+
+    .par-flag{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(217,83,79,.12);border:1px solid rgba(217,83,79,.35);color:#f0918d;
+    }
+
+    /* A question, not a warning: the game cannot know whether the player
+       actually has a mortgage, so this must not be styled as a mistake. */
+    .par-ask{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(212,175,101,.1);border:1px solid rgba(212,175,101,.3);color:#d8c08a;
+    }
+
+    .par-paid{
+      font-size:0.72rem;line-height:1.7;margin-top:0.45rem;
+      padding:0.45rem 0.6rem;border-radius:8px;
+      background:rgba(90,150,220,.1);border:1px solid rgba(90,150,220,.3);color:#9fc3e8;
+    }
+    .cap.paid{border-color:rgba(90,150,220,.45);}
+    .cap.paid i{color:#9fc3e8;}
+
+    .btns{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;}
+    button.act{
+      font-family:inherit;font-size:0.78rem;padding:0.5rem 0.9rem;border-radius:9px;cursor:pointer;
+      background:var(--nn-panel-2);border:1px solid var(--nn-border);color:var(--nn-ink);
+      transition:border-color .15s, background .15s;
+    }
+    button.act:hover{border-color:var(--nn-green);background:#1c2739;}
+    button.act.primary{background:var(--nn-green);border-color:var(--nn-green);color:#06210f;font-weight:600;}
+    button.act.primary:hover{background:var(--nn-green-bright);border-color:var(--nn-green-bright);}
+    .copied{font-size:0.74rem;color:var(--nn-green-bright);margin-top:0.5rem;}
+
+    .brief-out{
+      width:100%;margin-top:0.5rem;padding:0.5rem 0.6rem;border-radius:9px;resize:vertical;
+      background:var(--nn-bg);border:1px solid var(--nn-border);color:var(--nn-ink);
+      font-family:"JetBrains Mono", monospace;font-size:0.7rem;line-height:1.6;
+    }
+
+    .lesson{
+      margin-top:1rem;padding:0.85rem 1rem;border-radius:12px;
+      background:rgba(53,168,106,.1);border:1px solid rgba(53,168,106,.3);
+      font-size:0.8rem;line-height:1.8;color:#bfe6ce;
+    }
+
+    details.src{margin-top:1.5rem;font-size:0.78rem;color:var(--nn-muted);}
+    details.src summary{cursor:pointer;color:var(--nn-green-bright);}
+    details.src ul{margin:0.6rem 0 0 1.1rem;line-height:1.9;}
+    details.src a{color:var(--nn-green-bright);}
+
+    .foot{
+      max-width:64rem;width:100%;margin:2.5rem auto 0;padding:1.75rem 1rem 2.5rem;
+      border-top:1px solid var(--nn-border);text-align:center;
+    }
+    .foot-social{display:flex;justify-content:center;gap:1.1rem;margin-bottom:0.8rem;}
+    .foot-social a{color:var(--nn-muted);line-height:1;transition:color .15s;}
+    .foot-social a:hover{color:var(--nn-green-bright);}
+    .foot-social svg{width:1.05rem;height:1.05rem;display:block;}
+    .foot p{font-size:0.72rem;color:var(--nn-muted);line-height:1.8;}
+    .foot a{color:var(--nn-green-bright);text-decoration:underline;text-underline-offset:2px;}
+
+    @media (prefers-reduced-motion: reduce){
+      .back svg,.lvl,.step-fill,.par-fill,button.act,.grp-head::before{transition:none;}
+      .back:hover svg{transform:none;}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/games/">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      หมวดเกม
+    </a>
+
+    <span class="tag">เกมการเงิน</span>
+    <h1>ล่าช่องว่างภาษี</h1>
+    <p class="lede">
+      กรอกเงินเดือนตัวเดียว ที่เหลือเกมเติมให้ แล้วดูว่าภาษีของคุณยืนอยู่ขั้นไหนของบันได
+      ทุกช่องลดหย่อนจะบอกเพดานสามชั้นพร้อมกัน และไฮไลต์ว่าชั้นไหนกำลังบีบคุณอยู่
+    </p>
+
+    <div class="warn">
+      <b>อ่านก่อนเล่น</b> นี่คือเครื่องมือช่วยคิด ไม่ใช่คำแนะนำการลงทุนหรือการวางแผนภาษีรายบุคคล
+      ตัวเลขทุกตัวคิดตามประกาศของกรมสรรพากรที่ตรวจสอบล่าสุดเมื่อ {rules.verifiedOn}
+      ก่อนตัดสินใจจริงให้ยืนยันกับ <a href="https://www.rd.go.th/557.html" target="_blank" rel="noopener noreferrer">เอกสารของกรมสรรพากร</a> อีกครั้ง
+      ทุกอย่างคำนวณในเครื่องคุณเอง ไม่มีตัวเลขใดถูกส่งออกไปไหน
+    </div>
+
+    <ol class="howto">
+      <li><b>กรอกเงินเดือน</b> ช่องเดียวพอ ที่เหลือเกมเติมให้เอง ถ้าอยากลองก่อนก็เลือกด่านสำเร็จรูปข้างล่างได้</li>
+      <li><b>เลื่อนแถบในช่องลดหย่อน</b> แล้วดูสองตัวเลขทางขวาไปพร้อมกัน ภาษีทั้งปี กับ เงินเหลือใช้ต่อเดือน</li>
+      <li><b>จบแล้วกดคัดลอกบรีฟให้ AI</b> เอาไปวางในแชทเพื่อคุยต่อว่าควรลงอะไรจริง ๆ</li>
+    </ol>
+
+    <div class="levels" role="group" aria-label="เลือกด่าน">
+      {levels.map((l, i) => (
+        <button type="button" class="lvl" data-level={l.id} aria-pressed={i === 0 ? 'true' : 'false'}>{l.name}</button>
+      ))}
+    </div>
+    <p class="brief" id="brief">{levels[0].brief}</p>
+
+    <div class="board">
+      <div class="main">
+        <section class="panel">
+          <h2>เรื่องของคุณ</h2>
+          <div class="fields">
+            <div class="field">
+              <label for="f-salary">เงินเดือน / เดือน (บาท)</label>
+              <input type="number" id="f-salary" min="0" step="1000" value="50000" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-bonus">โบนัสและรายได้อื่นทั้งปี</label>
+              <input type="number" id="f-bonus" min="0" step="1000" value="0" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-budget">เงินเย็นที่จ่ายไหวปีนี้</label>
+              <input type="number" id="f-budget" min="0" step="1000" value="60000" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-year">ปีภาษี</label>
+              <select id="f-year">
+                {Object.keys(RULES_BY_YEAR).map((y) => (
+                  <option value={y} selected={Number(y) === DEFAULT_YEAR}>{y}</option>
+                ))}
+              </select>
+            </div>
+            <div class="field">
+              <label for="f-kids1">บุตร คนแรก / เกิดก่อน 2561</label>
+              <input type="number" id="f-kids1" min="0" max="20" step="1" value="0" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-kids2">บุตรคนที่ 2+ เกิดตั้งแต่ 2561</label>
+              <input type="number" id="f-kids2" min="0" max="20" step="1" value="0" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-parents">พ่อแม่ในอุปการะ (อายุ 60+)</label>
+              <input type="number" id="f-parents" min="0" max="4" step="1" value="0" inputmode="numeric" />
+            </div>
+            <div class="field">
+              <label for="f-disabled">คนพิการในอุปการะ</label>
+              <input type="number" id="f-disabled" min="0" max="20" step="1" value="0" inputmode="numeric" />
+            </div>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" id="f-spouse" /> คู่สมรสไม่มีเงินได้</label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>ช่องลดหย่อน</h2>
+
+          {rules.pots.map((p) => (
+            <div class="potnote" data-pot={p.id}>
+              <b>{p.name}</b> เพดานรวม {p.cap.toLocaleString('th-TH')} บาท · {p.note}
+              <span class="potbar"><span data-potfill={p.id} style="width:0;background:var(--nn-green);"></span></span>
+              <span data-pottxt={p.id}></span>
+            </div>
+          ))}
+
+          {groups.map((g) => (
+            <details class="grp" data-group={g.id}>
+              <summary class="grp-head">
+                <span class="grp-name">{g.name}</span>
+                <span class="grp-sum" data-grpsum={g.id}></span>
+              </summary>
+              <p class="grp-blurb">{g.blurb}</p>
+              {rules.slots.filter((s) => s.group === g.id).map((s) => (
+                <div class="slot" data-slot={s.id}>
+                  <div class="slot-top">
+                    <span class="slot-name">{s.name}</span>
+                    {!editable.has(s.id) && <span class="fixed-amt" data-fixed={s.id}>0</span>}
+                  </div>
+                  <p class="slot-hint">{s.hint}</p>
+                  <div class="caps">
+                    {s.statutory !== undefined && (
+                      <span class="cap" data-capkind="statutory"><b>เพดานกฎหมาย</b><i data-cap={`${s.id}:statutory`}>—</i></span>
+                    )}
+                    {s.incomeShare !== undefined && (
+                      <span class="cap" data-capkind="income"><b>{Math.round(s.incomeShare * 100)}% ของเงินได้พึงประเมิน</b><i data-cap={`${s.id}:income`}>—</i></span>
+                    )}
+                    {s.pot !== undefined && (
+                      <span class="cap" data-capkind="pot"><b>เหลือในกระปุกร่วม</b><i data-cap={`${s.id}:pot`}>—</i></span>
+                    )}
+                    <span class="cap real"><b>เพดานจริงของคุณ</b><i data-cap={`${s.id}:effective`}>—</i></span>
+                    {s.costsCash && <span class="cap paid" data-paid={s.id} hidden><b>จ่ายไปแล้วก่อนหน้านี้</b><i data-paidamt={s.id}>0</i></span>}
+                  </div>
+                  {editable.has(s.id) && (
+                    <div class="row">
+                      <input type="range" min="0" max="100000" step="1000" value="0" data-range={s.id} aria-label={`จำนวนเงิน ${s.name}`} />
+                      <input type="number" min="0" step="1000" value="0" data-num={s.id} inputmode="numeric" aria-label={`จำนวนเงิน ${s.name} เป็นตัวเลข`} />
+                      <span class="save" data-save={s.id}></span>
+                    </div>
+                  )}
+                  {s.lockIn && <p class="lock">{s.lockIn}</p>}
+                </div>
+              ))}
+            </details>
+          ))}
+
+          <details class="grp" data-group="donation">
+            <summary class="grp-head">
+              <span class="grp-name">เงินบริจาค</span>
+              <span class="grp-sum" data-grpsum="donation"></span>
+            </summary>
+            <p class="grp-blurb">คิดท้ายสุดเสมอ เพราะเพดาน 10% ใช้ฐานหลังหักค่าใช้จ่ายและลดหย่อนอื่นครบแล้ว</p>
+            <div class="slot">
+              <div class="slot-top"><span class="slot-name">บริจาคทั่วไป</span></div>
+              <p class="slot-hint">หักได้เท่าที่จ่ายจริง ภายในเพดาน 10% ของฐานที่ว่า</p>
+              <div class="caps">
+                <span class="cap real"><b>เพดานบริจาครวมของคุณ</b><i data-cap="donation:cap">—</i></span>
+              </div>
+              <div class="row">
+                <input type="range" min="0" max="100000" step="1000" value="0" data-range="donationGeneral" aria-label="เงินบริจาคทั่วไป" />
+                <input type="number" min="0" step="1000" value="0" data-num="donationGeneral" inputmode="numeric" aria-label="เงินบริจาคทั่วไปเป็นตัวเลข" />
+              </div>
+            </div>
+            <div class="slot">
+              <div class="slot-top"><span class="slot-name">บริจาคการศึกษา กีฬา โรงพยาบาลรัฐ (e-Donation)</span></div>
+              <p class="slot-hint">หักได้ 2 เท่าของที่จ่ายจริง แต่ยังชนเพดาน 10% ก้อนเดียวกันอยู่ดี</p>
+              <div class="row">
+                <input type="range" min="0" max="50000" step="1000" value="0" data-range="donationEDonation" aria-label="เงินบริจาคผ่าน e-Donation" />
+                <input type="number" min="0" step="1000" value="0" data-num="donationEDonation" inputmode="numeric" aria-label="เงินบริจาคผ่าน e-Donation เป็นตัวเลข" />
+              </div>
+            </div>
+          </details>
+        </section>
+      </div>
+
+      <div class="rail">
+        <section class="panel">
+          <h2>บันไดภาษีของคุณ</h2>
+          <div class="big">
+            <span class="n" id="out-tax">0</span>
+            <span class="l">ภาษีทั้งปี · เฉลี่ยเดือนละ <span id="out-tax-m">0</span> บาท</span>
+          </div>
+          <div class="duo">
+            <div><div class="n" id="out-net">0</div><div class="l">เงินได้สุทธิ</div></div>
+            <div><div class="n" id="out-saved">0</div><div class="l">ภาษีที่ประหยัดได้แล้ว</div></div>
+          </div>
+          <div class="life" id="out-life">
+            <div class="life-row">
+              <span class="life-k">เหลือใช้เฉลี่ยเดือนละ ก่อนวางแผน</span>
+              <span class="life-v" id="out-life-before">0</span>
+            </div>
+            <div class="life-row now">
+              <span class="life-k">เหลือใช้เฉลี่ยเดือนละ หลังวางแผน</span>
+              <span class="life-v" id="out-life-after">0</span>
+            </div>
+            <p class="life-note" id="out-life-note"></p>
+          </div>
+          <div id="ladder">
+            {rules.brackets.map((b, i) => (
+              <div class="step" data-step={i}>
+                <span class="step-rate">{Math.round(b.rate * 100)}%</span>
+                <span class="step-track"><span class="step-fill"></span></span>
+                <span class="step-amt" data-stepamt={i}>0</span>
+              </div>
+            ))}
+          </div>
+          <p class="next" id="out-next"></p>
+          <p class="sr-only" id="live" aria-live="polite"></p>
+          <div class="par">
+            <div class="par-track"><span class="par-fill" id="par-fill"></span></div>
+            <p class="par-txt" id="par-txt"></p>
+            <p class="par-flag" id="par-flags" hidden></p>
+            <p class="par-ask" id="par-ask" hidden></p>
+            <p class="par-paid" id="paid-note" hidden></p>
+            <p class="par-paid" id="paid-hint">เคยซื้อกองทุนหรือจ่ายเบี้ยไปแล้วเมื่อต้นปี? กรอกยอดนั้นลงช่องของมัน แล้วกดปุ่ม "ยอดนี้จ่ายไปแล้ว" เกมจะไม่นับยอดนั้นเป็นเงินเย็นของวันนี้</p>
+          </div>
+          <div class="btns">
+            <button type="button" class="act primary" id="btn-best">เติมให้ดีที่สุดตามงบ</button>
+            <button type="button" class="act" id="btn-clear">ล้างที่กรอก</button>
+            <button type="button" class="act" id="btn-paid">ยอดนี้จ่ายไปแล้ว</button>
+            <button type="button" class="act" id="btn-copy">คัดลอกบรีฟให้ AI</button>
+          </div>
+          <dl class="btn-help">
+            <dt>เติมให้ดีที่สุดตามงบ</dt>
+            <dd>ให้เกมลองจัดเงินเย็นของคุณให้ดูเป็นตัวอย่าง เรียงช่องที่เงินยังเป็นของคุณก่อน และหยุดเองเมื่อภาษีใกล้หมด</dd>
+            <dt>ยอดนี้จ่ายไปแล้ว</dt>
+            <dd>ทำเครื่องหมายว่ายอดที่กรอกอยู่ตอนนี้จ่ายไปก่อนหน้านี้แล้ว จะได้ไม่ถูกนับเป็นเงินเย็นของปีนี้ซ้ำ</dd>
+            <dt>คัดลอกบรีฟให้ AI</dt>
+            <dd>ก็อปสรุปทั้งกระดานเป็นข้อความ ทุกช่อง เพดานจริงของคุณ ที่ว่างที่เหลือ และเงินเหลือใช้ต่อเดือน เอาไปวางในแชท AI ที่ไหนก็ได้ แล้วถามต่อเช่น "ควรลงช่องไหนดี" โดยไม่ต้องพิมพ์ตัวเลขใหม่เอง</dd>
+          </dl>
+          <p class="copied" id="copied" hidden>คัดลอกแล้ว เอาไปวางในแชท AI ได้เลย</p>
+          <textarea id="brief-out" class="brief-out" rows="6" readonly hidden aria-label="ข้อความบรีฟสำหรับคัดลอกด้วยตัวเอง"></textarea>
+          <p class="lesson" id="lesson" hidden></p>
+        </section>
+
+        <details class="src">
+          <summary>กติกาที่เกมใช้ และสิ่งที่ยังไม่รวมให้</summary>
+          <ul>
+            {Object.values(RULES_BY_YEAR).map((r) =>
+              r.caveats.map((c) => <li data-caveat={r.year} hidden={r.year !== DEFAULT_YEAR}>{c}</li>),
+            )}
+            <li>อ้างอิง: <a href="https://www.rd.go.th/557.html" target="_blank" rel="noopener noreferrer">กรมสรรพากร — ผู้มีเงินได้มีสิทธิหักลดหย่อนอะไรได้บ้าง?</a></li>
+            <li>รองรับเฉพาะเงินได้ประเภทเงินเดือนและค่าจ้าง มาตรา 40(1) และ 40(2) ยังไม่รองรับรายได้ฟรีแลนซ์หรือธุรกิจ</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <div class="foot-social">
+      {footerSocialLinks.map((s) => (
+        <a href={s.url} target="_blank" rel="noopener noreferrer" aria-label={s.label}>
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d={s.iconPath} /></svg>
+        </a>
+      ))}
+    </div>
+    <p>&copy; {year} <a href="/">ChimengSoso</a> · <a href="/privacy/">นโยบายความเป็นส่วนตัว</a></p>
+  </footer>
+
+  <script>
+    import {
+      allHeadroom,
+      bestPlan,
+      capText,
+      computeTax,
+      money,
+      scoreProfile,
+    } from '../../lib/taxGap/engine';
+    import { buildBrief } from '../../lib/taxGap/brief';
+    import { rulesFor, DEFAULT_YEAR } from '../../lib/taxGap/rules';
+    import { levels, levelById } from '../../lib/taxGap/levels';
+    import type { Level } from '../../lib/taxGap/levels';
+    import type { Profile, SlotId } from '../../lib/taxGap/types';
+
+    const STORAGE_KEY = 'taxGapState';
+
+    interface Saved {
+      levelId: string;
+      profile: Profile;
+    }
+
+    const $ = <T extends Element>(sel: string): T | null => document.querySelector<T>(sel);
+    const all = <T extends Element>(sel: string): T[] => Array.from(document.querySelectorAll<T>(sel));
+
+    let levelId = levels[0].id;
+    let liveTimer = 0;
+    let profile: Profile = structuredClone(levels[0].profile);
+
+    /* ------------------------------------------------------------ storage */
+
+    function load(): void {
+      let raw: string | null;
+      try {
+        raw = window.localStorage.getItem(STORAGE_KEY);
+      } catch {
+        return; // storage blocked; the game works fine without it
+      }
+      if (!raw) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const saved = parsed as Partial<Saved>;
+      const lvl = typeof saved.levelId === 'string' ? levelById(saved.levelId) : undefined;
+      if (!lvl || !saved.profile || typeof saved.profile !== 'object') return;
+      levelId = lvl.id;
+      profile = { ...structuredClone(lvl.profile), ...saved.profile };
+      profile.amounts = { ...(saved.profile.amounts ?? {}) };
+      profile.paid = { ...(saved.profile.paid ?? {}) };
+    }
+
+    function save(): void {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ levelId, profile }));
+      } catch {
+        /* a full or blocked store is not worth interrupting the game for */
+      }
+    }
+
+    /* --------------------------------------------------------- form <-> state */
+
+    const numField = (id: string): HTMLInputElement | null => $<HTMLInputElement>(`#${id}`);
+
+    function readForm(): void {
+      const n = (id: string): number => {
+        const el = numField(id);
+        const v = el ? Number(el.value) : 0;
+        return Number.isFinite(v) && v > 0 ? v : 0;
+      };
+      profile.monthlySalary = n('f-salary');
+      profile.bonus = n('f-bonus');
+      profile.budget = n('f-budget');
+      profile.childrenBefore2561 = n('f-kids1');
+      profile.childrenFrom2561 = n('f-kids2');
+      profile.parentsInCare = n('f-parents');
+      profile.disabledInCare = n('f-disabled');
+      profile.hasSpouseNoIncome = $<HTMLInputElement>('#f-spouse')?.checked ?? false;
+      const yearSel = $<HTMLSelectElement>('#f-year');
+      const y = yearSel ? Number(yearSel.value) : DEFAULT_YEAR;
+      profile.year = Number.isFinite(y) ? y : DEFAULT_YEAR;
+    }
+
+    function writeForm(): void {
+      const set = (id: string, v: number): void => {
+        const el = numField(id);
+        if (el) el.value = String(v);
+      };
+      set('f-salary', profile.monthlySalary);
+      set('f-bonus', profile.bonus);
+      set('f-budget', profile.budget);
+      set('f-kids1', profile.childrenBefore2561);
+      set('f-kids2', profile.childrenFrom2561);
+      set('f-parents', profile.parentsInCare);
+      set('f-disabled', profile.disabledInCare);
+      const spouse = $<HTMLInputElement>('#f-spouse');
+      if (spouse) spouse.checked = profile.hasSpouseNoIncome;
+      const yearSel = $<HTMLSelectElement>('#f-year');
+      if (yearSel) yearSel.value = String(profile.year);
+
+      for (const el of all<HTMLInputElement>('[data-range]')) {
+        el.value = String(valueOf(el.dataset.range ?? ''));
+      }
+      for (const el of all<HTMLInputElement>('[data-num]')) {
+        el.value = String(valueOf(el.dataset.num ?? ''));
+      }
+    }
+
+    /**
+     * Point the chips and the briefing at whichever level is current. Called on
+     * every level change and once on boot, because a restored save can land on
+     * a level the markup was not rendered with.
+     */
+    function syncLevelUi(): void {
+      for (const btn of all<HTMLButtonElement>('.lvl')) {
+        btn.setAttribute('aria-pressed', btn.dataset.level === levelId ? 'true' : 'false');
+      }
+      const briefEl = $<HTMLElement>('#brief');
+      const lvl = levelById(levelId);
+      if (briefEl && lvl) briefEl.textContent = lvl.brief;
+      syncGroups(lvl);
+    }
+
+    /**
+     * Decide which groups start open.
+     *
+     * Nineteen slots unrolled at once is the first thing a newcomer sees, and
+     * most of them are irrelevant to the level in front of them. A group opens
+     * when it already holds a figure, when the level is about it, or when it is
+     * the savings group, which is where there is always something to do. Called
+     * only on a level change and on boot, never from render, so it can never
+     * fold a group back up while somebody is typing in it.
+     */
+    function syncGroups(lvl: Level | undefined): void {
+      const focus = new Set<string>(lvl?.focus ?? []);
+      const rules = rulesFor(profile.year);
+      for (const el of all<HTMLDetailsElement>('.grp')) {
+        const id = el.dataset.group ?? '';
+        if (id === 'donation') {
+          el.open = profile.donationGeneral > 0 || profile.donationEDonation > 0;
+          continue;
+        }
+        const mine = rules.slots.filter((s) => s.group === id);
+        const filled = mine.some((s) => valueOf(s.id) > 0 && s.costsCash);
+        const wanted = mine.some((s) => focus.has(s.id));
+        el.open = filled || wanted || id === 'invest';
+      }
+    }
+
+    function valueOf(key: string): number {
+      if (key === 'donationGeneral') return profile.donationGeneral;
+      if (key === 'donationEDonation') return profile.donationEDonation;
+      return profile.amounts[key as SlotId] ?? 0;
+    }
+
+    function setValue(key: string, v: number): void {
+      const amount = Math.max(0, Math.round(v));
+      if (key === 'donationGeneral') profile.donationGeneral = amount;
+      else if (key === 'donationEDonation') profile.donationEDonation = amount;
+      else profile.amounts[key as SlotId] = amount;
+    }
+
+    /* --------------------------------------------------------------- render */
+
+    function render(): void {
+      const rules = rulesFor(profile.year);
+      const rows = allHeadroom(profile, rules);
+      const tax = computeTax(profile, rules);
+      const score = scoreProfile(profile, rules);
+
+      // Per-slot ceilings. The chip carrying the ceiling that actually binds is
+      // the one lit, so "which of the three is stopping me" needs no reading.
+      for (const h of rows) {
+        const id = h.slot.id;
+        const put = (kind: string, text: string): void => {
+          const el = $<HTMLElement>(`[data-cap="${id}:${kind}"]`);
+          if (el) el.textContent = text;
+        };
+        put('statutory', capText(h.statutoryCap));
+        put('income', capText(h.incomeCap));
+        put('pot', capText(h.potCap));
+        put('effective', capText(h.effectiveCap));
+
+        const slotEl = $<HTMLElement>(`[data-slot="${id}"]`);
+        if (slotEl) {
+          const chips = Array.from(slotEl.querySelectorAll<HTMLElement>('.cap[data-capkind]'));
+          // Lighting up the only ceiling a slot has says nothing; it just
+          // spends the highlight everywhere until it stops reading as a signal.
+          const worthMarking = chips.length > 1;
+          for (const chip of chips) {
+            chip.classList.toggle('bind', worthMarking && chip.dataset.capkind === h.binding);
+          }
+          slotEl.classList.toggle('empty', h.effectiveCap <= 0);
+        }
+
+        const fixed = $<HTMLElement>(`[data-fixed="${id}"]`);
+        if (fixed) fixed.textContent = `${money(h.used)} บาท`;
+
+        const range = $<HTMLInputElement>(`[data-range="${id}"]`);
+        const box = $<HTMLInputElement>(`[data-num="${id}"]`);
+        if (range) {
+          // A slider that can travel past the player's real ceiling teaches the
+          // wrong lesson, so the track ends exactly where the law does.
+          const top = Math.max(1000, Math.min(h.effectiveCap, 1_000_000));
+          range.max = String(Math.round(top));
+          range.step = String(top > 200_000 ? 5000 : 1000);
+          range.dataset.capped = '1';
+        }
+        // Once a shared pot is drained its other members have a ceiling of zero.
+        // Letting the player type into them anyway, only to answer with a red
+        // warning, is a worse explanation than simply not accepting the money.
+        // Never shut a slot that already holds money, though: draining the pot
+        // after funding one would lock cash inside a control nobody can reach,
+        // and the only way out would be clearing the whole board.
+        const shut = h.effectiveCap <= 0 && valueOf(id) <= 0;
+        if (range) range.disabled = shut;
+        if (box) box.disabled = shut;
+        const saveEl = $<HTMLElement>(`[data-save="${id}"]`);
+        if (saveEl) {
+          saveEl.textContent = h.used > 0 ? `ลดภาษี ${money(h.used * tax.marginalRate)}` : '';
+        }
+      }
+
+      // Shared pots, drawn as one bar so competition between slots is visible.
+      for (const pot of rules.pots) {
+        const used = rows
+          .filter((h) => h.slot.pot === pot.id)
+          .reduce((sum, h) => sum + h.used, 0);
+        const fill = $<HTMLElement>(`[data-potfill="${pot.id}"]`);
+        if (fill) fill.style.width = `${Math.min(100, (used / pot.cap) * 100)}%`;
+        const txt = $<HTMLElement>(`[data-pottxt="${pot.id}"]`);
+        if (txt) txt.textContent = `ใช้ไปแล้ว ${money(used)} เหลือ ${money(Math.max(0, pot.cap - used))} บาท`;
+      }
+
+      for (const li of all<HTMLElement>('[data-caveat]')) {
+        li.hidden = li.dataset.caveat !== String(rules.year);
+      }
+
+      const donationCap = $<HTMLElement>('[data-cap="donation:cap"]');
+      if (donationCap) donationCap.textContent = money(tax.donationCap);
+
+      // The ladder.
+      tax.steps.forEach((step, i) => {
+        const row = $<HTMLElement>(`[data-step="${i}"]`);
+        if (!row) return;
+        const span = Number.isFinite(step.to) ? step.to - step.from : step.from;
+        const fill = row.querySelector<HTMLElement>('.step-fill');
+        if (fill) fill.style.width = span > 0 ? `${Math.min(100, (step.taxable / span) * 100)}%` : '100%';
+        const amt = $<HTMLElement>(`[data-stepamt="${i}"]`);
+        if (amt) amt.textContent = step.tax > 0 ? money(step.tax) : '—';
+        row.classList.toggle('here', step.taxable > 0 && (!Number.isFinite(step.to) || tax.netIncome <= step.to));
+        row.classList.toggle('done', step.taxable > 0 && Number.isFinite(step.to) && tax.netIncome > step.to);
+      });
+      for (let i = tax.steps.length; i < rulesFor(profile.year).brackets.length; i += 1) {
+        const row = $<HTMLElement>(`[data-step="${i}"]`);
+        if (!row) continue;
+        row.classList.remove('here', 'done');
+        const fill = row.querySelector<HTMLElement>('.step-fill');
+        if (fill) fill.style.width = '0';
+        const amt = $<HTMLElement>(`[data-stepamt="${i}"]`);
+        if (amt) amt.textContent = '—';
+      }
+
+      const put = (sel: string, text: string): void => {
+        const el = $<HTMLElement>(sel);
+        if (el) el.textContent = text;
+      };
+      put('#out-tax', money(tax.tax));
+      put('#out-tax-m', money(tax.tax / 12));
+      put('#out-net', money(tax.netIncome));
+      put('#out-saved', money(score.taxSaved));
+
+      const nextEl = $<HTMLElement>('#out-next');
+      if (nextEl) {
+        nextEl.innerHTML =
+          tax.marginalRate > 0
+            ? `บาทถัดไปที่คุณลดหย่อน คืนคุณ <b>${Math.round(tax.marginalRate * 100)}%</b> ทุก 10,000 บาทที่หาช่องได้ ภาษีลดลง <b>${money(10000 * tax.marginalRate)}</b> บาท<br />ยังลดหย่อนเพิ่มได้อีก <b>${money(score.usefulRoomLeft)}</b> บาทที่ยังลดภาษีได้จริง เกินจากนี้ภาษีเป็นศูนย์แล้ว จ่ายไปก็ไม่ได้อะไรคืน`
+            : 'เงินได้สุทธิของคุณอยู่ในขั้นยกเว้นภาษีแล้ว ลดหย่อนเพิ่มไม่ได้อะไรกลับมาอีก';
+      }
+
+      // Debounced: a slider drag fires this on every pixel, and a screen reader
+      // being read a new sentence per pixel is worse than saying nothing.
+      window.clearTimeout(liveTimer);
+      liveTimer = window.setTimeout(() => {
+        const live = $<HTMLElement>('#live');
+        if (!live) return;
+        live.textContent =
+          `ภาษีทั้งปี ${money(tax.tax)} บาท เงินได้สุทธิ ${money(tax.netIncome)} บาท ` +
+          (tax.marginalRate > 0
+            ? `บาทถัดไปที่ลดหย่อนคืนคุณ ${Math.round(tax.marginalRate * 100)}% ลดหย่อนเพิ่มได้อีก ${money(score.usefulRoomLeft)} บาทที่ยังลดภาษีได้จริง`
+            : 'อยู่ในขั้นยกเว้นภาษีแล้ว') +
+          ` เงินเหลือใช้เฉลี่ยเดือนละ ${money(score.monthlyLeftAfter)} บาท`;
+      }, 500);
+
+      const parFill = $<HTMLElement>('#par-fill');
+      if (parFill) parFill.style.width = `${score.percentOfPar}%`;
+      // Two ways to lose that the tax figure alone will never show: paying more
+      // than you said you could afford, and paying after the ladder bottomed
+      // out. Both look like a perfect score without being told about.
+      const flags: string[] = [];
+      if (score.overBudget > 0) {
+        flags.push(`เกินเงินเย็นที่บอกไว้ ${money(score.overBudget)} บาท`);
+      }
+      if (score.overCap > 0) {
+        flags.push(`มี ${money(score.overCap)} บาทที่ใส่เกินเพดานของช่องนั้น ส่วนที่เกินกรอกในแบบไม่ได้ จึงไม่ได้ช่วยลดภาษี`);
+      }
+      if (score.wasted > 0) {
+        flags.push(`มี ${money(score.wasted)} บาทที่ลดหย่อนได้จริงแต่ไม่ได้ลดภาษีเลย เพราะเงินได้สุทธิลงมาถึงขั้นยกเว้นก่อนแล้ว`);
+      }
+      // "0%" on an untouched board reads as a mark, and a newcomer has not sat
+      // an exam yet. Say what to do instead of scoring them for doing nothing.
+      put(
+        '#par-txt',
+        score.cashSpent === 0 && score.alreadyPaid === 0
+          ? `ยังไม่ได้ลองจัดเงินเลย ลองเลื่อนแถบในช่องลดหย่อนสักช่อง แล้วดูตัวเลขทางขวาขยับ หรือกดปุ่มเติมให้ดีที่สุดตามงบเพื่อดูตัวอย่างก่อนก็ได้ · ตอนนี้ยังลดหย่อนเพิ่มได้อีก ${money(score.usefulRoomLeft)} บาทที่ยังลดภาษีได้จริง`
+          : `คะแนนเทียบกับการเล่นที่ดีที่สุดตามงบ ${score.percentOfPar}% · ใช้เงินสดไป ${money(score.cashSpent - score.alreadyPaid)} บาท ยังเป็นทรัพย์สินของคุณอยู่ ${money(score.capitalRetained)} บาท · ช่องที่ยังว่างและยังลดภาษีได้จริงอีก ${money(score.usefulRoomLeft)} บาท (เพดานรวมทุกช่องคือ ${money(score.headroomUnused)} แต่ส่วนที่เกินไม่ช่วยอะไรแล้ว)`,
+      );
+      const flagEl = $<HTMLElement>('#par-flags');
+      if (flagEl) {
+        flagEl.hidden = flags.length === 0;
+        flagEl.textContent = flags.join(' · ');
+      }
+
+      // The trade, stated in the unit people budget in. The saving is quoted
+      // per month too, so the two halves can be read against each other, and
+      // the timing gap is spelled out because the months are felt now while
+      // the refund arrives with next year's filing.
+      put('#out-life-before', money(score.monthlyLeftBefore));
+      put('#out-life-after', money(score.monthlyLeftAfter));
+      const drop = score.monthlyLeftBefore - score.monthlyLeftAfter;
+      // A bonus lands once, so spreading it over twelve months flatters every
+      // month that is not the month it arrived. Say so rather than letting the
+      // average be read as a payslip.
+      const bonusCaveat =
+        profile.bonus > 0
+          ? ` ตัวเลขนี้เกลี่ยโบนัส ${money(profile.bonus)} บาทลงทั้งปีแล้ว เดือนที่ไม่มีโบนัสจะเหลือน้อยกว่านี้`
+          : '';
+      const noteEl = $<HTMLElement>('#out-life-note');
+      if (noteEl) {
+        const tight = score.monthlyLeftAfter < 0;
+        noteEl.classList.toggle('tight', tight);
+        if (tight) {
+          noteEl.textContent =
+            'ตามแผนนี้เงินที่ต้องกันไว้มากกว่าเงินที่เข้ามาทั้งปี ภาษีจะลดลงจริง แต่ระหว่างปีคุณจะไม่มีเงินพอใช้';
+        } else if (drop <= 0) {
+          noteEl.textContent =
+            'ยังไม่ได้กันเงินไปไหน ตัวเลขนี้คือเงินที่เข้ามาหลังหักภาษีและประกันสังคม' + bonusCaveat;
+        } else {
+          // The drop already nets the refund off, so the three figures have to
+          // be laid out as sticker minus refund equals drop. Quoting the drop
+          // as the sticker and then subtracting the refund again would charge
+          // the player twice for the same saving.
+          const sticker = (score.cashSpent - score.alreadyPaid) / 12;
+          noteEl.textContent =
+            `ต้องกันเดือนละ ${money(sticker)} บาท ได้ภาษีคืนเฉลี่ยเดือนละ ${money(score.taxSaved / 12)} บาท ` +
+            `สุทธิแล้วเงินใช้ต่อเดือนหายไป ${money(drop)} บาท และภาษีก้อนนั้นจะกลับมาตอนยื่นแบบปีหน้า ไม่ใช่เดือนนี้` +
+            bonusCaveat;
+        }
+      }
+
+      // A folded group still has to say what is inside it, or folding turns
+      // into hiding: the header carries what the group has claimed and how
+      // much of it is still going spare.
+      for (const el of all<HTMLElement>('[data-grpsum]')) {
+        const id = el.dataset.grpsum ?? '';
+        if (id === 'donation') {
+          el.textContent =
+            tax.donationAllowed > 0
+              ? `หักได้ ${money(tax.donationAllowed)} · เพดาน ${money(tax.donationCap)}`
+              : `เพดาน ${money(tax.donationCap)}`;
+          continue;
+        }
+        const mine = rows.filter((h) => h.slot.group === id);
+        const used = mine.reduce((sum, h) => sum + h.used, 0);
+        // Room only counts as room if there is a box to put it in. A childless
+        // player has no "spare" 60,000 for a second child, but a mortgage
+        // holder does have spare interest to claim.
+        const spare = mine.reduce(
+          (sum, h) =>
+            sum + (document.querySelector(`[data-num="${h.slot.id}"]`) !== null ? h.left : 0),
+          0,
+        );
+        el.textContent =
+          used > 0
+            ? `ใช้แล้ว ${money(used)}${spare > 0 ? ` · ว่างอีก ${money(spare)}` : ''}`
+            : spare > 0
+              ? `ยังว่าง ${money(spare)}`
+              : `${mine.length} ช่อง`;
+      }
+
+      // Money paid earlier in the year is shown per slot as well as in total,
+      // because the whole point is that these baht are not up for decision.
+      for (const el of all<HTMLElement>('[data-paid]')) {
+        const id = el.dataset.paid ?? '';
+        const already = Math.min(profile.paid?.[id as SlotId] ?? 0, valueOf(id));
+        el.hidden = already <= 0;
+        const amt = $<HTMLElement>(`[data-paidamt="${id}"]`);
+        if (amt) amt.textContent = money(already);
+      }
+      const paidNote = $<HTMLElement>('#paid-note');
+      if (paidNote) {
+        paidNote.hidden = score.alreadyPaid <= 0;
+        paidNote.textContent =
+          score.alreadyPaid > 0
+            ? `${money(score.alreadyPaid)} บาทถูกทำเครื่องหมายว่าจ่ายไปแล้วก่อนหน้านี้ ยอดนี้ไม่ถูกนับเข้าเงินเย็นของปีนี้ และปุ่มเติมให้ดีที่สุดจะไม่ไปยุ่งกับมัน`
+            : '';
+      }
+      // The hint teaches the button; once the button has been used it is just
+      // noise sitting next to the note that says the same thing.
+      const paidHint = $<HTMLElement>('#paid-hint');
+      if (paidHint) paidHint.hidden = score.alreadyPaid > 0;
+      const paidBtn = $<HTMLButtonElement>('#btn-paid');
+      if (paidBtn) paidBtn.textContent = score.alreadyPaid > 0 ? 'ยกเลิกเครื่องหมาย' : 'ยอดนี้จ่ายไปแล้ว';
+
+      // The cheapest deduction on the board is the one that costs nothing,
+      // because the money already left the player's pocket. Par cannot mark
+      // these down, since an empty box may simply mean the player has no
+      // mortgage and no children, so ask instead of scoring.
+      const askEl = $<HTMLElement>('#par-ask');
+      if (askEl) {
+        // Only the ones with a box of their own. A childless player has not
+        // "left the children box empty"; that figure comes from the counters
+        // at the top of the form, and naming it here would turn a helpful
+        // nudge into a list of seven things nobody is going to read.
+        const free = rows.filter(
+          (h) =>
+            !h.slot.costsCash &&
+            h.used === 0 &&
+            document.querySelector(`[data-num="${h.slot.id}"]`) !== null,
+        );
+        const worth = free.length > 0 && tax.tax > 0;
+        askEl.hidden = !worth;
+        askEl.textContent = worth
+          ? `ยังว่างอยู่โดยไม่ต้องจ่ายเพิ่มเลย: ${free.map((h) => h.slot.name).join(' · ')} ถ้าคุณเข้าเงื่อนไขข้อไหน กรอกได้เลย เงินก้อนนั้นออกจากกระเป๋าไปแล้ว`
+          : '';
+      }
+
+      const lesson = levelById(levelId)?.lesson ?? '';
+      const lessonEl = $<HTMLElement>('#lesson');
+      if (lessonEl) {
+        // Level 3's whole point is a deduction that costs nothing, so gating
+        // the reveal on cash spent hides the lesson from exactly the player
+        // who just played it correctly. Any figure the player put on the board
+        // counts as having played the level.
+        const played =
+          Object.values(profile.amounts).some((v) => (v ?? 0) > 0) ||
+          profile.donationGeneral > 0 ||
+          profile.donationEDonation > 0;
+        const earned = lesson !== '' && played;
+        lessonEl.hidden = !earned;
+        lessonEl.textContent = earned ? lesson : '';
+      }
+
+      save();
+    }
+
+    function refresh(): void {
+      readForm();
+      render();
+    }
+
+    /* ---------------------------------------------------------------- wiring */
+
+    for (const el of all<HTMLInputElement>('#f-salary, #f-bonus, #f-budget, #f-kids1, #f-kids2, #f-parents, #f-disabled')) {
+      el.addEventListener('input', refresh);
+    }
+    $<HTMLInputElement>('#f-spouse')?.addEventListener('change', refresh);
+    $<HTMLSelectElement>('#f-year')?.addEventListener('change', refresh);
+
+    // Slider and number box are two views of the same figure, so each writes
+    // the state and then repaints the other from it.
+    for (const el of all<HTMLInputElement>('[data-range]')) {
+      el.addEventListener('input', () => {
+        const key = el.dataset.range ?? '';
+        setValue(key, Number(el.value));
+        const box = $<HTMLInputElement>(`[data-num="${key}"]`);
+        if (box) box.value = String(valueOf(key));
+        refresh();
+      });
+    }
+    for (const el of all<HTMLInputElement>('[data-num]')) {
+      // On blur, not on input: clamping mid-keystroke rewrites "6" into the
+      // ceiling before the player has finished typing "60000".
+      el.addEventListener('change', () => {
+        const key = el.dataset.num ?? '';
+        const slider = $<HTMLInputElement>(`[data-range="${key}"]`);
+        const ceiling = slider?.dataset.capped === '1' ? Number(slider.max) : Infinity;
+        if (Number.isFinite(ceiling) && valueOf(key) > ceiling) {
+          setValue(key, ceiling);
+          el.value = String(ceiling);
+          if (slider) slider.value = String(ceiling);
+          refresh();
+        }
+      });
+      el.addEventListener('input', () => {
+        const key = el.dataset.num ?? '';
+        const v = Number(el.value);
+        setValue(key, Number.isFinite(v) ? v : 0);
+        const slider = $<HTMLInputElement>(`[data-range="${key}"]`);
+        if (slider) slider.value = String(valueOf(key));
+        refresh();
+      });
+    }
+
+    for (const btn of all<HTMLButtonElement>('.lvl')) {
+      btn.addEventListener('click', () => {
+        const lvl = levelById(btn.dataset.level ?? '');
+        if (!lvl) return;
+        levelId = lvl.id;
+        profile = structuredClone(lvl.profile);
+        syncLevelUi();
+        writeForm();
+        render();
+      });
+    }
+
+    $<HTMLButtonElement>('#btn-best')?.addEventListener('click', () => {
+      readForm();
+      // Only the slots the budget can actually buy get replanned. Interest
+      // already paid to a bank, or a child already born, is not a purchase to
+      // optimise, and wiping it would raise the player's tax with a button
+      // that promises the opposite.
+      const kept: Profile['amounts'] = {};
+      for (const slot of rulesFor(profile.year).slots) {
+        if (!slot.costsCash && profile.amounts[slot.id]) {
+          kept[slot.id] = profile.amounts[slot.id];
+          continue;
+        }
+        const already = Math.min(profile.paid?.[slot.id] ?? 0, valueOf(slot.id));
+        if (already > 0) kept[slot.id] = already;
+      }
+      const cleared: Profile = { ...profile, amounts: kept, donationGeneral: 0, donationEDonation: 0 };
+      profile = { ...cleared, amounts: { ...kept, ...bestPlan(cleared).plan } };
+      writeForm();
+      // The plan can drop money into a folded group, and money the player
+      // cannot see is money they cannot judge.
+      syncGroups(levelById(levelId));
+      render();
+    });
+
+    // One control instead of a second box on every row: snapshot what is on the
+    // board now as "already paid", or drop the marks again.
+    $<HTMLButtonElement>('#btn-paid')?.addEventListener('click', () => {
+      readForm();
+      const marked = Object.values(profile.paid ?? {}).some((v) => (v ?? 0) > 0);
+      if (marked) {
+        profile.paid = {};
+      } else {
+        const snapshot: Profile['amounts'] = {};
+        for (const slot of rulesFor(profile.year).slots) {
+          if (!slot.costsCash) continue;
+          const v = Math.max(0, profile.amounts[slot.id] ?? 0);
+          if (v > 0) snapshot[slot.id] = v;
+        }
+        profile.paid = snapshot;
+      }
+      render();
+    });
+
+    $<HTMLButtonElement>('#btn-clear')?.addEventListener('click', () => {
+      readForm();
+      profile = { ...profile, amounts: {}, paid: {}, donationGeneral: 0, donationEDonation: 0 };
+      writeForm();
+      syncGroups(levelById(levelId));
+      render();
+    });
+
+    $<HTMLButtonElement>('#btn-copy')?.addEventListener('click', () => {
+      readForm();
+      const text = buildBrief(profile, rulesFor(profile.year));
+      const flash = (): void => {
+        const el = $<HTMLElement>('#copied');
+        if (!el) return;
+        el.hidden = false;
+        window.setTimeout(() => {
+          el.hidden = true;
+        }, 2600);
+      };
+      void navigator.clipboard.writeText(text).then(flash, () => {
+        // Clipboard permission can be refused outright. Rather than block the
+        // page on a modal prompt, drop the text into a box already selected, so
+        // one Ctrl+C still gets it out.
+        const box = $<HTMLTextAreaElement>('#brief-out');
+        if (!box) return;
+        box.value = text;
+        box.hidden = false;
+        box.focus();
+        box.select();
+      });
+    });
+
+    load();
+    syncLevelUi();
+    writeForm();
+    render();
+  </script>
+</body>
+</html>
