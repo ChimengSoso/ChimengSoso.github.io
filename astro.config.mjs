@@ -7,7 +7,10 @@ import sitemap from '@astrojs/sitemap';
 // GitHub Pages เสิร์ฟ directory index ได้เองตามปกติ ไม่ต้องบังคับ flat .html
 export default defineConfig({
   site: 'https://chimengsoso.github.io',
-  // divine-lore is a hidden easter-egg page, unlocked in-app -- keep it out
-  // of the sitemap so it isn't discoverable by crawling /sitemap-0.xml.
-  integrations: [sitemap({ filter: (page) => !page.includes('/divine-lore') })],
+  // divine-lore (and the /cp/ problem vault it is the only door to) are hidden
+  // easter-egg pages, unlocked in-app -- keep them out of the sitemap so they
+  // aren't discoverable by crawling /sitemap-0.xml.
+  integrations: [
+    sitemap({ filter: (page) => !page.includes('/divine-lore') && !page.includes('/cp/') }),
+  ],
 });
