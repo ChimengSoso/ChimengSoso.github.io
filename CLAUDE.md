@@ -60,6 +60,18 @@ The article's Open Graph share image is generated automatically — do **not** s
 
 **Verify (new-article checklist):** `npm run check` + `npm run lint` + `npm run build`, then in the live preview: the listing shows the card in the right section with the right count and meta row; prev/next work on the new page **and** both neighbors; `/rss.xml` gained the item; `dist/og/<slug>.png` was generated and shows the title/tag correctly; `/` ↔ article client-side navigation still works (`astro:page-load` gotchas). Finally grep the new file for smuggled zero-width spaces (`\x{200B}`) **and for em-dashes (`—`, must be 0 — see "Don't write like an AI" above)**.
 
+## Adding a competitive-programming problem (`/cp/`)
+
+`/cp/` is a private-ish problem vault: **the only door is the `/divine-lore/` listing** (same arrangement as `/games/`), it is excluded from the sitemap (`astro.config.mjs`) and every page renders `noindex` via `DivineLoreLayout`. Unit is **one problem = one page**, grouped on the hub by contest/set.
+
+Two touches per problem:
+1. Add the entry to `cpProblems` in `src/data/cp.ts` (`href` directory-style, `setId` matching a `cpSets` entry, `label`, `title`, `desc`, `topics`, `difficulty` 1-5, `dateISO`, `readingMinutes`). If it belongs to a new contest, add the `CpSet` first. Array order = hub order and prev/next order.
+2. Create `src/pages/cp/<slug>.astro` from `docs/cp-problem-template.astro.txt`, passing only `href` to `<CpProblemLayout>` — title, set pill, difficulty, topics, date, and prev/next all derive from `cp.ts`; never hand-type them in the page.
+
+Everything else derives: the hub card + per-set count (`src/pages/cp/index.astro`), the OG PNG at `/og/cp/<slug>.png` (`src/pages/og/cp/[slug].png.ts`, emerald `divine` theme), the `og:`/`twitter:` meta (`DivineLoreLayout` branches on `/cp/`), and the door card's count on `/divine-lore/`.
+
+Reading order per problem is the contest-article standard already documented below (story → spec callout → hint → optional playground → reveal): use `<Spoiler>` for anything that reads as the answer, and `<Spoiler linked>` (buttonless) for downstream spoiler-y blocks like a method-leaking `io-note` — one tap on the main button unlocks every `.spoiler` sibling until the next `<hr>`/`<h2>`. The blur CSS lives in `src/components/Spoiler.astro`, the toggler script and the `table.io`/`.spec`/`.io-note` CSS in `src/layouts/CpProblemLayout.astro` — don't copy them into a problem page. `src/pages/divine-lore/icpc-warmup-2026.astro` is the older all-problems-in-one-file page; leave it where it is.
+
 ## Architecture notes
 
 - **`astro.config.mjs`** sets `site` but no `base`, and relies on Astro's default `build.format: "directory"` output (e.g. `src/pages/knowledge/claude-intro.astro` → `/knowledge/claude-intro/index.html`; `src/pages/index.astro` still emits a flat `dist/index.html` at the root, same as before). GitHub Pages serves directory indexes natively, so links use `href="claude-intro/"` style paths, not `.html` suffixes.

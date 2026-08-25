@@ -1,0 +1,189 @@
+---
+import DivineLoreLayout from './DivineLoreLayout.astro';
+import { getCpProblem, getCpSet, getAdjacentCpProblems } from '../data/cp';
+import { formatThaiDate } from '../lib/dates';
+
+// เชลล์ของหน้าโจทย์หนึ่งข้อในหมวด /cp/
+// รับแค่ href แล้วดึงหัวเรื่อง/ชุด/วันที่/ลิงก์ก่อนหน้า-ถัดไป จาก src/data/cp.ts
+// (แหล่งความจริงเดียว ไม่พิมพ์ชื่อเรื่องหรือวันที่ซ้ำในไฟล์โจทย์)
+interface Props {
+  href: string;
+}
+const { href } = Astro.props;
+const problem = getCpProblem(href);
+if (!problem) {
+  throw new Error(`CpProblemLayout: ไม่พบโจทย์ href="${href}" ใน src/data/cp.ts`);
+}
+const set = getCpSet(problem.setId);
+const { prev, next } = getAdjacentCpProblems(href);
+const published = formatThaiDate(problem.dateISO);
+const stars = '★'.repeat(problem.difficulty) + '☆'.repeat(5 - problem.difficulty);
+---
+<DivineLoreLayout title={`${problem.title} | โจทย์แข่ง`} description={problem.desc}>
+  <nav class="dl-nav">
+    <a href="/cp/">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับหมวดโจทย์
+    </a>
+    <a href="/divine-lore/">บันทึกศาสตร์แห่งเทพ</a>
+  </nav>
+
+  <p class="tag">{set ? set.title : 'โจทย์แข่ง'}{problem.label ? ` · ข้อ ${problem.label}` : ''}</p>
+  <h1>{problem.title}</h1>
+  <p class="subtitle">{problem.desc}</p>
+
+  <div class="cp-meta">
+    <span class="cp-diff" title={`ความยาก ${problem.difficulty} จาก 5`}>{stars}</span>
+    {problem.topics.map((t) => <span class="cp-topic">{t}</span>)}
+    <span class="cp-dot">อ่าน {problem.readingMinutes} นาที</span>
+    <span class="cp-dot">{published}</span>
+  </div>
+
+  <slot />
+
+  {(prev || next) && (
+    <nav class="cp-adj">
+      {prev ? <a class="cp-adj-prev" href={`/cp/${prev.href}`}><span>ข้อก่อนหน้า</span>{prev.title}</a> : <span />}
+      {next && <a class="cp-adj-next" href={`/cp/${next.href}`}><span>ข้อถัดไป</span>{next.title}</a>}
+    </nav>
+  )}
+</DivineLoreLayout>
+
+<script>
+  // เฉลยเบลอ: กดปุ่มแล้วเปิดให้เห็น (คู่กับ src/components/Spoiler.astro)
+  (function () {
+    function wire(): void {
+      document.querySelectorAll<HTMLElement>('[data-spoiler]').forEach((box) => {
+        if (box.dataset.wired === '1') return;
+        const btn = box.querySelector<HTMLButtonElement>('.spoiler-reveal');
+        if (!btn) return;
+        box.dataset.wired = '1';
+        btn.addEventListener('click', () => {
+          box.classList.remove('locked');
+          btn.setAttribute('aria-expanded', 'true');
+          // ปลดล็อกกล่องเบลอที่ไม่มีปุ่มในข้อเดียวกันด้วย (เช่น io-note ใต้ตารางที่แอบเฉลย)
+          // ไล่ sibling ถัดไปจนกว่าจะเจอเส้นคั่น (hr) หรือหัวข้อถัดไป (h2)
+          let el = box.nextElementSibling;
+          while (el && el.tagName !== 'HR' && el.tagName !== 'H2') {
+            if (el.classList.contains('spoiler')) el.classList.remove('locked');
+            el = el.nextElementSibling;
+          }
+        });
+      });
+    }
+    document.addEventListener('astro:page-load', wire);
+  })();
+</script>
+
+<style is:global>
+  /* แถบข้อมูลย่อของโจทย์ ใต้หัวเรื่อง */
+  .cp-meta{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:0.5rem;
+    margin:-1.25rem 0 2rem;
+    font-size:0.76rem;
+    color:var(--dl-muted);
+  }
+  .cp-diff{color:var(--dl-gold);letter-spacing:0.1em;}
+  .cp-topic{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    border:1px solid var(--dl-border);
+    border-radius:999px;
+    padding:0.12rem 0.55rem;
+    color:var(--dl-emerald-bright);
+  }
+  .cp-dot::before{content:"·";margin-right:0.5rem;color:var(--dl-border);}
+
+  /* บล็อกสรุป อินพุต/ขอบเขต/เอาต์พุต */
+  .spec ul{margin:0.4rem 0 0;padding-left:1.2rem;}
+  .spec li{font-size:0.86rem;color:var(--dl-ink);margin:0.35rem 0;line-height:1.5;}
+  .spec li strong{color:var(--dl-gold);}
+
+  /* ตารางตัวอย่าง INPUT / OUTPUT */
+  table.io{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    margin:1rem 0 0.35rem;
+    font-size:0.86rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    overflow:hidden;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  table.io caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.2em;
+    font-size:0.7rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.io th, table.io td{
+    padding:0.55rem 0.85rem;
+    text-align:left;
+    vertical-align:top;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.io th + th, table.io td + td{border-left:1px solid var(--dl-border);}
+  table.io tbody tr:last-child td{border-bottom:none;}
+  table.io th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.7rem;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    width:50%;
+  }
+  table.io td{
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#e7ecf6;
+    line-height:1.75;
+    letter-spacing:0.12em;
+  }
+  /* ช่อง OUTPUT = คำตอบ ให้เด่นด้วยสีเขียว (payoff ของ example) */
+  table.io td + td{
+    color:var(--dl-emerald-bright);
+    font-weight:700;
+  }
+  .io-note{font-size:0.78rem;color:var(--dl-muted);margin:0.15rem 0 0;}
+  /* เลขยกกำลัง/ตัวห้อย ไม่ให้ดันระยะบรรทัด */
+  sup, sub{line-height:0;font-size:0.72em;}
+
+  /* ลิงก์ข้อก่อนหน้า/ถัดไป ท้ายหน้า */
+  .cp-adj{
+    display:flex;
+    justify-content:space-between;
+    gap:1rem;
+    margin-top:3rem;
+    padding-top:1.25rem;
+    border-top:1px dashed var(--dl-border);
+  }
+  .cp-adj a{
+    display:flex;
+    flex-direction:column;
+    gap:0.15rem;
+    max-width:48%;
+    font-size:0.9rem;
+    color:var(--dl-ink);
+    text-decoration:none;
+  }
+  .cp-adj a:hover{color:var(--dl-emerald-bright);}
+  .cp-adj a span{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.62rem;
+    text-transform:uppercase;
+    letter-spacing:.5px;
+    color:var(--dl-muted);
+  }
+  .cp-adj-next{text-align:right;margin-left:auto;}
+</style>
