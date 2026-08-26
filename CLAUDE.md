@@ -72,6 +72,39 @@ Everything else derives: the hub card + per-set count (`src/pages/cp/index.astro
 
 Reading order per problem is the contest-article standard already documented below (story → spec callout → hint → optional playground → reveal): use `<Spoiler>` for anything that reads as the answer, and `<Spoiler linked>` (buttonless) for downstream spoiler-y blocks like a method-leaking `io-note` — one tap on the main button unlocks every `.spoiler` sibling until the next `<hr>`/`<h2>`. The blur CSS lives in `src/components/Spoiler.astro`, the toggler script and the `table.io`/`.spec`/`.io-note` CSS in `src/layouts/CpProblemLayout.astro` — don't copy them into a problem page. `src/pages/divine-lore/icpc-warmup-2026.astro` is the older all-problems-in-one-file page; leave it where it is.
 
+### Standards every `/cp/` page follows (set by `pick-books.astro` — copy them, don't re-derive)
+
+**Numbers and code**
+- **Every figure comes from a model in the frontmatter, never typed by hand**: the DP table, the step-by-step script of each player, the cost table, and the numbers interpolated into prose all derive from the same functions. A hand-typed number that contradicts the table then cannot happen, and `npm run check` type-checks the model.
+- **Stress-test the shipped code before publishing.** Extract the C++ out of the page, compile it, and race it against a brute force on a few hundred random small inputs plus every sample in the statement. Do this for *every* code block the page ships, including the "wrong way" one. Only claim a round count in the prose if you actually ran it.
+- Ship a second expander with the brute-force checker: it teaches the stress-test habit and it is the thing that made the main claim trustworthy.
+- Solution code is competitive-style but readable, Thai comments, and **no dead knobs** — `int lim = min(i, n - 1)` where `i ≤ n-1` always was shipped once; a careful reader stops to ask why, so write `p <= i` and say why in a comment.
+- **One unit per comparison.** If a table compares two approaches' time/memory, count both with the same bytes-per-cell as the code actually shown on the page, and say so in the cells. A second unit is allowed only as an explicit "most generous case for the loser" sentence.
+
+**Layout (`CpProblemLayout`)**
+- One centred axis: text at `46rem`, blocks (`figure.tbl`, `.dpsim`, `.mathblock`, `.code-window`) at `width:fit-content` under a `66rem` ceiling, diagrams and `.bookgame` at `52rem`, all centred. At `min-width:72rem` the card itself is `width:fit-content` so it hugs the widest block plus its own padding instead of leaving dead background either side.
+- **The Thai `max-content` trap, the single biggest source of layout bugs here.** Thai has no inter-word spaces, so a paragraph's `max-content` is the whole sentence on one line. Any Thai text inside a `fit-content` box therefore *sets that box's width*, and if the text changes (a step player's explanation) the box resizes on every step. Two places already bitten: `.dps-say` (players resized 769px↔1246px per step) and `figcaption` (cards ended up wider than their own table, reading as a notch — COST was 155px off). The fix for both is `width:0; min-width:100%`: the block stops contributing to intrinsic width but still renders full width, so long text becomes extra *height*, which is what a player wants. Apply it to any new Thai caption or panel inside a shrink-to-fit box.
+- **Table-cell highlight CSS needs `.num`.** `table.rec td.num` is specificity (0,4,2) and sets `color`; a rule written `.dpsim td.is-target` is (0,4,1) and loses, so the background lands but the text keeps the pale grey. Write `.dpsim td.num.is-target` (0,5,1). Same for every `is-*` state in both players.
+
+**Step players (`.dpsim` / `.rollsim`)**
+- Steps are built at build time into `data-steps`; the script only renders them. Init inside `astro:page-load` with a `data-wired` guard.
+- **The explanation must never name a cell that is not on screen.** Rejected sources outside the rendered columns are described in words ("ช่องที่ค้างบวกไว้ 8 เล่ม ซึ่งมากกว่าจำนวนหนังสือทั้งกอง") instead of `dp[5][8]`, which a reader will hunt for and never find.
+- Keep the active cell visible with a `keepInView` helper that nudges `.dps-scroll`'s `scrollLeft` directly. Not `scrollIntoView` (it drags the page vertically too) and not `behavior:'smooth'` (stepping is already discrete, and smooth animations queue up when the reader clicks fast or hits play).
+- Controls are first/prev/play/next/last plus a range input, all driving one `render()`; `disabled` state is derived there too.
+
+**Mini-game**
+- The optimal score per pile is a hardcoded constant. Do **not** ship the solver to the page: the reveal below is the solver.
+- The pile set earns its keep: the greedy trap, the statement's own samples, and the pile the walkthrough later uses.
+- Nodes built in JS need `:global(...)` on their CSS (scoped styles never match them), and every animation needs a `prefers-reduced-motion` path.
+- **A `figcaption` above the reveal must not spoil it.** "กอง D คือกองที่ต้องยอมเหลือหนังสือทิ้งไว้หนึ่งเล่ม" handed the reader the shape of the answer before they played; tease the pile instead.
+
+**Verifying a `/cp/` page (in addition to `npm run check`/`lint`/`build`)**
+- **The preview pane often is not compositing frames**, which freezes every property that has a CSS `transition` at its old value. Colours read through `getComputedStyle` will lie (this produced one phantom "all the highlights are dead" report). Inject `*{transition:none !important}` before reading colours; layout metrics (`getBoundingClientRect`, `scrollLeft`, widths) stay trustworthy either way.
+- Measure each player's table width across **every** step at a viewport ≥1500px — the width bugs are invisible on a narrow pane, where `max-width:100%` clamps them into looking stable.
+- Walk every step and assert the numbers in the explanation match the numbers in the table, and that no source cell is highlighted while still showing `·`.
+- Check the page at 375px: no horizontal page scroll, tables scroll inside their own card, and the active cell is scrolled into view.
+- Grep the new page for em-dashes (must be 0) and zero-width spaces, same as `/knowledge`.
+
 ## Architecture notes
 
 - **`astro.config.mjs`** sets `site` but no `base`, and relies on Astro's default `build.format: "directory"` output (e.g. `src/pages/knowledge/claude-intro.astro` → `/knowledge/claude-intro/index.html`; `src/pages/index.astro` still emits a flat `dist/index.html` at the root, same as before). GitHub Pages serves directory indexes natively, so links use `href="claude-intro/"` style paths, not `.html` suffixes.
