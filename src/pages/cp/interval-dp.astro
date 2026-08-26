@@ -1,0 +1,1560 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'interval-dp/';
+
+/* ------------------------------------------------------------------
+   โมเดลกลาง ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ไม่มีที่ไหนพิมพ์มือ
+   ------------------------------------------------------------------ */
+const demo = [1, 2, 3, 1, 3];
+const N = demo.length;
+
+/** กติกาของบทนี้: จานสองใบซ้อนกันได้ถ้าขนาดต่างกันไม่เกิน 1 */
+function canPair(x: number, y: number): boolean {
+  return Math.abs(x - y) <= 1;
+}
+
+/** keep[i][j] = ยกออกได้มากที่สุดกี่ใบ ถ้ามองเฉพาะช่วง [i..j] */
+function keepTable(a: number[]): number[][] {
+  const n = a.length;
+  const keep: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const K = (i: number, j: number): number => (i > j ? 0 : keep[i][j]);
+  const cleared = (i: number, j: number): boolean => i > j || keep[i][j] === j - i + 1;
+  for (let len = 2; len <= n; len++) {
+    for (let i = 0; i + len - 1 < n; i++) {
+      const j = i + len - 1;
+      let best = K(i + 1, j);
+      for (let k = i + 1; k <= j; k++) {
+        if (!canPair(a[i], a[k])) continue;
+        if (!cleared(i + 1, k - 1)) continue;
+        best = Math.max(best, k - i + 1 + K(k + 1, j));
+      }
+      keep[i][j] = best;
+    }
+  }
+  return keep;
+}
+
+/** ท่าโลภที่ทุกคนลองก่อน: กวาดซ้ายไปขวา เจอคู่ที่ซ้อนได้ก็ซ้อนทันที */
+function greedyLeft(a: number[]): number[] {
+  const st: number[] = [];
+  for (const x of a) {
+    if (st.length > 0 && canPair(st[st.length - 1], x)) st.pop();
+    else st.push(x);
+  }
+  return st;
+}
+
+const keep = keepTable(demo);
+const bestRemoved = keep[0][N - 1];
+const bestLeft = N - bestRemoved;
+const greedyLeftover = greedyLeft(demo);
+const greedyLeft2 = greedyLeftover.length;
+
+/* ------------------------------------------------------------------
+   ขั้นตอนของตัวเล่นตาราง หนึ่งขั้นต่อหนึ่งช่อง เรียงตามความยาวช่วง
+   ------------------------------------------------------------------ */
+type Src = { i: number; j: number; ok: boolean };
+type SimStep = {
+  cells: (string | null)[][];
+  ti: number;
+  tj: number;
+  srcs: Src[];
+  html: string;
+};
+
+function buildSteps(a: number[]): SimStep[] {
+  const n = a.length;
+  const keepLocal: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const shown: (string | null)[][] = Array.from({ length: n }, () => new Array<string | null>(n).fill(null));
+  const K = (i: number, j: number): number => (i > j ? 0 : keepLocal[i][j]);
+  const cleared = (i: number, j: number): boolean => i > j || keepLocal[i][j] === j - i + 1;
+  const snap = (): (string | null)[][] => shown.map((r) => [...r]);
+  const out: SimStep[] = [];
+
+  for (let i = 0; i < n; i++) shown[i][i] = '0';
+  out.push({
+    cells: snap(),
+    ti: -1,
+    tj: -1,
+    srcs: [],
+    html:
+      '<p class="dps-q">เริ่มจากช่วงสั้นที่สุด</p>' +
+      '<ul class="dps-cands"><li class="ok win">ช่วงยาว 1 ใบ ยกออกไม่ได้เลยเพราะไม่มีคู่ ทุกช่องบนเส้นทแยงมุมจึงเป็น <b>0</b></li>' +
+      '<li class="no">ช่องใต้เส้นทแยงมุมไม่มีความหมาย เพราะ <code>i</code> ต้องไม่เกิน <code>j</code></li></ul>' +
+      '<p class="dps-a">จากนี้ไปเติมช่วงยาว 2 ใบ แล้วยาว 3 ใบ ไล่ขึ้นไปเรื่อย ๆ</p>',
+  });
+
+  for (let len = 2; len <= n; len++) {
+    for (let i = 0; i + len - 1 < n; i++) {
+      const j = i + len - 1;
+      const lines: string[] = [];
+      const srcs: Src[] = [];
+
+      const skipVal = K(i + 1, j);
+      type Cand = { val: number; srcs: Src[]; text: string };
+      const cands: Cand[] = [
+        {
+          val: skipVal,
+          srcs: i + 1 <= j ? [{ i: i + 1, j, ok: false }] : [],
+          text: `ทิ้งจานใบที่ ${i + 1} ไว้บนโต๊ะ แล้วรับค่าจากช่วง [${i + 1}..${j}] มาทั้งดุ้น ได้ <b>${skipVal}</b>`,
+        },
+      ];
+
+      for (let k = i + 1; k <= j; k++) {
+        if (!canPair(a[i], a[k])) {
+          lines.push(
+            `<li class="no">จับคู่กับใบที่ ${k + 1} (ขนาด ${a[k]}) ไม่ได้ ขนาดต่างกัน ${Math.abs(a[i] - a[k])}</li>`,
+          );
+          continue;
+        }
+        if (!cleared(i + 1, k - 1)) {
+          lines.push(
+            `<li class="no">จับคู่กับใบที่ ${k + 1} ได้ตามขนาด แต่ของที่ขวางอยู่ตรงกลาง คือช่วง [${i + 1}..${k - 1}] ยกออกไม่เกลี้ยง สองใบนี้จึงไม่มีวันได้มาชนกัน</li>`,
+          );
+          continue;
+        }
+        const val = k - i + 1 + K(k + 1, j);
+        const s: Src[] = [];
+        if (i + 1 <= k - 1) s.push({ i: i + 1, j: k - 1, ok: false });
+        if (k + 1 <= j) s.push({ i: k + 1, j, ok: false });
+        cands.push({
+          val,
+          srcs: s,
+          text:
+            `จับคู่ใบที่ ${i + 1} กับใบที่ ${k + 1} (ขนาด ${a[i]} กับ ${a[k]}) ` +
+            (i + 1 <= k - 1 ? `ของตรงกลางช่วง [${i + 1}..${k - 1}] เกลี้ยงพอดี ` : 'ไม่มีอะไรขวางตรงกลาง ') +
+            `ได้ ${k - i + 1} ใบ บวกกับช่วงที่เหลือ [${k + 1}..${j}] อีก ${K(k + 1, j)} ใบ รวม <b>${val}</b>`,
+        });
+      }
+
+      let best = -1;
+      for (const c of cands) best = Math.max(best, c.val);
+      let taken = false;
+      const ordered: string[] = [];
+      for (const c of cands) {
+        const win = !taken && c.val === best;
+        if (win) taken = true;
+        for (const s of c.srcs) srcs.push({ ...s, ok: win });
+        ordered.push(`<li class="${win ? 'ok win' : 'ok'}">${c.text}${win ? ' ทางนี้ดีที่สุด' : ''}</li>`);
+      }
+
+      keepLocal[i][j] = best;
+      shown[i][j] = String(best);
+
+      out.push({
+        cells: snap(),
+        ti: i,
+        tj: j,
+        srcs,
+        html:
+          `<p class="dps-q">ช่วงยาว ${len} ใบ · เติมช่อง <b>keep[${i}][${j}]</b> คือช่วง [${i}..${j}] ซึ่งก็คือจาน ${a
+            .slice(i, j + 1)
+            .join(' ')}</p>` +
+          `<ul class="dps-cands">${ordered.join('')}${lines.join('')}</ul>` +
+          `<p class="dps-a">ค่าของช่องนี้คือ <b>${best}</b> ใบ</p>`,
+      });
+    }
+  }
+
+  out.push({
+    cells: snap(),
+    ti: 0,
+    tj: n - 1,
+    srcs: [],
+    html:
+      `<p class="dps-q">ตารางเต็มแล้ว คำตอบอยู่ที่ช่องมุมขวาบน</p>` +
+      `<ul class="dps-cands"><li class="ok win"><b>keep[0][${n - 1}] = ${keepLocal[0][n - 1]}</b> คือยกออกได้ ${keepLocal[0][n - 1]} ใบจากทั้งหมด ${n} ใบ</li>` +
+      `<li class="ok">เหลือบนโต๊ะ ${n} − ${keepLocal[0][n - 1]} = <b>${n - keepLocal[0][n - 1]}</b> ใบ</li>` +
+      `<li class="no">ช่องอื่นในตารางไม่ใช่คำตอบของทั้งแถว มันคือคำตอบของช่วงย่อยที่เราต้องใช้ระหว่างทางเท่านั้น</li></ul>` +
+      `<p class="dps-a">ทุกช่องถูกเติมครั้งเดียว และไม่มีใครกลับไปแก้มันอีก</p>`,
+  });
+
+  return out;
+}
+
+const simSteps = buildSteps(demo);
+
+/* ------------------------------------------------------------------
+   แถวของมินิเกม เลขคำตอบเป็นค่าคงที่ ไม่ได้ส่งตัวแก้ไปหน้าเว็บ
+   (ตรวจแล้วด้วยตัวไล่ทุกความเป็นไปได้ ตอนเตรียมบทความ)
+   ------------------------------------------------------------------ */
+type GameRow = { name: string; plates: number[]; bestLeft: number; greedyLeft: number };
+const gameRows: GameRow[] = [
+  { name: 'แถว A', plates: [3, 1, 4, 4, 1, 3], bestLeft: 0, greedyLeft: 0 },
+  { name: 'แถว B', plates: [1, 2, 3, 1], bestLeft: 0, greedyLeft: 2 },
+  { name: 'แถว C', plates: [1, 6, 2, 3, 3, 1, 6, 1], bestLeft: 0, greedyLeft: 6 },
+  { name: 'แถว D', plates: [2, 5, 3, 3, 6, 5, 2], bestLeft: 3, greedyLeft: 3 },
+];
+
+/* ------------------------------------------------------------------
+   สูตร
+   ------------------------------------------------------------------ */
+const KEEP = mc.fn('keep');
+const recurrenceTex = texCode(
+  KEEP + '[i][j] \\;' + mc.op('=') + '\\; ' + mc.max + '_{k} \\begin{cases} ' +
+    KEEP + '[i' + mc.op('+') + mc.num('1') + '][j] \\\\ ' +
+    '(k' + mc.op('-') + 'i' + mc.op('+') + mc.num('1') + ') ' + mc.op('+') + ' ' + KEEP + '[k' + mc.op('+') + mc.num('1') + '][j] \\end{cases}',
+);
+
+/* ------------------------------------------------------------------
+   ตัวเลขประกอบเรื่องความซับซ้อน
+   ------------------------------------------------------------------ */
+const num = (v: number): string => v.toLocaleString('en-US');
+const N_SMALL = 300;
+const N_BIG = 2000;
+const cells = (n: number): number => (n * (n + 1)) / 2;
+const ops = (n: number): number => n * n * n;
+
+/* ------------------------------------------------------------------
+   โค้ด
+   ------------------------------------------------------------------ */
+const mainCode = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+
+    // keep[i][j] = ยกออกได้มากที่สุดกี่ใบ ถ้ามองเฉพาะช่วง [i..j]
+    vector<vector<int>> keep(n + 2, vector<int>(n + 2, 0));
+    auto K = [&](int i, int j) { return i > j ? 0 : keep[i][j]; };
+    // ช่วงที่ยกออกได้ "ครบทุกใบ" คือช่วงที่ค่าในตารางเท่ากับความยาวของมันพอดี
+    auto cleared = [&](int i, int j) { return i > j || keep[i][j] == j - i + 1; };
+
+    // วนตามความยาวช่วง ไม่ใช่ตามตำแหน่ง ช่วงสั้นต้องเสร็จก่อนช่วงยาวเสมอ
+    for (int len = 2; len <= n; len++) {
+        for (int i = 0; i + len - 1 < n; i++) {
+            int j = i + len - 1;
+            int best = K(i + 1, j);                    // ทิ้ง a[i] ไว้บนโต๊ะ
+            for (int k = i + 1; k <= j; k++) {
+                if (abs(a[i] - a[k]) > 1) continue;    // ขนาดไม่เข้าคู่
+                if (!cleared(i + 1, k - 1)) continue;  // ของที่ขวางต้องหายเกลี้ยงก่อน
+                best = max(best, (k - i + 1) + K(k + 1, j));
+            }
+            keep[i][j] = best;
+        }
+    }
+
+    printf("%d\\n", n - K(0, n - 1));   // เหลือบนโต๊ะกี่ใบ
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจแบบซื่อ ๆ ลองยกทุกคู่ที่ยกได้ วนไปจนไม่มีอะไรให้ยก
+// ช้ามาก ใช้ได้แค่ n เล็ก ๆ แต่มันคือสิ่งที่ทำให้เชื่อโค้ดข้างบนได้
+#include <bits/stdc++.h>
+using namespace std;
+
+int solve(vector<int> a) {
+    int r = (int)a.size();
+    for (size_t i = 0; i + 1 < a.size(); i++) {
+        if (abs(a[i] - a[i + 1]) > 1) continue;
+        vector<int> b = a;
+        b.erase(b.begin() + i, b.begin() + i + 2);
+        r = min(r, solve(b));
+    }
+    return r;
+}`;
+
+const q1Code = `// ฝึกข้อ 1: ลบคู่ที่ติดกันและเท่ากัน เหลือน้อยที่สุดกี่ตัว
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<int> st;
+    st.reserve(n);
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        if (!st.empty() && st.back() == x) st.pop_back();   // เจอฝาแฝด หายไปทั้งคู่
+        else st.push_back(x);
+    }
+    printf("%d\\n", (int)st.size());
+    return 0;
+}`;
+
+const q2Code = `// ฝึกข้อ 2 ท่าที่ 1: DP บนช่วง O(n^3)
+// f[i][j] = ต้องเติมวงเล็บอย่างน้อยกี่ตัว ช่วง [i..j] ถึงจะถูกกติกา
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    char buf[512];
+    if (scanf("%s", buf) != 1) return 0;
+    string s = buf;
+    int n = (int)s.size();
+    vector<vector<int>> f(n + 1, vector<int>(n + 1, 0));
+
+    for (int len = 1; len <= n; len++) {
+        for (int i = 0; i + len - 1 < n; i++) {
+            int j = i + len - 1;
+            if (len == 1) { f[i][j] = 1; continue; }   // ตัวเดียวโดด ๆ ต้องเติมคู่ให้เสมอ
+            int best = INT_MAX;
+            // หัวกับท้ายจับคู่กันได้พอดี ที่เหลือคือปัญหาย่อยตรงกลาง
+            if (s[i] == '(' && s[j] == ')') best = min(best, i + 1 <= j - 1 ? f[i + 1][j - 1] : 0);
+            // ไม่งั้นก็ผ่าเป็นสองท่อนที่ไม่ยุ่งกัน
+            for (int k = i; k < j; k++) best = min(best, f[i][k] + f[k + 1][j]);
+            f[i][j] = best;
+        }
+    }
+    printf("%d\\n", n == 0 ? 0 : f[0][n - 1]);
+    return 0;
+}`;
+
+const q2FastCode = `// ฝึกข้อ 2 ท่าที่ 2: ตัวนับตัวเดียว O(n)
+// open = วงเล็บเปิดที่ยังไม่มีใครมาปิด, add = วงเล็บปิดที่หาเจ้าของไม่ได้
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    char buf[512];
+    if (scanf("%s", buf) != 1) return 0;
+    int open = 0, add = 0;
+    for (char *p = buf; *p; p++) {
+        if (*p == '(') open++;
+        else if (open > 0) open--;      // ไปปิดตัวที่ค้างอยู่
+        else add++;                     // ไม่มีใครให้ปิด ต้องเติมตัวเปิดข้างหน้า
+    }
+    printf("%d\\n", add + open);
+    return 0;
+}`;
+
+const q3Code = `// ฝึกข้อ 3: กติกาเดิม แต่แต้มคือผลรวมขนาดจานที่ยกออก อยากได้แต้มมากที่สุด
+// ต้องมีสองตาราง full บอกว่าช่วงนั้นยกออกได้เกลี้ยงไหม (ไม่เกี่ยวกับแต้ม)
+// ส่วน val เก็บแต้มสูงสุด ถ้าเอาตารางแต้มมาตัดสินเรื่องเกลี้ยงจะผิด
+// เพราะทางที่แต้มสูงสุดไม่จำเป็นต้องเป็นทางที่ยกออกได้เยอะสุด
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+
+    vector<vector<char>> full(n + 2, vector<char>(n + 2, 0));
+    vector<vector<long long>> val(n + 2, vector<long long>(n + 2, 0));
+    auto isFull = [&](int i, int j) { return i > j ? true : (bool)full[i][j]; };
+    auto V = [&](int i, int j) { return i > j ? 0LL : val[i][j]; };
+
+    for (int len = 2; len <= n; len++)
+        for (int i = 0; i + len - 1 < n; i++) {
+            int j = i + len - 1;
+            for (int k = i + 1; k <= j; k++)
+                if (abs(a[i] - a[k]) <= 1 && isFull(i + 1, k - 1) && isFull(k + 1, j)) {
+                    full[i][j] = 1;
+                    break;
+                }
+        }
+
+    for (int len = 2; len <= n; len++)
+        for (int i = 0; i + len - 1 < n; i++) {
+            int j = i + len - 1;
+            long long best = V(i + 1, j);
+            for (int k = i + 1; k <= j; k++) {
+                if (abs(a[i] - a[k]) > 1) continue;
+                if (!isFull(i + 1, k - 1)) continue;
+                best = max(best, a[i] + a[k] + V(i + 1, k - 1) + V(k + 1, j));
+            }
+            val[i][j] = best;
+        }
+
+    printf("%lld\\n", V(0, n - 1));
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+
+  <h2>อาการ · โจทย์ที่ทำให้ dp[i] พังทั้งใบ</h2>
+
+  <p>
+    ถ้าคุณเคยเขียน DP มาบ้าง คุณจะมีท่าประจำอยู่ท่าหนึ่ง คือตั้ง <code>dp[i]</code> ให้แปลว่า
+    "ตัดสินใจกับ <code>i</code> ตัวแรกครบแล้ว ได้ค่าดีที่สุดเท่าไร" แล้วไล่จากซ้ายไปขวา ท่านี้ใช้ได้กับโจทย์จำนวนมหาศาล
+    จนพอเจอโจทย์ที่มีคำว่า <strong>"ลบแล้วช่องปิด"</strong> ครั้งแรก คุณจะเขียนไปได้ครึ่งทางแล้วรู้สึกว่ามันไม่เข้ารูป
+    แต่บอกไม่ถูกว่าไม่เข้าตรงไหน บทนี้จะพาไปดูว่ามันพังตรงไหน แล้วของที่ต้องใช้แทนหน้าตาเป็นยังไง
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์ประจำบท · เก็บจานบนโต๊ะยาว</p>
+    <p>
+      บนโต๊ะมีจาน <code>n</code> ใบวางเรียงกันเป็นแถว ใบที่ <code>i</code> มีขนาด <code>a[i]</code> นิ้ว
+      คุณหยิบจาน <strong>สองใบที่อยู่ติดกัน</strong> ซ้อนกันแล้วยกเข้าตู้ได้ ถ้า<strong>ขนาดต่างกันไม่เกิน 1 นิ้ว</strong>
+      พอยกออกไป จานที่อยู่สองข้างของช่องว่างจะ<strong>เลื่อนมาชิดกัน</strong> แล้วนับเป็นคู่ติดกันได้ทันที
+      ทำซ้ำกี่ครั้งก็ได้ คำถามคือ<strong>สุดท้ายเหลือจานบนโต๊ะน้อยที่สุดกี่ใบ</strong>
+    </p>
+  </div>
+
+  <p>
+    ลองกับแถวสั้น ๆ แถวหนึ่ง <code>{demo.join(' ')}</code> ท่าแรกที่เกือบทุกคนลองคือกวาดจากซ้ายไปขวา
+    เจอคู่ที่ซ้อนได้ก็ซ้อนทันที เริ่มที่ใบ 1 กับ 2 ต่างกัน 1 นิ้วพอดี ยกเลย เหลือ <code>3 1 3</code>
+    ซึ่งไม่มีคู่ไหนต่างกันไม่เกิน 1 อีกแล้ว จบที่ <strong>เหลือ {greedyLeft2} ใบ</strong>
+  </p>
+
+  <p>
+    แต่คำตอบจริงคือ <strong>เหลือ {bestLeft} ใบ</strong> ทางที่ถูกคือ<strong>อย่าเพิ่งแตะคู่แรก</strong>
+    ยก <code>2</code> กับ <code>3</code> ตรงกลางออกก่อน โต๊ะจะเหลือ <code>1 1 3</code> ซึ่งทำให้จานใบที่ 1 กับใบที่ 4
+    ที่เดิม<strong>ไม่เคยอยู่ติดกันเลย</strong> มาชนกันพอดี ยกออกอีกคู่ เหลือแค่ใบ <code>3</code> ใบเดียว
+  </p>
+
+  <ZoomableDiagram caption="ท่าโลภเก็บคู่ซ้ายสุดก่อน แล้วจานที่เหลือกลายเป็นเศษที่จับคู่กันไม่ได้ ส่วนทางที่ถูกยอมข้ามคู่แรกไป เพื่อเปิดทางให้จานคนละมุมได้มาเจอกัน การตัดสินใจที่ตำแหน่งหนึ่งจึงไปเปลี่ยนว่าใครติดกับใครที่อีกฝั่งของแถว อดีตกับอนาคตจึงคุยกันข้ามหัวเรา ซึ่งเป็นสิ่งที่ dp[i] แบบไล่ซ้ายไปขวาไม่มีที่ให้เก็บ (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 588 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพเทียบสองทาง ทางบนคือเก็บคู่ซ้ายสุดก่อนแล้วเหลือจานสามใบที่จับคู่กันไม่ได้ ทางล่างคือเก็บคู่ตรงกลางก่อน ทำให้จานใบแรกกับใบที่สี่มาชิดกันแล้วเก็บได้อีกคู่ เหลือใบเดียว">
+      <text x="14" y="20" fill="#b23b3b" font-size="12" font-weight="700">ทางโลภ · เก็บคู่ซ้ายสุดก่อน</text>
+      <g font-family="monospace" font-size="13">
+        <rect x="14" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="34" y="52" fill="#9aa7bd" text-anchor="middle">1</text>
+        <rect x="58" y="32" width="40" height="30" rx="6" fill="#3a1e1e" stroke="#b23b3b"/><text x="78" y="52" fill="#ffb3b3" text-anchor="middle">2</text>
+        <rect x="102" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="122" y="52" fill="#9aa7bd" text-anchor="middle">3</text>
+        <rect x="146" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="166" y="52" fill="#9aa7bd" text-anchor="middle">1</text>
+        <rect x="190" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="210" y="52" fill="#9aa7bd" text-anchor="middle">3</text>
+        <rect x="14" y="32" width="84" height="30" rx="6" fill="none" stroke="#b23b3b" stroke-width="2" stroke-dasharray="4 3"/>
+      </g>
+      <path d="M270 47 L318 47" stroke="#b23b3b" stroke-width="1.8" marker-end="url(#ar)"/>
+      <g font-family="monospace" font-size="13">
+        <rect x="330" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="350" y="52" fill="#9aa7bd" text-anchor="middle">3</text>
+        <rect x="374" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="394" y="52" fill="#9aa7bd" text-anchor="middle">1</text>
+        <rect x="418" y="32" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="438" y="52" fill="#9aa7bd" text-anchor="middle">3</text>
+      </g>
+      <text x="470" y="52" fill="#b23b3b" font-size="12" font-weight="700">ตัน เหลือ 3 ใบ</text>
+
+      <line x1="14" y1="88" x2="574" y2="88" stroke="#2a3350" stroke-dasharray="4 4"/>
+
+      <text x="14" y="115" fill="#2f9e5c" font-size="12" font-weight="700">ทางที่ถูก · ข้ามคู่แรก ไปเก็บตรงกลางก่อน</text>
+      <g font-family="monospace" font-size="13">
+        <rect x="14" y="127" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="34" y="147" fill="#9aa7bd" text-anchor="middle">1</text>
+        <rect x="58" y="127" width="40" height="30" rx="6" fill="#123024" stroke="#4ade80"/><text x="78" y="147" fill="#b6f5cd" text-anchor="middle">2</text>
+        <rect x="102" y="127" width="40" height="30" rx="6" fill="#123024" stroke="#4ade80"/><text x="122" y="147" fill="#b6f5cd" text-anchor="middle">3</text>
+        <rect x="146" y="127" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="166" y="147" fill="#9aa7bd" text-anchor="middle">1</text>
+        <rect x="190" y="127" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="210" y="147" fill="#9aa7bd" text-anchor="middle">3</text>
+        <rect x="58" y="127" width="84" height="30" rx="6" fill="none" stroke="#4ade80" stroke-width="2" stroke-dasharray="4 3"/>
+      </g>
+      <path d="M270 142 L318 142" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ag)"/>
+      <g font-family="monospace" font-size="13">
+        <rect x="330" y="127" width="40" height="30" rx="6" fill="#123024" stroke="#4ade80"/><text x="350" y="147" fill="#b6f5cd" text-anchor="middle">1</text>
+        <rect x="374" y="127" width="40" height="30" rx="6" fill="#123024" stroke="#4ade80"/><text x="394" y="147" fill="#b6f5cd" text-anchor="middle">1</text>
+        <rect x="418" y="127" width="40" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="438" y="147" fill="#9aa7bd" text-anchor="middle">3</text>
+      </g>
+      <text x="470" y="147" fill="#4ade80" font-size="12" font-weight="700">ยกได้อีกคู่ เหลือ 1 ใบ</text>
+      <text x="330" y="194" fill="#7b8397" font-size="11">สองใบนี้เดิมอยู่คนละฝั่งของโต๊ะ ไม่เคยติดกันมาก่อน</text>
+      <path d="M350 160 L350 170" stroke="#7b8397" stroke-width="1.2"/>
+      <path d="M394 160 L394 170" stroke="#7b8397" stroke-width="1.2"/>
+      <line x1="350" y1="170" x2="394" y2="170" stroke="#7b8397" stroke-width="1.2"/>
+
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#b23b3b"/></marker>
+        <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/></marker>
+      </defs>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ทีนี้ลองถามตัวเองว่า <code>dp[i]</code> จะเก็บอะไร มันแปลว่า "จัดการจาน <code>i</code> ใบแรกเสร็จแล้ว"
+    ซึ่งจะใช้ได้ก็ต่อเมื่ออดีตกับอนาคตติดต่อกันผ่าน<strong>รอยต่อเดียว</strong> คือขอบขวาของสิ่งที่ทำไปแล้ว
+    แต่ในโจทย์นี้ ของที่หายไปตรงกลางทำให้จานที่อยู่คนละฝั่งมาชนกันได้ พูดอีกอย่างคือ
+    <strong>อดีตกับอนาคตยื่นมือข้ามหัวเราไปจับกันเอง</strong> ต่อให้คุณเติมมิติที่สองเข้าไปว่า
+    "เหลือจานอะไรค้างอยู่บ้าง" คุณก็ต้องจำทั้งเซต ซึ่งบานเป็น <code>2ⁿ</code> ทันที
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>state</strong> อ่านว่า <strong>"สเตท"</strong> แปลว่า <strong>"สถานะ"</strong>
+      ในภาษา DP มันคือ<strong>ข้อมูลชุดน้อยที่สุดที่ต้องจำไว้ เพื่อตัดสินใจต่อไปได้อย่างถูกต้อง</strong>
+      โดยไม่ต้องหันกลับไปดูว่าเดินมายังไง คำนี้ยืมมาจากเครื่องจักรกล คือ "ตอนนี้เครื่องอยู่ในสถานะไหน"
+      การออกแบบ state จึงเป็นเกมของการ<strong>เลือกสิ่งที่จะลืม</strong> ไม่ใช่การเลือกสิ่งที่จะจำ
+      ถ้าลืมน้อยไปตารางจะใหญ่จนไม่ไหว ถ้าลืมมากไปคำตอบจะผิด
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ลองเอง · เก็บโต๊ะให้เหลือน้อยที่สุด</h2>
+
+  <p>
+    ก่อนจะไปดูวิธีคิด ลองเล่นเองสักพักครับ กดจานหนึ่งใบเพื่อเลือก แล้วกดใบที่อยู่ติดกันเพื่อยกทั้งคู่เข้าตู้
+    ยกได้เมื่อขนาดต่างกันไม่เกิน 1 เท่านั้น พอยกออกแล้วจานสองข้างจะเลื่อนมาชิดกันเอง
+    ตัวเลข "ดีที่สุดที่ทำได้" คือคำตอบจริงของแถวนั้น ลองไล่ให้ถึงดู
+  </p>
+
+  <figure class="plategame" data-plategame>
+    <div class="pg-bar">
+      <div class="pg-rows" role="group" aria-label="เลือกแถวจาน">
+        {gameRows.map((r, i) => (
+          <button type="button" class={`pg-row ${i === 0 ? 'is-on' : ''}`} data-row={i}>{r.name}</button>
+        ))}
+      </div>
+      <div class="pg-acts">
+        <button type="button" class="pg-act" data-undo>ย้อนหนึ่งตา</button>
+        <button type="button" class="pg-act" data-reset>เริ่มแถวนี้ใหม่</button>
+      </div>
+    </div>
+    <div class="pg-body">
+      <ol class="pg-table" data-table></ol>
+      <div class="pg-hud">
+        <p class="pg-stat"><span>เหลือบนโต๊ะ</span><strong data-left>0</strong></p>
+        <p class="pg-stat"><span>ดีที่สุดที่ทำได้</span><strong class="pg-goal" data-best>0</strong></p>
+        <p class="pg-stat"><span>ยกไปแล้ว</span><strong data-moves>0</strong></p>
+        <p class="pg-log" data-log aria-live="polite">กดจานใบหนึ่งเพื่อเลือก</p>
+      </div>
+    </div>
+    <figcaption>
+      แถว A เป็นแถวอุ่นเครื่องที่เก็บยังไงก็เกลี้ยง ส่วนอีกสามแถวที่เหลือ มีอยู่แถวหนึ่งที่ท่าโลภทำได้แย่กว่าคำตอบจริงถึงหกใบ
+      และมีอยู่แถวหนึ่งที่เก็บให้เกลี้ยงไม่ได้ไม่ว่าจะเล่นเก่งแค่ไหน
+    </figcaption>
+  </figure>
+
+  <p class="ns-cue">ลองให้หนำใจก่อนนะครับ พอเริ่มรู้สึกว่า "ต้องมองไปข้างหน้าหลายตา" แล้วค่อยอ่านต่อ</p>
+
+  <hr class="divider-solid" />
+
+  <h2>ทางออก · เปลี่ยน state จากจุดเป็นช่วง</h2>
+
+  <p>
+    ปัญหาของ <code>dp[i]</code> คือมันบรรยายได้แค่ "ถึงไหนแล้ว" แต่โจทย์นี้ต้องการคำบรรยายที่บอกได้ว่า
+    <strong>ตอนนี้เรากำลังพูดถึงของชิ้นไหนถึงชิ้นไหน</strong> เพราะการยกของออกมันเกิดขึ้น<strong>ภายในช่วง</strong>
+    แล้วผลของมันไม่รั่วออกนอกช่วงนั้นเลย ถ้าเรารู้ว่าช่วง <code>[i..j]</code> จัดการตัวเองจบแล้ว
+    ข้างนอกไม่ต้องรู้เลยว่ามันจบยังไง รู้แค่ว่ามันเหลืออะไรทิ้งไว้ก็พอ
+  </p>
+
+  <p>
+    นั่นแหละคือที่มาของตารางสองมิติที่ดัชนีทั้งสองตัวเป็น<strong>ปลายทั้งสองข้างของช่วง</strong> ไม่ใช่ตำแหน่งกับค่าอะไรสักอย่าง
+    เรียกมันว่า <code>keep[i][j]</code> แปลว่า <strong>"ถ้ามองแค่จานในช่วง [i..j] ยกเข้าตู้ได้มากที่สุดกี่ใบ"</strong>
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>interval</strong> อ่านว่า <strong>"อินเทอร์วัล"</strong> แปลว่า <strong>"ช่วง"</strong>
+      มาจากภาษาละติน <i>inter</i> ที่แปลว่า "ระหว่าง" บวก <i>vallum</i> ที่แปลว่า "กำแพงค่าย"
+      รวมกันแล้วแปลตรงตัวว่า <strong>"พื้นที่ระหว่างกำแพงสองด้าน"</strong> ซึ่งตรงกับที่เราจะใช้มันพอดี
+      คือของที่อยู่ระหว่างเสาสองต้นชื่อ <code>i</code> กับ <code>j</code> เทคนิคทั้งบทนี้จึงเรียกกันว่า
+      <strong>DP บนช่วง</strong> หรือ <i>interval DP</i>
+    </p>
+  </div>
+
+  <h3>คำถามเดียวที่ต้องตอบให้ได้: จานซ้ายสุดจะไปคู่กับใคร</h3>
+
+  <p>
+    เวลาออกแบบสูตรของ DP บนช่วง อย่าไปคิดว่า "ยกคู่ไหนก่อนดี" เพราะลำดับการยกมีเป็นล้านแบบ
+    ให้จับตัวใดตัวหนึ่งที่<strong>ไม่มีทางหนีเราได้</strong> มาถามคำถามเดียว ตัวที่ง่ายที่สุดคือ<strong>ตัวซ้ายสุดของช่วง</strong>
+    คือจานใบที่ <code>i</code> ชะตาของมันมีแค่สองแบบเท่านั้น
+  </p>
+
+  <ul>
+    <li><strong>ไม่มีใครเอามันไป</strong> มันค้างอยู่บนโต๊ะจนจบ งั้นทั้งช่วงก็เหลือปัญหาเดิมที่สั้นลงหนึ่งใบ คือ <code>[i+1..j]</code></li>
+    <li>
+      <strong>มันถูกยกไปพร้อมกับจานใบที่ <code>k</code></strong> สักใบที่อยู่ทางขวา ซึ่งจะเกิดขึ้นได้ต้องครบสองเงื่อนไข
+      คือ<strong>ขนาดต่างกันไม่เกิน 1</strong> และ<strong>ของที่ขวางอยู่ตรงกลางต้องถูกยกออกจนเกลี้ยง</strong> สองใบนี้ถึงจะได้มาชิดกัน
+    </li>
+  </ul>
+
+  <p>
+    เงื่อนไขข้อหลังคือหัวใจของทั้งเรื่อง และเป็นจุดที่คนพลาดบ่อยที่สุด <strong>"เกลี้ยง" ต้องแปลว่าเกลี้ยงจริง ๆ</strong>
+    ไม่ใช่ยกออกได้เยอะ ๆ แต่ยังเหลือสักใบ เพราะถ้าเหลือแม้ใบเดียวคาอยู่ตรงกลาง จานสองใบนั้นก็ไม่มีวันได้ชิดกัน
+  </p>
+
+  <ZoomableDiagram caption="ตัวซ้ายสุดถูกบังคับให้เลือกทางใดทางหนึ่งใน 2 ทางเสมอ และเมื่อมันเลือกจับคู่กับใบที่ k ช่วงจะขาดออกเป็นสองก้อนที่ไม่ยุ่งกันอีกเลย ปัญหาใหญ่จึงกลายเป็นผลรวมของปัญหาย่อยที่หน้าตาเหมือนเดิมทุกประการ และเพราะปัญหาย่อยทั้งคู่สั้นกว่าเดิมเสมอ การไล่ตามความยาวจึงไม่มีวันวนกลับมาหาตัวเอง (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 526 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพอธิบายสองทางเลือกของจานซ้ายสุด ทางแรกคือทิ้งไว้แล้วเหลือช่วงที่สั้นลงหนึ่งช่อง ทางที่สองคือจับคู่กับจานใบที่ k ทำให้ช่วงแตกเป็นสองก้อนคือก้อนกลางที่ต้องเกลี้ยง กับก้อนขวาที่คิดต่อได้อิสระ">
+      <text x="14" y="20" fill="#9aa7bd" font-size="12" font-weight="700">ทางที่ 1: ทิ้งใบที่ i ไว้บนโต๊ะ</text>
+      <g font-family="monospace" font-size="12">
+        <rect x="14" y="30" width="46" height="30" rx="6" fill="#3a3018" stroke="#e0b400" stroke-width="2"/><text x="37" y="50" fill="#ffd970" text-anchor="middle">i</text>
+        <rect x="64" y="30" width="300" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="214" y="50" fill="#9aa7bd" text-anchor="middle">keep[i+1][j]</text>
+      </g>
+      <text x="380" y="50" fill="#7b8397" font-size="11">ปัญหาเดิม สั้นลงหนึ่งช่อง</text>
+
+      <line x1="14" y1="82" x2="512" y2="82" stroke="#2a3350" stroke-dasharray="4 4"/>
+
+      <text x="14" y="108" fill="#9aa7bd" font-size="12" font-weight="700">ทางที่ 2: ใบที่ i จับคู่กับใบที่ k</text>
+      <g font-family="monospace" font-size="12">
+        <rect x="14" y="150" width="46" height="30" rx="6" fill="#3a3018" stroke="#e0b400" stroke-width="2"/><text x="37" y="170" fill="#ffd970" text-anchor="middle">i</text>
+        <rect x="64" y="150" width="190" height="30" rx="6" fill="#123024" stroke="#4ade80" stroke-width="2"/><text x="159" y="170" fill="#b6f5cd" text-anchor="middle">ต้องเกลี้ยงทั้งก้อน</text>
+        <rect x="258" y="150" width="46" height="30" rx="6" fill="#3a3018" stroke="#e0b400" stroke-width="2"/><text x="281" y="170" fill="#ffd970" text-anchor="middle">k</text>
+        <rect x="308" y="150" width="200" height="30" rx="6" fill="#1c2536" stroke="#2a3350"/><text x="408" y="170" fill="#9aa7bd" text-anchor="middle">keep[k+1][j]</text>
+      </g>
+      <path d="M37 150 C 37 132, 281 132, 281 150" fill="none" stroke="#e0b400" stroke-width="1.8"/>
+      <text x="159" y="128" fill="#e0b400" font-size="11" text-anchor="middle">ขนาดต่างกันไม่เกิน 1</text>
+      <text x="64" y="200" fill="#4ade80" font-size="11">ถ้าเหลือค้างแม้ใบเดียว สองเสาสีทองก็ไม่มีวันได้ชิดกัน</text>
+      <text x="308" y="200" fill="#7b8397" font-size="11">ก้อนขวาคิดต่อได้อิสระ ไม่ยุ่งกับก้อนซ้ายอีกเลย</text>
+
+    </svg>
+  </ZoomableDiagram>
+
+  <p>เขียนสองทางนั้นเป็นสมการได้แบบนี้ โดยที่ <code>k</code> ไล่ทุกตำแหน่งทางขวาที่เข้าเงื่อนไข</p>
+
+  <Fragment set:html={recurrenceTex} />
+
+  <p>
+    อ่านสูตรนี้ให้ออกต้องยึดหลักเดียว ทุกช่องในตารางตัดสินชะตาของ<strong>จานซ้ายสุดของช่วงเท่านั้น</strong>
+    คือใบที่ <code>i</code> ส่วนปลายขวา <code>j</code> ไม่ขยับเลยทั้งสองบรรทัด มันแค่บอกว่าตอนนี้เรามองโต๊ะแค่ถึงตรงไหน
+    พอตัดสินใบที่ <code>i</code> เสร็จ ที่เหลือก็โยนต่อให้ช่องที่สั้นกว่าไปคิดแทน
+  </p>
+
+  <ul>
+    <li>
+      <strong>บรรทัดบน คือปล่อยใบที่ <code>i</code> ค้างไว้</strong> ของที่เหลือคือช่วง <code>[i+1..j]</code>
+      ซึ่งหน้าตาเหมือนโจทย์เดิมทุกอย่าง แค่สั้นลงหนึ่งช่อง ยอดที่ยกได้จึงเท่ากับ <code>keep[i+1][j]</code> ตรง ๆ
+      ไม่มีของแถมเพิ่ม และท่านี้ใช้ได้เสมอ เพราะการไม่ทำอะไรไม่ต้องขออนุญาตใคร
+    </li>
+    <li>
+      <strong>บรรทัดล่าง คือจับใบที่ <code>i</code> ไปคู่กับใบที่ <code>k</code> ทางขวา</strong>
+      คู่นี้จะเกิดได้ก็ต่อเมื่อของที่ขวางอยู่ตรงกลางถูกยกออกจนเกลี้ยงไปก่อน
+      และของตรงกลางที่หายไปนั้น<strong>นับเป็นผลงานของท่านี้ด้วย</strong> ยอดจึงเป็น <code>k−i+1</code>
+      คือทั้งช่วง <code>[i..k]</code> ส่วนที่ยังเหลือคือ <code>[k+1..j]</code> ซึ่งคิดต่อได้อิสระ
+      เพราะเสาสองต้นที่เพิ่งปักลงไปตัดมันขาดจากก้อนซ้ายแล้ว
+    </li>
+  </ul>
+
+  <p>
+    ตัว <code>k</code> ที่ห้อยอยู่ใต้ <code>max</code> แปลว่าเราลองทุกคู่ที่เป็นไปได้แล้วเก็บอันที่ดีที่สุดไว้
+    ไม่ใช่ตัวแปรที่ใครกำหนดมาให้ และเพราะทั้งสองบรรทัดวิ่งไปหาช่วงที่<strong>สั้นกว่าตัวเองเสมอ</strong>
+    ตารางนี้จึงเติมได้โดยไม่มีวันวนกลับมาถามหาช่องที่ยังว่างอยู่
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>RECURRENCE · keep[i][j] มาจากไหนได้บ้าง</caption>
+      <thead>
+        <tr><th>ชะตาของจานใบที่ i</th><th>ค่าที่ได้</th><th>ใช้ท่านี้ได้เมื่อ</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>ไม่ถูกยก</strong> ค้างบนโต๊ะจนจบ</td>
+          <td><code>keep[i+1][j]</code></td>
+          <td>ใช้ได้เสมอ</td>
+        </tr>
+        <tr>
+          <td><strong>ถูกยกคู่กับใบที่ k</strong></td>
+          <td><code>(k−i+1) + keep[k+1][j]</code></td>
+          <td><code>|a[i] − a[k]| ≤ 1</code> และช่วง <code>[i+1..k−1]</code> ยกออกได้เกลี้ยง</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ที่บรรทัดล่างได้ <code>k−i+1</code> ใบ ไม่ใช่แค่ 2 ใบ เพราะมันนับรวมของตรงกลางที่ถูกยกออกไปจนเกลี้ยงแล้วด้วย
+      ตัวเลขนี้จึงเท่ากับความยาวของช่วง <code>[i..k]</code> พอดี
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับ: "เกลี้ยงไหม" ไม่ต้องมีตารางของตัวเอง</p>
+    <p>
+      หลายคนสร้างตารางที่สองชื่อ <code>full[i][j]</code> เก็บว่าช่วงนั้นยกออกได้หมดไหม ซึ่งก็ถูก
+      แต่ในโจทย์ที่<strong>เป้าหมายคือยกออกให้ได้มากที่สุด</strong> เราได้ของชิ้นนั้นมาฟรีอยู่แล้ว
+      เพราะ "ยกออกได้เกลี้ยง" ก็คือ <code>keep[i][j]</code> เท่ากับความยาวของช่วงพอดี
+      เก็บตารางเดียวจึงพอ ระวังไว้อย่างเดียวคือถ้าวันไหนเป้าหมายเปลี่ยนเป็น<strong>แต้มสูงสุด</strong>
+      แทนที่จะเป็นจำนวนชิ้น ทางลัดนี้จะใช้ไม่ได้ทันที เพราะทางที่ให้แต้มสูงสุดไม่จำเป็นต้องเป็นทางที่ยกออกได้เยอะสุด
+      (เดี๋ยวเจอของจริงในโจทย์ฝึกข้อ 3)
+    </p>
+  </div>
+
+  <h3>ทำไมต้องวนตามความยาว ไม่ใช่วนตามตำแหน่ง</h3>
+
+  <p>
+    สังเกตว่าช่องหนึ่ง ๆ ไปขอค่าจากช่อง <code>[i+1..j]</code>, <code>[i+1..k−1]</code> และ <code>[k+1..j]</code>
+    ซึ่ง<strong>สั้นกว่าตัวมันเองเสมอ</strong> ถ้าเราวนตามตำแหน่ง <code>i</code> จากซ้ายไปขวาแบบที่ชินมือ
+    เราจะไปขอค่าจากช่องที่ยังว่างอยู่ ทางที่ถูกจึงเป็นการ<strong>ไล่ตามความยาวช่วง</strong>
+    ทำช่วงยาว 2 ให้ครบทุกตำแหน่งก่อน แล้วค่อยขยับไปยาว 3 ยาว 4 ไปเรื่อย ๆ ตอนถึงช่วงยาว <code>L</code>
+    ทุกช่วงที่สั้นกว่า <code>L</code> เสร็จหมดแล้วแน่นอน
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับที่ใช้ได้กับข้ออื่นด้วย</p>
+    <p>
+      กฎข้อเดียวที่ต้องท่องคือ <strong>ลำดับการเติมตารางต้องเรียงตามสิ่งที่ทำให้ปัญหาเล็กลง</strong>
+      ใน DP บนแถวทั่วไป สิ่งนั้นคือตำแหน่ง เราจึงวนตามตำแหน่ง ใน DP บนช่วง สิ่งนั้นคือความยาวช่วง เราจึงวนตามความยาว
+      ถ้าเขียน DP แล้วได้คำตอบเป็น 0 หรือค่าเริ่มต้นแปลก ๆ ให้กลับมาดูจุดนี้ก่อนเสมอ
+      เก้าในสิบครั้งคือกำลังอ่านช่องที่ยังไม่ได้เติม
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>เดินตารางให้ดูจริง ทีละช่อง</h2>
+
+  <p>
+    เอาแถว <code>{demo.join(' ')}</code> เมื่อกี้มาเติมตารางจริง แถวของตารางคือ <code>i</code> (ปลายซ้ายของช่วง)
+    คอลัมน์คือ <code>j</code> (ปลายขวา) ช่องที่ <code>i</code> มากกว่า <code>j</code> ไม่มีความหมาย เลยเว้นว่างไว้
+    กดเดินทีละขั้นได้ ตารางจะค่อย ๆ เต็มจากเส้นทแยงมุมออกไปทางขวาบน พร้อมบอกว่าช่องนั้นเลือกทางไหนและทำไม
+  </p>
+
+  <div class="dpsim" data-ivsim data-steps={JSON.stringify(simSteps)}>
+    <div class="dps-bar">
+      <div class="dps-btns">
+        <button type="button" class="dps-b" data-act="first" aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+        <button type="button" class="dps-b" data-act="prev" aria-label="ขั้นก่อนหน้า">ย้อน</button>
+        <button type="button" class="dps-b dps-play" data-act="play" aria-label="เล่นอัตโนมัติ">เล่น</button>
+        <button type="button" class="dps-b" data-act="next" aria-label="ขั้นถัดไป">ถัดไป</button>
+        <button type="button" class="dps-b" data-act="last" aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+      </div>
+      <label class="dps-seek">
+        <span class="dps-count">ขั้น 0</span>
+        <input type="range" class="dps-range" min="0" value="0" step="1" aria-label="เลื่อนไปขั้นที่ต้องการ" />
+      </label>
+    </div>
+
+    <div class="dps-scroll">
+      <table class="rec ivgrid">
+        <caption>KEEP TABLE · แถวจาน {demo.join(' ')}</caption>
+        <thead>
+          <tr>
+            <th>ช่วง</th>
+            {demo.map((v, j) => <th class="num">j = {j}<span class="ivh">ขนาด {v}</span></th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {demo.map((v, i) => (
+            <tr>
+              <td class="rowlab"><span class="rowlab-t">i = {i} · ขนาด {v}</span></td>
+              {demo.map((_, j) => (
+                j < i
+                  ? <td class="num ivdead" data-i={i} data-j={j}></td>
+                  : <td class="num" data-i={i} data-j={j}></td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="dps-say" aria-live="polite"></div>
+
+    <p class="dps-cap">
+      สีทองคือช่องที่กำลังเติม สีเขียวคือช่องที่มันหยิบค่ามาใช้จริง สีจางคือช่องที่ถูกพิจารณาแต่แพ้อีกทางหนึ่ง
+    </p>
+  </div>
+
+  <p>
+    จุดที่น่าดูที่สุดคือตอนเติมช่อง <code>keep[0][3]</code> ซึ่งเป็นช่วง <code>{demo.slice(0, 4).join(' ')}</code>
+    ที่นั่นจานใบแรกเลือกจับคู่กับใบที่ 4 ได้ เพราะช่วงตรงกลาง <code>[1..2]</code> มีค่าในตารางเป็น {keep[1][2]}
+    ซึ่งเท่ากับความยาวของมันพอดี แปลว่าเกลี้ยง นี่คือช่องที่เก็บ "ความรู้" ว่าตรงกลางหายหมดแล้ว
+    ซึ่งเป็นความรู้ที่ <code>dp[i]</code> ไม่มีที่เก็บ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>เขียนเป็นโค้ด</h2>
+
+  <p>
+    แปลสูตรลงโค้ดได้ตรง ๆ ลูปนอกสุดคือความยาว ลูปกลางคือจุดเริ่มของช่วง ลูปในสุดคือคู่ที่จะจับ
+    ส่วน <code>K</code> กับ <code>cleared</code> เป็นแค่ตัวห่อไว้กันช่วงว่างเล็ดลอดออกนอกตาราง
+  </p>
+
+  <CodeBlock code={mainCode} lang="cpp" title="เก็บจานบนโต๊ะ · DP บนช่วง" />
+
+  <p>
+    นับงานดู ตารางมีช่องที่ใช้จริง <code>n(n+1)/2</code> ช่อง แต่ละช่องไล่ <code>k</code> ได้ถึง <code>n</code> ครั้ง
+    รวมเป็น <strong>O(n³)</strong> เวลา และ <strong>O(n²)</strong> หน่วยความจำ ที่ <code>n = {num(N_SMALL)}</code>
+    คือราว {num(ops(N_SMALL))} ครั้ง ซึ่งสบายมาก แต่ที่ <code>n = {num(N_BIG)}</code> จะพุ่งเป็น {num(ops(N_BIG))} ครั้ง
+    และตารางกินช่องถึง {num(cells(N_BIG))} ช่อง ตรงนี้แหละที่ทำให้ DP บนช่วงมีเพดานของมัน
+    <strong>ถ้าโจทย์ให้ <code>n</code> ระดับหลักพันขึ้นไป แปลว่าเขาไม่ได้ตั้งใจให้ใช้ท่านี้</strong>
+    ต้องมองหามุมอื่นที่ยุบมิติทิ้งได้ ซึ่งเป็นเรื่องของบทถัดไป
+  </p>
+
+  <details class="expander">
+    <summary>ตัวตรวจแบบซื่อ ๆ และนิสัยที่ควรติดตัว</summary>
+    <div class="expander-body">
+      <p>
+        DP บนช่วงเป็นท่าที่<strong>ผิดแล้วยังดูเหมือนถูก</strong> ได้ง่ายมาก เพราะมันตอบเลขออกมาเสมอ
+        และเลขนั้นก็มักจะดูสมเหตุสมผล วิธีเดียวที่ผมเชื่อโค้ดตัวเองได้คือเขียนตัวไล่ทุกความเป็นไปได้ขึ้นมาอีกตัว
+        แล้วสุ่มแถวเล็ก ๆ ยิงใส่ทั้งสองตัวสักสองสามร้อยรอบ ถ้าตอบไม่ตรงกันแม้ครั้งเดียวคือมีอะไรผิด
+      </p>
+      <CodeBlock code={bruteCode} lang="cpp" title="brute force · ไว้เทียบเท่านั้น" />
+      <p>
+        โค้ดในหน้านี้ทุกก้อนผ่านการเทียบแบบนั้นมาแล้วก่อนจะเอาลงบทความ
+        ข้อดีอีกอย่างของการมีตัวตรวจคือ<strong>มันช่วยตอบคำถามว่าเราเข้าใจโจทย์ตรงกับที่คิดไหม</strong>
+        หลายครั้งที่สองตัวตอบไม่ตรงกัน ตัวที่ผิดคือตัวตรวจ เพราะเราอ่านกติกาผิดตั้งแต่แรก
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+
+  <p>
+    สามข้อนี้เรียงมาให้ตอบคนละคำถาม ข้อแรกถามว่า "ต้องใช้ DP บนช่วงจริงหรือเปล่า"
+    ข้อสองถามว่า "ท่านี้ใช้กับอย่างอื่นที่ไม่ใช่การลบได้ไหม" ข้อสามถามว่า "ถ้าเปลี่ยนสิ่งที่วัด จะพังตรงไหน"
+    ลองคิดเองก่อนแล้วค่อยแตะเพื่อดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · แถวที่ลบคู่ฝาแฝด</h3>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      แถวของเลข <code>n</code> ตัว ยกสองตัวที่<strong>ติดกันและมีค่าเท่ากันเป๊ะ</strong>ออกได้ ช่องปิดเหมือนเดิม
+      ทำซ้ำได้เรื่อย ๆ ถามว่าเหลือน้อยที่สุดกี่ตัว โดยที่ <code>n</code> ใหญ่ได้ถึง 200 000
+    </p>
+  </div>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      <code>n</code> ระดับสองแสนตัดทาง <code>O(n³)</code> และ <code>O(n²)</code> ทิ้งไปหมดแล้ว
+      แปลว่าโจทย์กำลังบอกว่าข้อนี้ไม่ต้องใช้ตารางเลย ลองถามตัวเองว่ากติกา "เท่ากันเป๊ะ" ต่างจาก "ต่างกันไม่เกิน 1" ตรงไหน
+    </p>
+  </div>
+
+  <Spoiler>
+    <p>
+      ความต่างอยู่ที่ว่า <strong>"เท่ากัน" เป็นความสัมพันธ์ที่ไม่มีทางเลือก</strong> เลข 5 จับคู่ได้กับ 5 เท่านั้น
+      ส่วน "ต่างกันไม่เกิน 1" ทำให้เลข 5 จับคู่ได้กับทั้ง 4, 5 และ 6 ซึ่งเป็นที่มาของการต้อง<strong>เลือก</strong>
+      และเมื่อไม่มีอะไรให้เลือก ลำดับการยกก็ไม่มีผลกับผลลัพธ์สุดท้าย ไม่ว่าจะยกคู่ไหนก่อน
+      สุดท้ายจะเหลือแถวหน้าตาเดียวกันเสมอ
+    </p>
+    <p>
+      พอลำดับไม่มีผล ก็กวาดครั้งเดียวจบด้วยกองซ้อน (stack) เจอตัวใหม่ที่เท่ากับตัวบนสุดของกองเมื่อไร ก็หายไปทั้งคู่
+      ที่เหลือค้างในกองตอนจบคือคำตอบ ทำงาน <strong>O(n)</strong>
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · กองซ้อน" />
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        อย่าเอาบทเรียนนี้ไปใช้ผิดที่ กติกา "ต่างกันไม่เกิน 1" ของโจทย์ประจำบทหน้าตาคล้ายกันมาก
+        แต่กองซ้อนตอบผิดทันที ลองแถว <code>{gameRows[1].plates.join(' ')}</code> ดู กองซ้อนจะรีบยกคู่หน้าไป
+        แล้วเหลือ {gameRows[1].greedyLeft} ใบ ทั้งที่เก็บได้เกลี้ยง
+        <strong>ก่อนจะเชื่อกองซ้อน ต้องเช็คก่อนเสมอว่าการจับคู่มีทางเลือกหรือไม่</strong>
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · เติมวงเล็บให้ครบ</h3>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้สตริงที่มีแต่ <code>(</code> กับ <code>)</code> ยาว <code>n</code> ตัว
+      คุณเติมวงเล็บแทรกตรงไหนก็ได้ ถามว่าต้องเติมอย่างน้อยกี่ตัวสตริงถึงจะ<strong>ถูกกติกา</strong>
+      คือทุกตัวเปิดมีตัวปิดของตัวเอง และไม่มีตัวปิดตัวไหนโผล่มาก่อนตัวเปิดของมัน
+      เช่น <code>())(</code> ต้องเติม 2 ตัว
+    </p>
+  </div>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ข้อนี้ไม่มีการลบอะไรเลย แต่ลองถามคำถามเดิมของบทนี้ดู คือ<strong>ตัวซ้ายสุดของช่วงจะไปคู่กับใคร</strong>
+      แล้วจะเห็นว่าโครงเดียวกันเป๊ะ
+    </p>
+  </div>
+
+  <Spoiler>
+    <p>
+      ให้ <code>f[i][j]</code> คือจำนวนตัวที่ต้องเติมน้อยที่สุด เพื่อให้ช่วง <code>[i..j]</code> ถูกกติกา
+      ช่วงยาวหนึ่งตัวต้องเติมคู่ให้มันเสมอ จึงเป็น 1 ส่วนช่วงที่ยาวกว่านั้นมีสองทาง
+    </p>
+    <ul>
+      <li>ถ้าหัวเป็น <code>(</code> และท้ายเป็น <code>)</code> ให้สองตัวนี้จับคู่กันเลย เหลือปัญหาตรงกลาง <code>f[i+1][j−1]</code></li>
+      <li>หรือผ่าช่วงเป็นสองท่อนที่จุด <code>k</code> แล้วบวกกัน <code>f[i][k] + f[k+1][j]</code></li>
+    </ul>
+    <p>
+      ท่าผ่าครึ่งนี้คือของที่ DP บนช่วงมีติดตัวมาตลอด และเป็นเหตุผลที่ต้องมีมันคู่กับท่าจับคู่หัวท้าย
+      เพราะสตริงอย่าง <code>()()</code> หัวกับท้ายจับคู่กันไม่ได้ (ท้ายเป็น <code>)</code> ก็จริง แต่จับคู่แล้วตรงกลางเสีย)
+      ต้องอาศัยการผ่าเท่านั้น ทั้งหมดเป็น <strong>O(n³)</strong>
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · ท่ามาตรฐาน" />
+    <p>
+      แล้วถ้า <code>n</code> เป็นล้านล่ะ ตารางสองมิติสร้างไม่ไหวแน่ ๆ ตรงนี้คือจุดที่ต้องกลับไปมองโจทย์ใหม่
+      แทนที่จะถามว่า "ช่วงนี้ต้องเติมกี่ตัว" ให้เดินจากซ้ายไปขวาแล้วถามว่า<strong>ตอนนี้มีตัวเปิดค้างอยู่กี่ตัว</strong>
+      เจอ <code>(</code> ก็บวกหนึ่ง เจอ <code>)</code> ก็เอาไปปิดตัวที่ค้างอยู่ ถ้าไม่มีให้ปิดแปลว่าต้องเติมตัวเปิดข้างหน้ามัน
+      พอจบแถว ตัวเปิดที่ยังค้างก็ต้องเติมตัวปิดให้ทุกตัว
+    </p>
+    <CodeBlock code={q2FastCode} lang="cpp" title="ฝึกข้อ 2 · ท่าตัวนับ" />
+    <p>
+      ผมเอาสองท่านี้มายิงเทียบกันด้วยสตริงวงเล็บ<strong>ทุกแบบ</strong>ที่ยาวไม่เกิน 11 ตัว รวม 4 094 สตริง ตอบตรงกันหมด
+      การยุบจากตารางสองมิติเหลือตัวนับตัวเดียวแบบนี้คือหัวใจของข้อ
+      <a href="/cp/pick-books/">หยิบหนังสือ</a> ซึ่งเป็นข้อถัดไปในคลังนี้ ถ้าอ่านบทนี้จบแล้วข้อนั้นจะอ่านสนุกขึ้นเยอะ
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · เปลี่ยนสิ่งที่วัด</h3>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      กติกาเดิมกับโจทย์ประจำบททุกอย่าง คือยกจานสองใบที่ติดกันและขนาดต่างกันไม่เกิน 1
+      แต่คราวนี้คุณได้<strong>แต้มเท่ากับผลรวมขนาดของจานที่ยกออก</strong> และอยากได้แต้มมากที่สุด
+      ไม่ได้สนใจแล้วว่าจะเหลือกี่ใบ
+    </p>
+  </div>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      โครงของสูตรไม่เปลี่ยนเลย เปลี่ยนแค่ว่าช่องในตารางเก็บอะไร แต่มีทางลัดหนึ่งอันในโจทย์ประจำบทที่<strong>พังทันที</strong>
+      ลองหาให้เจอว่าอันไหน
+    </p>
+  </div>
+
+  <Spoiler>
+    <p>
+      ทางลัดที่พังคือการอ่านว่า "ช่วงนี้เกลี้ยงไหม" จากตารางคำตอบ ในโจทย์ประจำบท เราดูได้จาก
+      <code>keep[i][j]</code> เท่ากับความยาวช่วงพอดีหรือไม่ เพราะสิ่งที่เราวัดคือ<strong>จำนวนใบ</strong>ตรง ๆ
+      แต่พอเปลี่ยนมาวัดแต้ม ช่องในตารางจะเก็บ<strong>แต้มสูงสุด</strong> ซึ่งอาจมาจากทางที่ยกออกไปน้อยใบกว่าก็ได้
+      ตารางแต้มจึงตอบคำถามเรื่อง "เกลี้ยงไหม" ไม่ได้อีกต่อไป
+    </p>
+    <p>
+      ทางแก้คือแยกเป็นสองตารางตรง ๆ <code>full[i][j]</code> เก็บว่าเกลี้ยงได้ไหมแบบไม่สนแต้ม
+      และ <code>val[i][j]</code> เก็บแต้มสูงสุด ตัวแรกใช้ตัดสินว่าคู่ไหนจับกันได้ ตัวหลังใช้สะสมคำตอบ
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · สองตาราง" />
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        กับดักที่เนียนกว่านั้นคือการพยายามเก็บสองอย่างไว้ในตารางเดียว เช่นเก็บคู่ (แต้ม, จำนวนใบ)
+        แล้วเทียบแต้มก่อนค่อยเทียบจำนวนใบ ท่านี้<strong>ดูสมเหตุสมผลและผ่านการทดสอบแบบสุ่มไปได้เยอะมาก</strong>
+        แต่มันผิดโดยหลักการ เพราะช่วงหนึ่ง ๆ อาจมีทางที่แต้มสูงแต่ไม่เกลี้ยง กับทางที่แต้มต่ำกว่าแต่เกลี้ยง
+        ซึ่งทั้งคู่จำเป็นต่อคำตอบสุดท้ายคนละแบบ เก็บได้ค่าเดียวเมื่อไรก็แปลว่าทิ้งอีกทางไปแล้ว
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+
+  <p>
+    พอโจทย์บอกว่า<strong>ลบแล้วช่องปิด</strong> ให้เลิกถามว่า "ทำอะไรที่ตำแหน่งนี้" แล้วเปลี่ยนไปถามว่า
+    <strong>"ช่วงนี้จัดการตัวเองจบแล้วเหลืออะไร"</strong> จับตัวซ้ายสุดของช่วงมาถามว่ามันจะไปคู่กับใคร
+    เติมตารางไล่ตามความยาวช่วงเสมอ แล้วอย่าลืมว่าเงื่อนไข "ตรงกลางต้องเกลี้ยง" คือสิ่งเดียวที่ทำให้ของสองชิ้นคนละมุมมาเจอกันได้
+  </p>
+
+  <p class="pull">
+    DP บนช่วงไม่ได้ยากที่สูตร มันยากที่การยอมเลิกมองแถวเป็นเส้นตรงที่เดินจากซ้ายไปขวา
+    แล้วหันมามองมันเป็นกล่องที่ซ้อนกันอยู่
+  </p>
+
+</CpProblemLayout>
+
+<style>
+  /* --------------------------------------------------------------
+     ตารางประกอบเนื้อหา (ยกแบบมาจากหน้าโจทย์ ให้หน้าตาเป็นชุดเดียวกัน)
+     -------------------------------------------------------------- */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* --------------------------------------------------------------
+     ตัวเล่นตาราง keep[i][j]
+     -------------------------------------------------------------- */
+  .dpsim{
+    margin:1.2rem 0 0.4rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    overflow:hidden;
+  }
+  .dps-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.7rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    padding:0.6rem 0.75rem;
+    background:#070c17;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .dps-btns{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .dps-b{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.75rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .dps-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .dps-b:disabled{opacity:0.4;cursor:default;}
+  .dps-play{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .dps-seek{display:flex;align-items:center;gap:0.5rem;flex:1 1 12rem;min-width:10rem;}
+  /* ตัวนับขั้นเป็น nowrap ถ้าปล่อยตามเนื้อหา พอเลขขยับจากหลักเดียวเป็นสองหลัก
+     max-content ของมันจะโตขึ้น แล้วดันการ์ดทั้งใบให้กว้างขึ้นกลางคัน จองที่ไว้เลยดีกว่า */
+  .dps-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    color:var(--dl-muted);
+    white-space:nowrap;
+    min-width:7rem;
+  }
+  .dps-range{flex:1 1 auto;min-width:6rem;accent-color:var(--dl-emerald-bright);cursor:pointer;}
+  .dps-scroll{overflow-x:auto;}
+  .dpsim table.rec{margin:0;}
+  .dpsim table.rec caption{border-radius:0;}
+  /* ล็อกความกว้างคอลัมน์ ไม่ให้เนื้อหาในช่อง (ตัวหนาตอนไฮไลต์ หรือช่องที่ยังว่าง)
+     ไปเปลี่ยนความกว้างของตารางระหว่างเดินขั้น */
+  /* ตารางต้องกว้างเท่าการ์ด ไม่ใช่หดตามคอลัมน์ ไม่งั้นเหลือแถบว่างขวาที่อ่านว่าตารางแหว่ง
+     ความกว้างการ์ดมาจากแถบปุ่มซึ่งนิ่งอยู่แล้ว table-layout:fixed จึงยังกันคอลัมน์ขยับทุกขั้นได้เหมือนเดิม
+     ใช้ width:0 + min-width:100% ไม่ใช่ width:100% เพราะการ์ดเป็น fit-content
+     ถ้าใช้ 100% ตารางจะส่ง max-content ของตัวเองเข้าไปคำนวณ แล้วการ์ดพองจาก 698 เป็น 1109 */
+  .dpsim table.ivgrid{width:0;min-width:100%;table-layout:fixed;}
+  .dpsim table.ivgrid td.rowlab{width:9rem;}
+  .dpsim table.ivgrid th.num, .dpsim table.ivgrid td.num{width:3.7rem;}
+
+  /* ป้ายหัวแถวเป็นภาษาไทย ซึ่งไม่มีช่องไฟ ถ้าปล่อยให้มันกำหนดความกว้างเอง
+     ตารางจะกว้างไม่เท่ากันทุกขั้น ใช้ span กว้าง 0 ที่ min-width เต็มช่องแทน */
+  .dpsim td.rowlab{
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.74rem;
+    color:var(--dl-muted);
+    width:9rem;
+    white-space:normal;
+  }
+  .dpsim td.rowlab .rowlab-t{
+    display:block;
+    width:0;
+    min-width:100%;
+    overflow-wrap:anywhere;
+  }
+  .ivh{
+    display:block;
+    font-size:0.6rem;
+    color:#7b8397;
+    letter-spacing:0;
+    text-transform:none;
+    font-weight:400;
+  }
+  /* ทุกกฎไฮไลต์ต้องมี .num ต่อท้าย ไม่ใช่แค่ .is-xxx เพราะ table.rec td.num
+     ตั้ง color ไว้ด้วยความเจาะจง (0,4,2) ซึ่งชนะ .dpsim td.is-target (0,4,1) */
+  .dpsim td.num{transition:background .15s ease, color .15s ease;min-width:3.2rem;}
+  .dpsim td.num.ivdead{background:#080d18;}
+  .dpsim td.num.is-src{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .dpsim td.num.is-weak{background:rgba(120,130,150,0.2);color:#c2cadb;}
+  .dpsim td.num.is-target{
+    background:var(--dl-gold);
+    color:#0b1220;
+    font-weight:700;
+    box-shadow:inset 0 0 0 2px #fff3c4;
+  }
+  .dpsim td.num.is-answer{
+    background:var(--dl-emerald-bright);
+    color:#0b1220;
+    font-weight:700;
+    box-shadow:inset 0 0 0 2px #d7ffe9;
+  }
+
+  /* แผงคำอธิบาย ไทยไม่มีช่องไฟ ถ้าปล่อยให้มันดันความกว้าง การ์ดจะขยับทุกขั้น */
+  .dps-say{
+    width:0;
+    min-width:100%;
+    padding:0.7rem 0.85rem 0.85rem;
+    border-top:1px solid var(--dl-border);
+    background:#070c17;
+    font-size:0.82rem;
+    line-height:1.65;
+  }
+  /* คำบรรยายของตัวเล่นต้องอยู่ในการ์ดเดียวกับสิ่งที่มันอธิบาย ถ้าปล่อยเป็น p นอกการ์ด
+     มันจะกว้างเท่าคอลัมน์บทความ (1032) ขณะที่ตัวเล่นกว้าง 698 แล้วลอยเลยข้างละ 167px */
+  .dps-cap{
+    width:0;
+    min-width:100%;
+    margin:0;
+    padding:0.6rem 0.85rem 0.7rem;
+    border-top:1px solid var(--dl-border);
+    background:#050a13;
+    text-align:center;
+    font-size:0.78rem;
+    line-height:1.6;
+    color:var(--dl-muted);
+  }
+  .dps-say :global(.dps-q){margin:0 0 0.45rem;color:var(--dl-ink);}
+  .dps-say :global(.dps-a){margin:0.5rem 0 0;color:var(--dl-emerald-bright);}
+  .dps-say :global(.dps-cands){margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:0.25rem;}
+  .dps-say :global(.dps-cands li){color:var(--dl-muted);}
+  .dps-say :global(.dps-cands li.ok){color:#cdd6ea;}
+  .dps-say :global(.dps-cands li.win){color:var(--dl-emerald-bright);}
+  .dps-say :global(b){color:var(--dl-gold);}
+
+  /* --------------------------------------------------------------
+     มินิเกมโต๊ะจาน
+     -------------------------------------------------------------- */
+  .plategame{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:12px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    overflow:hidden;
+  }
+  .pg-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.6rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    padding:0.6rem 0.75rem;
+    background:#070c17;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .pg-rows, .pg-acts{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .pg-row, .pg-act{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.8rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .pg-row:hover, .pg-act:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .pg-row.is-on{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .pg-act:disabled{opacity:0.4;cursor:default;}
+  .pg-body{
+    display:flex;
+    flex-wrap:wrap;
+    gap:1rem;
+    align-items:flex-start;
+    padding:1rem 0.9rem;
+  }
+  .pg-table{
+    list-style:none;
+    margin:0;
+    padding:0.55rem 0.6rem;
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.4rem;
+    align-items:flex-end;
+    /* 28rem = แถวยาวสุด (8 ใบ) พอดีในบรรทัดเดียว ถ้าน้อยกว่านี้แถว C จะตกบรรทัด
+       แล้วการ์ดสูงขึ้นเฉพาะแถวนั้น */
+    flex:1 1 28rem;
+    min-height:5.5rem;
+    background:#111827;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+  }
+  .pg-table :global(li){margin:0;}
+  .pg-table :global(.pg-plate){
+    font:inherit;
+    cursor:pointer;
+    width:3rem;
+    padding:0.4rem 0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:0.1rem;
+    border-radius:10px;
+    border:1px solid var(--dl-border);
+    background:#1c2536;
+    color:var(--dl-ink);
+    transition:transform .14s ease, border-color .14s ease, background .14s ease, opacity .2s ease;
+  }
+  .pg-table :global(.pg-plate:hover){border-color:var(--dl-emerald);transform:translateY(-2px);}
+  .pg-table :global(.pg-size){font-weight:700;font-family:"Fira Code","Fira Mono",monospace;}
+  .pg-table :global(.pg-idx){font-size:0.62rem;color:#7b8397;font-family:"JetBrains Mono", monospace;}
+  .pg-table :global(.pg-plate.is-picked){
+    border-color:var(--dl-gold);
+    background:#3a3018;
+    transform:translateY(-4px);
+  }
+  .pg-table :global(.pg-plate.is-ready){border-color:var(--dl-emerald-bright);}
+  .pg-table :global(.pg-plate.is-gone){opacity:0;transform:translateY(-14px) scale(0.85);pointer-events:none;}
+  .pg-hud{flex:0 1 12rem;min-width:9rem;}
+  .pg-stat{
+    display:flex;
+    justify-content:space-between;
+    gap:0.6rem;
+    margin:0 0 0.35rem;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+  }
+  .pg-stat strong{font-family:"Fira Code","Fira Mono",monospace;color:var(--dl-ink);}
+  .pg-stat strong.pg-goal{color:var(--dl-emerald-bright);}
+  .pg-log{
+    width:0;
+    min-width:100%;
+    margin:0.6rem 0 0;
+    font-size:0.76rem;
+    line-height:1.6;
+    color:var(--dl-muted);
+  }
+  .pg-log :global(.pg-win){color:var(--dl-emerald-bright);font-weight:700;}
+  .pg-log :global(.pg-no){color:#e0b400;}
+  .plategame figcaption{
+    text-align:center;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+
+  .ns-cue{color:var(--dl-emerald-bright);font-size:0.86rem;}
+  /* margin ย่อที่มี 0 สองข้างจะทับ margin-left/right:auto ของกฎจัดกลาง 46rem ในเลย์เอาต์
+     เคยทำให้ก้อนนี้เยื้องซ้ายจากย่อหน้าข้างบน 98px */
+  p.pull{
+    margin:1.4rem auto;
+    padding:0.85rem 1.1rem;
+    border-left:3px solid var(--dl-emerald);
+    background:rgba(47,158,92,0.07);
+    border-radius:0 10px 10px 0;
+    font-size:0.95rem;
+    line-height:1.75;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .dpsim td.num,
+    .pg-table :global(.pg-plate){transition:none;}
+    .pg-table :global(.pg-plate.is-gone){opacity:0;transform:none;}
+  }
+</style>
+
+<script>
+  /* ---------------- ตัวเล่นตาราง keep[i][j] ---------------- */
+  type Src = { i: number; j: number; ok: boolean };
+  type SimStep = {
+    cells: (string | null)[][];
+    ti: number;
+    tj: number;
+    srcs: Src[];
+    html: string;
+  };
+
+  const STEP_MS = 1500;
+
+  function initIvSim(root: HTMLElement): void {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const raw: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    const steps = raw as SimStep[];
+
+    const say = root.querySelector<HTMLElement>('.dps-say');
+    const range = root.querySelector<HTMLInputElement>('.dps-range');
+    const count = root.querySelector<HTMLElement>('.dps-count');
+    const scroller = root.querySelector<HTMLElement>('.dps-scroll');
+    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
+    if (!say || !range || !count || !playBtn) return;
+
+    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
+    const cells = Array.from(root.querySelectorAll<HTMLTableCellElement>('td.num[data-i]'));
+    range.max = String(steps.length - 1);
+
+    let at = 0;
+    let timer: number | null = null;
+
+    const keepInView = (cell: HTMLElement | null): void => {
+      if (!cell || !scroller) return;
+      if (scroller.scrollWidth <= scroller.clientWidth) return;
+      const box = scroller.getBoundingClientRect();
+      const c = cell.getBoundingClientRect();
+      const pad = 16;
+      let delta = 0;
+      if (c.left < box.left + pad) delta = c.left - box.left - pad;
+      else if (c.right > box.right - pad) delta = c.right - box.right + pad;
+      if (delta !== 0) scroller.scrollLeft += delta;
+    };
+
+    const render = (): void => {
+      const st = steps[at];
+      const last = at === steps.length - 1;
+      let focus: HTMLElement | null = null;
+      const srcMap = new Map<string, boolean>();
+      for (const s of st.srcs) srcMap.set(`${s.i},${s.j}`, s.ok);
+
+      for (const cell of cells) {
+        const i = Number(cell.dataset.i);
+        const j = Number(cell.dataset.j);
+        if (j < i) {
+          cell.className = 'num ivdead';
+          cell.textContent = '';
+          continue;
+        }
+        cell.className = 'num';
+        cell.textContent = st.cells[i]?.[j] ?? '';
+        const src = srcMap.get(`${i},${j}`);
+        if (src === true) cell.classList.add('is-src');
+        else if (src === false) cell.classList.add('is-weak');
+        if (i === st.ti && j === st.tj) {
+          cell.classList.add(last ? 'is-answer' : 'is-target');
+          focus = cell;
+        }
+      }
+
+      say.innerHTML = st.html;
+      range.value = String(at);
+      count.textContent = `ขั้น ${at} / ${steps.length - 1}`;
+      for (const b of btns) {
+        const act = b.dataset.act;
+        if (act === 'prev' || act === 'first') b.disabled = at === 0;
+        if (act === 'next' || act === 'last') b.disabled = last;
+      }
+      keepInView(focus);
+    };
+
+    const stop = (): void => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+      playBtn.textContent = 'เล่น';
+    };
+
+    const go = (to: number): void => {
+      at = Math.max(0, Math.min(steps.length - 1, to));
+      if (at === steps.length - 1) stop();
+      render();
+    };
+
+    for (const b of btns) {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'play') {
+          if (timer !== null) {
+            stop();
+            return;
+          }
+          if (at === steps.length - 1) at = 0;
+          playBtn.textContent = 'หยุด';
+          timer = window.setInterval(() => go(at + 1), STEP_MS);
+          go(at + 1);
+          return;
+        }
+        stop();
+        if (act === 'first') go(0);
+        else if (act === 'prev') go(at - 1);
+        else if (act === 'next') go(at + 1);
+        else if (act === 'last') go(steps.length - 1);
+      });
+    }
+
+    range.addEventListener('input', () => {
+      stop();
+      go(Number(range.value));
+    });
+
+    root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') {
+        stop();
+        go(at + 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowLeft') {
+        stop();
+        go(at - 1);
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('astro:before-swap', stop, { once: true });
+    render();
+  }
+
+  /* ---------------- มินิเกมโต๊ะจาน ---------------- */
+  type GameRow = { name: string; plates: number[]; bestLeft: number; greedyLeft: number };
+
+  const ROWS: GameRow[] = [
+    { name: 'แถว A', plates: [3, 1, 4, 4, 1, 3], bestLeft: 0, greedyLeft: 0 },
+    { name: 'แถว B', plates: [1, 2, 3, 1], bestLeft: 0, greedyLeft: 2 },
+    { name: 'แถว C', plates: [1, 6, 2, 3, 3, 1, 6, 1], bestLeft: 0, greedyLeft: 6 },
+    { name: 'แถว D', plates: [2, 5, 3, 3, 6, 5, 2], bestLeft: 3, greedyLeft: 3 },
+  ];
+
+  function initPlateGame(root: HTMLElement): void {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const table = root.querySelector<HTMLElement>('[data-table]');
+    const leftOut = root.querySelector<HTMLElement>('[data-left]');
+    const bestOut = root.querySelector<HTMLElement>('[data-best]');
+    const movesOut = root.querySelector<HTMLElement>('[data-moves]');
+    const log = root.querySelector<HTMLElement>('[data-log]');
+    const undoBtn = root.querySelector<HTMLButtonElement>('[data-undo]');
+    const resetBtn = root.querySelector<HTMLButtonElement>('[data-reset]');
+    if (!table || !leftOut || !bestOut || !movesOut || !log || !undoBtn || !resetBtn) return;
+
+    const rowBtns = Array.from(root.querySelectorAll<HTMLButtonElement>('.pg-row'));
+
+    let rowAt = 0;
+    let plates: { size: number; id: number }[] = [];
+    let history: { size: number; id: number }[][] = [];
+    let picked: number | null = null;
+    let moves = 0;
+
+    const say = (html: string): void => {
+      log.innerHTML = html;
+    };
+
+    const paint = (): void => {
+      table.replaceChildren();
+      plates.forEach((p, idx) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'pg-plate';
+        if (picked === idx) btn.classList.add('is-picked');
+        else if (picked !== null && Math.abs(idx - picked) === 1 && Math.abs(plates[idx].size - plates[picked].size) <= 1) {
+          btn.classList.add('is-ready');
+        }
+        btn.setAttribute('aria-label', `จานใบที่ ${idx + 1} ขนาด ${p.size} นิ้ว`);
+        const size = document.createElement('span');
+        size.className = 'pg-size';
+        size.textContent = String(p.size);
+        const num = document.createElement('span');
+        num.className = 'pg-idx';
+        num.textContent = String(idx + 1);
+        btn.append(size, num);
+        btn.addEventListener('click', () => tap(idx));
+        li.append(btn);
+        table.append(li);
+      });
+      leftOut.textContent = String(plates.length);
+      movesOut.textContent = String(moves);
+      undoBtn.disabled = history.length === 0;
+    };
+
+    const finishCheck = (): void => {
+      const goal = ROWS[rowAt].bestLeft;
+      const anyLeft = plates.some((_, i) => i + 1 < plates.length && Math.abs(plates[i].size - plates[i + 1].size) <= 1);
+      if (plates.length === goal) {
+        say('<span class="pg-win">ถึงคำตอบที่ดีที่สุดแล้วครับ</span> ลองแถวอื่นต่อได้เลย');
+      } else if (!anyLeft) {
+        say(
+          `ตันแล้ว เหลือ <b>${plates.length}</b> ใบ แต่ที่ดีที่สุดคือ <b>${goal}</b> ใบ ` +
+            '<span class="pg-no">ลองย้อนกลับไปดูว่าคู่ไหนที่ไม่ควรรีบยก</span>',
+        );
+      }
+    };
+
+    const tap = (idx: number): void => {
+      if (picked === null) {
+        picked = idx;
+        say(`เลือกจานใบที่ ${idx + 1} (ขนาด ${plates[idx].size}) แล้ว กดใบที่อยู่ติดกันเพื่อยกทั้งคู่`);
+        paint();
+        return;
+      }
+      if (picked === idx) {
+        picked = null;
+        say('ยกเลิกการเลือกแล้ว');
+        paint();
+        return;
+      }
+      if (Math.abs(idx - picked) !== 1) {
+        picked = idx;
+        say(`สองใบนั้นไม่ได้อยู่ติดกัน เปลี่ยนไปเลือกใบที่ ${idx + 1} แทน`);
+        paint();
+        return;
+      }
+      const a = plates[Math.min(idx, picked)];
+      const b = plates[Math.max(idx, picked)];
+      if (Math.abs(a.size - b.size) > 1) {
+        say(`<span class="pg-no">ขนาด ${a.size} กับ ${b.size} ต่างกัน ${Math.abs(a.size - b.size)} นิ้ว ซ้อนกันไม่ได้</span>`);
+        picked = idx;
+        paint();
+        return;
+      }
+      const lo = Math.min(idx, picked);
+      history.push(plates.map((p) => ({ ...p })));
+      plates.splice(lo, 2);
+      picked = null;
+      moves += 1;
+      say(`ยกจานขนาด ${a.size} กับ ${b.size} เข้าตู้แล้ว`);
+      paint();
+      finishCheck();
+    };
+
+    const load = (i: number): void => {
+      rowAt = i;
+      plates = ROWS[i].plates.map((size, id) => ({ size, id }));
+      history = [];
+      picked = null;
+      moves = 0;
+      bestOut.textContent = String(ROWS[i].bestLeft);
+      say('กดจานใบหนึ่งเพื่อเลือก แล้วกดใบที่อยู่ติดกันเพื่อยกทั้งคู่');
+      rowBtns.forEach((b, k) => b.classList.toggle('is-on', k === i));
+      paint();
+    };
+
+    rowBtns.forEach((b, i) => b.addEventListener('click', () => load(i)));
+    resetBtn.addEventListener('click', () => load(rowAt));
+    undoBtn.addEventListener('click', () => {
+      const prev = history.pop();
+      if (!prev) return;
+      plates = prev;
+      picked = null;
+      moves = Math.max(0, moves - 1);
+      say('ย้อนกลับมาหนึ่งตาแล้ว');
+      paint();
+    });
+
+    load(0);
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-ivsim]').forEach(initIvSim);
+    document.querySelectorAll<HTMLElement>('[data-plategame]').forEach(initPlateGame);
+  });
+</script>
