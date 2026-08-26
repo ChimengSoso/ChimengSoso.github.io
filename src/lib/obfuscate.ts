@@ -105,10 +105,7 @@ export function readStore(namespace: string, key: string): string | null {
   const unpacked = unpackStore(namespace, raw);
   if (unpacked !== null) return unpacked;
   // ของเก่า: ยอมรับเฉพาะที่หน้าตาเป็น JSON จริง ๆ กันไม่ให้ค่าที่คนพิมพ์มั่วผ่านเข้าไป
-  const trimmed = raw.trim();
-  const looksLikeJson =
-    (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'));
-  return looksLikeJson ? raw : null;
+  return looksLikeJson(raw) ? raw : null;
 }
 
 /** เขียนค่าลง localStorage แบบห่อแล้ว เขียนไม่ได้ก็เงียบ ไม่ควรทำให้หน้าเว็บพัง */
@@ -117,5 +114,45 @@ export function writeStore(namespace: string, key: string, text: string): void {
     localStorage.setItem(key, packStore(namespace, text));
   } catch {
     /* พื้นที่เต็มหรือถูกบล็อก ไม่คุ้มที่จะขัดจังหวะผู้ใช้ */
+  }
+}
+
+/**
+ * รายชื่อที่เก็บทั้งหมดที่ห่อไว้ พร้อมวิธีดูว่าค่าที่เจอเป็น "ของเก่าแบบดิบ" หรือเปล่า
+ *
+ * ค่าที่บันทึกไว้ก่อนมีตัวห่อจะถูกเขียนทับเป็นแบบใหม่ก็ต่อเมื่อผู้ใช้เปิดหน้านั้นอีกครั้ง
+ * ซึ่งแปลว่าค่าดิบของเกมที่ไม่ได้เข้าเล่นจะค้างอยู่ใน devtools ไปเรื่อย ๆ
+ * migrateWrappedStores() จึงไล่เก็บให้ครบในครั้งเดียว จากหน้าไหนก็ได้ที่เรียกมัน
+ */
+const WRAPPED_STORES: { ns: string; key: string; isLegacy: (raw: string) => boolean }[] = [
+  { ns: 'taxGap', key: 'taxGapState', isLegacy: looksLikeJson },
+  { ns: 'neeNoo', key: 'neeNooSave', isLegacy: looksLikeJson },
+  { ns: 'starClues', key: 'starfieldProgress', isLegacy: (raw) => /^\d+$/.test(raw.trim()) },
+  // ตั๋วถาวรของหน้าลับ รูปแบบเดิมคือ "<ชื่อ>.<checksum>" ตัวตรวจจริงอยู่ใน divineLoreToken.ts
+  // ที่นี่ดูแค่หน้าตาพอ ถ้าคืนค่าผิดรูปไป ฝั่งนั้นก็ปฏิเสธเองอยู่แล้ว
+  { ns: 'divineLore', key: 'divineLoreUnlocked', isLegacy: (raw) => /^[a-z0-9 _-]+\.[a-z0-9]+$/i.test(raw.trim()) },
+];
+
+function looksLikeJson(raw: string): boolean {
+  const t = raw.trim();
+  return (t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'));
+}
+
+/**
+ * เขียนค่าเก่าที่ยังเป็นข้อความดิบให้กลายเป็นแบบห่อ ทำครั้งเดียวจบ ไม่แตะค่าที่ห่อแล้ว
+ * และไม่แตะค่าที่อ่านไม่ออก (ปล่อยไว้ดีกว่าลบของของผู้ใช้ทิ้ง)
+ */
+export function migrateWrappedStores(): void {
+  for (const store of WRAPPED_STORES) {
+    let raw: string | null;
+    try {
+      raw = localStorage.getItem(store.key);
+    } catch {
+      return; // แตะ storage ไม่ได้เลย ก็ไม่ต้องไล่ต่อ
+    }
+    if (raw === null) continue;
+    if (unpackStore(store.ns, raw) !== null) continue; // ห่อไว้แล้ว
+    if (!store.isLegacy(raw)) continue;                // อ่านไม่ออก ไม่ยุ่งดีกว่า
+    writeStore(store.ns, store.key, raw);
   }
 }
