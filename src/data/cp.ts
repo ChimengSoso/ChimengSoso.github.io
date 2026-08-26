@@ -29,6 +29,11 @@ export interface CpProblem {
   /** หัวข้ออัลกอริทึม เช่น ['greedy', 'binary search'] โชว์เป็นชิป */
   topics: string[];
   difficulty: CpDifficulty;
+  /**
+   * 'problem' (ค่าเริ่มต้น) = โจทย์หนึ่งข้อพร้อมเฉลย
+   * 'lesson' = บทปูพื้นฐาน อธิบายเทคนิคแล้วค่อยมีโจทย์ฝึกอยู่ข้างใน
+   */
+  kind?: 'problem' | 'lesson';
   /** วันที่เขียนเฉลย (YYYY-MM-DD) */
   dateISO: string;
   readingMinutes: number;
@@ -38,6 +43,11 @@ export interface CpProblem {
 
 export const cpSets: CpSet[] = [
   {
+    id: 'basics',
+    title: 'ปูพื้นฐาน',
+    desc: 'บทที่ไม่ใช่โจทย์แข่ง แต่เป็นเทคนิคที่โจทย์ในคลังนี้เรียกใช้ อ่านก่อนแล้วข้อที่เหลือจะง่ายขึ้น',
+  },
+  {
     id: 'programming-in-th',
     title: 'programming.in.th',
     source: 'programming.in.th',
@@ -46,6 +56,17 @@ export const cpSets: CpSet[] = [
 ];
 
 export const cpProblems: CpProblem[] = [
+  {
+    href: 'interval-dp/',
+    setId: 'basics',
+    kind: 'lesson',
+    title: 'DP บนช่วง ฉบับปูพื้น: เมื่อลบของออกแล้วช่องปิด',
+    desc: 'ทำไม dp[i] ที่ใช้ได้ทุกข้อถึงพังทันทีที่โจทย์บอกว่า "ลบแล้วช่องปิด" แล้วไล่สร้างตารางแบบใหม่ขึ้นมาเอง เดินตารางทีละช่องจนจบ พร้อมโจทย์ฝึก 3 ข้อที่ไล่ระดับกัน',
+    topics: ['dp', 'interval dp', 'พื้นฐาน'],
+    difficulty: 2,
+    dateISO: '2026-08-27',
+    readingMinutes: 12,
+  },
   {
     href: 'pick-books/',
     setId: 'programming-in-th',
