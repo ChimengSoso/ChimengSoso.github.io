@@ -24,8 +24,8 @@ int main() {
 
     for (int i = 0; i < n; i++) {
         fill(nxt.begin(), nxt.end(), NEG);
-        int lim = min(i, n - 1);          // ดูมา i เล่ม จะค้างเกิน i ไม่ได้
-        for (int p = 0; p <= lim; p++) {
+        // ดูหนังสือมาแล้ว i เล่ม จะมีบวกค้างเกิน i เล่มไม่ได้ ช่องที่เลยไปเป็น NEG อยู่แล้ว
+        for (int p = 0; p <= i; p++) {
             long long v = cur[p];
             if (v == NEG) continue;
             // ไม่หยิบเล่มนี้เลย ทำได้เฉพาะตอนไม่มีบวกค้าง
@@ -184,6 +184,11 @@ function buildSteps(a: number[], rows: number[][]): SimStep[] {
         const got = prev[p + 2] - v;
         lines.push(
           `<li class="ok" data-val="${got}">ให้ <b>a[${i}] = ${v}</b> เป็น<b>ลบ</b> ปิดจ๊อบ กินบวกค้างไปสอง: มาจาก dp[${i - 1}][${p + 2}] = ${prev[p + 2]} แล้วลบ ${v} ได้ <b>${got}</b></li>`,
+        );
+      } else if (p + 2 >= DEMO_COLS) {
+        // ช่องต้นทางอยู่เลยคอลัมน์สุดท้ายของตาราง ห้ามอ้างชื่อช่องที่คนอ่านหาไม่เจอ
+        lines.push(
+          `<li class="no">ให้ a[${i}] เป็นลบ: ต้องมาจากช่องที่ค้างบวกไว้ ${p + 2} เล่ม ซึ่งมากกว่าจำนวนหนังสือทั้งกอง จึงอยู่นอกตารางและเป็นไปไม่ได้</li>`,
         );
       } else {
         lines.push(
@@ -404,8 +409,13 @@ const N_MAX = 2000;
 const INT_BYTES = 4;
 const LL_BYTES = 8;
 const ivCells = N_MAX * N_MAX;
-const ivBytesOne = ivCells * INT_BYTES;
+/* สองมาตรฐานของ "ช่องละกี่ไบต์" ที่จงใจแยกกัน
+   - LL: หน่วยเดียวกับโค้ดที่ลงในบทความจริง ซึ่งใช้ long long ทั้งสองฝั่ง เอาไว้เทียบกันตรง ๆ
+   - INT: กรณีใจดีที่สุดกับฝั่ง DP บนช่วง คือบีบลงเป็น int 4 ไบต์ (แต้มสูงสุดของโจทย์ราว 1.3 พันล้าน ยังไม่ล้น int)
+     ใช้เฉพาะตอนจะบอกว่า "ต่อให้บีบสุดแล้วก็ยังชนลิมิตพอดี" */
+const ivBytesOne = ivCells * LL_BYTES;
 const ivBytesBoth = ivBytesOne * 2;
+const ivBytesOneInt = ivCells * INT_BYTES;
 const ivOps = N_MAX * N_MAX * N_MAX;
 const linOps = N_MAX * N_MAX;
 const linBytes = 2 * (N_MAX + 1) * LL_BYTES;
@@ -636,7 +646,7 @@ const demoCells = (i: number) =>
         <p class="bg-log" data-log aria-live="polite">คลิกเล่มบนสุดของสามเล่มที่อยากหยิบ</p>
       </div>
     </div>
-    <figcaption>กอง A คือกองที่หลอกคนเล่นได้เจ็บที่สุด กอง B กับ C คือตัวอย่างชุดที่ 1 และ 2 ของโจทย์ ส่วนกอง D คือกองที่ทางที่ดีที่สุดต้องยอมเหลือหนังสือทิ้งไว้หนึ่งเล่ม (กองเดียวกับที่เดินตารางให้ดูในเฉลย)</figcaption>
+    <figcaption>กอง A คือกองที่หลอกคนเล่นได้เจ็บที่สุด กอง B กับ C คือตัวอย่างชุดที่ 1 และ 2 ของโจทย์ ส่วนกอง D เป็นกองที่ผมเตรียมไว้ให้ลองมืออีกกอง แล้วเดี๋ยวมันจะกลับมาให้เห็นอีกครั้งในเฉลย</figcaption>
   </figure>
 
   <p class="ns-cue">ลองเล่นให้หนำใจก่อนนะครับ พอมีคำตอบในใจแล้วค่อยเปิดเฉลย</p>
@@ -1278,18 +1288,21 @@ const demoCells = (i: number) =>
         <tr>
           <td>DP บนช่วง (<code>f</code> กับ <code>t</code>)</td>
           <td class="num">{num(ivOps)} ครั้ง<br /><span class="dim">O(n³)</span></td>
-          <td class="num hot">{num(ivBytesBoth)} ไบต์<br /><span class="dim">สองตาราง O(n²)</span></td>
+          <td class="num hot">{num(ivBytesBoth)} ไบต์<br /><span class="dim">สองตาราง O(n²) ช่องละ {LL_BYTES} ไบต์</span></td>
         </tr>
         <tr>
           <td>DP เชิงเส้น (เฉลยของข้อนี้)</td>
           <td class="num">{num(linOps)} ครั้ง<br /><span class="dim">O(n²)</span></td>
-          <td class="num cool">{num(linBytes)} ไบต์<br /><span class="dim">สองแถว O(n)</span></td>
+          <td class="num cool">{num(linBytes)} ไบต์<br /><span class="dim">สองแถว O(n) ช่องละ {LL_BYTES} ไบต์</span></td>
         </tr>
       </tbody>
     </table>
     <figcaption>
-      ตาราง <code>f</code> ใบเดียวก็ {num(ivCells)} ช่อง ช่องละ {INT_BYTES} ไบต์ เท่ากับ {num(ivBytesOne)} ไบต์ ชนลิมิต 16 เมกะไบต์เต็ม ๆ ตั้งแต่ยังไม่นับ <code>t</code>
-      พอนับ <code>t</code> ด้วยก็เกินลิมิตไปเท่าตัว ส่วนฝั่งเวลา {num(ivOps)} ครั้งใน 1 วินาทีก็เกินกำลังเครื่องอยู่ดี
+      ทั้งสองแถวในตารางนี้นับด้วยหน่วยเดียวกันคือ <strong>ช่องละ {LL_BYTES} ไบต์</strong> ตาม <code>long long</code> ที่โค้ดทั้งสองฝั่งในบทความนี้ใช้จริง
+      ตาราง <code>f</code> ใบเดียวจึงเป็น {num(ivCells)} ช่อง เท่ากับ {num(ivBytesOne)} ไบต์ ซึ่งเกินลิมิต 16 เมกะไบต์ไปเท่าตัวตั้งแต่ยังไม่นับ <code>t</code>
+      และต่อให้ใจดีกับมันที่สุดคือบีบทั้งสองตารางลงเป็น <code>int</code> {INT_BYTES} ไบต์ (แต้มสูงสุดที่โจทย์นี้เป็นไปได้อยู่ราว 1.3 พันล้าน ยังไม่ล้น <code>int</code>)
+      <code>f</code> ใบเดียวก็ยังกิน {num(ivBytesOneInt)} ไบต์ คือชนเพดาน 16 เมกะไบต์พอดีเป๊ะโดยไม่เหลือที่ให้ <code>t</code> เลย
+      ส่วนฝั่งเวลา {num(ivOps)} ครั้งใน 1 วินาทีก็เกินกำลังเครื่องอยู่ดี
     </figcaption>
   </figure>
 
@@ -1312,7 +1325,7 @@ const demoCells = (i: number) =>
   <p>
     การกล้าลืมตำแหน่งนั้นถูกต้องเพราะโครงสร้างที่พิสูจน์ไว้ในเฉลยตอนที่ 3 การจับคู่ของการหยิบต้อง<strong>ซ้อนกันเป็นชั้น ไขว้กันไม่ได้</strong>
     เมื่อไขว้ไม่ได้ ลบตัวถัดไปก็ต้องไปปิดจ๊อบกับบวกสองตัวล่าสุดเสมอ เราจึงไม่ต้องจำชื่อของมัน จำแค่จำนวนก็พอ
-    มิติของตารางเลยยุบจากสองตำแหน่งเหลือตำแหน่งเดียวบวกตัวนับหนึ่งตัว และหน่วยความจำยุบจาก {num(ivBytesOne)} ไบต์เหลือ {num(linBytes)} ไบต์
+    มิติของตารางเลยยุบจากสองตำแหน่งเหลือตำแหน่งเดียวบวกตัวนับหนึ่งตัว และหน่วยความจำยุบจาก {num(ivBytesOne)} ไบต์เหลือ {num(linBytes)} ไบต์ (หน่วยเดียวกัน คือช่องละ {LL_BYTES} ไบต์)
   </p>
   <p>
     เวลาติดโจทย์ DP แล้วรู้สึกว่าตารางใหญ่เกินไป คำถามที่คุ้มที่สุดคือ <strong>"ข้อมูลที่ผมเก็บอยู่ตอนนี้ มีอะไรที่ผมไม่เคยเอามาใช้ตัดสินใจเลยบ้าง"</strong>
@@ -1484,37 +1497,43 @@ const demoCells = (i: number) =>
 
   /* ช่องที่ยังไม่ถูกเติม ให้ว่างไว้ก่อน แต่ยังกินที่เท่าเดิม ตารางจะได้ไม่กระตุก */
   .dpsim td.num{transition:background .15s ease, color .15s ease;}
-  /* ต้องเจาะจงกว่า table.rec td.num ไม่งั้นสีจางไม่ติด (เคยพลาดมาแล้ว) */
+  /* ทุกกฎไฮไลต์ต้องมี .num ต่อท้าย ไม่ใช่แค่ .is-xxx เพราะ table.rec td.num
+     ตั้ง color ไว้ด้วยความเจาะจง (0,4,2) ซึ่งชนะ .dpsim td.is-target (0,4,1)
+     ผลคือพื้นสีมาแต่ตัวอักษรยังเป็นเทาอ่อน อ่านแทบไม่ออก การเติม .num ดันเป็น (0,5,1) จึงชนะ */
   table.rec td.num.is-neg{color:#7b8397;}
-  .dpsim td.is-src-plus{background:rgba(56,140,255,0.22);color:#9cc6ff;font-weight:700;}
-  .dpsim td.is-src-minus{background:rgba(56,140,255,0.22);color:#9cc6ff;font-weight:700;}
-  .dpsim td.is-src-skip{background:rgba(120,130,150,0.22);color:#c2cadb;font-weight:700;}
-  .dpsim td.is-target{
+  .dpsim td.num.is-src-plus{background:rgba(56,140,255,0.22);color:#9cc6ff;font-weight:700;}
+  .dpsim td.num.is-src-minus{background:rgba(56,140,255,0.22);color:#9cc6ff;font-weight:700;}
+  .dpsim td.num.is-src-skip{background:rgba(120,130,150,0.22);color:#c2cadb;font-weight:700;}
+  .dpsim td.num.is-target{
     background:var(--dl-gold);
     color:#0b1220;
     font-weight:700;
     box-shadow:inset 0 0 0 2px #fff3c4;
   }
-  .dpsim td.is-path{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .dpsim td.num.is-path{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
 
   /* ตัวเล่นชุดสองแถว cur / nxt */
+  /* B: ล็อกความกว้างคอลัมน์แรกไว้ ป้ายของแต่ละจังหวะยาวไม่เท่ากัน
+     ("cur = dp[0]" กับ "cur = dp[1] (หลัง swap)" ต่างกัน ~90px)
+     ถ้าปล่อยให้ nowrap ตามเนื้อหา ป้ายจะดันตารางให้กว้างขึ้นทุกจังหวะ ให้ตัดบรรทัดแทน */
   .rollsim td.rowlab{
     font-family:"Fira Code","Fira Mono",monospace;
     font-size:0.76rem;
     color:var(--dl-muted);
-    white-space:nowrap;
+    width:13rem;
+    white-space:normal;
   }
   .rollsim tr[data-row="cur"] td.rowlab{color:var(--dl-gold);}
   .rollsim tr[data-row="nxt"] td.rowlab{color:var(--dl-emerald-bright);}
-  .rollsim td.is-cursor{
+  .rollsim td.num.is-cursor{
     background:var(--dl-gold);
     color:#0b1220;
     font-weight:700;
     box-shadow:inset 0 0 0 2px #fff3c4;
   }
-  .rollsim td.is-written{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
-  .rollsim td.is-rejected{background:rgba(120,130,150,0.2);color:#c2cadb;}
-  .rollsim td.is-answer{
+  .rollsim td.num.is-written{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .rollsim td.num.is-rejected{background:rgba(120,130,150,0.2);color:#c2cadb;}
+  .rollsim td.num.is-answer{
     background:var(--dl-emerald-bright);
     color:#0b1220;
     font-weight:700;
@@ -1522,7 +1541,14 @@ const demoCells = (i: number) =>
   }
   .rollsim tr.is-idle td.num, .rollsim tr.is-idle td.rowlab{opacity:0.35;}
 
+  /* A: การ์ดตัวเล่นเป็น width:fit-content (ตั้งใน CpProblemLayout) จึงกว้างเท่า max-content
+     ของลูกที่กว้างที่สุด และภาษาไทยไม่มีเว้นวรรค max-content ของย่อหน้าคือทั้งประโยคบรรทัดเดียว
+     ปล่อยไว้แล้วตารางจะยืดหดตามความยาวคำอธิบายของทุกขั้น (เคยแกว่ง 769px ถึง 1246px)
+     width:0 + min-width:100% ทำให้บล็อกนี้ไม่ส่งค่าเข้าการคำนวณความกว้าง แต่ยังกางเต็มการ์ดตอนเรนเดอร์
+     ความยาวข้อความจึงไปโผล่เป็นความสูงแทน ซึ่งคือสิ่งที่ต้องการ */
   .dps-say{
+    width:0;
+    min-width:100%;
     padding:0.7rem 0.85rem 0.85rem;
     border-top:1px solid var(--dl-border);
     font-size:0.82rem;
@@ -1901,12 +1927,31 @@ const demoCells = (i: number) =>
       if (st.i >= 0 && !st.path && !st.base) filledBy.set(key(st.i, st.p), idx);
     });
 
+    // เลื่อนกรอบตารางตามช่องที่กำลังทำงาน บนจอแคบตารางกว้างเกินกรอบหลายเท่า
+    // ถ้าไม่เลื่อนให้ คนอ่านกดเดินทั้งเกมโดยไม่เห็นอะไรขยับเลย
+    // ขยับ scrollLeft เองแทน scrollIntoView เพราะตัวหลังจะดึงหน้าเว็บกระโดดตามแนวตั้งด้วย
+    const scroller = root.querySelector<HTMLElement>('.dps-scroll');
+    const keepInView = (cell: HTMLElement | null) => {
+      if (!cell || !scroller) return;
+      if (scroller.scrollWidth <= scroller.clientWidth) return;
+      const box = scroller.getBoundingClientRect();
+      const c = cell.getBoundingClientRect();
+      const pad = 16;
+      let delta = 0;
+      if (c.left < box.left + pad) delta = c.left - box.left - pad;
+      else if (c.right > box.right - pad) delta = c.right - box.right + pad;
+      // เลื่อนแบบทันที ไม่ใช้ behavior:'smooth' เพราะการกดเดินทีละขั้นเป็นการกระโดดอยู่แล้ว
+      // และการเลื่อนลื่นจะซ้อนคิวกันเองเวลากดรัวหรือกดเล่นอัตโนมัติ
+      if (delta !== 0) scroller.scrollLeft += delta;
+    };
+
     range.max = String(steps.length - 1);
     let at = 0;
     let timer: number | null = null;
 
     const render = () => {
       const st = steps[at];
+      let focus: HTMLElement | null = null;
       for (const c of cells) {
         const ci = Number(c.dataset.i);
         const cp = Number(c.dataset.p);
@@ -1919,7 +1964,10 @@ const demoCells = (i: number) =>
           if (pathKeys.has(key(ci, cp))) c.classList.add('is-path');
           continue;
         }
-        if (st.i === ci && st.p === cp) c.classList.add('is-target');
+        if (st.i === ci && st.p === cp) {
+          c.classList.add('is-target');
+          focus = c;
+        }
         for (const sr of st.srcs) {
           if (isSrc(sr) && sr.ok && sr.i === ci && sr.p === cp) c.classList.add(`is-src-${sr.kind}`);
         }
@@ -1932,6 +1980,10 @@ const demoCells = (i: number) =>
         if (act === 'prev' || act === 'first') b.disabled = at === 0;
         if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
       }
+      // ขั้นสุดท้ายไฮไลต์ทั้งเส้นทาง ไม่มีช่องเป้าหมายเดี่ยว ๆ ให้ยึดช่องคำตอบแทน
+      // ซึ่งคือช่องบนเส้นทางที่อยู่ท้ายสุดตามลำดับ DOM (แถวล่างสุด คอลัมน์ p = 0)
+      const pathCells = st.path ? Array.from(root.querySelectorAll<HTMLElement>('td.is-path')) : [];
+      keepInView(focus ?? pathCells[pathCells.length - 1] ?? null);
     };
 
     const stop = () => {
@@ -2039,20 +2091,45 @@ const demoCells = (i: number) =>
     const curLab = curRow.querySelector<HTMLTableCellElement>('td.rowlab');
     const nxtLab = nxtRow.querySelector<HTMLTableCellElement>('td.rowlab');
 
+    // เลื่อนกรอบตารางตามช่องที่กำลังทำงาน บนจอแคบตารางกว้างเกินกรอบหลายเท่า
+    // ถ้าไม่เลื่อนให้ คนอ่านกดเดินทั้งเกมโดยไม่เห็นอะไรขยับเลย
+    // ขยับ scrollLeft เองแทน scrollIntoView เพราะตัวหลังจะดึงหน้าเว็บกระโดดตามแนวตั้งด้วย
+    const scroller = root.querySelector<HTMLElement>('.dps-scroll');
+    const keepInView = (cell: HTMLElement | null) => {
+      if (!cell || !scroller) return;
+      if (scroller.scrollWidth <= scroller.clientWidth) return;
+      const box = scroller.getBoundingClientRect();
+      const c = cell.getBoundingClientRect();
+      const pad = 16;
+      let delta = 0;
+      if (c.left < box.left + pad) delta = c.left - box.left - pad;
+      else if (c.right > box.right - pad) delta = c.right - box.right + pad;
+      // เลื่อนแบบทันที ไม่ใช้ behavior:'smooth' เพราะการกดเดินทีละขั้นเป็นการกระโดดอยู่แล้ว
+      // และการเลื่อนลื่นจะซ้อนคิวกันเองเวลากดรัวหรือกดเล่นอัตโนมัติ
+      if (delta !== 0) scroller.scrollLeft += delta;
+    };
+
     range.max = String(steps.length - 1);
     let at = 0;
     let timer: number | null = null;
 
     const render = () => {
       const st = steps[at];
+      let focus: HTMLElement | null = null;
       const written = new Map<number, boolean>();
       for (const h of st.hits) written.set(h.p, h.ok);
 
       curCells.forEach((c, p) => {
         c.className = 'num';
         c.textContent = st.cur[p] ?? '\u00b7';
-        if (st.kind === 'push' && st.src === p) c.classList.add('is-cursor');
-        if (st.kind === 'done' && p === 0) c.classList.add('is-answer');
+        if (st.kind === 'push' && st.src === p) {
+          c.classList.add('is-cursor');
+          focus = c;
+        }
+        if (st.kind === 'done' && p === 0) {
+          c.classList.add('is-answer');
+          focus = c;
+        }
       });
       nxtCells.forEach((c, p) => {
         c.className = 'num';
@@ -2076,6 +2153,7 @@ const demoCells = (i: number) =>
         if (act === 'prev' || act === 'first') b.disabled = at === 0;
         if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
       }
+      keepInView(focus);
     };
 
     const stop = () => {
