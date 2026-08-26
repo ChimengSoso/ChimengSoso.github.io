@@ -3,7 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
-import { texBlock } from '../../lib/math';
+import { mc, texCode } from '../../lib/math';
 
 const href = 'pick-books/';
 
@@ -23,17 +23,16 @@ int main() {
     cur[0] = 0;
 
     for (int i = 0; i < n; i++) {
-        fill(nxt.begin(), nxt.end(), NEG);
-        // ดูหนังสือมาแล้ว i เล่ม จะมีบวกค้างเกิน i เล่มไม่ได้ ช่องที่เลยไปเป็น NEG อยู่แล้ว
-        for (int p = 0; p <= i; p++) {
-            long long v = cur[p];
-            if (v == NEG) continue;
-            // ไม่หยิบเล่มนี้เลย ทำได้เฉพาะตอนไม่มีบวกค้าง
-            if (p == 0) nxt[0] = max(nxt[0], v);
-            // ให้เล่มนี้เป็นบวก รอคู่ต่อไป
-            nxt[p + 1] = max(nxt[p + 1], v + a[i]);
-            // ให้เล่มนี้เป็นลบ ปิดจ๊อบกับบวกที่ค้างอยู่ 2 เล่ม
-            if (p >= 2) nxt[p - 2] = max(nxt[p - 2], v - a[i]);
+        // ยืนที่ช่องปลายทาง nxt[q] แล้วถามว่ามันรับค่ามาจากช่องไหนของ cur ได้บ้าง
+        for (int q = 0; q <= n; q++) {
+            long long best = NEG;
+            // เล่มนี้ไม่ถูกหยิบเลย มาได้จากช่องที่ไม่มีบวกค้างเท่านั้น
+            if (q == 0 && cur[0] != NEG) best = max(best, cur[0]);
+            // เล่มนี้เป็นบวก ก่อนหน้าจึงค้างน้อยกว่าหนึ่งเล่ม
+            if (q >= 1 && cur[q - 1] != NEG) best = max(best, cur[q - 1] + a[i]);
+            // เล่มนี้เป็นลบ กินบวกค้างไปสอง ก่อนหน้าจึงค้างมากกว่าสองเล่ม
+            if (q + 2 <= n && cur[q + 2] != NEG) best = max(best, cur[q + 2] - a[i]);
+            nxt[q] = best;   // เขียนทับทุกช่องของแถว จึงไม่ต้องล้างแถวก่อน
         }
         swap(cur, nxt);
     }
@@ -58,11 +57,21 @@ long long best(vector<int> a) {
     return r;
 }`;
 
-const dpLine = `// cur[p] คือ dp[i][p] ของแถวที่กำลังยืนอยู่  ส่วน nxt[p] คือ dp[i+1][p] แถวถัดไป
-// v = cur[p] คือแต้มที่สะสมมาแล้ว ก่อนจะตัดสินใจเรื่องหนังสือเล่ม a[i]
-if (p == 0)  nxt[0]    = max(nxt[0],     v);          // ไม่หยิบเล่มนี้เลย
-nxt[p + 1]             = max(nxt[p + 1], v + a[i]);   // ให้เป็นบวก
-if (p >= 2)  nxt[p - 2] = max(nxt[p - 2], v - a[i]);  // ให้เป็นลบ`;
+const dpLine = `// cur[q] คือ dp[i][q] แถวที่กำลังยืนอยู่  ส่วน nxt[q] คือ dp[i+1][q] แถวถัดไป
+// ยืนที่ช่องปลายทาง nxt[q] แล้วเก็บค่าที่ดีที่สุดจากสามทางที่ชี้เข้ามา
+long long best = NEG;
+if (q == 0 && cur[0] != NEG)         best = max(best, cur[0]);            // ไม่หยิบเล่มนี้เลย
+if (q >= 1 && cur[q - 1] != NEG)     best = max(best, cur[q - 1] + a[i]); // ให้เป็นบวก
+if (q + 2 <= n && cur[q + 2] != NEG) best = max(best, cur[q + 2] - a[i]); // ให้เป็นลบ
+nxt[q] = best;`;
+
+const pushLine = `// ท่ากลับด้าน ยืนที่ช่องต้นทาง cur[p] แล้วส่งค่าออกไปสามช่อง
+// ต้อง fill(nxt, NEG) ก่อนเข้าลูปนี้ เพราะช่องปลายทางถูกเขียนหลายครั้ง
+long long v = cur[p];
+if (v == NEG) continue;
+if (p == 0)   nxt[0]     = max(nxt[0],     v);        // ไม่หยิบเล่มนี้เลย
+nxt[p + 1]               = max(nxt[p + 1], v + a[i]); // ให้เป็นบวก
+if (p >= 2)   nxt[p - 2] = max(nxt[p - 2], v - a[i]); // ให้เป็นลบ`;
 
 /* ตัวอย่างเดินตาราง คำนวณสดจากโมเดลเดียวกับเฉลย ไม่มีเลขไหนพิมพ์ด้วยมือ */
 const demo = [7, 3, 1, 2, 9, 9, 7];
@@ -77,12 +86,12 @@ function dpRows(a: number[]): number[][] {
   rows.push([...cur]);
   for (let i = 0; i < n; i++) {
     const nxt: number[] = new Array<number>(n + 3).fill(NEG);
-    for (let p = 0; p <= i; p++) {
-      const v = cur[p];
-      if (v === NEG) continue;
-      if (p === 0) nxt[0] = Math.max(nxt[0], v);
-      nxt[p + 1] = Math.max(nxt[p + 1], v + a[i]);
-      if (p >= 2) nxt[p - 2] = Math.max(nxt[p - 2], v - a[i]);
+    for (let q = 0; q <= n; q++) {
+      let best = NEG;
+      if (q === 0 && cur[0] !== NEG) best = Math.max(best, cur[0]);
+      if (q >= 1 && cur[q - 1] !== NEG) best = Math.max(best, cur[q - 1] + a[i]);
+      if (q + 2 <= n && cur[q + 2] !== NEG) best = Math.max(best, cur[q + 2] - a[i]);
+      nxt[q] = best;
     }
     cur = nxt;
     rows.push([...cur]);
@@ -114,8 +123,14 @@ function tracePath(a: number[], rows: number[][]): Step[] {
   return steps.reverse();
 }
 
-const recurrenceTex = texBlock(
-  String.raw`\mathrm{dp}[i][p] \;=\; \max \begin{cases} \mathrm{dp}[i-1][p-1] + a_i & (p \ge 1) \\ \mathrm{dp}[i-1][p+2] - a_i & \\ \mathrm{dp}[i-1][0] & (p = 0) \end{cases}`,
+/* สูตรทั้งหน้าย้อมสีด้วยชุดเดียวกับหน้าต่างโค้ด ดู mc/texCode ใน src/lib/math.ts */
+const DP = mc.fn('\\mathrm{dp}');
+const A = mc.fn('a');
+const recurrenceTex = texCode(
+  DP + '[i][p] \\;' + mc.op('=') + '\\; ' + mc.max + ' \\begin{cases} ' +
+    DP + '[i' + mc.op('-') + mc.num('1') + '][p' + mc.op('-') + mc.num('1') + '] ' + mc.op('+') + ' ' + A + '_i & (p ' + mc.op('\\ge') + ' ' + mc.num('1') + ') \\\\ ' +
+    DP + '[i' + mc.op('-') + mc.num('1') + '][p' + mc.op('+') + mc.num('2') + '] ' + mc.op('-') + ' ' + A + '_i & \\\\ ' +
+    DP + '[i' + mc.op('-') + mc.num('1') + '][' + mc.num('0') + '] & (p ' + mc.op('=') + ' ' + mc.num('0') + ') \\end{cases}',
 );
 
 const demoRows = dpRows(demo);
@@ -253,7 +268,7 @@ function buildSteps(a: number[], rows: number[][]): SimStep[] {
 const simSteps = buildSteps(demo, demoRows);
 
 /* ---- ตัวเล่นชุดที่สอง: สองแถว cur / nxt แบบที่โค้ดจริงเห็น รวมจังหวะ swap ---- */
-type RollKind = 'start' | 'clear' | 'push' | 'swap' | 'done';
+type RollKind = 'start' | 'pull' | 'rest' | 'swap' | 'done';
 type Hit = { p: number; ok: boolean };
 type RollStep = {
   kind: RollKind;
@@ -273,111 +288,119 @@ function buildRoll(a: number[]): RollStep[] {
   const n = a.length;
   const out: RollStep[] = [];
   let cur: number[] = new Array<number>(n + 3).fill(NEG);
-  const blank: number[] = new Array<number>(n + 3).fill(NEG);
+  let nxt: number[] = new Array<number>(n + 3).fill(NEG);
   cur[0] = 0;
 
   out.push({
     kind: 'start',
     cur: snap(cur),
-    nxt: snap(blank),
+    nxt: snap(nxt),
     curLabel: 'cur = dp[0]',
-    nxtLabel: 'nxt (ยังไม่เปิด)',
+    nxtLabel: 'nxt (ยังไม่ใช้)',
     src: -1,
     hits: [],
     html:
       '<p class="dps-q">โค้ดจริงถือแถวไว้แค่สองแถว</p>' +
       '<ul class="dps-cands"><li class="ok win"><b>cur</b> คือแถวที่ยืนอยู่ ตอนนี้เป็นแถว <b>dp[0]</b> มีแค่ <b>cur[0] = 0</b> ช่องอื่นเป็น NEG</li>' +
-      '<li class="no"><b>nxt</b> คือแถวถัดไปที่กำลังจะสร้าง ยังไม่เปิดใช้</li></ul>' +
-      '<p class="dps-a">ทั้งเรื่องคือวนสามจังหวะ: เปิดแถวใหม่ ผลักค่าไปข้างหน้า แล้ว swap</p>',
+      '<li class="no"><b>nxt</b> คือแถวถัดไปที่กำลังจะสร้าง ยังไม่มีอะไรอยู่</li></ul>' +
+      '<p class="dps-a">ทั้งเรื่องคือวนสองจังหวะ: ไล่เติมทุกช่องของ nxt แล้ว swap</p>',
   });
 
   for (let i = 0; i < n; i++) {
     const v = a[i];
-    const nxt: number[] = new Array<number>(n + 3).fill(NEG);
+    const rowNote =
+      i === 1
+        ? '<li class="no">ตัวเลขที่ค้างอยู่ในแถว nxt ตอนนี้คือแถว dp[0] เมื่อสองรอบก่อน โค้ดไม่ต้องล้างมันทิ้ง เพราะเดี๋ยวทุกช่องของแถวจะถูกเขียนทับหมด</li>'
+        : '';
 
-    out.push({
-      kind: 'clear',
-      cur: snap(cur),
-      nxt: snap(nxt),
-      curLabel: `cur = dp[${i}]`,
-      nxtLabel: `nxt = dp[${i + 1}] (เพิ่งล้าง)`,
-      src: -1,
-      hits: [],
-      html:
-        `<p class="dps-q">จังหวะที่ 1 ของหนังสือเล่มที่ ${i + 1} (a[${i + 1}] = ${v}): เปิดแถวใหม่</p>` +
-        '<ul class="dps-cands"><li class="ok"><code>fill(nxt.begin(), nxt.end(), NEG)</code> ล้างแถว <b>nxt</b> ให้เป็น NEG ทั้งแถว</li>' +
-        '<li class="no">ถ้าลืมล้าง ค่าเก่าจากแถวก่อน ๆ จะค้างอยู่แล้วปนกับแถวใหม่ นี่เป็นบั๊กคลาสสิกของการใช้สองแถวสลับกัน</li></ul>' +
-        '<p class="dps-a">ตอนนี้ nxt ว่างเปล่า พร้อมรับค่าที่ถูกผลักมา</p>',
-    });
-
-    for (let q = 0; q <= i; q++) {
-      if (cur[q] === NEG) continue;
-      const base = cur[q];
+    for (let q = 0; q <= i + 1 && q <= n; q++) {
       const lines: string[] = [];
       const hits: Hit[] = [];
+      const cands: { at: number; got: number; text: string }[] = [];
 
+      if (q === 0 && cur[0] !== NEG) {
+        cands.push({ at: 0, got: cur[0], text: `ไม่หยิบเล่มนี้: ดึงจาก <code>cur[0]</code> ได้ <b>${cur[0]}</b>` });
+      }
+      if (q >= 1 && cur[q - 1] !== NEG) {
+        cands.push({
+          at: q - 1,
+          got: cur[q - 1] + v,
+          text: `ให้เป็น<b>บวก</b>: ดึงจาก <code>cur[${q - 1}]</code> ได้ ${cur[q - 1]} + ${v} = <b>${cur[q - 1] + v}</b>`,
+        });
+      }
+      if (q + 2 <= n && cur[q + 2] !== NEG) {
+        cands.push({
+          at: q + 2,
+          got: cur[q + 2] - v,
+          text: `ให้เป็น<b>ลบ</b>: ดึงจาก <code>cur[${q + 2}]</code> ได้ ${cur[q + 2]} − ${v} = <b>${cur[q + 2] - v}</b>`,
+        });
+      }
+
+      let best = NEG;
+      for (const c of cands) best = Math.max(best, c.got);
+      let winnerTaken = false;
+      for (const c of cands) {
+        const win = !winnerTaken && c.got === best;
+        if (win) winnerTaken = true;
+        hits.push({ p: c.at, ok: win });
+        lines.push(`<li class="${win ? 'ok win' : 'ok'}">${c.text}${win ? ' ทางนี้ดีที่สุด จึงเป็นค่าของช่องนี้' : ' น้อยกว่าอีกทาง จึงไม่ถูกเลือก'}</li>`);
+      }
+      if (cands.length === 0) {
+        lines.push('<li class="no">ไม่มีต้นทางไหนที่ไปถึงได้เลย ช่องนี้จึงเป็น NEG</li>');
+      }
       if (q === 0) {
-        const got = base;
-        const win = got > nxt[0];
-        if (win) nxt[0] = got;
-        hits.push({ p: 0, ok: win });
-        lines.push(
-          `<li class="${win ? 'ok win' : 'ok'}">ไม่หยิบเล่มนี้: ผลักไป <code>nxt[0]</code> ด้วยค่า <b>${got}</b>${win ? ' ดีกว่าที่มีอยู่ จึงเขียนทับ' : ' ไม่ดีกว่าค่าที่มีอยู่แล้ว จึงไม่เขียน'}</li>`,
-        );
+        lines.push('<li class="no">ท่า "เป็นบวก" ใช้ที่ช่องนี้ไม่ได้ เพราะมันต้องดึงจาก <code>cur[−1]</code> ซึ่งไม่มีอยู่จริง</li>');
       }
-
-      const plusTo = q + 1;
-      if (plusTo < DEMO_COLS) {
-        const got = base + v;
-        const win = got > nxt[plusTo];
-        if (win) nxt[plusTo] = got;
-        hits.push({ p: plusTo, ok: win });
-        lines.push(
-          `<li class="${win ? 'ok win' : 'ok'}">ให้เป็น<b>บวก</b>: ผลักไป <code>nxt[${plusTo}]</code> ด้วยค่า ${base} + ${v} = <b>${got}</b>${win ? ' ดีกว่าที่มีอยู่ จึงเขียนทับ' : ' ไม่ดีกว่าค่าที่มีอยู่แล้ว จึงไม่เขียน'}</li>`,
-        );
-      }
-
-      if (q >= 2) {
-        const minusTo = q - 2;
-        const got = base - v;
-        const win = got > nxt[minusTo];
-        if (win) nxt[minusTo] = got;
-        hits.push({ p: minusTo, ok: win });
-        lines.push(
-          `<li class="${win ? 'ok win' : 'ok'}">ให้เป็น<b>ลบ</b>: ผลักไป <code>nxt[${minusTo}]</code> ด้วยค่า ${base} − ${v} = <b>${got}</b>${win ? ' ดีกว่าที่มีอยู่ จึงเขียนทับ' : ' ไม่ดีกว่าค่าที่มีอยู่แล้ว จึงไม่เขียน'}</li>`,
-        );
-      } else {
-        lines.push('<li class="no">ให้เป็นลบยังทำไม่ได้ เพราะบวกค้างไม่ถึงสองเล่ม</li>');
-      }
+      nxt[q] = best;
 
       out.push({
-        kind: 'push',
+        kind: 'pull',
         cur: snap(cur),
         nxt: snap(nxt),
         curLabel: `cur = dp[${i}]`,
-        nxtLabel: `nxt = dp[${i + 1}]`,
+        nxtLabel: `nxt = dp[${i + 1}] (กำลังเติม)`,
         src: q,
         hits,
         html:
-          `<p class="dps-q">จังหวะที่ 2: ยืนที่ <b>cur[${q}] = ${base}</b> แล้วถามว่าค่านี้<b>ส่งต่อไปช่องไหนของ nxt ได้บ้าง</b></p>` +
-          `<ul class="dps-cands">${lines.join('')}</ul>` +
-          '<p class="dps-a">ผลักครบทุกทางแล้ว ขยับไปยืนช่องถัดไปของ cur</p>',
+          `<p class="dps-q">หนังสือเล่มที่ ${i + 1} (a[${i + 1}] = ${v}) · ยืนที่ <b>nxt[${q}]</b> แล้วถามว่า<b>รับค่ามาจากช่องไหนของ cur ได้บ้าง</b></p>` +
+          `<ul class="dps-cands">${lines.join('')}${q === 0 ? rowNote : ''}</ul>` +
+          `<p class="dps-a">เขียนค่าลงช่องเดียวจบ ไม่ต้องกลับมาแก้อีก แล้วขยับไปช่องถัดไปของ nxt</p>`,
       });
     }
 
+    if (i + 2 <= n) {
+      for (let q = i + 2; q <= n; q++) nxt[q] = NEG;
+      out.push({
+        kind: 'rest',
+        cur: snap(cur),
+        nxt: snap(nxt),
+        curLabel: `cur = dp[${i}]`,
+        nxtLabel: `nxt = dp[${i + 1}] (เต็มแถวแล้ว)`,
+        src: -1,
+        hits: [],
+        html:
+          `<p class="dps-q">ช่องที่เหลือของแถว คือ <b>nxt[${i + 2}]</b> ถึง <b>nxt[${n}]</b></p>` +
+          `<ul class="dps-cands"><li class="ok">ลูปเดินต่อจนครบทุกช่อง แต่ช่องพวกนี้ต้องการต้นทางที่ค้างบวกเกิน ${i + 1} เล่ม ซึ่งมากกว่าจำนวนหนังสือที่ดูมาแล้ว จึงได้ NEG ทุกช่อง</li>` +
+          `<li class="no">ถึงจะได้ NEG ก็ต้องเขียนลงไปจริง ๆ นี่คือเหตุผลที่ไม่ต้องล้างแถวก่อนเริ่ม</li></ul>` +
+          `<p class="dps-a">แถว nxt เต็มแล้ว ค่าเก่าที่ค้างอยู่ถูกทับจนหมด</p>`,
+      });
+    }
+
+    const tmp = cur;
     cur = nxt;
+    nxt = tmp;
     out.push({
       kind: 'swap',
       cur: snap(cur),
-      nxt: snap(blank),
+      nxt: snap(nxt),
       curLabel: `cur = dp[${i + 1}] (หลัง swap)`,
-      nxtLabel: 'nxt (รอเปิดใหม่)',
+      nxtLabel: `nxt = dp[${i}] (แถวเก่า รอถูกทับ)`,
       src: -1,
       hits: [],
       html:
-        `<p class="dps-q">จังหวะที่ 3: <code>swap(cur, nxt)</code></p>` +
+        `<p class="dps-q">จบเล่มที่ ${i + 1} แล้ว <code>swap(cur, nxt)</code></p>` +
         `<ul class="dps-cands"><li class="ok win">แถวที่เพิ่งสร้างเสร็จเลื่อนขึ้นมาเป็น <b>cur</b> ตอนนี้ cur คือแถว <b>dp[${i + 1}]</b> แล้ว</li>` +
-        '<li class="ok">แถวเก่ากลายเป็นที่ว่างสำหรับรอบถัดไป จึงไม่ต้องจองหน่วยความจำใหม่เลยตลอดทั้งโปรแกรม</li>' +
+        '<li class="ok">แถวเก่าย้ายไปเป็น nxt รอถูกเขียนทับในรอบหน้า จึงไม่ต้องจองหน่วยความจำใหม่เลยตลอดทั้งโปรแกรม</li>' +
         `<li class="no"><code>swap</code> ของ <code>vector</code> คือการสลับตัวชี้ ไม่ได้ก็อปข้อมูล ${i + 1 === n ? 'และรอบนี้เป็นรอบสุดท้าย' : 'จึงเร็วคงที่'}</li></ul>` +
         '<p class="dps-a">แถวก่อนหน้าถูกทิ้งไปเลย ไม่มีใครกลับไปดูมันอีก</p>',
     });
@@ -386,11 +409,11 @@ function buildRoll(a: number[]): RollStep[] {
   out.push({
     kind: 'done',
     cur: snap(cur),
-    nxt: snap(blank),
+    nxt: snap(nxt),
     curLabel: `cur = dp[${n}]`,
     nxtLabel: 'nxt (ไม่ใช้แล้ว)',
     src: 0,
-    hits: [{ p: 0, ok: true }],
+    hits: [],
     html:
       '<p class="dps-q">หนังสือหมดกองแล้ว อ่านคำตอบจากช่องเดียว</p>' +
       `<ul class="dps-cands"><li class="ok win">คำตอบคือ <b>cur[0] = ${cur[0]}</b> คือจบแบบไม่มีบวกค้าง ทุกการหยิบสมบูรณ์</li>` +
@@ -421,17 +444,28 @@ const linOps = N_MAX * N_MAX;
 const linBytes = 2 * (N_MAX + 1) * LL_BYTES;
 const num = (v: number) => v.toLocaleString('en-US');
 
-const ivFullTex = texBlock(
-  String.raw`f[i][j] \;=\; \max_{i<x<y\le j}\Big( a_i + a_x - a_y + f[i{+}1][x{-}1] + f[x{+}1][y{-}1] + f[y{+}1][j] \Big)`,
+const F = mc.fn('f');
+const T = mc.fn('t');
+const G = mc.fn('g');
+/* '{...}' รอบตัวดำเนินการในดัชนี คือของเดิมที่บีบช่องไฟให้ i+1 อ่านเป็นก้อนเดียว */
+const P1 = '{' + mc.op('+') + '}' + mc.num('1');
+const M1 = '{' + mc.op('-') + '}' + mc.num('1');
+const ivFullTex = texCode(
+  F + '[i][j] \\;' + mc.op('=') + '\\; ' + mc.max + '_{i' + mc.op('<') + 'x' + mc.op('<') + 'y' + mc.op('\\le') + 'j}\\Big( ' +
+    A + '_i ' + mc.op('+') + ' ' + A + '_x ' + mc.op('+') + ' ' + F + '[i' + P1 + '][x' + M1 + '] ' + mc.op('+') + ' ' + F + '[x' + P1 + '][y' + M1 + '] ' +
+    mc.op('-') + ' ' + A + '_y ' + mc.op('+') + ' ' + F + '[y' + P1 + '][j] \\Big)',
 );
-const ivSplitTex = texBlock(
-  String.raw`t[i][y] \;=\; \max_{i<x<y}\Big( a_i + a_x + f[i{+}1][x{-}1] + f[x{+}1][y{-}1] \Big)`,
+const ivSplitTex = texCode(
+  T + '[i][y] \\;' + mc.op('=') + '\\; ' + mc.max + '_{i' + mc.op('<') + 'x' + mc.op('<') + 'y}\\Big( ' +
+    A + '_i ' + mc.op('+') + ' ' + A + '_x ' + mc.op('+') + ' ' + F + '[i' + P1 + '][x' + M1 + '] ' + mc.op('+') + ' ' + F + '[x' + P1 + '][y' + M1 + '] \\Big)',
 );
-const ivUseTex = texBlock(
-  String.raw`f[i][j] \;=\; \max_{i<y\le j}\Big( t[i][y] - a_y + f[y{+}1][j] \Big)`,
+const ivUseTex = texCode(
+  F + '[i][j] \\;' + mc.op('=') + '\\; ' + mc.max + '_{i' + mc.op('<') + 'y' + mc.op('\\le') + 'j}\\Big( ' +
+    T + '[i][y] ' + mc.op('-') + ' ' + A + '_y ' + mc.op('+') + ' ' + F + '[y' + P1 + '][j] \\Big)',
 );
-const ivStopTex = texBlock(
-  String.raw`g[k] \;=\; \max\Big( g[k{-}1],\; \max_{i<k}\big( g[i] + f[i][k{-}1] \big) \Big)`,
+const ivStopTex = texCode(
+  G + '[k] \\;' + mc.op('=') + '\\; ' + mc.max + '\\Big( ' + G + '[k' + M1 + '],\\; ' +
+    mc.max + '_{i' + mc.op('<') + 'k}\\big( ' + G + '[i] ' + mc.op('+') + ' ' + F + '[i][k' + M1 + '] \\big) \\Big)',
 );
 
 const intervalCode = `// DP บนช่วง: ทางที่คนคิดถึงก่อน ถูกต้องแต่แพงเกินลิมิตของโจทย์ข้อนี้
@@ -855,6 +889,35 @@ const demoCells = (i: number) =>
 
     <Fragment set:html={recurrenceTex} />
 
+    <p>
+      ก่อนอ่านสมการ ขอปักหมุดคำเดียว <strong><code>p</code> ในช่องที่เรากำลังเติม คือจำนวนบวกค้าง "หลัง" ตัดสินใจเรื่องเล่มที่ <code>i</code> ไปแล้ว
+      ส่วนดัชนีตัวหลังของช่องต้นทาง คือจำนวนบวกค้าง "ก่อน" ตัดสินใจ</strong> ทั้งสามบรรทัดจึงเป็นคำถามเดียวกันหมด
+      คือถ้าอยากให้จบที่ค้าง <code>p</code> เล่ม ก่อนหน้านี้ต้องค้างอยู่กี่เล่ม
+    </p>
+
+    <ul>
+      <li>
+        <strong>ให้เล่มนี้เป็นบวก</strong> ได้ <code>dp[i−1][p−1] + a[i]</code> เล่มนี้ถูกผลักเข้าสแต็ก บวกค้างจึงเพิ่มขึ้นหนึ่งเล่ม
+        ถ้าปลายทางต้องค้าง <code>p</code> เล่ม ก่อนหน้านี้ก็ต้องค้างอยู่ <code>p−1</code> เล่ม ส่วนแต้มบวก <code>a[i]</code> เข้าไปตรง ๆ
+        ทางนี้ใช้กับช่อง <code>p = 0</code> ไม่ได้ เพราะเล่มที่เพิ่งเป็นบวกก็นับเป็นบวกค้างหนึ่งเล่มด้วยตัวมันเอง
+        หลังตัดสินใจจึงต้องค้างอย่างน้อยหนึ่งเล่มเสมอ
+      </li>
+      <li>
+        <strong>ให้เล่มนี้เป็นลบ</strong> ได้ <code>dp[i−1][p+2] − a[i]</code> เล่มนี้ไปปิดจ๊อบ กินบวกค้างที่รออยู่ไปสองเล่ม
+        ถ้าปลายทางต้องค้าง <code>p</code> เล่ม ก่อนหน้านี้ต้องค้างอยู่ <code>p+2</code> เล่ม ส่วนแต้มถูกหักด้วย <code>a[i]</code>
+        ทางนี้ใช้ได้ก็ต่อเมื่อแถวก่อนหน้าไปถึงช่อง <code>p+2</code> ได้จริง
+      </li>
+      <li>
+        <strong>ไม่หยิบเล่มนี้เลย</strong> ได้ <code>dp[i−1][0]</code> แต้มไม่ขยับ และเพราะกฎเครื่องหมายอนุญาตให้ข้ามได้เฉพาะตอนที่ไม่มีบวกค้างเลย
+        ทั้งก่อนและหลังจึงเป็นศูนย์เท่ากัน ทางนี้โผล่ได้ที่ช่อง <code>p = 0</code> ช่องเดียว
+      </li>
+    </ul>
+
+    <p>
+      ผลของสามข้อนี้คือ<strong>แต่ละช่องมีทางเข้าไม่เท่ากัน</strong> ที่คอลัมน์ <code>p = 0</code> เหลือแค่สองทาง
+      คือข้ามเล่มนี้ไป กับให้มันเป็นลบโดยรับค่ามาจากช่อง <code>p = 2</code> ส่วนคอลัมน์อื่นไม่มีท่าข้าม
+    </p>
+
     <figure class="tbl">
       <table class="rec">
         <caption>RECURRENCE · dp[i][p] มาจากไหนได้บ้าง</caption>
@@ -865,7 +928,10 @@ const demoCells = (i: number) =>
           <tr>
             <td>เป็น<strong>บวก</strong> เปิดคู่ใหม่ ค้างเพิ่มอีกหนึ่ง</td>
             <td><code>dp[i−1][p−1] + a[i]</code></td>
-            <td><code>p ≥ 1</code></td>
+            <td>
+              <code>p ≥ 1</code>
+              <span class="cond-note">ไม่งั้นช่องต้นทางจะเป็น <code>dp[i−1][−1]</code> ซึ่งไม่มีอยู่ในตาราง</span>
+            </td>
           </tr>
           <tr>
             <td>เป็น<strong>ลบ</strong> ปิดจ๊อบ กินบวกค้างไปสอง</td>
@@ -891,127 +957,21 @@ const demoCells = (i: number) =>
       เครื่องผมวิ่งจบใน <strong>26 มิลลิวินาที</strong> จากลิมิต 1 วินาที
     </p>
 
-    <h3>ทำไม "รับมาจาก" กับ "ส่งต่อไป" ให้ผลเท่ากัน</h3>
-    <p>
-      ตารางข้างบนเขียนสมการแบบ<strong>ดึง (pull)</strong> คือยืนที่ช่องปลายทางแล้วถามว่า "ฉันรับค่ามาจากช่องไหนได้บ้าง"
-      แต่โค้ดที่จะเขียนต่อไปทำแบบ<strong>ผลัก (push)</strong> คือยืนที่ช่องต้นทางแล้วถามว่า "ค่าของฉันส่งต่อไปช่องไหนได้บ้าง"
-      สองอันนี้ให้ผลเท่ากันเพราะมันคือ<strong>ลูกศรเส้นเดียวกัน</strong> แค่อ่านจากคนละปลาย
-    </p>
-    <p>
-      ลองนึกภาพลูกศรหนึ่งเส้นที่พาดจากช่องหนึ่งในแถว <code>i</code> ไปยังช่องหนึ่งในแถว <code>i+1</code>
-      ลูกศรเส้นนั้นมีอยู่เส้นเดียว ไม่ได้เปลี่ยนไปตามวิธีที่เราเล่าถึงมัน การอ่านแบบดึงคือ<strong>ไล่ลูกศรทุกเส้นที่ชี้เข้าช่องหนึ่ง</strong>
-      การอ่านแบบผลักคือ<strong>ไล่ลูกศรทุกเส้นที่ออกจากช่องหนึ่ง</strong> พอวนครบทุกช่องแล้ว ทั้งสองวิธีก็แตะลูกศรชุดเดียวกันครบเท่ากัน
-      และเพราะทุกช่องเก็บค่าที่ดีที่สุดด้วย <code>max</code> ลำดับที่ลูกศรถูกแตะจึงไม่มีผลกับคำตอบ
-    </p>
-
-    <ZoomableDiagram caption="ลูกศรสามเส้นเดิม อ่านจากปลายทาง (ดึง) หรืออ่านจากต้นทาง (ผลัก) ก็ได้ลูกศรชุดเดียวกัน ต่างกันแค่ว่าเราวนที่ช่องไหนเป็นตัวตั้ง (วาดประกอบโดยผู้เขียน)">
-      <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพสองช่องเทียบกัน ช่องซ้ายชื่ออ่านแบบดึง มีลูกศรสามเส้นจากแถว i พุ่งเข้าช่องเดียวในแถว i บวกหนึ่ง ช่องขวาชื่ออ่านแบบผลัก มีลูกศรสามเส้นออกจากช่องเดียวในแถว i ไปสามช่องในแถว i บวกหนึ่ง">
-        <text x="180" y="22" fill="#4ade80" font-size="13" text-anchor="middle" font-weight="700">อ่านแบบดึง (ตารางข้างบน)</text>
-        <text x="540" y="22" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">อ่านแบบผลัก (โค้ดข้างล่าง)</text>
-        <line x1="360" y1="34" x2="360" y2="286" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="4 4"/>
-
-        <text x="67" y="77" fill="#7b8397" font-size="11" font-family="monospace">dp[i]</text>
-        <rect x="137" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="159" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">q-1</text>
-        <rect x="193" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="215" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">0</text>
-        <rect x="249" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="271" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">q+2</text>
-
-        <path d="M159 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
-        <path d="M215 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
-        <path d="M271 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
-
-        <text x="67" y="183" fill="#7b8397" font-size="11" font-family="monospace">dp[i+1]</text>
-        <rect x="193" y="164" width="44" height="30" rx="6" fill="#123024" stroke="#4ade80" stroke-width="2"/>
-        <text x="215" y="184" fill="#7cf0a8" font-size="11" text-anchor="middle" font-family="monospace">q</text>
-        <text x="180" y="224" fill="#9aa7bd" font-size="11.5" text-anchor="middle">ยืนที่ช่อง q แล้วไล่ลูกศรที่ชี้เข้ามา</text>
-        <text x="180" y="248" fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">dp[i+1][q] = max(...)</text>
-        <text x="180" y="274" fill="#7b8397" font-size="11" text-anchor="middle">เขียนช่องปลายทางครั้งเดียวจบ</text>
-
-        <text x="427" y="77" fill="#7b8397" font-size="11" font-family="monospace">cur</text>
-        <rect x="553" y="58" width="44" height="30" rx="6" fill="#3a2f10" stroke="#e0b400" stroke-width="2"/>
-        <text x="575" y="78" fill="#ffe58a" font-size="11" text-anchor="middle" font-family="monospace">p</text>
-
-        <path d="M575 90 L519 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
-        <path d="M575 90 L575 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
-        <path d="M575 90 L631 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
-
-        <text x="427" y="183" fill="#7b8397" font-size="11" font-family="monospace">nxt</text>
-        <rect x="497" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="519" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">p-2</text>
-        <rect x="553" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="575" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">0</text>
-        <rect x="609" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
-        <text x="631" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">p+1</text>
-        <text x="540" y="224" fill="#9aa7bd" font-size="11.5" text-anchor="middle">ยืนที่ช่อง p แล้วไล่ลูกศรที่ออกไป</text>
-        <text x="540" y="248" fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">nxt[?] = max(nxt[?], cur[p] ...)</text>
-        <text x="540" y="274" fill="#7b8397" font-size="11" text-anchor="middle">ช่องปลายทางถูกเขียนหลายครั้ง จึงต้องใช้ max</text>
-
-        <defs>
-          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-            <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
-          </marker>
-          <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-            <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
-          </marker>
-        </defs>
-      </svg>
-    </ZoomableDiagram>
 
     <p>
-      ที่ตัวเลขในดัชนีดูไม่เหมือนกันเลย เป็นเพราะเราเรียกชื่อ "ช่องที่กำลังพูดถึง" ต่างกัน ฝั่งดึงตั้งชื่อช่องปลายทางว่า <code>q</code>
-      ฝั่งผลักตั้งชื่อช่องต้นทางว่า <code>p</code> เอาสองชื่อนี้มาผูกกันด้วยลูกศรแต่ละเส้น ก็จะเห็นว่ามันคือประโยคเดียวกัน
-    </p>
-
-    <figure class="tbl">
-      <table class="rec">
-        <caption>PULL vs PUSH · ลูกศรเส้นเดียวกัน</caption>
-        <thead>
-          <tr><th>ลูกศรเส้นที่</th><th>อ่านแบบดึง (ปลายทางชื่อ q)</th><th>อ่านแบบผลัก (ต้นทางชื่อ p)</th><th>ชื่อผูกกันด้วย</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>เล่มนี้เป็น<strong>บวก</strong></td>
-            <td><code>dp[i+1][q] ← dp[i][q−1] + a</code></td>
-            <td><code>nxt[p+1] ← cur[p] + a</code></td>
-            <td><code>q = p + 1</code></td>
-          </tr>
-          <tr>
-            <td>เล่มนี้เป็น<strong>ลบ</strong></td>
-            <td><code>dp[i+1][q] ← dp[i][q+2] − a</code></td>
-            <td><code>nxt[p−2] ← cur[p] − a</code></td>
-            <td><code>q = p − 2</code></td>
-          </tr>
-          <tr>
-            <td><strong>ไม่หยิบ</strong>เล่มนี้</td>
-            <td><code>dp[i+1][0] ← dp[i][0]</code></td>
-            <td><code>nxt[0] ← cur[0]</code></td>
-            <td><code>q = p = 0</code></td>
-          </tr>
-        </tbody>
-      </table>
-      <figcaption>
-        แทน <code>q = p + 1</code> ลงในบรรทัดแรกของฝั่งดึง จะได้ <code>dp[i+1][p+1] ← dp[i][p] + a</code> ซึ่งคือบรรทัดของฝั่งผลักเป๊ะ ๆ
-        อีกสองบรรทัดก็แทนแบบเดียวกัน
-      </figcaption>
-    </figure>
-
-    <div class="callout callout-tip">
-      <p class="callout-label">แล้วทำไมโค้ดเลือกฝั่งผลัก</p>
-      <p>
-        เพราะฝั่งดึงต้องคอยเช็คว่า <code>q−1</code> ไม่ติดลบและ <code>q+2</code> ไม่ล้นอาร์เรย์ก่อนจะอ่านค่า
-        ส่วนฝั่งผลักรู้อยู่แล้วว่า <code>cur[p]</code> ที่ยืนอยู่นั้นมีค่าจริง เหลือแค่กันขอบตอนเขียนออกไป โค้ดจึงสั้นกว่าและพลาดยากกว่า
-        ราคาที่จ่ายคือช่องปลายทางถูกเขียนหลายครั้ง จึงต้องห่อด้วย <code>max</code> ทุกครั้ง (ในตัวเล่นข้างล่างจะเห็นจังหวะที่การผลักถูกปฏิเสธเพราะไม่ดีกว่าค่าเดิม)
-      </p>
-    </div>
-
-    <p>
-      อีกอย่างที่ต่างจากตารางในหัวคือโค้ดไม่ได้เก็บตารางทั้งใบ เก็บแค่สองแถวที่กำลังใช้ <code>cur[p]</code> คือ <code>dp[i][p]</code> แถวที่ยืนอยู่
-      และ <code>nxt[p]</code> คือ <code>dp[i+1][p]</code> แถวถัดไป พอทำแถวถัดไปเสร็จก็ <code>swap</code> ให้มันกลายเป็นแถวปัจจุบัน
+      อีกอย่างที่ต่างจากตารางในหัวคือโค้ดไม่ได้เก็บตารางทั้งใบ เก็บแค่สองแถวที่กำลังใช้ <code>cur[q]</code> คือ <code>dp[i][q]</code> แถวที่ยืนอยู่
+      และ <code>nxt[q]</code> คือ <code>dp[i+1][q]</code> แถวถัดไป พอทำแถวถัดไปเสร็จก็ <code>swap</code> ให้มันกลายเป็นแถวปัจจุบัน
     </p>
 
     <CodeBlock code={dpLine} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต: ไม่มีจังหวะล้างแถว</p>
+      <p>
+        ลูปเขียน <code>nxt[q] = best</code> ทับลงไปตั้งแต่ <code>q = 0</code> จนถึง <code>q = n</code> ครบทั้งแถว
+        ตัวเลขที่ค้างอยู่ในแถวนั้นคือของแถวเมื่อสองรอบก่อน มันถูกทับจนหมดเองก่อนจะมีคนอ่าน จึงไม่ต้องมี <code>fill</code> คอยล้างแถวก่อนเริ่ม
+      </p>
+    </div>
 
     <h3>เดินตารางให้ดูหนึ่งกอง</h3>
     <p>
@@ -1069,8 +1029,8 @@ const demoCells = (i: number) =>
 
     <h3>แล้วโค้ดจริงเห็นอะไร · cur กับ nxt ทีละขั้น</h3>
     <p>
-      ตัวเล่นข้างล่างคือกองเดียวกัน แต่แสดงเฉพาะสิ่งที่เครื่องถือไว้จริง ๆ คือสองแถว และเดินตาม<strong>สมการแบบผลัก</strong>
-      หนึ่งรอบของหนังสือหนึ่งเล่มมีสามจังหวะวนซ้ำ: <strong>ล้างแถว nxt</strong> แล้ว<strong>ผลักค่าจากทุกช่องของ cur</strong> แล้ว <strong>swap</strong>
+      ตัวเล่นข้างล่างคือกองเดียวกัน แต่แสดงเฉพาะสิ่งที่เครื่องถือไว้จริง ๆ คือสองแถว และเดินตามสมการเดียวกับตารางข้างบน
+      หนึ่งรอบของหนังสือหนึ่งเล่มมีสองจังหวะ: <strong>ไล่เติมทุกช่องของ nxt จากซ้ายไปขวา</strong> แล้ว <strong>swap</strong>
       ลองเทียบกับตารางเต็มใบข้างบนดูได้ ค่าที่ปรากฏจะตรงกันแถวต่อแถว
     </p>
 
@@ -1100,11 +1060,11 @@ const demoCells = (i: number) =>
           </thead>
           <tbody>
             <tr data-row="cur">
-              <td class="rowlab">cur</td>
+              <td class="rowlab"><span class="rowlab-t">cur</span></td>
               {Array.from({ length: DEMO_COLS }, (_, p) => <td class="num" data-p={p}>·</td>)}
             </tr>
             <tr data-row="nxt">
-              <td class="rowlab">nxt</td>
+              <td class="rowlab"><span class="rowlab-t">nxt</span></td>
               {Array.from({ length: DEMO_COLS }, (_, p) => <td class="num" data-p={p}>·</td>)}
             </tr>
           </tbody>
@@ -1114,8 +1074,130 @@ const demoCells = (i: number) =>
       <div class="dps-say" aria-live="polite"></div>
     </div>
     <p class="io-note">
-      สีทองคือช่องของ cur ที่กำลังยืนอยู่ สีเขียวคือช่องของ nxt ที่ถูกเขียนค่าใหม่ในขั้นนั้น สีจางคือช่องที่ถูกผลักถึงแต่ไม่ได้เขียนเพราะค่าเดิมดีกว่า
+      สีทองคือช่องของ nxt ที่กำลังเติม สีเขียวคือช่องของ cur ที่ถูกเลือกมาเป็นต้นทาง สีจางคือต้นทางที่เป็นไปได้แต่แพ้อีกทางหนึ่ง
     </p>
+
+    <details class="expander">
+      <summary>ของแถม: เขียนกลับด้านเป็นท่า "ผลัก" ก็ได้คำตอบเดียวกัน</summary>
+      <div class="expander-body">
+      <p>
+        ทั้งตารางและโค้ดข้างบนเขียนสมการแบบ<strong>ดึง (pull)</strong> คือยืนที่ช่องปลายทางแล้วถามว่า "ฉันรับค่ามาจากช่องไหนได้บ้าง"
+        อีกท่าที่เจอบ่อยพอกันคือ<strong>ผลัก (push)</strong> คือยืนที่ช่องต้นทางแล้วถามว่า "ค่าของฉันส่งต่อไปช่องไหนได้บ้าง"
+        สองท่านี้ให้คำตอบเท่ากันเสมอ เพราะมันคือ<strong>ลูกศรเส้นเดียวกัน</strong> แค่อ่านจากคนละปลาย
+      </p>
+      <p>
+        ลองนึกภาพลูกศรหนึ่งเส้นที่พาดจากช่องหนึ่งในแถว <code>i</code> ไปยังช่องหนึ่งในแถว <code>i+1</code>
+        ลูกศรเส้นนั้นมีอยู่เส้นเดียว ไม่ได้เปลี่ยนไปตามวิธีที่เราเล่าถึงมัน การอ่านแบบดึงคือ<strong>ไล่ลูกศรทุกเส้นที่ชี้เข้าช่องหนึ่ง</strong>
+        การอ่านแบบผลักคือ<strong>ไล่ลูกศรทุกเส้นที่ออกจากช่องหนึ่ง</strong> พอวนครบทุกช่องแล้ว ทั้งสองวิธีก็แตะลูกศรชุดเดียวกันครบเท่ากัน
+        และเพราะทุกช่องเก็บค่าที่ดีที่สุดด้วย <code>max</code> ลำดับที่ลูกศรถูกแตะจึงไม่มีผลกับคำตอบ
+      </p>
+
+      <ZoomableDiagram caption="ลูกศรสามเส้นเดิม อ่านจากปลายทาง (ดึง) หรืออ่านจากต้นทาง (ผลัก) ก็ได้ลูกศรชุดเดียวกัน ต่างกันแค่ว่าเราวนที่ช่องไหนเป็นตัวตั้ง (วาดประกอบโดยผู้เขียน)">
+        <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพสองช่องเทียบกัน ช่องซ้ายชื่ออ่านแบบดึง มีลูกศรสามเส้นจากแถว i พุ่งเข้าช่องเดียวในแถว i บวกหนึ่ง ช่องขวาชื่ออ่านแบบผลัก มีลูกศรสามเส้นออกจากช่องเดียวในแถว i ไปสามช่องในแถว i บวกหนึ่ง">
+          <text x="180" y="22" fill="#4ade80" font-size="13" text-anchor="middle" font-weight="700">อ่านแบบดึง (ท่าที่ใช้ในบทความ)</text>
+          <text x="540" y="22" fill="#e0b400" font-size="13" text-anchor="middle" font-weight="700">อ่านแบบผลัก (ท่ากลับด้าน)</text>
+          <line x1="360" y1="34" x2="360" y2="286" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+          <text x="67" y="77" fill="#7b8397" font-size="11" font-family="monospace">dp[i]</text>
+          <rect x="137" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="159" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">q-1</text>
+          <rect x="193" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="215" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">0</text>
+          <rect x="249" y="58" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="271" y="78" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">q+2</text>
+
+          <path d="M159 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
+          <path d="M215 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
+          <path d="M271 90 L215 156" fill="none" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ah)"/>
+
+          <text x="67" y="183" fill="#7b8397" font-size="11" font-family="monospace">dp[i+1]</text>
+          <rect x="193" y="164" width="44" height="30" rx="6" fill="#123024" stroke="#4ade80" stroke-width="2"/>
+          <text x="215" y="184" fill="#7cf0a8" font-size="11" text-anchor="middle" font-family="monospace">q</text>
+          <text x="180" y="224" fill="#9aa7bd" font-size="11.5" text-anchor="middle">ยืนที่ช่อง q แล้วไล่ลูกศรที่ชี้เข้ามา</text>
+          <text x="180" y="248" fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">dp[i+1][q] = max(...)</text>
+          <text x="180" y="274" fill="#7b8397" font-size="11" text-anchor="middle">เขียนช่องปลายทางครั้งเดียวจบ</text>
+
+          <text x="427" y="77" fill="#7b8397" font-size="11" font-family="monospace">cur</text>
+          <rect x="553" y="58" width="44" height="30" rx="6" fill="#3a2f10" stroke="#e0b400" stroke-width="2"/>
+          <text x="575" y="78" fill="#ffe58a" font-size="11" text-anchor="middle" font-family="monospace">p</text>
+
+          <path d="M575 90 L519 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
+          <path d="M575 90 L575 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
+          <path d="M575 90 L631 156" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ag)"/>
+
+          <text x="427" y="183" fill="#7b8397" font-size="11" font-family="monospace">nxt</text>
+          <rect x="497" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="519" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">p-2</text>
+          <rect x="553" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="575" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">0</text>
+          <rect x="609" y="164" width="44" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+          <text x="631" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">p+1</text>
+          <text x="540" y="224" fill="#9aa7bd" font-size="11.5" text-anchor="middle">ยืนที่ช่อง p แล้วไล่ลูกศรที่ออกไป</text>
+          <text x="540" y="248" fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">nxt[?] = max(nxt[?], cur[p] ...)</text>
+          <text x="540" y="274" fill="#7b8397" font-size="11" text-anchor="middle">ช่องปลายทางถูกเขียนหลายครั้ง จึงต้องใช้ max</text>
+
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+            </marker>
+            <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+            </marker>
+          </defs>
+        </svg>
+      </ZoomableDiagram>
+
+      <p>
+        ที่ตัวเลขในดัชนีดูไม่เหมือนกันเลย เป็นเพราะเราเรียกชื่อ "ช่องที่กำลังพูดถึง" ต่างกัน ฝั่งดึงตั้งชื่อช่องปลายทางว่า <code>q</code>
+        ฝั่งผลักตั้งชื่อช่องต้นทางว่า <code>p</code> เอาสองชื่อนี้มาผูกกันด้วยลูกศรแต่ละเส้น ก็จะเห็นว่ามันคือประโยคเดียวกัน
+      </p>
+
+      <figure class="tbl">
+        <table class="rec">
+          <caption>PULL vs PUSH · ลูกศรเส้นเดียวกัน</caption>
+          <thead>
+            <tr><th>ลูกศรเส้นที่</th><th>อ่านแบบดึง (ปลายทางชื่อ q)</th><th>อ่านแบบผลัก (ต้นทางชื่อ p)</th><th>ชื่อผูกกันด้วย</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>เล่มนี้เป็น<strong>บวก</strong></td>
+              <td><code>dp[i+1][q] ← dp[i][q−1] + a</code></td>
+              <td><code>nxt[p+1] ← cur[p] + a</code></td>
+              <td><code>q = p + 1</code></td>
+            </tr>
+            <tr>
+              <td>เล่มนี้เป็น<strong>ลบ</strong></td>
+              <td><code>dp[i+1][q] ← dp[i][q+2] − a</code></td>
+              <td><code>nxt[p−2] ← cur[p] − a</code></td>
+              <td><code>q = p − 2</code></td>
+            </tr>
+            <tr>
+              <td><strong>ไม่หยิบ</strong>เล่มนี้</td>
+              <td><code>dp[i+1][0] ← dp[i][0]</code></td>
+              <td><code>nxt[0] ← cur[0]</code></td>
+              <td><code>q = p = 0</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <figcaption>
+          แทน <code>q = p + 1</code> ลงในบรรทัดแรกของฝั่งดึง จะได้ <code>dp[i+1][p+1] ← dp[i][p] + a</code> ซึ่งคือบรรทัดของฝั่งผลักเป๊ะ ๆ
+          อีกสองบรรทัดก็แทนแบบเดียวกัน
+        </figcaption>
+      </figure>
+
+      <CodeBlock code={pushLine} lang="cpp" title="ท่ากลับด้าน ให้คำตอบเดียวกัน" />
+
+      <div class="callout callout-note">
+        <p class="callout-label">แล้วทำไมบทความนี้เลือกฝั่งดึง</p>
+        <p>
+          เหตุผลข้อแรกคือตาราง RECURRENCE กับโค้ดจะเป็นประโยคเดียวกัน อ่านสลับกันได้โดยไม่ต้องแปลในหัว
+          เหตุผลข้อสองคือฝั่งดึงเขียนช่องปลายทาง<strong>ครั้งเดียวจบ</strong> จึงไม่ต้องห่อด้วย <code>max</code> กับค่าเดิมของตัวเอง และไม่ต้องมีจังหวะล้างแถว
+          ราคาที่จ่ายคือต้องเช็คขอบตอนอ่าน ว่า <code>q−1</code> ไม่ติดลบและ <code>q+2</code> ไม่ล้นอาร์เรย์
+          ส่วนฝั่งผลักกลับกัน คืออ่านสบายแต่เขียนหลายครั้ง จึงต้องล้างแถวก่อนและห่อด้วย <code>max</code> ทุกบรรทัด
+        </p>
+      </div>
+      </div>
+    </details>
 
     <p>
       เส้นทางที่ได้คือ {demoTrace} อ่านเป็นภาษาคนได้ว่า หยิบเล่ม 1-2-3 ครั้งหนึ่ง ({demo[0]} + {demo[1]} − {demo[2]} = {demo[0] + demo[1] - demo[2]} แต้ม)
@@ -1413,6 +1495,17 @@ const demoCells = (i: number) =>
   }
   table.rec td{color:var(--dl-ink);line-height:1.55;}
   table.rec td strong{color:var(--dl-gold);}
+  /* หมายเหตุใต้เงื่อนไข เป็นข้อความไทยที่ไม่มีช่องไฟ max-content ของมันจึงเท่ากับทั้งประโยค
+     ถ้าปล่อยไว้ ตารางที่ fit-content จะกว้างจาก 765 เป็น 976px เพราะเซลล์เดียวนี้ */
+  table.rec td .cond-note{
+    display:block;
+    width:0;
+    min-width:100%;
+    margin-top:0.25rem;
+    font-size:0.78rem;
+    line-height:1.5;
+    color:#9aa7bd;
+  }
   table.rec td.num{
     text-align:right;
     font-family:"Fira Code","Fira Mono",monospace;
@@ -1522,6 +1615,14 @@ const demoCells = (i: number) =>
     color:var(--dl-muted);
     width:13rem;
     white-space:normal;
+  }
+  /* ไทยไม่มีช่องไฟ ป้ายที่ยาวไม่เท่ากันทุกขั้นจึงดึงความกว้างของตารางไปด้วย
+     span ที่กว้าง 0 แต่ min-width เต็มช่อง ทำให้ข้อความยาวกลายเป็นความสูงแทนความกว้าง */
+  .rollsim td.rowlab .rowlab-t{
+    display:block;
+    width:0;
+    min-width:100%;
+    overflow-wrap:anywhere;
   }
   .rollsim tr[data-row="cur"] td.rowlab{color:var(--dl-gold);}
   .rollsim tr[data-row="nxt"] td.rowlab{color:var(--dl-emerald-bright);}
@@ -2051,7 +2152,7 @@ const demoCells = (i: number) =>
   // ตัวเล่นชุดสองแถว cur / nxt แต่ละขั้นเก็บภาพนิ่งของทั้งสองแถวไว้แล้วตอน build
   type Hit = { p: number; ok: boolean };
   type RollStep = {
-    kind: 'start' | 'clear' | 'push' | 'swap' | 'done';
+    kind: 'start' | 'pull' | 'rest' | 'swap' | 'done';
     cur: string[];
     nxt: string[];
     curLabel: string;
@@ -2088,8 +2189,8 @@ const demoCells = (i: number) =>
 
     const curCells = Array.from(curRow.querySelectorAll<HTMLTableCellElement>('td.num'));
     const nxtCells = Array.from(nxtRow.querySelectorAll<HTMLTableCellElement>('td.num'));
-    const curLab = curRow.querySelector<HTMLTableCellElement>('td.rowlab');
-    const nxtLab = nxtRow.querySelector<HTMLTableCellElement>('td.rowlab');
+    const curLab = curRow.querySelector<HTMLElement>('td.rowlab .rowlab-t');
+    const nxtLab = nxtRow.querySelector<HTMLElement>('td.rowlab .rowlab-t');
 
     // เลื่อนกรอบตารางตามช่องที่กำลังทำงาน บนจอแคบตารางกว้างเกินกรอบหลายเท่า
     // ถ้าไม่เลื่อนให้ คนอ่านกดเดินทั้งเกมโดยไม่เห็นอะไรขยับเลย
@@ -2122,28 +2223,28 @@ const demoCells = (i: number) =>
       curCells.forEach((c, p) => {
         c.className = 'num';
         c.textContent = st.cur[p] ?? '\u00b7';
-        if (st.kind === 'push' && st.src === p) {
-          c.classList.add('is-cursor');
-          focus = c;
-        }
         if (st.kind === 'done' && p === 0) {
           c.classList.add('is-answer');
           focus = c;
         }
+        if (st.kind !== 'pull') return;
+        const ok = written.get(p);
+        if (ok === true) c.classList.add('is-written');
+        else if (ok === false) c.classList.add('is-rejected');
       });
       nxtCells.forEach((c, p) => {
         c.className = 'num';
         c.textContent = st.nxt[p] ?? '\u00b7';
-        if (st.kind !== 'push') return;
-        const ok = written.get(p);
-        if (ok === true) c.classList.add('is-written');
-        else if (ok === false) c.classList.add('is-rejected');
+        if (st.kind === 'pull' && st.src === p) {
+          c.classList.add('is-cursor');
+          focus = c;
+        }
       });
 
       if (curLab) curLab.textContent = st.curLabel;
       if (nxtLab) nxtLab.textContent = st.nxtLabel;
       curRow.classList.toggle('is-idle', false);
-      nxtRow.classList.toggle('is-idle', st.kind === 'start' || st.kind === 'swap' || st.kind === 'done');
+      nxtRow.classList.toggle('is-idle', st.kind === 'start' || st.kind === 'done');
 
       say.innerHTML = st.html;
       range.value = String(at);
