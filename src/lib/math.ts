@@ -35,6 +35,12 @@ export const mc = {
   op: (src: string): string => codeColor('#FF79C6', src),
   /** \max ที่ยังวางเงื่อนไขไว้ใต้ตัวมันได้ (\textcolor เฉย ๆ จะทำให้กลายเป็น ord แล้วเงื่อนไขไปอยู่ห้อยข้าง) */
   max: '\\mathop{' + codeColor('#50FA7B', '\\max') + '}\\limits',
+  /**
+   * ฟังก์ชันตรีโกณ (\cos, \sin, \tan) ที่ย้อมสีแล้วยังเป็น \mathop เหมือนเดิม
+   * \textcolor เฉย ๆ จะทำให้มันกลายเป็น ord แล้วช่องไฟหน้า/หลังเพี้ยน (\cos\theta จะติดกัน)
+   * ใช้แบบ mc.trig('\\cos') + '\\theta'
+   */
+  trig: (src: string): string => '\\mathop{' + codeColor('#50FA7B', src) + '}\\nolimits ',
 };
 
 /** เหมือน texBlock แต่พื้นหลัง/สีพื้นเป็นหน้าต่างโค้ด ใช้คู่กับ mc ข้างบน */
