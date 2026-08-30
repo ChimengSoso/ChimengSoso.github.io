@@ -1,0 +1,3251 @@
+---
+import { createHash } from 'node:crypto';
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ExplainNumber from '../../components/ExplainNumber.astro';
+
+/** แฮชทุกตัวในหน้านี้คำนวณตอน build จากของจริง ไม่ได้พิมพ์มือ */
+const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+
+/**
+ * ตัวเลขทุกตัวในหน้านี้คำนวณตอน build จากโมเดลด้านล่าง ไม่ได้พิมพ์มือ
+ * ค่าที่อ่านจากเครือข่ายจริง (ความสูงบล็อก อัตราแฮช ราคา) ตรึงไว้พร้อมวันที่กำกับ
+ */
+
+/** ค่าที่อ่านจากเครือข่ายจริง ณ วันที่ระบุ */
+const SNAPSHOT_DATE = '30 สิงหาคม 2026';
+const TIP_HEIGHT = 964_729;
+const HASHRATE_EHS = 899.5;
+const DIFFICULTY = 125_807_076_547_197.5;
+const PRICE_USD = 78_593;
+const PRICE_THB = 2_603_449;
+const MARKET_CAP_USD = 1_577_577_874_498;
+
+/** กติกาการออกเหรียญ */
+const HALVING_INTERVAL = 210_000;
+const SAT_PER_BTC = 100_000_000;
+const INITIAL_REWARD_SAT = 50 * SAT_PER_BTC;
+const BLOCK_MINUTES = 10;
+
+interface Era {
+  /** ยุคที่เท่าไร นับจาก 0 */
+  index: number;
+  /** ความสูงบล็อกแรกของยุคนี้ */
+  startHeight: number;
+  /** รางวัลต่อบล็อกในยุคนี้ หน่วยซาโตชิ */
+  rewardSat: number;
+  /** เหรียญที่ออกใหม่ทั้งยุค หน่วยซาโตชิ */
+  mintedSat: number;
+  /** เหรียญสะสมเมื่อจบยุคนี้ หน่วยซาโตชิ */
+  cumulativeSat: number;
+}
+
+function buildEras(): Era[] {
+  const eras: Era[] = [];
+  let rewardSat = INITIAL_REWARD_SAT;
+  let cumulativeSat = 0;
+  let index = 0;
+  while (rewardSat > 0) {
+    const mintedSat = rewardSat * HALVING_INTERVAL;
+    cumulativeSat += mintedSat;
+    eras.push({
+      index,
+      startHeight: index * HALVING_INTERVAL,
+      rewardSat,
+      mintedSat,
+      cumulativeSat,
+    });
+    rewardSat = Math.floor(rewardSat / 2);
+    index += 1;
+  }
+  return eras;
+}
+
+const eras = buildEras();
+const totalBtc = eras[eras.length - 1].cumulativeSat / SAT_PER_BTC;
+const lastEra = eras[eras.length - 1];
+
+/** ยุคปัจจุบันจากความสูงบล็อกที่อ่านมา */
+const currentEraIndex = Math.floor(TIP_HEIGHT / HALVING_INTERVAL);
+const currentEra = eras[currentEraIndex];
+const currentRewardBtc = currentEra.rewardSat / SAT_PER_BTC;
+const nextHalvingHeight = (currentEraIndex + 1) * HALVING_INTERVAL;
+const blocksToHalving = nextHalvingHeight - TIP_HEIGHT;
+const daysToHalving = (blocksToHalving * BLOCK_MINUTES) / 60 / 24;
+
+/** เหรียญที่ออกมาแล้ว ณ ความสูงปัจจุบัน */
+function mintedByHeight(height: number): number {
+  let sat = 0;
+  for (const era of eras) {
+    const blocksInEra = Math.min(Math.max(height - era.startHeight, 0), HALVING_INTERVAL);
+    sat += blocksInEra * era.rewardSat;
+    if (height <= era.startHeight + HALVING_INTERVAL) break;
+  }
+  return sat;
+}
+
+const mintedBtc = mintedByHeight(TIP_HEIGHT) / SAT_PER_BTC;
+const mintedPct = (mintedBtc / totalBtc) * 100;
+
+/** วันที่ halving ที่เกิดไปแล้วจริง ส่วนอนาคตเป็นการประมาณ */
+const halvingDates: Record<number, string> = {
+  0: '3 ม.ค. 2009',
+  1: '28 พ.ย. 2012',
+  2: '9 ก.ค. 2016',
+  3: '11 พ.ค. 2020',
+  4: '20 เม.ย. 2024',
+};
+function eraWhen(index: number): string {
+  const known = halvingDates[index];
+  if (known) return known;
+  return `ราวปี ${2024 + (index - 4) * 4}`;
+}
+
+/** ตารางยุคที่จะเอาไปแสดง เอาเจ็ดยุคแรกพอ แล้วต่อท้ายด้วยยุคสุดท้าย */
+const eraRows = eras.slice(0, 7);
+
+/** ข้อมูลกราฟอุปทานสะสม */
+const CHART_W = 580;
+const CHART_H = 300;
+const PLOT_X0 = 62;
+const PLOT_X1 = 552;
+const PLOT_Y0 = 34;
+const PLOT_Y1 = 236;
+const CHART_ERAS = 10;
+const chartMaxHeight = CHART_ERAS * HALVING_INTERVAL;
+
+function chartX(height: number): number {
+  return PLOT_X0 + (height / chartMaxHeight) * (PLOT_X1 - PLOT_X0);
+}
+function chartY(btc: number): number {
+  return PLOT_Y1 - (btc / totalBtc) * (PLOT_Y1 - PLOT_Y0);
+}
+
+/** เดินทีละครึ่งยุคให้เส้นดูโค้งพอสมควร โดยที่ยังเป็นเส้นตรงต่อกันตามความจริง */
+const supplyPoints: string[] = [];
+for (let i = 0; i <= CHART_ERAS * 2; i += 1) {
+  const h = (i / 2) * HALVING_INTERVAL;
+  supplyPoints.push(`${chartX(h).toFixed(1)},${chartY(mintedByHeight(h) / SAT_PER_BTC).toFixed(1)}`);
+}
+const supplyPath = `M${supplyPoints.join(' L')}`;
+
+/** จุดมาร์ก halving สี่ครั้งแรกบนกราฟ */
+const halvingMarks = [1, 2, 3, 4].map((i) => ({
+  index: i,
+  x: chartX(i * HALVING_INTERVAL),
+  y: chartY(mintedByHeight(i * HALVING_INTERVAL) / SAT_PER_BTC),
+  label: eraWhen(i),
+}));
+
+const tipMark = {
+  x: chartX(TIP_HEIGHT),
+  y: chartY(mintedBtc),
+};
+
+/** ตารางดรอว์ดาวน์รายรอบ ตัวเลขเป็นค่าประมาณจากราคาปิดรายวัน */
+interface Drawdown {
+  cycle: string;
+  peak: string;
+  trough: string;
+  fall: number;
+  months: number;
+}
+const drawdowns: Drawdown[] = [
+  { cycle: '2011', peak: 'มิ.ย. 2011', trough: 'พ.ย. 2011', fall: 93, months: 5 },
+  { cycle: '2013 ถึง 2015', peak: 'ธ.ค. 2013', trough: 'ม.ค. 2015', fall: 86, months: 13 },
+  { cycle: '2017 ถึง 2018', peak: 'ธ.ค. 2017', trough: 'ธ.ค. 2018', fall: 84, months: 12 },
+  { cycle: '2021 ถึง 2022', peak: 'พ.ย. 2021', trough: 'พ.ย. 2022', fall: 77, months: 12 },
+];
+
+/** ถ้าลงไป f เปอร์เซ็นต์ ต้องขึ้นกี่เปอร์เซ็นต์ถึงจะกลับที่เดิม */
+function recoveryPct(fallPct: number): number {
+  const left = 1 - fallPct / 100;
+  return (1 / left - 1) * 100;
+}
+
+/** พลังงาน */
+const ENERGY_TWH = 138;
+const ENERGY_YEAR = 2025;
+const WORLD_SHARE_PCT = 0.54;
+
+const fmt = (n: number, digits = 0) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+/* ---------- ตัวอย่างแฮชสำหรับหัวข้อแฮช ---------- */
+const HASH_A = 'hello';
+const HASH_B = 'hellO';
+const HASH_LONG =
+  'Bitcoin: A Peer-to-Peer Electronic Cash System. Satoshi Nakamoto. satoshin@gmx.com. www.bitcoin.org';
+const hashA = sha(HASH_A);
+const hashB = sha(HASH_B);
+const hashLong = sha(HASH_LONG);
+/** นับว่าสองแฮชนี้มีตัวอักษรกี่ตัวที่ตรงกันในตำแหน่งเดียวกัน */
+const sameChars = Array.from(hashA).filter((c, i) => c === hashB[i]).length;
+
+const HEX_BITS = 4;
+const HASH_BITS = 256;
+const HASH_HEX_LEN = HASH_BITS / HEX_BITS;
+
+/* ---------- โอกาสสุ่มกุญแจชนกัน ---------- */
+const KEY_SPACE = Math.pow(2, HASH_BITS);
+const WORLD_POP = 8_000_000_000;
+const KEYS_PER_SEC = 1_000_000;
+const UNIVERSE_SECONDS = 13.8e9 * 365.25 * 24 * 3600;
+const keysEverMade = WORLD_POP * KEYS_PER_SEC * UNIVERSE_SECONDS;
+const keySpaceRatio = KEY_SPACE / keysEverMade;
+/** เขียนเลขมหาศาลเป็น "N ตามด้วยศูนย์อีก M ตัว" ให้อ่านออก */
+const digitsOf = (n: number): number => Math.floor(Math.log10(n)) + 1;
+
+/* ---------- ตัวเลขฝั่งการขุด ---------- */
+/** จำนวนครั้งที่ทั้งโลกต้องเดาโดยเฉลี่ยกว่าจะได้หนึ่งบล็อก */
+const hashesPerBlock = DIFFICULTY * Math.pow(2, 32);
+/** เป้าหมายจริงกินพื้นที่กี่หลักฐานสิบหก ที่เหลือคือศูนย์นำหน้า */
+const MAX_TARGET = 0xffff * Math.pow(2, 8 * (0x1d - 3));
+const currentTarget = MAX_TARGET / DIFFICULTY;
+const targetZeros = HASH_HEX_LEN - (Math.floor(Math.log(currentTarget) / Math.log(16)) + 1);
+/** ความเร็วที่เบราว์เซอร์ทำได้จริงในของเล่นข้างบน วัดคร่าว ๆ */
+const BROWSER_HPS = 100_000;
+const SECONDS_PER_YEAR = 365.25 * 24 * 3600;
+const soloYears = hashesPerBlock / BROWSER_HPS / SECONDS_PER_YEAR;
+const universeAges = soloYears / 13.8e9;
+
+/* ---------- สัดส่วนรายได้นักขุด อ่านจากบล็อกจริง 144 บล็อกล่าสุด ---------- */
+const REWARD_WINDOW_BLOCKS = 144;
+const REWARD_TOTAL_SAT = 45_183_631_738;
+const REWARD_FEE_SAT = 183_631_738;
+const REWARD_TX_COUNT = 766_786;
+const feeSharePct = (REWARD_FEE_SAT / REWARD_TOTAL_SAT) * 100;
+const txPerBlock = REWARD_TX_COUNT / REWARD_WINDOW_BLOCKS;
+
+/* ---------- ตัวอย่างต้นไม้เมอร์เคิล ---------- */
+const merkleLeafLabels = ['ธุรกรรม 1', 'ธุรกรรม 2', 'ธุรกรรม 3', 'ธุรกรรม 4', 'ธุรกรรม 5', 'ธุรกรรม 6', 'ธุรกรรม 7', 'ธุรกรรม 8'];
+function buildMerkle(labels: string[]): string[][] {
+  const levels: string[][] = [labels.map((l) => sha(l))];
+  while (levels[levels.length - 1].length > 1) {
+    const prev = levels[levels.length - 1];
+    const next: string[] = [];
+    for (let i = 0; i < prev.length; i += 2) next.push(sha(prev[i] + prev[i + 1]));
+    levels.push(next);
+  }
+  return levels;
+}
+const merkleLevels = buildMerkle(merkleLeafLabels);
+const merkleProofLen = merkleLevels.length - 1;
+
+/** หัวบล็อกหกช่อง พร้อมที่มาของแต่ละช่อง ใช้วาดภาพและอธิบายนอนซ์ */
+interface HeaderField {
+  name: string;
+  bytes: number;
+  lockedBy: string;
+  free: boolean;
+}
+const headerFields: HeaderField[] = [
+  { name: 'เวอร์ชัน', bytes: 4, lockedBy: 'กติกา', free: false },
+  { name: 'แฮชบล็อกก่อนหน้า', bytes: 32, lockedBy: 'อดีตที่แก้ไม่ได้', free: false },
+  { name: 'รากเมอร์เคิล', bytes: 32, lockedBy: 'ธุรกรรมที่เลือกมา', free: false },
+  { name: 'เวลา', bytes: 4, lockedBy: 'นาฬิกา', free: false },
+  { name: 'ความยาก', bytes: 4, lockedBy: 'กติกา', free: false },
+  { name: 'นอนซ์', bytes: 4, lockedBy: 'ว่าง หมุนได้ตามใจ', free: true },
+];
+const headerBytes = headerFields.reduce((s, f) => s + f.bytes, 0);
+
+/** การปรับความยาก: เป้าหมายคือสองสัปดาห์ต่อ 2016 ช่วง แต่โค้ดวัดจริงแค่ 2015 ช่วง */
+const RETARGET_INTERVAL = (14 * 24 * 60) / BLOCK_MINUTES;
+const realSpacingMin = (RETARGET_INTERVAL * BLOCK_MINUTES) / (RETARGET_INTERVAL - 1);
+
+/** โครงสร้างซอร์สโค้ดของ Bitcoin v0.1.0 นับบรรทัดจากไฟล์จริงในชุดที่ปล่อยเมื่อ 9 ม.ค. 2009 */
+interface SourceGroup {
+  files: string;
+  lines: number;
+  job: string;
+}
+const v01Source: SourceGroup[] = [
+  { files: 'ui.cpp, uibase.cpp และเฮดเดอร์', lines: 6171, job: 'หน้าต่างโปรแกรมบนวินโดวส์ ปุ่ม ช่องกรอก รายการธุรกรรม' },
+  { files: 'main.cpp, main.h', lines: 3977, job: 'กติกาทั้งหมด บล็อก ธุรกรรม การขุด การเลือกสายที่ยาวกว่า' },
+  { files: 'serialize.h, uint256.h, bignum.h, base58.h', lines: 2600, job: 'เครื่องมือพื้นฐาน เลข 256 บิต การแปลงเป็นไบต์ การเข้ารหัสที่อยู่' },
+  { files: 'net.cpp, net.h', lines: 1876, job: 'ต่อซ็อกเก็ตกับเพื่อนบ้าน ส่งและรับข้อความ' },
+  { files: 'script.cpp, script.h', lines: 1724, job: 'ภาษาสคริปต์ที่ใช้ล็อกและปลดล็อกเงินแต่ละก้อน' },
+  { files: 'db.cpp, db.h', lines: 1024, job: 'เก็บสมุดลงดิสก์ด้วย Berkeley DB' },
+  { files: 'util.cpp, util.h', lines: 772, job: 'ล็อก เวลา เธรด ฟังก์ชันจิปาถะ' },
+  { files: 'sha.cpp, sha.h', lines: 731, job: 'ตัว SHA-256 ที่ปรับให้ขุดได้เร็วขึ้น' },
+  { files: 'market.cpp, market.h', lines: 446, job: 'หน้าตลาดซื้อขายที่ทำค้างไว้ ไม่เคยเปิดใช้' },
+  { files: 'irc.cpp, irc.h', lines: 272, job: 'หาเพื่อนบ้านครั้งแรกด้วยการเข้าห้องแชต IRC' },
+  { files: 'key.h, headers.h', lines: 227, job: 'กุญแจคู่ผ่าน OpenSSL และการรวมเฮดเดอร์' },
+];
+const v01Total = v01Source.reduce((s, g) => s + g.lines, 0);
+const v01Ui = v01Source[0];
+const v01Main = v01Source[1];
+
+const CODE_HEADER = String.raw`class CBlock
+{
+public:
+    // header
+    int nVersion;
+    uint256 hashPrevBlock;
+    uint256 hashMerkleRoot;
+    unsigned int nTime;
+    unsigned int nBits;
+    unsigned int nNonce;
+
+    // network and disk
+    vector<CTransaction> vtx;`;
+
+const CODE_MINER = String.raw`uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
+uint256 hash;
+loop
+{
+    BlockSHA256(&tmp.block, nBlocks0, &tmp.hash1);
+    BlockSHA256(&tmp.hash1, nBlocks1, &hash);
+
+    if (hash <= hashTarget)
+    {
+        pblock->nNonce = tmp.block.nNonce;
+        assert(hash == pblock->GetHash());
+        // เจอแล้ว ประกาศบล็อกออกไป
+        break;
+    }
+
+    if ((++tmp.block.nNonce & 0x3ffff) == 0)
+    {
+        // ทุก ๆ 262144 รอบ แวะเช็คว่ามีใครเจอบล็อกก่อนเราหรือยัง
+    }
+}`;
+
+const CODE_SUBSIDY = String.raw`int64 CBlock::GetBlockValue(int64 nFees) const
+{
+    int64 nSubsidy = 50 * COIN;
+
+    // Subsidy is cut in half every 4 years
+    nSubsidy >>= (nBestHeight / 210000);
+
+    return nSubsidy + nFees;
+}`;
+
+const CODE_RETARGET = String.raw`unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast)
+{
+    const unsigned int nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+    const unsigned int nTargetSpacing = 10 * 60;
+    const unsigned int nInterval = nTargetTimespan / nTargetSpacing;
+
+    // Only change once per interval
+    if ((pindexLast->nHeight+1) % nInterval != 0)
+        return pindexLast->nBits;
+
+    // Go back by what we want to be 14 days worth of blocks
+    const CBlockIndex* pindexFirst = pindexLast;
+    for (int i = 0; pindexFirst && i < nInterval-1; i++)
+        pindexFirst = pindexFirst->pprev;
+
+    // Limit adjustment step
+    unsigned int nActualTimespan = pindexLast->nTime - pindexFirst->nTime;
+    if (nActualTimespan < nTargetTimespan/4)
+        nActualTimespan = nTargetTimespan/4;
+    if (nActualTimespan > nTargetTimespan*4)
+        nActualTimespan = nTargetTimespan*4;
+
+    // Retarget
+    CBigNum bnNew;
+    bnNew.SetCompact(pindexLast->nBits);
+    bnNew *= nActualTimespan;
+    bnNew /= nTargetTimespan;`;
+
+const CODE_GENESIS = String.raw`char* pszTimestamp = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
+CTransaction txNew;
+txNew.vin.resize(1);
+txNew.vout.resize(1);
+txNew.vin[0].scriptSig     = CScript() << 486604799 << CBigNum(4) << vector<unsigned char>(...);
+txNew.vout[0].nValue       = 50 * COIN;
+txNew.vout[0].scriptPubKey = CScript() << CBigNum("0x5F1DF16B2B704C8A...") << OP_CHECKSIG;
+CBlock block;
+block.vtx.push_back(txNew);
+block.hashPrevBlock = 0;
+block.hashMerkleRoot = block.BuildMerkleTree();
+block.nVersion = 1;
+block.nTime    = 1231006505;
+block.nBits    = 0x1d00ffff;
+block.nNonce   = 2083236893;
+
+assert(block.GetHash() == hashGenesisBlock);`;
+
+const CODE_IRC = String.raw`Send(hSocket, strprintf("NICK %s\r", strMyName.c_str()).c_str());
+Send(hSocket, "JOIN #bitcoin\r");
+Send(hSocket, "WHO #bitcoin\r");`;
+
+const CODE_TOY = String.raw`import { createHash } from 'node:crypto';
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+interface Block { height: number; data: string; prev: string; time: number; nonce: number }
+
+// ชั้นที่ 1 หัวบล็อกหกช่อง แล้วแฮชสองรอบเหมือนของจริง
+const headerOf = (b: Block) => [b.height, b.prev, b.data, b.time, b.nonce].join('|');
+const hashOf = (b: Block) => sha256(sha256(headerOf(b)));
+
+const DIFFICULTY = 4;
+const target = '0'.repeat(DIFFICULTY);
+const ZERO = '0'.repeat(64);
+
+// ชั้นที่ 2 เดานอนซ์จนกว่าแฮชจะเข้าเงื่อนไข
+function mine(height: number, data: string, prev: string): Block {
+  const b: Block = { height, data, prev, time: 1231006505 + height * 600, nonce: 0 };
+  while (!hashOf(b).startsWith(target)) b.nonce += 1;
+  return b;
+}
+
+// ชั้นที่ 3 รางวัลหารครึ่งทุก 210000 บล็อก คิดเป็นซาโตชิ
+function subsidy(height: number): number {
+  return Math.floor(50e8 / 2 ** Math.floor(height / 210000));
+}
+
+// ชั้นที่ 5 บล็อกกำเนิดชี้ไปที่ศูนย์ เพราะไม่มีบล็อกก่อนหน้า
+const chain: Block[] = [mine(0, 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks', ZERO)];
+for (let i = 1; i < 4; i += 1) chain.push(mine(i, 'block ' + i, hashOf(chain[i - 1])));
+
+// ตรวจทั้งโซ่แบบเดียวกับที่โหนดทำ
+const valid = chain.every((b, i) =>
+  hashOf(b).startsWith(target) && b.prev === (i === 0 ? ZERO : hashOf(chain[i - 1])));
+
+console.log('valid:', valid);
+chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
+console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
+
+/** เส้นทางของธุรกรรมหนึ่งใบ ใช้กับตัวเดินเรื่องท้ายหมวดกลไก สร้างตอน build สคริปต์แค่เรนเดอร์ */
+interface JourneyStep {
+  station: number;
+  title: string;
+  say: string;
+}
+const journey: JourneyStep[] = [
+  { station: 0, title: 'กระเป๋าเขียนใบสั่ง', say: 'กระเป๋าไล่ดูก้อนเงินที่กุญแจของคุณปลดล็อกได้ แล้วเขียนใบสั่งว่าจะย้ายกี่เหรียญไปที่อยู่ไหน พร้อมก้อนเงินทอนที่กลับมาหาคุณ' },
+  { station: 0, title: 'คุณเซ็น', say: 'ลายเซ็นคำนวณจากเนื้อความของใบสั่งรวมกับกุญแจส่วนตัว มันจึงผูกกับใบนี้ใบเดียว และกุญแจไม่ได้ออกไปไหน' },
+  { station: 1, title: 'ส่งให้โหนดที่ต่ออยู่', say: 'กระเป๋าไม่ได้ส่งให้ทั้งโลก มันส่งให้โหนดไม่กี่ตัวที่มันเชื่อมอยู่ โหนดนั้นตรวจลายเซ็นเองก่อน ถ้าไม่ผ่านก็ทิ้งทันทีและไม่ส่งต่อ' },
+  { station: 2, title: 'กระจายเป็นทอด', say: 'โหนดที่รับไว้ส่งต่อให้เพื่อนบ้าน แล้วแต่ละตัวตรวจเองอีกรอบก่อนส่งต่อ ไม่กี่วินาทีก็ไปถึงเกือบทั้งโลก โดยไม่เคยผ่านศูนย์กลางที่ไหน' },
+  { station: 3, title: 'นั่งรอในห้องรอ', say: 'ธุรกรรมไปนั่งรอในเมมพูลของทุกโหนด รอให้นักขุดสักคนหยิบเข้าบล็อก คนที่ให้ค่าธรรมเนียมต่อขนาดสูงกว่าจะถูกหยิบก่อน' },
+  { station: 4, title: 'ถูกหยิบเข้าบล็อก', say: 'นักขุดรวบธุรกรรมเป็นบล็อก คำนวณรากเมอร์เคิล ใส่ลงหัวบล็อกพร้อมแฮชของบล็อกก่อนหน้า แล้วเริ่มหมุนนอนซ์' },
+  { station: 5, title: 'มีคนเจอเลข', say: 'นักขุดที่เจอก่อนประกาศบล็อกออกไป โหนดอื่นแฮชตรวจครั้งเดียวก็รู้ว่าจริง ธุรกรรมของคุณได้รับการยืนยันครั้งที่หนึ่ง' },
+  { station: 5, title: 'ถูกฝังลึกขึ้นเรื่อย ๆ', say: 'ทุกสิบนาทีมีบล็อกใหม่ต่อทับ งานที่คนอยากย้อนธุรกรรมของคุณต้องขุดแซงก็เพิ่มขึ้น พอครบหกบล็อก ร้านค้าส่วนใหญ่ถือว่าจบ' },
+];
+const journeyStations = ['กระเป๋าคุณ', 'โหนดแรก', 'ทั้งเครือข่าย', 'ห้องรอ', 'บล็อก', 'สมุดถาวร'];
+
+/** เนื้อในกล่องอธิบายตัวเลข เก็บรวมไว้ที่เดียวให้อ่านเป็นชุด */
+const HOWTO_CHECK = (where: string, field: string, url: string, name: string): string =>
+  `<p>เปิด <a href="${url}" target="_blank" rel="noopener noreferrer">${name}</a> แล้วดูช่อง ${field} ${where}</p>
+   <p>ค่าที่คุณเห็นจะไม่ตรงกับตัวเลขในหน้านี้ เพราะมันขยับตลอดเวลา ตัวเลขในบทความคือค่าที่ผมอ่านไว้เมื่อ ${SNAPSHOT_DATE} และตรึงไว้เพื่อให้เนื้อหาสอดคล้องกันทั้งบท</p>`;
+
+const EX = {
+  hexLen: `<p>เลขฐานสิบหกหนึ่งตัวแทนค่าได้ 16 แบบ ซึ่งเท่ากับ 2 ยกกำลัง 4 มันจึงเก็บข้อมูลได้ 4 บิตพอดี</p>
+    <p>แฮชมี ${HASH_BITS} บิต หารด้วย ${HEX_BITS} บิตต่อหนึ่งตัวอักษร ได้ ${HASH_HEX_LEN} ตัวอักษร</p>`,
+  keySpace: `<p>กุญแจมี ${HASH_BITS} บิต ความเป็นไปได้จึงเท่ากับ 2 ยกกำลัง ${HASH_BITS} ซึ่งเป็นเลข ${digitsOf(KEY_SPACE)} หลัก</p>
+    <p>สมมติคนทั้งโลก ${fmt(WORLD_POP / 1e9)} พันล้านคน สุ่มกุญแจคนละ ${fmt(KEYS_PER_SEC / 1e6)} ล้านดอกต่อวินาที ต่อเนื่องมาตั้งแต่บิกแบง คือราว ${fmt(UNIVERSE_SECONDS / 1e15, 1)} ล้านล้านล้านวินาที</p>
+    <p>รวมแล้วสุ่มไปได้เป็นเลข ${digitsOf(keysEverMade)} หลัก ซึ่งยังน้อยกว่าความเป็นไปได้ทั้งหมดอยู่ราวเลข ${digitsOf(keySpaceRatio)} หลักเท่า</p>`,
+  hashesPerBlock: `<p>กติกาเทียบแฮชกับเป้าหมาย ความยาก 1 หมายถึงเป้าที่หลวมที่สุด ซึ่งโดยเฉลี่ยต้องเดา 2 ยกกำลัง 32 ครั้ง หรือราว 4.3 พันล้านครั้ง จึงจะเจอหนึ่งครั้ง</p>
+    <p>ความยากตอนนี้คือ ${fmt(DIFFICULTY)} จำนวนครั้งที่ต้องเดาโดยเฉลี่ยจึงเท่ากับ ${fmt(DIFFICULTY)} คูณ 4.3 พันล้าน</p>`,
+  soloYears: `<p>ต้องเดาเฉลี่ย ${fmt(hashesPerBlock / 1e21, 1)} เซกซ์ทิลเลียนครั้งต่อหนึ่งบล็อก</p>
+    <p>เบราว์เซอร์ทำได้ราว ${fmt(BROWSER_HPS)} ครั้งต่อวินาที หารกันแล้วแปลงเป็นปี ได้ราว ${fmt(soloYears / 1e9)} พันล้านปี</p>`,
+  totalBtc: `<p>รางวัลเริ่มที่ 50 เหรียญ แล้วหารครึ่งทุก ${fmt(HALVING_INTERVAL)} บล็อก บนหน่วยจำนวนเต็มซาโตชิ</p>
+    <p>บวกเหรียญที่ออกในทุกยุคจนถึงยุคที่รางวัลกลายเป็นศูนย์ ได้ ${fmt(totalBtc, 4)} เหรียญ ตัวเลขนี้ไม่ได้ถูกเขียนไว้ในโค้ด มันเป็นผลลัพธ์</p>`,
+  mintedBtc: `<p>ยุคที่จบไปแล้วออกเหรียญครบตามตาราง ส่วนยุคปัจจุบันเดินมาแล้ว ${fmt(TIP_HEIGHT - currentEra.startHeight)} บล็อก คูณด้วยรางวัล ${fmt(currentRewardBtc, 3)} เหรียญต่อบล็อก</p>
+    <p>รวมกันได้ ${fmt(mintedBtc)} เหรียญ หรือ ${fmt(mintedPct, 1)}% ของเพดาน</p>`,
+  fourYears: `<p>${fmt(HALVING_INTERVAL)} บล็อก คูณ ${BLOCK_MINUTES} นาทีต่อบล็อก เท่ากับ ${fmt(HALVING_INTERVAL * BLOCK_MINUTES)} นาที</p>
+    <p>หารเป็นปีได้ราว ${((HALVING_INTERVAL * BLOCK_MINUTES) / (365.25 * 24 * 60)).toFixed(2)} ปี ซึ่งเป็นที่มาของคำว่าทุกสี่ปี</p>`,
+  feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
+    <p>คิดเป็น ${feeSharePct.toFixed(2)}% ที่เหลือคือรางวัลบล็อก</p>`,
+  tipHeight: HOWTO_CHECK('เป็นเลขบล็อกล่าสุด', 'Blockchain Tip', 'https://mempool.space/', 'mempool.space'),
+  hashrate: HOWTO_CHECK('หน้ากราฟการขุด', 'Hashrate', 'https://mempool.space/graphs/mining/hashrate-difficulty', 'mempool.space'),
+  difficulty: HOWTO_CHECK('หน้ากราฟการขุด', 'Difficulty', 'https://mempool.space/graphs/mining/hashrate-difficulty', 'mempool.space'),
+  price: HOWTO_CHECK('ที่หน้าเหรียญบิตคอยน์', 'ราคา', 'https://www.coingecko.com/en/coins/bitcoin', 'CoinGecko'),
+};
+
+const TITLE = 'บิตคอยน์ตั้งแต่ศูนย์: เงินที่ไม่มีใครเป็นเจ้าของทำงานยังไง';
+const DESC =
+  'เห็นข่าวบิตคอยน์มาสิบกว่าปีแต่ไม่เคยเข้าใจว่ามันคืออะไรจริง ๆ บทนี้เริ่มจากศูนย์ ปูปัญหาใช้เงินซ้ำสองรอบ แกะแฮชด้วยมือ ต่อเป็นบล็อกเชน ขุดจริงให้ดูว่าเลขศูนย์ข้างหน้ามาจากไหน ไล่ถึงกุญแจ กระเป๋า ที่อยู่ ประวัติ 18 ปีตั้งแต่ whitepaper ถึงพิซซ่า 10,000 เหรียญและ Mt.Gox แล้วปิดด้วยมุมเงิน ราคามาจากไหน ความผันผวน ETF ต้นทุนไฟ และภาษีคริปโตไทยปี 2026';
+---
+
+<DivineLoreLayout title={`${TITLE} | บันทึกศาสตร์แห่งเทพ`} description={DESC}>
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+  </nav>
+
+  <p class="tag">บันทึกการเงิน</p>
+  <h1>{TITLE}</h1>
+  <p class="subtitle">
+    เห็นคำว่าบิตคอยน์มาสิบกว่าปี แต่พอมีคนถามว่ามันทำงานยังไง ก็ยังตอบไม่ได้สักที
+    บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อนเลยสักอย่าง
+  </p>
+
+  <h2>เงินในบัญชีคุณคือแถวหนึ่งในตารางของธนาคาร</h2>
+
+  <p>
+    ลองนึกถึงเงินในแอปธนาคารของคุณตอนนี้ ตัวเลขนั้นไม่ได้อยู่ในมือถือ มันคือแถวหนึ่งในตารางของธนาคาร
+    ธนาคารจดว่าบัญชีนี้มีเท่านี้ พอคุณโอน ธนาคารก็ลบตรงนั้นแล้วบวกตรงนี้ ทั้งกระบวนการวางอยู่บนข้อเท็จจริงข้อเดียว
+    คือ <strong>มีคนกลางหนึ่งรายที่ทุกคนยอมให้เป็นคนถือสมุด</strong>
+  </p>
+
+  <p>
+    ถ้าอยากได้เงินที่ไม่ต้องเชื่อใจคนถือสมุด สิ่งแรกที่พังไม่ใช่เรื่องเงินปลอม
+    เพราะข้อมูลดิจิทัลไม่มีของแท้ของปลอมตั้งแต่แรก มันมีแต่ไฟล์ที่ก็อปได้ไม่จำกัด สิ่งที่พังคือคำถามที่แคบกว่านั้นมาก
+  </p>
+
+  <h2>ถ้าไม่มีใครถือสมุดกลาง แล้วใครใช้เงินซ้ำสองรอบ</h2>
+
+  <p>
+    สมมติสมชายมีเงินดิจิทัลอยู่ก้อนเดียว ก้อนนั้นเอาเข้าจริงก็คือไฟล์ไฟล์หนึ่งในเครื่องเขา
+    เย็นวันหนึ่งเขาเดินเข้าร้าน A ส่งไฟล์นั้นให้ แล้วเดินข้ามถนนไปร้าน B ในอีกไม่กี่นาที
+    ส่งสำเนาของไฟล์เดียวกันให้อีกใบ
+  </p>
+
+  <p>
+    สองร้านนี้ไม่รู้จักกัน ไม่ได้โทรหากัน และไม่มีสมุดกลางเล่มไหนให้เปิดเช็คว่าเงินก้อนนี้ถูกใช้ไปแล้วหรือยัง
+    แต่ละร้านจึงตรวจได้แค่สิ่งที่ตัวเองถืออยู่ในมือ แล้วก็เห็นว่ามันดูถูกต้องดี ทั้งสองร้านส่งของให้สมชาย
+    ด้วยเงินก้อนเดียวกัน
+  </p>
+
+  <p class="pull">
+    คำถามทั้งหมดของเรื่องนี้คือ ถ้าไม่มีใครถือสมุดกลาง แล้วเราจะรู้ได้ยังไงว่าเงินก้อนเดียวกันถูกใช้ไปแล้วสองรอบ
+  </p>
+
+  <p>
+    คำถามข้อนี้มีชื่อเรียกว่า <strong>ปัญหาใช้เงินซ้ำ (double-spend)</strong> อ่านว่า "ดับเบิลสเปนด์"
+    แปลตรงตัวว่าจ่ายซ้ำ ที่เหลือของบทนี้คือการไล่ดูว่าคนแก้ปัญหาข้อนี้กันยังไง
+  </p>
+
+  <ZoomableDiagram
+    caption="สมชายมีเงินก้อนเดียว แต่ส่งสำเนาของไฟล์เดียวกันให้สองร้านในเวลาไล่เลี่ยกัน สองร้านไม่รู้เรื่องกันและไม่มีสมุดกลางให้เปิดเช็ค แต่ละร้านจึงตรวจได้แค่ใบที่ตัวเองถืออยู่ แล้วก็ผ่านทั้งคู่"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 250" role="img" aria-label="แผนภาพปัญหาใช้เงินซ้ำ สมชายอยู่ทางซ้ายมีเงินก้อนเดียวซึ่งเป็นไฟล์ มีลูกศรสองเส้นแยกไปหาร้านเอทางขวาบนและร้านบีทางขวาล่าง ทั้งสองเส้นกำกับว่าสำเนาของไฟล์เดียวกัน แต่ละร้านกำกับว่าเห็นแค่ใบของตัวเองจึงส่งของให้ ตรงกลางมีเครื่องหมายคำถามกำกับว่าไม่มีใครรู้ว่ามีอีกใบ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+      <rect x="18" y="88" width="140" height="66" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="88" y="114" text-anchor="middle" font-size="14" fill="#e7ecf6">สมชาย</text>
+      <text x="88" y="136" text-anchor="middle" font-size="12" fill="#9aa7bd">มีเงิน 1 เหรียญ</text>
+
+      <path d="M158 108 C 250 78, 300 62, 386 56" fill="none" stroke="#e0b400" stroke-width="2" marker-end="url(#bt-ar-warn)"/>
+      <path d="M158 134 C 250 164, 300 180, 386 186" fill="none" stroke="#e0b400" stroke-width="2" marker-end="url(#bt-ar-warn)"/>
+      <text x="212" y="72" text-anchor="middle" font-size="11" fill="#e0b400">สำเนาไฟล์เดียวกัน</text>
+      <text x="270" y="196" text-anchor="middle" font-size="11" fill="#e0b400">สำเนาไฟล์เดียวกัน</text>
+
+      <rect x="392" y="24" width="152" height="62" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="468" y="48" text-anchor="middle" font-size="14" fill="#e7ecf6">ร้าน A</text>
+      <text x="468" y="70" text-anchor="middle" font-size="11" fill="#e0b400">เห็นแค่ใบของตัวเอง</text>
+
+      <rect x="392" y="156" width="152" height="62" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="468" y="180" text-anchor="middle" font-size="14" fill="#e7ecf6">ร้าน B</text>
+      <text x="468" y="202" text-anchor="middle" font-size="11" fill="#e0b400">เห็นแค่ใบของตัวเอง</text>
+
+      <text x="272" y="124" text-anchor="middle" font-size="26" fill="#9aa7bd">?</text>
+      <text x="272" y="146" text-anchor="middle" font-size="12" fill="#9aa7bd">ไม่มีใครรู้ว่ามีอีกใบ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>ทางออกแรกที่ใครก็คิดออก คือให้ทุกคนจดเอง</h2>
+
+  <p>
+    ลองนึกถึงร้านชำหน้าปากซอย เจ้าของร้านมีสมุดหนี้เล่มเดียวจดว่าใครติดเท่าไร วันไหนเขาขีดผิด
+    หรือแอบเติมบรรทัดให้ญาติตัวเอง ก็ไม่มีใครรู้ ถ้าไม่อยากเชื่อใจเขา ทางออกที่ตรงที่สุดคือ
+    <strong>ให้ทุกบ้านในซอยถือสมุดคนละเล่ม</strong> ใครจ่ายเงินให้ใครก็ตะโกนบอกทั้งซอย แล้วทุกบ้านจดตามในเล่มของตัวเอง
+    เครื่องที่ทำหน้าที่ถือสมุดแบบนี้เรียกว่า <strong>โหนด (node)</strong> อ่านว่า "โหนด" แปลว่าจุดต่อในเครือข่าย
+  </p>
+
+  <p>
+    แล้วก็เจอปัญหาใหม่ทันที ถ้าสองบ้านจดไม่ตรงกันจะเชื่อเล่มไหน และถ้าใครอยากโกง
+    เขาก็แค่ตั้งโหนดปลอมขึ้นมาพันเครื่องแล้วโหวตทับเสียงคนอื่น เพราะการสร้างตัวตนปลอมบนอินเทอร์เน็ตแทบไม่มีต้นทุน
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์ที่ค้างอยู่</p>
+    <p>
+      สมุดกระจายไปทุกบ้านแล้ว แต่ยังไม่มีวิธีตัดสินว่าเล่มไหนถูก
+      คำถามที่ต้องตอบให้ได้คือ จะทำให้การเสนอหน้าใหม่ในสมุดมีต้นทุนที่ปลอมไม่ได้ยังไง
+    </p>
+  </div>
+
+  <h2>แฮช: เครื่องบดที่ย้อนกลับไม่ได้</h2>
+
+  <p>
+    <strong>แฮช (hash)</strong> อ่านว่า "แฮช" ในภาษาอังกฤษแปลว่าสับให้ละเอียดแล้วคลุกรวมกัน
+    เมนูแฮชบราวน์ที่เป็นมันฝรั่งสับก็มาจากคำเดียวกัน ซึ่งตรงกับสิ่งที่มันทำพอดี
+    คือรับข้อความยาวแค่ไหนก็ได้ สับจนละเอียด แล้วคืนออกมาเป็นเลขชุดหนึ่งที่ยาวเท่ากันเสมอ
+  </p>
+
+  <p>
+    ตัวที่ใช้กันในบทนี้ชื่อ SHA-256 อ่านว่า "ชาสองห้าหก" ผลลัพธ์ของมันคือ
+    <strong>เลข 0 กับ 1 ต่อกัน {HASH_BITS} ตัว</strong> ซึ่งเขียนแบบนั้นแล้วยาวจนอ่านไม่ไหว
+    คนเลยย่อมันด้วยเลขฐานสิบหก คือใช้สัญลักษณ์ 0 ถึง 9 กับ a ถึง f แทน แล้วมันจะเหลือแค่
+    <ExplainNumber value={`${HASH_HEX_LEN} ตัวอักษร`} title={`ทำไมถึงเหลือ ${HASH_HEX_LEN} ตัว`} html={EX.hexLen} /> พอดี
+  </p>
+
+  <ZoomableDiagram
+    caption={`คุณสมบัติสามข้อที่ทำให้แฮชมีค่า แฮชทั้งสามชุดในภาพคำนวณจากข้อความจริงตอนสร้างหน้านี้ สังเกตคู่กลาง ข้อความต่างกันแค่ตัวสุดท้าย แต่ผลออกมาตรงกันแค่ ${sameChars} ตัวจาก ${HASH_HEX_LEN} ตัว ซึ่งพอ ๆ กับการเดาสุ่ม`}
+  >
+    <svg class="btc-dgm" viewBox="0 0 430 300" role="img" aria-label="แผนภาพคุณสมบัติของแฮชสามข้อ แถวบนคือข้อความยาวกับข้อความสั้นที่ให้ผลลัพธ์ยาวเท่ากัน แถวกลางคือข้อความสองอันที่ต่างกันตัวเดียวแต่ผลลัพธ์ต่างกันทั้งชุด แถวล่างคือลูกศรเดินหน้าที่ทำได้ กับลูกศรย้อนกลับที่ถูกกากบาททับ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+
+      <text x="14" y="22" font-size="12" fill="#e0b400">1 · ยาวแค่ไหนก็ได้ผลเท่ากัน</text>
+      <rect x="14" y="32" width="150" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="52" text-anchor="middle" font-size="11" fill="#e7ecf6">"{HASH_A}"</text>
+      <line x1="170" y1="47" x2="196" y2="47" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <text x="202" y="51" font-size="10" fill="#4ade80" font-family="JetBrains Mono, monospace">{hashA.slice(0, 32)}…</text>
+
+      <rect x="14" y="70" width="150" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="90" text-anchor="middle" font-size="10" fill="#9aa7bd">ทั้งบทคัดย่อของ Satoshi</text>
+      <line x1="170" y1="85" x2="196" y2="85" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <text x="202" y="89" font-size="10" fill="#4ade80" font-family="JetBrains Mono, monospace">{hashLong.slice(0, 32)}…</text>
+
+      <text x="14" y="136" font-size="12" fill="#e0b400">2 · เปลี่ยนตัวเดียว เปลี่ยนทั้งชุด</text>
+      <rect x="14" y="146" width="150" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="166" text-anchor="middle" font-size="11" fill="#e7ecf6">"{HASH_A}"</text>
+      <line x1="170" y1="161" x2="196" y2="161" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <text x="202" y="165" font-size="10" fill="#4ade80" font-family="JetBrains Mono, monospace">{hashA.slice(0, 32)}…</text>
+
+      <rect x="14" y="184" width="150" height="30" rx="7" fill="#1f1418" stroke="#d64545"/>
+      <text x="89" y="204" text-anchor="middle" font-size="11" fill="#f08b8b">"{HASH_B}"</text>
+      <line x1="170" y1="199" x2="196" y2="199" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <text x="202" y="203" font-size="10" fill="#f08b8b" font-family="JetBrains Mono, monospace">{hashB.slice(0, 32)}…</text>
+
+      <text x="14" y="250" font-size="12" fill="#e0b400">3 · เดินหน้าได้ ถอยหลังไม่ได้</text>
+      <rect x="14" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อความ</text>
+      <line x1="170" y1="268" x2="240" y2="268" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <line x1="240" y1="282" x2="176" y2="282" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4"/>
+      <line x1="200" y1="274" x2="216" y2="290" stroke="#d64545" stroke-width="2"/>
+      <line x1="216" y1="274" x2="200" y2="290" stroke="#d64545" stroke-width="2"/>
+      <rect x="246" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="321" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮช</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ข้อที่สามคือข้อที่จะกลายเป็นหัวใจของทั้งระบบในอีกสองหัวข้อข้างหน้า ลองเล่นดูก่อนครับ
+    พิมพ์อะไรลงไปก็ได้ แล้วดูว่าแฮชเปลี่ยนยังไง
+  </p>
+
+  <div class="lab" data-hash-lab>
+    <p class="lab-title">HASH LAB</p>
+    <label class="lab-field">
+      <span>ข้อความ</span>
+      <input type="text" class="hl-input" value="สวัสดีบิตคอยน์" autocomplete="off" spellcheck="false" />
+    </label>
+    <div class="lab-out">
+      <span class="lab-out-label">SHA-256</span>
+      <code class="hl-out">กำลังคำนวณ</code>
+    </div>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn hl-nudge">เปลี่ยนตัวอักษรท้ายสุดหนึ่งตัว</button>
+      <button type="button" class="lab-btn lab-btn-ghost hl-reset">เริ่มใหม่</button>
+    </div>
+    <p class="lab-note hl-note">ตัวอักษรที่ต่างจากผลก่อนหน้าจะถูกไฮไลต์ให้เห็น</p>
+  </div>
+
+  <h2>กุญแจสองดอกที่ทำให้ไม่ต้องเชื่อใจใคร</h2>
+
+  <p>
+    เครื่องมือชิ้นที่สองตอบคำถามว่า จะรู้ได้ยังไงว่าคำสั่งจ่ายเงินใบนี้มาจากเจ้าของเงินจริง
+    วิชารหัสลับแบบดั้งเดิมตอบข้อนี้ด้วยความลับก้อนเดียวที่ทั้งสองฝ่ายรู้ตรงกัน เหมือนรหัสผ่าน
+    ซึ่งมีข้อเสียใหญ่อยู่ข้อหนึ่ง คือคนที่จะตรวจว่าคุณรู้รหัส ต้องรู้รหัสนั้นด้วย แปลว่าคุณต้องเชื่อใจเขา
+  </p>
+
+  <p>
+    ไอเดียที่พลิกเรื่องนี้คือ <strong>แยกความลับออกเป็นสองดอกที่คู่กัน</strong>
+    ดอกหนึ่งเก็บไว้คนเดียวเรียกว่า <strong>กุญแจส่วนตัว (private key)</strong>
+    อีกดอกแจกให้ทั้งโลกเรียกว่า <strong>กุญแจสาธารณะ (public key)</strong>
+    ของที่เซ็นด้วยดอกแรก ตรวจได้ด้วยดอกที่สอง แต่จากดอกที่สองย้อนกลับไปหาดอกแรกไม่ได้
+  </p>
+
+  <p>
+    ตรงนี้ต่อกับหัวข้อที่แล้วพอดี <strong>กุญแจส่วนตัวคือเลข {HASH_BITS} บิต หน้าตาเหมือนแฮชเป๊ะ
+    ต่างกันแค่ที่มา</strong> แฮชได้มาจากการบดข้อความ ส่วนกุญแจได้มาจากการสุ่ม
+  </p>
+
+  <p>
+    ตอนนี้สมมติไปก่อนว่าคุณมีกุญแจคู่หนึ่งอยู่แล้ว เดี๋ยวหัวข้อกระเป๋าข้างล่างจะเล่าว่ามันเก็บไว้ยังไง
+    เวลาจ่ายเงิน คุณ <strong>เซ็น</strong> ใบสั่งจ่ายด้วยกุญแจส่วนตัว ผลที่ได้เรียกว่า
+    <strong>ลายเซ็นดิจิทัล (digital signature)</strong> ซึ่งคำนวณจากเนื้อความของใบสั่งรวมกับกุญแจของคุณ
+    มันจึงผูกกับใบนั้นใบเดียว ก็อปไปแปะบนใบอื่นไม่ได้ และไม่มีใครเห็นกุญแจส่วนตัวของคุณเลยสักคน
+  </p>
+
+  <ZoomableDiagram
+    caption="ของสำคัญอยู่ที่ลูกศรสองเส้นที่ทำคนละหน้าที่ กุญแจส่วนตัวใช้เซ็นได้อย่างเดียว กุญแจสาธารณะใช้ตรวจได้อย่างเดียว คนตรวจจึงยืนยันได้ว่าเป็นคุณ โดยไม่ต้องรู้ความลับของคุณ"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 210" role="img" aria-label="แผนภาพกุญแจคู่ ทางซ้ายคือคุณถือกุญแจส่วนตัวใช้เซ็นใบสั่งจ่าย เกิดเป็นลายเซ็นติดไปกับใบสั่ง ทางขวาคือใครก็ได้ที่หยิบกุญแจสาธารณะมาตรวจลายเซ็นนั้น มีข้อความกำกับว่ากุญแจส่วนตัวไม่เคยออกจากเครื่องคุณ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="52" width="140" height="70" rx="10" fill="#141a29" stroke="#e0b400"/>
+      <text x="84" y="78" text-anchor="middle" font-size="13" fill="#e0b400">คุณ</text>
+      <text x="84" y="100" text-anchor="middle" font-size="11" fill="#9aa7bd">ถือกุญแจส่วนตัว</text>
+
+      <line x1="160" y1="87" x2="216" y2="87" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-k)"/>
+      <text x="188" y="76" text-anchor="middle" font-size="10" fill="#4ade80">เซ็น</text>
+
+      <rect x="222" y="44" width="150" height="86" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="297" y="70" text-anchor="middle" font-size="12" fill="#e7ecf6">ใบสั่งจ่าย</text>
+      <text x="297" y="92" text-anchor="middle" font-size="11" fill="#9aa7bd">จ่ายกี่เหรียญ ไปที่ไหน</text>
+      <text x="297" y="114" text-anchor="middle" font-size="11" fill="#4ade80">พร้อมลายเซ็น</text>
+
+      <line x1="378" y1="87" x2="434" y2="87" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-k)"/>
+      <text x="406" y="76" text-anchor="middle" font-size="10" fill="#4ade80">ตรวจ</text>
+
+      <rect x="440" y="52" width="146" height="70" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="513" y="78" text-anchor="middle" font-size="13" fill="#e7ecf6">ใครก็ได้</text>
+      <text x="513" y="100" text-anchor="middle" font-size="11" fill="#9aa7bd">ใช้กุญแจสาธารณะ</text>
+
+      <text x="300" y="170" text-anchor="middle" font-size="12" fill="#e0b400">กุญแจส่วนตัวไม่เคยออกจากเครื่องคุณ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>ที่อยู่คืออะไร และใครสร้างก็ได้จริงหรือ</h2>
+
+  <p>
+    เวลาจะให้ใครโอนเงินมาหาคุณ ต้องมีอะไรสักอย่างให้เขากรอกเป็นปลายทาง สิ่งนั้นเรียกว่า
+    <strong>ที่อยู่ (address)</strong> เป็นตัวอักษรชุดหนึ่งหน้าตาแบบ <code>bc1q...</code>
+    เทียบง่าย ๆ คือเลขบัญชี ใครเห็นก็โอนเข้าได้ แต่เห็นแล้วเอาเงินออกไม่ได้
+  </p>
+
+  <p>
+    ที่อยู่ไม่ได้มาจากไหนไกล มันคือ <strong>แฮชของกุญแจสาธารณะ</strong> ของคุณเอง
+    สามอย่างนี้จึงต่อกันเป็นสายเดียวที่เดินได้ทางเดียว
+  </p>
+
+  <ZoomableDiagram
+    caption="กุญแจส่วนตัวเดินไปทางเดียวจนกลายเป็นที่อยู่ที่คุณเอาไปแปะให้คนโอนเข้าได้อย่างสบายใจ ย้อนกลับจากที่อยู่มาหากุญแจส่วนตัวคือสิ่งที่ทำไม่ได้ นี่คือเหตุผลที่ทำกุญแจหายแล้วไม่มีใครกู้ให้"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 170" role="img" aria-label="แผนภาพลำดับการแปลงกุญแจ กล่องแรกคือกุญแจส่วนตัวเป็นเลขสุ่ม มีลูกศรชี้ไปกล่องที่สองคือกุญแจสาธารณะ แล้วลูกศรชี้ต่อไปกล่องที่สามคือที่อยู่ ทั้งสองลูกศรชี้ไปทางขวาทางเดียว ใต้ลูกศรมีข้อความว่าย้อนกลับไม่ได้" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-em" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <rect x="14" y="42" width="150" height="64" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="66" text-anchor="middle" font-size="13" fill="#e7ecf6">กุญแจส่วนตัว</text>
+      <text x="89" y="86" text-anchor="middle" font-size="11" fill="#9aa7bd">เลขสุ่มขนาด {HASH_BITS} บิต</text>
+
+      <line x1="170" y1="74" x2="222" y2="74" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em)"/>
+      <text x="196" y="62" text-anchor="middle" font-size="10" fill="#9aa7bd">คำนวณทางเดียว</text>
+
+      <rect x="228" y="42" width="150" height="64" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="303" y="66" text-anchor="middle" font-size="13" fill="#e7ecf6">กุญแจสาธารณะ</text>
+      <text x="303" y="86" text-anchor="middle" font-size="11" fill="#9aa7bd">แจกได้ ไม่เป็นไร</text>
+
+      <line x1="384" y1="74" x2="436" y2="74" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em)"/>
+      <text x="410" y="62" text-anchor="middle" font-size="10" fill="#9aa7bd">แฮช</text>
+
+      <rect x="442" y="42" width="146" height="64" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="515" y="66" text-anchor="middle" font-size="13" fill="#e7ecf6">ที่อยู่</text>
+      <text x="515" y="86" text-anchor="middle" font-size="11" fill="#9aa7bd">bc1q...</text>
+
+      <text x="300" y="136" text-anchor="middle" font-size="12" fill="#f08b8b">ทางเดียว ย้อนกลับไม่ได้</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ผลที่ตามมาคือข้อที่คนแปลกใจที่สุด <strong>การสร้างที่อยู่ใหม่คือการสุ่มเลขในเครื่องตัวเอง</strong>
+    ไม่ต้องสมัคร ไม่ต้องขออนุญาตใคร ไม่ต้องต่อเน็ตด้วยซ้ำ และไม่มีใครในโลกรู้ว่าคุณสร้างมันขึ้นมา
+    จะสร้างวันละล้านที่อยู่ก็ได้ เพราะไม่มีทะเบียนกลางให้ไปจด
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แล้วสุ่มไปชนของคนอื่นได้ไหม</p>
+    <p>
+      ได้แน่นอนตามกฎรังนกพิราบ เพราะคนสุ่มได้ไม่จำกัดครั้งแต่จำนวนกุญแจมีจำกัด
+      สิ่งที่กันไว้คือขนาดของมัน ความเป็นไปได้ทั้งหมดเป็นเลข
+      <ExplainNumber value={digitsOf(KEY_SPACE) + " หลัก"} title="ใหญ่ขนาดไหน" html={EX.keySpace} />
+      ต่อให้คนทั้งโลกช่วยกันสุ่มคนละล้านดอกต่อวินาทีมาตั้งแต่บิกแบง ก็ยังสุ่มไปได้ไม่ถึงเศษเสี้ยวของทั้งหมด
+      การชนกันจึงยังไม่เคยเกิดขึ้นเลยสักครั้ง
+    </p>
+    <p>
+      และถ้ามันชนขึ้นมาจริง ๆ <strong>ระบบจะไม่รู้ด้วยซ้ำ</strong> เพราะโหนดตรวจอย่างเดียวว่าลายเซ็นใช้ได้ไหม
+      สองคนที่บังเอิญถือกุญแจปลดที่อยู่เดียวกันจึงใช้เงินก้อนนั้นได้ทั้งคู่ ใครเซ็นเข้าไปก่อนก็ได้ไป
+      อีกคนเปิดมาเจอเงินหายโดยไม่มีการแจ้งเตือนอะไรทั้งสิ้น ตรงนี้ตอกย้ำว่าในระบบนี้ไม่มีบัญชีและไม่มีทะเบียน
+      มีแต่กุญแจกับลายเซ็น
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="amo wide">
+      <caption>สรุปเครื่องมือสองชิ้นที่ได้มาแล้ว</caption>
+      <thead>
+        <tr>
+          <th>คำถาม</th>
+          <th>คำตอบ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>เอกสารถูกแก้ไปแม้แต่ตัวเดียวไหม</td>
+          <td>แฮช</td>
+        </tr>
+        <tr>
+          <td>ที่อยู่ที่เอาไปแปะให้คนโอนเข้ามาจากไหน</td>
+          <td>แฮชของกุญแจสาธารณะ</td>
+        </tr>
+        <tr>
+          <td>จะพิสูจน์ว่าเป็นเจ้าของยังไงโดยไม่ต้องบอกความลับ</td>
+          <td>เซ็นด้วยกุญแจส่วนตัว</td>
+        </tr>
+        <tr>
+          <td>แล้วคนอื่นตรวจลายเซ็นได้ยังไง</td>
+          <td>กุญแจสาธารณะ</td>
+        </tr>
+        <tr class="tie">
+          <td>ถ้าสมชายเซ็นสองใบให้สองร้าน ใบไหนมาก่อน</td>
+          <td>ยังไม่มีคำตอบ</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      สองเครื่องมือนี้พิสูจน์ได้ว่าใครเป็นเจ้าของ แต่ไม่ได้พูดถึงลำดับเวลาเลยสักคำ
+      แถวสุดท้ายจึงยังเป็นคำถามเดิมที่ค้างมาตั้งแต่ต้นบท
+    </figcaption>
+  </figure>
+
+  <h2>ร้อยหน้ากระดาษให้ฉีกออกไม่ได้</h2>
+
+  <p>
+    การจัดลำดับต้องใช้ของสองชิ้น ชิ้นแรกคือทำให้สมุดที่จดไปแล้วแก้ย้อนหลังไม่ได้
+    ชิ้นที่สองคือทำให้การเสนอหน้าใหม่มีต้นทุน หัวข้อนี้ว่าด้วยชิ้นแรก
+  </p>
+
+  <p>
+    รายการโอนไม่ได้ถูกจดทีละรายการ แต่ถูกรวบเป็นก้อนแล้วจดลงสมุดทีเดียวทั้งก้อน
+    ก้อนนี้เรียกว่า <strong>บล็อก (block)</strong> เทียบง่าย ๆ คือหน้ากระดาษหนึ่งหน้า
+    และในแต่ละหน้า นอกจากรายการโอนแล้ว ยังมีอีกช่องหนึ่งที่จดไว้ด้วย คือ
+    <strong>แฮชของหน้าก่อนหน้า</strong>
+  </p>
+
+  <p>
+    ทีนี้ลองนึกถึงคุณสมบัติข้อสองที่คุณเพิ่งกดเล่นเมื่อกี้ คือเปลี่ยนตัวเดียวเปลี่ยนทั้งชุด
+    พอเอามาต่อกันแบบนี้ การแก้หน้ากลางเล่มจะทำให้แฮชของหน้านั้นเปลี่ยน
+    ซึ่งทำให้ช่องที่จดไว้ในหน้าถัดไปไม่ตรง แล้วก็ลามต่อไปเรื่อย ๆ
+  </p>
+
+  <ZoomableDiagram
+    caption="แก้ตัวเลขในบล็อกที่สองเพียงตัวเดียว แฮชของมันเปลี่ยน ทำให้ช่องแฮชก่อนหน้าในบล็อกถัดไปไม่ตรง แล้วลามต่อไปจนสุดโซ่ การแก้อดีตจึงไม่ใช่การแก้จุดเดียว แต่คือการเขียนใหม่ทั้งแถว"
+  >
+    <svg class="btc-dgm" viewBox="0 0 640 210" role="img" aria-label="แผนภาพโซ่บล็อกสี่ก้อนเรียงจากซ้ายไปขวา แต่ละก้อนมีช่องแฮชก่อนหน้า ช่องข้อมูล และช่องแฮชของตัวเอง มีลูกศรจากแฮชของก้อนซ้ายชี้ไปช่องแฮชก่อนหน้าของก้อนขวา บล็อกที่สองสามและสี่เป็นสีแดงแสดงว่าพังทั้งแถวหลังแก้บล็อกที่สอง" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+      <g>
+        <rect x="12" y="34" width="132" height="104" rx="10" fill="#141a29" stroke="#4ade80"/>
+        <text x="78" y="54" text-anchor="middle" font-size="12" fill="#4ade80">บล็อก 1</text>
+        <text x="78" y="76" text-anchor="middle" font-size="10" fill="#9aa7bd">ก่อนหน้า: 0000…</text>
+        <text x="78" y="98" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อมูล</text>
+        <text x="78" y="122" text-anchor="middle" font-size="10" fill="#4ade80">แฮช: 00a3…</text>
+      </g>
+      <line x1="148" y1="86" x2="176" y2="86" stroke="#9aa7bd" stroke-width="2" marker-end="url(#bt-ar-mut)"/>
+      <g>
+        <rect x="180" y="34" width="132" height="104" rx="10" fill="#1f1418" stroke="#d64545"/>
+        <text x="246" y="54" text-anchor="middle" font-size="12" fill="#f08b8b">บล็อก 2 ถูกแก้</text>
+        <text x="246" y="76" text-anchor="middle" font-size="10" fill="#9aa7bd">ก่อนหน้า: 00a3…</text>
+        <text x="246" y="98" text-anchor="middle" font-size="11" fill="#f08b8b">ข้อมูลใหม่</text>
+        <text x="246" y="122" text-anchor="middle" font-size="10" fill="#f08b8b">แฮช: 7c11…</text>
+      </g>
+      <line x1="316" y1="86" x2="344" y2="86" stroke="#d64545" stroke-width="2" marker-end="url(#bt-ar-mut)"/>
+      <g>
+        <rect x="348" y="34" width="132" height="104" rx="10" fill="#1f1418" stroke="#d64545"/>
+        <text x="414" y="54" text-anchor="middle" font-size="12" fill="#f08b8b">บล็อก 3</text>
+        <text x="414" y="76" text-anchor="middle" font-size="10" fill="#f08b8b">ก่อนหน้า: 00b9…</text>
+        <text x="414" y="98" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อมูล</text>
+        <text x="414" y="122" text-anchor="middle" font-size="10" fill="#f08b8b">ไม่ตรง</text>
+      </g>
+      <line x1="484" y1="86" x2="512" y2="86" stroke="#d64545" stroke-width="2" marker-end="url(#bt-ar-mut)"/>
+      <g>
+        <rect x="516" y="34" width="112" height="104" rx="10" fill="#1f1418" stroke="#d64545"/>
+        <text x="572" y="54" text-anchor="middle" font-size="12" fill="#f08b8b">บล็อก 4</text>
+        <text x="572" y="90" text-anchor="middle" font-size="11" fill="#f08b8b">พังตาม</text>
+      </g>
+      <text x="246" y="168" text-anchor="middle" font-size="12" fill="#9aa7bd">แก้จุดเดียว พังทั้งแถวที่เหลือ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ห้าบล็อกข้างล่างนี้ต่อกันจริงตามกติกาที่เพิ่งเล่า ลองแก้ข้อความในบล็อกไหนก็ได้
+    แล้วดูว่าเกิดอะไรขึ้นกับบล็อกที่อยู่ทางขวาของมัน
+  </p>
+
+  <div class="lab" data-chain-lab>
+    <p class="lab-title">CHAIN LAB</p>
+    <div class="cl-blocks"></div>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn cl-mineall" disabled>ซ่อมทั้งโซ่</button>
+      <button type="button" class="lab-btn lab-btn-ghost cl-reset" disabled>เริ่มใหม่</button>
+      <span class="cl-status"></span>
+    </div>
+    <p class="lab-note">
+      บล็อกจะถือว่าใช้ได้ก็ต่อเมื่อแฮชขึ้นต้นด้วยเลขศูนย์สามตัว และช่องแฮชก่อนหน้าตรงกับแฮชจริงของบล็อกซ้ายมือ
+      เงื่อนไขข้อแรกคือหัวข้อถัดไป
+    </p>
+  </div>
+
+  <h2>ธุรกรรมสองพันใบถูกย่อเป็นแฮชเดียวได้ยังไง</h2>
+
+  <p>
+    หัวของแต่ละบล็อกมีขนาดคงที่แค่ {headerBytes} ไบต์ ซึ่งไม่มีที่พอจะใส่ธุรกรรมได้เลยสักใบ
+    ทั้งที่บล็อกจริงในช่วงนี้บรรจุธุรกรรมเฉลี่ยราว {fmt(txPerBlock)} รายการต่อบล็อก
+    สิ่งที่ใส่ไว้จึงเป็นแฮชตัวเดียวที่สรุปธุรกรรมทั้งหมด สร้างจากโครงสร้างที่เรียกว่า
+    <strong>ต้นไม้เมอร์เคิล (Merkle tree)</strong> อ่านว่า "เมอร์เคิลทรี" ตั้งตามชื่อ Ralph Merkle
+    อ่านว่า "ราล์ฟ เมอร์เคิล" นักวิทยาการรหัสลับที่จดสิทธิบัตรวิธีนี้ไว้ตั้งแต่ปี 1979
+  </p>
+
+  <p>
+    วิธีสร้างง่ายมาก แฮชธุรกรรมทีละใบ แล้วจับผลลัพธ์มาเข้าคู่กันแฮชอีกรอบ จำนวนจะเหลือครึ่งหนึ่ง
+    ทำซ้ำไปเรื่อย ๆ จนเหลือแฮชเดียว เรียกว่า <strong>รากของต้นไม้</strong> แฮชตัวนั้นแหละที่ไปนั่งอยู่ในหัวบล็อก
+  </p>
+
+  <ZoomableDiagram
+    caption={"ธุรกรรมแปดใบถูกจับคู่ขึ้นไปทีละชั้นจนเหลือแฮชเดียว แก้ธุรกรรมใบไหนก็ตาม รากจะเปลี่ยนทันที หัวบล็อกจึงผูกกับเนื้อหาทั้งบล็อกด้วยแฮชเพียงตัวเดียว"}
+  >
+    <svg class="btc-dgm" viewBox="0 0 620 250" role="img" aria-label="แผนภาพต้นไม้เมอร์เคิล ชั้นล่างสุดคือธุรกรรมแปดใบ ชั้นถัดขึ้นไปคือแฮชสี่ตัวที่เกิดจากการจับคู่ ชั้นถัดไปคือสองตัว และชั้นบนสุดคือรากหนึ่งตัวที่อยู่ในหัวบล็อก" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <rect x="246" y="14" width="128" height="34" rx="8" fill="#141a29" stroke="#e0b400"/>
+      <text x="310" y="36" text-anchor="middle" font-size="12" fill="#e0b400">รากเมอร์เคิล</text>
+      <line x1="278" y1="48" x2="182" y2="72" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="342" y1="48" x2="438" y2="72" stroke="#9aa7bd" stroke-width="1.5"/>
+
+      <rect x="126" y="72" width="112" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="182" y="92" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮชคู่</text>
+      <rect x="382" y="72" width="112" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="438" y="92" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮชคู่</text>
+
+      <line x1="154" y1="102" x2="98" y2="130" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="210" y1="102" x2="242" y2="130" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="410" y1="102" x2="378" y2="130" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="466" y1="102" x2="522" y2="130" stroke="#9aa7bd" stroke-width="1.5"/>
+
+      <rect x="52" y="130" width="92" height="28" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="98" y="149" text-anchor="middle" font-size="10" fill="#9aa7bd">แฮชคู่</text>
+      <rect x="196" y="130" width="92" height="28" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="242" y="149" text-anchor="middle" font-size="10" fill="#9aa7bd">แฮชคู่</text>
+      <rect x="332" y="130" width="92" height="28" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="378" y="149" text-anchor="middle" font-size="10" fill="#9aa7bd">แฮชคู่</text>
+      <rect x="476" y="130" width="92" height="28" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="522" y="149" text-anchor="middle" font-size="10" fill="#9aa7bd">แฮชคู่</text>
+
+      <line x1="76" y1="158" x2="60" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="120" y1="158" x2="136" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="220" y1="158" x2="204" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="264" y1="158" x2="280" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="356" y1="158" x2="340" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="400" y1="158" x2="416" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="500" y1="158" x2="484" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="544" y1="158" x2="560" y2="188" stroke="#9aa7bd" stroke-width="1.5"/>
+
+      <rect x="30" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="60" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 1</text>
+      <rect x="106" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="136" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 2</text>
+      <rect x="174" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="204" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 3</text>
+      <rect x="250" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="280" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 4</text>
+      <rect x="310" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="340" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 5</text>
+      <rect x="386" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="416" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 6</text>
+      <rect x="454" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="484" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 7</text>
+      <rect x="530" y="188" width="60" height="28" rx="6" fill="#141a29" stroke="#4ade80"/>
+      <text x="560" y="207" text-anchor="middle" font-size="10" fill="#4ade80">ใบ 8</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ประโยชน์ของมันอยู่ตรงนี้ ถ้าคุณอยากพิสูจน์ว่าธุรกรรมของคุณอยู่ในบล็อกนั้นจริง
+    คุณไม่ต้องดาวน์โหลดธุรกรรมทั้งบล็อกมาเทียบ ขอแค่แฮชคู่ตามทางเดินขึ้นไปหาราก
+    ซึ่งกับต้นไม้แปดใบต้องใช้แค่ {merkleProofLen} ตัว ลองกดเลือกใบไหนก็ได้ในของเล่นข้างล่าง
+    แล้วดูว่ามันจะขอแฮชตัวไหนบ้าง
+  </p>
+
+  <div class="lab" data-merkle-lab data-leaves={JSON.stringify(merkleLeafLabels)}>
+    <p class="lab-title">MERKLE LAB</p>
+    <div class="mk-tree"></div>
+    <p class="lab-note mk-say">แตะใบธุรกรรมสักใบเพื่อดูว่าต้องใช้แฮชกี่ตัวในการพิสูจน์</p>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn mk-tamper">แก้ธุรกรรมใบที่ 3</button>
+      <button type="button" class="lab-btn lab-btn-ghost mk-reset">เริ่มใหม่</button>
+    </div>
+  </div>
+
+  <p>
+    นี่คือกลไกที่ทำให้กระเป๋าบนมือถือตรวจสอบธุรกรรมของตัวเองได้ โดยไม่ต้องเก็บสมุดทั้งเล่ม
+    ที่ตอนนี้ใหญ่หลายร้อยกิกะไบต์
+  </p>
+
+  <h2>การขุด: ทำไมต้องเผาไฟเพื่อจดสมุด</h2>
+
+  <p>
+    เหลือของชิ้นที่สอง ถ้าใครก็เสนอหน้าใหม่ได้ฟรี คนโกงก็เสนอเป็นพันหน้าแล้วกลบเสียงคนอื่น
+    ทางแก้ตรงไปตรงมามาก คือ <strong>ทำให้การเสนอหน้าใหม่มีค่าเข้าที่จ่ายด้วยเงินจริง</strong>
+    และค่าเข้านั้นต้องปลอมไม่ได้ ตรวจง่าย และไม่ต้องเชื่อใจใคร
+  </p>
+
+  <p>
+    วิธีที่ใช้เรียกว่า <strong>พิสูจน์งาน (Proof of Work)</strong> อ่านว่า "พรูฟ ออฟ เวิร์ก"
+    แปลตรงตัวว่าหลักฐานว่าทำงานมาแล้ว ก่อนจะเข้ากติกา ต้องดูหัวบล็อกก่อน
+    เพราะคำตอบว่าทำไมต้องมีการเดาเลข อยู่ในนั้น
+  </p>
+
+  <ZoomableDiagram
+    caption={`หัวบล็อกมีหกช่อง รวมกันได้ ${headerBytes} ไบต์ ห้าช่องถูกล็อกโดยของที่นักขุดเปลี่ยนไม่ได้ เหลือช่องเดียวที่ว่างให้หมุน นักขุดจึงไม่มีอะไรให้ทำนอกจากหมุนช่องนั้นแล้วแฮชใหม่ทุกครั้ง`}
+  >
+    <svg class="btc-dgm" viewBox="0 0 420 250" role="img" aria-label="แผนภาพหัวบล็อกหกช่อง ห้าช่องแรกคือเวอร์ชัน แฮชบล็อกก่อนหน้า รากเมอร์เคิล เวลา และความยาก ทุกช่องมีป้ายบอกว่าถูกล็อกด้วยอะไร ช่องสุดท้ายคือนอนซ์ซึ่งเป็นช่องเดียวที่ว่างและหมุนได้" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      {headerFields.map((f, i) => (
+        <g>
+          <rect x="14" y={14 + i * 36} width="250" height="28" rx="7" fill={f.free ? '#141a29' : '#12161f'} stroke={f.free ? '#e0b400' : '#2a3350'}/>
+          <text x="26" y={33 + i * 36} font-size="12" fill={f.free ? '#e0b400' : '#e7ecf6'}>{f.name}</text>
+          <text x="252" y={33 + i * 36} text-anchor="end" font-size="10" fill="#9aa7bd">{f.bytes} ไบต์</text>
+          <text x="278" y={33 + i * 36} font-size="11" fill={f.free ? '#4ade80' : '#9aa7bd'}>{f.free ? 'ว่าง หมุนได้ตามใจ' : 'ล็อกโดย ' + f.lockedBy}</text>
+        </g>
+      ))}
+      <text x="14" y="240" font-size="12" fill="#9aa7bd">รวม {headerBytes} ไบต์ ไม่ว่าบล็อกนั้นจะมีธุรกรรมกี่รายการ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ช่องที่ว่างช่องนั้นชื่อ <strong>นอนซ์ (nonce)</strong> ย่อมาจาก number used once
+    แปลว่าเลขที่ใช้ครั้งเดียวทิ้ง คนที่อยากเสนอบล็อกต้องหาเลขนอนซ์ที่ทำให้แฮชของทั้งหัวบล็อกออกมา
+    <strong>ขึ้นต้นด้วยเลขศูนย์ตามจำนวนที่กำหนด</strong> และเพราะแฮชย้อนกลับไม่ได้ตามที่เล่าไว้
+    จึงไม่มีวิธีคำนวณเลขนั้นออกมาตรง ๆ มีทางเดียวคือเดาไปเรื่อย ๆ จนกว่าจะเจอ
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ขอสมมติไปก่อนหนึ่งเรื่อง</p>
+    <p>
+      กติกาจริงไม่ได้พูดถึงเลขศูนย์เลยสักคำ ตอนนี้คิดแบบนับศูนย์ไปก่อนเพราะเห็นภาพง่ายกว่า
+      แล้วพอเล่นของเล่นข้างล่างเสร็จ ผมจะเล่าว่าของจริงเขาเขียนไว้ยังไง
+    </p>
+  </div>
+
+  <ZoomableDiagram
+    caption="วงจรการขุดคือการเดาซ้ำ ๆ ที่ไม่มีทางลัด แต่บล็อกที่ประกาศออกไปแล้ว คนอื่นยืนยันได้ด้วยการแฮชแค่ครั้งเดียว ความไม่สมมาตรระหว่างการหาคำตอบกับการตรวจคำตอบคือหัวใจของกลไกนี้"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 260" role="img" aria-label="แผนภาพวงจรการขุด กล่องแรกคือประกอบหัวบล็อกพร้อมเลขนอนซ์ ลูกศรชี้ลงไปกล่องที่สองคือคำนวณแฮช ลูกศรชี้ลงไปกล่องคำถามว่าเข้าเงื่อนไขหรือยัง ถ้ายังมีลูกศรเส้นประวิ่งย้อนขึ้นไปที่กล่องแรกพร้อมป้ายว่าบวกนอนซ์อีกหนึ่ง ถ้าเข้าแล้วมีลูกศรชี้ไปกล่องประกาศบล็อก และมีลูกศรสีทองชี้เข้ากล่องประกาศบล็อกกำกับว่าคนอื่นตรวจครั้งเดียว" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-mut2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+        <marker id="bt-ar-em2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="bt-ar-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+
+      <rect x="150" y="16" width="180" height="48" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="240" y="46" text-anchor="middle" font-size="12" fill="#e7ecf6">ประกอบหัวบล็อก + นอนซ์</text>
+
+      <line x1="240" y1="66" x2="240" y2="88" stroke="#9aa7bd" stroke-width="2" marker-end="url(#bt-ar-mut2)"/>
+
+      <rect x="150" y="94" width="180" height="44" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="240" y="122" text-anchor="middle" font-size="12" fill="#e7ecf6">คำนวณ SHA-256</text>
+
+      <line x1="240" y1="140" x2="240" y2="162" stroke="#9aa7bd" stroke-width="2" marker-end="url(#bt-ar-mut2)"/>
+
+      <rect x="138" y="168" width="204" height="46" rx="10" fill="#141a29" stroke="#e0b400"/>
+      <text x="240" y="196" text-anchor="middle" font-size="12" fill="#e0b400">เข้าเงื่อนไขหรือยัง</text>
+
+      <path d="M138 191 L96 191 L96 40 L144 40" fill="none" stroke="#9aa7bd" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-mut2)"/>
+      <text x="70" y="118" text-anchor="middle" font-size="11" fill="#9aa7bd">ยัง</text>
+      <text x="70" y="134" text-anchor="middle" font-size="11" fill="#9aa7bd">นอนซ์ +1</text>
+
+      <line x1="342" y1="191" x2="392" y2="191" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em2)"/>
+      <text x="367" y="180" text-anchor="middle" font-size="11" fill="#4ade80">เข้าแล้ว</text>
+
+      <rect x="398" y="166" width="150" height="50" rx="10" fill="#141a29" stroke="#4ade80"/>
+      <text x="473" y="188" text-anchor="middle" font-size="12" fill="#4ade80">ประกาศบล็อก</text>
+      <text x="473" y="206" text-anchor="middle" font-size="11" fill="#9aa7bd">รับรางวัล</text>
+
+      <path d="M473 132 L473 160" fill="none" stroke="#e0b400" stroke-width="2" marker-end="url(#bt-ar-gold)"/>
+      <text x="473" y="122" text-anchor="middle" font-size="11" fill="#e0b400">คนอื่นตรวจแค่ครั้งเดียว</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ลองขุดเองครับ เลื่อนจำนวนศูนย์ที่ต้องการแล้วกดขุด สังเกตว่าเพิ่มศูนย์ทีละหนึ่งตัว
+    จำนวนครั้งที่ต้องเดาไม่ได้เพิ่มทีละนิด มันคูณสิบหกทุกครั้ง
+  </p>
+
+  <div class="lab" data-mine-lab>
+    <p class="lab-title">MINE LAB</p>
+    <label class="lab-field">
+      <span>ข้อความในบล็อก</span>
+      <input type="text" class="ml-data" value="โอน 1 BTC ให้ร้านกาแฟ" autocomplete="off" spellcheck="false" />
+    </label>
+    <label class="lab-field">
+      <span>ต้องขึ้นต้นด้วยศูนย์ <b class="ml-diff-label">4</b> ตัว</span>
+      <input type="range" class="ml-diff" min="1" max="6" step="1" value="4" />
+    </label>
+    <div class="ml-stats">
+      <div class="ml-stat"><span>เดาไปแล้ว</span><b class="ml-tries">0</b></div>
+      <div class="ml-stat"><span>ใช้เวลา</span><b class="ml-time">0.00 วิ</b></div>
+      <div class="ml-stat"><span>คาดว่าต้องเดา</span><b class="ml-expect">65,536</b></div>
+    </div>
+    <div class="lab-out">
+      <span class="lab-out-label">แฮชล่าสุด</span>
+      <code class="ml-hash">รอเริ่มขุด</code>
+    </div>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn ml-go">เริ่มขุด</button>
+      <button type="button" class="lab-btn lab-btn-ghost ml-stop" disabled>หยุด</button>
+    </div>
+    <p class="lab-note">
+      เครื่องขุดจริงเดาได้ระดับล้านล้านครั้งต่อวินาที เบราว์เซอร์คุณทำได้ราวหลักแสนต่อวินาที
+      ศูนย์เจ็ดตัวขึ้นไปจึงไม่ใส่ไว้ให้เลือก เพราะรอกันข้ามคืน
+    </p>
+  </div>
+
+  <h2>ความจริงเรื่องเลขศูนย์ กับความยากคืออะไร</h2>
+
+  <p>
+    ถึงเวลาเฉลยเรื่องที่ขอสมมติไว้ กติกาจริงเขียนว่า <strong>ให้มองแฮชเป็นเลขจำนวนเต็มก้อนเดียว
+    แล้วเลขนั้นต้องน้อยกว่าเป้าที่กำหนด</strong> พอเลขน้อยมาก หลักหน้า ๆ ของมันก็เป็นศูนย์เอง
+    เลขศูนย์จึงเป็นอาการของการเป็นเลขที่น้อยพอ ไม่ใช่ตัวกฎ
+  </p>
+
+  <p>
+    เหตุผลที่ต้องใช้เป้าแทนการนับศูนย์คือความละเอียด การเพิ่มศูนย์หนึ่งตัวคือยากขึ้นทีเดียวสิบหกเท่า
+    ซึ่งกระโดดเกินไปสำหรับระบบที่ต้องรักษาจังหวะสิบนาทีให้แม่น ส่วนการเลื่อนเป้าขยับได้ทีละนิด
+  </p>
+
+  <p>
+    พอมีเป้าแล้ว คำว่า <strong>ความยาก</strong> ก็นิยามได้ทันที มันคือ
+    <strong>อัตราส่วนว่ายากกว่าเป้าที่หลวมที่สุดกี่เท่า</strong> ความยาก 1 คือเป้าที่กติกายอมรับแบบหลวมสุด
+    ส่วนความยาก ณ วันที่ {SNAPSHOT_DATE} อยู่ที่
+    <ExplainNumber value={fmt(DIFFICULTY)} title="ตรวจเลขนี้เองยังไง" html={EX.difficulty} />
+    ซึ่งแปลว่ายากกว่าเป้าหลวมสุดเท่านั้นเท่า และเทียบเป็นเลขศูนย์นำหน้าได้ราว {targetZeros} ตัว
+  </p>
+
+  <p>
+    ต่อจากนั้นทุกอย่างคำนวณได้หมด จำนวนครั้งที่ทั้งโลกต้องเดาโดยเฉลี่ยกว่าจะได้หนึ่งบล็อกคือ
+    <ExplainNumber value={fmt(hashesPerBlock / 1e21, 1) + " เซกซ์ทิลเลียนครั้ง"} title="เลขนี้มาจากไหน" html={EX.hashesPerBlock} />
+    เลขระดับนี้นับเป็นครั้งต่อวินาทีไม่ไหว จึงเกิดหน่วยเรียกว่าแฮชต่อวินาที แล้วไต่ขึ้นไปจนถึง
+    เอกซะแฮช ซึ่งเท่ากับล้านล้านล้านครั้งต่อวินาที ทั้งเครือข่ายรวมกัน ณ วันเดียวกันทำได้
+    <ExplainNumber value={HASHRATE_EHS + " เอกซะแฮชต่อวินาที"} title="ตรวจเลขนี้เองยังไง" html={EX.hashrate} />
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เทียบกับของเล่นข้างบน</p>
+    <p>
+      ถ้าคุณขุดด้วยเบราว์เซอร์ตัวเองอยู่คนเดียว ที่ความเร็วราว {fmt(BROWSER_HPS)} ครั้งต่อวินาที
+      คุณจะใช้เวลาเฉลี่ย
+      <ExplainNumber value={fmt(soloYears / 1e9) + " พันล้านปี"} title="คำนวณยังไง" html={EX.soloYears} />
+      กว่าจะได้หนึ่งบล็อก หรือราว {universeAges.toFixed(0)} เท่าของอายุเอกภพ
+    </p>
+  </div>
+
+  <p>
+    เครือข่ายปรับเป้าขึ้นลงทุก {fmt(RETARGET_INTERVAL)} บล็อก เพื่อให้ค่าเฉลี่ยของการเจอบล็อกใหม่
+    อยู่ที่ประมาณ {BLOCK_MINUTES} นาทีเสมอ ไม่ว่าจะมีเครื่องขุดเข้ามาเพิ่มหรือถอนออกไปแค่ไหน
+    โหนดทุกตัวคำนวณเองจากข้อมูลชุดเดียวกันจึงได้คำตอบเดียวกัน โดยไม่มีใครโหวตและไม่มีใครสั่ง
+  </p>
+
+  <p>
+    กลไกนี้ถูกทดสอบของจริงมาแล้วในกลางปี 2021 ตอนที่จีนสั่งห้ามการขุด
+    กำลังขุดของทั้งเครือข่ายหายไปราวครึ่งหนึ่งภายในไม่กี่สัปดาห์ ผลคือบล็อกเริ่มออกช้ากว่าสิบนาที
+    แล้วการปรับรอบถัดมาก็ลดความยากลงแรงที่สุดในประวัติศาสตร์ของระบบ จนกลับมาที่สิบนาทีตามเดิม
+    ระหว่างนั้นไม่มีใครต้องประกาศอะไร และไม่มีธุรกรรมไหนเสียหาย
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ทำไมเรียกว่าขุด</p>
+    <p>
+      <strong>การขุด (mining)</strong> อ่านว่า "ไมนิ่ง" ไม่ได้ขุดอะไรขึ้นมาจากดินจริง ๆ
+      คำนี้ยืมภาพมาจากเหมืองทอง ตรงที่ต้องลงแรงและลงทุนไปก่อนโดยไม่รู้ว่าจะเจอไหม
+      และคนที่เจอจะได้เหรียญใหม่ที่ไม่เคยมีอยู่ในระบบมาก่อนเป็นรางวัล
+      ส่วนงานที่นักขุดทำจริง ๆ คือการเดาเลขและการจดสมุดให้ทั้งเครือข่าย
+    </p>
+  </div>
+
+  <h2>ถ้ามีสองสายพร้อมกัน ใครชนะ</h2>
+
+  <p>
+    บางครั้งนักขุดสองคนคนละซีกโลกเจอบล็อกพร้อมกัน ต่างคนต่างประกาศออกไป
+    โหนดที่อยู่ใกล้ใครก็รับสายของคนนั้น สมุดเลยแตกเป็นสองสายชั่วคราว
+    อาการนี้เรียกว่า <strong>ฟอร์ก (fork)</strong> อ่านว่า "ฟอร์ก" คำเดียวกับส้อมที่แยกเป็นซี่
+    ในที่นี้แปลว่าทางแยก
+  </p>
+
+  <ZoomableDiagram
+    caption="กติกาตัดสินไม่ได้ดูความยาว แต่ดูงานสะสม ซึ่งในทางปฏิบัติก็คือสายที่ยาวกว่า สายที่แพ้ไม่ได้ถูกใครสั่งให้ยกเลิก มันแค่ไม่มีใครขุดต่อ งานสะสมเลยตามไม่ทัน"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 250" role="img" aria-label="แผนภาพทางแยกของโซ่ บล็อกร่วมสองก้อนแรกอยู่ทางซ้าย จากนั้นแยกเป็นสองสาย สายบนมีบล็อกต่อกันสามก้อนพร้อมแถบงานสะสมที่ยาวกว่า สายล่างมีบล็อกเดียวสีจางพร้อมแถบงานสะสมที่สั้นกว่า" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-em3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="bt-ar-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#5b6478"/>
+        </marker>
+      </defs>
+      <rect x="12" y="86" width="72" height="44" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="48" y="113" text-anchor="middle" font-size="12" fill="#e7ecf6">A</text>
+      <line x1="88" y1="108" x2="112" y2="108" stroke="#9aa7bd" stroke-width="2" marker-end="url(#bt-ar-dim)"/>
+      <rect x="116" y="86" width="72" height="44" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="152" y="113" text-anchor="middle" font-size="12" fill="#e7ecf6">B</text>
+
+      <path d="M192 100 C 214 76, 226 62, 246 56" fill="none" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em3)"/>
+      <path d="M192 118 C 214 142, 226 156, 246 162" fill="none" stroke="#5b6478" stroke-width="2" marker-end="url(#bt-ar-dim)"/>
+
+      <rect x="252" y="30" width="66" height="42" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="285" y="56" text-anchor="middle" font-size="12" fill="#4ade80">C1</text>
+      <line x1="322" y1="51" x2="344" y2="51" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em3)"/>
+      <rect x="348" y="30" width="66" height="42" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="381" y="56" text-anchor="middle" font-size="12" fill="#4ade80">D1</text>
+      <line x1="418" y1="51" x2="440" y2="51" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em3)"/>
+      <rect x="444" y="30" width="66" height="42" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="477" y="56" text-anchor="middle" font-size="12" fill="#4ade80">E1</text>
+
+      <rect x="252" y="82" width="258" height="12" rx="6" fill="#1c2536" stroke="#4ade80"/>
+      <rect x="254" y="84" width="254" height="8" rx="4" fill="#2f9e5c"/>
+      <text x="252" y="110" font-size="11" fill="#4ade80">งานสะสมมากกว่า จึงชนะ</text>
+
+      <rect x="252" y="142" width="66" height="42" rx="8" fill="#12161f" stroke="#5b6478"/>
+      <text x="285" y="168" text-anchor="middle" font-size="12" fill="#5b6478">C2</text>
+
+      <rect x="252" y="194" width="258" height="12" rx="6" fill="#1c2536" stroke="#5b6478"/>
+      <rect x="254" y="196" width="82" height="8" rx="4" fill="#404a5e"/>
+      <text x="252" y="222" font-size="11" fill="#5b6478">งานสะสมตามไม่ทัน จึงถูกทิ้ง</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    นี่คือที่มาของธรรมเนียมที่ร้านค้ารอหกบล็อกก่อนถือว่าเงินเข้าแน่นอน
+    ธุรกรรมที่เพิ่งเข้าบล็อกล่าสุดยังมีโอกาสอยู่ในสายที่แพ้ แต่ทุกบล็อกที่ต่อทับลงไป
+    งานที่คนอยากย้อนต้องขุดแซงก็พอกขึ้นอีกชั้นหนึ่ง
+  </p>
+
+  <ZoomableDiagram
+    caption="ยิ่งธุรกรรมของคุณถูกฝังลึก คนที่จะย้อนมันยิ่งต้องขุดแซงมากขึ้นเป็นทวีคูณ ในเวลาที่ทั้งโลกยังขุดต่อไปข้างหน้าอยู่ หกบล็อกคือจุดที่คนส่วนใหญ่ยอมรับว่าโอกาสย้อนสำเร็จเหลือน้อยจนไม่ต้องคิดถึง"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 180" role="img" aria-label="แผนภาพความลึกของธุรกรรม บล็อกเรียงหกก้อนจากซ้ายไปขวา ก้อนซ้ายสุดคือบล็อกที่ธุรกรรมของคุณอยู่ ใต้แต่ละก้อนมีแถบสูงขึ้นเรื่อย ๆ แสดงว่างานที่ต้องขุดแซงเพิ่มขึ้นตามความลึก" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <g>
+          <rect x={16 + i * 96} width="80" y="18" height="34" rx="7" fill="#141a29" stroke={i === 0 ? '#e0b400' : '#2a3350'}/>
+          <text x={56 + i * 96} y="40" text-anchor="middle" font-size="11" fill={i === 0 ? '#e0b400' : '#e7ecf6'}>{i === 0 ? 'ธุรกรรมคุณ' : 'ทับ ' + i}</text>
+          <rect x={16 + i * 96} y={130 - i * 14} width="80" height={14 + i * 14} rx="4" fill="#2f9e5c" opacity={0.35 + i * 0.13}/>
+          <text x={56 + i * 96} y="160" text-anchor="middle" font-size="10" fill="#9aa7bd">ลึก {i + 1}</text>
+        </g>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ซึ่งพาไปสู่คำที่ได้ยินบ่อยว่า <strong>การโจมตี 51%</strong> ถ้าใครคุมกำลังขุดเกินครึ่งของทั้งเครือข่าย
+    เขาจะขุดแซงได้เรื่อย ๆ และย้อนธุรกรรมของตัวเองได้ ข้อจำกัดคือกำลังขุดขนาดนั้นต้องซื้อเครื่องและจ่ายค่าไฟจริง
+    ระบบไม่ได้ห้ามไม่ให้ทำ มันแค่ทำให้การทำแบบนั้นแพงกว่าผลตอบแทน
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">สิ่งที่ 51% ทำไม่ได้</p>
+    <p>
+      คนที่คุมกำลังขุดเกินครึ่งย้อนธุรกรรมของตัวเองได้ และกันไม่ให้ธุรกรรมบางรายการเข้าบล็อกได้
+      แต่เขา <strong>เสกเหรียญเกินกติกาไม่ได้</strong> และ <strong>โอนเหรียญของคนอื่นไม่ได้</strong>
+      เพราะสองอย่างนั้นต้องใช้ลายเซ็นที่เขาไม่มี และทุกโหนดในโลกตรวจอยู่ กำลังขุดซื้อได้แค่สิทธิ์เรียงลำดับ
+      ไม่ได้ซื้อสิทธิ์เขียนกติกาใหม่
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ตกลงบิตคอยน์คืออะไร</h2>
+
+  <p>
+    ทุกอย่างที่ผ่านมาเป็นวิธีจดสมุดล้วน ๆ ซึ่งพอเดินมาถึงตรงนี้แล้วก็ตอบคำถามที่ค้างอยู่ได้พอดี
+    ว่าบิตคอยน์คืออะไรกันแน่ คำตอบคือ <strong>มันมีแค่นั้นจริง ๆ</strong>
+    ไม่มีเหรียญที่เป็นวัตถุ ไม่มีไฟล์ที่เป็นตัวเงิน
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>กติกากับเครือข่าย</strong> คือวิธีจดสมุดร่วมกันโดยไม่มีคนกลาง ซึ่งก็คือทุกอย่างที่ไล่มาทั้งบท
+      </li>
+      <li>
+        <strong>หน่วยที่อยู่ในสมุดนั้น</strong> คือสิ่งที่คนซื้อขายกันแล้วเรียกว่าเหรียญ
+      </li>
+      <li>
+        <strong>โปรแกรม</strong> ที่ใครก็โหลดไปรันเพื่อเข้าร่วมได้
+      </li>
+    </ul>
+  </div>
+
+  <p class="pull">
+    สิ่งที่เรียกว่าเหรียญคือรายการในสมุด และการเป็นเจ้าของคือการถือกุญแจที่ปลดล็อกรายการนั้นได้ เท่านั้นเอง
+  </p>
+
+  <p>
+    ตั้งแต่นี้ไปผมจะใช้คำว่าเหรียญตามที่คนทั่วไปพูดกัน แต่ให้จำภาพนี้ไว้ข้างหลังเสมอ
+    เพราะมันคือสิ่งที่ทำให้หัวข้อกระเป๋าและหัวข้อก้อนเงินข้างล่างเข้าใจง่ายขึ้นมาก
+  </p>
+
+  <h2>เหรียญมาจากไหน และทำไมถึงหยุดที่ 21 ล้าน</h2>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ซาโตชิ</p>
+    <p>
+      ชื่อผู้สร้างระบบคือ <strong>Satoshi Nakamoto</strong> อ่านว่า "ซาโตชิ นากาโมโตะ" เป็นนามแฝง
+      ไม่มีใครรู้ว่าเป็นใครหรือกี่คน ชุมชนเลยตั้งชื่อหน่วยย่อยที่สุดตามเขา
+      หนึ่ง <strong>ซาโตชิ (satoshi)</strong> เท่ากับ 0.00000001 เหรียญ หรือหนึ่งในร้อยล้าน
+      เวลาเห็นว่าหนึ่งเหรียญแพงจนซื้อไม่ไหว จำไว้ว่าซื้อเป็นเศษเสี้ยวได้
+    </p>
+  </div>
+
+  <p>
+    ทุกบล็อกที่ขุดสำเร็จ นักขุดจะใส่ใบสั่งจ่ายพิเศษไว้บรรทัดแรก หน้าตาเหมือนใบสั่งจ่ายทั่วไป
+    ต่างกันตรงที่ <strong>ไม่มีขาเข้า</strong> คือจ่ายเงินที่ไม่ได้มาจากใครให้ตัวเอง
+    นี่คือช่องทางเดียวที่เหรียญใหม่จะเกิดขึ้นได้ และจำนวนที่ใส่ได้ถูกกติกาบังคับไว้แน่นอน
+    ใส่เกินหนึ่งซาโตชิ ทุกโหนดในโลกก็ปฏิเสธบล็อกนั้นทันที
+  </p>
+
+  <p>
+    ตอนเริ่มระบบในปี 2009 รางวัลอยู่ที่ 50 เหรียญต่อบล็อก และกติกาเขียนไว้ว่า
+    ทุก {fmt(HALVING_INTERVAL)} บล็อก ให้หารรางวัลด้วยสอง เหตุการณ์นี้เรียกว่า
+    <strong>ฮาล์ฟวิง (halving)</strong> อ่านว่า "ฮาล์ฟวิง" แปลว่าแบ่งครึ่ง
+    ซึ่งกินเวลาราว <ExplainNumber value="สี่ปี" title="ทำไมถึงเป็นสี่ปี" html={EX.fourYears} /> ต่อหนึ่งครั้ง
+  </p>
+
+  <p>
+    เหตุผลเบื้องหลังคือความตั้งใจให้ปริมาณเหรียญคาดเดาได้ล่วงหน้าเป็นร้อยปี
+    ไม่มีใครสั่งพิมพ์เพิ่มได้แม้อยากพิมพ์แค่ไหน ซึ่งเป็นจุดที่มันต่างจากเงินที่ธนาคารกลางออก
+    โดยสิ้นเชิง
+  </p>
+
+  <figure class="tbl">
+    <table class="amo">
+      <caption>ตารางการออกเหรียญ คำนวณจากกติกาโดยตรง</caption>
+      <thead>
+        <tr>
+          <th>ยุค</th>
+          <th>เริ่มที่บล็อก</th>
+          <th>เมื่อไร</th>
+          <th>รางวัลต่อบล็อก</th>
+          <th>สะสมเมื่อจบยุค</th>
+        </tr>
+      </thead>
+      <tbody>
+        {eraRows.map((era) => (
+          <tr class={era.index === currentEraIndex ? 'tie' : undefined}>
+            <td>{era.index + 1}{era.index === currentEraIndex ? ' (ตอนนี้)' : ''}</td>
+            <td>{fmt(era.startHeight)}</td>
+            <td>{eraWhen(era.index)}</td>
+            <td class="hot">{fmt(era.rewardSat / SAT_PER_BTC, era.rewardSat / SAT_PER_BTC < 1 ? 5 : 3)}</td>
+            <td class="cool">{fmt(era.cumulativeSat / SAT_PER_BTC)}</td>
+          </tr>
+        ))}
+        <tr>
+          <td>…</td>
+          <td>…</td>
+          <td>…</td>
+          <td>…</td>
+          <td>…</td>
+        </tr>
+        <tr>
+          <td>{lastEra.index + 1} (ยุคสุดท้าย)</td>
+          <td>{fmt(lastEra.startHeight)}</td>
+          <td>{eraWhen(lastEra.index)}</td>
+          <td class="hot">0.00000001</td>
+          <td class="cool">{fmt(totalBtc, 4)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      รางวัลถูกเก็บเป็นจำนวนเต็มหน่วยซาโตชิ พอหารครึ่งไปเรื่อย ๆ จนเหลือหนึ่งซาโตชิแล้วหารอีกครั้ง มันกลายเป็นศูนย์
+      ระบบจึงหยุดออกเหรียญเองที่ยุคที่ {lastEra.index + 1} โดยไม่ต้องมีใครสั่ง
+    </figcaption>
+  </figure>
+
+  <p>
+    ตัวเลข 21 ล้านที่ได้ยินกันบ่อย ๆ จริง ๆ แล้วเป็นเลขกลม ๆ ที่ปัดขึ้นมาเล็กน้อย
+    ผลรวมจริงคือ <ExplainNumber value={fmt(totalBtc, 4) + " เหรียญ"} title="เพดานนี้มาจากไหน" html={EX.totalBtc} />
+    และมันไม่ได้ถูกกำหนดไว้เป็นเพดานตรง ๆ ในโค้ด มันคือผลลัพธ์ที่โผล่ออกมาเองจากการหารครึ่งไปเรื่อย ๆ
+    บนตัวเลขจำนวนเต็ม
+  </p>
+
+  <p>
+    ณ บล็อกที่ <ExplainNumber value={fmt(TIP_HEIGHT)} title="ตรวจเลขนี้เองยังไง" html={EX.tipHeight} />
+    เมื่อวันที่ {SNAPSHOT_DATE} มีเหรียญออกมาแล้วราว
+    <ExplainNumber value={fmt(mintedBtc) + " เหรียญ"} title="คำนวณยังไง" html={EX.mintedBtc} />
+    หรือ {fmt(mintedPct, 1)}% ของทั้งหมด รางวัลปัจจุบันอยู่ที่ {fmt(currentRewardBtc, 3)} เหรียญต่อบล็อก
+    และเหลืออีก {fmt(blocksToHalving)} บล็อก หรือราว {fmt(daysToHalving)} วัน จะถึงฮาล์ฟวิงครั้งถัดไป
+  </p>
+
+  <ZoomableDiagram
+    caption={`เส้นอุปทานสะสมชนเพดานเร็วกว่าที่คนส่วนใหญ่คิด เหรียญ ${fmt(mintedPct, 0)}% แรกถูกขุดไปหมดแล้วภายในสิบเจ็ดปี ส่วนที่เหลือจะทยอยออกยาวไปอีกกว่าร้อยปี`}
+  >
+    <svg class="btc-dgm" viewBox={`0 0 ${CHART_W} ${CHART_H}`} role="img" aria-label={`กราฟเส้นแสดงจำนวนบิตคอยน์สะสมเทียบกับความสูงบล็อก แกนตั้งคือจำนวนเหรียญตั้งแต่ศูนย์ถึงยี่สิบเอ็ดล้าน แกนนอนคือความสูงบล็อก เส้นพุ่งชันในช่วงต้นแล้วค่อย ๆ แบนราบเข้าหาเพดาน มีจุดมาร์กฮาล์ฟวิงสี่ครั้งและจุดที่บอกตำแหน่งปัจจุบันที่ ${fmt(mintedPct, 1)} เปอร์เซ็นต์`} xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <line x1={PLOT_X0} y1={PLOT_Y0} x2={PLOT_X1} y2={PLOT_Y0} stroke="#e0b400" stroke-width="1" stroke-dasharray="5 4"/>
+      <text x={PLOT_X0} y={PLOT_Y0 - 10} font-size="11" fill="#e0b400">เพดาน {fmt(totalBtc)} เหรียญ</text>
+
+      <line x1={PLOT_X0} y1={PLOT_Y0 - 2} x2={PLOT_X0} y2={PLOT_Y1} stroke="#2a3350" stroke-width="1"/>
+      <line x1={PLOT_X0} y1={PLOT_Y1} x2={PLOT_X1} y2={PLOT_Y1} stroke="#2a3350" stroke-width="1"/>
+
+      <text x={PLOT_X0 - 8} y={PLOT_Y1 + 4} text-anchor="end" font-size="10" fill="#9aa7bd">0</text>
+      <text x={PLOT_X0 - 8} y={chartY(totalBtc / 2) + 4} text-anchor="end" font-size="10" fill="#9aa7bd">10.5M</text>
+      <text x={PLOT_X0 - 8} y={PLOT_Y0 + 4} text-anchor="end" font-size="10" fill="#9aa7bd">21M</text>
+
+      <path d={supplyPath} fill="none" stroke="#4ade80" stroke-width="2.5"/>
+
+      {halvingMarks.map((m) => (
+        <g>
+          <line x1={m.x} y1={m.y} x2={m.x} y2={PLOT_Y1} stroke="#2a3350" stroke-width="1"/>
+          <circle cx={m.x} cy={m.y} r="3.5" fill="#0d1220" stroke="#4ade80" stroke-width="2"/>
+          <text x={m.x} y={PLOT_Y1 + 16} text-anchor="middle" font-size="9" fill="#9aa7bd">{m.label}</text>
+        </g>
+      ))}
+
+      <circle cx={tipMark.x} cy={tipMark.y} r="5" fill="#e0b400"/>
+      <text x={tipMark.x + 14} y={tipMark.y + 30} font-size="11" fill="#e0b400">วันนี้ {fmt(mintedPct, 1)}%</text>
+
+      <text x={PLOT_X0} y={PLOT_Y1 + 40} font-size="11" fill="#9aa7bd">ความสูงบล็อก (แต่ละช่วงคือหนึ่งฮาล์ฟวิง ราวสี่ปี)</text>
+      <text x={PLOT_X1} y={PLOT_Y1 + 16} text-anchor="end" font-size="9" fill="#9aa7bd">ราวปี 2049</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>กระเป๋า กุญแจ และคำสิบสองคำที่ห้ามหาย</h2>
+
+  <p>
+    คำว่า <strong>กระเป๋า (wallet)</strong> ชวนเข้าใจผิดที่สุดคำหนึ่ง เพราะสิ่งที่มันเก็บไม่ใช่เงิน
+    แต่เป็น <strong>กุญแจส่วนตัว</strong> ซึ่งเป็นสิ่งเดียวที่ทำให้คุณเซ็นย้ายเงินได้
+  </p>
+
+  <p>
+    กระเป๋าใบเดียวสร้างที่อยู่ได้ไม่จำกัด และคนส่วนใหญ่ใช้ที่อยู่ใหม่ทุกครั้งที่รับเงิน เพื่อไม่ให้ใครกวาดตา
+    เห็นยอดรวมทั้งหมดของตัวเองในที่เดียว กุญแจจึงมีหลายดอก ซึ่งจดยากมากถ้าต้องจดเป็นเลข 256 บิตทีละดอก
+    กระเป๋าสมัยใหม่เลยเก็บแค่ต้นทางเดียว แล้วให้กุญแจทุกดอกงอกออกมาจากต้นทางนั้น
+    ต้นทางที่ว่าคือคำภาษาอังกฤษ 12 หรือ 24 คำ เรียกว่า <strong>ชุดคำกู้คืน (seed phrase)</strong>
+    อ่านว่า "ซีดเฟรซ" คำว่า seed แปลว่าเมล็ด
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ใครก็ตามที่ได้ชุดคำกู้คืนของคุณไป เขาคือเจ้าของเงินนั้นทันที ไม่มีการยืนยันตัวตน ไม่มีการอายัด
+      <strong>อย่าถ่ายรูปเก็บไว้ อย่าพิมพ์ลงเว็บใด ๆ อย่าส่งให้ฝ่ายซัพพอร์ตของใครทั้งนั้น</strong>
+      และในทางกลับกัน ถ้าคุณทำมันหายเอง ก็ไม่มีใครในโลกกู้คืนให้ได้
+    </p>
+  </div>
+
+  <p>
+    ตรงนี้พาไปสู่ประโยคที่คนในวงการพูดกันจนติดปาก <strong>not your keys, not your coins</strong>
+    แปลว่าถ้ากุญแจไม่ได้อยู่กับคุณ เหรียญก็ไม่ได้เป็นของคุณ เวลาซื้อผ่านแอปตลาดซื้อขายแล้วปล่อยทิ้งไว้ในนั้น
+    กุญแจอยู่กับตลาด สิ่งที่คุณถืออยู่จริง ๆ คือคำสัญญาของบริษัทว่าจะจ่ายให้เมื่อคุณขอถอน
+    หัวข้อประวัติข้างล่างจะให้ตัวอย่างว่าความต่างข้อนี้ราคาเท่าไร
+  </p>
+
+  <h2>เงินไม่ได้เก็บเป็นยอด แต่เก็บเป็นก้อน</h2>
+
+  <p>
+    ใบสั่งจ่ายที่เห็นตอนคุยเรื่องกุญแจ ของจริงมีรายละเอียดมากกว่านั้นอยู่ข้อหนึ่ง
+    คือมันไม่ได้เขียนว่า "หักจากยอดของฉัน" แต่ระบุเจาะจงว่า <strong>จะใช้ก้อนเงินก้อนไหน</strong>
+    เพราะในสมุดไม่มีบรรทัดไหนเก็บยอดคงเหลือของใครเลย มีแต่ก้อนเงินที่ยังไม่ถูกใช้กระจายอยู่
+  </p>
+
+  <p>
+    ก้อนแบบนี้มีชื่อทางเทคนิคว่า <strong>ผลลัพธ์ธุรกรรมที่ยังไม่ถูกใช้ (Unspent Transaction Output
+    หรือย่อว่า UTXO)</strong> อ่านว่า "ยูทีเอกซ์โอ" ให้นึกถึงธนบัตรในกระเป๋าสตางค์
+    คุณไม่ได้มียอด 850 บาทลอย ๆ คุณมีแบงก์ห้าร้อยหนึ่งใบ แบงก์ร้อยสามใบ และเหรียญห้าสิบหนึ่งเหรียญ
+    ยอดของคุณคือผลบวกของสิ่งที่อยู่ในกระเป๋า
+  </p>
+
+  <p>
+    กติกาที่ตามมาจึงตรงกับการจ่ายเงินสดพอดี <strong>ใช้แบงก์ครึ่งใบไม่ได้ ต้องใช้เต็มใบแล้วรับเงินทอน</strong>
+    มีก้อนเดียวขนาด 1 เหรียญ แล้วจะจ่ายร้านกาแฟ 0.02 เหรียญ ก็ต้องกินก้อนนั้นเข้าไปทั้งก้อน
+    แล้วสร้างก้อนใหม่ออกมาสองก้อน ก้อนหนึ่งไปที่ร้าน อีกก้อนกลับมาที่ตัวคุณเอง เรียกว่า
+    <strong>เงินทอน (change)</strong>
+  </p>
+
+  <ZoomableDiagram
+    caption="ขาออกรวมกันได้ไม่ถึงขาเข้า และส่วนที่ขาดไปไม่มีช่องให้กรอกที่ไหนเลย มันคือค่าธรรมเนียมที่นักขุดของบล็อกนั้นหยิบไปเอง ค่าธรรมเนียมจึงเป็นสิ่งที่คุณเลือกจะไม่ทวงคืน"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 270" role="img" aria-label="แผนภาพธุรกรรมแบบก้อนเงิน ทางซ้ายมีก้อนขาเข้าหนึ่งก้อนขนาดหนึ่งเหรียญ ลูกศรชี้ไปกล่องใบสั่งจ่ายตรงกลาง จากกล่องมีลูกศรสามเส้นไปทางขวา เส้นบนไปหาร้านกาแฟ เส้นกลางไปหาก้อนเงินทอนกลับมาที่เจ้าของ และเส้นล่างเป็นเส้นประไปหานักขุดซึ่งคือค่าธรรมเนียมที่ไม่มีใครระบุปลายทาง" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-utxo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="bt-ar-fee" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+      <rect x="12" y="96" width="132" height="58" rx="10" fill="#141a29" stroke="#4ade80"/>
+      <text x="78" y="118" text-anchor="middle" font-size="12" fill="#e7ecf6">ขาเข้า</text>
+      <text x="78" y="138" text-anchor="middle" font-size="12" fill="#4ade80">1.0000</text>
+
+      <line x1="150" y1="125" x2="196" y2="125" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-utxo)"/>
+
+      <rect x="202" y="92" width="132" height="66" rx="10" fill="#141a29" stroke="#e0b400"/>
+      <text x="268" y="116" text-anchor="middle" font-size="12" fill="#e0b400">ใบสั่งจ่าย</text>
+      <text x="268" y="138" text-anchor="middle" font-size="11" fill="#9aa7bd">เซ็นด้วยกุญแจคุณ</text>
+
+      <path d="M340 108 C 372 84, 392 62, 424 52" fill="none" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-utxo)"/>
+      <line x1="340" y1="125" x2="424" y2="125" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-utxo)"/>
+      <path d="M340 142 C 372 172, 392 196, 424 206" fill="none" stroke="#e0b400" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-fee)"/>
+
+      <rect x="430" y="24" width="158" height="52" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="509" y="46" text-anchor="middle" font-size="12" fill="#e7ecf6">ร้านกาแฟ</text>
+      <text x="509" y="64" text-anchor="middle" font-size="12" fill="#4ade80">0.0200</text>
+
+      <rect x="430" y="99" width="158" height="52" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="509" y="121" text-anchor="middle" font-size="12" fill="#e7ecf6">เงินทอน กลับหาคุณ</text>
+      <text x="509" y="139" text-anchor="middle" font-size="12" fill="#4ade80">0.9799</text>
+
+      <rect x="430" y="180" width="158" height="52" rx="10" fill="#141a29" stroke="#e0b400"/>
+      <text x="509" y="202" text-anchor="middle" font-size="12" fill="#e0b400">นักขุดของบล็อกนี้</text>
+      <text x="509" y="220" text-anchor="middle" font-size="12" fill="#e0b400">0.0001</text>
+      <text x="372" y="228" text-anchor="middle" font-size="10" fill="#e0b400">ไม่มีใครระบุ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">อุบัติเหตุที่เกิดขึ้นได้จริง</p>
+    <p>
+      เพราะค่าธรรมเนียมคือส่วนต่าง คนที่เขียนโปรแกรมสร้างใบสั่งจ่ายเองแล้วลืมใส่ก้อนเงินทอนกลับมาหาตัวเอง
+      จะกลายเป็นการยกเงินทั้งก้อนให้นักขุดโดยไม่ตั้งใจ กระเป๋าสำเร็จรูปจัดการเรื่องนี้ให้อัตโนมัติอยู่แล้ว
+      แต่มันอธิบายว่าทำไมข่าวคนจ่ายค่าธรรมเนียมสูงผิดปกติถึงเกิดขึ้นได้
+    </p>
+  </div>
+
+  <h2>ค่าธรรมเนียม และห้องรอที่ชื่อเมมพูล</h2>
+
+  <p>
+    ธุรกรรมที่ประกาศออกไปแล้วแต่ยังไม่เข้าบล็อก จะไปนั่งรออยู่ในห้องรอที่แต่ละโหนดถือไว้เอง
+    เรียกว่า <strong>เมมพูล (mempool)</strong> ย่อมาจาก memory pool แปลว่าแอ่งพักในหน่วยความจำ
+    นักขุดเลือกได้ว่าจะหยิบใบไหนเข้าบล็อก และเขาหยิบใบที่คุ้มที่สุดก่อน
+  </p>
+
+  <ZoomableDiagram
+    caption="คำว่าคุ้มที่สุดหมายถึงค่าธรรมเนียมต่อขนาด ไม่ใช่ยอดค่าธรรมเนียมดิบ ๆ เพราะที่ว่างในบล็อกมีจำกัดเป็นไบต์ ใบที่จ่ายน้อยกว่าไม่ได้ถูกปฏิเสธ มันแค่ต้องรอรอบถัดไป"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 250" role="img" aria-label="แผนภาพห้องรอเมมพูล ทางซ้ายคือคิวธุรกรรมเรียงตามค่าธรรมเนียมต่อขนาดจากสูงลงต่ำ ทางขวาคือบล็อกที่ตักเฉพาะสามใบบนสุดเข้าไป ใบที่เหลือค้างรอรอบหน้า" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <text x="14" y="20" font-size="12" fill="#e0b400">ห้องรอ เรียงตามค่าธรรมเนียมต่อขนาด</text>
+      {[
+        { fee: 42, taken: true },
+        { fee: 30, taken: true },
+        { fee: 21, taken: true },
+        { fee: 9, taken: false },
+        { fee: 4, taken: false },
+      ].map((row, i) => (
+        <g>
+          <rect x="14" y={32 + i * 40} width="230" height="30" rx="7" fill="#141a29" stroke={row.taken ? '#4ade80' : '#2a3350'}/>
+          <text x="28" y={52 + i * 40} font-size="11" fill={row.taken ? '#4ade80' : '#9aa7bd'}>ธุรกรรม</text>
+          <text x="230" y={52 + i * 40} text-anchor="end" font-size="11" fill={row.taken ? '#4ade80' : '#9aa7bd'}>{row.fee} ต่อไบต์</text>
+        </g>
+      ))}
+      <line x1="252" y1="92" x2="316" y2="92" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-mp)"/>
+      <text x="284" y="82" text-anchor="middle" font-size="10" fill="#4ade80">ตักไป</text>
+
+      <rect x="322" y="32" width="260" height="126" rx="10" fill="#141a29" stroke="#4ade80"/>
+      <text x="452" y="56" text-anchor="middle" font-size="12" fill="#4ade80">บล็อกถัดไป</text>
+      <text x="452" y="80" text-anchor="middle" font-size="11" fill="#9aa7bd">ที่ว่างจำกัดเป็นไบต์</text>
+      <text x="452" y="104" text-anchor="middle" font-size="11" fill="#e7ecf6">รับได้แค่สามใบบนสุด</text>
+      <text x="452" y="132" text-anchor="middle" font-size="11" fill="#9aa7bd">ที่เหลือรอรอบหน้า</text>
+
+      <text x="14" y="240" font-size="11" fill="#9aa7bd">ห้องรอแน่นเมื่อไร ค่าธรรมเนียมก็พุ่งตามการแย่งกันเข้าบล็อก</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <ZoomableDiagram
+    caption="กฎที่คนแปลกใจที่สุดของค่าธรรมเนียม คือมันไม่เกี่ยวกับยอดเงินที่โอนเลย ใบที่โอนพันบาทกับใบที่โอนสิบล้าน ถ้าขนาดข้อมูลเท่ากันก็จ่ายเท่ากัน"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 160" role="img" aria-label="แผนภาพเปรียบเทียบธุรกรรมสองใบที่ขนาดข้อมูลเท่ากัน ใบซ้ายโอนหนึ่งพันบาท ใบขวาโอนสิบล้านบาท ทั้งสองใบมีป้ายค่าธรรมเนียมเท่ากัน" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <rect x="24" y="24" width="240" height="76" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="144" y="50" text-anchor="middle" font-size="12" fill="#e7ecf6">โอน 1,000 บาท</text>
+      <text x="144" y="74" text-anchor="middle" font-size="11" fill="#9aa7bd">ขนาด 250 ไบต์</text>
+      <text x="144" y="92" text-anchor="middle" font-size="11" fill="#e0b400">ค่าธรรมเนียมเท่ากัน</text>
+
+      <rect x="336" y="24" width="240" height="76" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="456" y="50" text-anchor="middle" font-size="12" fill="#e7ecf6">โอน 10,000,000 บาท</text>
+      <text x="456" y="74" text-anchor="middle" font-size="11" fill="#9aa7bd">ขนาด 250 ไบต์</text>
+      <text x="456" y="92" text-anchor="middle" font-size="11" fill="#e0b400">ค่าธรรมเนียมเท่ากัน</text>
+
+      <text x="300" y="136" text-anchor="middle" font-size="12" fill="#9aa7bd">คิดตามที่ว่างที่กินไป ไม่ใช่ตามยอดเงิน</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ข้อนี้ทำให้สายหลักไม่เหมาะกับการซื้อกาแฟในชีวิตประจำวัน มีความพยายามแก้ด้วยชั้นที่สร้างทับข้างบน
+    อย่าง Lightning Network ซึ่งยาวพอที่จะเป็นอีกบทหนึ่ง
+  </p>
+
+  <h2>ประกอบร่าง: เกิดอะไรขึ้นตอนคุณกดปุ่มส่ง</h2>
+
+  <p>
+    ทุกชิ้นส่วนถูกวางครบแล้ว ลองกดเดินดูทีละจังหวะว่าเงินหนึ่งก้อนเดินทางยังไง
+    ทุกสถานีบนเส้นทางนี้คือของที่ผ่านตามาแล้วทั้งหมด
+  </p>
+
+  <div class="lab" data-journey data-steps={JSON.stringify(journey)} data-stations={JSON.stringify(journeyStations)}>
+    <p class="lab-title">เส้นทางของธุรกรรมหนึ่งใบ</p>
+    <div class="jn-stage"></div>
+    <p class="jn-title"></p>
+    <p class="lab-note jn-say"></p>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn lab-btn-ghost jn-prev" aria-label="ย้อนกลับหนึ่งจังหวะ">ย้อน</button>
+      <button type="button" class="lab-btn jn-play">เล่นอัตโนมัติ</button>
+      <button type="button" class="lab-btn lab-btn-ghost jn-next" aria-label="ไปข้างหน้าหนึ่งจังหวะ">ถัดไป</button>
+      <span class="jn-count"></span>
+    </div>
+    <input type="range" class="jn-range" min="0" value="0" aria-label="เลือกจังหวะ" />
+  </div>
+
+  <p>
+    ที่น่าสังเกตคือไม่มีขั้นตอนไหนเลยที่ต้องขออนุญาตใคร ไม่มีใครอนุมัติ ไม่มีใครปฏิเสธได้
+    สิ่งที่ตัดสินว่าธุรกรรมของคุณผ่านหรือไม่ผ่านมีสองอย่าง คือลายเซ็นถูกต้องไหม
+    และค่าธรรมเนียมที่คุณให้คุ้มพอให้นักขุดหยิบไหม
+  </p>
+
+  <h2>แล้วปี 2140 ที่เหรียญหมด นักขุดจะอยู่ด้วยอะไร</h2>
+
+  <p>
+    ตารางการออกเหรียญบอกว่าถึงจุดหนึ่งรางวัลบล็อกจะกลายเป็นศูนย์ ซึ่งชวนให้เกิดคำถามที่ตรงไปตรงมาว่า
+    ถ้าไม่มีรางวัลแล้วใครจะยอมจ่ายค่าไฟเพื่อจดสมุดให้เรา
+  </p>
+
+  <p>
+    คำตอบตามการออกแบบคือ <strong>ค่าธรรมเนียมจะรับช่วงต่อ</strong> ทุกครั้งที่ฮาล์ฟวิงเกิดขึ้น
+    รางวัลก็หดลงครึ่งหนึ่ง ส่วนค่าธรรมเนียมไม่ได้ถูกกติกาบังคับให้ลด สัดส่วนรายได้จึงขยับไปทางค่าธรรมเนียมทีละขั้น
+  </p>
+
+  <ZoomableDiagram
+    caption={`แท่งเขียวคือรางวัลบล็อกที่หารครึ่งทุกยุคตามกติกา ส่วนแถบทองคือค่าธรรมเนียม ซึ่งวันนี้ยังเป็นเพียง ${feeSharePct.toFixed(2)}% ของรายได้นักขุด คำถามที่ยังไม่มีใครตอบได้คือ ตอนที่แท่งเขียวหดจนหมด แถบทองจะโตพอไหม`}
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 220" role="img" aria-label="กราฟแท่งแสดงรางวัลบล็อกในแต่ละยุคที่ลดลงครึ่งหนึ่งทุกยุค จากห้าสิบเหรียญลงมาเรื่อย ๆ จนแทบมองไม่เห็น พร้อมป้ายบอกว่าค่าธรรมเนียมไม่ได้ถูกบังคับให้ลดตาม" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      {eraRows.map((era, i) => {
+        const btc = era.rewardSat / SAT_PER_BTC;
+        const h = Math.max(2, (btc / 50) * 130);
+        return (
+          <g>
+            <rect x={26 + i * 78} y={160 - h} width="46" height={h} rx="4" fill={era.index === currentEraIndex ? '#e0b400' : '#2f9e5c'}/>
+            <text x={49 + i * 78} y="176" text-anchor="middle" font-size="10" fill="#9aa7bd">ยุค {era.index + 1}</text>
+            <text x={49 + i * 78} y="192" text-anchor="middle" font-size="9" fill="#9aa7bd">{fmt(btc, btc < 1 ? 2 : 0)}</text>
+          </g>
+        );
+      })}
+      <text x="26" y="20" font-size="11" fill="#4ade80">รางวัลต่อบล็อก หน่วยเหรียญ</text>
+      <text x="26" y="212" font-size="11" fill="#e0b400">ค่าธรรมเนียมไม่ได้ถูกกติกาบังคับให้ลดตาม</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    วันนี้สัดส่วนยังห่างกันมาก อ่านจากบล็อกจริง {REWARD_WINDOW_BLOCKS} บล็อกล่าสุด ค่าธรรมเนียมคิดเป็นเพียง
+    <ExplainNumber value={feeSharePct.toFixed(2) + "%"} title="ตัวเลขนี้มาจากไหน" html={EX.feeShare} />
+    ของรายได้นักขุด ที่เหลือมาจากรางวัลบล็อกทั้งหมด
+  </p>
+
+  <p>
+    ตรงนี้ผมอยากพูดตรง ๆ ว่ามันเป็นสมมติฐานที่ยังไม่เคยถูกทดสอบจริง ไม่มีใครรู้ว่าค่าธรรมเนียมล้วน ๆ
+    จะพอจ่ายความปลอดภัยระดับที่เครือข่ายมีอยู่ตอนนี้ไหม ข้อถกเถียงนี้มีอยู่ในวงการมานาน
+    และเราเหลือเวลาอีกร้อยกว่าปีให้หาคำตอบ ผมยกมาเพราะมันเป็นคำถามเปิดที่แท้จริงของระบบ
+    ไม่ใช่ข้อบกพร่องที่ปิดบังไว้
+  </p>
+
+  <h2>ไม่ระบุชื่อ แต่ไม่ได้ไร้ร่องรอย</h2>
+
+  <p>
+    ความเข้าใจผิดที่ค้างอยู่ในหัวคนมานานที่สุดข้อหนึ่งคือบิตคอยน์เป็นเงินที่ตามรอยไม่ได้
+    ความจริงมันกลับกันเกือบสุดขั้ว <strong>ธุรกรรมทุกรายการตั้งแต่ปี 2009 เปิดให้ทุกคนในโลกอ่านได้ตลอดเวลา</strong>
+    เปิดเว็บดูสมุดแล้วไล่ได้เลยว่าที่อยู่ไหนโอนไปที่อยู่ไหน เมื่อไร เท่าไร
+  </p>
+
+  <p>
+    สิ่งที่สมุดไม่ได้เก็บคือชื่อคน มันเก็บแค่ที่อยู่ ลักษณะแบบนี้เรียกว่า
+    <strong>การใช้นามแฝง (pseudonymity)</strong> อ่านว่า "ซูโดนิมิตี" ส่วนคำว่า <i>pseudo</i>
+    แปลว่าเทียมหรือปลอม รากศัพท์เดียวกับที่ใช้ในคำว่านามปากกา ซึ่งต่างจากการไร้ตัวตนโดยสิ้นเชิง
+    ตรงที่นามแฝงถูกโยงกลับมาหาตัวจริงได้ ถ้ามีใครสักคนรู้จุดเชื่อม
+  </p>
+
+  <ZoomableDiagram
+    caption="สมุดไม่มีชื่อคนสักตัว แต่จุดเชื่อมกลับมาหาตัวจริงมีอยู่รอบตัวในชีวิตประจำวัน พอมีจุดเชื่อมจุดเดียว การไล่กราฟย้อนขึ้นลงจากจุดนั้นก็เป็นงานที่มีบริษัทรับทำเป็นอาชีพ เช่น Chainalysis"
+  >
+    <svg class="btc-dgm" viewBox="0 0 600 230" role="img" aria-label="แผนภาพจุดเชื่อมตัวตน ด้านบนคือกลุ่มที่อยู่ที่ไม่มีชื่อกำกับเชื่อมโยงกันด้วยเส้น ด้านล่างคือจุดเชื่อมสามอย่างคือการยืนยันตัวตนที่ตลาดซื้อขาย ที่อยู่ที่แปะไว้ในโซเชียล และการโอนเข้าบัญชีธนาคาร แต่ละอันมีเส้นชี้ขึ้นไปหาที่อยู่ในกลุ่ม" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-id" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#d64545"/>
+        </marker>
+      </defs>
+      <text x="14" y="20" font-size="11" fill="#9aa7bd">สมุดสาธารณะ เห็นทุกเส้นแต่ไม่มีชื่อ</text>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <g>
+          <circle cx={70 + i * 116} cy="52" r="18" fill="#141a29" stroke="#2a3350" stroke-width="2"/>
+          <text x={70 + i * 116} y="56" text-anchor="middle" font-size="10" fill="#9aa7bd">bc1…</text>
+        </g>
+      ))}
+      <line x1="88" y1="52" x2="168" y2="52" stroke="#2a3350" stroke-width="2"/>
+      <line x1="204" y1="52" x2="284" y2="52" stroke="#2a3350" stroke-width="2"/>
+      <line x1="320" y1="52" x2="400" y2="52" stroke="#2a3350" stroke-width="2"/>
+      <line x1="436" y1="52" x2="516" y2="52" stroke="#2a3350" stroke-width="2"/>
+
+      <path d="M96 150 L 70 76" fill="none" stroke="#d64545" stroke-width="2" marker-end="url(#bt-ar-id)"/>
+      <path d="M300 150 L 302 76" fill="none" stroke="#d64545" stroke-width="2" marker-end="url(#bt-ar-id)"/>
+      <path d="M496 150 L 518 76" fill="none" stroke="#d64545" stroke-width="2" marker-end="url(#bt-ar-id)"/>
+
+      <rect x="20" y="156" width="152" height="52" rx="9" fill="#1f1418" stroke="#d64545"/>
+      <text x="96" y="178" text-anchor="middle" font-size="11" fill="#f08b8b">ยืนยันตัวตนที่ตลาด</text>
+      <text x="96" y="196" text-anchor="middle" font-size="10" fill="#9aa7bd">ด้วยบัตรประชาชน</text>
+
+      <rect x="224" y="156" width="152" height="52" rx="9" fill="#1f1418" stroke="#d64545"/>
+      <text x="300" y="178" text-anchor="middle" font-size="11" fill="#f08b8b">ที่อยู่ที่คุณแปะไว้</text>
+      <text x="300" y="196" text-anchor="middle" font-size="10" fill="#9aa7bd">ให้คนโอนเข้า</text>
+
+      <rect x="428" y="156" width="152" height="52" rx="9" fill="#1f1418" stroke="#d64545"/>
+      <text x="504" y="178" text-anchor="middle" font-size="11" fill="#f08b8b">ถอนเข้าบัญชีธนาคาร</text>
+      <text x="504" y="196" text-anchor="middle" font-size="10" fill="#9aa7bd">ชื่อคุณเต็ม ๆ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p class="pull">
+    เงินสดคือเงินที่ไม่มีใครจดว่าคุณจ่ายให้ใคร บิตคอยน์คือเงินที่ทุกคนจดไว้ตลอดกาล
+    แต่จดโดยไม่ใส่ชื่อคุณลงไป
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>สิบแปดปีของบิตคอยน์</h2>
+
+  <ol class="tl">
+    <li class="tl-good"><b>2008</b><span>เอกสารต้นฉบับเก้าหน้าถูกโพสต์ลงเมลลิงลิสต์</span></li>
+    <li class="tl-good"><b>2009</b><span>บล็อกกำเนิดถูกขุด เครือข่ายเริ่มเดินด้วยเครื่องเดียวในโลก</span></li>
+    <li class="tl-gold"><b>2010</b><span>พิซซ่าสองถาดแลก 10,000 เหรียญ ราคาเกิดขึ้นเป็นครั้งแรก</span></li>
+    <li><b>2011</b><span>ผู้สร้างถอยออกจากโครงการแล้วหายไปเงียบ ๆ</span></li>
+    <li class="tl-bad"><b>2014</b><span>Mt.Gox ล่ม บริษัทตัวกลางล้ม ไม่ใช่เครือข่ายล่ม</span></li>
+    <li><b>2017</b><span>เถียงเรื่องขนาดบล็อกจนแยกสายเป็น Bitcoin Cash</span></li>
+    <li class="tl-bad"><b>2022</b><span>FTX ล่ม บริษัทตัวกลางอีกราย</span></li>
+    <li class="tl-good"><b>2024</b><span>ETF ที่ถือเหรียญจริงได้ไฟเขียว และฮาล์ฟวิงครั้งที่สี่</span></li>
+  </ol>
+
+  <p class="tl-cap">
+    เหตุการณ์ที่เปลี่ยนอะไรจริง ๆ มีไม่กี่จุด สองจุดที่คนจำผิดบ่อยที่สุดคือปี 2014 กับ 2022
+    ซึ่งเป็นบริษัทตัวกลางล่ม ไม่ใช่เครือข่ายล่ม
+  </p>
+
+  <p>
+    สามจุดในไทม์ไลน์นั้นควรเล่ายาวกว่าบรรทัดเดียว จุดแรกคือบล็อกกำเนิดเมื่อวันที่ 3 มกราคม 2009
+    ในนั้นมีข้อความฝังอยู่บรรทัดหนึ่ง เป็นพาดหัวข่าวหน้าหนึ่งของหนังสือพิมพ์ The Times ฉบับวันนั้น
+    เรื่องรัฐมนตรีคลังอังกฤษที่กำลังจะอุ้มธนาคารรอบสอง ข้อความนั้นทำหน้าที่สองอย่างพร้อมกัน
+    คือเป็นหลักฐานว่าบล็อกนี้ถูกสร้างหลังวันนั้น ไม่ได้แอบขุดล่วงหน้า และเป็นคำแถลงจุดยืนว่าเขากำลังสร้างอะไรอยู่
+  </p>
+
+  <p>
+    จุดที่สองคือวันที่ 22 พฤษภาคม 2010 Laszlo Hanyecz อ่านว่า "ลาสโล ฮันเยตซ์" โปรแกรมเมอร์ที่ฟลอริดา
+    จ่าย 10,000 เหรียญแลกพิซซ่า Papa John's สองถาด โดยมีคนวัยสิบเก้าชื่อ Jeremy Sturdivant รับข้อเสนอ
+    มูลค่าตอนนั้นอยู่ที่ราวสี่สิบเอ็ดดอลลาร์ คนชอบเล่าเรื่องนี้เป็นมุกว่าพิซซ่าที่แพงที่สุดในโลก
+    แต่ประเด็นที่สำคัญกว่าคือ <strong>วันนั้นคือวันที่ราคาเกิดขึ้นเป็นครั้งแรก</strong>
+    ราคาไม่ได้มาจากสูตรหรือจากการรับรองของใคร มันมาจากการที่มีคนสองคนตกลงแลกของกันจริงหนึ่งครั้ง
+  </p>
+
+  <p>
+    จุดที่สามคือปี 2014 กับ 2022 เดือนกุมภาพันธ์ 2014 <strong>Mt.Gox</strong> อ่านว่า "เมาท์ก็อกซ์"
+    ตลาดซื้อขายที่ใหญ่ที่สุดในยุคนั้น หยุดให้ถอนเงินแล้วยื่นล้มละลาย โดยแจ้งว่าเหรียญราว 850,000 เหรียญหายไป
+    ในจำนวนนั้น 750,000 เหรียญเป็นของลูกค้า ภายหลังพบเหรียญเก่าคืนมาราว 200,000 เหรียญ
+    ส่วนเดือนพฤศจิกายน 2022 <strong>FTX</strong> ล้มลงด้วยเหตุผลคนละแบบ คือเอาเงินลูกค้าไปใช้ในบริษัทในเครือ
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">จุดที่คนสับสนบ่อยที่สุด</p>
+    <p>
+      ทั้ง Mt.Gox และ FTX คือ <strong>บริษัทตัวกลางล่ม</strong> ไม่ใช่เครือข่ายล่ม
+      ตลอดสองเหตุการณ์นั้นเครือข่ายเดินหน้าออกบล็อกทุกสิบนาทีตามปกติ ไม่มีธุรกรรมไหนหาย
+      สิ่งที่พังคือบริษัทที่ลูกค้าฝากกุญแจไว้ให้ ซึ่งย้อนกลับไปที่ประโยคในหัวข้อกระเป๋าพอดี
+    </p>
+  </div>
+
+  <p>
+    อีกจุดที่ตอบคำถามว่าทำไมเวลาค้นคำว่าบิตคอยน์ถึงเจอชื่อคล้าย ๆ กันหลายตัว คือปี 2017
+    ชุมชนเถียงกันหนักเรื่องขนาดของบล็อก ฝั่งหนึ่งอยากขยายบล็อกให้ใส่ธุรกรรมได้มากขึ้นเพื่อลดค่าธรรมเนียม
+    อีกฝั่งค้านว่าบล็อกใหญ่ทำให้ต้นทุนการรันโหนดสูงขึ้นจนคนทั่วไปรันไม่ไหว การเถียงจบลงด้วยการที่ฝั่งหนึ่ง
+    แยกไปเขียนกติกาของตัวเองเมื่อเดือนสิงหาคม 2017 เกิดเป็นเหรียญชื่อ Bitcoin Cash
+    การแยกแบบนี้เรียกว่า <strong>ฮาร์ดฟอร์ก (hard fork)</strong> คือการเปลี่ยนกติกาแบบที่โหนดเก่ารับไม่ได้
+    จึงกลายเป็นคนละเครือข่ายถาวร ต่างจากทางแยกชั่วคราวในหัวข้อสองสายที่จบเองในไม่กี่นาที
+  </p>
+
+  <p>
+    จุดสุดท้ายคือวันที่ 10 มกราคม 2024 คณะกรรมการกำกับหลักทรัพย์ของสหรัฐอนุมัติ
+    <strong>กองทุนรวมดัชนีที่ซื้อขายในตลาด (Exchange-Traded Fund หรือย่อว่า ETF)</strong> ที่ถือเหรียญจริง
+    พร้อมกันสิบเอ็ดกอง หลังจากปฏิเสธคำขอลักษณะเดียวกันมากว่ายี่สิบครั้งตั้งแต่ปี 2018
+    แล้ววันที่ 20 เมษายนปีเดียวกัน ฮาล์ฟวิงครั้งที่สี่ก็เกิดขึ้น รางวัลลดจาก 6.25 เหลือ
+    {fmt(currentRewardBtc, 3)} เหรียญต่อบล็อก ซึ่งเป็นอัตราที่ยังใช้อยู่จนถึงวันนี้
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>เปิดฝาดูโค้ดชิ้นแรก</h2>
+
+  <p>
+    ทุกอย่างที่เล่ามาทั้งบทเป็นกติกา และกติกาพวกนั้นมีตัวตนจริงในรูปของโค้ดที่รันได้
+    ที่สนุกคือชุดแรกสุดยังอยู่ครบและอ่านได้ทั้งหมด บทนี้เหลืออีกนิดเดียวแล้ว
+    ผมเลยอยากพาเปิดฝาดูว่ากติกาแต่ละข้อหน้าตาเป็นยังไงในโค้ดจริง
+    แล้วค่อย ๆ ต่อขึ้นมาทีละชั้นเหมือนที่เราต่อความเข้าใจกันมา
+  </p>
+
+  <p>
+    ชุดที่ปล่อยเมื่อวันที่ 9 มกราคม 2009 ชื่อ Bitcoin v0.1 เป็นภาษา C++ รันบนวินโดวส์อย่างเดียว
+    ทั้งโปรเจกต์มี {fmt(v01Total)} บรรทัด ซึ่งน้อยกว่าที่คนส่วนใหญ่คาดไว้มาก
+    แต่สิ่งที่ผมคิดว่าน่าสนใจกว่าตัวเลขรวม คือสัดส่วนว่าบรรทัดพวกนั้นไปกองอยู่ตรงไหน
+  </p>
+
+  <figure class="tbl">
+    <table class="amo wide">
+      <caption>ซอร์สโค้ด Bitcoin v0.1 แบ่งตามงาน</caption>
+      <thead>
+        <tr>
+          <th>ไฟล์</th>
+          <th>บรรทัด</th>
+          <th>ทำอะไร</th>
+        </tr>
+      </thead>
+      <tbody>
+        {v01Source.map((g) => (
+          <tr>
+            <td>{g.files}</td>
+            <td class="hot">{fmt(g.lines)}</td>
+            <td>{g.job}</td>
+          </tr>
+        ))}
+        <tr class="tie">
+          <td>รวม</td>
+          <td class="cool">{fmt(v01Total)}</td>
+          <td>ทั้งโปรเจกต์</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      นับจากไฟล์ต้นฉบับจริง ไฟล์ที่ยาวที่สุดในโปรเจกต์ไม่ใช่ตัวกติกา แต่เป็นหน้าต่างโปรแกรม
+      ที่กินไป {fmt(v01Ui.lines)} บรรทัด มากกว่าไฟล์กติกาทั้งหมดรวมกันที่ {fmt(v01Main.lines)} บรรทัด
+    </figcaption>
+  </figure>
+
+  <p>
+    สัดส่วนนี้เล่าอะไรบางอย่าง คนที่เขียนโปรแกรมนี้ไม่ได้ตั้งใจปล่อยเปเปอร์แล้วรอให้คนอื่นทำต่อ
+    เขานั่งประกอบปุ่มกับช่องกรอกเพื่อให้คนธรรมดาเปิดใช้ได้ตั้งแต่วันแรก
+    ในกองนั้นยังมีไฟล์ <code>market.cpp</code> ที่เป็นหน้าตลาดซื้อขายทำค้างไว้ {fmt(v01Source[8].lines)} บรรทัด และไม่เคยถูกเปิดใช้เลย
+  </p>
+
+  <p>
+    ที่เหลือคือการไล่โค้ดจริงทีละชั้น ซึ่งอ่านหรือไม่อ่านก็ไม่กระทบเนื้อหาส่วนอื่นของบทนี้
+    ผมพับเก็บไว้เป็นชั้น ๆ ใครสนใจชั้นไหนกดดูชั้นนั้นได้เลย
+  </p>
+
+  <details class="expander">
+    <summary>ชั้นที่ 1 · หัวบล็อกหกช่อง</summary>
+    <div class="expander-body">
+
+  <p>
+    ตอนที่เล่าเรื่องต้นไม้เมอร์เคิลผมบอกไว้ว่าหัวบล็อกมีขนาดคงที่ 80 ไบต์ ตัวเลขนั้นมาจากตรงนี้
+  </p>
+
+  <CodeBlock code={CODE_HEADER} lang="cpp" title="main.h · หัวบล็อกทั้งใบมีแค่หกช่อง" />
+
+  <p>
+    ไล่ดูทีละช่องแล้วจะเจอทุกอย่างที่อ่านมาทั้งบท <code>hashPrevBlock</code> คือตราที่ปั๊มคาบหน้ากระดาษ
+    <code>hashMerkleRoot</code> คือแฮชเดียวที่สรุปธุรกรรมทั้งบล็อก <code>nBits</code> คือความยากของรอบนั้น
+    และ <code>nNonce</code> คือช่องว่างที่นักขุดเติมเลขเดาลงไป
+  </p>
+
+  <p>
+    รวมกันได้ 4 บวก 32 บวก 32 บวก 4 บวก 4 บวก 4 เท่ากับ 80 ไบต์พอดี ไม่ว่าบล็อกนั้นจะมีธุรกรรมสองพันรายการหรือรายการเดียว
+    ส่วน <code>vtx</code> ที่อยู่ข้างล่างคือรายการธุรกรรมจริง ซึ่งอยู่นอกหัวบล็อกและไม่ถูกแฮชตอนขุด
+  </p>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ชั้นที่ 2 · วงจรการขุด</summary>
+    <div class="expander-body">
+
+  <p>
+    ภาพวงจรการขุดที่วาดไว้ก่อนหน้านี้ ในโค้ดจริงคือลูปนี้
+  </p>
+
+  <CodeBlock code={CODE_MINER} lang="cpp" title="main.cpp · หัวใจของ BitcoinMiner (ตัดส่วนพิมพ์ล็อกออก)" />
+
+  <p>
+    ตรงนี้มีเรื่องที่ผมเล่าไม่ครบไว้ตอนต้นบท และจุดนี้เป็นจังหวะที่ควรเฉลย
+    เงื่อนไขจริงไม่ใช่การนับว่าขึ้นต้นด้วยศูนย์กี่ตัว แต่คือ <code>hash &lt;= hashTarget</code>
+    คือเอาแฮชมามองเป็นเลขจำนวนเต็มขนาด 256 บิต แล้วถามว่ามันน้อยกว่าเป้าหมายหรือเปล่า
+  </p>
+
+  <p>
+    สองอย่างนี้ให้ผลใกล้เคียงกัน เพราะเลขที่จะน้อยพอก็ต้องขึ้นต้นด้วยศูนย์อยู่ดี
+    แต่แบบเป้าหมายปรับได้ละเอียดกว่ามาก การนับศูนย์ขยับได้ทีละสิบหกเท่า
+    ส่วนการเลื่อนเป้าหมายขยับได้ทีละนิด ซึ่งจำเป็นสำหรับการรักษาจังหวะสิบนาทีให้แม่น
+  </p>
+
+  <p>
+    อีกบรรทัดที่น่าสังเกตคือ <code>BlockSHA256</code> ถูกเรียกสองครั้งซ้อน แฮชของบล็อกในบิตคอยน์คือการแฮชสองรอบเสมอ
+    รอบแรกแฮชหัวบล็อก รอบสองแฮชผลลัพธ์ของรอบแรกอีกที
+  </p>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ชั้นที่ 3 · รางวัลกับฮาล์ฟวิง</summary>
+    <div class="expander-body">
+
+  <p>
+    ตารางการออกเหรียญยาว 33 ยุคที่อยู่ข้างบน กับเพดาน {fmt(totalBtc, 4)} เหรียญที่คนถกกันทั้งโลก ทั้งหมดมาจากฟังก์ชันนี้
+  </p>
+
+  <CodeBlock code={CODE_SUBSIDY} lang="cpp" title="main.cpp · กติกาการออกเหรียญทั้งหมด" />
+
+  <p>
+    บรรทัดที่ทำงานจริงมีบรรทัดเดียวคือ <code>nSubsidy &gt;&gt;= (nBestHeight / 210000)</code>
+    เครื่องหมาย <code>&gt;&gt;=</code> คือการเลื่อนบิตไปทางขวา ซึ่งมีค่าเท่ากับการหารด้วยสองแบบปัดลง
+    อยู่ในยุคที่ 5 ก็เลื่อนไป 4 ครั้ง เท่ากับหารสองสี่หน จาก 50 เหลือ {fmt(currentRewardBtc, 3)} เหรียญ
+  </p>
+
+  <p>
+    และเพราะ <code>nSubsidy</code> เป็นจำนวนเต็มหน่วยซาโตชิ พอเลื่อนไปมากพอมันจะกลายเป็นศูนย์เอง
+    เพดาน 21 ล้านจึงไม่ได้ถูกเขียนไว้ที่ไหนในไฟล์นี้เลย มันเป็นผลลัพธ์ของการเลื่อนบิตบรรทัดนี้ล้วน ๆ
+    ตรงกับที่คำนวณให้ดูในตารางก่อนหน้า
+  </p>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ชั้นที่ 4 · การปรับความยาก และบั๊กที่ยังอยู่ถึงวันนี้</summary>
+    <div class="expander-body">
+
+  <CodeBlock code={CODE_RETARGET} lang="cpp" title="main.cpp · ปรับความยากทุกสองสัปดาห์ (ตัดท้ายออก)" />
+
+  <p>
+    <code>nInterval</code> คำนวณจากสองสัปดาห์หารด้วยสิบนาที ได้ 2,016 ซึ่งเป็นที่มาของเลขที่ผมอ้างไว้ตอนพูดเรื่องกำลังขุด
+    ส่วนการหนีบไว้ที่หนึ่งในสี่และสี่เท่าคือกันไม่ให้ความยากกระโดดเกินสี่เท่าในรอบเดียว
+    แม้กำลังขุดจะหายไปทันทีทั้งโลกก็ตาม
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">บั๊กเล็ก ๆ ที่แก้ไม่ได้แล้ว</p>
+    <p>
+      ลองอ่านบรรทัด <code>for (int i = 0; pindexFirst &amp;&amp; i &lt; nInterval-1; i++)</code> ดี ๆ
+      มันเดินถอยหลังไป {fmt(RETARGET_INTERVAL - 1)} บล็อก ซึ่งกินช่วงเวลาแค่ {fmt(RETARGET_INTERVAL - 1)} ช่วง
+      แล้วเอาเวลาที่วัดได้ไปเทียบกับเป้าหมายสองสัปดาห์ที่ตั้งไว้สำหรับ {fmt(RETARGET_INTERVAL)} ช่วง
+      ผลคือบิตคอยน์เล็งจังหวะเฉลี่ยไว้ที่ราว {realSpacingMin.toFixed(3)} นาทีต่อบล็อก แทนที่จะเป็น {BLOCK_MINUTES} นาทีเป๊ะ
+      คลาดไปราว {(((realSpacingMin - BLOCK_MINUTES) / BLOCK_MINUTES) * 100).toFixed(2)}% ซึ่งเล็กจนไม่มีใครเดือดร้อน
+      แต่แก้ไม่ได้แล้วเพราะการแก้จะเปลี่ยนกติกา
+      และทำให้โหนดที่ไม่ได้อัปเดตแยกสายออกไปทันที บั๊กบรรทัดนี้จึงยังรันอยู่ในทุกโหนดทั่วโลกจนถึงวันนี้
+    </p>
+  </div>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ชั้นที่ 5 · บล็อกกำเนิดที่พิมพ์ค้างไว้ในโค้ด</summary>
+    <div class="expander-body">
+
+  <p>
+    บล็อกแรกมีปัญหาไก่กับไข่ คือทุกบล็อกต้องชี้ไปที่บล็อกก่อนหน้า แล้วบล็อกแรกจะชี้ไปไหน
+    ทางแก้คือเขียนมันค้างไว้ในโค้ดตรง ๆ ทุกโหนดในโลกจึงสร้างบล็อกแรกที่เหมือนกันเป๊ะขึ้นมาเองตอนเปิดโปรแกรมครั้งแรก
+  </p>
+
+  <CodeBlock code={CODE_GENESIS} lang="cpp" title="main.cpp · บล็อกกำเนิด (ย่อค่าที่ยาวมากเป็นจุดไข่ปลา)" />
+
+  <p>
+    บรรทัดบนสุดคือพาดหัวหนังสือพิมพ์ที่เล่าไปในหัวข้อประวัติ ในโค้ดมันถูกยัดเข้าไปใน <code>scriptSig</code>
+    ซึ่งเป็นช่องที่ปกติใช้ใส่ลายเซ็นของคนจ่าย บล็อกแรกไม่มีคนจ่าย ช่องนั้นเลยว่าง แล้วเขาใช้มันฝากข้อความแทน
+  </p>
+
+  <p>
+    <code>block.hashPrevBlock = 0</code> คือคำตอบของปัญหาไก่กับไข่ ส่วน <code>nTime = 1231006505</code>
+    คือเวลานับเป็นวินาที ซึ่งแปลงออกมาได้เป็นวันที่ 3 มกราคม 2009 เวลา 18:15:05 ตามเวลามาตรฐานสากล
+    และ <code>nNonce = 2083236893</code> คือเลขที่เขาต้องนั่งเดาจนเจอเหมือนนักขุดคนอื่นทุกประการ ไม่มีทางลัดให้ตัวเอง
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เหรียญ 50 เหรียญแรกที่ไม่มีใครใช้ได้</p>
+    <p>
+      รางวัล 50 เหรียญของบล็อกกำเนิดใช้จ่ายไม่ได้เลย เพราะวิธีที่โค้ดชุดนี้เขียนบล็อกกำเนิดลงฐานข้อมูล
+      ทำให้ธุรกรรมใบนั้นไม่ถูกบันทึกเข้าไปในดัชนีธุรกรรมเหมือนบล็อกอื่น โหนดทุกตัวจึงมองไม่เห็นเงินก้อนนั้น
+      ถึงจะมีกุญแจก็ใช้ไม่ได้ และตลอดสิบเจ็ดปีที่ผ่านมามีคนโอนบิตคอยน์เข้าไปที่อยู่นั้นเรื่อย ๆ
+      เป็นเหมือนการวางดอกไม้ ซึ่งทุกเหรียญที่โอนเข้าไปก็หายไปตลอดกาลเหมือนกัน
+    </p>
+  </div>
+    </div>
+  </details>
+
+  <details class="expander">
+    <summary>ชั้นที่ 6 · แล้วโหนดแรกหาเพื่อนเจอได้ยังไง</summary>
+    <div class="expander-body">
+
+  <p>
+    เหลือคำถามข้อสุดท้าย โปรแกรมที่เพิ่งเปิดครั้งแรกในเครื่องคุณ ยังไม่รู้จักใครในโลกเลย
+    แล้วมันไปหาโหนดตัวอื่นเจอได้ยังไง ในเมื่อไม่มีเซิร์ฟเวอร์กลางให้ถาม
+  </p>
+
+  <p>
+    คำตอบของชุดแรกนั้นง่ายจนน่ารัก มันเข้าห้องแชต
+  </p>
+
+  <CodeBlock code={CODE_IRC} lang="cpp" title="irc.cpp · วิธีหาเพื่อนบ้านครั้งแรกของบิตคอยน์" />
+
+  <p>
+    โปรแกรมต่อเข้าเซิร์ฟเวอร์ IRC ซึ่งเป็นระบบห้องแชตยุคเก่า แล้วเข้าไปในห้องชื่อ <code>#bitcoin</code>
+    จากนั้นสั่ง <code>WHO</code> เพื่อขอรายชื่อคนในห้อง โหนดแต่ละตัวตั้งชื่อเล่นของตัวเองเป็นเลขที่อยู่ไอพีที่เข้ารหัสไว้
+    คนที่อยู่ในห้องเดียวกันก็คือโหนดตัวอื่น อ่านชื่อเล่นแล้วต่อหากันได้เลย
+  </p>
+
+  <p>
+    วิธีนี้ถูกเลิกใช้ไปนานแล้วเพราะพึ่งพาเซิร์ฟเวอร์แชตที่ใครก็ปิดได้ ทุกวันนี้โหนดใหม่ถามที่อยู่จากรายชื่อ
+    ที่ฝังไว้ในโปรแกรมและจากระบบชื่อโดเมนแทน แต่ผมชอบชั้นนี้ที่สุดในทั้งโปรเจกต์
+    เพราะมันเป็นหลักฐานว่าของที่กลายเป็นเรื่องใหญ่ระดับโลก ตอนเริ่มมันคือของที่คนคนเดียวประกอบให้พอใช้งานได้ก่อน
+  </p>
+    </div>
+  </details>
+
+  <h3>แล้ว deploy ยังไง</h3>
+
+  <p>
+    คำว่า deploy ในความหมายที่เราคุ้นกัน คือเอาโค้ดขึ้นเซิร์ฟเวอร์ ต่อฐานข้อมูล เปิดโดเมน
+    กับบิตคอยน์ไม่มีขั้นตอนพวกนั้นเลยสักข้อ เพราะไม่มีเซิร์ฟเวอร์ให้ขึ้น
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>3 ม.ค. 2009</strong> เขารันโปรแกรมในเครื่องตัวเอง โปรแกรมสร้างบล็อกกำเนิดจากค่าที่พิมพ์ค้างไว้
+        แล้วเริ่มขุดบล็อกถัดไปโดยมีโหนดอยู่ในโลกตัวเดียว
+      </li>
+      <li>
+        <strong>9 ม.ค. 2009</strong> เขาโพสต์ลิงก์ไฟล์ติดตั้งสำหรับวินโดวส์พร้อมซอร์สโค้ดทั้งชุดลงเมลลิงลิสต์
+        การเผยแพร่คือการส่งอีเมลหนึ่งฉบับให้คนกลุ่มเล็ก ๆ ที่สนใจวิชารหัสลับ
+      </li>
+      <li>
+        <strong>วันเดียวกัน</strong> Hal Finney อ่านว่า "แฮล ฟินนีย์" นักวิทยาการรหัสลับที่อยู่ในลิสต์นั้น
+        โหลดไปรัน กลายเป็นโหนดตัวที่สองของโลก ตรงนี้เองที่เครือข่ายเริ่มเป็นเครือข่ายจริง
+      </li>
+      <li>
+        <strong>12 ม.ค. 2009</strong> มีธุรกรรมระหว่างคนสองคนเป็นครั้งแรกในบล็อกที่ 170
+        เป็นการโอน 10 บิตคอยน์จาก Satoshi ไปหา Hal Finney
+      </li>
+    </ul>
+  </div>
+
+  <p>
+    ไม่มีสวิตช์ให้เปิดระบบ ไม่มีวันเปิดตัวอย่างเป็นทางการ ระบบเริ่มทำงานตั้งแต่เครื่องแรกเริ่มรัน
+    และมันโตขึ้นทีละเครื่องตามจำนวนคนที่ตัดสินใจกดรันโปรแกรมนั้น จากหนึ่ง เป็นสอง
+    จนวันนี้กลายเป็นเครือข่ายที่มีกำลังขุด {HASHRATE_EHS} เอกซะแฮชต่อวินาที
+  </p>
+
+  <details class="expander">
+    <summary>ของแถม · ทั้งหกชั้นย่อเหลือโค้ดหน้าเดียวที่รันได้จริง</summary>
+    <div class="expander-body">
+      <p>
+        ผมย่อกติกาหลักทั้งหมดที่ผ่านมาให้เหลือโค้ดชุดเดียวที่รันได้ด้วย Node.js
+        ไม่มีเครือข่าย ไม่มีลายเซ็น เหลือแค่หัวบล็อก การแฮชสองรอบ การเดานอนซ์ กติกาฮาล์ฟวิง และการตรวจทั้งโซ่
+        เซฟเป็นไฟล์แล้วสั่งรันได้เลย ใช้เวลาไม่ถึงวินาที
+      </p>
+      <CodeBlock code={CODE_TOY} lang="ts" title="mini-chain.ts · หกชั้นในหน้าเดียว" />
+      <p>
+        ผลที่ได้คือ <code>valid: true</code> ตามด้วยบล็อกสี่ก้อนพร้อมนอนซ์ที่หามาได้ และบรรทัดสุดท้ายพิมพ์ 50 แล้ว 3.125 แล้ว 0
+        ซึ่งคือรางวัลที่ความสูงบล็อก 0 ที่ความสูง 840,000 และที่ความสูง 6,930,000 อันสุดท้ายคือจุดที่การเลื่อนบิตทำให้รางวัลกลายเป็นศูนย์
+        ตรงกับยุคสุดท้ายในตารางการออกเหรียญพอดี
+      </p>
+      <p>
+        ถ้าอยากลองของสนุก ลองแก้ <code>DIFFICULTY</code> จาก 4 เป็น 6 แล้วจับเวลาดู
+        กับลองแก้ข้อความในบล็อกแรกหลังจากขุดครบแล้ว จะเห็นว่า <code>valid</code> กลายเป็น false ทันที
+        เหมือนกับที่กดแก้ในของเล่นชิ้นที่สองข้างบน
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider" />
+
+  <h2>ราคามาจากไหน</h2>
+
+  <p>
+    ถ้าคุณเรียนวิธีประเมินมูลค่าหุ้นมา คุณจะเคยเห็นการคิดจากกระแสเงินสดที่กิจการจะทำได้ในอนาคต
+    ถ้าเป็นทองก็มีความต้องการใช้ในอุตสาหกรรมและเครื่องประดับรองอยู่ ถ้าเป็นที่ดินก็ให้ค่าเช่าได้
+  </p>
+
+  <p>
+    บิตคอยน์ไม่มีอะไรในสามอย่างนั้น มันไม่จ่ายปันผล ไม่มีรายได้ ไม่มีคนเช่า
+    ผมคิดว่าการเล่าเรื่องนี้อย่างซื่อสัตย์ต้องพูดตรง ๆ ว่า <strong>ราคาของมันคือจุดที่คนซื้อกับคนขายเจอกัน เท่านั้นเอง</strong>
+    ไม่มีสมการไหนบอกได้ว่าราคาที่ถูกต้องควรเป็นเท่าไร
+  </p>
+
+  <p>
+    สิ่งที่พูดได้แน่นอนคือฝั่งอุปทาน กติกาบอกล่วงหน้าเป็นร้อยปีว่าจะมีเหรียญใหม่ออกมาเท่าไรและเมื่อไร
+    ไม่ขึ้นกับราคา ไม่ขึ้นกับความต้องการ ราคาขึ้นเท่าไรก็ผลิตเพิ่มไม่ได้ ซึ่งต่างจากทองที่ราคาสูงแล้วเหมืองเปิดเพิ่ม
+    เมื่ออุปทานนิ่งสนิท ความต้องการที่แกว่งจึงไปลงที่ราคาทั้งหมด นี่คือคำอธิบายเชิงกลไกของความผันผวนที่จะพูดถึงต่อไป
+  </p>
+
+  <figure class="tbl">
+    <table class="amo wide">
+      <caption>สามเลนส์ที่คนใช้มองบิตคอยน์</caption>
+      <thead>
+        <tr>
+          <th>เลนส์</th>
+          <th>ข้อโต้แย้งฝั่งสนับสนุน</th>
+          <th>ข้อโต้แย้งฝั่งค้าน</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ทองดิจิทัล</td>
+          <td>อุปทานจำกัดและรู้ล่วงหน้า ไม่มีใครสั่งพิมพ์เพิ่มได้ ย้ายข้ามประเทศได้ด้วยการจำคำสิบสองคำ</td>
+          <td>ทองมีประวัติการรักษามูลค่ามาหลายพันปี บิตคอยน์มีสิบเจ็ดปี และมันมักร่วงพร้อมสินทรัพย์เสี่ยงอื่น แทนที่จะสวนทาง</td>
+        </tr>
+        <tr>
+          <td>สินทรัพย์เสี่ยงตัวหนึ่งในพอร์ต</td>
+          <td>เป็นคำอธิบายที่ตรงกับพฤติกรรมราคาจริงมากที่สุด และเป็นมุมที่กองทุนสถาบันใช้เข้าซื้อผ่าน ETF</td>
+          <td>ถ้ามองแบบนี้ก็ต้องยอมรับว่ามันเป็นการเก็งกำไรที่ราคาขึ้นกับความต้องการล้วน ๆ ไม่ใช่ประกันความเสี่ยง</td>
+        </tr>
+        <tr>
+          <td>ระบบชำระเงิน</td>
+          <td>ส่งข้ามประเทศได้โดยไม่ต้องผ่านธนาคาร มีประโยชน์จริงในประเทศที่เงินเฟ้อรุนแรงหรือระบบธนาคารเข้าถึงยาก</td>
+          <td>บนสายหลักทำได้ไม่กี่รายการต่อวินาที ค่าธรรมเนียมแกว่ง และราคาที่ผันผวนทำให้ตั้งราคาสินค้าลำบาก</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ทั้งสามเลนส์มีคนถือจริงและเถียงกันอยู่ ผมยกมาให้เห็นว่าคำถามว่าบิตคอยน์คืออะไรยังไม่มีคำตอบที่ทุกฝ่ายยอมรับ
+      ใครที่เล่าให้คุณฟังเหมือนมันจบไปแล้ว กำลังขายเลนส์ของเขาให้คุณอยู่
+    </figcaption>
+  </figure>
+
+  <h2>ความผันผวนที่ตัวเลขไม่โกหก</h2>
+
+  <p>
+    เรื่องที่คนเล่าถึงบิตคอยน์บ่อยที่สุดคือรอบที่ราคาขึ้น แต่รอบที่ราคาลงก็เกิดขึ้นทุกรอบเช่นกัน และลงแรงมาก
+  </p>
+
+  <figure class="tbl">
+    <table class="amo">
+      <caption>การลงจากยอดถึงก้นในแต่ละรอบ</caption>
+      <thead>
+        <tr>
+          <th>รอบ</th>
+          <th>ยอด</th>
+          <th>ก้น</th>
+          <th>ลงไป</th>
+          <th>ใช้เวลา</th>
+          <th>ต้องขึ้นเท่าไรจึงกลับที่เดิม</th>
+        </tr>
+      </thead>
+      <tbody>
+        {drawdowns.map((d) => (
+          <tr>
+            <td>{d.cycle}</td>
+            <td>{d.peak}</td>
+            <td>{d.trough}</td>
+            <td class="hot">-{d.fall}%</td>
+            <td>{d.months} เดือน</td>
+            <td class="cool">+{fmt(recoveryPct(d.fall))}%</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ตัวเลขในสองคอลัมน์แรกเป็นค่าประมาณจากราคาปิดรายวัน ส่วนคอลัมน์สุดท้ายคำนวณตอน build จากคอลัมน์ที่สี่
+      ด้วยสูตรที่ว่าถ้าเหลือเงิน {'('}1 ลบสัดส่วนที่ลง{')'} ต้องคูณกลับด้วยส่วนกลับของมัน
+    </figcaption>
+  </figure>
+
+  <p>
+    คอลัมน์สุดท้ายคือเลขคณิตที่คนมองข้ามบ่อยที่สุด ลง 50% ต้องขึ้น 100% ถึงจะเท่าทุน
+    ลง {drawdowns[0].fall}% อย่างรอบปี {drawdowns[0].cycle} ต้องขึ้น {fmt(recoveryPct(drawdowns[0].fall))}%
+    ความไม่สมมาตรข้อนี้ไม่ได้เกี่ยวกับบิตคอยน์โดยเฉพาะ มันเป็นจริงกับทุกสินทรัพย์
+    แต่มันเจ็บกว่าตรงนี้เพราะขนาดของการลงใหญ่กว่าที่อื่นมาก
+  </p>
+
+  <p>
+    ที่ต้องพูดควบคู่กันคือ ทุกรอบที่ผ่านมา ราคาเคยกลับขึ้นไปทำยอดใหม่ได้ในที่สุด
+    ผมพูดได้แค่ว่ามันเคยเป็นแบบนั้นสี่ครั้ง ผมพูดไม่ได้ว่ามันจะเป็นแบบนั้นอีก
+    และคนที่ขายทิ้งตอนติดลบแปดสิบเปอร์เซ็นต์ก็ไม่ได้อยู่จนถึงตอนที่มันกลับมา
+  </p>
+
+  <h2>ไฟที่เผาไป</h2>
+
+  <p>
+    การขุดต้องใช้ไฟฟ้าจริง และปริมาณไม่น้อย รายงานของศูนย์ทางเลือกทางการเงินแห่งเคมบริดจ์ปี {ENERGY_YEAR}
+    ประเมินการใช้ไฟของทั้งเครือข่ายไว้ที่ราว <strong>{ENERGY_TWH} เทระวัตต์ชั่วโมงต่อปี</strong>
+    หรือประมาณ {WORLD_SHARE_PCT}% ของการใช้ไฟทั่วโลก และประเมินว่าราว 52% ของพลังงานที่ใช้มาจากแหล่งที่ยั่งยืน
+    ซึ่งนับรวมพลังงานหมุนเวียนกับนิวเคลียร์
+  </p>
+
+  <p>
+    ฝั่งที่มองว่าเป็นปัญหาชี้ว่าไฟจำนวนนั้นถูกใช้ไปกับการเดาเลขที่ไม่มีประโยชน์ในตัวมันเอง
+    ฝั่งที่มองว่ารับได้ชี้ว่าไฟนั้นคือสิ่งที่ทำให้การโกงแพง ถ้าถอดมันออก ระบบก็ไม่เหลืออะไรที่กันคนโกงได้
+    และชี้ว่าเครื่องขุดย้ายไปตั้งที่ไหนก็ได้ จึงมักไปเกาะแหล่งไฟที่เหลือใช้หรือถูกทิ้งเปล่า
+  </p>
+
+  <p>
+    ผมไม่ตัดสินให้ครับ แต่มีข้อเท็จจริงเชิงกลไกข้อหนึ่งที่ควรรู้ไว้ประกอบการคิด
+    <strong>ปริมาณไฟที่ใช้ไม่ได้ถูกกำหนดโดยจำนวนธุรกรรม</strong> มันถูกกำหนดโดยรายได้ของนักขุด
+    ถ้าราคาบิตคอยน์ขึ้น การขุดกำไรมากขึ้น เครื่องก็ไหลเข้ามาเพิ่ม ความยากปรับขึ้นตาม แล้วไฟก็เพิ่ม
+    โดยที่จำนวนธุรกรรมต่อวันเท่าเดิม การคิดว่าไฟกี่หน่วยต่อหนึ่งธุรกรรมจึงเป็นตัวเลขที่ทำให้เข้าใจผิดได้ง่าย
+  </p>
+
+  <h2>ถือเอง หรือถือผ่าน ETF</h2>
+
+  <p>
+    หลังปี 2024 คนที่อยากมีบิตคอยน์ในพอร์ตมีทางเลือกที่ต่างกันในเชิงโครงสร้าง ไม่ใช่แค่ต่างกันที่ความสะดวก
+  </p>
+
+  <figure class="tbl">
+    <table class="amo wide">
+      <caption>สามวิธีถือ กับสิ่งที่คุณถืออยู่จริง</caption>
+      <thead>
+        <tr>
+          <th>วิธี</th>
+          <th>สิ่งที่คุณถืออยู่จริง</th>
+          <th>ความเสี่ยงหลัก</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>เก็บกุญแจเอง</td>
+          <td>กุญแจส่วนตัว ซึ่งคือตัวเหรียญในความหมายที่ใกล้ที่สุด ไม่ต้องขออนุญาตใครเพื่อย้าย</td>
+          <td>คุณเป็นฝ่ายรับผิดชอบทั้งหมด ทำชุดคำกู้คืนหายคือจบ โดนหลอกให้พิมพ์ก็จบ ไม่มีใครกู้ให้</td>
+        </tr>
+        <tr>
+          <td>ฝากไว้ที่ตลาดซื้อขาย</td>
+          <td>สิทธิ์เรียกร้องต่อบริษัท ให้จ่ายเหรียญคืนเมื่อคุณขอถอน</td>
+          <td>บริษัทล้ม โดนแฮ็ก หรือเอาเงินลูกค้าไปใช้ ซึ่งเคยเกิดมาแล้วทั้งสามแบบ</td>
+        </tr>
+        <tr>
+          <td>ซื้อ ETF ที่ถือบิตคอยน์จริง</td>
+          <td>หน่วยลงทุนในกองทุนที่จ้างผู้รับฝากทรัพย์สินไปถือเหรียญแทน ซื้อขายในเวลาทำการตลาดหุ้น</td>
+          <td>มีค่าธรรมเนียมรายปี ย้ายเหรียญออกมาถือเองไม่ได้ และซื้อขายได้เฉพาะเวลาที่ตลาดเปิด</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      แถวที่สามเป็นทางที่คนจำนวนมากเลือกเพราะไม่ต้องดูแลกุญแจเอง แลกกับการที่คุณกลับเข้าไปอยู่ในระบบตัวกลางเต็มตัวอีกครั้ง
+      ซึ่งเป็นสิ่งที่บิตคอยน์ถูกออกแบบมาเพื่อไม่ต้องใช้ตั้งแต่แรก
+    </figcaption>
+  </figure>
+
+  <h2>ภาษีคริปโตในไทย ณ ปี 2026</h2>
+
+  <p>
+    ฝั่งกฎหมายไทยมีความเคลื่อนไหวที่สำคัญในปี 2025 คือมีการออก
+    <strong>กฎกระทรวงฉบับที่ 399 พ.ศ. 2568</strong> ออกตามความในประมวลรัษฎากร ประกาศในราชกิจจานุเบกษาเมื่อวันที่ 5 กันยายน 2025
+    ยกเว้นภาษีเงินได้บุคคลธรรมดาสำหรับกำไรจากการขายคริปโทเคอร์เรนซีและโทเคนดิจิทัล
+    ตั้งแต่วันที่ 1 มกราคม 2025 ถึงวันที่ 31 ธันวาคม 2029 รวมห้าปี
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">เงื่อนไขที่ทำให้สิทธิ์นี้หลุดได้ง่ายที่สุด</p>
+    <p>
+      การยกเว้นนี้ใช้เฉพาะกำไรจากการขายผ่าน <strong>ผู้ประกอบธุรกิจสินทรัพย์ดิจิทัลที่ได้รับใบอนุญาตจาก ก.ล.ต. ไทย</strong>
+      ซึ่งได้แก่ศูนย์ซื้อขาย นายหน้า และผู้ค้าที่จดทะเบียนในไทย
+      กำไรจากการขายบนแพลตฟอร์มต่างประเทศที่ไม่มีใบอนุญาตไทย หรือจากการซื้อขายกันเองนอกระบบ ไม่เข้าเงื่อนไขนี้
+    </p>
+  </div>
+
+  <p>
+    และการยกเว้นนี้ครอบคลุมเฉพาะ <strong>กำไรจากการขาย</strong> เงินได้จากคริปโตประเภทอื่นยังคงต้องเสียภาษีตามปกติ
+    ซึ่งรวมถึงรายได้จากการขุด รายได้จากการวางเหรียญเพื่อรับผลตอบแทน เหรียญที่ได้รับแจกฟรี
+    และค่าจ้างที่นายจ้างจ่ายเป็นคริปโต
+  </p>
+
+  <p>
+    เรื่องภาษีเป็นส่วนที่เปลี่ยนบ่อยที่สุดในบทความนี้ และรายละเอียดในทางปฏิบัติขึ้นกับกรณีของแต่ละคน
+    สิ่งที่ผมทำได้คือชี้ตัวบทและวันที่ประกาศให้ ส่วนก่อนยื่นจริงควรตรวจกับประกาศฉบับล่าสุดของกรมสรรพากร
+    หรือปรึกษาผู้ทำบัญชี เพราะข้อความในหน้านี้ตรวจสอบไว้ ณ วันที่ {SNAPSHOT_DATE}
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+
+  <p>
+    บิตคอยน์คือสมุดบัญชีที่ทุกคนถือคนละเล่ม โดยที่สิทธิ์ในการเขียนหน้าถัดไปต้องซื้อด้วยไฟฟ้าจริง
+    และทุกหน้าถูกปั๊มคาบกับหน้าก่อนหน้าด้วยแฮช การแก้อดีตจึงไม่ใช่การแก้จุดเดียว แต่คือการต้องเขียนใหม่ทั้งแถว
+    ให้เร็วกว่าที่คนทั้งโลกเขียนหน้าใหม่ต่อไปข้างหน้า
+  </p>
+
+  <p>
+    ส่วนคำถามที่ว่าควรซื้อไหม อยู่คนละชั้นกับทุกอย่างที่เล่ามาในบทนี้
+    กลไกที่สวยงามไม่ได้แปลว่าราคาจะขึ้น และราคาที่เคยขึ้นสี่รอบก็ไม่ได้สัญญารอบที่ห้า
+    สิ่งที่ผมพอจะยืนยันได้คือ ถ้าคุณอ่านมาถึงตรงนี้ คุณตัดสินใจได้ด้วยความเข้าใจของตัวเองแล้ว
+    แทนที่จะตัดสินใจจากประโยคที่ใครสักคนตะโกนใส่คุณในไทม์ไลน์
+  </p>
+
+  <p class="pull">
+    บิตคอยน์ไม่ได้แข็งแรงเพราะเข้ารหัสแน่นหนา มันแข็งแรงตรงที่ทำให้การโกหกแพงกว่าการพูดความจริง
+    แล้วปล่อยให้ความโลภของทุกคนเลือกทางที่ถูกเอง
+  </p>
+
+  <h2>แหล่งอ้างอิง</h2>
+
+  <p>
+    เรียบเรียงและอธิบายใหม่ด้วยคำตัวเอง โดยตรวจสอบข้อเท็จจริงกับแหล่งปฐมภูมิด้านล่าง
+  </p>
+
+  <ol class="references">
+    <li>
+      เอกสารต้นฉบับ <i>Bitcoin: A Peer-to-Peer Electronic Cash System</i> โดย Satoshi Nakamoto เผยแพร่ 31 ตุลาคม 2008
+      (<a href="https://bitcoin.org/bitcoin.pdf" target="_blank" rel="noopener noreferrer">bitcoin.org/bitcoin.pdf</a>)
+      หัวข้อ double-spending การเรียงลำดับด้วย proof of work และการรอหลายบล็อกก่อนถือว่ายืนยันแล้ว มาจากเอกสารฉบับนี้โดยตรง
+    </li>
+    <li>
+      สถานะเครือข่าย ณ {SNAPSHOT_DATE} ความสูงบล็อก {fmt(TIP_HEIGHT)} อัตราแฮชราว {HASHRATE_EHS} เอกซะแฮชต่อวินาที
+      และค่าความยาก {fmt(DIFFICULTY)} อ่านจาก
+      <a href="https://mempool.space/" target="_blank" rel="noopener noreferrer">mempool.space</a> สืบค้นวันเดียวกัน
+    </li>
+    <li>
+      ราคาอ้างอิง {fmt(PRICE_USD)} ดอลลาร์ หรือราว {fmt(PRICE_THB)} บาทต่อเหรียญ และมูลค่าตลาดราว
+      {fmt(MARKET_CAP_USD / 1e12, 2)} ล้านล้านดอลลาร์ อ่านจาก
+      <a href="https://www.coingecko.com/en/coins/bitcoin" target="_blank" rel="noopener noreferrer">CoinGecko</a> ณ {SNAPSHOT_DATE}
+      ราคาเปลี่ยนตลอดเวลา ตัวเลขนี้ใช้เพื่อให้เห็นภาพขนาดเท่านั้น
+    </li>
+    <li>
+      ตารางการออกเหรียญและกราฟอุปทานสะสมในหน้านี้ ผมคำนวณเองตอน build จากกติกาสองข้อ คือรางวัลเริ่มต้น 50 เหรียญ
+      และหารครึ่งทุก {fmt(HALVING_INTERVAL)} บล็อกบนหน่วยจำนวนเต็มซาโตชิ ยอดรวม {fmt(totalBtc, 4)} เหรียญเป็นผลลัพธ์ของโมเดลนี้
+      วันที่ฮาล์ฟวิงสี่ครั้งแรกเป็นวันที่เกิดขึ้นจริง ส่วนยุคถัดไปเป็นการประมาณจากอัตราสิบนาทีต่อบล็อก
+    </li>
+    <li>
+      เหตุการณ์พิซซ่า 22 พฤษภาคม 2010 โดย Laszlo Hanyecz และผู้รับข้อเสนอ Jeremy Sturdivant
+      อ้างตามบันทึกกระทู้ในเว็บบอร์ด BitcoinTalk และหน้าประวัติใน
+      <a href="https://en.bitcoin.it/wiki/Laszlo_Hanyecz" target="_blank" rel="noopener noreferrer">Bitcoin Wiki</a>
+    </li>
+    <li>
+      Mt.Gox ยื่นล้มละลายเมื่อ 28 กุมภาพันธ์ 2014 โดยแจ้งว่าบิตคอยน์ราว 850,000 เหรียญหายไป ในจำนวนนั้น 750,000 เหรียญเป็นของลูกค้า
+      และภายหลังพบคืนราว 200,000 เหรียญ (<a href="https://www.npr.org/sections/thetwo-way/2014/02/28/283863219/mtgox-files-for-bankruptcy-nearly-500m-of-bitcoins-lost" target="_blank" rel="noopener noreferrer">NPR</a>)
+    </li>
+    <li>
+      โค้ดทุกชิ้นในหัวข้อ "เปิดฝาดูโค้ดชิ้นแรก" ยกมาจากซอร์สโค้ด Bitcoin v0.1 ที่เผยแพร่เมื่อ 9 มกราคม 2009
+      (สำเนาที่เก็บไว้บน <a href="https://github.com/Fiach-Dubh/bitcoin-0.1.0" target="_blank" rel="noopener noreferrer">GitHub</a>)
+      จำนวนบรรทัดในตารางผมนับเองจากไฟล์จริงในชุดนั้น และตัดคอมเมนต์ที่เป็นล็อกดีบักออกจากโค้ดที่ยกมาบางชิ้น
+      โดยกำกับไว้ที่หัวกรอบแล้ว ส่วน <code>mini-chain.ts</code> ผมเขียนเองและรันจริงด้วย Node.js ก่อนใส่ลงบทความ
+    </li>
+    <li>
+      ลำดับการเผยแพร่: Hal Finney โหลดโปรแกรมชุดแรกไปรันในวันที่ปล่อย และธุรกรรมระหว่างคนสองคนครั้งแรก
+      เกิดขึ้นในบล็อกที่ 170 เมื่อ 12 มกราคม 2009 เป็นการโอน 10 บิตคอยน์จาก Satoshi ไปหา Hal Finney
+      ตรวจสอบตัวบล็อกได้จาก block explorer ใด ๆ ส่วนเวลาของบล็อกกำเนิด 1231006505 อ่านได้จากโค้ดในรายการก่อนหน้า
+    </li>
+    <li>
+      การลดความยากครั้งใหญ่ที่สุดในประวัติศาสตร์เกิดขึ้นในเดือนกรกฎาคม 2021 หลังจีนสั่งห้ามการขุด
+      โดยกำลังขุดของทั้งเครือข่ายหายไปราวครึ่งหนึ่งภายในไม่กี่สัปดาห์ ตรวจสอบได้จากประวัติค่าความยากบน
+      <a href="https://mempool.space/graphs/mining/hashrate-difficulty" target="_blank" rel="noopener noreferrer">mempool.space</a>
+    </li>
+    <li>
+      การแยกสายเป็น Bitcoin Cash เมื่อ 1 สิงหาคม 2017 เป็นผลจากข้อถกเถียงเรื่องขนาดบล็อกที่ยืดเยื้อมาตั้งแต่ปี 2015
+      ส่วนโครงสร้างต้นไม้เมอร์เคิลที่ใช้ในหัวบล็อก ระบุไว้ในหัวข้อที่ 7 ของเอกสารต้นฉบับในรายการแรก
+    </li>
+    <li>
+      การอนุมัติ ETF ที่ถือบิตคอยน์จริงจำนวนสิบเอ็ดกองเมื่อ 10 มกราคม 2024 อ้างตามแถลงการณ์ของประธานคณะกรรมการกำกับหลักทรัพย์สหรัฐ
+      (<a href="https://www.sec.gov/newsroom/speeches-statements/gensler-statement-spot-bitcoin-011023" target="_blank" rel="noopener noreferrer">SEC</a>)
+    </li>
+    <li>
+      ตัวเลขพลังงาน {ENERGY_TWH} เทระวัตต์ชั่วโมงต่อปี และสัดส่วนพลังงานยั่งยืนราว 52% มาจากรายงานอุตสาหกรรมการขุดดิจิทัลปี {ENERGY_YEAR}
+      ของศูนย์ทางเลือกทางการเงินแห่งเคมบริดจ์ (<a href="https://ccaf.io/cbnsi/cbeci" target="_blank" rel="noopener noreferrer">CBECI</a>)
+      ข้อสังเกต: การประเมินแบบนี้มีช่วงความไม่แน่นอนกว้าง แหล่งอื่นในช่วงเวลาเดียวกันให้ตัวเลขสูงกว่านี้อยู่พอสมควร
+    </li>
+    <li>
+      การยกเว้นภาษีเงินได้บุคคลธรรมดาสำหรับกำไรจากการขายสินทรัพย์ดิจิทัลผ่านผู้ประกอบธุรกิจที่ได้รับใบอนุญาตจาก ก.ล.ต.
+      ระหว่าง 1 มกราคม 2025 ถึง 31 ธันวาคม 2029 อ้างตามกฎกระทรวงฉบับที่ 399 พ.ศ. 2568 ประกาศในราชกิจจานุเบกษาวันที่ 5 กันยายน 2025
+      สืบค้น {SNAPSHOT_DATE} เรื่องภาษีเปลี่ยนบ่อย ควรตรวจกับ
+      <a href="https://www.rd.go.th/" target="_blank" rel="noopener noreferrer">กรมสรรพากร</a> ก่อนยื่นจริง
+    </li>
+    <li>
+      ตารางดรอว์ดาวน์รายรอบเป็นค่าประมาณจากราคาปิดรายวันในช่วงที่ระบุ ตัวเลขจากแหล่งราคาต่างเจ้ากันจะคลาดเคลื่อนกันได้ไม่กี่เปอร์เซ็นต์
+      ส่วนคอลัมน์ที่บอกว่าต้องขึ้นเท่าไรจึงกลับที่เดิม คำนวณเองจากคอลัมน์ก่อนหน้า
+    </li>
+    <li>
+      ของเล่นสามชิ้นในหน้านี้ ผมเขียนเอง ทำงานในเครื่องผู้อ่านล้วนผ่าน Web Crypto API ที่มากับเบราว์เซอร์
+      ไม่มีการส่งข้อความที่คุณพิมพ์ออกไปที่ไหน และไม่ได้เชื่อมกับเครือข่ายบิตคอยน์จริง
+    </li>
+    <li>
+      บันทึกนี้ทำเพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุนหรือคำแนะนำทางภาษี
+    </li>
+  </ol>
+</DivineLoreLayout>
+
+<style>
+  /* h2 ของเลย์เอาต์อยู่ที่ 1rem หัวข้อย่อยจึงต้องเล็กกว่านั้น และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.94rem;
+    color:var(--dl-emerald-bright);
+    margin:1.6rem 0 0.5rem;
+    letter-spacing:.2px;
+  }
+
+  /* ภาพในบทนี้กินความกว้างของคอลัมน์เต็ม ไม่ตรึงขนาดเป็นพิกเซล
+     ถ้าตรึงไว้ ภาพจะเล็กกว่าคอลัมน์แล้วไปกองอยู่ชิดซ้าย */
+  .btc-dgm{
+    display:block;
+    width:100%;
+    height:auto;
+    margin:0 auto;
+  }
+  @media (max-width:640px){
+    .btc-dgm{min-width:520px;}
+  }
+
+  /* ตารางข้อมูลตามแบบเดียวกับบันทึกการเงินเล่มก่อน */
+  figure.tbl{
+    margin:1.25rem 0;
+    overflow-x:auto;
+    background:#141a29;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    box-shadow:0 10px 30px -14px rgba(0,0,0,0.7);
+  }
+  figure.tbl figcaption{
+    padding:0.6rem 1rem 0.9rem;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    text-align:center;
+  }
+  table.amo{
+    width:100%;
+    border-collapse:collapse;
+    font-size:0.84rem;
+  }
+  table.amo caption{
+    caption-side:top;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    text-transform:uppercase;
+    letter-spacing:.5px;
+    color:var(--dl-gold);
+    padding:0.8rem 1rem 0.6rem;
+    text-align:left;
+  }
+  table.amo th, table.amo td{
+    padding:0.5rem 0.9rem;
+    text-align:right;
+    border-top:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.amo th{
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.76rem;
+  }
+  table.amo th:first-child, table.amo td:first-child{text-align:left;}
+  table.amo td{font-variant-numeric:tabular-nums;letter-spacing:.2px;}
+  table.amo td.hot{color:#f0c860;}
+  table.amo td.cool{color:var(--dl-emerald-bright);}
+  table.amo tr.tie{background:rgba(224,180,0,0.09);}
+  table.amo.wide td{white-space:normal;text-align:left;min-width:11rem;}
+  table.amo.wide th{text-align:left;}
+  table.amo.wide td:first-child{font-weight:700;color:var(--dl-emerald-bright);min-width:8rem;}
+
+  /* ของเล่นทั้งสามชิ้นใช้เปลือกเดียวกัน */
+  .lab{
+    background:#141a29;
+    border:1px solid var(--dl-border);
+    border-radius:16px;
+    padding:1.1rem 1.2rem 1.2rem;
+    margin:1.25rem 0;
+  }
+  .lab-title{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    letter-spacing:.6px;
+    color:var(--dl-gold);
+    margin:0 0 0.85rem;
+  }
+  .lab-field{display:block;margin-bottom:0.85rem;}
+  .lab-field span{
+    display:block;
+    font-size:0.82rem;
+    color:var(--dl-muted);
+    margin-bottom:0.35rem;
+  }
+  .lab-field b{color:var(--dl-emerald-bright);font-variant-numeric:tabular-nums;}
+  .lab input[type="text"]{
+    width:100%;
+    box-sizing:border-box;
+    background:#0d1220;
+    border:1px solid var(--dl-border);
+    border-radius:9px;
+    color:var(--dl-ink);
+    font-family:"Sarabun", sans-serif;
+    font-size:0.92rem;
+    padding:0.5rem 0.7rem;
+  }
+  .lab input[type="text"]:focus{outline:2px solid var(--dl-emerald);outline-offset:1px;}
+  .lab input[type="range"]{width:100%;accent-color:var(--dl-emerald);}
+  .lab-out{
+    background:#0d1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    padding:0.6rem 0.75rem;
+    margin-bottom:0.85rem;
+    overflow-x:auto;
+  }
+  .lab-out-label{
+    display:block;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.6rem;
+    letter-spacing:.6px;
+    color:var(--dl-muted);
+    margin-bottom:0.3rem;
+  }
+  .lab-out code{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.76rem;
+    color:var(--dl-emerald-bright);
+    word-break:break-all;
+    line-height:1.7;
+  }
+  .lab-out code :global(.hl-diff){color:#f0c860;background:rgba(224,180,0,0.14);border-radius:2px;}
+  .lab-actions{display:flex;flex-wrap:wrap;gap:0.5rem;}
+  .lab-btn{
+    background:var(--dl-emerald);
+    color:#05210f;
+    border:none;
+    border-radius:9px;
+    font-family:"Sarabun", sans-serif;
+    font-size:0.84rem;
+    font-weight:700;
+    padding:0.45rem 0.95rem;
+    cursor:pointer;
+  }
+  .lab-btn:hover{background:var(--dl-emerald-bright);}
+  .lab-btn:disabled{opacity:.45;cursor:not-allowed;}
+  .lab-btn-ghost{
+    background:transparent;
+    color:var(--dl-muted);
+    border:1px solid var(--dl-border);
+  }
+  .lab-btn-ghost:hover{background:rgba(255,255,255,0.04);color:var(--dl-ink);}
+  .lab-note{
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    margin:0.8rem 0 0;
+  }
+
+  /* CHAIN LAB */
+  .cl-blocks{
+    display:flex;
+    gap:0.7rem;
+    overflow-x:auto;
+    padding-bottom:0.6rem;
+    margin-bottom:0.85rem;
+  }
+  .cl-blocks :global(.cl-block){
+    flex:0 0 12rem;
+    background:#0d1220;
+    border:1px solid var(--dl-border);
+    border-radius:12px;
+    padding:0.65rem 0.7rem;
+  }
+  .cl-blocks :global(.cl-block.is-bad){border-color:var(--dl-red);background:#1a1218;}
+  .cl-blocks :global(.cl-block.is-good){border-color:var(--dl-emerald);}
+  .cl-blocks :global(.cl-head){
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.62rem;
+    letter-spacing:.5px;
+    color:var(--dl-muted);
+    margin:0 0 0.45rem;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .cl-blocks :global(.cl-block.is-bad .cl-state){color:#f08b8b;}
+  .cl-blocks :global(.cl-block.is-good .cl-state){color:var(--dl-emerald-bright);}
+  .cl-blocks :global(.cl-row){
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.63rem;
+    color:var(--dl-muted);
+    margin:0.35rem 0 0;
+    word-break:break-all;
+  }
+  .cl-blocks :global(.cl-row b){color:var(--dl-ink);font-weight:400;}
+  .cl-blocks :global(.cl-block.is-bad .cl-hash b){color:#f08b8b;}
+  .cl-blocks :global(.cl-block.is-good .cl-hash b){color:var(--dl-emerald-bright);}
+  .cl-blocks :global(.cl-data){
+    width:100%;
+    box-sizing:border-box;
+    background:#141a29;
+    border:1px solid var(--dl-border);
+    border-radius:7px;
+    color:var(--dl-ink);
+    font-family:"Sarabun", sans-serif;
+    font-size:0.8rem;
+    padding:0.35rem 0.5rem;
+  }
+  .cl-blocks :global(.cl-mine){
+    margin-top:0.5rem;
+    width:100%;
+    background:transparent;
+    border:1px solid var(--dl-border);
+    border-radius:7px;
+    color:var(--dl-muted);
+    font-family:"Sarabun", sans-serif;
+    font-size:0.74rem;
+    padding:0.3rem;
+    cursor:pointer;
+  }
+  .cl-blocks :global(.cl-mine:hover){color:var(--dl-ink);background:rgba(255,255,255,0.04);}
+
+  /* ไทม์ไลน์ประวัติ เป็น HTML ไม่ใช่ SVG เพราะเนื้อหาเป็นข้อความล้วน
+     ถ้าวาดเป็น SVG ตัวอักษรจะถูกสเกลขึ้นตามความกว้างคอลัมน์จนใหญ่ผิดสัดส่วน */
+  .tl{list-style:none;padding:0;margin:1.25rem 0 0.4rem;border-left:2px solid var(--dl-border);}
+  .tl li{
+    position:relative;
+    padding:0.5rem 0 0.5rem 1.1rem;
+    display:flex;
+    gap:0.75rem;
+    align-items:baseline;
+    font-size:0.94rem;
+    color:var(--dl-ink);
+  }
+  .tl li::before{
+    content:"";
+    position:absolute;
+    left:-7px;
+    top:1rem;
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:var(--dl-bg);
+    border:2px solid var(--dl-border);
+  }
+  .tl li b{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.82rem;
+    color:var(--dl-muted);
+    flex:0 0 3.1rem;
+  }
+  .tl li.tl-good::before{border-color:var(--dl-emerald);}
+  .tl li.tl-good b{color:var(--dl-emerald-bright);}
+  .tl li.tl-gold::before{border-color:var(--dl-gold);}
+  .tl li.tl-gold b{color:var(--dl-gold);}
+  .tl li.tl-bad::before{border-color:var(--dl-red);}
+  .tl li.tl-bad b{color:#f08b8b;}
+  .tl-cap{font-size:0.8rem;color:var(--dl-muted);text-align:center;margin-bottom:1.25rem;}
+
+  /* MERKLE LAB */
+  .mk-tree{display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.85rem;overflow-x:auto;}
+  .mk-tree :global(.mk-row){display:flex;gap:0.4rem;justify-content:center;min-width:max-content;}
+  .mk-tree :global(.mk-node){
+    flex:0 0 auto;
+    min-width:4.6rem;
+    background:#0d1220;
+    border:1px solid var(--dl-border);
+    border-radius:8px;
+    padding:0.35rem 0.45rem;
+    color:var(--dl-muted);
+    font-family:"Sarabun", sans-serif;
+    cursor:default;
+    text-align:center;
+  }
+  .mk-tree :global(.mk-leaf){cursor:pointer;}
+  .mk-tree :global(.mk-leaf:hover){border-color:var(--dl-emerald);}
+  .mk-tree :global(.mk-root){border-color:var(--dl-gold);}
+  .mk-tree :global(.mk-node.is-picked){border-color:var(--dl-emerald-bright);background:#10231a;}
+  .mk-tree :global(.mk-node.is-needed){border-color:var(--dl-gold);background:#241f0d;}
+  .mk-tree :global(.mk-node.is-changed){border-color:var(--dl-red);background:#1f1418;}
+  .mk-tree :global(.mk-name){display:block;font-size:0.7rem;color:var(--dl-ink);}
+  .mk-tree :global(.mk-hash){
+    display:block;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.62rem;
+    color:var(--dl-muted);
+    margin-top:0.15rem;
+  }
+  .mk-tree :global(.mk-node.is-needed .mk-hash){color:var(--dl-gold);}
+  .mk-tree :global(.mk-node.is-changed .mk-hash){color:#f08b8b;}
+
+  /* เส้นทางของธุรกรรม */
+  .jn-stage{margin-bottom:0.6rem;}
+  .jn-title{font-size:0.92rem;color:var(--dl-emerald-bright);margin:0 0 0.3rem;font-weight:700;}
+  .jn-range{width:100%;margin-top:0.85rem;accent-color:var(--dl-emerald);}
+  .jn-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.76rem;
+    color:var(--dl-muted);
+    align-self:center;
+    min-width:3.4rem;
+    white-space:nowrap;
+  }
+  .cl-status{font-size:0.76rem;color:var(--dl-muted);align-self:center;}
+
+  /* MINE LAB */
+  .ml-stats{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:0.6rem;
+    margin-bottom:0.85rem;
+  }
+  .ml-stat{
+    background:#0d1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    padding:0.5rem 0.6rem;
+  }
+  .ml-stat span{display:block;font-size:0.7rem;color:var(--dl-muted);}
+  .ml-stat b{
+    display:block;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.9rem;
+    color:var(--dl-emerald-bright);
+    font-variant-numeric:tabular-nums;
+    margin-top:0.15rem;
+  }
+  @media (max-width:520px){
+    .ml-stats{grid-template-columns:1fr;}
+  }
+</style>
+
+<script>
+  interface ChainBlock {
+    data: string;
+    nonce: number;
+    prev: string;
+    hash: string;
+  }
+
+  const enc = new TextEncoder();
+
+  async function sha256(text: string): Promise<string> {
+    const buf = await crypto.subtle.digest('SHA-256', enc.encode(text));
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /** ระบายตัวอักษรที่ต่างจากผลก่อนหน้า เพื่อให้เห็นว่าแฮชเปลี่ยนไปเยอะแค่ไหน */
+  function diffMarkup(now: string, before: string): string {
+    let out = '';
+    for (let i = 0; i < now.length; i += 1) {
+      const ch = now[i];
+      out += before[i] === ch ? ch : `<span class="hl-diff">${ch}</span>`;
+    }
+    return out;
+  }
+
+  function initHashLab(root: HTMLElement): void {
+    const input = root.querySelector<HTMLInputElement>('.hl-input');
+    const out = root.querySelector<HTMLElement>('.hl-out');
+    const nudge = root.querySelector<HTMLButtonElement>('.hl-nudge');
+    const reset = root.querySelector<HTMLButtonElement>('.hl-reset');
+    if (!input || !out || !nudge || !reset) return;
+
+    const initial = input.value;
+    let previous = '';
+
+    const render = async (): Promise<void> => {
+      const hash = await sha256(input.value);
+      out.innerHTML = previous ? diffMarkup(hash, previous) : escapeHtml(hash);
+      previous = hash;
+    };
+
+    input.addEventListener('input', () => {
+      void render();
+    });
+    nudge.addEventListener('click', () => {
+      const pool = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      input.value = input.value.slice(0, -1) + pick;
+      void render();
+    });
+    reset.addEventListener('click', () => {
+      input.value = initial;
+      previous = '';
+      void render();
+    });
+
+    void render();
+  }
+
+  function initChainLab(root: HTMLElement): void {
+    const host = root.querySelector<HTMLElement>('.cl-blocks');
+    const mineAll = root.querySelector<HTMLButtonElement>('.cl-mineall');
+    const reset = root.querySelector<HTMLButtonElement>('.cl-reset');
+    const status = root.querySelector<HTMLElement>('.cl-status');
+    if (!host || !mineAll || !reset) return;
+    let edited = false;
+
+    const COUNT = 5;
+    const TARGET = '000';
+    const GENESIS = '0'.repeat(64);
+    const defaults = [
+      'สมชายจ่ายร้าน A 1 BTC',
+      'ร้าน A จ่ายซัพพลายเออร์ 0.4 BTC',
+      'สมหญิงจ่ายค่าเช่า 0.2 BTC',
+      'ร้าน B จ่ายค่าไฟ 0.05 BTC',
+      'สมชายจ่ายร้าน C 0.3 BTC',
+    ];
+
+    let blocks: ChainBlock[] = [];
+
+    const body = (b: ChainBlock, index: number): string =>
+      `${index}|${b.data}|${b.prev}|${b.nonce}`;
+
+    /** หา nonce ที่ทำให้แฮชขึ้นต้นด้วยศูนย์สี่ตัว ปล่อยคิวเป็นระยะเพื่อไม่ให้หน้าค้าง */
+    const mine = async (index: number): Promise<void> => {
+      const b = blocks[index];
+      b.prev = index === 0 ? GENESIS : blocks[index - 1].hash;
+      let nonce = 0;
+      for (;;) {
+        b.nonce = nonce;
+        const h = await sha256(body(b, index));
+        if (h.startsWith(TARGET)) {
+          b.hash = h;
+          return;
+        }
+        nonce += 1;
+        if (nonce % 4000 === 0) await new Promise((r) => setTimeout(r, 0));
+      }
+    };
+
+    const refreshHashes = async (): Promise<void> => {
+      for (let i = 0; i < blocks.length; i += 1) {
+        blocks[i].hash = await sha256(body(blocks[i], i));
+      }
+    };
+
+    const render = (): void => {
+      host.innerHTML = '';
+      /** บล็อกจะใช้ได้ก็ต่อเมื่อบรรพบุรุษของมันใช้ได้ด้วย ความพังจึงลามไปทางขวาเสมอ */
+      let ancestorsOk = true;
+      blocks.forEach((b, i) => {
+        const prevReal = i === 0 ? GENESIS : blocks[i - 1].hash;
+        const ok = ancestorsOk && b.hash.startsWith(TARGET) && b.prev === prevReal;
+        ancestorsOk = ok;
+        const el = document.createElement('div');
+        el.className = `cl-block ${ok ? 'is-good' : 'is-bad'}`;
+        el.innerHTML = `
+          <p class="cl-head"><span>บล็อก ${i + 1}</span><span class="cl-state">${ok ? 'ใช้ได้' : 'พัง'}</span></p>
+          <input class="cl-data" type="text" value="${escapeHtml(b.data)}" data-index="${i}" />
+          <p class="cl-row">nonce: <b>${b.nonce}</b></p>
+          <p class="cl-row">ก่อนหน้า: <b>${b.prev.slice(0, 16)}…</b></p>
+          <p class="cl-row cl-hash">แฮช: <b>${b.hash.slice(0, 16)}…</b></p>
+          <button type="button" class="cl-mine" data-index="${i}">ขุดบล็อกนี้ใหม่</button>
+        `;
+        host.appendChild(el);
+      });
+      syncButtons();
+    };
+
+    /** ปุ่มซ่อมจะกดได้เฉพาะตอนโซ่พังจริง ไม่งั้นกดแล้วหน้าจอนิ่งสนิทเพราะได้ nonce เดิม */
+    const chainBroken = (): boolean => {
+      let ok = true;
+      for (let i = 0; i < blocks.length; i += 1) {
+        const prevReal = i === 0 ? GENESIS : blocks[i - 1].hash;
+        ok = ok && blocks[i].hash.startsWith(TARGET) && blocks[i].prev === prevReal;
+      }
+      return !ok;
+    };
+
+    const syncButtons = (): void => {
+      const broken = chainBroken();
+      mineAll.disabled = !broken;
+      reset.disabled = !edited;
+      if (status) status.textContent = broken ? 'โซ่พังอยู่ กดซ่อมได้' : 'โซ่สมบูรณ์';
+    };
+
+    host.addEventListener('input', (e) => {
+      if (!(e.target instanceof HTMLInputElement)) return;
+      const idx = Number(e.target.dataset.index);
+      if (Number.isNaN(idx)) return;
+      blocks[idx].data = e.target.value;
+      edited = true;
+      const caret = e.target.selectionStart;
+      void refreshHashes().then(() => {
+        render();
+        const next = host.querySelector<HTMLInputElement>(`.cl-data[data-index="${idx}"]`);
+        if (next) {
+          next.focus();
+          if (caret !== null) next.setSelectionRange(caret, caret);
+        }
+      });
+    });
+
+    host.addEventListener('click', (e) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const btn = e.target.closest<HTMLButtonElement>('.cl-mine');
+      if (!btn) return;
+      const idx = Number(btn.dataset.index);
+      if (Number.isNaN(idx)) return;
+      btn.disabled = true;
+      btn.textContent = 'กำลังขุด';
+      void mine(idx)
+        .then(refreshHashesFrom(idx + 1))
+        .then(render);
+    });
+
+    /** หลังขุดบล็อกหนึ่งเสร็จ แฮชของบล็อกขวามือต้องคำนวณใหม่ทั้งหมด */
+    function refreshHashesFrom(start: number): () => Promise<void> {
+      return async () => {
+        for (let i = start; i < blocks.length; i += 1) {
+          blocks[i].hash = await sha256(body(blocks[i], i));
+        }
+      };
+    }
+
+    const build = async (): Promise<void> => {
+      blocks = defaults.map((data) => ({ data, nonce: 0, prev: GENESIS, hash: '' }));
+      edited = false;
+      mineAll.disabled = true;
+      if (status) status.textContent = 'กำลังขุดโซ่ตั้งต้น';
+      for (let i = 0; i < COUNT; i += 1) await mine(i);
+      render();
+    };
+
+    mineAll.addEventListener('click', () => {
+      mineAll.disabled = true;
+      if (status) status.textContent = 'กำลังซ่อม';
+      void (async () => {
+        for (let i = 0; i < blocks.length; i += 1) await mine(i);
+        edited = false;
+        render();
+      })();
+    });
+    reset.addEventListener('click', () => {
+      void build();
+    });
+
+    host.innerHTML = '<p class="lab-note">กำลังขุดโซ่ตั้งต้น</p>';
+    void build();
+  }
+
+  function initMineLab(root: HTMLElement): void {
+    const data = root.querySelector<HTMLInputElement>('.ml-data');
+    const diff = root.querySelector<HTMLInputElement>('.ml-diff');
+    const diffLabel = root.querySelector<HTMLElement>('.ml-diff-label');
+    const tries = root.querySelector<HTMLElement>('.ml-tries');
+    const time = root.querySelector<HTMLElement>('.ml-time');
+    const expect = root.querySelector<HTMLElement>('.ml-expect');
+    const hashOut = root.querySelector<HTMLElement>('.ml-hash');
+    const go = root.querySelector<HTMLButtonElement>('.ml-go');
+    const stop = root.querySelector<HTMLButtonElement>('.ml-stop');
+    if (!data || !diff || !diffLabel || !tries || !time || !expect || !hashOut || !go || !stop) return;
+
+    let running = false;
+    const fmtInt = (n: number): string => n.toLocaleString('en-US');
+
+    const showExpect = (): void => {
+      const zeros = Number(diff.value);
+      diffLabel.textContent = diff.value;
+      expect.textContent = fmtInt(Math.pow(16, zeros));
+    };
+
+    diff.addEventListener('input', showExpect);
+
+    const run = async (): Promise<void> => {
+      const zeros = Number(diff.value);
+      const target = '0'.repeat(zeros);
+      const started = performance.now();
+      let nonce = 0;
+      running = true;
+      go.disabled = true;
+      stop.disabled = false;
+      for (;;) {
+        if (!running) break;
+        const h = await sha256(`${data.value}|${nonce}`);
+        if (h.startsWith(target)) {
+          hashOut.textContent = h;
+          tries.textContent = fmtInt(nonce + 1);
+          time.textContent = `${((performance.now() - started) / 1000).toFixed(2)} วิ`;
+          break;
+        }
+        nonce += 1;
+        if (nonce % 2000 === 0) {
+          tries.textContent = fmtInt(nonce);
+          time.textContent = `${((performance.now() - started) / 1000).toFixed(2)} วิ`;
+          hashOut.textContent = h;
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+      running = false;
+      go.disabled = false;
+      stop.disabled = true;
+    };
+
+    go.addEventListener('click', () => {
+      void run();
+    });
+    stop.addEventListener('click', () => {
+      running = false;
+    });
+
+    showExpect();
+  }
+
+  interface MerkleNode {
+    hash: string;
+    label: string;
+  }
+
+  function initMerkleLab(root: HTMLElement): void {
+    const host = root.querySelector<HTMLElement>('.mk-tree');
+    const say = root.querySelector<HTMLElement>('.mk-say');
+    const tamper = root.querySelector<HTMLButtonElement>('.mk-tamper');
+    const reset = root.querySelector<HTMLButtonElement>('.mk-reset');
+    const raw: unknown = JSON.parse(root.dataset.leaves ?? '[]');
+    if (!host || !say || !tamper || !reset || !Array.isArray(raw)) return;
+    const base = raw.filter((x): x is string => typeof x === 'string');
+    if (base.length === 0) return;
+
+    const TAMPER_INDEX = 2;
+    let labels = base.slice();
+    let levels: MerkleNode[][] = [];
+    let selected = -1;
+    let changed = new Set<string>();
+
+    const build = async (src: string[]): Promise<MerkleNode[][]> => {
+      const out: MerkleNode[][] = [];
+      const leaves: MerkleNode[] = [];
+      for (let i = 0; i < src.length; i += 1) {
+        leaves.push({ hash: await sha256(src[i]), label: 'ใบ ' + (i + 1) });
+      }
+      out.push(leaves);
+      while (out[out.length - 1].length > 1) {
+        const prev = out[out.length - 1];
+        const next: MerkleNode[] = [];
+        for (let i = 0; i < prev.length; i += 2) {
+          next.push({ hash: await sha256(prev[i].hash + prev[i + 1].hash), label: 'แฮชคู่' });
+        }
+        out.push(next);
+      }
+      return out;
+    };
+
+    /** ดัชนีของโหนดพี่น้องที่ต้องใช้พิสูจน์ ในแต่ละชั้น */
+    const proofPath = (leaf: number): Array<[number, number]> => {
+      const path: Array<[number, number]> = [];
+      let idx = leaf;
+      for (let lv = 0; lv < levels.length - 1; lv += 1) {
+        path.push([lv, idx % 2 === 0 ? idx + 1 : idx - 1]);
+        idx = Math.floor(idx / 2);
+      }
+      return path;
+    };
+
+    const render = (): void => {
+      const path = selected >= 0 ? proofPath(selected) : [];
+      const needed = new Set(path.map(([lv, i]) => lv + ':' + i));
+      host.innerHTML = '';
+      for (let lv = levels.length - 1; lv >= 0; lv -= 1) {
+        const row = document.createElement('div');
+        row.className = 'mk-row';
+        levels[lv].forEach((node, i) => {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          const isLeaf = lv === 0;
+          const classes = ['mk-node'];
+          if (isLeaf) classes.push('mk-leaf');
+          if (lv === levels.length - 1) classes.push('mk-root');
+          if (isLeaf && i === selected) classes.push('is-picked');
+          if (needed.has(lv + ':' + i)) classes.push('is-needed');
+          if (changed.has(lv + ':' + i)) classes.push('is-changed');
+          cell.className = classes.join(' ');
+          cell.disabled = !isLeaf;
+          cell.dataset.leaf = String(i);
+          cell.innerHTML =
+            '<span class="mk-name">' + (lv === levels.length - 1 ? 'ราก' : node.label) + '</span>' +
+            '<span class="mk-hash">' + node.hash.slice(0, 8) + '</span>';
+          row.appendChild(cell);
+        });
+        host.appendChild(row);
+      }
+      if (selected >= 0) {
+        say.textContent =
+          'ใบที่ ' + (selected + 1) + ' พิสูจน์ได้ด้วยแฮชแค่ ' + path.length +
+          ' ตัวที่ไฮไลต์ไว้ ไม่ต้องดาวน์โหลดอีก ' + (levels[0].length - 1) + ' ใบที่เหลือเลย';
+      } else if (changed.size > 0) {
+        say.textContent =
+          'แก้ใบเดียว แฮชที่เปลี่ยนตามคือ ' + changed.size + ' ตัว และรากก็เปลี่ยนด้วย หัวบล็อกจึงจับได้ทันที';
+      } else {
+        say.textContent = 'แตะใบธุรกรรมสักใบเพื่อดูว่าต้องใช้แฮชกี่ตัวในการพิสูจน์';
+      }
+    };
+
+    host.addEventListener('click', (e) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest<HTMLButtonElement>('.mk-leaf');
+      if (!btn) return;
+      selected = Number(btn.dataset.leaf);
+      changed = new Set();
+      render();
+    });
+
+    tamper.addEventListener('click', () => {
+      void (async () => {
+        const before = levels;
+        labels = base.slice();
+        labels[TAMPER_INDEX] = base[TAMPER_INDEX] + ' (ถูกแก้)';
+        levels = await build(labels);
+        changed = new Set();
+        levels.forEach((row, lv) => {
+          row.forEach((node, i) => {
+            if (before[lv] && before[lv][i] && before[lv][i].hash !== node.hash) changed.add(lv + ':' + i);
+          });
+        });
+        selected = -1;
+        render();
+      })();
+    });
+
+    reset.addEventListener('click', () => {
+      void (async () => {
+        labels = base.slice();
+        levels = await build(labels);
+        selected = -1;
+        changed = new Set();
+        render();
+      })();
+    });
+
+    void (async () => {
+      levels = await build(labels);
+      render();
+    })();
+  }
+
+  interface JourneyStep {
+    station: number;
+    title: string;
+    say: string;
+  }
+
+  function initJourney(root: HTMLElement): void {
+    const stage = root.querySelector<HTMLElement>('.jn-stage');
+    const titleEl = root.querySelector<HTMLElement>('.jn-title');
+    const sayEl = root.querySelector<HTMLElement>('.jn-say');
+    const prev = root.querySelector<HTMLButtonElement>('.jn-prev');
+    const next = root.querySelector<HTMLButtonElement>('.jn-next');
+    const play = root.querySelector<HTMLButtonElement>('.jn-play');
+    const range = root.querySelector<HTMLInputElement>('.jn-range');
+    const count = root.querySelector<HTMLElement>('.jn-count');
+    if (!stage || !titleEl || !sayEl || !prev || !next || !play || !range || !count) return;
+
+    const rawSteps: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const rawStations: unknown = JSON.parse(root.dataset.stations ?? '[]');
+    if (!Array.isArray(rawSteps) || !Array.isArray(rawStations)) return;
+    const steps = rawSteps.filter(
+      (x): x is JourneyStep =>
+        typeof x === 'object' && x !== null && 'station' in x && 'title' in x && 'say' in x,
+    );
+    const stations = rawStations.filter((x): x is string => typeof x === 'string');
+    if (steps.length === 0 || stations.length === 0) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const W = 600;
+    const H = 150;
+    const gap = W / stations.length;
+    const cx = (i: number): number => gap / 2 + i * gap;
+
+    stage.innerHTML =
+      '<svg class="btc-dgm jn-svg" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" ' +
+      'role="img" aria-label="เส้นทางของธุรกรรมจากกระเป๋าไปจนถูกฝังในสมุด" font-family="Sarabun, sans-serif">' +
+      '<line x1="' + cx(0) + '" y1="60" x2="' + cx(stations.length - 1) + '" y2="60" stroke="#2a3350" stroke-width="2"/>' +
+      stations
+        .map(
+          (name, i) =>
+            '<g class="jn-station" data-i="' + i + '">' +
+            '<circle cx="' + cx(i) + '" cy="60" r="13" fill="#141a29" stroke="#2a3350" stroke-width="2"/>' +
+            '<text x="' + cx(i) + '" y="65" text-anchor="middle" font-size="11" fill="#9aa7bd">' + (i + 1) + '</text>' +
+            '<text x="' + cx(i) + '" y="98" text-anchor="middle" font-size="11" fill="#9aa7bd">' + name + '</text>' +
+            '</g>',
+        )
+        .join('') +
+      '<circle class="jn-token" cx="' + cx(0) + '" cy="26" r="8" fill="#e0b400"/>' +
+      '</svg>';
+
+    const token = stage.querySelector<SVGCircleElement>('.jn-token');
+    const stationEls = Array.from(stage.querySelectorAll<SVGGElement>('.jn-station'));
+    if (token && !reduced) token.style.transition = 'cx .45s cubic-bezier(.16,1,.3,1)';
+
+    let at = 0;
+    let timer = 0;
+
+    const render = (): void => {
+      const step = steps[at];
+      titleEl.textContent = at + 1 + '. ' + step.title;
+      sayEl.textContent = step.say;
+      count.textContent = at + 1 + ' / ' + steps.length;
+      range.value = String(at);
+      prev.disabled = at === 0;
+      next.disabled = at === steps.length - 1;
+      if (token) token.setAttribute('cx', String(cx(step.station)));
+      stationEls.forEach((g, i) => {
+        const circle = g.querySelector('circle');
+        if (!circle) return;
+        const done = i < step.station;
+        const here = i === step.station;
+        circle.setAttribute('stroke', here ? '#e0b400' : done ? '#4ade80' : '#2a3350');
+        circle.setAttribute('fill', here ? '#2a2410' : '#141a29');
+      });
+    };
+
+    const stop = (): void => {
+      if (timer) window.clearInterval(timer);
+      timer = 0;
+      play.textContent = 'เล่นอัตโนมัติ';
+    };
+
+    range.max = String(steps.length - 1);
+    prev.addEventListener('click', () => {
+      stop();
+      at = Math.max(0, at - 1);
+      render();
+    });
+    next.addEventListener('click', () => {
+      stop();
+      at = Math.min(steps.length - 1, at + 1);
+      render();
+    });
+    range.addEventListener('input', () => {
+      stop();
+      at = Number(range.value);
+      render();
+    });
+    play.addEventListener('click', () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      play.textContent = 'หยุด';
+      timer = window.setInterval(() => {
+        if (at >= steps.length - 1) {
+          stop();
+          return;
+        }
+        at += 1;
+        render();
+      }, reduced ? 1600 : 1300);
+    });
+
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    const labs: Array<[string, (el: HTMLElement) => void]> = [
+      ['[data-hash-lab]', initHashLab],
+      ['[data-chain-lab]', initChainLab],
+      ['[data-mine-lab]', initMineLab],
+      ['[data-merkle-lab]', initMerkleLab],
+      ['[data-journey]', initJourney],
+    ];
+    for (const [selector, init] of labs) {
+      document.querySelectorAll<HTMLElement>(selector).forEach((el) => {
+        if (el.dataset.wired === 'true') return;
+        el.dataset.wired = 'true';
+        init(el);
+      });
+    }
+  });
+</script>

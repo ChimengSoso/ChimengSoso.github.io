@@ -13,6 +13,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'bitcoin-from-zero/',
+    tag: 'บันทึกการเงิน',
+    title: 'บิตคอยน์ตั้งแต่ศูนย์: เงินที่ไม่มีใครเป็นเจ้าของทำงานยังไง',
+    desc: 'เห็นคำว่าบิตคอยน์มาสิบกว่าปี แต่พอมีคนถามว่ามันทำงานยังไง ก็ยังตอบไม่ได้สักที บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อน มีของให้กดเล่นสี่ชิ้นระหว่างทาง',
+    dateISO: '2026-08-30',
+    readingMinutes: 33,
+  },
+  {
     href: 'ascii-donut/',
     tag: 'บันทึกวิจัย',
     title: 'เข้าใจ donut.c ตั้งแต่ศูนย์',
