@@ -410,6 +410,26 @@ console.log('valid:', valid);
 chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
 console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
 
+/** ขนาดสมุดจริง อ่านจากกราฟ Blockchain Size ของ blockchain.com ณ วันสแนปช็อต
+    ตัวเลขเป็นเมกะไบต์ตามที่ต้นทางรายงาน แล้วแปลงเป็นกิกะไบต์เอง */
+const CHAIN_MB = 764_986;
+const CHAIN_MB_YEAR_AGO = 681_437;
+const CHAIN_YEAR_AGO_LABEL = '24 สิงหาคม 2025';
+const MB_PER_GB = 1024;
+const chainGb = CHAIN_MB / MB_PER_GB;
+const chainGrowthGb = (CHAIN_MB - CHAIN_MB_YEAR_AGO) / MB_PER_GB;
+
+/** เพดานที่กติกากำหนด BIP-141 จำกัดน้ำหนักบล็อกไว้ที่ 4,000,000 หน่วย
+    ซึ่งแปลว่าบล็อกใหญ่ได้ไม่เกินราว 4 เมกะไบต์แม้ในกรณีสุดขั้ว */
+const MAX_BLOCK_MB = 4;
+const blocksPerYear = (365 * 24 * 60) / BLOCK_MINUTES;
+const maxGrowthGb = (MAX_BLOCK_MB * blocksPerYear) / MB_PER_GB;
+
+/** ปริมาณงานที่รับได้ คำนวณจากธุรกรรมต่อบล็อกที่อ่านมาจริง */
+const txPerSecond = txPerBlock / (BLOCK_MINUTES * 60);
+const VISA_TPS = 83_000;
+const visaRatio = VISA_TPS / txPerSecond;
+
 /** ตัวเดินเรื่องปัญหาใช้เงินซ้ำ สมุดสามเล่มเดินไปพร้อมกัน สร้างตอน build สคริปต์แค่เรนเดอร์ */
 interface DsLine {
   t: string;
@@ -515,6 +535,14 @@ const EX = {
     <p>หารเป็นปีได้ราว ${((HALVING_INTERVAL * BLOCK_MINUTES) / (365.25 * 24 * 60)).toFixed(2)} ปี ซึ่งเป็นที่มาของคำว่าทุกสี่ปี</p>`,
   feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
     <p>คิดเป็น ${feeSharePct.toFixed(2)}% ที่เหลือคือรางวัลบล็อก</p>`,
+  chainSize: `<p>กราฟ Blockchain Size รายงานเป็นเมกะไบต์ ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
+    <p>หารด้วย ${MB_PER_GB} ได้ ${fmt(chainGb)} GB</p>`,
+  chainGrowth: `<p>ค่าเมื่อ ${CHAIN_YEAR_AGO_LABEL} คือ ${fmt(CHAIN_MB_YEAR_AGO)} MB ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
+    <p>ต่างกัน ${fmt(CHAIN_MB - CHAIN_MB_YEAR_AGO)} MB หรือราว ${fmt(chainGrowthGb)} GB ในหนึ่งปี</p>`,
+  maxGrowth: `<p>กติกาจำกัดน้ำหนักบล็อกไว้ที่ 4,000,000 หน่วย ซึ่งแปลว่าบล็อกโตได้ไม่เกินราว ${MAX_BLOCK_MB} MB แม้ในกรณีที่ยัดเต็มที่สุด</p>
+    <p>หนึ่งปีมีราว ${fmt(blocksPerYear)} บล็อก คูณกันแล้วหารเป็นกิกะไบต์ ได้เพดานราว ${fmt(maxGrowthGb)} GB ต่อปี</p>`,
+  txPerSecond: `<p>บล็อกจริงในช่วงนี้บรรจุธุรกรรมเฉลี่ย ${fmt(txPerBlock)} ใบต่อบล็อก</p>
+    <p>หนึ่งบล็อกกินเวลาราว ${BLOCK_MINUTES} นาที คือ ${BLOCK_MINUTES * 60} วินาที หารกันได้ราว ${txPerSecond.toFixed(1)} ใบต่อวินาที</p>`,
   tipHeight: HOWTO_CHECK('เป็นเลขบล็อกล่าสุด', 'Blockchain Tip', 'https://mempool.space/', 'mempool.space'),
   hashrate: HOWTO_CHECK('หน้ากราฟการขุด', 'Hashrate', 'https://mempool.space/graphs/mining/hashrate-difficulty', 'mempool.space'),
   difficulty: HOWTO_CHECK('หน้ากราฟการขุด', 'Difficulty', 'https://mempool.space/graphs/mining/hashrate-difficulty', 'mempool.space'),
@@ -851,6 +879,18 @@ const DESC =
     ของที่เซ็นด้วยดอกแรก ตรวจได้ด้วยดอกที่สอง แต่จากดอกที่สองย้อนกลับไปหาดอกแรกไม่ได้
   </p>
 
+  <div class="callout callout-note">
+    <p class="callout-label">ทำไมเรียกว่ากุญแจ ทั้งที่ไม่มีอะไรให้ล็อก</p>
+    <p>
+      คำว่ากุญแจตกทอดมาจากยุคที่มันล็อกข้อความจริง ๆ พอเอามาใช้กับการเซ็น
+      ของในโลกจริงที่ใกล้เคียงที่สุดคือ <strong>แหวนตราประทับ</strong>
+      หัวแหวนที่มีลายสลักคือกุญแจส่วนตัว มีอยู่วงเดียวในโลกและไม่ให้ใครยืม
+      ส่วนลายที่ประทับออกมาให้ทุกคนเก็บไว้เทียบคือกุญแจสาธารณะ
+      ใครเห็นลายก็บอกได้ว่าเป็นของคุณ แต่แกะจากลายย้อนกลับไปทำแหวนขึ้นมาใหม่ไม่ได้
+      สามข้อนี้คือทั้งหมดที่ต้องการ คือเซ็นได้คนเดียว ตรวจได้ทุกคน และย้อนกลับไม่ได้
+    </p>
+  </div>
+
   <p>
     ตรงนี้ต่อกับหัวข้อที่แล้วพอดี <strong>กุญแจส่วนตัวคือเลข {HASH_BITS} บิต หน้าตาเหมือนแฮชเป๊ะ
     ต่างกันแค่ที่มา</strong> แฮชได้มาจากการบดข้อความ ส่วนกุญแจได้มาจากการสุ่ม
@@ -905,6 +945,58 @@ const DESC =
   </p>
 
   <p>
+    ก่อนจะไปว่าที่อยู่มาจากไหน ลองดูภาพรวมก่อนว่าเวลา A โอนให้ B จริง ๆ มันเดินยังไง
+    ตั้งแต่ต้นจนจบ ของสามชิ้นที่คุยกันมาถูกใช้จังหวะไหนบ้าง
+  </p>
+
+  <ZoomableDiagram
+    caption="ไม่มีจังหวะไหนเลยที่ B ต้องขออนุญาตใครก่อนจะมีที่อยู่ และไม่มีจังหวะไหนที่กุญแจส่วนตัวของ A ออกจากเครื่องตัวเอง สิ่งที่วิ่งอยู่ในสายมีแค่ที่อยู่ ใบสั่ง และลายเซ็น"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 440" role="img" aria-label="แผนภาพลำดับหกขั้นตอนของการโอนจาก A ไป B เรียงจากบนลงล่าง บีสร้างที่อยู่ บีส่งที่อยู่ให้เอ เอเขียนใบสั่งระบุปลายทาง เอเซ็นด้วยกุญแจส่วนตัว เอประกาศออกไป และทุกโหนดตรวจลายเซ็นด้วยกุญแจสาธารณะของเอแล้วจดลงเล่ม" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#2a3350"/>
+        </marker>
+      </defs>
+      <rect x="40" y="12" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="36" r="12" fill="#0b1220" stroke="#4ade80"/>
+      <text x="66" y="40" text-anchor="middle" font-size="11" fill="#4ade80">1</text>
+      <text x="88" y="41" font-size="12" fill="#4ade80">B สร้างที่อยู่ของตัวเองขึ้นมา ยังไม่ต้องบอกใคร</text>
+      <line x1="280" y1="60" x2="280" y2="78" stroke="#2a3350" stroke-width="2" marker-end="url(#bt-ar-flow)"/>
+      <rect x="40" y="80" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="104" r="12" fill="#0b1220" stroke="#4ade80"/>
+      <text x="66" y="108" text-anchor="middle" font-size="11" fill="#4ade80">2</text>
+      <text x="88" y="109" font-size="12" fill="#4ade80">B ส่งที่อยู่นั้นให้ A ทางไหนก็ได้ แชต อีเมล คิวอาร์โค้ด</text>
+      <line x1="280" y1="128" x2="280" y2="146" stroke="#2a3350" stroke-width="2" marker-end="url(#bt-ar-flow)"/>
+      <rect x="40" y="148" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="172" r="12" fill="#0b1220" stroke="#e7ecf6"/>
+      <text x="66" y="176" text-anchor="middle" font-size="11" fill="#e7ecf6">3</text>
+      <text x="88" y="177" font-size="12" fill="#e7ecf6">A เขียนใบสั่งจ่าย ระบุปลายทางเป็นที่อยู่ของ B</text>
+      <line x1="280" y1="196" x2="280" y2="214" stroke="#2a3350" stroke-width="2" marker-end="url(#bt-ar-flow)"/>
+      <rect x="40" y="216" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="240" r="12" fill="#0b1220" stroke="#e7ecf6"/>
+      <text x="66" y="244" text-anchor="middle" font-size="11" fill="#e7ecf6">4</text>
+      <text x="88" y="245" font-size="12" fill="#e7ecf6">A เซ็นใบสั่งนั้นด้วยกุญแจส่วนตัวของ A เอง</text>
+      <line x1="280" y1="264" x2="280" y2="282" stroke="#2a3350" stroke-width="2" marker-end="url(#bt-ar-flow)"/>
+      <rect x="40" y="284" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="308" r="12" fill="#0b1220" stroke="#e7ecf6"/>
+      <text x="66" y="312" text-anchor="middle" font-size="11" fill="#e7ecf6">5</text>
+      <text x="88" y="313" font-size="12" fill="#e7ecf6">A ประกาศใบสั่งออกไปให้ทุกโหนดได้ยิน</text>
+      <line x1="280" y1="332" x2="280" y2="350" stroke="#2a3350" stroke-width="2" marker-end="url(#bt-ar-flow)"/>
+      <rect x="40" y="352" width="480" height="48" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="66" cy="376" r="12" fill="#0b1220" stroke="#e0b400"/>
+      <text x="66" y="380" text-anchor="middle" font-size="11" fill="#e0b400">6</text>
+      <text x="88" y="381" font-size="12" fill="#e0b400">ทุกโหนดตรวจลายเซ็นด้วยกุญแจสาธารณะของ A แล้วจดลงเล่มของตัวเอง</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    จังหวะที่ 6 คือจุดที่คนมักเข้าใจผิด โหนดตรวจแค่ว่า<strong>ลายเซ็นบนใบสั่งใช้ได้จริงไหม</strong>
+    และเงินก้อนที่อ้างถึงยังไม่ถูกใช้ไปหรือเปล่า มันไม่ได้ตรวจว่าที่อยู่ปลายทางมีเจ้าของจริงหรือเปล่า
+    เพราะไม่มีทะเบียนกลางให้เปิดดู กรอกที่อยู่ผิดไปหนึ่งตัวจึงไม่มีใครทักและไม่มีใครคืนให้
+  </p>
+
+  <p>
     ที่อยู่ไม่ได้มาจากไหนไกล มันคือ <strong>แฮชของกุญแจสาธารณะ</strong> ของคุณเอง
     สามอย่างนี้จึงต่อกันเป็นสายเดียวที่เดินได้ทางเดียว
   </p>
@@ -923,7 +1015,8 @@ const DESC =
       <text x="89" y="86" text-anchor="middle" font-size="11" fill="#9aa7bd">เลขสุ่มขนาด {HASH_BITS} บิต</text>
 
       <line x1="170" y1="74" x2="222" y2="74" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-em)"/>
-      <text x="196" y="62" text-anchor="middle" font-size="10" fill="#9aa7bd">คำนวณทางเดียว</text>
+      <text x="196" y="56" text-anchor="middle" font-size="10" fill="#9aa7bd">คำนวณ</text>
+      <text x="196" y="68" text-anchor="middle" font-size="10" fill="#9aa7bd">ทางเดียว</text>
 
       <rect x="228" y="42" width="150" height="64" rx="10" fill="#141a29" stroke="#2a3350"/>
       <text x="303" y="66" text-anchor="middle" font-size="13" fill="#e7ecf6">กุญแจสาธารณะ</text>
@@ -1162,6 +1255,14 @@ const DESC =
 
   <div class="lab" data-merkle-lab data-leaves={JSON.stringify(merkleLeafLabels)}>
     <p class="lab-title">MERKLE LAB</p>
+    <div class="mk-head">
+      <p class="mk-head-title">หัวบล็อก</p>
+      <div class="mk-head-fields">
+        <span class="mk-head-field"><b>รากเมอร์เคิล</b><code class="mk-head-root">-</code></span>
+        <span class="mk-head-field"><b>แฮชของบล็อก</b><code class="mk-head-block">-</code></span>
+      </div>
+      <p class="mk-head-note">หัวบล็อกยังมีช่องอื่นอีก ตรงนี้ขอโชว์แค่สองช่องที่เกี่ยวกับต้นไม้ก่อน ที่เหลือเล่าในหัวข้อถัดไป</p>
+    </div>
     <div class="mk-tree"></div>
     <p class="lab-note mk-say">แตะใบธุรกรรมสักใบเพื่อดูว่าต้องใช้แฮชกี่ตัวในการพิสูจน์</p>
     <div class="lab-actions">
@@ -1187,6 +1288,12 @@ const DESC =
     วิธีที่ใช้เรียกว่า <strong>พิสูจน์งาน (Proof of Work)</strong> อ่านว่า "พรูฟ ออฟ เวิร์ก"
     แปลตรงตัวว่าหลักฐานว่าทำงานมาแล้ว ก่อนจะเข้ากติกา ต้องดูหัวบล็อกก่อน
     เพราะคำตอบว่าทำไมต้องมีการเดาเลข อยู่ในนั้น
+  </p>
+
+  <p>
+    หัวบล็อกที่โผล่มาสองช่องในแล็บเมื่อกี้ ของจริงมีหกช่อง สองช่องที่คุณเห็นไปแล้วคือ
+    <strong>รากเมอร์เคิล</strong> ซึ่งเป็นช่องที่สาม และ<strong>แฮชของบล็อก</strong>
+    ซึ่งที่จริงไม่ใช่ช่องในหัวบล็อก แต่เป็นผลลัพธ์ของการแฮชทั้งหกช่องรวมกัน
   </p>
 
   <ZoomableDiagram
@@ -1422,7 +1529,7 @@ const DESC =
   <ZoomableDiagram
     caption="ยิ่งธุรกรรมของคุณถูกฝังลึก คนที่จะย้อนมันยิ่งต้องขุดแซงมากขึ้นเป็นทวีคูณ ในเวลาที่ทั้งโลกยังขุดต่อไปข้างหน้าอยู่ หกบล็อกคือจุดที่คนส่วนใหญ่ยอมรับว่าโอกาสย้อนสำเร็จเหลือน้อยจนไม่ต้องคิดถึง"
   >
-    <svg class="btc-dgm" viewBox="0 0 600 180" role="img" aria-label="แผนภาพความลึกของธุรกรรม บล็อกเรียงหกก้อนจากซ้ายไปขวา ก้อนซ้ายสุดคือบล็อกที่ธุรกรรมของคุณอยู่ ใต้แต่ละก้อนมีแถบสูงขึ้นเรื่อย ๆ แสดงว่างานที่ต้องขุดแซงเพิ่มขึ้นตามความลึก" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+    <svg class="btc-dgm" viewBox="0 0 600 210" role="img" aria-label="แผนภาพความลึกของธุรกรรม บล็อกเรียงหกก้อนจากซ้ายไปขวา ก้อนซ้ายสุดคือบล็อกที่ธุรกรรมของคุณอยู่ ใต้แต่ละก้อนมีแถบสูงขึ้นเรื่อย ๆ แสดงว่างานที่ต้องขุดแซงเพิ่มขึ้นตามความลึก" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <g>
           <rect x={16 + i * 96} width="80" y="18" height="34" rx="7" fill="#141a29" stroke={i === 0 ? '#e0b400' : '#2a3350'}/>
@@ -1776,6 +1883,87 @@ const DESC =
     อย่าง Lightning Network ซึ่งยาวพอที่จะเป็นอีกบทหนึ่ง
   </p>
 
+  <h2>สมุดที่ทุกคนถือ มันบวมแค่ไหน</h2>
+
+  <p>
+    ถึงตรงนี้มีคำถามที่ควรจะค้างอยู่ในหัวแล้ว ในเมื่อทุกอย่างถูกแฮชไปหมด
+    แล้วคนที่ตามดูย้อนหลังว่าเงินก้อนไหนเดินไปไหน เขาดูจากอะไร คำตอบคือ
+    <strong>ธุรกรรมไม่เคยถูกบดทิ้ง</strong> ทุกใบถูกเก็บไว้เต็ม ๆ อ่านออกทุกตัวอักษร
+    แฮชทำหน้าที่แค่สองอย่างคือร้อยหน้าเข้าด้วยกันกับย่อทั้งบล็อกให้เหลือรากเดียว
+    มันไม่ได้ถูกใช้ปิดบังอะไรเลย นี่คือเหตุผลที่เว็บเปิดดูสมุดเปิดให้ค้นธุรกรรมของปี 2010 ได้ทุกใบ
+  </p>
+
+  <p>
+    ผลที่ตามมาก็ตรงไปตรงมา สมุดมีแต่โตขึ้น และทุกโหนดที่เก็บครบก็ต้องแบกมันทั้งเล่ม
+    ณ {SNAPSHOT_DATE} สมุดทั้งเล่มหนักราว
+    <ExplainNumber value={`${fmt(chainGb)} GB`} title={`${fmt(chainGb)} GB มาจากไหน`} html={EX.chainSize} />
+    และในรอบหนึ่งปีที่ผ่านมามันโตขึ้นราว
+    <ExplainNumber value={`${fmt(chainGrowthGb)} GB`} title="ตัวเลขโตต่อปีมาจากไหน" html={EX.chainGrowth} />
+    ซึ่งฮาร์ดดิสก์ราคาหลักพันบาทก็ยังรับไหว
+  </p>
+
+  <p>
+    ที่สำคัญกว่าตัวเลขคือ<strong>มันโตเร็วกว่านี้ไม่ได้</strong> กติกาจำกัดขนาดของบล็อกไว้
+    หนึ่งบล็อกใหญ่ได้ไม่เกินราว {MAX_BLOCK_MB} เมกะไบต์ และหนึ่งปีมีบล็อกจำกัดอยู่แล้วเพราะเล็งไว้สิบนาทีต่อบล็อก
+    เพดานจึงอยู่ที่ราว
+    <ExplainNumber value={`${fmt(maxGrowthGb)} GB`} title="เพดานต่อปีมาจากไหน" html={EX.maxGrowth} />
+    ต่อปี ไม่ว่าคนทั้งโลกจะแห่กันมาโอนแค่ไหน สมุดก็โตเกินเส้นนี้ไม่ได้
+  </p>
+
+  <p>
+    และไม่ใช่ทุกเครื่องที่ต้องเก็บครบ โหนดตั้งค่าให้ตรวจทุกอย่างตั้งแต่บล็อกแรกแล้วทิ้งของเก่าออกก็ได้
+    เหลือไว้แค่ยอดคงเหลือปัจจุบัน ส่วนแอปกระเป๋าในมือถือเก็บแค่หัวบล็อก แล้วขอหลักฐานเมอร์เคิลเป็นราย ๆ
+    ซึ่งก็คือของที่คุณเพิ่งกดเล่นไปในแล็บต้นไม้นั่นเอง
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ถ้ามีคนตั้งใจปั่นให้สมุดบวมล่ะ</p>
+    <p>
+      สมมติสองคนโอนเงินไปมาหากันทั้งวันเพื่อถ่วงระบบ แถมฮั้วกับนักขุดให้คืนค่าธรรมเนียมให้ด้วย
+      ทำได้จริงและไม่ผิดกติกาข้อไหนเลย แต่มันไม่ได้ทำให้สมุดโตเร็วกว่าเพดานข้างบนแม้แต่ไบต์เดียว
+      สิ่งที่มันทำคือกินที่ในบล็อกจนคนอื่นต้องเสนอค่าธรรมเนียมสูงขึ้นเพื่อแย่งที่ที่เหลือ
+      ต้นทุนจริงของนักขุดที่ฮั้วด้วยจึงไม่ใช่เงินที่คืนไป แต่คือค่าธรรมเนียมของคนอื่นที่เขาไม่ได้รับ
+      เพราะเอาพื้นที่ไปให้เพื่อนแทน ยิ่งปั่นนาน ยิ่งแพงสำหรับคนปั่นเอง
+    </p>
+  </div>
+
+  <h2>ราคาที่จ่ายเพื่อให้คอมบ้าน ๆ ยังถือสมุดได้</h2>
+
+  <p>
+    เพดานที่เพิ่งพูดถึงมีอีกด้านที่ต้องยอมรับตรง ๆ ถ้าบล็อกโตไม่ได้ จำนวนธุรกรรมต่อวินาทีก็โตไม่ได้เหมือนกัน
+    จากบล็อกจริงในช่วงนี้ บิตคอยน์รับได้ราว
+    <ExplainNumber value={`${txPerSecond.toFixed(1)} ใบต่อวินาที`} title="ตัวเลขต่อวินาทีมาจากไหน" html={EX.txPerSecond} />
+    ขณะที่เครือข่ายบัตรเครดิตอย่างวีซ่าบอกเองว่ารับได้ถึง {fmt(VISA_TPS)} ข้อความต่อวินาที
+    ต่างกันราว {fmt(visaRatio / 1000)} พันเท่า
+  </p>
+
+  <p>
+    เพดานนี้ไม่ใช่ข้อจำกัดที่แก้ไม่ได้ แค่แก้ตัวเลขในกติกาให้บล็อกใหญ่ขึ้นก็จบ
+    แต่ราคาของมันคือสมุดโตเร็วขึ้นตามกัน จนถึงจุดที่เครื่องธรรมดาเก็บครบไม่ไหว
+    เหลือแต่ศูนย์ข้อมูลใหญ่ ๆ ที่ถือสมุดได้ แล้วคนทั่วไปก็ต้องถามศูนย์ข้อมูลพวกนั้นว่าเงินตัวเองมีเท่าไร
+    ซึ่งก็คือการเดินกลับไปหาคนกลางที่ทั้งบทนี้อุตส่าห์หนีมาตั้งแต่หัวข้อแรก
+  </p>
+
+  <p class="pull">
+    ความเร็วต่ำไม่ใช่ความบกพร่องที่ยังแก้ไม่เสร็จ มันคือราคาที่จ่ายไปแลกกับการที่คอมบ้าน ๆ
+    เครื่องหนึ่งยังตรวจทุกอย่างเองได้โดยไม่ต้องเชื่อใจใคร
+  </p>
+
+  <p>
+    เรื่องนี้ไม่ได้ตกลงกันด้วยดี ปี 2017 คนกลุ่มหนึ่งอยากขยายบล็อกเพื่อรองรับคนให้มากขึ้น
+    อีกกลุ่มไม่ยอมเพราะกลัวเสียข้อได้เปรียบข้างบน สุดท้ายแยกสายกันเป็นคนละเครือข่าย
+    ซึ่งคือบรรทัดปี 2017 ในไทม์ไลน์ข้างล่าง
+  </p>
+
+  <p>
+    ส่วนทางที่ฝั่งที่ไม่ขยายเลือกเดินแทน คือย้ายการโอนย่อย ๆ ออกไปทำนอกสมุด
+    เปิดช่องทางระหว่างสองคนไว้ โอนกันกี่รอบก็ได้โดยไม่แตะสมุดเลย แล้วค่อยสรุปยอดสุดท้ายลงสมุดทีเดียวตอนปิดช่อง
+    เหมือนเปิดบิลไว้ที่ร้านแล้วเคลียร์ทีเดียวตอนกลับ ของแบบนี้เรียกว่า
+    <strong>ชั้นที่สอง (layer 2)</strong> และตัวที่ใช้กันจริงบนบิตคอยน์ชื่อ
+    <strong>ไลต์นิง เน็ตเวิร์ก (Lightning Network)</strong> แปลตรงตัวว่าเครือข่ายสายฟ้า
+    ตั้งชื่อตามความเร็วที่ตั้งใจให้เป็น
+  </p>
+
   <h2>ประกอบร่าง: เกิดอะไรขึ้นตอนคุณกดปุ่มส่ง</h2>
 
   <p>
@@ -1917,7 +2105,7 @@ const DESC =
     <li class="tl-gold"><b>2010</b><span>พิซซ่าสองถาดแลก 10,000 เหรียญ ราคาเกิดขึ้นเป็นครั้งแรก</span></li>
     <li><b>2011</b><span>ผู้สร้างถอยออกจากโครงการแล้วหายไปเงียบ ๆ</span></li>
     <li class="tl-bad"><b>2014</b><span>Mt.Gox ล่ม บริษัทตัวกลางล้ม ไม่ใช่เครือข่ายล่ม</span></li>
-    <li><b>2017</b><span>เถียงเรื่องขนาดบล็อกจนแยกสายเป็น Bitcoin Cash</span></li>
+    <li><b>2017</b><span>เถียงกันว่าจะขยายบล็อกเพื่อรับคนมากขึ้น หรือคงไว้เล็กเพื่อให้เครื่องบ้าน ๆ ยังเก็บสมุดครบได้ ตกลงกันไม่ได้จนแยกสายเป็น Bitcoin Cash</span></li>
     <li class="tl-bad"><b>2022</b><span>FTX ล่ม บริษัทตัวกลางอีกราย</span></li>
     <li class="tl-good"><b>2024</b><span>ETF ที่ถือเหรียญจริงได้ไฟเขียว และฮาล์ฟวิงครั้งที่สี่</span></li>
   </ol>
@@ -2505,6 +2693,23 @@ const DESC =
       วันที่ฮาล์ฟวิงสี่ครั้งแรกเป็นวันที่เกิดขึ้นจริง ส่วนยุคถัดไปเป็นการประมาณจากอัตราสิบนาทีต่อบล็อก
     </li>
     <li>
+      ขนาดสมุดราว {fmt(chainGb)} GB ณ {SNAPSHOT_DATE} และค่าเมื่อ {CHAIN_YEAR_AGO_LABEL} ราว {fmt(CHAIN_MB_YEAR_AGO / MB_PER_GB)} GB
+      อ่านจากกราฟ Blockchain Size ของ
+      <a href="https://www.blockchain.com/explorer/charts/blocks-size" target="_blank" rel="noopener noreferrer">blockchain.com</a>
+      ส่วนอัตราโตต่อปีในบทความคือผลต่างของสองค่านี้
+    </li>
+    <li>
+      เพดานน้ำหนักบล็อก 4,000,000 หน่วย ซึ่งเป็นที่มาของเพดานราว {MAX_BLOCK_MB} เมกะไบต์ต่อบล็อก ระบุไว้ใน
+      <a href="https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki" target="_blank" rel="noopener noreferrer">BIP-141</a>
+      ส่วนเพดาน {fmt(maxGrowthGb)} GB ต่อปี ผมคูณเองจากจำนวนบล็อกต่อปีที่กติกาเล็งไว้
+    </li>
+    <li>
+      ตัวเลข {fmt(VISA_TPS)} ข้อความต่อวินาทีของวีซ่า มาจากคำอธิบายเครือข่ายของบริษัทเองที่ระบุว่า
+      "processing up to 83,000 transaction messages per second worldwide"
+      (<a href="https://corporate.visa.com/en/sites/visa-perspectives/security-trust/inside-visa-global-commerce-engine.html" target="_blank" rel="noopener noreferrer">Visa</a>)
+      สืบค้น {SNAPSHOT_DATE}
+    </li>
+    <li>
       เหตุการณ์พิซซ่า 22 พฤษภาคม 2010 โดย Laszlo Hanyecz และผู้รับข้อเสนอ Jeremy Sturdivant
       อ้างตามบันทึกกระทู้ในเว็บบอร์ด BitcoinTalk และหน้าประวัติใน
       <a href="https://en.bitcoin.it/wiki/Laszlo_Hanyecz" target="_blank" rel="noopener noreferrer">Bitcoin Wiki</a>
@@ -2828,7 +3033,7 @@ const DESC =
     min-height:2rem;
     margin-bottom:0.6rem;
   }
-  .ds-slip{
+  .ds-slips :global(.ds-slip){
     font-size:0.76rem;
     color:#e0b400;
     border:1px dashed #e0b400;
@@ -2839,31 +3044,41 @@ const DESC =
   .ds-books{
     display:grid;
     grid-template-columns:repeat(3, minmax(0, 1fr));
-    gap:0.5rem;
-  }
-  .ds-book{
-    border:1px solid var(--dl-border);
+    gap:0;
+    border:1px solid #46527a;
     border-radius:8px;
-    background:#0f1626;
-    padding:0.5rem;
-    min-height:6.5rem;
+    overflow:hidden;
+    background:#0b1120;
   }
-  .ds-book-head{
+  .ds-books :global(.ds-book){
+    border-left:1px solid #46527a;
+    display:flex;
+    flex-direction:column;
+  }
+  .ds-books :global(.ds-book:first-child){border-left:none;}
+  .ds-books :global(.ds-book-head){
     font-size:0.74rem;
-    color:var(--dl-muted);
-    margin-bottom:0.4rem;
-    padding-bottom:0.3rem;
-    border-bottom:1px solid var(--dl-border);
-  }
-  .ds-line{
-    font-size:0.76rem;
     color:var(--dl-ink);
-    padding:0.22rem 0;
-    line-height:1.5;
+    font-weight:600;
+    text-align:center;
+    padding:0.45rem 0.5rem;
+    background:#182242;
+    border-bottom:1px solid #46527a;
   }
-  .ds-line.is-new{color:#4ade80;}
-  .ds-line.is-bad{color:#f08b8b;}
-  .ds-book.is-clash{border-color:#d64545;}
+  /* แถวรายการทุกช่องสูงเท่ากัน เพื่อให้บรรทัดเดียวกันของทุกเล่มอยู่ระดับเดียวกัน
+     จองไว้สามแถวเสมอ เพราะจังหวะสุดท้ายเล่มของนาย ค. มีสามบรรทัดขณะที่อีกสองเล่มมีสอง */
+  .ds-books :global(.ds-line), .ds-books :global(.ds-fill){
+    font-size:0.76rem;
+    line-height:1.45;
+    padding:0.45rem 0.5rem;
+    border-bottom:1px solid #2b3557;
+    min-height:2.5rem;
+  }
+  .ds-books :global(.ds-line){color:var(--dl-ink);}
+  .ds-books :global(.ds-fill){color:transparent;}
+  .ds-books :global(.ds-book .ds-line:last-child), .ds-books :global(.ds-book .ds-fill:last-child){border-bottom:none;}
+  .ds-books :global(.ds-line.is-new){color:#4ade80;}
+  .ds-books :global(.ds-line.is-bad){color:#f08b8b;background:#231419;}
   .ds-title{
     font-size:0.9rem;
     color:var(--dl-ink);
@@ -2872,7 +3087,9 @@ const DESC =
   }
   @media (max-width:560px){
     .ds-books{grid-template-columns:1fr;}
-    .ds-book{min-height:0;}
+    .ds-books :global(.ds-book){border-left:none;border-top:1px solid #46527a;}
+    .ds-books :global(.ds-book:first-child){border-top:none;}
+    .ds-books :global(.ds-fill){display:none;}
   }
 
   /* MERKLE LAB */
@@ -2880,7 +3097,7 @@ const DESC =
   .mk-tree :global(.mk-row){display:flex;gap:0.4rem;justify-content:center;min-width:max-content;}
   .mk-tree :global(.mk-node){
     flex:0 0 auto;
-    min-width:4.6rem;
+    min-width:3.5rem;
     background:#0d1220;
     border:1px solid var(--dl-border);
     border-radius:8px;
@@ -2900,10 +3117,23 @@ const DESC =
   .mk-tree :global(.mk-hash){
     display:block;
     font-family:"JetBrains Mono", monospace;
-    font-size:0.62rem;
+    font-size:0.58rem;
     color:var(--dl-muted);
     margin-top:0.15rem;
   }
+  .mk-head{
+    border:1px solid var(--dl-gold);
+    border-radius:8px;
+    background:#181302;
+    padding:0.5rem 0.6rem;
+    margin-bottom:0.5rem;
+  }
+  .mk-head-title{font-size:0.72rem;color:var(--dl-gold);margin:0 0 0.35rem;font-weight:600;}
+  .mk-head-fields{display:flex;flex-wrap:wrap;gap:0.4rem 1.2rem;}
+  .mk-head-field{display:flex;gap:0.4rem;align-items:baseline;font-size:0.72rem;color:var(--dl-muted);}
+  .mk-head-field code{font-family:"JetBrains Mono", monospace;font-size:0.68rem;color:var(--dl-ink);}
+  .mk-head-field code.is-changed{color:#f08b8b;}
+  .mk-head-note{font-size:0.68rem;color:var(--dl-muted);margin:0.4rem 0 0;}
   .mk-tree :global(.mk-node.is-needed .mk-hash){color:var(--dl-gold);}
   .mk-tree :global(.mk-node.is-changed .mk-hash){color:#f08b8b;}
 
@@ -3235,6 +3465,8 @@ const DESC =
 
   function initMerkleLab(root: HTMLElement): void {
     const host = root.querySelector<HTMLElement>('.mk-tree');
+    const headRoot = root.querySelector<HTMLElement>('.mk-head-root');
+    const headBlock = root.querySelector<HTMLElement>('.mk-head-block');
     const say = root.querySelector<HTMLElement>('.mk-say');
     const tamper = root.querySelector<HTMLButtonElement>('.mk-tamper');
     const reset = root.querySelector<HTMLButtonElement>('.mk-reset');
@@ -3311,9 +3543,28 @@ const DESC =
           ' ตัวที่ไฮไลต์ไว้ ไม่ต้องดาวน์โหลดอีก ' + (levels[0].length - 1) + ' ใบที่เหลือเลย';
       } else if (changed.size > 0) {
         say.textContent =
-          'แก้ใบเดียว แฮชที่เปลี่ยนตามคือ ' + changed.size + ' ตัว และรากก็เปลี่ยนด้วย หัวบล็อกจึงจับได้ทันที';
+          'แก้ใบเดียว แฮชที่เปลี่ยนตามคือ ' + changed.size + ' ตัว รากเปลี่ยน ค่าในหัวบล็อกจึงเปลี่ยน และแฮชของบล็อกก็เปลี่ยนตามไปด้วย';
       } else {
         say.textContent = 'แตะใบธุรกรรมสักใบเพื่อดูว่าต้องใช้แฮชกี่ตัวในการพิสูจน์';
+      }
+
+      // หัวบล็อกอ่านค่าจากรากที่เพิ่งคำนวณ แฮชของบล็อกจึงขยับตามทุกครั้งที่รากขยับ
+      const rootNode = levels[levels.length - 1][0];
+      const rootChanged = changed.has(levels.length - 1 + ':0');
+      if (headRoot) {
+        headRoot.textContent = rootNode.hash.slice(0, 12);
+        headRoot.classList.toggle('is-changed', rootChanged);
+      }
+      if (headBlock) {
+        void crypto.subtle
+          .digest('SHA-256', new TextEncoder().encode('header:' + rootNode.hash))
+          .then((buf) => {
+            headBlock.textContent = Array.from(new Uint8Array(buf))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('')
+              .slice(0, 12);
+            headBlock.classList.toggle('is-changed', rootChanged);
+          });
       }
     };
 
@@ -3410,7 +3661,7 @@ const DESC =
       bookNames.forEach((name, i) => {
         const lines = step.books[i] ?? [];
         const box = document.createElement('div');
-        box.className = 'ds-book' + (lines.some((l) => l.s === 'bad') ? ' is-clash' : '');
+        box.className = 'ds-book';
         const head = document.createElement('p');
         head.className = 'ds-book-head';
         head.textContent = name;
@@ -3421,6 +3672,13 @@ const DESC =
           row.textContent = line.t;
           box.append(row);
         });
+        const rows = Math.max(...step.books.map((b) => b.length));
+        for (let k = lines.length; k < rows; k += 1) {
+          const pad = document.createElement('p');
+          pad.className = 'ds-fill';
+          pad.textContent = '.';
+          box.append(pad);
+        }
         booksEl.append(box);
       });
 
