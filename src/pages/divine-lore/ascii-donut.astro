@@ -3,7 +3,8 @@ import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
-import { texCode, texBlock, mc } from '../../lib/math';
+import ExplainNumber from '../../components/ExplainNumber.astro';
+import { texCode, mc } from '../../lib/math';
 
 /* ---------- ค่าคงที่ของโค้ดจริง (ตัวเลขทุกตัวในบทความดึงจากตรงนี้) ---------- */
 const R1 = 1;
@@ -20,12 +21,18 @@ const CHARS = '.,-~:;=!*#$@';
 const CENTER_X = 40;
 const CENTER_Y = 12;
 
-/** นับรอบลูปแบบเดียวกับโค้ด C (บวกทีละ step จนเกิน 6.28) */
-const loopCount = (step: number): number => {
-  let n = 0;
-  for (let v = 0; v < 6.28; v += step) n += 1;
-  return n;
+/**
+ * เดินมุมแบบเดียวกับโค้ด C เป๊ะ ๆ
+ * โค้ดจริงประกาศ `float phi` ไม่ใช่ double การบวกสะสมจึงคลาดคนละแบบกับ JS
+ * ต้องบีบทุกก้าวลงความละเอียดของ float ด้วย Math.fround ไม่งั้นจำนวนรอบต่างกันหนึ่งรอบ
+ */
+const floatAngles = (step: number): number[] => {
+  const out: number[] = [];
+  const s = Math.fround(step);
+  for (let v = Math.fround(0); v < 6.28; v = Math.fround(v + s)) out.push(v);
+  return out;
 };
+const loopCount = (step: number): number => floatAngles(step).length;
 const thetaSteps = loopCount(THETA_SPACING);
 const phiSteps = loopCount(PHI_SPACING);
 const pointsPerFrame = thetaSteps * phiSteps;
@@ -36,57 +43,102 @@ const aspectRatio = MULT_X / MULT_Y;
 /* ---------- สูตรที่ย้อมสีแบบโค้ด ---------- */
 const cos = mc.trig('\\cos');
 const sin = mc.trig('\\sin');
+/* สัญลักษณ์ที่บทความตั้งขึ้นเอง (ไม่มีตัวตนเป็นตัวแปรในไฟล์ C) ย้อมเขียวเหมือนชื่อตัวแปร
+   จะได้ไม่มีตัวอักษรสีขาวโผล่มาปนในหน้าต่างสมการ */
+const TH = mc.fn('\\theta');
+const PH = mc.fn('\\varphi');
+const AL = mc.fn('\\alpha');
+const BE = mc.fn('\\beta');
+const GA = mc.fn('\\gamma');
+const VA = mc.fn('\\vec{a}');
+const VB = mc.fn('\\vec{b}');
 const TEX = {
   circle: texCode(
-    `(${mc.fn('x')}, ${mc.fn('y')}) ${mc.op('=')} (${cos}\\theta, ${sin}\\theta)`,
+    `(${mc.fn('x')}, ${mc.fn('y')}) ${mc.op('=')} (${cos}${TH}, ${sin}${TH})`,
   ),
   circleR1: texCode(
-    `(${mc.fn('x')}, ${mc.fn('y')}) ${mc.op('=')} (${mc.fn('R1')} ${mc.op('\\cdot')} ${cos}\\theta,\\; ${mc.fn('R1')} ${mc.op('\\cdot')} ${sin}\\theta)`,
+    `(${mc.fn('x')}, ${mc.fn('y')}) ${mc.op('=')} (${mc.fn('\\mathrm{R1}')} ${mc.op('\\cdot')} ${cos}${TH},\\; ${mc.fn('\\mathrm{R1}')} ${mc.op('\\cdot')} ${sin}${TH})`,
   ),
   circleShift: texCode(
-    `${mc.fn('circlex')} ${mc.op('=')} ${mc.fn('R2')} ${mc.op('+')} ${mc.fn('R1')} ${mc.op('\\cdot')} ${cos}\\theta \\qquad ${mc.fn('circley')} ${mc.op('=')} ${mc.fn('R1')} ${mc.op('\\cdot')} ${sin}\\theta`,
+    `${mc.fn('\\mathrm{circlex}')} ${mc.op('=')} ${mc.fn('\\mathrm{R2}')} ${mc.op('+')} ${mc.fn('\\mathrm{R1}')} ${mc.op('\\cdot')} ${cos}${TH} \\qquad ${mc.fn('\\mathrm{circley}')} ${mc.op('=')} ${mc.fn('\\mathrm{R1}')} ${mc.op('\\cdot')} ${sin}${TH}`,
   ),
   sweep: texCode(
-    `(${mc.fn('x')}, ${mc.fn('y')}, ${mc.fn('z')}) ${mc.op('=')} (${mc.fn('circlex')} ${mc.op('\\cdot')} ${cos}\\varphi,\\; ${mc.fn('circley')},\\; ${mc.fn('circlex')} ${mc.op('\\cdot')} ${sin}\\varphi)`,
+    `(${mc.fn('x')}, ${mc.fn('y')}, ${mc.fn('z')}) ${mc.op('=')} (${mc.fn('\\mathrm{circlex}')} ${mc.op('\\cdot')} ${cos}${PH},\\; ${mc.fn('\\mathrm{circley}')},\\; ${mc.fn('\\mathrm{circlex}')} ${mc.op('\\cdot')} ${sin}${PH})`,
   ),
   rotFull: texCode(
     `\\begin{aligned}
-      ${mc.fn('x')} &${mc.op('=')} ${mc.fn('circlex')}\\,(${cos}B\\,${cos}\\varphi ${mc.op('+')} ${sin}A\\,${sin}B\\,${sin}\\varphi) ${mc.op('-')} ${mc.fn('circley')}\\,${cos}A\\,${sin}B \\\\
-      ${mc.fn('y')} &${mc.op('=')} ${mc.fn('circlex')}\\,(${sin}B\\,${cos}\\varphi ${mc.op('-')} ${sin}A\\,${cos}B\\,${sin}\\varphi) ${mc.op('+')} ${mc.fn('circley')}\\,${cos}A\\,${cos}B \\\\
-      ${mc.fn('z')} &${mc.op('=')} ${mc.fn('K2')} ${mc.op('+')} ${cos}A\\,${mc.fn('circlex')}\\,${sin}\\varphi ${mc.op('+')} ${mc.fn('circley')}\\,${sin}A
+      ${mc.fn('x')} &${mc.op('=')} ${mc.fn('\\mathrm{circlex}')}\\,(${cos}B\\,${cos}${PH} ${mc.op('+')} ${sin}A\\,${sin}B\\,${sin}${PH}) ${mc.op('-')} ${mc.fn('\\mathrm{circley}')}\\,${cos}A\\,${sin}B \\\\
+      ${mc.fn('y')} &${mc.op('=')} ${mc.fn('\\mathrm{circlex}')}\\,(${sin}B\\,${cos}${PH} ${mc.op('-')} ${sin}A\\,${cos}B\\,${sin}${PH}) ${mc.op('+')} ${mc.fn('\\mathrm{circley}')}\\,${cos}A\\,${cos}B \\\\
+      ${mc.fn('z')} &${mc.op('=')} ${mc.fn('\\mathrm{K2}')} ${mc.op('+')} ${cos}A\\,${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH} ${mc.op('+')} ${mc.fn('\\mathrm{circley}')}\\,${sin}A
     \\end{aligned}`,
   ),
   project: texCode(
-    `${mc.fn('xp')} ${mc.op('=')} ${mc.num('40')} ${mc.op('+')} ${mc.num('30')} ${mc.op('\\cdot')} \\dfrac{${mc.fn('x')}}{${mc.fn('z')}} \\qquad ${mc.fn('yp')} ${mc.op('=')} ${mc.num('12')} ${mc.op('-')} ${mc.num('15')} ${mc.op('\\cdot')} \\dfrac{${mc.fn('y')}}{${mc.fn('z')}}`,
+    `${mc.fn('\\mathrm{xp}')} ${mc.op('=')} ${mc.num('40')} ${mc.op('+')} ${mc.num('30')} ${mc.op('\\cdot')} \\dfrac{${mc.fn('x')}}{${mc.fn('z')}} \\qquad ${mc.fn('\\mathrm{yp}')} ${mc.op('=')} ${mc.num('12')} ${mc.op('-')} ${mc.num('15')} ${mc.op('\\cdot')} \\dfrac{${mc.fn('y')}}{${mc.fn('z')}}`,
   ),
   ooz: texCode(
-    `${mc.fn('ooz')} ${mc.op('=')} \\dfrac{${mc.num('1')}}{${mc.fn('z')}} \\qquad ${mc.fn('xp')} ${mc.op('=')} ${mc.num('40')} ${mc.op('+')} ${mc.num('30')} ${mc.op('\\cdot')} ${mc.fn('ooz')} ${mc.op('\\cdot')} ${mc.fn('x')}`,
+    `${mc.fn('\\mathrm{ooz}')} ${mc.op('=')} \\dfrac{${mc.num('1')}}{${mc.fn('z')}} \\qquad ${mc.fn('\\mathrm{xp}')} ${mc.op('=')} ${mc.num('40')} ${mc.op('+')} ${mc.num('30')} ${mc.op('\\cdot')} ${mc.fn('\\mathrm{ooz}')} ${mc.op('\\cdot')} ${mc.fn('x')}`,
   ),
   normal: texCode(
-    `${mc.fn('N')} ${mc.op('=')} (${cos}\\theta\\,${cos}\\varphi,\\; ${sin}\\theta,\\; ${cos}\\theta\\,${sin}\\varphi)`,
+    `${mc.fn('N')} ${mc.op('=')} (${cos}${TH}\\,${cos}${PH},\\; ${sin}${TH},\\; ${cos}${TH}\\,${sin}${PH})`,
   ),
   dot: texCode(
-    `${mc.fn('L')} ${mc.op('=')} ${mc.fn('N')} ${mc.op('\\cdot')} (${mc.num('0')}, ${mc.num('1')}, ${mc.op('-')}${mc.num('1')}) ${mc.op('=')} ${mc.fn('Ny')} ${mc.op('-')} ${mc.fn('Nz')}`,
+    `${mc.fn('L')} ${mc.op('=')} ${mc.fn('N')} ${mc.op('\\cdot')} (${mc.num('0')}, ${mc.num('1')}, ${mc.op('-')}${mc.num('1')}) ${mc.op('=')} ${mc.fn('\\mathrm{Ny}')} ${mc.op('-')} ${mc.fn('\\mathrm{Nz}')}`,
   ),
   charIndex: texCode(
-    `${mc.fn('index')} ${mc.op('=')} ${mc.num('8')} ${mc.op('\\cdot')} ${mc.fn('L')}`,
+    `${mc.fn('\\mathrm{index}')} ${mc.op('=')} ${mc.num('8')} ${mc.op('\\cdot')} ${mc.fn('L')}`,
   ),
-  sqrt2: texBlock(String.raw`|(0, 1, -1)| = \sqrt{0^2 + 1^2 + (-1)^2} = \sqrt{2} \approx 1.414`),
+  sqrt2: texCode(
+    `|(${mc.num('0')}, ${mc.num('1')}, ${mc.op('-')}${mc.num('1')})| ${mc.op('=')} \\sqrt{${mc.num('0')}^{${mc.num('2')}} ${mc.op('+')} ${mc.num('1')}^{${mc.num('2')}} ${mc.op('+')} (${mc.op('-')}${mc.num('1')})^{${mc.num('2')}}} ${mc.op('=')} \\sqrt{${mc.num('2')}} \\approx ${mc.num('1.414')}`,
+  ),
 };
 
-/* สูตรในกล่องบทพิสูจน์ เป็นคณิตศาสตร์ล้วน จึงใช้ texBlock ขาวดำ ไม่ใช่หน้าต่างโค้ด */
+/* สูตรในกล่องบทพิสูจน์
+   ย้อมสีทุกสมการในบทนี้เหมือนกันหมด ชื่อฟังก์ชันกับชื่อตัวแปรที่มีอยู่จริงเป็นเขียว ตัวเลขม่วง ตัวดำเนินการชมพู
+   ส่วนสัญลักษณ์ที่บทความตั้งขึ้นเอง (มุมกรีก ลูกศรเวกเตอร์) ย้อมเขียวเหมือนชื่อตัวแปร จะได้ไม่มีตัวอักษรสีขาวโผล่มาปน */
 const PRF = {
-  pythagoras: texBlock(String.raw`\cos^2\theta + \sin^2\theta = 1^2 = 1`),
-  tangent: texBlock(String.raw`\frac{d}{d\theta}(\cos\theta,\; \sin\theta) = (-\sin\theta,\; \cos\theta)`),
-  sumAngle: texBlock(String.raw`\begin{aligned} \cos(\alpha + \beta) &= \cos\alpha\cos\beta - \sin\alpha\sin\beta \\ \sin(\alpha + \beta) &= \sin\alpha\cos\beta + \cos\alpha\sin\beta \end{aligned}`),
-  rotKeepsLength: texBlock(String.raw`\begin{aligned} x'^2 + y'^2 &= (x\cos\theta - y\sin\theta)^2 + (x\sin\theta + y\cos\theta)^2 \\ &= x^2(\cos^2\theta + \sin^2\theta) + y^2(\sin^2\theta + \cos^2\theta) \\ &= x^2 + y^2 \end{aligned}`),
-  similar: texBlock(String.raw`\frac{y_{\text{จอ}}}{K_1} = \frac{y}{z} \quad\Longrightarrow\quad y_{\text{จอ}} = K_1\,\frac{y}{z}`),
-  k1: texBlock(String.raw`K_1 = \frac{\text{screen width} \times K_2 \times 3}{8\,(R_1 + R_2)}`),
-  oozOrder: texBlock(String.raw`0 < z_a < z_b \quad\Longleftrightarrow\quad \frac{1}{z_a} > \frac{1}{z_b}`),
-  dotCos: texBlock(String.raw`\vec{a}\cdot\vec{b} = |\vec{a}|\,|\vec{b}|\cos\gamma`),
-  lawOfCos: texBlock(String.raw`|\vec{a} - \vec{b}|^2 = |\vec{a}|^2 + |\vec{b}|^2 - 2|\vec{a}||\vec{b}|\cos\gamma`),
-  incremental: texBlock(String.raw`\begin{aligned} \cos(A + \delta) &= \cos A\cos\delta - \sin A\sin\delta \\ \sin(A + \delta) &= \sin A\cos\delta + \cos A\sin\delta \end{aligned}`),
-  newton: texBlock(String.raw`m = c^2 + s^2 \approx 1 \quad\Longrightarrow\quad \frac{1}{\sqrt{m}} \approx \frac{3 - m}{2}`),
+  pythagoras: texCode(
+    `${cos}^{${mc.num('2')}}${TH} ${mc.op('+')} ${sin}^{${mc.num('2')}}${TH} ${mc.op('=')} ${mc.num('1')}^{${mc.num('2')}} ${mc.op('=')} ${mc.num('1')}`,
+  ),
+  tangent: texCode(
+    `\\dfrac{${mc.fn('d')}}{${mc.fn('d')}${TH}}(${cos}${TH},\\; ${sin}${TH}) ${mc.op('=')} (${mc.op('-')}${sin}${TH},\\; ${cos}${TH})`,
+  ),
+  sumAngle: texCode(
+    `\\begin{aligned}
+      ${cos}(${AL} ${mc.op('+')} ${BE}) &${mc.op('=')} ${cos}${AL}\\,${cos}${BE} ${mc.op('-')} ${sin}${AL}\\,${sin}${BE} \\\\
+      ${sin}(${AL} ${mc.op('+')} ${BE}) &${mc.op('=')} ${sin}${AL}\\,${cos}${BE} ${mc.op('+')} ${cos}${AL}\\,${sin}${BE}
+    \\end{aligned}`,
+  ),
+  rotKeepsLength: texCode(
+    `\\begin{aligned}
+      x'^{${mc.num('2')}} ${mc.op('+')} y'^{${mc.num('2')}} &${mc.op('=')} (x\\,${cos}${TH} ${mc.op('-')} y\\,${sin}${TH})^{${mc.num('2')}} ${mc.op('+')} (x\\,${sin}${TH} ${mc.op('+')} y\\,${cos}${TH})^{${mc.num('2')}} \\\\
+      &${mc.op('=')} x^{${mc.num('2')}}(${cos}^{${mc.num('2')}}${TH} ${mc.op('+')} ${sin}^{${mc.num('2')}}${TH}) ${mc.op('+')} y^{${mc.num('2')}}(${sin}^{${mc.num('2')}}${TH} ${mc.op('+')} ${cos}^{${mc.num('2')}}${TH}) \\\\
+      &${mc.op('=')} x^{${mc.num('2')}} ${mc.op('+')} y^{${mc.num('2')}}
+    \\end{aligned}`,
+  ),
+  similar: texCode(
+    `\\dfrac{y_{\\text{จอ}}}{${mc.fn('\\mathrm{K1}')}} ${mc.op('=')} \\dfrac{y}{${mc.fn('z')}} \\quad\\Longrightarrow\\quad y_{\\text{จอ}} ${mc.op('=')} ${mc.fn('\\mathrm{K1}')} ${mc.op('\\cdot')} \\dfrac{y}{${mc.fn('z')}}`,
+  ),
+  k1: texCode(
+    `${mc.fn('\\mathrm{K1}')} ${mc.op('=')} \\dfrac{${mc.fn('\\mathrm{screen}\\;\\mathrm{width}')} ${mc.op('\\times')} ${mc.fn('\\mathrm{K2}')} ${mc.op('\\times')} ${mc.num('3')}}{${mc.num('8')}\\,(${mc.fn('\\mathrm{R1}')} ${mc.op('+')} ${mc.fn('\\mathrm{R2}')})}`,
+  ),
+  oozOrder: texCode(
+    `${mc.num('0')} ${mc.op('<')} ${mc.fn('z')}_a ${mc.op('<')} ${mc.fn('z')}_b \\quad\\Longleftrightarrow\\quad \\dfrac{${mc.num('1')}}{${mc.fn('z')}_a} ${mc.op('>')} \\dfrac{${mc.num('1')}}{${mc.fn('z')}_b}`,
+  ),
+  dotCos: texCode(
+    `${VA}\\,${mc.op('\\cdot')}\\,${VB} ${mc.op('=')} |${VA}|\\,|${VB}|\\,${cos}${GA}`,
+  ),
+  lawOfCos: texCode(
+    `|${VA} ${mc.op('-')} ${VB}|^{${mc.num('2')}} ${mc.op('=')} |${VA}|^{${mc.num('2')}} ${mc.op('+')} |${VB}|^{${mc.num('2')}} ${mc.op('-')} ${mc.num('2')}\\,|${VA}|\\,|${VB}|\\,${cos}${GA}`,
+  ),
+  incremental: texCode(
+    `\\begin{aligned}
+      ${cos}(A ${mc.op('+')} \\delta) &${mc.op('=')} ${cos}A\\,${cos}\\delta ${mc.op('-')} ${sin}A\\,${sin}\\delta \\\\
+      ${sin}(A ${mc.op('+')} \\delta) &${mc.op('=')} ${sin}A\\,${cos}\\delta ${mc.op('+')} ${cos}A\\,${sin}\\delta
+    \\end{aligned}`,
+  ),
+  newton: texCode(
+    `m ${mc.op('=')} c^{${mc.num('2')}} ${mc.op('+')} s^{${mc.num('2')}} \\approx ${mc.num('1')} \\quad\\Longrightarrow\\quad \\dfrac{${mc.num('1')}}{\\sqrt{m}} \\approx \\dfrac{${mc.num('3')} ${mc.op('-')} m}{${mc.num('2')}}`,
+  ),
 };
 
 /* ================================================================
@@ -165,8 +217,11 @@ const collectArrivals = (): Arrival[] => {
   const A = 1.0;
   const B = 0.6;
   const found: Arrival[] = [];
-  for (let theta = 0; theta < 6.28 && found.length < 12; theta += THETA_SPACING) {
-    for (let phi = 0; phi < 6.28 && found.length < 12; phi += PHI_SPACING) {
+  // เดินมุมด้วยลำดับเดียวกับโค้ด C จุดที่ได้จึงเป็นจุดจริงในลำดับจริง
+  for (const theta of floatAngles(THETA_SPACING)) {
+    if (found.length >= 12) break;
+    for (const phi of floatAngles(PHI_SPACING)) {
+      if (found.length >= 12) break;
       const p = rot(surf(theta, phi, R1, R2), A, B);
       const z = K2 + p.z;
       if (z <= 0.1) continue;
@@ -262,29 +317,269 @@ const gapPhi = ((R1 + R2) * PHI_SPACING * MULT_X) / K2;
 const maxIndex = Math.floor(8 * Math.SQRT2);
 const needForLast = (CHARS.length - 1) / 8;
 
+/* ---------- S4 เดินตามคอลัมน์ทีละก้าว ----------
+   ทุกพิกัดในภาพคำนวณจากเมทริกซ์จริง ไม่มีเลขไหนวางด้วยมือ */
+const WALK = { u: 3, v: 2, tilt: 40 };
+const walkAxes = (deg: number): { e1: [number, number]; e2: [number, number] } => {
+  const t = (deg * Math.PI) / 180;
+  return { e1: [Math.cos(t), Math.sin(t)], e2: [-Math.sin(t), Math.cos(t)] };
+};
+const walkSvg = (deg: number, steps: number): string => {
+  const { e1, e2 } = walkAxes(deg);
+  const O = [180, 210];
+  const U = 46;
+  const at = (a: number, b: number): [number, number] => [
+    O[0] + (a * e1[0] + b * e2[0]) * U,
+    O[1] - (a * e1[1] + b * e2[1]) * U,
+  ];
+  const p = (c: [number, number]): string => `${c[0].toFixed(1)} ${c[1].toFixed(1)}`;
+  const arrow = (from: [number, number], to: [number, number], color: string, w = 2.4): string =>
+    `<line x1="${from[0].toFixed(1)}" y1="${from[1].toFixed(1)}" x2="${to[0].toFixed(1)}" y2="${to[1].toFixed(1)}" stroke="${color}" stroke-width="${w}" marker-end="url(#s4a-${color.slice(1)})"/>`;
+  const legs: string[] = [];
+  if (steps >= 1) legs.push(arrow(at(0, 0), at(WALK.u, 0), '#4ade80', 3));
+  if (steps >= 2) legs.push(arrow(at(WALK.u, 0), at(WALK.u, WALK.v), '#e0b400', 3));
+  const dest = at(WALK.u, WALK.v);
+  const grid: string[] = [];
+  for (let i = -1; i <= 4; i += 1) {
+    grid.push(`<line x1="${p(at(i, -1)).split(' ')[0]}" y1="${p(at(i, -1)).split(' ')[1]}" x2="${p(at(i, 3)).split(' ')[0]}" y2="${p(at(i, 3)).split(' ')[1]}" stroke="#232b40" stroke-width="1"/>`);
+  }
+  for (let j = -1; j <= 3; j += 1) {
+    grid.push(`<line x1="${p(at(-1, j)).split(' ')[0]}" y1="${p(at(-1, j)).split(' ')[1]}" x2="${p(at(4, j)).split(' ')[0]}" y2="${p(at(4, j)).split(' ')[1]}" stroke="#232b40" stroke-width="1"/>`);
+  }
+  return `<svg viewBox="0 0 420 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ตารางที่สร้างจากแกนสองแกน มีการเดินตามแกนแรกสามก้าวแล้วเลี้ยวเดินตามแกนที่สองสองก้าว" style="font-family:'Sarabun',sans-serif">
+    <defs>
+      <marker id="s4a-4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/></marker>
+      <marker id="s4a-e0b400" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/></marker>
+    </defs>
+    ${grid.join('')}
+    ${arrow(at(0, 0), at(1, 0), '#4ade80')}
+    ${arrow(at(0, 0), at(0, 1), '#e0b400')}
+    <text x="${at(1.18, 0)[0].toFixed(1)}" y="${at(1.18, 0)[1].toFixed(1)}" font-size="12" fill="#4ade80" text-anchor="middle">แกนที่ 1</text>
+    <text x="${at(0, 1.2)[0].toFixed(1)}" y="${at(0, 1.2)[1].toFixed(1)}" font-size="12" fill="#e0b400" text-anchor="middle">แกนที่ 2</text>
+    ${legs.join('')}
+    ${steps >= 2 ? `<circle cx="${dest[0].toFixed(1)}" cy="${dest[1].toFixed(1)}" r="5.5" fill="#f8f8f2"/>` : ''}
+    <circle cx="${O[0]}" cy="${O[1]}" r="3.5" fill="#4d72a9"/>
+  </svg>`;
+};
+const s4Steps = [
+  { say: 'จุดที่เราจะเดินไปหาคือ (3, 2) ซึ่งไม่ได้แปลว่าขวา 3 ขึ้น 2 แต่แปลว่าเดินตามแกนที่หนึ่งสามก้าว แล้วเดินตามแกนที่สองสองก้าว ตอนนี้แกนสองแกนยังตั้งฉากปกติ', svg: walkSvg(0, 0) },
+  { say: 'ก้าวแรก เดินตามแกนที่หนึ่งไปสามก้าว ความยาวของแต่ละก้าวคือความยาวของลูกศรแกนนั้น', svg: walkSvg(0, 1) },
+  { say: 'ก้าวที่สอง เลี้ยวไปเดินตามแกนที่สองอีกสองก้าว ถึงจุดหมายพอดี นี่คือความหมายของ (3, 2)', svg: walkSvg(0, 2) },
+  { say: 'ทีนี้บิดแกนทั้งคู่ไป 40 องศา ตัวเลข (3, 2) ไม่ได้เปลี่ยนเลยสักนิด สิ่งที่เปลี่ยนคือแกนที่มันอ้างถึง', svg: walkSvg(WALK.tilt, 0) },
+  { say: 'เดินสูตรเดิมเป๊ะ ๆ สามก้าวตามแกนที่หนึ่ง ซึ่งตอนนี้ชี้ไปทางใหม่แล้ว', svg: walkSvg(WALK.tilt, 1) },
+  { say: 'แล้วสองก้าวตามแกนที่สอง ปลายทางไปโผล่คนละที่กับเมื่อกี้ ทั้งที่เดินด้วยสูตรเดียวกัน เพราะเมทริกซ์เปลี่ยนแกนไปแล้ว', svg: walkSvg(WALK.tilt, 2) },
+];
+
+/* ---------- S5 กดปุ่มหมุน 30 องศา แล้วเลขสี่ตัวมาจากไหน ----------
+   ทุกตัวเลขในตัวเดินขั้นนี้คำนวณจาก S5_DEG กับ S5_PT ตรงนี้ที่เดียว ไม่มีตัวไหนพิมพ์มือ */
+const S5_DEG = 30;
+const S5_PT = { x: 2, y: 1 };
+const d2r = (d: number): number => (d * Math.PI) / 180;
+const n2 = (v: number): string => {
+  const r = Math.round(v * 100) / 100;
+  return (Object.is(r, -0) ? 0 : r).toFixed(2);
+};
+/** ทศนิยมสี่ตำแหน่ง ใช้เฉพาะบรรทัดที่กางการคูณออกมา จะได้กดตามแล้วได้เลขตรงกับผลจริง */
+const n4 = (v: number): string => {
+  const r = Math.round(v * 10000) / 10000;
+  return (Object.is(r, -0) ? 0 : r).toFixed(4);
+};
+const s5c = Math.cos(d2r(S5_DEG));
+const s5s = Math.sin(d2r(S5_DEG));
+/* ขั้นที่กางการคูณออกมาต้องคิดจาก "ตัวเลขที่คนอ่านเห็น" ไม่ใช่ค่าเต็ม
+   ไม่งั้นกดเครื่องคิดเลขตามแล้วจะได้ไม่ตรงกับคำตอบที่โชว์ เพราะ cos 30 เป็นจำนวนอตรรกยะ */
+const s5cShown = Number(n4(s5c));
+const s5sShown = Number(n4(s5s));
+const s5outShown = {
+  x: S5_PT.x * s5cShown - S5_PT.y * s5sShown,
+  y: S5_PT.x * s5sShown + S5_PT.y * s5cShown,
+};
+const s5len = Math.hypot(S5_PT.x, S5_PT.y);
+const s5ang = (Math.atan2(S5_PT.y, S5_PT.x) * 180) / Math.PI;
+
+/** เมทริกซ์แบบมีวงเล็บ รับมาเป็นตารางของสตริง TeX */
+const pmat = (rows: string[][]): string =>
+  `\\begin{pmatrix}${rows.map((r) => r.join(' & ')).join(' \\\\ ')}\\end{pmatrix}`;
+
+const s5M = pmat([
+  [mc.num(n2(s5c)), mc.num(n2(-s5s))],
+  [mc.num(n2(s5s)), mc.num(n2(s5c))],
+]);
+const s5V = pmat([[mc.num(String(S5_PT.x))], [mc.num(String(S5_PT.y))]]);
+
+const s5Steps = [
+  {
+    say: `ก่อนกดปุ่ม แกนทั้งสองยังตั้งฉากปกติ แกน x คือลูกศร (1, 0) แกน y คือลูกศร (0, 1) เขียนคู่กันเป็นตารางก็ได้เมทริกซ์ที่ไม่ทำอะไรเลย`,
+    tex: texCode(
+      `${mc.fn('M')} ${mc.op('=')} ${pmat([[mc.num('1'), mc.num('0')], [mc.num('0'), mc.num('1')]])}`,
+    ),
+  },
+  {
+    say: `กดปุ่ม แล้วถามข้อเดียว แกน x ไปโผล่ที่ไหน มันยาว 1 อยู่แล้ว พอหมุนไป ${S5_DEG} องศา มันก็ไปอยู่บนวงกลมรัศมี 1 ที่มุม ${S5_DEG} พอดี ซึ่งชั้นที่ 1 บอกไว้แล้วว่าจุดนั้นคือ (cos, sin) ของมุมนั้น นี่คือคอลัมน์ซ้าย`,
+    tex: texCode(
+      `\\text{คอลัมน์ซ้าย} ${mc.op('=')} (${cos}${S5_DEG}^\\circ,\\; ${sin}${S5_DEG}^\\circ) ${mc.op('=')} (${mc.num(n2(s5c))},\\; ${mc.num(n2(s5s))})`,
+    ),
+  },
+  {
+    say: `แกน y ไปโผล่ที่ไหน ตรงนี้ใช้ของที่พิสูจน์ไว้ในชั้นที่ 1 คือแกน y ก็คือแกน x ที่หมุนไปแล้ว 90 องศา พอหมุนทั้งระนาบไปอีก ${S5_DEG} องศา มันจึงไปนั่งที่มุม ${S5_DEG + 90} พอดี นี่คือคอลัมน์ขวา`,
+    tex: texCode(
+      `\\text{คอลัมน์ขวา} ${mc.op('=')} (${cos}${S5_DEG + 90}^\\circ,\\; ${sin}${S5_DEG + 90}^\\circ) ${mc.op('=')} (${mc.op('-')}${sin}${S5_DEG}^\\circ,\\; ${cos}${S5_DEG}^\\circ) ${mc.op('=')} (${mc.num(n2(-s5s))},\\; ${mc.num(n2(s5c))})`,
+    ),
+  },
+  {
+    say: `เอาสองคอลัมน์มาวางชิดกัน ได้เลขสี่ตัวที่โผล่บนหน้าจอตอนกดปุ่ม ไม่มีตัวไหนที่ไม่ได้มาจากสองบรรทัดข้างบน`,
+    tex: texCode(`${mc.fn('M')} ${mc.op('=')} ${s5M}`),
+  },
+  {
+    say: `ทีนี้เอาจุดจริงมาลอง จุด (${S5_PT.x}, ${S5_PT.y}) เขียนเป็นเวกเตอร์คอลัมน์แล้ววางไว้ข้างขวาของเมทริกซ์ การคูณแปลว่า เดินตามคอลัมน์ซ้าย ${S5_PT.x} ก้าว แล้วเดินตามคอลัมน์ขวาอีก ${S5_PT.y} ก้าว`,
+    tex: texCode(
+      `${s5M}${s5V} ${mc.op('=')} ${mc.num(String(S5_PT.x))}${pmat([[mc.num(n2(s5c))], [mc.num(n2(s5s))]])} ${mc.op('+')} ${mc.num(String(S5_PT.y))}${pmat([[mc.num(n2(-s5s))], [mc.num(n2(s5c))]])}`,
+    ),
+  },
+  {
+    say: `คิดเลขออกมาทีละช่อง ได้จุดใหม่หนึ่งจุด นี่คือสิ่งที่เกิดขึ้นจริงตอนกดปุ่ม คูณครั้งเดียวจบต่อหนึ่งจุด บรรทัดนี้กางเป็นทศนิยมสี่ตำแหน่ง และคิดผลลัพธ์จากตัวเลขชุดที่เห็นบนจอตรง ๆ กดเครื่องคิดเลขตามได้ทุกช่อง`,
+    tex: texCode(
+      `${pmat([
+        [`${mc.num(String(S5_PT.x))}${mc.op('\\times')}${mc.num(n4(s5c))} ${mc.op('+')} ${mc.num(String(S5_PT.y))}${mc.op('\\times')}(${mc.num(n4(-s5s))})`],
+        [`${mc.num(String(S5_PT.x))}${mc.op('\\times')}${mc.num(n4(s5s))} ${mc.op('+')} ${mc.num(String(S5_PT.y))}${mc.op('\\times')}${mc.num(n4(s5c))}`],
+      ])} ${mc.op('=')} ${pmat([[mc.num(n4(s5outShown.x))], [mc.num(n4(s5outShown.y))]])}`,
+    ),
+  },
+  {
+    say: `ตรวจคำตอบด้วยวิธีที่ไม่ใช้เมทริกซ์เลย จุด (${S5_PT.x}, ${S5_PT.y}) อยู่ห่างจุดกำเนิด ${n2(s5len)} ที่มุม ${n2(s5ang)} องศา หมุนไปอีก ${S5_DEG} ก็คือจุดเดียวกันที่มุม ${n2(s5ang + S5_DEG)} องศา คิดจากสูตรวงกลมของชั้นที่ 1 ตรง ๆ ปัดเป็นสองตำแหน่งแล้วได้เลขชุดเดียวกับขั้นที่แล้ว`,
+    tex: texCode(
+      `${mc.num(n2(s5len))}\\,(${cos}${mc.num(n2(s5ang + S5_DEG))}^\\circ,\\; ${sin}${mc.num(n2(s5ang + S5_DEG))}^\\circ) ${mc.op('=')} (${mc.num(n2(s5len * Math.cos(d2r(s5ang + S5_DEG))))},\\; ${mc.num(n2(s5len * Math.sin(d2r(s5ang + S5_DEG))))})`,
+    ),
+  },
+];
+
+/* สูตรหมุนสองบรรทัดในระนาบ เขียนออกมาให้จดไปใช้ได้ ก่อนจะไปเจอมันในรูปเมทริกซ์ */
+const ROT2D = texCode(
+  `\\begin{aligned}
+    x' &${mc.op('=')} x\\,${cos}${TH} ${mc.op('-')} y\\,${sin}${TH} \\\\
+    y' &${mc.op('=')} x\\,${sin}${TH} ${mc.op('+')} y\\,${cos}${TH}
+  \\end{aligned}`,
+);
+
+
+/* ---------- เมทริกซ์หมุนของชั้นที่ 3 เขียนออกมาให้เห็นจริง ---------- */
+const MAT = {
+  point0: texCode(
+    `${mc.fn('p')} ${mc.op('=')} ${pmat([['x_0'], ['y_0'], ['z_0']])} ${mc.op('=')} ${pmat([
+      [`${mc.fn('\\mathrm{circlex}')}\\,${cos}${PH}`],
+      [`${mc.fn('\\mathrm{circley}')}`],
+      [`${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH}`],
+    ])}`,
+  ),
+  rotA: texCode(
+    `${mc.fn('R')}_A ${mc.op('=')} ${pmat([
+      [mc.num('1'), mc.num('0'), mc.num('0')],
+      [mc.num('0'), `${cos}A`, `${mc.op('-')}${sin}A`],
+      [mc.num('0'), `${sin}A`, `${cos}A`],
+    ])}`,
+  ),
+  rotB: texCode(
+    `${mc.fn('R')}_B ${mc.op('=')} ${pmat([
+      [`${cos}B`, `${mc.op('-')}${sin}B`, mc.num('0')],
+      [`${sin}B`, `${cos}B`, mc.num('0')],
+      [mc.num('0'), mc.num('0'), mc.num('1')],
+    ])}`,
+  ),
+  product: texCode(
+    `${mc.fn('R')}_B\\,${mc.fn('R')}_A ${mc.op('=')} ${pmat([
+      [`${cos}B`, `${mc.op('-')}${sin}B\\,${cos}A`, `${sin}B\\,${sin}A`],
+      [`${sin}B`, `${cos}B\\,${cos}A`, `${mc.op('-')}${cos}B\\,${sin}A`],
+      [mc.num('0'), `${sin}A`, `${cos}A`],
+    ])}`,
+  ),
+  apply: texCode(
+    `${pmat([[mc.fn('x')], [mc.fn('y')], [mc.fn('z')]])} ${mc.op('=')} ${mc.fn('R')}_B\\,${mc.fn('R')}_A\\;${pmat([
+      [`${mc.fn('\\mathrm{circlex}')}\\,${cos}${PH}`],
+      [`${mc.fn('\\mathrm{circley}')}`],
+      [`${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH}`],
+    ])}`,
+  ),
+};
+
 /* ---------- S3 คูณเมทริกซ์ออกทีละชั้น ---------- */
 const s3Steps = [
   {
     say: 'เริ่มจากจุดหลังกวาดในชั้นที่ 2 เขียนสั้น ๆ ด้วยชื่อของมันเอง ยังไม่มีการหมุนเข้ามาเกี่ยว',
-    tex: texBlock(String.raw`(x_0,\; y_0,\; z_0) = (\text{circlex}\cos\varphi,\;\; \text{circley},\;\; \text{circlex}\sin\varphi)`),
+    tex: texCode(
+      `(x_0,\\; y_0,\\; z_0) ${mc.op('=')} (${mc.fn('\\mathrm{circlex}')}\\,${cos}${PH},\\;\\; ${mc.fn('\\mathrm{circley}')},\\;\\; ${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH})`,
+    ),
   },
   {
     say: 'หมุนรอบแกน x ด้วยมุม A แกน x ไม่ขยับ ส่วนคู่ (y, z) หมุนไปตามสูตรของชั้นที่ 1 คือแกนเดิมไปโผล่ที่โคไซน์กับไซน์',
-    tex: texBlock(String.raw`\begin{aligned} x_1 &= x_0 \\ y_1 &= y_0\cos A - z_0\sin A \\ z_1 &= y_0\sin A + z_0\cos A \end{aligned}`),
+    tex: texCode(
+      `\\begin{aligned}
+        x_1 &${mc.op('=')} x_0 \\\\
+        y_1 &${mc.op('=')} y_0\\,${cos}A ${mc.op('-')} z_0\\,${sin}A \\\\
+        z_1 &${mc.op('=')} y_0\\,${sin}A ${mc.op('+')} z_0\\,${cos}A
+      \\end{aligned}`,
+    ),
   },
   {
     say: 'แทนค่า y0 กับ z0 กลับเข้าไป จะเห็นว่า circley กับ circlex เริ่มกระจายตัวไปอยู่คนละพจน์',
-    tex: texBlock(String.raw`\begin{aligned} y_1 &= \text{circley}\cos A - \text{circlex}\sin\varphi\sin A \\ z_1 &= \text{circley}\sin A + \text{circlex}\sin\varphi\cos A \end{aligned}`),
+    tex: texCode(
+      `\\begin{aligned}
+        y_1 &${mc.op('=')} ${mc.fn('\\mathrm{circley}')}\\,${cos}A ${mc.op('-')} ${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH}\\,${sin}A \\\\
+        z_1 &${mc.op('=')} ${mc.fn('\\mathrm{circley}')}\\,${sin}A ${mc.op('+')} ${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH}\\,${cos}A
+      \\end{aligned}`,
+    ),
   },
   {
     say: 'หมุนต่อรอบแกน z ด้วยมุม B คราวนี้ z ไม่ขยับ ส่วนคู่ (x, y) หมุนด้วยสูตรหน้าตาเดียวกันเป๊ะ',
-    tex: texBlock(String.raw`\begin{aligned} x_2 &= x_1\cos B - y_1\sin B \\ y_2 &= x_1\sin B + y_1\cos B \\ z_2 &= z_1 \end{aligned}`),
+    tex: texCode(
+      `\\begin{aligned}
+        x_2 &${mc.op('=')} x_1\\,${cos}B ${mc.op('-')} y_1\\,${sin}B \\\\
+        y_2 &${mc.op('=')} x_1\\,${sin}B ${mc.op('+')} y_1\\,${cos}B \\\\
+        z_2 &${mc.op('=')} z_1
+      \\end{aligned}`,
+    ),
   },
   {
     say: 'แทน x1 กับ y1 ที่ได้เมื่อกี้ลงไป แล้วจัดพจน์ที่มี circlex ไว้ด้วยกัน ก็ได้บรรทัดยาวสามบรรทัดในโค้ดจริง ไม่มีอะไรใหม่โผล่มาเลยสักตัว',
-    tex: texBlock(String.raw`\begin{aligned} x &= \text{circlex}(\cos B\cos\varphi + \sin A\sin B\sin\varphi) - \text{circley}\cos A\sin B \\ y &= \text{circlex}(\sin B\cos\varphi - \sin A\cos B\sin\varphi) + \text{circley}\cos A\cos B \\ z &= K_2 + \cos A\,\text{circlex}\sin\varphi + \text{circley}\sin A \end{aligned}`),
+    tex: texCode(
+      `\\begin{aligned}
+        ${mc.fn('x')} &${mc.op('=')} ${mc.fn('\\mathrm{circlex}')}\\,(${cos}B\\,${cos}${PH} ${mc.op('+')} ${sin}A\\,${sin}B\\,${sin}${PH}) ${mc.op('-')} ${mc.fn('\\mathrm{circley}')}\\,${cos}A\\,${sin}B \\\\
+        ${mc.fn('y')} &${mc.op('=')} ${mc.fn('\\mathrm{circlex}')}\\,(${sin}B\\,${cos}${PH} ${mc.op('-')} ${sin}A\\,${cos}B\\,${sin}${PH}) ${mc.op('+')} ${mc.fn('\\mathrm{circley}')}\\,${cos}A\\,${cos}B \\\\
+        ${mc.fn('z')} &${mc.op('=')} ${mc.fn('\\mathrm{K2}')} ${mc.op('+')} ${cos}A\\,${mc.fn('\\mathrm{circlex}')}\\,${sin}${PH} ${mc.op('+')} ${mc.fn('\\mathrm{circley}')}\\,${sin}A
+      \\end{aligned}`,
+    ),
   },
 ];
+
+/* ---------- เนื้อในกล่องอธิบายตัวเลข (ExplainNumber) ----------
+   ส่งเป็นสตริง HTML เท่านั้น ห้ามส่งเป็น slot children เด็ดขาด เหตุผลอยู่ในหัวไฟล์คอมโพเนนต์ */
+const ARC_TEX = texCode(
+  `${mc.fn('\\text{ระยะบนผิว}')} ${mc.op('=')} ${mc.fn('\\text{รัศมี}')} ${mc.op('\\times')} ${mc.fn('\\text{มุมเป็นเรเดียน}')}`,
+);
+const EX = {
+  arcOuter: `
+    <p>
+      ความยาวส่วนโค้งเท่ากับรัศมีคูณมุมเป็นเรเดียน ซึ่งเป็นคุณสมบัติของหน่วยเรเดียนที่กล่องเรื่องเรเดียนในชั้นที่ 1 ปูไว้แล้ว
+      เรเดียนถูกนิยามให้มุม 1 เรเดียนทำให้ส่วนโค้งยาวเท่ากับรัศมีพอดี ระยะจริงบนผิวจึงคูณกันตรง ๆ ได้เลย ไม่ต้องมีตัวแปลงหน่วย
+    </p>
+    ${ARC_TEX}
+    <p>
+      รัศมีของวงที่ขอบนอกเดิน คือระยะจากแกนถึงขอบนอก เท่ากับ <code>R2 + R1 = ${R2} + ${R1} = ${R1 + R2}</code>
+      ส่วนก้าวมุมของลูป <i>φ</i> คือ <code>${PHI_SPACING}</code> เรเดียน
+    </p>
+    <p>
+      คูณกันได้ <code>${R1 + R2} × ${PHI_SPACING} = ${f3((R1 + R2) * PHI_SPACING)}</code> หน่วย ต่อหนึ่งก้าวมุม
+    </p>`,
+  arcInner: `
+    <p>
+      คิดแบบเดียวกับขอบนอกทุกอย่าง ต่างกันแค่รัศมี ขอบด้านในรูอยู่ห่างจากแกนแค่ <code>R2 − R1 = ${R2} − ${R1} = ${R2 - R1}</code>
+      เพราะหน้าตัดยื่นเข้าหาแกนไปเป็นระยะ <code>R1</code>
+    </p>
+    ${ARC_TEX}
+    <p>
+      คูณกันได้ <code>${R2 - R1} × ${PHI_SPACING} = ${f3((R2 - R1) * PHI_SPACING)}</code> หน่วย ต่อหนึ่งก้าวมุม
+      ซึ่งน้อยกว่าขอบนอก ${Math.round(((R1 + R2) / (R2 - R1)) * 10) / 10} เท่าพอดี ตามอัตราส่วนของรัศมีสองค่านั้นเอง
+    </p>`,
+};
 
 /* ---------- โค้ดที่งอกทีละชั้น ---------- */
 const codeL1 = `// ชั้นที่ 1: จุดบนวงกลมรัศมี R1 ตำแหน่งเดียว ใช้มุมเดียว
@@ -304,6 +599,40 @@ for (float theta = 0; theta < 6.28; theta += 0.07) {
     float z = circlex * sin(phi);
   }
 }`;
+
+const shapeCode = {
+  sphere: `// ทรงกลม: ไม่ต้องเลื่อนวงกลมออกจากแกนเลย
+float circlex = R1;                  // เดิมคือ R2 + R1 * cos(theta)
+float circley = R1 * sin(theta);     // <-- ไม่เปลี่ยน... แต่ต้องคิดใหม่ทั้งคู่
+
+// เขียนตรง ๆ แบบนี้อ่านง่ายกว่า
+float x = R1 * cos(theta) * cos(phi);
+float y = R1 * sin(theta);
+float z = R1 * cos(theta) * sin(phi);
+
+// ทิศตั้งฉาก ยังใช้ทางลัดเดิมได้ เพราะผิวทรงกลมตั้งฉากกับรัศมีเสมอ
+float Nx = cos(theta) * cos(phi), Ny = sin(theta), Nz = cos(theta) * sin(phi);`,
+
+  cylinder: `// ทรงกระบอก: หน้าตัดเปลี่ยนจากวงกลมเป็นเส้นตรง
+float x = R2 * cos(phi);
+float y = R1 * ${1.6} * (theta / 3.14159f - 1);   // เดินเป็นเส้นตรงตาม theta
+float z = R2 * sin(phi);
+
+// ทิศตั้งฉากของผิวข้าง ชี้ออกด้านข้างเสมอ ไม่มีส่วนประกอบแนวตั้ง
+float Nx = cos(phi), Ny = 0, Nz = sin(phi);`,
+
+  mobius: `// ริบบิ้นเมอบิอุส: หน้าตัดหมุนไปครึ่งรอบ ระหว่างที่กวาดครบหนึ่งรอบ
+float w = R1 * (theta / 3.14159f - 1);   // ตำแหน่งบนความกว้างของริบบิ้น
+float half = phi / 2;                    // ครึ่งหนึ่งของมุมกวาด คือตัวที่ทำให้บิด
+float r = R2 + w * cos(half);
+float x = r * cos(phi);
+float y = w * sin(half);
+float z = r * sin(phi);
+
+// ทิศตั้งฉากหาด้วยทางลัดไม่ได้ ต้องครอสโปรดักต์ของอนุพันธ์ย่อยสองทิศ
+// แล้วเพราะมันมีด้านเดียว ต้องใช้ค่าสัมบูรณ์ของความสว่าง ไม่งั้นผิวหายไปครึ่งหนึ่ง
+float L = fabsf(dot(N, light));`,
+};
 
 const codeL3 = `// ชั้นที่ 3: หมุนทั้งก้อนด้วยมุม A (รอบแกน x) และ B (รอบแกน z)
 float sinA = sin(A), cosA = cos(A), sinB = sin(B), cosB = cos(B);
@@ -350,7 +679,8 @@ const codeL6 = `    // <-- ใหม่: ทิศตั้งฉากของ
       output[xp + ${SCREEN_W} * yp] = "${CHARS}"[index > 0 ? index : 0];
     }`;
 
-/* ไฟล์เต็มเวอร์ชันอ่านออก คอมไพล์แล้วรันจริง และเฟรมที่ได้ตรงกับตัวเรนเดอร์ในหน้านี้ทุกตัวอักษร */
+/* ไฟล์เต็มเวอร์ชันอ่านออก คอมไพล์แล้วรันจริง เทียบกับตัวเรนเดอร์ในหน้านี้ 7 มุม
+   ตรงกันทุกช่อง 6 มุม เหลืออีกมุมหนึ่งที่ต่างกันช่องเดียว (เหตุผลอยู่ในกล่องใต้โค้ด) */
 const fullCode = `#include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -464,6 +794,20 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     โค้ดก้อนนี้ถูกแชร์ต่อกันมาสิบกว่าปี ทุกคนบอกว่าสวย แต่คำอธิบายที่หาเจอทุกอันเริ่มต้นที่คำว่าเมทริกซ์หมุนสามชั้น บทนี้เริ่มจากศูนย์จริง ๆ ปูไซน์กับโคไซน์ด้วยสามเหลี่ยมมุมฉาก ปูเปอร์สเปกทีฟด้วยสามเหลี่ยมคล้าย แล้วต่อขึ้นไปทีละชั้นจนครบหกชั้น อ่านจบแล้วคุณจะเขียนมันออกมาเองได้ทุกบรรทัด
   </p>
 
+  <script is:inline>
+    /* ทำงานทันทีตอนแยกวิเคราะห์ ก่อนที่ส่วนล่างของหน้าจะถูกวาด
+       เพื่อไม่ให้หน้าถูกวางเต็มความยาวแล้วค่อยยุบ ซึ่งทำให้แถบเลื่อนกระโดด
+       ถ้าปิด JS สคริปต์นี้ไม่ทำงาน คลาสจึงไม่ถูกใส่ และบทความจะแสดงเต็มตามเดิม */
+    (function () {
+      const el = document.documentElement;
+      if (!('onbeforematch' in document.documentElement)) return;
+      el.classList.add('dn-folding');
+      /* กันเหนียว ถ้าตัวจัดก้อนไม่ได้ทำงานใน 5 วินาที ให้คลี่ทิ้งไว้ทั้งหมด */
+      setTimeout(function () { el.classList.remove('dn-folding'); }, 5000);
+    })();
+  </script>
+
+
   <div class="readall" hidden data-readall-bar>
     <span data-readall-count></span>
     <button type="button" class="btn" data-readall>แสดงทั้งบทความ</button>
@@ -479,7 +823,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <button type="button" class="btn" data-ascii-toggle aria-label="หยุดหรือเล่นภาพโดนัท">หยุด</button>
     </div>
     <figcaption>
-      โดนัทที่หมุนอยู่ข้างบนนี้ไม่ใช่ภาพวิดีโอ มันคือตาราง {SCREEN_W} คูณ {SCREEN_H} ช่องที่คำนวณใหม่ทุกเฟรมว่าแต่ละช่องควรเป็นตัวอักษรตัวไหน ด้วยเลขชุดเดียวกับโค้ดข้างล่าง
+      โดนัทที่หมุนอยู่ข้างบนนี้ไม่ใช่ภาพวิดีโอ ทุกเฟรมมันคำนวณใหม่หมดว่าแต่ละช่องบนจอควรเป็นตัวอักษรตัวไหน ด้วยเลขชุดเดียวกับโค้ดข้างล่าง โปรแกรม C ตัวจริงพิมพ์ลงจอ {SCREEN_W} คูณ {SCREEN_H} ช่อง ส่วนหน้านี้ย่อกริดลงครึ่งหนึ่งเมื่อจอแคบ ตัวอักษรจะได้ยังอ่านออก
     </figcaption>
   </figure>
 
@@ -611,6 +955,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     <svg viewBox="0 0 300 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="วงกลมรัศมีหนึ่งหน่วย มีจุดหนึ่งจุดอยู่บนเส้นที่มุมทีตา เส้นประจากจุดนั้นลากลงมาชนแกนนอนและลากไปทางซ้ายชนแกนตั้ง ระยะบนแกนนอนคือโคไซน์ ระยะบนแกนตั้งคือไซน์" style="font-family:'Sarabun',sans-serif">
       <line x1="24" y1="120" x2="268" y2="120" stroke="#39435c" stroke-width="1.2"/>
       <line x1="140" y1="170" x2="140" y2="26" stroke="#39435c" stroke-width="1.2"/>
+      <text x="278" y="124" font-size="12" font-weight="700" fill="#6f7d95">x</text>
+      <text x="168" y="30" font-size="12" font-weight="700" fill="#6f7d95">y</text>
       <circle cx="140" cy="120" r="88" fill="none" stroke="#4d72a9" stroke-width="1.4"/>
 
       <path d="M168 120 A28 28 0 0 0 161.4 102" fill="none" stroke="#8a97ad" stroke-width="1.2"/>
@@ -698,7 +1044,28 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       </p>
       <div set:html={PRF.tangent} />
       <p>
-        สังเกตหน้าตาของผลลัพธ์ให้ดี <code>(−sin θ, cos θ)</code> คือตัวเดิมที่ถูกหมุนไป 90 องศาพอดี แปลว่า <strong>ทิศที่จุดกำลังเคลื่อนที่ ตั้งฉากกับรัศมีเสมอ</strong> ที่มุม 0 จุดอยู่ขวาสุดและกำลังวิ่งขึ้นตรง ๆ คือ <code>(0, 1)</code> ตรงตามที่เห็นด้วยตา
+        ประโยคที่ว่า <code>(−sin θ, cos θ)</code> คือ <code>(cos θ, sin θ)</code> ที่หมุนไป 90 องศา ฟังแล้วเหมือนต้องเชื่อตามไปก่อน แต่มันตรวจได้ด้วยของที่เพิ่งอ่านจบไปสองบรรทัด <strong>จุดที่มุม θ อยู่ที่ <code>(cos θ, sin θ)</code> ก็แปลว่าจุดที่มุม θ + 90° อยู่ที่ <code>(cos(θ + 90°), sin(θ + 90°))</code></strong> ตรงตามนิยามเดิมของวงกลม ไม่มีกฎใหม่
+      </p>
+      <p>
+        ทีนี้ลองเดินไปทีละมุมบนวงกลมดู มุม 0 อยู่ขวาสุด บวกไปอีก 90 องศาจะไปอยู่บนสุด นั่นคือ <code>(1, 0)</code> กลายเป็น <code>(0, 1)</code> มุม 90 อยู่บนสุด บวกอีก 90 ไปอยู่ซ้ายสุด คือ <code>(0, 1)</code> กลายเป็น <code>(−1, 0)</code> สองกรณีนี้เข้าสูตรเดียวกันพอดี <strong>ช่องแรกกลายเป็นช่องที่สองติดลบ ช่องที่สองกลายเป็นช่องแรก</strong> เขียนเป็นสูตรคือ <code>(a, b)</code> หมุนไป 90 องศาแล้วได้ <code>(−b, a)</code> เอา <code>(cos θ, sin θ)</code> ยัดเข้าไปก็ได้ <code>(−sin θ, cos θ)</code> ซึ่งคืออนุพันธ์ข้างบนเป๊ะ
+      </p>
+      <p>
+        ผลที่ตามมาคือ <strong>ทิศที่จุดกำลังเคลื่อนที่ ตั้งฉากกับรัศมีเสมอ</strong> เพราะการหมุนไป 90 องศาก็คือการทำให้ตั้งฉากนั่นเอง ลากมุมในของเล่นข้างล่างดูได้ครับ ลูกศรเหลืองที่งอกออกจากจุด กับลูกศรเหลืองจาง ๆ ที่ลากจากจุดกำเนิด เป็นลูกศรอันเดียวกันที่ย้ายที่มาวางเฉย ๆ และมันคือลูกศรรัศมีสีเขียวที่ถูกหมุนไปข้างหน้าอีกหนึ่งในสี่รอบ
+      </p>
+
+      <figure class="toy" data-toy="t10">
+        <canvas class="toy-canvas" data-t10-canvas role="img" aria-label="วงกลมรัศมีหนึ่งหน่วย มีลูกศรรัศมีสีเขียวชี้ไปที่จุดบนเส้น และลูกศรสีเหลืองที่งอกออกจากจุดนั้นในแนวตั้งฉากกับรัศมี พร้อมสำเนาจาง ๆ ของลูกศรสีเหลืองที่ลากจากจุดกำเนิด ซึ่งไปจบที่ตำแหน่งบนวงกลมที่มุมมากกว่าเดิม 90 องศาพอดี"></canvas>
+        <div class="toy-bar">
+          <label class="toy-label" for="t10-angle">มุม θ</label>
+          <input id="t10-angle" class="toy-range" type="range" min="0" max="360" step="1" value="35" data-t10-angle />
+          <output class="toy-out" data-t10-out></output>
+          <button type="button" class="btn" data-t10-play aria-label="ให้จุดเดินไปรอบวงเอง">เดินเอง</button>
+        </div>
+        <p class="toy-read" data-t10-read></p>
+        <figcaption>ลูกศรเหลืองจาง ๆ ที่ลากจากจุดกำเนิดไปจบบนวงกลมเสมอ และจบที่มุมที่มากกว่ามุมของลูกศรเขียวอยู่ 90 องศาพอดีทุกค่าที่ลาก นี่คือความหมายของคำว่าหมุนไป 90 องศา</figcaption>
+      </figure>
+      <p>
+        ข้อเท็จจริงตัวเดียวกันนี้จะกลับมาใช้อีกครั้งตอนหาสูตรหมุนในชั้นที่ 3 ตอนที่ต้องตอบว่าแกนที่สองไปโผล่ที่ไหน
       </p>
       <p>
         ในตำราเรื่องนี้เรียกว่า <strong>เวกเตอร์สัมผัส</strong> (tangent vector) มันคือเหตุผลที่ของที่หมุนอยู่แล้วหลุดมือ จะเหวี่ยงออกไปด้านข้างตามแนวเส้นสัมผัส ไม่ใช่พุ่งออกตามแนวรัศมี และเป็นบันไดขั้นแรกไปสู่เรขาคณิตเชิงอนุพันธ์
@@ -706,18 +1073,173 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     </div>
   </details>
 
+  <div class="dn-fold-start" aria-hidden="true"></div>
+
   <hr class="divider" />
 
   <h2>ชั้นที่ 2 จาก 6 · วงกลมกลายเป็นโดนัท</h2>
 
   <p>
-    ตอนนี้เรามีวงกลมหนึ่งวงอยู่กลางจอ ทีนี้ลองนึกถึงห่วงยางจริง ๆ สักใบ ถ้าเอามีดผ่ามันในแนวตั้งตรงจุดใดจุดหนึ่ง หน้าตัดที่ได้คือวงกลมเล็ก ๆ วงหนึ่ง แล้วถ้าเดินไปผ่าอีกจุดหนึ่งรอบห่วง ก็ได้วงกลมหน้าตาเดียวกันอีกวง <strong>โดนัทคือวงกลมวงเดียวที่ถูกลากไปรอบแกนจนครบวง</strong>
+    ผ่าห่วงยางในแนวตั้งตรงไหนก็ได้ หน้าตัดที่ได้คือวงกลมวงหนึ่ง <strong>โดนัทคือวงกลมวงเดียวที่ถูกลากไปรอบแกนจนครบวง</strong> ชั้นนี้จึงมีสองขั้น เลื่อนวงกลมออกจากแกนก่อน แล้วค่อยกวาด
   </p>
+  <p>
+    ก่อนอื่นต้องตกลงมุมมองกันก่อน เพราะชั้นนี้ต้องสลับไปมาระหว่างสองมุม
+  </p>
+
+  <ZoomableDiagram caption="วงกลมหน้าตัดวงเดียวกัน มองจากด้านข้างเห็นเป็นวงกลม มองจากด้านบนเห็นเป็นขีดสั้น ทุกภาพต่อจากนี้จะบอกไว้ว่ากำลังมองจากมุมไหน">
+    <svg viewBox="0 0 560 208" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพซ้ายมองจากด้านข้าง เห็นวงกลมหน้าตัดเป็นวงกลมวางห่างจากแกนเป็นระยะ R2 ภาพขวามองจากด้านบน แกนกลายเป็นจุด และวงกลมหน้าตัดวงเดียวกันกลายเป็นขีดสั้นที่วางห่างจากจุดนั้นเท่าเดิม" style="font-family:'Sarabun',sans-serif">
+      <text x="135" y="22" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">มองจากด้านข้าง</text>
+      <rect x="10" y="34" width="250" height="140" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <line x1="70" y1="46" x2="70" y2="150" stroke="#4d72a9" stroke-width="1.3" stroke-dasharray="5 4"/>
+      <text x="70" y="167" font-size="10.5" fill="#4d72a9" text-anchor="middle">แกนที่ใช้กวาด</text>
+      <text x="84" y="52" font-size="11" font-weight="700" fill="#6f7d95">y</text>
+      <line x1="196" y1="160" x2="242" y2="160" stroke="#6f7d95" stroke-width="1"/>
+      <text x="248" y="164" font-size="11" font-weight="700" fill="#6f7d95">x</text>
+      <line x1="70" y1="104" x2="170" y2="104" stroke="#8a97ad" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="120" y="96" font-size="11" fill="#8a97ad" text-anchor="middle">R2</text>
+      <circle cx="170" cy="104" r="28" fill="none" stroke="#4ade80" stroke-width="2.2"/>
+      <text x="170" y="152" font-size="10.5" fill="#4ade80" text-anchor="middle">เห็นเป็นวงกลม</text>
+
+      <text x="425" y="22" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">มองจากด้านบน</text>
+      <rect x="300" y="34" width="250" height="140" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="360" cy="104" r="3.5" fill="#4d72a9"/>
+      <text x="360" y="128" font-size="10.5" fill="#4d72a9" text-anchor="middle">แกนกลายเป็นจุด</text>
+      <text x="348" y="92" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
+      <line x1="500" y1="160" x2="536" y2="160" stroke="#6f7d95" stroke-width="1"/>
+      <text x="516" y="154" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="500" y1="160" x2="500" y2="128" stroke="#6f7d95" stroke-width="1"/>
+      <text x="492" y="136" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">z</text>
+      <line x1="360" y1="104" x2="460" y2="104" stroke="#8a97ad" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="410" y="96" font-size="11" fill="#8a97ad" text-anchor="middle">R2</text>
+      <line x1="432" y1="104" x2="488" y2="104" stroke="#4ade80" stroke-width="4.5"/>
+      <text x="460" y="152" font-size="10.5" fill="#4ade80" text-anchor="middle">เห็นเป็นขีดสั้น</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ขั้นแรกคือ <strong>เลื่อนวงกลมออกจากแกนก่อน</strong> ถ้าไม่เลื่อน จะได้ของคนละอย่างกันเลย
+  </p>
+
+  <ZoomableDiagram caption="ระยะ R2 คือสิ่งเดียวที่ตัดสินว่าจะได้ลูกบอลหรือได้ห่วง ถ้าวงกลมยังคร่อมแกนอยู่ กวาดไปเท่าไรก็ไม่มีรู">
+    <svg viewBox="0 0 560 214" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เปรียบเทียบสองกรณี มองจากด้านบนทั้งคู่ กรณีซ้าย R2 เท่ากับศูนย์ ขีดของวงกลมหน้าตัดคร่อมแกนอยู่ กวาดแล้วได้แผ่นกลมตันไม่มีรู กรณีขวาเลื่อนออกไป R2 ก่อน ขีดจึงอยู่ห่างจากแกน กวาดแล้วได้ห่วงที่มีรูตรงกลาง" style="font-family:'Sarabun',sans-serif">
+      <text x="135" y="22" font-size="12" font-weight="700" fill="#f08b8b" text-anchor="middle">R2 = 0 คร่อมแกนอยู่</text>
+      <rect x="10" y="34" width="250" height="150" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="135" cy="110" r="18" fill="rgba(214,69,69,0.18)" stroke="#d64545" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <line x1="117" y1="110" x2="153" y2="110" stroke="#4ade80" stroke-width="4.5"/>
+      <circle cx="135" cy="110" r="3.5" fill="#4d72a9"/>
+      <text x="135" y="162" font-size="10.5" fill="#f08b8b" text-anchor="middle">ตัน ไม่มีรู</text>
+      <line x1="26" y1="172" x2="62" y2="172" stroke="#6f7d95" stroke-width="1"/>
+      <text x="44" y="166" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="26" y1="172" x2="26" y2="140" stroke="#6f7d95" stroke-width="1"/>
+      <text x="18" y="148" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">z</text>
+      <text x="70" y="182" font-size="10" fill="#6f7d95">มองจากด้านบน</text>
+
+      <text x="425" y="22" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">R2 = 2 เลื่อนออกไปก่อน</text>
+      <rect x="300" y="34" width="250" height="150" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <path d="M425 38 A72 72 0 1 0 425 182 A72 72 0 1 0 425 38 Z M425 74 A36 36 0 1 1 425 146 A36 36 0 1 1 425 74 Z" fill="rgba(47,158,92,0.16)" fill-rule="evenodd" stroke="#2f9e5c" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <line x1="461" y1="110" x2="497" y2="110" stroke="#4ade80" stroke-width="4.5"/>
+      <circle cx="425" cy="110" r="3.5" fill="#4d72a9"/>
+      <text x="425" y="114" font-size="10.5" fill="#8a97ad" text-anchor="middle">รู</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ค่าในโค้ดคือ <code>R1 = {R1}</code> กับ <code>R2 = {R2}</code> เขียนออกมาได้สองตัว ระยะจากแกน กับความสูง
+  </p>
+  <div set:html={TEX.circleShift} />
+
+  <p>
+    ขั้นที่สองคือกวาดไปรอบแกน และตรงนี้คือหัวใจของทั้งชั้น
+  </p>
+
+  <ZoomableDiagram caption="circlex เข้าไปสวมบทบาทรัศมีของวงกลมในชั้นที่ 1 พอดี จุดที่ห่างแกนมากเดินวงใหญ่ จุดที่ห่างน้อยเดินวงเล็ก สูตรกวาดจึงเป็นสูตรเดิมที่เปลี่ยนรัศมี (ภาพนี้มองจากด้านบน แกน x กับแกน z อยู่ในระนาบของภาพ ส่วนแกน y ชี้ขึ้นออกมาหาคนดู)">
+    <svg viewBox="0 0 528 306" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="มองจากด้านบน ขีดสั้นคือวงกลมหน้าตัดที่วางห่างจากแกน ปลายนอกของขีดอยู่ห่างแกนมากกว่า พอกวาดด้วยมุม phi ปลายนอกจึงเดินไปตามวงกลมวงใหญ่ ส่วนปลายในเดินไปตามวงกลมวงเล็ก รัศมีของวงที่แต่ละจุดเดินคือค่า circlex ของจุดนั้นเอง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="d2c-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+      <text x="10" y="20" font-size="11.5" font-weight="700" fill="#c3cbdc">มองจากด้านบน</text>
+      <line x1="26" y1="288" x2="70" y2="288" stroke="#6f7d95" stroke-width="1"/>
+      <text x="48" y="281" font-size="11.5" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="26" y1="288" x2="26" y2="250" stroke="#6f7d95" stroke-width="1"/>
+      <text x="18" y="258" font-size="11.5" font-weight="700" fill="#6f7d95" text-anchor="end">z</text>
+
+      <circle cx="200" cy="160" r="130" fill="none" stroke="#4ade80" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <circle cx="200" cy="160" r="70" fill="none" stroke="#7db4f5" stroke-width="1.2" stroke-dasharray="5 4"/>
+
+      <line x1="200" y1="160" x2="330" y2="160" stroke="#8a97ad" stroke-width="1" stroke-dasharray="3 3"/>
+      <line x1="270" y1="160" x2="330" y2="160" stroke="#c3cbdc" stroke-width="5"/>
+      <circle cx="200" cy="160" r="3.5" fill="#4d72a9"/>
+      <text x="185" y="182" font-size="10.5" fill="#4d72a9" text-anchor="end">แกน</text>
+
+      <circle cx="330" cy="160" r="5" fill="#4ade80"/>
+      <circle cx="270" cy="160" r="5" fill="#7db4f5"/>
+      <text x="300" y="148" font-size="11" fill="#4ade80" text-anchor="middle">ปลายนอก</text>
+      <text x="245" y="184" font-size="11" fill="#7db4f5" text-anchor="middle">ปลายใน</text>
+
+      <path d="M330 160 A130 130 0 0 0 244.5 37.8" fill="none" stroke="#e0b400" stroke-width="1.6" marker-end="url(#d2c-a)"/>
+      <text x="268" y="96" font-size="12" fill="#e0b400">φ</text>
+      <circle cx="244.5" cy="37.8" r="5" fill="#4ade80"/>
+
+      <text x="352" y="60" font-size="10.5" fill="#4ade80">รัศมีของวงนี้ คือ circlex ของปลายนอก</text>
+      <text x="352" y="248" font-size="10.5" fill="#7db4f5">วงในเล็กกว่า เพราะ circlex น้อยกว่า</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div set:html={TEX.sweep} />
+
+  <p>
+    ความสูงไม่เกี่ยวกับการกวาด จึงอยู่ที่เดิม ส่วนแกนที่สามโผล่มาตรงนี้เอง คือแกน <code>z</code> หรือแกนความลึก
+  </p>
+
+  <ZoomableDiagram caption="เลือก θ หนึ่งค่ากับ φ หนึ่งค่า ได้จุดบนผิวหนึ่งจุดเสมอ θ เลือกว่าอยู่ตรงไหนของหน้าตัด ส่วน φ เลือกว่าหน้าตัดนั้นถูกกวาดไปถึงไหนแล้ว">
+    <svg viewBox="0 0 560 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพซ้ายคือวงกลมหน้าตัดมองจากด้านข้าง มีจุดตัวอย่างสามจุดที่มุม theta ต่างกัน ภาพขวามองจากด้านบน จุดสามจุดเดียวกันไปวางอยู่บนวงของตัวเองที่มุม phi ต่างกัน สีของจุดจับคู่กันระหว่างสองภาพ" style="font-family:'Sarabun',sans-serif">
+      <text x="150" y="22" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">มองจากด้านข้าง · เลือกด้วย θ</text>
+      <line x1="24" y1="218" x2="60" y2="218" stroke="#6f7d95" stroke-width="1"/>
+      <text x="42" y="212" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="24" y1="218" x2="24" y2="186" stroke="#6f7d95" stroke-width="1"/>
+      <text x="17" y="194" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
+      <rect x="10" y="34" width="270" height="196" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <line x1="58" y1="46" x2="58" y2="218" stroke="#4d72a9" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <circle cx="150" cy="132" r="46" fill="none" stroke="#39435c" stroke-width="1.6"/>
+      <circle cx="196" cy="132" r="5.5" fill="#4ade80"/>
+      <text x="208" y="128" font-size="10.5" fill="#4ade80">θ = 0°</text>
+      <circle cx="150" cy="86" r="5.5" fill="#e0b400"/>
+      <text x="160" y="76" font-size="10.5" fill="#e0b400">θ = 90°</text>
+      <circle cx="106.8" cy="147.7" r="5.5" fill="#7db4f5"/>
+      <text x="98" y="170" font-size="10.5" fill="#7db4f5" text-anchor="end">θ = 200°</text>
+
+      <text x="420" y="22" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">มองจากด้านบน · เลือกด้วย φ</text>
+      <line x1="312" y1="104" x2="344" y2="104" stroke="#6f7d95" stroke-width="1"/>
+      <text x="330" y="98" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="312" y1="104" x2="312" y2="76" stroke="#6f7d95" stroke-width="1"/>
+      <text x="305" y="84" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">z</text>
+      <rect x="300" y="34" width="250" height="196" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <circle cx="420" cy="132" r="69" fill="none" stroke="#4ade80" stroke-width="1" stroke-dasharray="4 4" opacity="0.55"/>
+      <circle cx="420" cy="132" r="46" fill="none" stroke="#e0b400" stroke-width="1" stroke-dasharray="4 4" opacity="0.55"/>
+      <circle cx="420" cy="132" r="24.4" fill="none" stroke="#7db4f5" stroke-width="1" stroke-dasharray="4 4" opacity="0.55"/>
+      <circle cx="420" cy="132" r="3.5" fill="#4d72a9"/>
+      <circle cx="489" cy="132" r="5.5" fill="#4ade80"/>
+      <text x="497" y="128" font-size="10.5" fill="#4ade80">φ = 0°</text>
+      <circle cx="404.3" cy="88.8" r="5.5" fill="#e0b400"/>
+      <text x="390" y="60" font-size="10.5" fill="#e0b400" text-anchor="end">φ = 110°</text>
+      <circle cx="411.7" cy="154.9" r="5.5" fill="#7db4f5"/>
+      <text x="372" y="216" font-size="10.5" fill="#7db4f5" text-anchor="end">φ = 250°</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ทำไมคู่ 1 กับ 2 ถึงพอดีกับจอขนาดนี้</p>
+    <p>
+      รูต้องใหญ่พอจะเห็นบนจอที่มีแค่ {SCREEN_W} ตัวอักษร ถ้า <code>R1</code> โตขึ้นจนเท่าหรือเกิน <code>R2</code> ขอบด้านในของหน้าตัดจะเลยแกนเข้าไปชนกันเอง รูหายไปเลย แล้วโดนัทจะกลายเป็นลูกฟักทองที่บุ๋มตรงกลาง ลากดูได้ในของเล่นข้างล่างครับ
+    </p>
+  </div>
 
   <figure class="toy" data-toy="t2">
     <canvas class="toy-canvas" data-t2-canvas role="img" aria-label="โครงลวดของโดนัท ที่ถูกกวาดไปรอบแกนตั้งได้บางส่วนตามค่าที่ตั้งไว้"></canvas>
     <div class="toy-bar">
-      <label class="toy-label" for="t2-phi">กวาดไปแล้ว</label>
+      <label class="toy-label" for="t2-phi">φ กวาดไปแล้ว</label>
       <input id="t2-phi" class="toy-range" type="range" min="0" max="360" step="2" value="120" data-t2-phi />
       <output class="toy-out" data-t2-phi-out></output>
       <button type="button" class="btn" data-t2-play aria-label="เล่นการกวาดรอบแกนแบบอัตโนมัติ">เล่นการกวาด</button>
@@ -728,79 +1250,13 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <output class="toy-out" data-t2-r1-out></output>
     </div>
     <div class="toy-bar">
-      <label class="toy-label" for="t2-r2">R2 ระยะจากแกน</label>
+      <label class="toy-label" for="t2-r2">R2 ระยะที่เลื่อนออกจากแกน</label>
       <input id="t2-r2" class="toy-range" type="range" min="0" max="3" step="0.05" value="2" data-t2-r2 />
       <output class="toy-out" data-t2-r2-out></output>
     </div>
-    <figcaption>ลองลาก R1 ให้ใหญ่กว่า R2 ดูครับ แล้วสังเกตว่าเกิดอะไรขึ้นกับรูตรงกลาง</figcaption>
+    <p class="toy-read" data-t2-read></p>
+    <figcaption>เส้นประสองวงคือขอบนอกกับขอบในจากภาพเมื่อกี้ ลาก R2 ลงมาที่ 0 แล้วดูว่ารูหายไปตอนไหน</figcaption>
   </figure>
-  <p>
-    ทำสองอย่าง อย่างแรกคือเลื่อนวงกลมออกไปจากแกนกลางเป็นระยะ <code>R2</code> ไม่งั้นลากไปรอบแกนแล้วจะได้ลูกบอล ไม่ได้รู
-  </p>
-  <div set:html={TEX.circleShift} />
-  <p>
-    ค่าในโค้ดคือ <code>R1 = {R1}</code> กับ <code>R2 = {R2}</code> คือวงกลมหน้าตัดรัศมี 1 หน่วย ถูกวางห่างจากแกนกลาง 2 หน่วย
-  </p>
-  <p>
-    อย่างที่สองคือกวาดมันไปรอบแกนตั้ง ด้วยมุมตัวที่สองที่ชื่อ <i>φ</i> ตอนนี้แหละที่แกนที่สามโผล่มา ระนาบมีสองแกนคือกว้างกับสูง พอกวาดออกไปเป็นวงรอบแกน มันต้องมีที่ให้วิ่งเข้าไปข้างในและออกมาข้างนอกจอ นั่นคือแกน <code>z</code> หรือแกนความลึก
-  </p>
-  <p>
-    การกวาดคือการหมุนจุดรอบแกนตั้ง ซึ่งใช้ของชั้นที่ 1 ตรง ๆ ระยะจากแกนกลางคือ <code>circlex</code> พอมันหมุนไปที่มุม <i>φ</i> มันก็ไปอยู่ที่ <code>circlex</code> คูณโคไซน์ในแนวหนึ่ง และ <code>circlex</code> คูณไซน์ในอีกแนวหนึ่ง ส่วนความสูงไม่เกี่ยวกับการกวาด จึงอยู่ที่เดิม
-  </p>
-  <div set:html={TEX.sweep} />
-  <p>
-    <strong>มุมสองตัวนี้พาไปถึงทุกจุดบนผิวโดนัทได้ครบ</strong> <i>θ</i> บอกว่าอยู่ตรงไหนของหน้าตัด <i>φ</i> บอกว่าเดินไปถึงไหนแล้วรอบห่วง เหมือนละติจูดกับลองจิจูดบนลูกโลก
-  </p>
-
-  <ZoomableDiagram caption="มองจากด้านบน วงกลมหน้าตัดวงเดียวถูกกวาดไปรอบแกนจนครบวง มุมสองตัวจึงพาไปถึงทุกจุดบนผิวได้">
-    <svg viewBox="0 0 700 214" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="สามภาพเรียงจากซ้ายไปขวา ภาพแรกวงกลมหน้าตัดหนึ่งวงวางห่างจากแกนหมุนเป็นระยะ R2 ภาพที่สองวงกลมถูกกวาดไปรอบแกนได้เก้าสิบองศา ภาพที่สามกวาดครบรอบจนกลายเป็นโดนัท" style="font-family:'Sarabun',sans-serif">
-      <defs>
-        <marker id="d2-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
-        </marker>
-      </defs>
-
-      <text x="115" y="24" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">1 วงกลมหนึ่งวง</text>
-      <rect x="10" y="34" width="210" height="136" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <line x1="115" y1="46" x2="115" y2="158" stroke="#4d72a9" stroke-width="1.2" stroke-dasharray="5 4"/>
-      <circle cx="115" cy="102" r="3" fill="#4d72a9"/>
-      <line x1="115" y1="102" x2="177" y2="102" stroke="#8a97ad" stroke-width="1" stroke-dasharray="4 3"/>
-      <text x="146" y="96" font-size="11" fill="#8a97ad" text-anchor="middle">R2</text>
-      <circle cx="177" cy="102" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>
-      <text x="177" y="136" font-size="11" fill="#4ade80" text-anchor="middle">R1</text>
-
-      <text x="350" y="24" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">2 กวาดไป 90 องศา</text>
-      <rect x="245" y="34" width="210" height="136" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <line x1="350" y1="46" x2="350" y2="158" stroke="#4d72a9" stroke-width="1.2" stroke-dasharray="5 4"/>
-      <circle cx="350" cy="102" r="3" fill="#4d72a9"/>
-      <path d="M412 102 A62 62 0 0 0 350 40" fill="none" stroke="#e0b400" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#d2-a)"/>
-      <circle cx="412" cy="102" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>
-      <circle cx="393.8" cy="59.8" r="14" fill="none" stroke="#4ade80" stroke-width="1.4" opacity="0.6"/>
-      <text x="330" y="140" font-size="11" fill="#e0b400" text-anchor="end">φ</text>
-
-      <text x="585" y="24" font-size="12" font-weight="700" fill="#c3cbdc" text-anchor="middle">3 ครบรอบ ได้โดนัท</text>
-      <rect x="480" y="34" width="210" height="136" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <circle cx="585" cy="102" r="62" fill="none" stroke="#e0b400" stroke-width="1.2" stroke-dasharray="5 4"/>
-      <circle cx="585" cy="102" r="3" fill="#4d72a9"/>
-      <circle cx="647" cy="102" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="628.8" cy="59.8" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="585" cy="40" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="541.2" cy="59.8" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="523" cy="102" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="541.2" cy="144.2" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="585" cy="164" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-      <circle cx="628.8" cy="144.2" r="14" fill="none" stroke="#4ade80" stroke-width="1.6"/>
-
-      <text x="10" y="196" font-size="11" fill="#8a97ad">ภาพนี้มองจากด้านบน เส้นประกลางภาพคือแกนที่ใช้กวาด</text>
-    </svg>
-  </ZoomableDiagram>
-  <div class="callout callout-tip">
-    <p class="callout-label">ถ้า R1 โตกว่า R2 จะเกิดอะไรขึ้น</p>
-    <p>
-      รูตรงกลางจะหายไปครับ เพราะขอบด้านในของวงกลมหน้าตัดจะเลยแกนกลางเข้าไปแล้วชนกันเอง โดนัทกลายเป็นลูกฟักทองที่บุ๋มตรงกลาง ค่าที่ Andy เลือก <code>R1 = {R1}</code> กับ <code>R2 = {R2}</code> จึงเป็นสัดส่วนที่รูใหญ่พอจะเห็นชัดบนจอกว้าง {SCREEN_W} ตัวอักษร
-    </p>
-  </div>
-
   <CodeBlock code={codeL2} lang="c" title="โค้ดของคุณตอนนี้ · ชั้นที่ 2 จาก 6" />
 
   <details class="expander">
@@ -809,13 +1265,38 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <p>
         โค้ดทั้งไฟล์ไม่มีตรงไหนที่รู้จักคำว่าโดนัทเลย มันรู้แค่ว่า <strong>มุมสองตัวแปลงเป็นจุดในสามมิติได้ยังไง</strong> ถ้าเปลี่ยนสองบรรทัดนั้น ทั้งเรื่องแสง เรื่องการบัง เรื่องการฉายภาพ ทำงานต่อได้เหมือนเดิมทุกอย่าง
       </p>
-      <ul>
-        <li><strong>ทรงกลม</strong> ให้ <code>R2 = 0</code> รูตรงกลางหายไป เหลือลูกบอลลูกเดียว</li>
-        <li><strong>ทรงกระบอก</strong> เปลี่ยนวงกลมหน้าตัดเป็นเส้นตรง คือให้ <code>circlex</code> คงที่แล้วปล่อยความสูงเดินเป็นเส้นตรงตาม <i>θ</i></li>
-        <li><strong>ริบบิ้นเมอบิอุส</strong> หมุนวงกลมหน้าตัดไปครึ่งรอบ ระหว่างที่กวาดรอบแกนหนึ่งรอบ คือให้มุม <i>θ</i> ขึ้นกับ <i>φ</i> ด้วย</li>
-      </ul>
       <p>
-        ที่ต้องแก้ตามไปด้วยคือทิศตั้งฉากในชั้นที่ 6 เพราะสูตรทางลัดในบทนี้อาศัยความสมมาตรของโดนัทโดยเฉพาะ ทรงอื่นต้องหาทิศตั้งฉากด้วยวิธีทั่วไป
+        กดสลับทรงดูได้เลยครับ ภาพ บรรทัดตั้งค่า และโค้ดจะเปลี่ยนพร้อมกันทั้งสามอย่าง
+      </p>
+
+      <figure class="toy" data-toy="shapes">
+        <div class="toy-bar toy-presets">
+          <button type="button" class="btn" data-shape="donut">โดนัท (ของเดิม)</button>
+          <button type="button" class="btn" data-shape="sphere">ทรงกลม</button>
+          <button type="button" class="btn" data-shape="cylinder">ทรงกระบอก</button>
+          <button type="button" class="btn" data-shape="mobius">ริบบิ้นเมอบิอุส</button>
+          <button type="button" class="btn" data-shape-toggle aria-label="หยุดหรือเล่นการหมุน">หยุด</button>
+        </div>
+        <pre class="ascii ascii-sm" aria-hidden="true" data-shape-ascii></pre>
+        <p class="toy-read" data-shape-read></p>
+        <figcaption>ทุกทรงใช้ตัวเรนเดอร์ตัวเดียวกับโดนัทในหน้านี้ ต่างกันแค่สูตรตำแหน่งกับสูตรทิศตั้งฉาก</figcaption>
+      </figure>
+
+      <div data-shape-code="donut">
+        <CodeBlock code={codeL2} lang="c" title="โค้ดของคุณตอนนี้ · โดนัท" />
+      </div>
+      <div data-shape-code="sphere" hidden>
+        <CodeBlock code={shapeCode.sphere} lang="c" title="โค้ดของคุณตอนนี้ · เปลี่ยนเป็นทรงกลม" />
+      </div>
+      <div data-shape-code="cylinder" hidden>
+        <CodeBlock code={shapeCode.cylinder} lang="c" title="โค้ดของคุณตอนนี้ · เปลี่ยนเป็นทรงกระบอก" />
+      </div>
+      <div data-shape-code="mobius" hidden>
+        <CodeBlock code={shapeCode.mobius} lang="c" title="โค้ดของคุณตอนนี้ · เปลี่ยนเป็นริบบิ้นเมอบิอุส" />
+      </div>
+
+      <p>
+        จุดที่พังง่ายที่สุดคือทิศตั้งฉาก เพราะสูตรทางลัดในบทนี้อาศัยความสมมาตรของโดนัทโดยเฉพาะ ทรงกลมยังใช้ทางลัดเดิมได้ ทรงกระบอกเปลี่ยนเป็นสูตรสั้น ๆ ของตัวเอง ส่วนเมอบิอุสหาด้วยทางลัดไม่ได้เลย ต้องครอสโปรดักต์ของอนุพันธ์ย่อยสองทิศ ซึ่งเป็นวิธีทั่วไปที่ตำรากราฟิกใช้กับผิวทุกชนิด
       </p>
     </div>
   </details>
@@ -830,7 +1311,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
         ลูปเดินมุม <i>φ</i> ทีละเท่ากันตลอด แต่ระยะจริงบนผิวที่เดินได้ไม่เท่ากัน เพราะระยะจากแกนกลางไม่เท่ากัน ขอบด้านนอกอยู่ห่างแกน <code>R2 + R1 = {R1 + R2}</code> ส่วนขอบด้านในรูอยู่ห่างแค่ <code>R2 − R1 = {R2 - R1}</code>
       </p>
       <p>
-        เดินมุมเท่ากันหนึ่งก้าวคือ <code>{PHI_SPACING}</code> เรเดียน ขอบนอกจึงเดินได้ <code>{f3((R1 + R2) * PHI_SPACING)}</code> หน่วย ส่วนขอบในเดินได้แค่ <code>{f3((R2 - R1) * PHI_SPACING)}</code> หน่วย ต่างกัน {Math.round(((R1 + R2) / (R2 - R1)) * 10) / 10} เท่า จุดจึงกองกันแน่นกว่าที่ขอบใน
+        เดินมุมเท่ากันหนึ่งก้าวคือ <code>{PHI_SPACING}</code> เรเดียน ขอบนอกจึงเดินได้ <ExplainNumber value={`${f3((R1 + R2) * PHI_SPACING)} หน่วย`} title="เลขนี้มาจากไหน" html={EX.arcOuter} /> ส่วนขอบในเดินได้แค่ <ExplainNumber value={`${f3((R2 - R1) * PHI_SPACING)} หน่วย`} title="แล้วขอบในล่ะ" html={EX.arcInner} /> ต่างกัน {Math.round(((R1 + R2) / (R2 - R1)) * 10) / 10} เท่า จุดจึงกองกันแน่นกว่าที่ขอบใน
       </p>
       <p>
         ในตำราเรื่องนี้เรียกว่า <strong>จาโคเบียน</strong> (Jacobian) คือตัวคูณที่บอกว่าพื้นที่ในโลกของมุม ถูกยืดหรือหดไปเท่าไรเมื่อแปลงเป็นพื้นที่จริงบนผิว เดินต่อจากตรงนี้จะเจอเรื่องการสุ่มจุดบนผิวให้กระจายเท่ากัน ซึ่งเป็นปัญหาพื้นฐานของงานกราฟิกสายเรนเดอร์ด้วยการสุ่ม
@@ -844,62 +1325,305 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <hr class="divider" />
 
-  <h2>เวกเตอร์กับเมทริกซ์ ของสองอย่างที่ทุกคนเคยเรียนแต่ไม่เคยเห็นภาพ</h2>
+  <h2>ชั้นที่ 3 จาก 6 · หมุนทั้งก้อน</h2>
 
   <p>
-    ชั้นต่อไปคือการหมุนทั้งก้อน และมันคือจุดที่คำอธิบายทุกอันบนอินเทอร์เน็ตพากันโยนเมทริกซ์สามตัวใส่หน้าคุณ ผมจะไม่ทำแบบนั้น เพราะถ้าเข้าใจสองประโยคข้างล่างนี้ สูตรหมุนจะเป็นของที่คุณเดาเองได้ ไม่ต้องท่อง
+    ชั้นที่ 2 ทำให้เรามีจุดครบทุกจุดบนผิวแล้ว แต่ทั้งก้อนยังลอยนิ่งอยู่กับที่ ถ้าจะหมุนมัน ต้องตอบคำถามเดียวให้ได้ก่อน <strong>จุดหนึ่งจุด พอถูกหมุนแล้วไปอยู่ตรงไหน</strong> เครื่องมือที่ตอบคำถามนี้มีสองชิ้น ต้องยืมมาก่อนถึงจะเขียนสูตรหมุนได้
+  </p>
+
+  <h3>ของชิ้นแรก ลูกศรที่เรียกว่าเวกเตอร์</h3>
+
+  <p>
+    <strong>เวกเตอร์</strong> (vector) คือ <strong>ลูกศร</strong> มีทิศกับความยาว จบ บวกกันคือเดินตามอันแรกแล้วต่อด้วยอันที่สอง คูณด้วยเลขคือยืดหรือหด ส่วนลูกศรที่ยาว 1 พอดีเรียกว่า <strong>เวกเตอร์หนึ่งหน่วย</strong> คือลูกศรที่เก็บแต่ทิศ
   </p>
   <p>
-    <strong>เวกเตอร์</strong> (vector) คือ <strong>ลูกศร</strong> มีทิศกับความยาว จบ ไม่ต้องคิดมากกว่านั้น
+    ของที่ตำราไทยแทบไม่พูดคือ <strong>จุดกับทิศเป็นคนละเรื่องกัน</strong>
+  </p>
+
+  <ZoomableDiagram caption="ไฟสามดวงวางคนละที่ แต่แสงมาถึงผิวในทิศเดียวกัน ผิวจึงสว่างเท่ากันทั้งสามกรณี ทิศเป็นของที่ไม่ต้องมีที่อยู่ (มองจากด้านข้าง แกน x นอน แกน y ตั้ง)">
+    <svg viewBox="0 0 560 236" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ดวงไฟสามดวงวางคนละตำแหน่ง แต่ลูกศรทิศแสงชี้ไปทางเดียวกันทั้งสามดวง ผิวโค้งด้านล่างจึงได้ความสว่างเท่ากันทุกกรณี" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="pd-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+
+      <circle cx="60" cy="40" r="9" fill="#e0b400"/>
+      <line x1="72" y1="52" x2="112" y2="92" stroke="#e0b400" stroke-width="1.6" marker-end="url(#pd-a)"/>
+      <circle cx="240" cy="30" r="9" fill="#e0b400"/>
+      <line x1="252" y1="42" x2="292" y2="82" stroke="#e0b400" stroke-width="1.6" marker-end="url(#pd-a)"/>
+      <circle cx="430" cy="52" r="9" fill="#e0b400"/>
+      <line x1="442" y1="64" x2="482" y2="104" stroke="#e0b400" stroke-width="1.6" marker-end="url(#pd-a)"/>
+      <text x="60" y="22" font-size="11" fill="#e0b400" text-anchor="middle">ไฟดวงที่ 1</text>
+      <text x="240" y="17" font-size="11" fill="#e0b400" text-anchor="middle">ไฟดวงที่ 2</text>
+      <text x="430" y="34" font-size="11" fill="#e0b400" text-anchor="middle">ไฟดวงที่ 3</text>
+
+      <path d="M40 190 Q160 120 280 190" fill="none" stroke="#4d72a9" stroke-width="2.5"/>
+      <path d="M300 190 Q420 120 540 190" fill="none" stroke="#4d72a9" stroke-width="2.5"/>
+      <line x1="16" y1="228" x2="52" y2="228" stroke="#6f7d95" stroke-width="1"/>
+      <text x="34" y="222" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="16" y1="228" x2="16" y2="196" stroke="#6f7d95" stroke-width="1"/>
+      <text x="9" y="204" font-size="11" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
+      <text x="160" y="212" font-size="11" fill="#c3cbdc" text-anchor="middle">ผิวสว่างเท่านี้</text>
+      <text x="420" y="212" font-size="11" fill="#c3cbdc" text-anchor="middle">ผิวก็ยังสว่างเท่าเดิม</text>
+
+      <text x="160" y="142" font-size="15" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">#$@$#</text>
+      <text x="420" y="142" font-size="15" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">#$@$#</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h3>ของชิ้นที่สอง เมทริกซ์</h3>
+
+  <p>
+    ก่อนจะไปดูว่ามันคืออะไร ขอวางปัญหาที่มันเกิดมาแก้ก่อนครับ โค้ดนี้หมุนโดนัทสองรอบต่อกัน รอบแกน <code>x</code> ด้วยมุม <code>A</code> แล้วรอบแกน <code>z</code> ด้วยมุม <code>B</code> ถ้าเราไม่มีอะไรเลยนอกจากสูตรสองบรรทัดจากชั้นที่ 1 เราต้องเขียนพิกัดหลังหมุนรอบแรกออกมาเป็นตัวหนังสือ แล้วเอาผลนั้นไปแทนลงในสูตรของรอบที่สองด้วยมือ พอทำเสร็จได้พจน์ยาว ๆ มาชุดหนึ่ง แล้ววันไหนอยากสลับลำดับหรือเพิ่มการหมุนรอบที่สาม ก็ต้องนั่งแทนค่าใหม่ทั้งชุดอีกรอบ
   </p>
   <p>
-    ของที่ตำราไทยแทบไม่พูดคือ <strong>จุดกับทิศเป็นคนละเรื่องกัน</strong> จุดบนผิวโดนัทคือตำแหน่ง มันมีที่อยู่ ส่วนทิศของแสงไม่มีที่อยู่ ย้ายดวงไฟไปวางตรงไหนก็ได้ ตราบใดที่มันยังส่องมาทางเดิม ความสว่างบนผิวไม่เปลี่ยน นี่คือเหตุผลที่โค้ดทั้งไฟล์เขียนแสงเป็นแค่ตัวเลขสามตัวคือ <code>(0, 1, -1)</code> แล้วจบ ไม่มีพิกัดของดวงไฟอยู่ที่ไหนเลย
+    ปัญหาที่หนักกว่านั้นคือปริมาณ โดนัทหนึ่งเฟรมมีจุดที่ต้องหมุน {pointsPerFrame.toLocaleString('en-US')} จุด (ที่มาของเลขตัวนี้อยู่ในชั้นที่ 5) <strong>การหมุนชุดเดิมถูกใช้ซ้ำกับทุกจุด</strong> ของที่เราอยากได้จึงเป็นวิธีเก็บ "การหมุนชุดนี้" ไว้เป็นก้อนเดียว คิดครั้งเดียว แล้วเอาไปใช้กับจุดทั้งกองซ้ำ ๆ โดยไม่ต้องแทนค่าใหม่ทุกครั้ง
   </p>
   <p>
-    บวกเวกเตอร์คือเดินตามลูกศรแรกจนสุดแล้วเดินตามลูกศรที่สองต่อ คูณเวกเตอร์ด้วยเลขคือยืดหรือหดมันโดยไม่เปลี่ยนทิศ และเวกเตอร์ที่ยาว 1 พอดี เรียกว่า <strong>เวกเตอร์หนึ่งหน่วย</strong> มันคือลูกศรที่เก็บแต่ทิศ ทิ้งความยาวไปแล้ว
+    ก่อนจะไปดูหน้าตาของมัน ขอเดินไปหามันสามช่องครับ ช่องแรกเขียนจุดหนึ่งจุดใหม่ให้เป็น <strong>การเดินตามแกน</strong> จุด <code>(2, 1)</code> คือเดินตามแกนแรก 2 ก้าว แล้วเดินตามแกนที่สองอีก 1 ก้าว ช่องที่สองหมุนทั้งระนาบ ลูกศรของแกนทั้งสองย้ายไปที่ใหม่ แต่ <strong>จำนวนก้าวยังเป็น 2 กับ 1 เท่าเดิม</strong> เพราะจุดนั้นถูกหมุนไปพร้อมแกนทั้งแผ่น ช่องที่สามจึงเหลืองานเดียว คือจดปลายทางของสองแกนลงตาราง เพราะจำนวนก้าวไม่เปลี่ยน รู้แค่ปลายทางของแกนก็ประกอบจุดใหม่ได้ทุกจุด
   </p>
-  <p>
-    ทีนี้ถึงประโยคที่สำคัญที่สุดในหัวข้อนี้
-  </p>
+
+  <ZoomableDiagram caption="จำนวนก้าวไม่เคยเปลี่ยน เปลี่ยนแค่ว่าแกนที่ก้าวตามนั้นย้ายไปอยู่ที่ไหน ตารางสองคอลัมน์จึงเก็บการหมุนทั้งชุดไว้ได้ครบ">
+    <svg viewBox="0 0 516 212" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="สามช่องเรียงกัน ช่องแรกจุดหนึ่งจุดเขียนเป็นการเดินสองก้าวตามแกนแรกและหนึ่งก้าวตามแกนที่สอง ช่องที่สองแกนทั้งสองถูกหมุนไปสามสิบองศาแต่จำนวนก้าวเท่าเดิม ช่องที่สามคือตารางสองคอลัมน์ที่จดปลายทางของสองแกนไว้" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="mo-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="mo-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#c084fc"/>
+        </marker>
+      </defs>
+
+      <text x="80" y="26" font-size="11.5" font-weight="700" fill="#c3cbdc" text-anchor="middle">1 · จุดคือจำนวนก้าว</text>
+      <line x1="60" y1="150" x2="60" y2="96" stroke="#39435c" stroke-width="1"/>
+      <line x1="40" y1="150" x2="150" y2="150" stroke="#39435c" stroke-width="1"/>
+      <path d="M60 150 L128 150 L128 116" fill="none" stroke="#8a97ad" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <line x1="60" y1="150" x2="94" y2="150" stroke="#4ade80" stroke-width="2.2" marker-end="url(#mo-g)"/>
+      <line x1="60" y1="150" x2="60" y2="116" stroke="#c084fc" stroke-width="2.2" marker-end="url(#mo-p)"/>
+      <circle cx="128" cy="116" r="4.5" fill="#e0b400"/>
+      <text x="136" y="112" font-size="10.5" fill="#e0b400">(2, 1)</text>
+      <text x="98" y="166" font-size="10.5" fill="#4ade80" text-anchor="middle">2 ก้าว</text>
+      <text x="54" y="106" font-size="10.5" fill="#c084fc" text-anchor="end">1 ก้าว</text>
+
+      <text x="262" y="26" font-size="11.5" font-weight="700" fill="#c3cbdc" text-anchor="middle">2 · หมุนแกน ไม่หมุนจำนวนก้าว</text>
+      <line x1="240" y1="150" x2="240" y2="96" stroke="#39435c" stroke-width="1"/>
+      <line x1="205" y1="150" x2="330" y2="150" stroke="#39435c" stroke-width="1"/>
+      <path d="M240 150 L298.8 116 L281.8 86.6" fill="none" stroke="#8a97ad" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <line x1="240" y1="150" x2="274.6" y2="130" stroke="#4ade80" stroke-width="2.2" marker-end="url(#mo-g)"/>
+      <line x1="240" y1="150" x2="220" y2="115.4" stroke="#c084fc" stroke-width="2.2" marker-end="url(#mo-p)"/>
+      <circle cx="281.8" cy="86.6" r="4.5" fill="#e0b400"/>
+      <text x="290" y="82" font-size="10.5" fill="#e0b400">จุดเดิมหลังหมุน</text>
+      <text x="268" y="174" font-size="10.5" fill="#4ade80" text-anchor="middle">ยัง 2 ก้าว</text>
+      <text x="214" y="104" font-size="10.5" fill="#c084fc" text-anchor="end">ยัง 1 ก้าว</text>
+
+      <text x="440" y="26" font-size="11.5" font-weight="700" fill="#c3cbdc" text-anchor="middle">3 · จดปลายทางของสองแกน</text>
+      <rect x="378" y="44" width="124" height="70" rx="6" fill="#101a2c" stroke="#39435c" stroke-width="1"/>
+      <text x="410" y="66" font-size="10.5" fill="#4ade80" text-anchor="middle">แกนแรก</text>
+      <text x="470" y="66" font-size="10.5" fill="#c084fc" text-anchor="middle">แกนที่สอง</text>
+      <text x="410" y="88" font-size="12" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0.87</text>
+      <text x="470" y="88" font-size="12" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">-0.50</text>
+      <text x="410" y="106" font-size="12" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0.50</text>
+      <text x="470" y="106" font-size="12" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0.87</text>
+      <text x="440" y="136" font-size="11" font-weight="700" fill="#e0b400" text-anchor="middle">ตารางใบนี้คือเมทริกซ์</text>
+      <text x="440" y="154" font-size="10.5" fill="#8a97ad" text-anchor="middle">ตัวเลขชุดนี้คือกรณีหมุน 30 องศา</text>
+
+      <text x="80" y="196" font-size="10.5" fill="#8a97ad" text-anchor="middle">เขียนจุดใหม่เป็นก้าว</text>
+      <text x="262" y="196" font-size="10.5" fill="#8a97ad" text-anchor="middle">แกนย้าย ก้าวไม่ย้าย</text>
+      <text x="400" y="196" font-size="10.5" fill="#8a97ad" text-anchor="middle">เก็บแค่ปลายทางก็พอ</text>
+    </svg>
+  </ZoomableDiagram>
+
   <p class="pull">
     เมทริกซ์ไม่ใช่ตารางตัวเลข มันคือใบบันทึกว่าแกนเดิมไปโผล่ที่ไหนหลังการแปลง
   </p>
 
   <figure class="toy" data-toy="t7">
     <canvas class="toy-canvas" data-t7-canvas role="img" aria-label="ลูกศรสองอันที่แทนแกน x และแกน y พร้อมรูปสี่เหลี่ยมที่บิดตามแกนทั้งสอง"></canvas>
+    <div class="matwrap">
+      <span class="matlab">M =</span>
+      <span class="matbrk">(</span>
+      <table class="mat">
+        <tbody>
+          <tr><td class="mc1" data-t7-m00></td><td class="mc2" data-t7-m01></td></tr>
+          <tr><td class="mc1" data-t7-m10></td><td class="mc2" data-t7-m11></td></tr>
+        </tbody>
+      </table>
+      <span class="matbrk">)</span>
+    </div>
+    <p class="mat-sym" data-t7-sym></p>
+    <div class="toy-bar toy-presets">
+      <button type="button" class="btn" data-t7-preset="0,1,0,1">แกนมาตรฐาน</button>
+      <button type="button" class="btn" data-t7-preset="rot30">หมุน 30°</button>
+      <button type="button" class="btn" data-t7-preset="rot90">หมุน 90°</button>
+      <button type="button" class="btn" data-t7-preset="flip">พลิกกระจก</button>
+      <button type="button" class="btn" data-t7-preset="scale">ยืดสองเท่า</button>
+    </div>
     <div class="toy-grid">
       <div class="toy-bar">
-        <label class="toy-label" for="t7-ax">ปลายแกน x แนวนอน</label>
-        <input id="t7-ax" class="toy-range" type="range" min="-2" max="2" step="0.05" value="1" data-t7-ax />
+        <label class="toy-label" for="t7-ax">ช่องบนซ้าย · ปลายแกน x แนวนอน</label>
+        <input id="t7-ax" class="toy-range" type="range" min="-2" max="2" step="0.01" value="1" data-t7-ax />
         <output class="toy-out" data-t7-ax-out></output>
       </div>
       <div class="toy-bar">
-        <label class="toy-label" for="t7-ay">ปลายแกน x แนวตั้ง</label>
-        <input id="t7-ay" class="toy-range" type="range" min="-2" max="2" step="0.05" value="0" data-t7-ay />
+        <label class="toy-label" for="t7-ay">ช่องล่างซ้าย · ปลายแกน x แนวตั้ง</label>
+        <input id="t7-ay" class="toy-range" type="range" min="-2" max="2" step="0.01" value="0" data-t7-ay />
         <output class="toy-out" data-t7-ay-out></output>
       </div>
       <div class="toy-bar">
-        <label class="toy-label" for="t7-bx">ปลายแกน y แนวนอน</label>
-        <input id="t7-bx" class="toy-range" type="range" min="-2" max="2" step="0.05" value="0" data-t7-bx />
+        <label class="toy-label" for="t7-bx">ช่องบนขวา · ปลายแกน y แนวนอน</label>
+        <input id="t7-bx" class="toy-range" type="range" min="-2" max="2" step="0.01" value="0" data-t7-bx />
         <output class="toy-out" data-t7-bx-out></output>
       </div>
       <div class="toy-bar">
-        <label class="toy-label" for="t7-by">ปลายแกน y แนวตั้ง</label>
-        <input id="t7-by" class="toy-range" type="range" min="-2" max="2" step="0.05" value="1" data-t7-by />
+        <label class="toy-label" for="t7-by">ช่องล่างขวา · ปลายแกน y แนวตั้ง</label>
+        <input id="t7-by" class="toy-range" type="range" min="-2" max="2" step="0.01" value="1" data-t7-by />
         <output class="toy-out" data-t7-by-out></output>
       </div>
     </div>
     <p class="toy-read" data-t7-read></p>
-    <figcaption>ลากปลายลูกศรด้วยเมาส์ได้ หรือใช้สไลเดอร์ก็ได้ ตัวเลขสี่ตัวข้างบนคือเมทริกซ์ทั้งใบ</figcaption>
+    <figcaption>คอลัมน์ซ้ายสีเขียวคือปลายทางของแกน x คอลัมน์ขวาสีเหลืองคือปลายทางของแกน y กดปุ่มลัดแล้วดูว่าตัวเลขในเมทริกซ์เปลี่ยนตามลูกศรยังไง</figcaption>
   </figure>
+
   <p>
-    คอลัมน์แรกของเมทริกซ์คือตำแหน่งใหม่ของแกน <code>x</code> คอลัมน์ที่สองคือตำแหน่งใหม่ของแกน <code>y</code> เท่านั้นเอง ที่เหลือตามมาเองหมด
+    ที่ต้องเห็นให้ได้คือ <strong>คอลัมน์แรกคือตำแหน่งใหม่ของแกน x คอลัมน์ที่สองคือของแกน y</strong> ที่เหลือตามมาเอง เพราะการคูณเมทริกซ์กับเวกเตอร์คือ <strong>การผสมคอลัมน์ตามน้ำหนัก</strong>
+  </p>
+
+  <p>
+    ถ้าคุณเคยเรียนเมทริกซ์มาแล้ว ตรงนี้อาจสะดุด เพราะในห้องเรียนเราคูณแบบ <strong>แถวคูณคอลัมน์</strong> คือไล่ทีละช่องผลลัพธ์ เอาแถวของเมทริกซ์คูณกับเวกเตอร์แล้วบวกกัน ส่วนบทความนี้พูดว่า <strong>ผสมคอลัมน์ตามน้ำหนัก</strong> สองอันนี้คือการคูณอันเดียวกันเป๊ะ ต่างกันแค่ลำดับที่เราเก็บตัวเลข วิธีแรกอ่านตามแนวนอนทีละช่องผลลัพธ์ วิธีที่สองอ่านตามแนวตั้งทีละก้าว พอบวกครบทั้งสองวิธีก็ได้เลขชุดเดียวกัน
+  </p>
+
+  <ZoomableDiagram caption="สองวิธีนี้หยิบตัวเลขคนละลำดับ แต่บวกครบแล้วได้ตัวเลขชุดเดียวกัน วิธีผสมคอลัมน์ถูกเลือกมาเล่าเพราะมันตอบตรง ๆ ว่าแกนเดิมไปโผล่ที่ไหน">
+    <svg viewBox="0 0 496 212" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เทียบการคูณเมทริกซ์สองมุมมองบนตัวอย่างเดียวกัน ฝั่งซ้ายคือแถวคูณคอลัมน์ ฝั่งขวาคือผสมคอลัมน์ตามน้ำหนัก ทั้งสองฝั่งได้ผลลัพธ์เท่ากันคือ สาม กับ สิบเอ็ด" style="font-family:'Sarabun',sans-serif">
+      <text x="128" y="24" font-size="11.5" font-weight="700" fill="#7db4f5" text-anchor="middle">แบบที่เรียนมา · แถวคูณคอลัมน์</text>
+      <text x="380" y="24" font-size="11.5" font-weight="700" fill="#4ade80" text-anchor="middle">แบบที่บทความนี้ใช้ · ผสมคอลัมน์</text>
+      <line x1="254" y1="38" x2="254" y2="186" stroke="#39435c" stroke-width="1"/>
+
+      <text x="128" y="60" font-size="12.5" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">M = (1 2 ; 3 4)   v = (1, 2)</text>
+      <text x="380" y="60" font-size="12.5" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">M = (1 2 ; 3 4)   v = (1, 2)</text>
+
+      <text x="128" y="94" font-size="12" fill="#7db4f5" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">1*1 + 2*2 = 5</text>
+      <text x="128" y="116" font-size="12" fill="#7db4f5" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">3*1 + 4*2 = 11</text>
+      <text x="128" y="142" font-size="10.5" fill="#8a97ad" text-anchor="middle">หยิบทีละแถว ได้ผลลัพธ์ทีละช่อง</text>
+
+      <text x="380" y="94" font-size="12" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">1*(1, 3) = (1, 3)</text>
+      <text x="380" y="116" font-size="12" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">2*(2, 4) = (4, 8)</text>
+      <text x="380" y="142" font-size="10.5" fill="#8a97ad" text-anchor="middle">เดินตามคอลัมน์แรก 1 ก้าว ตามคอลัมน์ที่สอง 2 ก้าว</text>
+
+      <text x="128" y="174" font-size="13" font-weight="700" fill="#e0b400" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">(5, 11)</text>
+      <text x="380" y="174" font-size="13" font-weight="700" fill="#e0b400" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">(1+4, 3+8) = (5, 11)</text>
+      <text x="254" y="200" font-size="11" font-weight="700" fill="#e0b400" text-anchor="middle">ผลลัพธ์เดียวกัน</text>
+    </svg>
+  </ZoomableDiagram>
+
+
+  <div class="sim" data-sim="s4" data-steps={JSON.stringify(s4Steps.map((x) => x.say))}>
+    <div class="sim-view">
+      {s4Steps.map((x, i) => (
+        <div class="sim-slide" data-slide={i} set:html={x.svg} />
+      ))}
+    </div>
+    <p class="sim-say" data-sim-say></p>
+    <div class="sim-ctrl">
+      <button type="button" class="btn" data-sim-first aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+      <button type="button" class="btn" data-sim-prev aria-label="ย้อนหนึ่งขั้น">ย้อน</button>
+      <button type="button" class="btn" data-sim-play aria-label="เล่นทีละขั้นอัตโนมัติ">เล่น</button>
+      <button type="button" class="btn" data-sim-next aria-label="ไปขั้นถัดไป">ถัดไป</button>
+      <button type="button" class="btn" data-sim-last aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+      <input class="sim-range" type="range" min="0" max={s4Steps.length - 1} step="1" value="0" data-sim-range aria-label="เลือกขั้นที่ต้องการดู" />
+      <span class="sim-count" data-sim-count></span>
+    </div>
+  </div>
+
+  <h3>กดปุ่มหมุน {S5_DEG} องศา แล้วเลขสี่ตัวนั้นมาจากไหน</h3>
+
+  <p>
+    ปุ่มลัดในของเล่นเปลี่ยนตัวเลขให้เลย ซึ่งดูเหมือนเวทมนตร์ ทั้งที่มันคือการตอบคำถามสองข้อเท่านั้น <strong>แกน x ไปโผล่ที่ไหน</strong> และ <strong>แกน y ไปโผล่ที่ไหน</strong> ทั้งสองข้อตอบด้วยสูตรวงกลมจากชั้นที่ 1 ล้วน ๆ กดเดินทีละขั้นดูได้ครับ ขั้นสุดท้ายคือการตรวจคำตอบด้วยวิธีที่ไม่ใช้เมทริกซ์เลย
+  </p>
+
+  <div class="sim" data-sim="s5" data-steps={JSON.stringify(s5Steps.map((x) => x.say))}>
+    <div class="sim-view">
+      {s5Steps.map((x, i) => (
+        <div class="sim-slide" data-slide={i} set:html={x.tex} />
+      ))}
+    </div>
+    <p class="sim-say" data-sim-say></p>
+    <div class="sim-ctrl">
+      <button type="button" class="btn" data-sim-first aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+      <button type="button" class="btn" data-sim-prev aria-label="ย้อนหนึ่งขั้น">ย้อน</button>
+      <button type="button" class="btn" data-sim-play aria-label="เล่นทีละขั้นอัตโนมัติ">เล่น</button>
+      <button type="button" class="btn" data-sim-next aria-label="ไปขั้นถัดไป">ถัดไป</button>
+      <button type="button" class="btn" data-sim-last aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+      <input class="sim-range" type="range" min="0" max={s5Steps.length - 1} step="1" value="0" data-sim-range aria-label="เลือกขั้นที่ต้องการดู" />
+      <span class="sim-count" data-sim-count></span>
+    </div>
+  </div>
+
+  <p>
+    ตอนนี้ตอบคำถามที่ค้างไว้ตอนต้นหัวข้อได้แล้ว ที่เมทริกซ์ช่วยคือ <strong>มันแยกงานสองอย่างออกจากกัน</strong> งานแรกคือคิดว่าการหมุนชุดนี้พาแกนไปไหน ซึ่งคิดครั้งเดียวต่อเฟรม งานที่สองคือเอาผลนั้นไปใช้กับจุดแต่ละจุด ซึ่งเหลือแค่การคูณกับบวก โค้ดจริงก็ทำแบบนี้ มันคำนวณไซน์กับโคไซน์ของ <code>A</code> และ <code>B</code> ไว้ก่อนนอกลูป แล้วในลูปเหลือแต่การคูณกับบวกล้วน ๆ
+  </p>
+
+  <ZoomableDiagram caption={`ฝั่งซ้ายทำครั้งเดียวต่อเฟรม ฝั่งขวาทำซ้ำ ${pointsPerFrame.toLocaleString('en-US')} ครั้ง เมทริกซ์คือเส้นแบ่งระหว่างสองฝั่งนี้ ของที่คิดครั้งเดียวจึงไม่ไหลเข้าไปอยู่ในลูป`}>
+    <svg viewBox="0 0 516 224" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ภาพแบ่งซ้ายขวา ฝั่งซ้ายคือการคิดไซน์และโคไซน์ของมุมเอกับบีหนึ่งครั้งต่อเฟรมแล้วประกอบเป็นเมทริกซ์หนึ่งใบ ฝั่งขวาคือจุดแต่ละจุดไหลผ่านเมทริกซ์ใบเดิมโดยเหลือแค่การคูณกับบวก" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="fr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+
+      <text x="120" y="24" font-size="11.5" font-weight="700" fill="#4ade80" text-anchor="middle">ครั้งเดียวต่อเฟรม · นอกลูป</text>
+      <text x="372" y="24" font-size="11.5" font-weight="700" fill="#7db4f5" text-anchor="middle">ทุกจุด · ในลูป</text>
+      <line x1="246" y1="36" x2="246" y2="212" stroke="#39435c" stroke-width="1" stroke-dasharray="5 4"/>
+
+      <rect x="26" y="40" width="188" height="58" rx="6" fill="#101a2c" stroke="#39435c" stroke-width="1"/>
+      <text x="120" y="60" font-size="10.5" fill="#c3cbdc" text-anchor="middle">คิดไซน์กับโคไซน์ของ A และ B</text>
+      <text x="120" y="80" font-size="11.5" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">{`cosA=${f3(Math.cos(S1.A))} sinA=${f3(Math.sin(S1.A))}`}</text>
+      <text x="120" y="94" font-size="11.5" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">{`cosB=${f3(Math.cos(S1.B))} sinB=${f3(Math.sin(S1.B))}`}</text>
+
+      <line x1="120" y1="100" x2="120" y2="124" stroke="#e0b400" stroke-width="1.4" marker-end="url(#fr-a)"/>
+      <rect x="52" y="130" width="136" height="52" rx="6" fill="#12301f" stroke="#4ade80" stroke-width="1.2"/>
+      <text x="120" y="152" font-size="11" font-weight="700" fill="#4ade80" text-anchor="middle">เมทริกซ์หนึ่งใบ 9 ช่อง</text>
+      <text x="120" y="170" font-size="10.5" fill="#8a97ad" text-anchor="middle">เก็บการหมุนทั้งชุดไว้ครบ</text>
+      <text x="120" y="204" font-size="10.5" fill="#8a97ad" text-anchor="middle">4 ครั้งต่อเฟรม</text>
+
+      <rect x="278" y="40" width="212" height="42" rx="6" fill="#101a2c" stroke="#39435c" stroke-width="1"/>
+      <text x="384" y="58" font-size="10.5" fill="#c3cbdc" text-anchor="middle">จุดหนึ่งจุดจากชั้นที่ 2</text>
+      <text x="384" y="76" font-size="11.5" fill="#7db4f5" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">{`(${f3(s1Swept.x)}, ${f3(s1Swept.y)}, ${f3(s1Swept.z)})`}</text>
+      <line x1="384" y1="84" x2="384" y2="108" stroke="#e0b400" stroke-width="1.4" marker-end="url(#fr-a)"/>
+      <text x="392" y="102" font-size="10.5" fill="#e0b400">คูณ 9 ครั้ง บวก 6 ครั้ง</text>
+      <rect x="278" y="114" width="212" height="42" rx="6" fill="#101a2c" stroke="#39435c" stroke-width="1"/>
+      <text x="384" y="132" font-size="10.5" fill="#c3cbdc" text-anchor="middle">จุดเดิมหลังหมุนด้วย A แล้ว B</text>
+      <text x="384" y="150" font-size="11.5" fill="#e0b400" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">{`(${f3(s1Rot.x)}, ${f3(s1Rot.y)}, ${f3(s1Rot.z)})`}</text>
+      <text x="384" y="180" font-size="10.5" fill="#8a97ad" text-anchor="middle">{`ทำซ้ำแบบนี้ ${pointsPerFrame.toLocaleString('en-US')} รอบ ด้วยเมทริกซ์ใบเดิม`}</text>
+      <text x="356" y="202" font-size="10.5" fill="#8a97ad" text-anchor="middle">ไม่มีไซน์โคไซน์เหลืออยู่ในลูปเลย</text>
+    </svg>
+  </ZoomableDiagram>
+
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>เมทริกซ์</strong> (matrix) อ่านว่า <strong>"เมทริกซ์"</strong> มาจากละติน <i>matrix</i> ที่แปลว่า <strong>แม่พิมพ์</strong> หรือมดลูก คือของที่ใช้ปั๊มของอย่างอื่นออกมา ซึ่งตรงกับหน้าที่ของมันพอดี คือเป็นตัวแปลงที่รับของเข้าไปแล้วปั๊มของใหม่ออกมา
+    </p>
+  </div>
+
+  <h3>พอรู้สองอย่างนี้ สูตรหมุนก็ไม่ต้องท่อง</h3>
+
+  <p>
+    เริ่มจากคอลัมน์แรกก่อน แกน <code>x</code> คือลูกศรยาว 1 ที่ชี้ไปทางขวา ซึ่งก็คือจุดบนวงกลมรัศมี 1 ที่มุม 0 พอดี พอเห็นว่ามันเป็นจุดบนวงกลมอยู่แล้ว การหมุนมันไป <i>θ</i> จึงแปลว่าเลื่อนมันไปที่มุม <i>θ</i> ตรง ๆ คือ <code>(cos θ, sin θ)</code> ตามสูตรวงกลมของชั้นที่ 1 ลองกดปุ่มหมุน 30 องศาข้างบน แล้วเทียบคอลัมน์แรกกับ <code>cos 30° = 0.87</code> และ <code>sin 30° = 0.50</code> ดูครับ
   </p>
   <p>
-    เพราะการคูณเมทริกซ์กับเวกเตอร์คือ <strong>การผสมคอลัมน์ตามน้ำหนัก</strong> จุด <code>(3, 2)</code> แปลว่าเดินตามแกนที่หนึ่งสามก้าว แล้วเดินตามแกนที่สองสองก้าว พอแกนย้ายที่ เราก็เดินสูตรเดิมบนแกนใหม่ ได้ตำแหน่งใหม่ของจุดนั้นออกมา
+    คอลัมน์ที่สองใช้ข้อเท็จจริงอีกข้อ คือ <strong>แกน <code>y</code> ก็คือแกน <code>x</code> ที่หมุนไปแล้ว 90 องศา</strong> พอหมุนทั้งระนาบไปอีก <i>θ</i> มันจึงไปนั่งที่มุม <i>θ</i> บวก 90 ซึ่งบนวงกลมวงเดิมคือ <code>(−sin θ, cos θ)</code> ข้อนี้ไม่ต้องใช้แคลคูลัสเลย ใครอยากเห็นเป็นภาพ ของเล่นเส้นสัมผัสในชั้นที่ 1 แสดงไว้ให้แล้ว
   </p>
   <p>
-    แล้วเมทริกซ์หมุนล่ะ ก็คือใบบันทึกที่แกนถูกหมุนไป ถ้าหมุนไปเป็นมุม <i>θ</i> แกน <code>x</code> ที่เคยชี้ไปทางขวาจะไปอยู่ที่ไหน มันไปอยู่บนวงกลมรัศมี 1 ที่มุม <i>θ</i> พอดี ก็คือ <code>(cos θ, sin θ)</code> ซึ่งคุณได้มาจากชั้นที่ 1 แล้ว <strong>สูตรหมุนจึงไม่มีอะไรให้ท่องเลย มันคือคำถามว่าแกนไปโผล่ที่ไหน</strong>
+    เอาสองคอลัมน์นี้ไปผสมตามน้ำหนัก ก็ได้สูตรหมุนที่จดไปใช้ได้เลยสองบรรทัด ขอตั้งชื่อจุดหลังหมุนว่า <code>x'</code> กับ <code>y'</code> อ่านว่า <strong>เอ็กซ์ไพรม์</strong> กับ <strong>วายไพรม์</strong> ขีดเดียวข้างบนแปลว่า <strong>ตัวเดิมที่ผ่านการหมุนมาแล้ว</strong> ส่วน <code>x</code> กับ <code>y</code> เปล่า ๆ คือจุดก่อนหมุน
+  </p>
+  <div set:html={ROT2D} />
+  <p>
+    บรรทัดบนคือ เดินตามคอลัมน์แรก <code>x</code> ก้าว แล้วเดินตามคอลัมน์ที่สองอีก <code>y</code> ก้าว แล้วอ่านเฉพาะค่าตามแนวนอน บรรทัดล่างคืออันเดียวกันแต่อ่านตามแนวตั้ง เครื่องหมายลบบรรทัดบนมาจาก <code>−sin θ</code> ในคอลัมน์ที่สอง ไม่ได้มาจากที่ไหนอื่น
+  </p>
+  <p>
+    เหลืออีกสองข้อที่ต้องรู้ก่อนไปเจอสูตรจริง ข้อแรก <strong>ลำดับการหมุนสลับกันไม่ได้</strong> ข้อสอง <strong>การหมุนไม่ยืดไม่หดอะไรเลย</strong> ระยะทุกระยะกับมุมทุกมุมเท่าเดิม ซึ่งเป็นใบอนุญาตให้เราหมุนทิศตั้งฉากของผิวตามไปด้วยแบบดื้อ ๆ ในชั้นที่ 6
   </p>
 
   <figure class="toy" data-toy="t8">
@@ -907,10 +1631,20 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <div>
         <p class="toy-cap">หมุน A ก่อน แล้วค่อย B</p>
         <canvas class="toy-canvas toy-canvas-sm" data-t8-ab role="img" aria-label="โครงลวดโดนัทที่หมุนด้วยมุม A ก่อนแล้วจึงมุม B"></canvas>
+        <table class="mat3" data-t8-mat-ab><tbody>
+          <tr><td></td><td></td><td></td></tr>
+          <tr><td></td><td></td><td></td></tr>
+          <tr><td></td><td></td><td></td></tr>
+        </tbody></table>
       </div>
       <div>
         <p class="toy-cap">หมุน B ก่อน แล้วค่อย A</p>
         <canvas class="toy-canvas toy-canvas-sm" data-t8-ba role="img" aria-label="โครงลวดโดนัทที่หมุนด้วยมุม B ก่อนแล้วจึงมุม A"></canvas>
+        <table class="mat3" data-t8-mat-ba><tbody>
+          <tr><td></td><td></td><td></td></tr>
+          <tr><td></td><td></td><td></td></tr>
+          <tr><td></td><td></td><td></td></tr>
+        </tbody></table>
       </div>
     </div>
     <div class="toy-bar">
@@ -923,44 +1657,80 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <input id="t8-b" class="toy-range" type="range" min="0" max="360" step="2" value="70" data-t8-b />
       <output class="toy-out" data-t8-b-out></output>
     </div>
-    <figcaption>มุมสองตัวเท่ากันทั้งสองฝั่ง ต่างกันแค่ว่าใครมาก่อน</figcaption>
+    <p class="toy-read" data-t8-read></p>
+    <figcaption>มุมสองตัวเท่ากันทั้งสองฝั่ง ต่างกันแค่ว่าใครมาก่อน ตัวเลขใต้ภาพคือเมทริกซ์ที่ได้จริงของแต่ละฝั่ง</figcaption>
   </figure>
-
-  <p>
-    อีกข้อที่ต้องรู้ก่อนไปต่อ <strong>ลำดับการหมุนสลับกันไม่ได้</strong> หมุนหนังสือรอบแกนตั้งก่อนแล้วค่อยรอบแกนนอน กับทำสลับกัน ได้ผลคนละแบบ ลองหยิบมือถือขึ้นมาหมุนดูก็ได้ครับ นี่คือเหตุผลที่ในโค้ดต้องหมุนด้วย <code>A</code> ก่อนแล้วค่อย <code>B</code> เสมอ
-  </p>
-  <p>
-    ข้อสุดท้าย <strong>การหมุนไม่ยืดไม่หดอะไรเลย</strong> ระยะทุกระยะเท่าเดิม มุมทุกมุมเท่าเดิม ข้อนี้ดูเหมือนพูดเล่น แต่มันคือใบอนุญาตให้เราหมุนทิศตั้งฉากของผิวตามไปด้วยแบบดื้อ ๆ ในชั้นที่ 6 โดยไม่ต้องคำนวณใหม่
-  </p>
-  <div class="callout callout-note">
-    <p class="callout-label">แกะคำศัพท์</p>
-    <p>
-      <strong>เมทริกซ์</strong> (matrix) อ่านว่า <strong>"เมทริกซ์"</strong> มาจากละติน <i>matrix</i> ที่แปลว่า <strong>แม่พิมพ์</strong> หรือมดลูก คือของที่ใช้ปั๊มของอย่างอื่นออกมา ซึ่งตรงกับหน้าที่ของมันพอดี คือเป็นตัวแปลงที่รับของเข้าไปแล้วปั๊มของใหม่ออกมา
-    </p>
-  </div>
-
   <details class="expander">
-    <summary>หมุนจุดไปเป็นมุมหนึ่ง แล้วพิกัดใหม่มาจากไหน</summary>
+    <summary>สองข้อที่ต้องพิสูจน์ก่อนจะเชื่อสูตรหมุน</summary>
     <div class="expander-body">
+      <p><strong>ข้อแรก พิกัดใหม่หลังหมุนมาจากไหน</strong></p>
       <p>
-        เอาเรื่องแกนไปโผล่ที่ไหนมาเขียนเป็นสูตร จุด <code>(x, y)</code> คือเดินตามแกนแรก <code>x</code> ก้าว แล้วเดินตามแกนที่สอง <code>y</code> ก้าว พอหมุนไป <i>θ</i> แกนแรกย้ายไปอยู่ที่ <code>(cos θ, sin θ)</code> ส่วนแกนที่สองย้ายไปอยู่ที่ <code>(−sin θ, cos θ)</code> คือแกนแรกที่หมุนต่อไปอีก 90 องศา เดินสูตรเดิมบนแกนใหม่ก็ได้พิกัดใหม่ออกมา
+        ขอปักหมุดก่อนว่ากล่องนี้ยืนอยู่บนอะไร ของที่เราถือว่าจริงมีข้อเดียว คือ <strong>จุดที่มุม <i>θ</i> บนวงกลมรัศมี 1 อยู่ที่ <code>(cos θ, sin θ)</code></strong> ซึ่งเป็นนิยามของโคไซน์กับไซน์ตั้งแต่ชั้นที่ 1 ทุกอย่างที่เหลือในกล่องนี้งอกออกมาจากข้อเดียวนี้ รวมทั้งสูตรผลรวมมุมที่หลายคนเคยท่องด้วย
       </p>
       <p>
-        ผลลัพธ์ที่ได้คือสูตรผลรวมมุม ซึ่งเป็นสูตรเดียวกับที่หลายคนเคยท่องกันมา
+        เอาเรื่องแกนไปโผล่ที่ไหนมาเขียนเป็นสูตร จุด <code>(x, y)</code> คือเดินตามแกนแรก <code>x</code> ก้าว แล้วเดินตามแกนที่สอง <code>y</code> ก้าว พอหมุนไป <i>θ</i> แกนแรกย้ายไปอยู่ที่ <code>(cos θ, sin θ)</code> ตรงตามของที่เราถือว่าจริง ส่วนแกนที่สองคือแกนแรกที่หมุนไปแล้วอีก 90 องศา ซึ่งชั้นที่ 1 แสดงให้เห็นด้วยของเล่นไปแล้วว่ามันคือ <code>(−sin θ, cos θ)</code> เดินสูตรเดิมบนแกนใหม่ทั้งสอง ก็ได้พิกัดใหม่ออกมา
       </p>
+      <p>
+        ทีนี้เอาเครื่องมือชิ้นนี้ไปหาสูตรผลรวมมุม วางจุดที่มุม <i>β</i> บนวงกลมรัศมี 1 พิกัดของมันคือ <code>(cos β, sin β)</code> แล้วหมุนทั้งระนาบไปอีก <i>α</i> ด้วยกฎที่เพิ่งเขียน จะได้พิกัดใหม่ชุดหนึ่ง แต่จุดนั้นก็คือจุดที่มุม <code>α + β</code> บนวงกลมวงเดิม ซึ่งพิกัดของมันคือ <code>(cos(α + β), sin(α + β))</code> ตามของที่เราถือว่าจริงอีกที จับสองฝั่งมาเทียบทีละแกน ก็ได้สองบรรทัดนี้
+      </p>
+      <ZoomableDiagram caption="จุดจุดเดียวถูกเรียกชื่อสองแบบ แบบแรกคือจุดที่มุม β ที่ถูกหมุนไปอีก α แบบที่สองคือจุดที่มุม α + β บนวงกลมวงเดิม เทียบสองชื่อนี้ทีละแกน ก็ได้สูตรผลรวมมุมออกมา">
+        <svg viewBox="0 0 360 350" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="วงกลมรัศมีหนึ่งหน่วย มีจุดสีเขียวอยู่ที่มุมเบตา และจุดสีเหลืองอยู่ที่มุมแอลฟาบวกเบตา มีส่วนโค้งลูกศรเดินจากจุดสีเขียวไปหาจุดสีเหลืองแทนการหมุนไปอีกแอลฟา และมีลูกศรสองอันจากจุดกำเนิดแทนแกนแรกกับแกนที่สองที่ถูกหมุนไปแล้วเช่นกัน" style="font-family:'Sarabun',sans-serif">
+          <defs>
+            <marker id="sa-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+            </marker>
+            <marker id="sa-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#7db4f5"/>
+            </marker>
+            <marker id="sa-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0 0 L10 5 L0 10 z" fill="#c084fc"/>
+            </marker>
+          </defs>
+
+          <line x1="40" y1="180" x2="330" y2="180" stroke="#39435c" stroke-width="1.2"/>
+          <line x1="170" y1="52" x2="170" y2="310" stroke="#39435c" stroke-width="1.2"/>
+          <text x="336" y="184" font-size="12" font-weight="700" fill="#6f7d95">x</text>
+          <text x="176" y="48" font-size="12" font-weight="700" fill="#6f7d95">y</text>
+          <circle cx="170" cy="180" r="118" fill="none" stroke="#4d72a9" stroke-width="1.3"/>
+
+          <line x1="170" y1="180" x2="73.3" y2="112.3" stroke="#c084fc" stroke-width="1.8" marker-end="url(#sa-c)"/>
+          <line x1="170" y1="180" x2="237.7" y2="83.3" stroke="#7db4f5" stroke-width="1.8" marker-end="url(#sa-b)"/>
+
+          <line x1="170" y1="180" x2="276.9" y2="130.1" stroke="#4ade80" stroke-width="1.6"/>
+          <circle cx="276.9" cy="130.1" r="5" fill="#4ade80"/>
+          <text x="288" y="140" font-size="10.5" font-weight="700" fill="#4ade80">จุดที่มุม β</text>
+          <text x="288" y="156" font-size="10.5" fill="#4ade80">(cos β, sin β)</text>
+
+          <line x1="170" y1="180" x2="190.5" y2="63.8" stroke="#e0b400" stroke-width="1.6"/>
+          <circle cx="190.5" cy="63.8" r="5" fill="#e0b400"/>
+          <text x="166" y="44" font-size="10.5" font-weight="700" fill="#e0b400" text-anchor="end">จุดเดิมหลังถูกหมุน</text>
+          <text x="140" y="61" font-size="10.5" fill="#e0b400" text-anchor="end">= จุดที่มุม α + β</text>
+
+          <path d="M293.3 122.5 A136 136 0 0 0 193.6 46.1" fill="none" stroke="#e0b400" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#sa-a)"/>
+          <text x="300" y="40" font-size="11.5" fill="#e0b400" text-anchor="middle">หมุนไปอีก α</text>
+
+          <circle cx="18" cy="312" r="4" fill="#7db4f5"/>
+          <text x="30" y="316" font-size="10.5" fill="#7db4f5">แกนแรกไปโผล่ที่ (cos α, sin α)</text>
+          <circle cx="18" cy="334" r="4" fill="#c084fc"/>
+          <text x="30" y="338" font-size="10.5" fill="#c084fc">แกนที่สองไปโผล่ที่ (−sin α, cos α)</text>
+        </svg>
+      </ZoomableDiagram>
       <div set:html={PRF.sumAngle} />
       <p>
-        และมันพิสูจน์ได้ด้วยรูปล้วน ๆ วางจุดที่มุม <i>β</i> บนวงกลมรัศมี 1 แล้วหมุนทั้งระนาบไป <i>α</i> พิกัดใหม่ของจุดนั้นต้องเท่ากับพิกัดของจุดที่มุม <code>α + β</code> เพราะมันคือจุดเดียวกัน จับสองฝั่งมาเทียบทีละแกน ก็ได้สองบรรทัดข้างบนโดยไม่ต้องท่องอะไรเลย
+        สังเกตทิศทางของกล่องนี้ให้ดี เราเดินจากกฎที่ว่าแกนไปโผล่ที่ไหน ไปหาสูตรผลรวมมุม ไม่ใช่ทางกลับกัน แปลว่า <strong>สูตรผลรวมมุมไม่ใช่ของที่ต้องยืมมาก่อนถึงจะหมุนเป็น มันเป็นผลพลอยได้ของการหมุน</strong> ใครท่องมันมาตั้งแต่มัธยมโดยไม่รู้ว่ามาจากไหน คำตอบอยู่ตรงนี้
       </p>
       <p>
-        ลองด้วยตัวเลขจริง <code>α = 30°</code> และ <code>β = 60°</code> ฝั่งซ้าย <code>cos 90° = 0</code> ฝั่งขวา <code>cos30 cos60 − sin30 sin60 = 0.866 × 0.5 − 0.5 × 0.866 = 0</code> ตรงกัน
+        ลองด้วยตัวเลขจริงที่ไม่ตกมุมพิเศษ ใช้ <code>α = 30°</code> กับ <code>β = 20°</code>
       </p>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>หมุนของแล้วทำไมความยาวถึงไม่เปลี่ยน</summary>
-    <div class="expander-body">
+      <ul>
+        <li>บรรทัดโคไซน์ ฝั่งซ้าย <code>cos 50° = 0.6428</code> ฝั่งขวา <code>cos30 cos20 − sin30 sin20 = 0.8660 × 0.9397 − 0.5000 × 0.3420 = 0.8138 − 0.1710 = 0.6428</code></li>
+        <li>บรรทัดไซน์ ฝั่งซ้าย <code>sin 50° = 0.7660</code> ฝั่งขวา <code>sin30 cos20 + cos30 sin20 = 0.5000 × 0.9397 + 0.8660 × 0.3420 = 0.4698 + 0.2962 = 0.7660</code></li>
+      </ul>
+      <p>
+        ที่ต้องเลี่ยงคือคู่ที่บวกกันได้ 90 พอดี เช่น 30 กับ 60 เพราะทั้งสองฝั่งจะเป็นศูนย์ แล้วสูตรที่ผิดก็ผ่านการตรวจแบบนั้นได้เหมือนกัน ลองสลับลำดับพจน์เป็น <code>sin α sin β − cos α cos β</code> ดูก็ได้ครับ ที่คู่ 30 กับ 60 มันยังได้ศูนย์อยู่ดี แต่ที่คู่ 30 กับ 20 มันได้ <code>0.1710 − 0.8138 = −0.6428</code> ซึ่งผิดทันที
+      </p>
+      <hr class="divider" />
+      <p><strong>ข้อที่สอง หมุนแล้วทำไมความยาวถึงไม่เปลี่ยน</strong></p>
       <p>
         ข้อนี้เป็นใบอนุญาตให้เราหมุนทิศตั้งฉากของผิวตามตัวโดนัทไปดื้อ ๆ ในชั้นที่ 6 โดยไม่ต้องคำนวณอะไรใหม่ พิสูจน์ตรง ๆ ได้จากสูตรหมุนที่เพิ่งได้มา
       </p>
@@ -992,16 +1762,14 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     </div>
   </details>
 
-  <hr class="divider" />
-
-  <h2>ชั้นที่ 3 จาก 6 · หมุนทั้งก้อน</h2>
+  <h3>สูตรหมุนที่อยู่ในโค้ดจริง</h3>
 
   <p>
-    โดนัทที่เราสร้างมาลอยนิ่งอยู่กับที่ ทีนี้จับมันหมุน โค้ดจริงหมุนสองรอบ คือรอบแกน <code>x</code> ด้วยมุม <code>A</code> แล้วรอบแกน <code>z</code> ด้วยมุม <code>B</code> ทุกเฟรมมันบวก <code>A</code> เพิ่ม <code>0.04</code> และ <code>B</code> เพิ่ม <code>0.02</code> โดนัทเลยหมุนแบบส่ายไปด้วยแทนที่จะหมุนอยู่แกนเดียว
+    โค้ดจริงหมุนสองรอบ คือรอบแกน <code>x</code> ด้วยมุม <code>A</code> แล้วรอบแกน <code>z</code> ด้วยมุม <code>B</code> ทุกเฟรมมันบวก <code>A</code> เพิ่ม <code>0.04</code> และ <code>B</code> เพิ่ม <code>0.02</code> โดนัทเลยหมุนแบบส่ายไปด้วยแทนที่จะหมุนอยู่แกนเดียว
   </p>
 
   <figure class="toy" data-toy="t3">
-    <canvas class="toy-canvas" data-t3-canvas role="img" aria-label="โครงลวดของโดนัทที่หมุนได้อิสระตามมุม A และ B ที่ตั้งไว้"></canvas>
+    <canvas class="toy-canvas" data-t3-canvas role="img" aria-label="โครงลวดของโดนัทที่หมุนได้อิสระตามมุม A และ B ที่ตั้งไว้ มีเส้นแกนสามเส้นลากผ่านกลางก้อน แกน x สีเขียว แกน y สีม่วง แกน z สีเหลือง แกนที่กำลังถูกหมุนรอบจะถูกเน้นให้หนาขึ้น"></canvas>
     <div class="toy-bar">
       <label class="toy-label" for="t3-a">มุม A รอบแกน x</label>
       <input id="t3-a" class="toy-range" type="range" min="0" max="360" step="1" value="55" data-t3-a />
@@ -1012,21 +1780,96 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <input id="t3-b" class="toy-range" type="range" min="0" max="360" step="1" value="25" data-t3-b />
       <output class="toy-out" data-t3-b-out></output>
     </div>
-    <figcaption>ลากบนภาพเพื่อหมุนก็ได้ครับ แกนสีที่ลากผ่านกลางโดนัทคือแกนที่มุมสองตัวนี้ใช้หมุน</figcaption>
+    <figcaption>เส้นสามเส้นที่ลากผ่านกลางโดนัทคือแกนทั้งสาม เขียวคือแกน x ม่วงคือแกน y เหลืองคือแกน z พอขยับมุมไหน แกนที่มุมนั้นหมุนรอบจะสว่างขึ้นพร้อมเครื่องหมาย ↻ ลากบนภาพเพื่อหมุนก็ได้ครับ ลากขึ้นลงคือหมุนรอบแกน x ลากซ้ายขวาคือหมุนรอบแกน z</figcaption>
   </figure>
   <p>
-    เอาสองการหมุนมาต่อกันแล้วแทนค่าจากชั้นที่ 2 เข้าไป จะได้บรรทัดยาวสามบรรทัดนี้ ซึ่งก็คือบรรทัดที่ทำให้คนปิดแท็บกันมาสิบกว่าปี
+    ทีนี้เขียนการหมุนสองรอบนี้ออกมาเป็นเมทริกซ์จริง ๆ ด้วยคำถามเดิมข้อเดียว <strong>แกนแต่ละแกนไปโผล่ที่ไหน</strong> เริ่มจากจุดที่เราได้มาจากชั้นที่ 2 เขียนเป็นเวกเตอร์คอลัมน์ก่อน ขอเรียกจุดตั้งต้นจุดนี้ว่า <code>p</code> และเรียกพิกัดสามตัวของมันว่า <code>x₀</code>, <code>y₀</code>, <code>z₀</code> เลขศูนย์ห้อยท้ายแปลว่ายังไม่ผ่านการหมุนอะไรเลย
+  </p>
+  <div set:html={MAT.point0} />
+  <p>
+    ตรงนี้มีการกระโดดหนึ่งจังหวะที่ต้องพูดให้ชัด ของทุกอย่างที่เล่ามาเป็นตาราง 2 คูณ 2 ในระนาบเดียว แต่โดนัทอยู่ในสามมิติ ท่าที่ใช้ข้ามคือ <strong>หมุนรอบแกนหนึ่ง ก็คืออีกสองแกนหมุนกันเองในระนาบของมัน ด้วยเมทริกซ์ 2 คูณ 2 ตัวเดิมที่เพิ่งเรียนไป</strong> แล้วเอาตารางเล็กใบนั้นฝังลงในตาราง 3 คูณ 3 ถ้าหลับตามองทะลุลงไปตามแกน <code>x</code> ภาพที่เห็นคือรูปสองมิติอันเดิมเป๊ะ มีแค่ชื่อแกนที่เปลี่ยนจาก <code>x</code> กับ <code>y</code> เป็น <code>y</code> กับ <code>z</code>
+  </p>
+
+  <ZoomableDiagram caption="แถวกับคอลัมน์ของแกนที่อยู่นิ่งเป็น 1 กับ 0 ล้วน เพราะแกนนั้นไม่ได้ไปไหนและไม่มีใครเดินตามมันเพิ่ม ที่เหลือคือตาราง 2 คูณ 2 ใบเดิมที่ฝังอยู่ตรงกลาง">
+    <svg viewBox="0 0 460 224" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ฝั่งซ้ายคือภาพที่มองทะลุลงไปตามแกน x เห็นแกน y กับแกน z หมุนกันเองด้วยมุม A ฝั่งขวาคือเมทริกซ์สามคูณสามที่มีตารางสองคูณสองฝังอยู่ตรงมุมล่างขวา ส่วนแถวแรกกับคอลัมน์แรกเป็นหนึ่งกับศูนย์" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="e3-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#c084fc"/>
+        </marker>
+        <marker id="e3-y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+        <marker id="e3-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8a97ad"/>
+        </marker>
+      </defs>
+
+      <text x="124" y="26" font-size="11.5" font-weight="700" fill="#c3cbdc" text-anchor="middle">มองทะลุลงไปตามแกน x</text>
+      <circle cx="124" cy="118" r="62" fill="none" stroke="#4d72a9" stroke-width="1.2"/>
+      <circle cx="124" cy="118" r="6" fill="none" stroke="#4ade80" stroke-width="1.6"/>
+      <circle cx="124" cy="118" r="2" fill="#4ade80"/>
+      <text x="136" y="132" font-size="10.5" fill="#4ade80">แกน x พุ่งเข้าหาตา</text>
+      <line x1="124" y1="118" x2="124" y2="62" stroke="#39435c" stroke-width="1" stroke-dasharray="4 3"/>
+      <line x1="124" y1="118" x2="180" y2="118" stroke="#39435c" stroke-width="1" stroke-dasharray="4 3"/>
+      <line x1="124" y1="118" x2="72" y2="97" stroke="#c084fc" stroke-width="2.2" marker-end="url(#e3-p)"/>
+      <line x1="124" y1="118" x2="145" y2="66" stroke="#e0b400" stroke-width="2.2" marker-end="url(#e3-y)"/>
+      <text x="62" y="90" font-size="11" font-weight="700" fill="#c084fc" text-anchor="end">y</text>
+      <text x="152" y="60" font-size="11" font-weight="700" fill="#e0b400">z</text>
+      <path d="M164 106 A 44 44 0 0 0 150 78" fill="none" stroke="#8a97ad" stroke-width="1.2" marker-end="url(#e3-a)"/>
+      <text x="186" y="86" font-size="11" fill="#8a97ad" text-anchor="middle">มุม A</text>
+      <text x="124" y="200" font-size="10.5" fill="#8a97ad" text-anchor="middle">ภาพนี้คือรูปสองมิติอันเดิม</text>
+
+      <text x="366" y="26" font-size="11.5" font-weight="700" fill="#c3cbdc" text-anchor="middle">ฝังลงในตาราง 3 คูณ 3</text>
+      <rect x="330" y="86" width="112" height="64" rx="5" fill="#12301f" stroke="#4ade80" stroke-width="1.2"/>
+      <text x="308" y="76" font-size="13" fill="#cdd6ea" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">1</text>
+      <text x="358" y="76" font-size="13" fill="#8a97ad" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0</text>
+      <text x="414" y="76" font-size="13" fill="#8a97ad" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0</text>
+      <text x="308" y="112" font-size="13" fill="#8a97ad" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0</text>
+      <text x="358" y="112" font-size="13" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">cos A</text>
+      <text x="414" y="112" font-size="13" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">-sin A</text>
+      <text x="308" y="140" font-size="13" fill="#8a97ad" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">0</text>
+      <text x="358" y="140" font-size="13" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">sin A</text>
+      <text x="414" y="140" font-size="13" fill="#4ade80" text-anchor="middle" style="font-family:'JetBrains Mono',monospace">cos A</text>
+      <text x="288" y="168" font-size="10.5" fill="#8a97ad">แถวกับคอลัมน์ของ x คือ 1 กับ 0 ล้วน</text>
+      <text x="288" y="186" font-size="10.5" fill="#4ade80">กรอบเขียวคือตาราง 2 คูณ 2 ใบเดิม</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    การหมุนรอบแกน <code>x</code> ด้วยมุม <code>A</code> ไม่แตะแกน <code>x</code> เลย มันจึงยังอยู่ที่เดิม นั่นคือคอลัมน์แรก ส่วนแกน <code>y</code> กับแกน <code>z</code> หมุนกันเองในระนาบที่เหลือ ด้วยสูตรวงกลมชุดเดิมเป๊ะ แกน <code>y</code> ไปโผล่ที่ <code>(cos A, sin A)</code> ของระนาบนั้น แล้วแกน <code>z</code> คือแกน <code>y</code> ที่หมุนต่อไปอีก 90 องศา จึงไปโผล่ที่ <code>(−sin A, cos A)</code> จดสามคอลัมน์นี้ลงตาราง ได้ใบบันทึกของการหมุนรอบแกน <code>x</code> ขอเรียกใบนี้ว่า <code>R</code> ห้อย <code>A</code> ตามชื่อมุมของมัน
+  </p>
+  <div set:html={MAT.rotA} />
+  <p>
+    การหมุนรอบแกน <code>z</code> ด้วยมุม <code>B</code> เล่าด้วยประโยคเดียวกันทุกคำ แค่ย้ายแกนที่อยู่นิ่งจาก <code>x</code> ไปเป็น <code>z</code> ใบบันทึกของมันเรียกว่า <code>R</code> ห้อย <code>B</code>
+  </p>
+  <div set:html={MAT.rotB} />
+  <p>
+    เอาสองใบมาต่อกัน หมุน <code>A</code> ก่อน แล้วค่อย <code>B</code> เขียนเป็นการคูณเมทริกซ์สองใบ ได้ใบเดียวที่เก็บการหมุนทั้งชุดไว้ครบ
+  </p>
+  <p>
+    ลำดับตรงนี้ชวนสะดุดตา เนื้อความบอกว่า <code>A</code> มาก่อน แต่ในสมการ <code>R</code> ห้อย <code>B</code> กลับไปอยู่ซ้ายมือ เหตุผลคือเวกเตอร์ของจุดถูกวางไว้ขวาสุดเสมอ การคูณจึงเดินจากขวาไปซ้าย ใบที่ติดกับจุดมากที่สุดคือใบที่ทำงานก่อน <strong>ตัวที่ทำทีหลังจึงอยู่ซ้าย</strong> อ่านออกเสียงว่า เอาจุดไปเข้าใบ <code>A</code> ก่อน แล้วค่อยเอาผลไปเข้าใบ <code>B</code>
+  </p>
+  <div set:html={MAT.product} />
+  <p>
+    ถึงตรงนี้เหลืองานเดียว คือเอาใบนี้ไปคูณกับเวกเตอร์คอลัมน์ของจุด ซึ่งแปลว่าผสมสามคอลัมน์ตามน้ำหนัก <code>x₀</code>, <code>y₀</code>, <code>z₀</code> เหมือนที่เดินไปทีละก้าวในตัวเดินขั้นข้างบน
+  </p>
+  <div set:html={MAT.apply} />
+  <p>
+    คูณออกมาแล้วจัดพจน์ที่มี <code>circlex</code> ไว้ด้วยกัน ก็ได้บรรทัดยาวสามบรรทัดที่ทำให้คนปิดแท็บกันมาสิบกว่าปี
   </p>
   <div set:html={TEX.rotFull} />
   <p>
-    มันยาวก็จริง แต่ไม่มีอะไรใหม่อยู่ในนั้นเลยแม้แต่ตัวเดียว ทุกพจน์คือ <code>circlex</code> หรือ <code>circley</code> จากชั้นที่ 2 คูณกับไซน์หรือโคไซน์ของมุมหมุน มันยาวเพราะเราคูณสามชั้นออกมาแล้วเขียนผลลัพธ์แบบกางออก ไม่ใช่เพราะมันซับซ้อน
+    เทียบดูได้ตรง ๆ ครับ แถวบนของเมทริกซ์คือ <code>cos B</code>, <code>−sin B cos A</code>, <code>sin B sin A</code> เอาไปคูณกับ <code>circlex cos φ</code>, <code>circley</code>, <code>circlex sin φ</code> ตามลำดับ แล้วบวกกัน ก็คือบรรทัด <code>x</code> ข้างบนเป๊ะ แถวล่างสุดว่างไปหนึ่งช่อง เพราะการหมุนรอบแกน <code>z</code> ไม่ยุ่งกับความลึกเลย บรรทัด <code>z</code> จึงสั้นกว่าเพื่อน
+  </p>
+  <p>
+    มันยาวก็จริง แต่ไม่มีอะไรใหม่อยู่ในนั้นเลยแม้แต่ตัวเดียว ทุกพจน์คือ <code>circlex</code> หรือ <code>circley</code> จากชั้นที่ 2 คูณกับไซน์หรือโคไซน์ของมุมหมุน มันยาวเพราะเราคูณเมทริกซ์ออกมาแล้วเขียนผลลัพธ์แบบกางออก ไม่ใช่เพราะมันซับซ้อน
   </p>
 
   <details class="expander">
-    <summary>คูณสามชั้นออกมาแล้วได้บรรทัดยาวนั่นมาได้ยังไง</summary>
+    <summary>อยากเห็นการคูณกางออกทีละบรรทัด แทนที่จะเป็นตารางเดียว</summary>
     <div class="expander-body">
       <p>
-        กดเดินทีละขั้นดูได้ครับ ทุกขั้นมีแค่การแทนค่าของที่รู้อยู่แล้วกลับเข้าไป ไม่มีกฎใหม่เพิ่มเลย
+        กล่องนี้เดินเรื่องเดียวกับข้างบน แต่ไม่ใช้ตารางเลย ใช้การแทนค่าตัวหนังสือทีละรอบแทน ทุกขั้นมีแค่การแทนค่าของที่รู้อยู่แล้วกลับเข้าไป ไม่มีกฎใหม่เพิ่ม
       </p>
       <div class="sim" data-sim="s3" data-steps={JSON.stringify(s3Steps.map((s) => s.say))}>
         <div class="sim-view">
@@ -1103,6 +1946,10 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
   <ZoomableDiagram caption="เสาสองต้นสูงเท่ากันเป๊ะ ต่างกันแค่ระยะ ภาพบนจอของต้นที่ไกลกว่าจึงสั้นกว่าตามอัตราส่วนของสามเหลี่ยมสองรูป">
     <svg viewBox="0 0 640 266" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ตาอยู่ซ้ายสุด มีจอตั้งอยู่ข้างหน้า แล้วมีเสาสูงเท่ากันสองต้นอยู่ไกลออกไปคนละระยะ เส้นเล็งจากตาไปยอดเสาต้นใกล้ตัดจอที่ตำแหน่งสูง ส่วนเส้นเล็งไปยอดเสาต้นไกลตัดจอที่ตำแหน่งต่ำกว่า" style="font-family:'Sarabun',sans-serif">
       <line x1="40" y1="150" x2="540" y2="150" stroke="#39435c" stroke-width="1.2"/>
+      <text x="550" y="154" font-size="12" font-weight="700" fill="#6f7d95">z</text>
+      <text x="556" y="170" font-size="10" fill="#6f7d95" text-anchor="middle">ยิ่งขวายิ่งไกลตา</text>
+      <line x1="40" y1="150" x2="40" y2="104" stroke="#6f7d95" stroke-width="1"/>
+      <text x="32" y="106" font-size="12" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
 
       <circle cx="40" cy="150" r="6" fill="#7db4f5"/>
       <text x="40" y="176" font-size="11.5" fill="#7db4f5" text-anchor="middle">ตา</text>
@@ -1155,6 +2002,9 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     </div>
     <figcaption>ของเล่นชิ้นนี้ซูมเข้าตามระยะให้ขนาดบนจอคงที่ คุณจะได้เห็นรูปทรงเปลี่ยน ไม่ใช่แค่ของเล็กลง ลองดัน K2 ออกไปไกล ๆ แล้วเทียบกับตอนปิดสวิตช์</figcaption>
   </figure>
+  <p>
+    เขียนออกมาเป็นสูตรได้สองบรรทัด ขอเรียกช่องที่จุดไปตกบนจอว่า <code>xp</code> กับ <code>yp</code> ตัว <code>p</code> ย่อมาจาก <i>projection</i> ที่แปลว่า <strong>การฉาย</strong> คือเงาของจุดสามมิติที่ทาบลงบนจอแบน ๆ ชื่อเดียวกันนี้อยู่ในโค้ดจริงด้วย
+  </p>
   <div set:html={TEX.project} />
   <p>
     เลข <code>40</code> กับ <code>12</code> คือจุดกลางจอ เพราะจอกว้าง {SCREEN_W} สูง {SCREEN_H} ส่วนเครื่องหมายลบหน้า <code>{MULT_Y}</code> มีเหตุผลที่ไม่เกี่ยวกับคณิตศาสตร์เลย <strong>แกน y ของจอคอมพิวเตอร์ชี้ลง</strong> แถวที่ 0 อยู่บนสุด แถวที่ 21 อยู่ล่างสุด ถ้าลืมใส่ลบ โดนัทจะกลับหัว
@@ -1165,7 +2015,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
   <div class="callout callout-tip">
     <p class="callout-label">ทำไมโค้ดเก็บ 1 ส่วน z ไว้ก่อน</p>
     <p>
-      ในโค้ดจะเห็นตัวแปรที่คำนวณ <code>1/z</code> เก็บไว้ตั้งแต่แรก แล้วใช้คูณสองที ทั้งแกน x และแกน y เหตุผลตรงไปตรงมา การหารช้ากว่าการคูณมาก หารครั้งเดียวแล้วคูณสองครั้ง เร็วกว่าหารสองครั้ง และค่าตัวนี้จะถูกเอาไปใช้ต่อในชั้นที่ 5 อีกด้วย
+      ในโค้ดจะเห็นตัวแปรชื่อ <code>ooz</code> ซึ่งย่อมาจาก <i>one over z</i> อ่านว่า <strong>"วัน โอเวอร์ ซี"</strong> แปลตรงตัวว่า <strong>หนึ่งส่วน z</strong> มันเก็บค่า <code>1/z</code> ไว้ตั้งแต่แรก แล้วใช้คูณสองที ทั้งแกน x และแกน y เหตุผลตรงไปตรงมา การหารช้ากว่าการคูณมาก หารครั้งเดียวแล้วคูณสองครั้ง เร็วกว่าหารสองครั้ง และค่าตัวนี้จะถูกเอาไปใช้ต่อในชั้นที่ 5 อีกด้วย
     </p>
   </div>
   <div set:html={TEX.ooz} />
@@ -1252,6 +2102,10 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
       <circle cx="34" cy="130" r="6" fill="#7db4f5"/>
       <text x="34" y="156" font-size="11.5" fill="#7db4f5" text-anchor="middle">ตา</text>
+      <line x1="26" y1="236" x2="86" y2="236" stroke="#6f7d95" stroke-width="1"/>
+      <text x="94" y="240" font-size="11.5" font-weight="700" fill="#6f7d95">z</text>
+      <line x1="26" y1="236" x2="26" y2="200" stroke="#6f7d95" stroke-width="1"/>
+      <text x="18" y="208" font-size="11.5" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
 
       <line x1="40" y1="129" x2="530" y2="82" stroke="#8a97ad" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#d4-a)"/>
 
@@ -1421,7 +2275,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     แปลว่าเราต้องรู้สองอย่างต่อหนึ่งจุด คือทิศที่ผิวตรงนั้นหันไป กับทิศของแสง แล้วต้องมีวิธีวัดว่าสองทิศนี้ตรงกันแค่ไหน
   </p>
   <p>
-    ทิศที่ผิวหันไป เรียกว่า <strong>นอร์มอล</strong> (normal) คือลูกศรที่ตั้งฉากกับผิวตรงจุดนั้น ข่าวดีคือของชิ้นนี้เราได้มาฟรี เพราะผิวโดนัทตรงจุดใด ๆ ตั้งฉากกับรัศมีของวงกลมหน้าตัดที่ลากผ่านจุดนั้นพอดี ทิศตั้งฉากจึงเป็นสูตรเดียวกับสูตรตำแหน่งในชั้นที่ 1 และ 2 แค่ตัดตัว <code>R1</code> กับ <code>R2</code> ทิ้งไป เหลือแต่ทิศ
+    ทิศที่ผิวหันไป เรียกว่า <strong>นอร์มอล</strong> (normal) คือลูกศรที่ตั้งฉากกับผิวตรงจุดนั้น ข่าวดีคือของชิ้นนี้เราได้มาฟรี เพราะผิวโดนัทตรงจุดใด ๆ ตั้งฉากกับรัศมีของวงกลมหน้าตัดที่ลากผ่านจุดนั้นพอดี ทิศตั้งฉากจึงเป็นสูตรเดียวกับสูตรตำแหน่งในชั้นที่ 1 และ 2 แค่ตัดตัว <code>R1</code> กับ <code>R2</code> ทิ้งไป เหลือแต่ทิศ ขอเรียกลูกศรนอร์มอลนี้ว่า <code>N</code> ตามตัวแรกของคำ และเรียกสามช่องของมันว่า <code>Nx</code>, <code>Ny</code>, <code>Nz</code>
   </p>
   <div set:html={TEX.normal} />
   <p>
@@ -1462,7 +2316,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     วิธีคำนวณคือคูณทีละช่องแล้วบวกกัน ช่อง x คูณช่อง x ช่อง y คูณช่อง y ช่อง z คูณช่อง z แล้วบวกทั้งสามเข้าด้วยกัน แค่นั้น ที่ตำราชอบทำคือให้สูตรนี้ก่อนโดยไม่บอกว่ามันแปลว่าอะไร
   </p>
   <p>
-    ทิศแสงในโค้ดคือ <code>(0, 1, -1)</code> แปลว่าแสงมาจากด้านบนและด้านหน้าเยื้องมาทางคนดู ดอทโปรดักต์ของมันกับนอร์มอลจึงสั้นมาก
+    ทิศแสงในโค้ดคือ <code>(0, 1, -1)</code> แปลว่าแสงมาจากด้านบนและด้านหน้าเยื้องมาทางคนดู ดอทโปรดักต์ของมันกับนอร์มอลจึงสั้นมาก ค่าที่ได้คือความสว่างของจุดนั้น ขอเรียกมันว่า <code>L</code> ตามคำว่า <i>luminance</i> ที่แปลว่า <strong>ความสว่าง</strong> ชื่อเดียวกับตัวแปรในโค้ดจริง
   </p>
   <div set:html={TEX.dot} />
   <p>
@@ -1501,6 +2355,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
       <path d="M60 196 Q240 74 420 196" fill="none" stroke="#4d72a9" stroke-width="2.5"/>
       <text x="120" y="212" font-size="11" fill="#4d72a9">ผิวโดนัท</text>
+      <line x1="470" y1="196" x2="512" y2="196" stroke="#6f7d95" stroke-width="1"/>
+      <text x="491" y="190" font-size="11.5" font-weight="700" fill="#6f7d95" text-anchor="middle">x</text>
+      <line x1="470" y1="196" x2="470" y2="160" stroke="#6f7d95" stroke-width="1"/>
+      <text x="462" y="168" font-size="11.5" font-weight="700" fill="#6f7d95" text-anchor="end">y</text>
+      <text x="470" y="212" font-size="10" fill="#6f7d95">มองจากด้านข้าง</text>
 
       <line x1="150" y1="129.6" x2="122" y2="94.6" stroke="#c3cbdc" stroke-width="1.6" marker-end="url(#d5-n)"/>
       <circle cx="150" cy="129.6" r="3.5" fill="#c3cbdc"/>
@@ -1509,7 +2368,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       <line x1="360" y1="151.5" x2="392" y2="118.5" stroke="#c3cbdc" stroke-width="1.6" marker-end="url(#d5-n)"/>
       <circle cx="360" cy="151.5" r="3.5" fill="#c3cbdc"/>
 
-      <text x="108" y="86" font-size="10.5" fill="#4ade80" text-anchor="end">หันรับแสงเฉียง</text>
+      <text x="112" y="100" font-size="10.5" fill="#4ade80" text-anchor="end">หันรับแสงเฉียง</text>
       <text x="240" y="80" font-size="10.5" fill="#4ade80" text-anchor="middle">หันรับแสงเต็มหน้า</text>
       <text x="404" y="112" font-size="10.5" fill="#f08b8b">หันหนีแสง</text>
 
@@ -1638,8 +2497,21 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <CodeBlock code={fullCode} lang="c" title="donut.c เวอร์ชันอ่านออก" />
   <p class="code-note">
-    คอมไพล์ด้วย <code>gcc -o donut donut.c -lm</code> ผมคอมไพล์แล้วรันจริง และเทียบเฟรมที่ได้กับโดนัทที่หมุนอยู่ในหน้านี้แล้ว ตรงกันทุกตัวอักษรทั้ง {cells.toLocaleString('en-US')} ช่อง
+    คอมไพล์ด้วย <code>gcc -o donut donut.c -lm</code> ได้เลยครับ ผมคอมไพล์แล้วรันจริง แล้วเทียบเฟรมที่ได้กับโดนัทที่หมุนอยู่ในหน้านี้
   </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">โปรแกรมเดียวกันสองเครื่อง ให้ผลต่างกันได้หนึ่งช่อง</p>
+    <p>
+      ผมเทียบทีละช่องทั้ง {cells.toLocaleString('en-US')} ช่อง ที่มุมหมุน 7 คู่ ผลคือ <strong>ตรงกันทุกช่องอยู่ 6 คู่ ส่วนอีกคู่หนึ่งต่างกันหนึ่งช่อง</strong> ที่ <code>A = 3.14159</code> กับ <code>B = 1.0</code> แถวที่ 8 ช่องที่ 31 ฝั่ง C ได้ <code>!</code> ส่วนฝั่งเบราว์เซอร์ได้ <code>*</code>
+    </p>
+    <p>
+      สาเหตุอยู่ที่ความละเอียดของเลขทศนิยม โค้ด C ประกาศตัวแปรเป็น <code>float</code> ซึ่งเก็บเลขได้ราวเจ็ดหลัก ส่วนจาวาสคริปต์ในเบราว์เซอร์ใช้ <code>double</code> ซึ่งเก็บได้ราวสิบหกหลัก ค่าความสว่างของจุดนั้นตกลงบน <strong>รอยต่อระหว่างอักขระสองตัวพอดี</strong> ความคลาดระดับหลักที่แปดจึงพอทำให้การปัดลงตกคนละฝั่ง
+    </p>
+    <p>
+      เกร็ดนี้ไม่ได้แปลว่าฝั่งใดฝั่งหนึ่งผิด ทั้งคู่ทำตามกฎของชนิดข้อมูลที่ตัวเองใช้ถูกต้อง มันคือเหตุผลเดียวกับที่การจำลองฟิสิกส์เดิมรันสองเครื่องแล้วผลค่อย ๆ แยกจากกัน และเป็นเหตุผลที่เกมออนไลน์ที่ต้องการให้ทุกเครื่องเห็นภาพตรงกันเป๊ะ ต้องล็อกชนิดข้อมูลกับลำดับการคำนวณให้เหมือนกันทุกเครื่อง
+    </p>
+  </div>
 
   <p>
     เทียบกับต้นฉบับที่จัดหน้าเป็นรูปโดนัทตอนต้นบท มันคือโปรแกรมเดียวกันเป๊ะ ต่างแค่ชื่อตัวแปรกับการขึ้นบรรทัด ถ้ากลับไปอ่านก้อนนั้นอีกรอบตอนนี้ คุณน่าจะชี้ได้แล้วว่าตัวไหนคือ <code>circlex</code> และวงเล็บก้อนไหนคือการหมุน
@@ -1677,6 +2549,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     <div class="toy-bar">
       <label class="toy-label" for="kn-chars">แถบอักขระ</label>
       <input id="kn-chars" class="toy-text" type="text" maxlength="24" value=".,-~:;=!*#$@" data-kn-chars spellcheck="false" />
+      <button type="button" class="btn" data-kn-toggle aria-label="หยุดหรือเล่นการหมุนของแผงนี้">หยุด</button>
       <button type="button" class="btn" data-kn-reset aria-label="คืนค่าทุกอย่างกลับเป็นค่าในโค้ดจริง">คืนค่าเดิม</button>
     </div>
     <p class="toy-read" data-kn-read></p>
@@ -1723,6 +2596,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <div class="quiz" data-quiz data-answer="cull">
     <pre class="ascii ascii-sm" aria-hidden="true" data-quiz-ascii="cull"></pre>
+    <div class="quiz-bar"><button type="button" class="btn" data-quiz-toggle aria-label="หยุดหรือเล่นการหมุนของภาพนี้">หยุด</button></div>
     <p class="quiz-q">ใบที่ 1 ผิดตรงไหน</p>
     <div class="quiz-opts">
       <button type="button" class="btn" data-pick="persp">ลืมหารด้วยระยะ</button>
@@ -1735,6 +2609,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <div class="quiz" data-quiz data-answer="zb">
     <pre class="ascii ascii-sm" aria-hidden="true" data-quiz-ascii="zb"></pre>
+    <div class="quiz-bar"><button type="button" class="btn" data-quiz-toggle aria-label="หยุดหรือเล่นการหมุนของภาพนี้">หยุด</button></div>
     <p class="quiz-q">ใบที่ 2 ผิดตรงไหน</p>
     <div class="quiz-opts">
       <button type="button" class="btn" data-pick="k2">ตั้ง K2 น้อยจนกล้องจมอยู่ในโดนัท</button>
@@ -1747,6 +2622,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <div class="quiz" data-quiz data-answer="flip">
     <pre class="ascii ascii-sm" aria-hidden="true" data-quiz-ascii="flip"></pre>
+    <div class="quiz-bar"><button type="button" class="btn" data-quiz-toggle aria-label="หยุดหรือเล่นการหมุนของภาพนี้">หยุด</button></div>
     <p class="quiz-q">ใบที่ 3 ผิดตรงไหน (ใบนี้ต้องเทียบกับภาพที่ถูกต้องข้างบนถึงจะเห็น)</p>
     <div class="quiz-opts">
       <button type="button" class="btn" data-pick="flip">ลืมกลับเครื่องหมายแกน y</button>
@@ -1759,6 +2635,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
   <div class="quiz" data-quiz data-answer="k2">
     <pre class="ascii ascii-sm" aria-hidden="true" data-quiz-ascii="k2"></pre>
+    <div class="quiz-bar"><button type="button" class="btn" data-quiz-toggle aria-label="หยุดหรือเล่นการหมุนของภาพนี้">หยุด</button></div>
     <p class="quiz-q">ใบที่ 4 ผิดตรงไหน</p>
     <div class="quiz-opts">
       <button type="button" class="btn" data-pick="cull">ลืมทิ้งผิวที่หันหลังให้แสง</button>
@@ -1916,6 +2793,24 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     คุณเพิ่งอ่านบทความยาวเรื่องโค้ดที่พ่นโดนัทออกมาบนเทอร์มินัล มันไม่ได้ทำให้ได้เงิน ไม่ได้อยู่ในข้อสอบ ไม่มีใครสั่งให้เข้าใจ
   </p>
 
+  <div class="card ladder">
+    <p><strong>ของที่เดินผ่านมาทั้งบท</strong></p>
+    <ul>
+      <li><strong>ม.ต้น</strong> พิกัดบนระนาบและแกนที่สาม · พีทาโกรัส · สามเหลี่ยมมุมฉากกับไซน์โคไซน์ · สามเหลี่ยมคล้าย · การหมุนรอบแกน</li>
+      <li><strong>ม.ปลาย</strong> เรเดียนกับความยาวส่วนโค้ง · สูตรผลรวมมุม · เวกเตอร์และเวกเตอร์หนึ่งหน่วย · ดอทโปรดักต์กับกฎของโคไซน์ · เมทริกซ์ในฐานะใบบันทึกตำแหน่งใหม่ของแกน · ลิมิตตอนดันวัตถุออกไปไกล</li>
+      <li><strong>เกินจากนั้น</strong> อนุพันธ์กับเวกเตอร์สัมผัส · จาโคเบียน · วิธีออยเลอร์กับวิธีนิวตัน · ควอเทอร์เนียน</li>
+    </ul>
+    <p><strong>ถ้าอยากเดินต่อ ปากทางอยู่ตรงนี้</strong></p>
+    <ul>
+      <li><strong>พีชคณิตเชิงเส้น</strong> ต่อจากก้อนเวกเตอร์กับเมทริกซ์ เรื่องถัดไปคือฐานหลัก ดีเทอร์มิแนนต์ และค่าลักษณะเฉพาะ</li>
+      <li><strong>เรขาคณิตเชิงอนุพันธ์</strong> ต่อจากทิศตั้งฉากที่ได้มาฟรี เรื่องถัดไปคือการหานอร์มอลของผิวรูปไหนก็ได้ด้วยครอสโปรดักต์ของเวกเตอร์สัมผัส</li>
+      <li><strong>คอมพิวเตอร์กราฟิก</strong> ต่อจากชั้นที่ 4 ถึง 6 ทั้งสามชั้นนั้นคือสิ่งที่การ์ดจอทำในฮาร์ดแวร์ ต่างกันแค่ทำทีละล้านจุดพร้อมกัน</li>
+    </ul>
+    <p>
+      และถ้าชอบแนวสอนจากศูนย์พร้อมของให้เล่นแบบนี้ ผมเขียนไว้อีกบทที่ <a href="/cp/interval-dp/">แบ่งช่วงแล้วคิดจากข้างในออกมา</a> ครับ
+    </p>
+  </div>
+
   <hr class="divider-solid" />
 
   <h2>แหล่งอ้างอิง</h2>
@@ -1948,6 +2843,19 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       chars: string;
       /** ทิศแสง ยาว sqrt(2) เท่าของจริงในโค้ด ค่าตั้งต้นคือ (0, 1, -1) */
       light: { x: number; y: number; z: number };
+      /**
+       * ผิวอื่นที่ไม่ใช่โดนัท ใส่มาเฉพาะตอนที่ต้องการเปลี่ยนทรง
+       * ถ้าไม่ใส่ ทุกอย่างเดินเส้นทางเดิมของโดนัทเป๊ะ ๆ ไม่มีค่าใช้จ่ายเพิ่ม
+       */
+      shape?: Shape;
+    }
+
+    /** นิยามของผิวหนึ่งชนิด surface คืนจุด ส่วน normal คืนทิศตั้งฉาก (ไม่ใส่ = คำนวณเชิงตัวเลขให้) */
+    interface Shape {
+      surface: (theta: number, phi: number, p: DonutParams) => Vec3;
+      normal?: (theta: number, phi: number, p: DonutParams) => Vec3;
+      /** ผิวด้านเดียวอย่างเมอบิอุสต้องใช้ค่าสัมบูรณ์ของความสว่าง ไม่งั้นครึ่งหนึ่งของผิวจะหายไป */
+      absLight?: boolean;
     }
     interface DonutFlags {
       perspective: boolean;
@@ -1963,6 +2871,13 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       y: number;
       z: number;
     }
+
+    /**
+     * จอแคบยัด 80 คอลัมน์ไม่ไหว ตัวอักษรจะเหลือไม่ถึง 5px
+     * กริดนี้คือของเดิมย่อครึ่งพอดีทุกมิติ สัดส่วนภาพจึงเท่าเดิม แค่หยาบลง
+     */
+    const COMPACT_DIV = 2;
+    const NARROW_AT = 560;
 
     const BASE: DonutParams = {
       R1: 1,
@@ -1980,10 +2895,44 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       light: { x: 0, y: 1, z: -1 },
     };
 
+    const COMPACT: DonutParams = {
+      ...BASE,
+      cols: BASE.cols / COMPACT_DIV,
+      rows: Math.round(BASE.rows / COMPACT_DIV),
+      centerX: BASE.centerX / COMPACT_DIV,
+      centerY: Math.round(BASE.centerY / COMPACT_DIV),
+      multX: BASE.multX / COMPACT_DIV,
+      multY: BASE.multY / COMPACT_DIV,
+    };
+
+    /** กริดที่ใช้อยู่ตอนนี้ สลับตามความกว้างจอ ทุกกล่อง ASCII อ่านตัวนี้ */
+    let GRID: DonutParams = BASE;
+    const repaints: Array<() => void> = [];
+
     /** จุดบนผิวโดนัทที่มุม theta (หน้าตัด) กับ phi (รอบแกน) ก่อนหมุนทั้งก้อน */
     const surfacePoint = (theta: number, phi: number, R1: number, R2: number): Vec3 => {
       const circlex = R2 + R1 * Math.cos(theta);
       return { x: circlex * Math.cos(phi), y: R1 * Math.sin(theta), z: circlex * Math.sin(phi) };
+    };
+
+    /**
+     * ทิศตั้งฉากแบบคำนวณเชิงตัวเลข ขยับ theta กับ phi ทีละนิดแล้วครอสโปรดักต์เวกเตอร์ผลต่าง
+     * ใช้ได้กับผิวทุกชนิด รวมถึงเมอบิอุสที่หาด้วยทางลัดไม่ได้
+     */
+    const numericNormal = (theta: number, phi: number, p: DonutParams, shape: Shape): Vec3 => {
+      const h = 0.0015;
+      const a = shape.surface(theta, phi, p);
+      const b = shape.surface(theta + h, phi, p);
+      const c = shape.surface(theta, phi + h, p);
+      const u = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+      const v = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z };
+      const n = {
+        x: u.y * v.z - u.z * v.y,
+        y: u.z * v.x - u.x * v.z,
+        z: u.x * v.y - u.y * v.x,
+      };
+      const len = Math.hypot(n.x, n.y, n.z) || 1;
+      return { x: n.x / len, y: n.y / len, z: n.z / len };
     };
 
     /** หมุนรอบแกน x ด้วยมุม A แล้วรอบแกน z ด้วยมุม B ชุดเดียวกับที่โค้ดจริงทำ */
@@ -2005,7 +2954,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const lastIndex = p.chars.length - 1;
       for (let theta = 0; theta < 6.28; theta += p.thetaStep) {
         for (let phi = 0; phi < 6.28; phi += p.phiStep) {
-          const pt = rotate(surfacePoint(theta, phi, p.R1, p.R2), A, B);
+          const raw = p.shape ? p.shape.surface(theta, phi, p) : surfacePoint(theta, phi, p.R1, p.R2);
+          const pt = rotate(raw, A, B);
           const z = p.K2 + pt.z;
           if (z <= 0.1) continue;
           const ooz = 1 / z;
@@ -2015,9 +2965,14 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           if (xp < 0 || xp >= p.cols || yp < 0 || yp >= p.rows) continue;
           const idx = xp + p.cols * yp;
           if (f.zbuffer && ooz <= zb[idx]) continue;
-          // นอร์มอลคือสูตรตำแหน่งที่ตัด R1 กับ R2 ทิ้ง เหลือแต่ทิศ แล้วหมุนตามชุดเดียวกัน
-          const n = rotate(surfacePoint(theta, phi, 1, 0), A, B);
-          const L = n.x * p.light.x + n.y * p.light.y + n.z * p.light.z;
+          // นอร์มอลของโดนัทคือสูตรตำแหน่งที่ตัด R1 กับ R2 ทิ้ง เหลือแต่ทิศ แล้วหมุนตามชุดเดียวกัน
+          // ทรงอื่นใช้ทางลัดนี้ไม่ได้ จึงมีทางแยกไปหาทิศตั้งฉากของทรงนั้นแทน
+          const nRaw = p.shape
+            ? (p.shape.normal ? p.shape.normal(theta, phi, p) : numericNormal(theta, phi, p, p.shape))
+            : surfacePoint(theta, phi, 1, 0);
+          const n = rotate(nRaw, A, B);
+          const dot = n.x * p.light.x + n.y * p.light.y + n.z * p.light.z;
+          const L = p.shape?.absLight ? Math.abs(dot) : dot;
           if ((f.cullBack ?? f.lighting) && L <= 0) continue;
           zb[idx] = ooz;
           if (f.lighting) {
@@ -2031,6 +2986,35 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const lines: string[] = [];
       for (let r = 0; r < p.rows; r += 1) lines.push(out.slice(r * p.cols, (r + 1) * p.cols).join(''));
       return lines.join('\n');
+    };
+
+    /* ---------- ทรงอื่นในตระกูลเดียวกัน ใช้ตัวเรนเดอร์ตัวเดียวกันทั้งหมด ---------- */
+    const SHAPES: Record<string, Shape> = {
+      // ทรงกลม: ให้ R2 = 0 คือไม่เลื่อนวงกลมออกจากแกนเลย ทิศตั้งฉากยังเป็นทางลัดเดิมได้
+      sphere: {
+        surface: (theta, phi, p) => surfacePoint(theta, phi, p.R1 + p.R2, 0),
+        normal: (theta, phi) => surfacePoint(theta, phi, 1, 0),
+      },
+      // ทรงกระบอก: หน้าตัดกลายเป็นเส้นตรง ทิศตั้งฉากชี้ออกด้านข้างเสมอ ไม่มีส่วนประกอบแนวตั้ง
+      cylinder: {
+        surface: (theta, phi, p) => ({
+          x: p.R2 * Math.cos(phi),
+          y: p.R1 * 1.6 * (theta / Math.PI - 1),
+          z: p.R2 * Math.sin(phi),
+        }),
+        normal: (_theta, phi) => ({ x: Math.cos(phi), y: 0, z: Math.sin(phi) }),
+      },
+      // ริบบิ้นเมอบิอุส: หน้าตัดหมุนไปครึ่งรอบระหว่างที่กวาดครบรอบ
+      // ทางลัดใช้ไม่ได้ ปล่อยให้ numericNormal จัดการ และต้องใช้ค่าสัมบูรณ์ของแสงเพราะมันมีด้านเดียว
+      mobius: {
+        surface: (theta, phi, p) => {
+          const w = p.R1 * (theta / Math.PI - 1);
+          const half = phi / 2;
+          const r = p.R2 + w * Math.cos(half);
+          return { x: r * Math.cos(phi), y: w * Math.sin(half), z: r * Math.sin(phi) };
+        },
+        absLight: true,
+      },
     };
 
     /* ================================================================
@@ -2063,7 +3047,9 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       }
 
       add(el: Element, step: (dt: number) => void, wanted: boolean): Ticker {
-        const t: Ticker = { el, step, wanted, visible: false };
+        // เริ่มด้วย visible: true แล้วให้ IntersectionObserver มาแก้ทีหลัง
+        // ถ้าเริ่มด้วย false แล้วเบราว์เซอร์ไหนไม่ยิง IO ภาพจะนิ่งสนิททั้งหน้าโดยไม่มีทางแก้
+        const t: Ticker = { el, step, wanted, visible: true };
         this.tickers.push(t);
         this.io.observe(el);
         return t;
@@ -2105,6 +3091,14 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     const refit = (): void => {
       for (const f of fitters) f();
     };
+    /** สลับกริดตามความกว้างจอ แล้ววาดใหม่เฉพาะตอนที่มันเปลี่ยนจริง */
+    const syncGrid = (): void => {
+      const next = window.innerWidth < NARROW_AT ? COMPACT : BASE;
+      if (next === GRID) return;
+      GRID = next;
+      for (const r of repaints) r();
+      refit();
+    };
 
     const fitCanvas = (cv: HTMLCanvasElement, draw: () => void): void => {
       const apply = (): void => {
@@ -2142,8 +3136,9 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     const deg2rad = (d: number): number => (d * Math.PI) / 180;
 
     /** ตั้งขนาดตัวอักษรของกล่อง ASCII ให้ครบ cols คอลัมน์พอดีความกว้างกล่องเสมอ */
-    const mountAscii = (pre: HTMLPreElement, cols: number): void => {
+    const mountAscii = (pre: HTMLPreElement): void => {
       const resize = (): void => {
+        const cols = GRID.cols;
         const box = pre.getBoundingClientRect();
         if (box.width < 1) return;
         const probe = document.createElement('span');
@@ -2166,11 +3161,22 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       ctx: CanvasRenderingContext2D,
       w: number,
       h: number,
-      opt: { R1: number; R2: number; A: number; B: number; swap?: boolean; rings?: number; axes?: boolean },
+      opt: {
+        R1: number;
+        R2: number;
+        A: number;
+        B: number;
+        swap?: boolean;
+        rings?: number;
+        axes?: boolean;
+        /** แกนที่กำลังถูกหมุนอยู่ จะถูกเน้นให้หนาและสว่างกว่าอีกสองแกน */
+        spin?: 'x' | 'z' | null;
+      },
     ): void => {
       const { R1, R2, A, B } = opt;
       const rings = opt.rings ?? 16;
-      const unit = Math.min(w, h) / (2 * (R1 + R2) + 1.4);
+      // เปิดแกนเมื่อไร ต้องเผื่อขอบให้ป้ายชื่อแกนไม่ถูกตัดตอนก้อนหมุนจนแกนตั้งฉากกับจอ
+      const unit = Math.min(w, h) / (2 * (R1 + R2) + (opt.axes ? 2.8 : 1.4));
       const cx = w / 2;
       const cy = h / 2;
       const place = (p: Vec3): Vec3 => (opt.swap ? rotate(rotate(p, 0, B), A, 0) : rotate(p, A, B));
@@ -2181,22 +3187,34 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       ctx.clearRect(0, 0, w, h);
       ctx.lineWidth = Math.max(1, w / 700);
       if (opt.axes) {
-        const span = (R1 + R2) * 1.25;
-        const pairs: Array<[Vec3, Vec3, string]> = [
-          [{ x: -span, y: 0, z: 0 }, { x: span, y: 0, z: 0 }, COLOR.good],
-          [{ x: 0, y: 0, z: -span }, { x: 0, y: 0, z: span }, COLOR.warn],
+        const span = (R1 + R2) * 1.02;
+        const fs = Math.max(11, w / 40);
+        const axisList: Array<{ v: Vec3; name: string; color: string; hot: boolean }> = [
+          { v: { x: span, y: 0, z: 0 }, name: 'x', color: COLOR.good, hot: opt.spin === 'x' },
+          { v: { x: 0, y: span, z: 0 }, name: 'y', color: '#c9a0ff', hot: false },
+          { v: { x: 0, y: 0, z: span }, name: 'z', color: COLOR.warn, hot: opt.spin === 'z' },
         ];
-        for (const [a, b, color] of pairs) {
-          ctx.strokeStyle = color;
-          ctx.globalAlpha = 0.75;
-          const [x0, y0] = to2d(a);
-          const [x1, y1] = to2d(b);
+        ctx.font = `${fs}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const ax of axisList) {
+          const [x0, y0] = to2d({ x: -ax.v.x, y: -ax.v.y, z: -ax.v.z });
+          const [x1, y1] = to2d(ax.v);
+          ctx.strokeStyle = ax.color;
+          ctx.globalAlpha = ax.hot ? 1 : 0.4;
+          ctx.lineWidth = ax.hot ? Math.max(2.6, w / 300) : Math.max(1, w / 700);
           ctx.beginPath();
           ctx.moveTo(x0, y0);
           ctx.lineTo(x1, y1);
           ctx.stroke();
+          const [lx, ly] = to2d({ x: ax.v.x * 1.14, y: ax.v.y * 1.14, z: ax.v.z * 1.14 });
+          ctx.fillStyle = ax.color;
+          ctx.globalAlpha = ax.hot ? 1 : 0.65;
+          ctx.fillText(ax.hot ? `${ax.name} ↻` : ax.name, lx, ly);
         }
         ctx.globalAlpha = 1;
+        ctx.lineWidth = Math.max(1, w / 700);
+        ctx.textBaseline = 'alphabetic';
       }
       ctx.strokeStyle = COLOR.line;
       for (let i = 0; i < rings; i += 1) {
@@ -2275,7 +3293,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 
       const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const loop = new Loop();
-      window.addEventListener('resize', refit);
+      GRID = window.innerWidth < NARROW_AT ? COMPACT : BASE;
+      window.addEventListener('resize', () => { syncGrid(); refit(); });
 
       /* ---------- ภาพเปิด โดนัทหมุนด้วยตัวเรนเดอร์จริง ---------- */
       const pre = stage.querySelector<HTMLPreElement>('[data-ascii]');
@@ -2284,9 +3303,10 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
         let A = 0;
         let B = 0;
         const paint = (): void => {
-          pre.textContent = renderDonut(A, B, BASE, { perspective: true, zbuffer: true, lighting: true, cullBack: true });
+          pre.textContent = renderDonut(A, B, GRID, { perspective: true, zbuffer: true, lighting: true, cullBack: true });
         };
-        mountAscii(pre, BASE.cols);
+        mountAscii(pre);
+        repaints.push(paint);
         paint();
 
         // เดินหนึ่งเฟรมแบบเรียกเองได้ ผูกไว้กับโหนดเลย (แพตเทิร์นเดียวกับ canvas.__starfield)
@@ -2336,6 +3356,18 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           ctx.moveTo(cx, cy - R * 1.35);
           ctx.lineTo(cx, cy + R * 1.35);
           ctx.stroke();
+          // ป้ายชื่อแกน
+          const afs = Math.max(11, w / 40);
+          ctx.font = `${afs}px "JetBrains Mono", monospace`;
+          ctx.fillStyle = COLOR.muted;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('x', cx + R * 1.4, cy);
+          // ป้าย y วางไว้ด้านในปลายแกน เพราะแคนวาสเตี้ยกว่ากว้างมาก ถ้าวางด้านนอกจะหลุดขอบบน
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'top';
+          ctx.fillText('y', cx - afs * 0.35, cy - R * 1.35);
+          ctx.textBaseline = 'alphabetic';
           // วงกลม
           ctx.strokeStyle = COLOR.line;
           ctx.beginPath();
@@ -2387,6 +3419,122 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
         t1range.addEventListener('input', draw);
       }
 
+      /* ---------- T10 หมุนไป 90 องศาแล้วได้อะไร ---------- */
+      const t10 = document.querySelector<HTMLElement>('[data-toy="t10"]');
+      const t10cv = t10?.querySelector<HTMLCanvasElement>('[data-t10-canvas]');
+      const t10range = t10?.querySelector<HTMLInputElement>('[data-t10-angle]');
+      const t10out = t10?.querySelector<HTMLOutputElement>('[data-t10-out]');
+      const t10read = t10?.querySelector<HTMLElement>('[data-t10-read]');
+      const t10play = t10?.querySelector<HTMLButtonElement>('[data-t10-play]');
+      if (t10cv && t10range && t10out && t10read && t10play) {
+        const draw = (): void => {
+          const ctx = ctxOf(t10cv);
+          if (!ctx) return;
+          const w = t10cv.width;
+          const h = t10cv.height;
+          const deg = Number(t10range.value);
+          const rad = deg2rad(deg);
+          const cx = w / 2;
+          const cy = h / 2;
+          const R = Math.min(w, h) * 0.3;
+          const c = Math.cos(rad);
+          const sn = Math.sin(rad);
+          // จุดบนวงกลมที่มุม theta และที่มุม theta + 90 องศา
+          const px = cx + c * R;
+          const py = cy - sn * R;
+          const qx = cx - sn * R;
+          const qy = cy - c * R;
+          const fs = Math.max(11, w / 40);
+          ctx.clearRect(0, 0, w, h);
+          ctx.lineWidth = Math.max(1, w / 600);
+          // แกนกับป้ายชื่อแกน
+          ctx.strokeStyle = COLOR.grid;
+          ctx.beginPath();
+          ctx.moveTo(cx - R * 1.5, cy);
+          ctx.lineTo(cx + R * 1.5, cy);
+          ctx.moveTo(cx, cy - R * 1.5);
+          ctx.lineTo(cx, cy + R * 1.5);
+          ctx.stroke();
+          ctx.font = `${fs}px "JetBrains Mono", monospace`;
+          ctx.fillStyle = COLOR.muted;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('x', cx + R * 1.54, cy);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('y', cx, cy - R * 1.54);
+          ctx.textBaseline = 'alphabetic';
+          // วงกลม
+          ctx.strokeStyle = COLOR.line;
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.stroke();
+          // ส่วนโค้ง 90 องศาที่เดินจากลูกศรเขียวไปหาลูกศรเหลือง
+          ctx.strokeStyle = COLOR.warn;
+          ctx.globalAlpha = 0.55;
+          ctx.setLineDash([w / 110, w / 110]);
+          ctx.beginPath();
+          ctx.arc(cx, cy, R * 1.16, -rad - Math.PI / 2, -rad, false);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+          // สำเนาของลูกศรความเร็ว ที่ย้ายมาวางที่จุดกำเนิด
+          ctx.lineWidth = Math.max(2, w / 300);
+          ctx.strokeStyle = COLOR.warn;
+          ctx.fillStyle = COLOR.warn;
+          ctx.globalAlpha = 0.45;
+          arrow(ctx, cx, cy, qx, qy, Math.max(7, w / 62));
+          ctx.globalAlpha = 1;
+          // ลูกศรความเร็วจริง งอกออกจากจุดบนวงกลม
+          const vx = px + (qx - cx) * 0.62;
+          const vy = py + (qy - cy) * 0.62;
+          ctx.lineWidth = Math.max(2.6, w / 240);
+          arrow(ctx, px, py, vx, vy, Math.max(7, w / 58));
+          // สัญลักษณ์มุมฉากระหว่างรัศมีกับความเร็ว
+          const sq = Math.max(8, w / 52);
+          const ux = c;
+          const uy = -sn;
+          const wx = -sn;
+          const wy = -c;
+          ctx.lineWidth = Math.max(1.4, w / 600);
+          ctx.strokeStyle = COLOR.muted;
+          ctx.beginPath();
+          ctx.moveTo(px - ux * sq, py - uy * sq);
+          ctx.lineTo(px - ux * sq + wx * sq, py - uy * sq + wy * sq);
+          ctx.lineTo(px + wx * sq, py + wy * sq);
+          ctx.stroke();
+          // ลูกศรรัศมี
+          ctx.lineWidth = Math.max(2.6, w / 240);
+          ctx.strokeStyle = COLOR.good;
+          ctx.fillStyle = COLOR.good;
+          arrow(ctx, cx, cy, px, py, Math.max(7, w / 58));
+          // ป้าย
+          ctx.font = `${fs}px "JetBrains Mono", monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillStyle = COLOR.good;
+          ctx.fillText(`(${fmt(c)}, ${fmt(sn)})`, px + c * fs * 2.1, py - sn * fs * 2.1 + fs * 0.35);
+          ctx.fillStyle = COLOR.warn;
+          ctx.fillText(`(${fmt(-sn)}, ${fmt(c)})`, qx - sn * fs * 2.4, qy - c * fs * 2.4 + fs * 0.35);
+          t10out.textContent = `${deg} องศา`;
+          const q = (deg + 90) % 360;
+          t10read.textContent =
+            `ลูกศรเขียวอยู่ที่มุม ${deg} องศา ปลายอยู่ที่ (${fmt(c)}, ${fmt(sn)}) ` +
+            `ลูกศรเหลืองอยู่ที่มุม ${q} องศา ปลายอยู่ที่ (${fmt(-sn)}, ${fmt(c)}) ` +
+            `ซึ่งก็คือ (${fmt(Math.cos(deg2rad(q)))}, ${fmt(Math.sin(deg2rad(q)))}) ตรงกันทุกหลัก`;
+        };
+        fitCanvas(t10cv, draw);
+        t10range.addEventListener('input', draw);
+        const t10ticker = loop.add(t10cv, () => {
+          t10range.value = String((Number(t10range.value) + 1) % 360);
+          draw();
+        }, false);
+        t10play.addEventListener('click', () => {
+          t10ticker.wanted = !t10ticker.wanted;
+          t10play.textContent = t10ticker.wanted ? 'หยุด' : 'เดินเอง';
+          loop.kick();
+        });
+      }
+
       /* ---------- T2 กวาดวงกลมรอบแกนจนกลายเป็นโดนัท ---------- */
       const t2 = document.querySelector<HTMLElement>('[data-toy="t2"]');
       const t2cv = t2?.querySelector<HTMLCanvasElement>('[data-t2-canvas]');
@@ -2394,6 +3542,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t2r1 = t2?.querySelector<HTMLInputElement>('[data-t2-r1]');
       const t2r2 = t2?.querySelector<HTMLInputElement>('[data-t2-r2]');
       const t2phiOut = t2?.querySelector<HTMLOutputElement>('[data-t2-phi-out]');
+      const t2read = t2?.querySelector<HTMLElement>('[data-t2-read]');
       const t2r1Out = t2?.querySelector<HTMLOutputElement>('[data-t2-r1-out]');
       const t2r2Out = t2?.querySelector<HTMLOutputElement>('[data-t2-r2-out]');
       const t2play = t2?.querySelector<HTMLButtonElement>('[data-t2-play]');
@@ -2424,6 +3573,18 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           ctx.moveTo(ax0, ay0);
           ctx.lineTo(ax1, ay1);
           ctx.stroke();
+          // ชื่อแกน วางไว้ด้านในปลายแกนบน จะได้ไม่หลุดขอบผืนผ้าใบ
+          const t2fs = Math.max(11, w / 44);
+          ctx.font = `${t2fs}px "JetBrains Mono", monospace`;
+          ctx.fillStyle = COLOR.muted;
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'top';
+          ctx.fillText('y', ax1 - t2fs * 0.35, ay1);
+          ctx.font = `${t2fs * 0.9}px Sarabun, sans-serif`;
+          ctx.textAlign = 'left';
+          ctx.fillText('แกนที่ใช้กวาด', ax1 + t2fs * 0.35, ay1);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'alphabetic';
           // วงกลมหน้าตัดที่ถูกกวาดไปแล้ว
           const rings = 40;
           for (let i = 0; i <= rings; i += 1) {
@@ -2459,6 +3620,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           t2phiOut.textContent = `${Number(t2phi.value)} องศา`;
           t2r1Out.textContent = fmt(R1);
           t2r2Out.textContent = fmt(R2);
+          if (t2read) {
+            t2read.textContent = R1 >= R2
+              ? `R1 ไม่น้อยกว่า R2 แล้ว ขอบด้านในเลยแกนเข้าไปชนกันเอง รูจึงหายไป`
+              : `ขอบนอกอยู่ห่างแกน ${fmt(R2 + R1)} ขอบในอยู่ห่าง ${fmt(R2 - R1)} รูจึงกว้าง ${fmt(2 * (R2 - R1))}`;
+          }
         };
         fitCanvas(t2cv, draw);
         for (const el of [t2phi, t2r1, t2r2]) el.addEventListener('input', draw);
@@ -2614,6 +3780,16 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       }
 
       /* ---------- S3 คูณเมทริกซ์ออกทีละชั้น ---------- */
+      const s5 = document.querySelector<HTMLElement>('[data-sim="s5"]');
+      if (s5) {
+        const says = readSteps<string>(s5);
+        const slides = [...s5.querySelectorAll<HTMLElement>('[data-slide]')];
+        mountSim(s5, says.length, (i) => {
+          slides.forEach((el, k) => el.classList.toggle('is-on', k === i));
+          sayInto(s5, says[i]);
+        });
+      }
+
       const s3 = document.querySelector<HTMLElement>('[data-sim="s3"]');
       if (s3) {
         const says = readSteps<string>(s3);
@@ -2621,6 +3797,80 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
         mountSim(s3, says.length, (i) => {
           slides.forEach((el, k) => el.classList.toggle('is-on', k === i));
           sayInto(s3, says[i]);
+        });
+      }
+
+      /* ---------- สลับทรง ---------- */
+      const shapeFig = document.querySelector<HTMLElement>('[data-toy="shapes"]');
+      const shapePre = shapeFig?.querySelector<HTMLPreElement>('[data-shape-ascii]');
+      const shapeRead = shapeFig?.querySelector<HTMLElement>('[data-shape-read]');
+      const shapeToggle = shapeFig?.querySelector<HTMLButtonElement>('[data-shape-toggle]');
+      if (shapeFig && shapePre && shapeRead && shapeToggle) {
+        const notes: Record<string, string> = {
+          donut: 'ตำแหน่ง: circlex = R2 + R1 cos θ แล้วกวาดด้วย φ · ทิศตั้งฉาก: ใช้สูตรตำแหน่งเดิมที่ตัด R1 กับ R2 ทิ้ง',
+          sphere: 'ตำแหน่ง: เหมือนโดนัทแต่ไม่เลื่อนออกจากแกน (R2 = 0) · ทิศตั้งฉาก: ทางลัดเดิมใช้ได้ เพราะผิวทรงกลมตั้งฉากกับรัศมีเสมอ',
+          cylinder: 'ตำแหน่ง: หน้าตัดเปลี่ยนจากวงกลมเป็นเส้นตรง ระยะจากแกนคงที่เท่ากับ R2 · ทิศตั้งฉาก: (cos φ, 0, sin φ) ชี้ออกด้านข้างเสมอ',
+          mobius: 'ตำแหน่ง: หน้าตัดหมุนไปครึ่งรอบระหว่างที่กวาดครบรอบ · ทิศตั้งฉาก: หาด้วยครอสโปรดักต์ของอนุพันธ์ย่อย และเพราะผิวนี้มีด้านเดียว ต้องใช้ค่าสัมบูรณ์ของความสว่าง ไม่งั้นเงื่อนไข L > 0 จะทิ้งผิวไปครึ่งหนึ่ง',
+        };
+        let key = 'donut';
+        let A = 0.7;
+        let B = 0.3;
+        mountAscii(shapePre);
+        const paint = (): void => {
+          const shape = key === 'donut' ? undefined : SHAPES[key];
+          shapePre.textContent = renderDonut(A, B, { ...GRID, shape }, {
+            perspective: true,
+            zbuffer: true,
+            lighting: true,
+            cullBack: true,
+          });
+          shapeRead.textContent = notes[key];
+          for (const box of shapeFig.parentElement?.querySelectorAll<HTMLElement>('[data-shape-code]') ?? []) {
+            box.hidden = box.dataset.shapeCode !== key;
+          }
+          for (const btn of shapeFig.querySelectorAll<HTMLButtonElement>('[data-shape]')) {
+            btn.classList.toggle('is-on', btn.dataset.shape === key);
+          }
+        };
+        const tick = (): void => {
+          A += 0.04;
+          B += 0.02;
+          paint();
+        };
+        (shapePre as AsciiPre).__donut = { tick };
+        repaints.push(paint);
+        paint();
+        for (const btn of shapeFig.querySelectorAll<HTMLButtonElement>('[data-shape]')) {
+          btn.addEventListener('click', () => {
+            key = btn.dataset.shape ?? 'donut';
+            paint();
+          });
+        }
+        const shapeTicker = loop.add(shapePre, tick, !reduce);
+        shapeToggle.textContent = reduce ? 'เล่น' : 'หยุด';
+        shapeToggle.addEventListener('click', () => {
+          shapeTicker.wanted = !shapeTicker.wanted;
+          shapeToggle.textContent = shapeTicker.wanted ? 'หยุด' : 'เล่น';
+          loop.kick();
+        });
+        loop.kick();
+      }
+
+      /* ---------- กล่องพับที่มี canvas ข้างใน ต้องวัดขนาดใหม่ตอนกางออก ---------- */
+      for (const det of document.querySelectorAll<HTMLDetailsElement>('details.expander')) {
+        det.addEventListener('toggle', () => {
+          if (det.open) refit();
+        });
+      }
+
+      /* ---------- S4 เดินตามคอลัมน์ทีละก้าว ---------- */
+      const s4 = document.querySelector<HTMLElement>('[data-sim="s4"]');
+      if (s4) {
+        const says = readSteps<string>(s4);
+        const slides = [...s4.querySelectorAll<HTMLElement>('[data-slide]')];
+        mountSim(s4, says.length, (i) => {
+          slides.forEach((el, k) => el.classList.toggle('is-on', k === i));
+          sayInto(s4, says[i]);
         });
       }
 
@@ -2681,16 +3931,51 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           ctx.fillStyle = COLOR.warn;
           ctx.fillText('y', ...at(0, 1.12));
           for (const [input, out] of outs) if (out) out.textContent = fmt(Number(input.value));
+          // เมทริกซ์ตัวจริง คอลัมน์แรกคือปลายทางของแกน x คอลัมน์ที่สองคือปลายทางของแกน y
+          const cell = (sel: string, v: number): void => {
+            const el = t7cv.closest('figure')?.querySelector<HTMLElement>(sel);
+            if (el) el.textContent = fmt(v);
+          };
+          cell('[data-t7-m00]', ax);
+          cell('[data-t7-m01]', bx);
+          cell('[data-t7-m10]', ay);
+          cell('[data-t7-m11]', by);
           const dot = ax * bx + ay * by;
           const la = Math.hypot(ax, ay);
           const lb = Math.hypot(bx, by);
-          const isRot = Math.abs(dot) < 0.06 && Math.abs(la - 1) < 0.06 && Math.abs(lb - 1) < 0.06;
+          const isRot = Math.abs(dot) < 0.06 && Math.abs(la - 1) < 0.06 && Math.abs(lb - 1) < 0.06 && ax * by - ay * bx > 0;
+          const sym = t7cv.closest('figure')?.querySelector<HTMLElement>('[data-t7-sym]');
+          if (sym) {
+            sym.textContent = isRot
+              ? `รูปสัญลักษณ์ของมุมนี้คือ (cos θ, −sin θ ; sin θ, cos θ) โดย θ = ${Math.round((Math.atan2(ay, ax) * 180) / Math.PI)} องศา`
+              : '';
+          }
+          const square = Math.abs(dot) < 0.06;
           t7read.textContent = isRot
             ? `ตอนนี้แกนสองอันตั้งฉากกันและยาว 1 พอดี นี่คือเมทริกซ์หมุนที่มุม ${Math.round((Math.atan2(ay, ax) * 180) / Math.PI)} องศา`
-            : `ความยาวแกน x เท่ากับ ${fmt(la)} แกน y เท่ากับ ${fmt(lb)} และมุมระหว่างสองแกนยังไม่ฉาก`;
+            : `ความยาวแกน x เท่ากับ ${fmt(la)} แกน y เท่ากับ ${fmt(lb)} และสองแกน${square ? 'ยังตั้งฉากกันอยู่' : 'ไม่ตั้งฉากกันแล้ว'}`;
         };
         fitCanvas(t7cv, draw);
         for (const [input] of outs) input.addEventListener('input', draw);
+        // ปุ่มลัด กดแล้วเห็นทั้งลูกศรและตัวเลขในเมทริกซ์เปลี่ยนพร้อมกัน
+        const presets: Record<string, [number, number, number, number]> = {
+          rot30: [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), -Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)],
+          rot90: [0, 1, -1, 0],
+          flip: [1, 0, 0, -1],
+          scale: [2, 0, 0, 2],
+        };
+        for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-t7-preset]')) {
+          btn.addEventListener('click', () => {
+            const key = btn.dataset.t7Preset ?? '';
+            const v = presets[key] ?? [1, 0, 0, 1];
+            const snap = (n: number): string => String(Math.round(n * 100) / 100);
+            t7ax.value = snap(v[0]);
+            t7ay.value = snap(v[1]);
+            t7bx.value = snap(v[2]);
+            t7by.value = snap(v[3]);
+            draw();
+          });
+        }
         onDrag(t7cv, (_dx, _dy, px, py) => {
           const unit = Math.min(t7cv.width, t7cv.height) / 5.4;
           const dpr = t7cv.width / t7cv.getBoundingClientRect().width;
@@ -2718,6 +4003,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t8aOut = document.querySelector<HTMLOutputElement>('[data-t8-a-out]');
       const t8bOut = document.querySelector<HTMLOutputElement>('[data-t8-b-out]');
       if (t8ab && t8ba && t8a && t8b && t8aOut && t8bOut) {
+        /** แกนที่เพิ่งถูกขยับล่าสุด ของเล่นนี้ต้องเห็นแกนด้วย เพราะ A หมุนรอบ x และ B หมุนรอบ z */
+        let t8spin: 'x' | 'z' | null = null;
         const paintOne = (cv: HTMLCanvasElement, swap: boolean): void => {
           const ctx = ctxOf(cv);
           if (!ctx) return;
@@ -2728,17 +4015,58 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
             B: deg2rad(Number(t8b.value)),
             swap,
             rings: 14,
+            axes: true,
+            spin: t8spin,
+          });
+        };
+        /** เมทริกซ์ของการหมุนจริง หาได้จากการส่งแกนหนึ่งหน่วยสามตัวเข้าไปแล้วดูว่ามันไปโผล่ที่ไหน */
+        const matrixOf = (A: number, B: number, swap: boolean): number[][] => {
+          const place = (p: Vec3): Vec3 => (swap ? rotate(rotate(p, 0, B), A, 0) : rotate(p, A, B));
+          const cols = [place({ x: 1, y: 0, z: 0 }), place({ x: 0, y: 1, z: 0 }), place({ x: 0, y: 0, z: 1 })];
+          return [
+            [cols[0].x, cols[1].x, cols[2].x],
+            [cols[0].y, cols[1].y, cols[2].y],
+            [cols[0].z, cols[1].z, cols[2].z],
+          ];
+        };
+        const fillMat = (sel: string, m: number[][]): void => {
+          const table = document.querySelector<HTMLTableElement>(sel);
+          if (!table) return;
+          const cells = [...table.querySelectorAll('td')];
+          m.flat().forEach((v, i) => {
+            const c = cells[i];
+            if (c) c.textContent = fmt(v);
           });
         };
         const draw = (): void => {
           paintOne(t8ab, false);
           paintOne(t8ba, true);
+          const A = deg2rad(Number(t8a.value));
+          const B = deg2rad(Number(t8b.value));
+          fillMat('[data-t8-mat-ab]', matrixOf(A, B, false));
+          fillMat('[data-t8-mat-ba]', matrixOf(A, B, true));
+          const read = document.querySelector<HTMLElement>('[data-t8-read]');
+          if (read) {
+            const a = matrixOf(A, B, false).flat();
+            const b = matrixOf(A, B, true).flat();
+            const diff = a.reduce((acc, v, i) => acc + Math.abs(v - b[i]), 0);
+            read.textContent = diff < 0.01
+              ? 'ที่มุมชุดนี้บังเอิญได้เมทริกซ์เท่ากันพอดี ลองขยับมุมดูอีกที'
+              : `ตัวเลขในสองเมทริกซ์ต่างกันรวม ${fmt(diff)} คือคนละการแปลงกันจริง ๆ ไม่ใช่แค่ภาพดูต่าง`;
+          }
           t8aOut.textContent = `${Number(t8a.value)} องศา`;
           t8bOut.textContent = `${Number(t8b.value)} องศา`;
         };
         fitCanvas(t8ab, draw);
         fitCanvas(t8ba, draw);
-        for (const el of [t8a, t8b]) el.addEventListener('input', draw);
+        t8a.addEventListener('input', () => {
+          t8spin = 'x';
+          draw();
+        });
+        t8b.addEventListener('input', () => {
+          t8spin = 'z';
+          draw();
+        });
       }
 
       /* ---------- T3 หมุนโดนัทเอง ---------- */
@@ -2748,6 +4076,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t3aOut = document.querySelector<HTMLOutputElement>('[data-t3-a-out]');
       const t3bOut = document.querySelector<HTMLOutputElement>('[data-t3-b-out]');
       if (t3cv && t3a && t3b && t3aOut && t3bOut) {
+        /** แกนที่เพิ่งถูกขยับล่าสุด ใช้ตัดสินว่าจะเน้นแกนไหนในภาพ */
+        let t3spin: 'x' | 'z' | null = null;
         const draw = (): void => {
           const ctx = ctxOf(t3cv);
           if (!ctx) return;
@@ -2757,14 +4087,23 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
             A: deg2rad(Number(t3a.value)),
             B: deg2rad(Number(t3b.value)),
             axes: true,
+            spin: t3spin,
           });
           t3aOut.textContent = `${Number(t3a.value)} องศา`;
           t3bOut.textContent = `${Number(t3b.value)} องศา`;
         };
         fitCanvas(t3cv, draw);
-        for (const el of [t3a, t3b]) el.addEventListener('input', draw);
+        t3a.addEventListener('input', () => {
+          t3spin = 'x';
+          draw();
+        });
+        t3b.addEventListener('input', () => {
+          t3spin = 'z';
+          draw();
+        });
         onDrag(t3cv, (dx, dy) => {
           const wrap = (n: number): string => String(((Math.round(n) % 360) + 360) % 360);
+          if (dx !== 0 || dy !== 0) t3spin = Math.abs(dy) >= Math.abs(dx) ? 'x' : 'z';
           t3a.value = wrap(Number(t3a.value) - dy * 0.6);
           t3b.value = wrap(Number(t3b.value) + dx * 0.6);
           draw();
@@ -2777,12 +4116,12 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t4k2Out = document.querySelector<HTMLOutputElement>('[data-t4-k2-out]');
       const t4persp = document.querySelector<HTMLInputElement>('[data-t4-persp]');
       if (t4pre && t4k2 && t4k2Out && t4persp) {
-        mountAscii(t4pre, BASE.cols);
+        mountAscii(t4pre);
         const draw = (): void => {
           const K2 = Number(t4k2.value);
           // ซูมตามระยะ เพื่อให้ขนาดบนจอคงที่ ผู้อ่านจะได้เห็น "รูปทรงแบนลง" ไม่ใช่แค่ "ของเล็กลง"
           const zoom = K2 / BASE.K2;
-          t4pre.textContent = renderDonut(1.0, 0.6, { ...BASE, K2, multX: BASE.multX * zoom, multY: BASE.multY * zoom }, {
+          t4pre.textContent = renderDonut(1.0, 0.6, { ...GRID, K2, multX: GRID.multX * zoom, multY: GRID.multY * zoom }, {
             perspective: t4persp.checked,
             zbuffer: true,
             lighting: true,
@@ -2790,6 +4129,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           });
           t4k2Out.textContent = fmt(K2);
         };
+        repaints.push(draw);
         t4k2.addEventListener('input', draw);
         t4persp.addEventListener('change', draw);
         draw();
@@ -2800,11 +4140,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t5zb = document.querySelector<HTMLInputElement>('[data-t5-zb]');
       const t5toggle = document.querySelector<HTMLButtonElement>('[data-t5-toggle]');
       if (t5pre && t5zb && t5toggle) {
-        mountAscii(t5pre, BASE.cols);
+        mountAscii(t5pre);
         let A = 0.6;
         let B = 0.3;
         const paint = (): void => {
-          t5pre.textContent = renderDonut(A, B, BASE, {
+          t5pre.textContent = renderDonut(A, B, GRID, {
             perspective: true,
             zbuffer: t5zb.checked,
             lighting: true,
@@ -2817,6 +4157,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           paint();
         };
         (t5pre as AsciiPre).__donut = { tick };
+        repaints.push(paint);
         paint();
         t5zb.addEventListener('change', paint);
         const ticker = loop.add(t5pre, tick, !reduce);
@@ -2859,6 +4200,17 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           ctx.moveTo(cx, 0);
           ctx.lineTo(cx, h);
           ctx.stroke();
+          {
+            const afs = Math.max(11, w / 42);
+            ctx.font = `${afs}px "JetBrains Mono", monospace`;
+            ctx.fillStyle = COLOR.muted;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillText('x', w - afs * 0.5, cy + afs * 0.4);
+            ctx.textAlign = 'left';
+            ctx.fillText('y', cx + afs * 0.4, afs * 0.4);
+            ctx.textBaseline = 'alphabetic';
+          }
           // เงาของลูกศรแรกที่ทอดลงบนอันที่สอง ยาวเท่ากับดอทโปรดักต์
           const sx = cx + b.x * dot * R;
           const sy = cy - b.y * dot * R;
@@ -2942,6 +4294,8 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       };
 
       if (panel) {
+        // ตัวจัดก้อนตัวจริงเริ่มทำงานแล้ว ถอดตัวซ่อนชั่วคราวของสคริปต์ inline ออกได้
+        document.documentElement.classList.remove('dn-folding');
         const heads = [...panel.querySelectorAll<HTMLHeadingElement>(':scope > h2')];
         if (heads.length > OPEN_AT_FIRST) {
           // จับแต่ละ h2 กับของที่ตามหลังมันไปจนถึง h2 ถัดไป มัดรวมเป็นก้อนเดียว
@@ -3071,12 +4425,12 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const labRead = lab?.querySelector<HTMLElement>('[data-lab-read]');
       const labToggle = lab?.querySelector<HTMLButtonElement>('[data-lab-toggle]');
       if (labPre && labPersp && labZb && labLight && labCull && labStep && labStepOut && labRead && labToggle) {
-        mountAscii(labPre, BASE.cols);
+        mountAscii(labPre);
         let A = 0.6;
         let B = 0.3;
         const paint = (): void => {
           const step = Number(labStep.value);
-          labPre.textContent = renderDonut(A, B, { ...BASE, thetaStep: step }, {
+          labPre.textContent = renderDonut(A, B, { ...GRID, thetaStep: step }, {
             perspective: labPersp.checked,
             zbuffer: labZb.checked,
             lighting: labLight.checked,
@@ -3099,6 +4453,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           paint();
         };
         (labPre as AsciiPre).__donut = { tick };
+        repaints.push(paint);
         paint();
         for (const el of [labPersp, labZb, labLight, labCull]) el.addEventListener('change', paint);
         labStep.addEventListener('input', paint);
@@ -3123,7 +4478,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const knRead = document.querySelector<HTMLElement>('[data-kn-read]');
       const knReset = document.querySelector<HTMLButtonElement>('[data-kn-reset]');
       if (knPre && knR1 && knR2 && knK1 && knK2 && knLight && knChars && knRead && knReset) {
-        mountAscii(knPre, BASE.cols);
+        mountAscii(knPre);
         let A = 0.9;
         let B = 0.5;
         const outs: Array<[HTMLInputElement, HTMLOutputElement | null]> = [
@@ -3139,13 +4494,14 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           const k1 = Number(knK1.value);
           const K2 = Number(knK2.value);
           const chars = knChars.value.length ? knChars.value : BASE.chars;
+          const zoomFix = GRID.multX / BASE.multX;
           knPre.textContent = renderDonut(A, B, {
-            ...BASE,
+            ...GRID,
             R1,
             R2,
             K2,
-            multX: k1,
-            multY: k1 / 2,
+            multX: k1 * zoomFix,
+            multY: (k1 / 2) * zoomFix,
             chars,
             light: lightFrom(Number(knLight.value)),
           }, { perspective: true, zbuffer: true, lighting: true, cullBack: true });
@@ -3162,6 +4518,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           paint();
         };
         (knPre as AsciiPre).__donut = { tick };
+        repaints.push(paint);
         paint();
         for (const el of [knR1, knR2, knK1, knK2, knLight]) el.addEventListener('input', paint);
         knChars.addEventListener('input', paint);
@@ -3174,7 +4531,16 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           knChars.value = BASE.chars;
           paint();
         });
-        loop.add(knPre, tick, !reduce);
+        const knToggle = document.querySelector<HTMLButtonElement>('[data-kn-toggle]');
+        const knTicker = loop.add(knPre, tick, !reduce);
+        if (knToggle) {
+          knToggle.textContent = reduce ? 'เล่น' : 'หยุด';
+          knToggle.addEventListener('click', () => {
+            knTicker.wanted = !knTicker.wanted;
+            knToggle.textContent = knTicker.wanted ? 'หยุด' : 'เล่น';
+            loop.kick();
+          });
+        }
         loop.kick();
       }
 
@@ -3208,11 +4574,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
         const say = box.querySelector<HTMLElement>('[data-quiz-say]');
         const conf = sick[key];
         if (!pre || !say || !conf) continue;
-        mountAscii(pre, BASE.cols);
+        mountAscii(pre);
         let A = 0.8;
         let B = 0.4;
         const paint = (): void => {
-          pre.textContent = renderDonut(A, B, { ...BASE, K2: conf.K2 }, conf.flags);
+          pre.textContent = renderDonut(A, B, { ...GRID, K2: conf.K2 }, conf.flags);
         };
         const tick = (): void => {
           A += 0.04;
@@ -3220,8 +4586,18 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           paint();
         };
         (pre as AsciiPre).__donut = { tick };
+        repaints.push(paint);
         paint();
-        loop.add(pre, tick, !reduce);
+        const sickTicker = loop.add(pre, tick, !reduce);
+        const sickToggle = box.querySelector<HTMLButtonElement>('[data-quiz-toggle]');
+        if (sickToggle) {
+          sickToggle.textContent = reduce ? 'เล่น' : 'หยุด';
+          sickToggle.addEventListener('click', () => {
+            sickTicker.wanted = !sickTicker.wanted;
+            sickToggle.textContent = sickTicker.wanted ? 'หยุด' : 'เล่น';
+            loop.kick();
+          });
+        }
         for (const btn of box.querySelectorAll<HTMLButtonElement>('[data-pick]')) {
           btn.addEventListener('click', () => {
             const right = btn.dataset.pick === key;
@@ -3254,11 +4630,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
       const t6Out = document.querySelector<HTMLOutputElement>('[data-t6-light-out]');
       const t6read = document.querySelector<HTMLElement>('[data-t6-read]');
       if (t6pre && t6light && t6Out && t6read) {
-        mountAscii(t6pre, BASE.cols);
+        mountAscii(t6pre);
         const draw = (): void => {
           // หมุนทิศแสงรอบแกนที่ชี้เข้าหาคนดู โดยรักษาความยาว sqrt(2) ไว้เท่าเดิม
           const light = lightFrom(Number(t6light.value));
-          const text = renderDonut(1.0, 0.6, { ...BASE, light }, {
+          const text = renderDonut(1.0, 0.6, { ...GRID, light }, {
             perspective: true,
             zbuffer: true,
             lighting: true,
@@ -3269,6 +4645,7 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
           const used = BASE.chars.split('').filter((c) => text.includes(c));
           t6read.textContent = `ตอนนี้ภาพใช้ตัวอักษรอยู่ ${used.length} ตัวจาก ${BASE.chars.length} ตัว คือ ${used.join(' ')}`;
         };
+        repaints.push(draw);
         t6light.addEventListener('input', draw);
         draw();
       }
@@ -3277,6 +4654,16 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
 </DivineLoreLayout>
 
 <style>
+  /* หัวข้อย่อย ต้องเล็กกว่า h2 ของ layout (1rem) จริง ๆ ไม่ใช่ใหญ่กว่า
+     ถ้าไม่ตั้งเอง มันจะตกไปใช้ค่าเริ่มต้นของเบราว์เซอร์ซึ่งใหญ่กว่า h2 ที่นี่ */
+  h3{
+    margin:1.7rem 0 0.6rem;
+    font-size:0.92rem;
+    font-weight:700;
+    letter-spacing:0.01em;
+    color:var(--dl-ink);
+  }
+
   /* ---------- ภาพเปิด โดนัท ASCII ---------- */
   .stage{
     margin:0 0 1.25rem;
@@ -3460,6 +4847,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     color:var(--dl-muted);
   }
 
+  /* จุดพับ ใช้เป็นหลักให้ CSS ซ่อนทุกอย่างที่อยู่ถัดจากมันในจังหวะก่อนสคริปต์จัดก้อนทำงาน
+     พอจัดก้อนเสร็จ สคริปต์จะถอดคลาส dn-folding ออก แล้วสถานะจริงจะมาจาก hidden="until-found" แทน */
+  .dn-fold-start{display:none;}
+  :global(html.dn-folding) .dn-fold-start ~ :global(*){display:none !important;}
+
   /* ระวัง: กฎที่ตั้ง display ให้ทับ [hidden] ของเบราว์เซอร์ ต้องสั่งซ่อนเองอีกที
      ไม่งั้นรอยต่อที่คลี่ไปแล้วจะยังโผล่อยู่พร้อมข้อความว่าเหลือ 0 ตอน */
   :global(.dn-seam[hidden]){display:none;}
@@ -3552,6 +4944,11 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     border-radius:12px;
   }
   .quiz.is-done{border-color:var(--dl-emerald);}
+  .quiz-bar{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:0.5rem;
+  }
   .quiz-q{
     margin:0.7rem 0 0.5rem;
     font-size:0.9rem;
@@ -3577,6 +4974,74 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
     font-size:0.84rem;
     line-height:1.7;
     color:var(--dl-ink);
+  }
+
+  /* ---------- เมทริกซ์ที่วาดให้เห็นจริง ---------- */
+  .matwrap{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:0.35rem;
+    margin-top:0.75rem;
+  }
+  .matlab{
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    font-size:0.95rem;
+    color:var(--dl-muted);
+    margin-right:0.15rem;
+  }
+  .matbrk{
+    font-size:2.6rem;
+    line-height:1;
+    color:var(--dl-muted);
+    transform:scaleX(0.55);
+  }
+  .mat{border-collapse:collapse;}
+  .mat td{
+    padding:0.15rem 0.55rem;
+    min-width:4.2rem;
+    text-align:right;
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    font-variant-numeric:tabular-nums;
+    font-size:1rem;
+  }
+  .mat td.mc1{color:#4ade80;}
+  .mat td.mc2{color:#e0b400;}
+  .mat-sym{
+    margin:0.4rem 0 0;
+    min-height:1.3rem;
+    text-align:center;
+    font-size:0.8rem;
+    color:var(--dl-muted);
+  }
+  .toy-presets{justify-content:center;}
+  .btn.is-on{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .mat3{
+    margin:0.5rem auto 0;
+    border-collapse:collapse;
+  }
+  .mat3 td{
+    padding:0.1rem 0.35rem;
+    text-align:right;
+    font-family:"JetBrains Mono","Fira Code",monospace;
+    font-variant-numeric:tabular-nums;
+    font-size:0.72rem;
+    color:#cdd6ea;
+    min-width:3rem;
+  }
+  /* สไลด์ของ S4 เป็น SVG ต้องคุมความสูงไม่ให้การ์ดกระตุกระหว่างขั้น */
+  [data-sim="s4"] .sim-view{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:19rem;
+  }
+  [data-sim="s4"] .sim-slide svg{
+    display:block;
+    width:100%;
+    max-width:26rem;
+    height:auto;
+    margin:0 auto;
   }
 
   /* ---------- ตัวเดินทีละขั้น ---------- */
@@ -3688,12 +5153,14 @@ in(B),t=c*h*g-f*        e;int x=40+30*D*
   /* S3 สไลด์สูตร สูตรแต่ละขั้นสูงไม่เท่ากัน ล็อกความสูงไว้ก่อน ปุ่มจะได้ไม่ขยับตอนเดินขั้น */
   .sim-slide{display:none;}
   .sim-slide.is-on{display:block;width:100%;}
-  [data-sim="s3"] .sim-view{
+  [data-sim="s3"] .sim-view,
+  [data-sim="s5"] .sim-view{
     display:flex;
     align-items:center;
     min-height:9.5rem;
   }
-  [data-sim="s3"] .sim-view .mathblock{width:100%;margin:0;}
+  [data-sim="s3"] .sim-view .mathblock,
+  [data-sim="s5"] .sim-view .mathblock{width:100%;margin:0;}
 
   /* คำกำกับใต้หน้าต่างโค้ด อ่านเป็นคำบรรยาย ไม่ใช่ย่อหน้าเนื้อความ */
   .code-note{
