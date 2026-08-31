@@ -410,6 +410,70 @@ console.log('valid:', valid);
 chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
 console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
 
+/** ตัวเดินเรื่องปัญหาใช้เงินซ้ำ สมุดสามเล่มเดินไปพร้อมกัน สร้างตอน build สคริปต์แค่เรนเดอร์ */
+interface DsLine {
+  t: string;
+  s?: 'new' | 'bad';
+}
+interface DsStep {
+  title: string;
+  say: string;
+  slips: string[];
+  books: DsLine[][];
+}
+const dsBooks = ['สมุดของร้าน A', 'สมุดของร้าน B', 'สมุดของนาย ค.'];
+const dsBase: DsLine[] = [{ t: 'สมชาย รับเงิน 100 บาท' }];
+const dsToA: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'new' };
+const dsToB: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'new' };
+const dsToAbad: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'bad' };
+const dsToBbad: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'bad' };
+const dsSlipA = 'ใบ #1 · สมชาย จ่าย ร้าน A 100 บาท';
+const dsSlipB = 'ใบ #2 · สมชาย จ่าย ร้าน B 100 บาท';
+const dsSteps: DsStep[] = [
+  {
+    title: 'ทุกเล่มตรงกัน',
+    say: 'ก่อนเกิดเรื่อง สมุดทั้งสามเล่มมีรายการเหมือนกันทุกบรรทัด ใครเปิดเล่มไหนก็คำนวณได้ตรงกันว่าสมชายมีอยู่ 100 บาท',
+    slips: [],
+    books: [dsBase, dsBase, dsBase],
+  },
+  {
+    title: 'สมชายเซ็นใบสั่งที่หนึ่ง',
+    say: 'สมชายเขียนใบสั่งว่าจ่าย 100 บาทให้ร้าน A แล้วเซ็นกำกับ ตอนนี้ยังไม่มีเล่มไหนจดอะไรทั้งนั้น ใบสั่งเพิ่งออกจากมือเขา',
+    slips: [dsSlipA],
+    books: [dsBase, dsBase, dsBase],
+  },
+  {
+    title: 'อีกสองวินาที เซ็นใบที่สอง',
+    say: 'เขาเขียนใบสั่งอีกใบ จ่ายเงิน 100 บาทก้อนเดิมให้ร้าน B แล้วเซ็นเหมือนกัน ใบนี้ก็ถูกต้องสมบูรณ์ในตัวมันเอง ไม่มีอะไรผิดให้ใครจับได้',
+    slips: [dsSlipA, dsSlipB],
+    books: [dsBase, dsBase, dsBase],
+  },
+  {
+    title: 'ใบ #1 ถึงร้าน A',
+    say: 'ร้าน A เปิดสมุดของตัวเองตรวจ เห็นว่าสมชายมี 100 บาทอยู่จริงและลายเซ็นใช้ได้ ทุกอย่างผ่าน ร้าน A จึงจดลงเล่มแล้วส่งของ',
+    slips: [dsSlipB],
+    books: [[...dsBase, dsToA], dsBase, dsBase],
+  },
+  {
+    title: 'ใบ #2 ถึงร้าน B',
+    say: 'ร้าน B เปิดสมุดของตัวเองตรวจบ้าง เห็นว่าสมชายมี 100 บาทอยู่จริงและลายเซ็นใช้ได้เหมือนกันเป๊ะ ก็ผ่านเหมือนกัน จดลงเล่มแล้วส่งของ สังเกตว่าสองร้านเห็นภาพเดียวกันตอนตัดสินใจ',
+    slips: [],
+    books: [[...dsBase, dsToA], [...dsBase, dsToB], dsBase],
+  },
+  {
+    title: 'ใบสองใบมาเจอกันที่นาย ค.',
+    say: 'นาย ค. ไม่ได้เกี่ยวอะไรกับใครเลย แต่เขาต้องจดทุกอย่างเหมือนกัน พอใบสั่งทั้งสองใบเดินทางมาถึงเขาก็จดไม่ลง เพราะสองใบนี้ใช้เงินก้อนเดียวกัน จะจดทั้งคู่ก็เท่ากับเสกเงินขึ้นมา จะเลือกใบเดียวก็ต้องรู้ก่อนว่าใบไหนมาก่อน',
+    slips: [],
+    books: [[...dsBase, dsToAbad], [...dsBase, dsToBbad], [...dsBase, dsToAbad, dsToBbad]],
+  },
+  {
+    title: 'ไม่มีใครทำผิด แต่กติกาแตก',
+    say: 'เล่มของร้าน A บอกว่าเงินไปที่ร้าน A เล่มของร้าน B บอกว่าเงินไปที่ร้าน B และไม่มีทางที่สองเล่มจะจริงพร้อมกัน กติกาที่ว่าทุกเล่มต้องมีรายการเหมือนกันแตกไปเรียบร้อย ทั้งที่ทุกคนทำถูกทุกขั้นตอน',
+    slips: [],
+    books: [[...dsBase, dsToAbad], [...dsBase, dsToBbad], [...dsBase, dsToAbad, dsToBbad]],
+  },
+];
+
 /** เส้นทางของธุรกรรมหนึ่งใบ ใช้กับตัวเดินเรื่องท้ายหมวดกลไก สร้างตอน build สคริปต์แค่เรนเดอร์ */
 interface JourneyStep {
   station: number;
@@ -477,91 +541,213 @@ const DESC =
     บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อนเลยสักอย่าง
   </p>
 
-  <h2>เงินในบัญชีคุณคือแถวหนึ่งในตารางของธนาคาร</h2>
+  <h2>เงินในแอปธนาคารคือรายการหนึ่งในสมุดบัญชี</h2>
 
   <p>
-    ลองนึกถึงเงินในแอปธนาคารของคุณตอนนี้ ตัวเลขนั้นไม่ได้อยู่ในมือถือ มันคือแถวหนึ่งในตารางของธนาคาร
-    ธนาคารจดว่าบัญชีนี้มีเท่านี้ พอคุณโอน ธนาคารก็ลบตรงนั้นแล้วบวกตรงนี้ ทั้งกระบวนการวางอยู่บนข้อเท็จจริงข้อเดียว
-    คือ <strong>มีคนกลางหนึ่งรายที่ทุกคนยอมให้เป็นคนถือสมุด</strong>
+    ลองนึกถึงไฟล์ xlsx ที่คนใช้จดรายรับรายจ่ายกันในชีวิตจริง หนึ่งบรรทัดคือหนึ่งรายการ
+    วันที่ ใครจ่ายให้ใคร เท่าไร ธนาคารก็ถือของแบบนั้นอยู่เล่มหนึ่ง แค่ใหญ่กว่ามากและมีทุกคนอยู่ในนั้น
+    ของชิ้นนี้เรียกว่า <strong>สมุดบัญชี</strong> ต่อจากนี้ผมจะเรียกสั้น ๆ ว่าสมุด
   </p>
 
   <p>
-    ถ้าอยากได้เงินที่ไม่ต้องเชื่อใจคนถือสมุด สิ่งแรกที่พังไม่ใช่เรื่องเงินปลอม
-    เพราะข้อมูลดิจิทัลไม่มีของแท้ของปลอมตั้งแต่แรก มันมีแต่ไฟล์ที่ก็อปได้ไม่จำกัด สิ่งที่พังคือคำถามที่แคบกว่านั้นมาก
-  </p>
-
-  <h2>ถ้าไม่มีใครถือสมุดกลาง แล้วใครใช้เงินซ้ำสองรอบ</h2>
-
-  <p>
-    สมมติสมชายมีเงินดิจิทัลอยู่ก้อนเดียว ก้อนนั้นเอาเข้าจริงก็คือไฟล์ไฟล์หนึ่งในเครื่องเขา
-    เย็นวันหนึ่งเขาเดินเข้าร้าน A ส่งไฟล์นั้นให้ แล้วเดินข้ามถนนไปร้าน B ในอีกไม่กี่นาที
-    ส่งสำเนาของไฟล์เดียวกันให้อีกใบ
-  </p>
-
-  <p>
-    สองร้านนี้ไม่รู้จักกัน ไม่ได้โทรหากัน และไม่มีสมุดกลางเล่มไหนให้เปิดเช็คว่าเงินก้อนนี้ถูกใช้ไปแล้วหรือยัง
-    แต่ละร้านจึงตรวจได้แค่สิ่งที่ตัวเองถืออยู่ในมือ แล้วก็เห็นว่ามันดูถูกต้องดี ทั้งสองร้านส่งของให้สมชาย
-    ด้วยเงินก้อนเดียวกัน
-  </p>
-
-  <p class="pull">
-    คำถามทั้งหมดของเรื่องนี้คือ ถ้าไม่มีใครถือสมุดกลาง แล้วเราจะรู้ได้ยังไงว่าเงินก้อนเดียวกันถูกใช้ไปแล้วสองรอบ
-  </p>
-
-  <p>
-    คำถามข้อนี้มีชื่อเรียกว่า <strong>ปัญหาใช้เงินซ้ำ (double-spend)</strong> อ่านว่า "ดับเบิลสเปนด์"
-    แปลตรงตัวว่าจ่ายซ้ำ ที่เหลือของบทนี้คือการไล่ดูว่าคนแก้ปัญหาข้อนี้กันยังไง
+    เงินในแอปธนาคารของคุณจึงไม่ได้อยู่ในมือถือ มันคือผลของรายการทุกบรรทัดที่เกี่ยวกับคุณในสมุดเล่มนั้น
+    พอคุณกดโอน ธนาคารก็เขียนรายการใหม่เพิ่มลงไปอีกหนึ่งบรรทัด
   </p>
 
   <ZoomableDiagram
-    caption="สมชายมีเงินก้อนเดียว แต่ส่งสำเนาของไฟล์เดียวกันให้สองร้านในเวลาไล่เลี่ยกัน สองร้านไม่รู้เรื่องกันและไม่มีสมุดกลางให้เปิดเช็ค แต่ละร้านจึงตรวจได้แค่ใบที่ตัวเองถืออยู่ แล้วก็ผ่านทั้งคู่"
+    caption="ยอดเงินไม่ได้ถูกจดไว้ที่ไหนเลย ใครถือสมุดครบก็บวกลบเอาเองได้ ข้อนี้ดูเหมือนรายละเอียดเล็ก ๆ แต่มันคือรากของวิธีเก็บเงินทั้งหมดที่จะเล่าท้ายบท"
   >
-    <svg class="btc-dgm" viewBox="0 0 560 250" role="img" aria-label="แผนภาพปัญหาใช้เงินซ้ำ สมชายอยู่ทางซ้ายมีเงินก้อนเดียวซึ่งเป็นไฟล์ มีลูกศรสองเส้นแยกไปหาร้านเอทางขวาบนและร้านบีทางขวาล่าง ทั้งสองเส้นกำกับว่าสำเนาของไฟล์เดียวกัน แต่ละร้านกำกับว่าเห็นแค่ใบของตัวเองจึงส่งของให้ ตรงกลางมีเครื่องหมายคำถามกำกับว่าไม่มีใครรู้ว่ามีอีกใบ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+    <svg class="btc-dgm" viewBox="0 0 520 250" role="img" aria-label="แผนภาพหน้าตาของสมุดบัญชี ทางซ้ายเป็นหน้าสมุดที่มีรายการสี่บรรทัดว่าใครจ่ายให้ใครเท่าไร มีลูกศรชี้ไปทางขวาไปยังกล่องที่คำนวณยอดของสมชายจากการบวกลบรายการเหล่านั้นได้ห้าสิบบาท" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
       <defs>
-        <marker id="bt-ar-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        <marker id="bt-ar-led" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
         </marker>
       </defs>
-      <rect x="18" y="88" width="140" height="66" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <text x="88" y="114" text-anchor="middle" font-size="14" fill="#e7ecf6">สมชาย</text>
-      <text x="88" y="136" text-anchor="middle" font-size="12" fill="#9aa7bd">มีเงิน 1 เหรียญ</text>
 
-      <path d="M158 108 C 250 78, 300 62, 386 56" fill="none" stroke="#e0b400" stroke-width="2" marker-end="url(#bt-ar-warn)"/>
-      <path d="M158 134 C 250 164, 300 180, 386 186" fill="none" stroke="#e0b400" stroke-width="2" marker-end="url(#bt-ar-warn)"/>
-      <text x="212" y="72" text-anchor="middle" font-size="11" fill="#e0b400">สำเนาไฟล์เดียวกัน</text>
-      <text x="270" y="196" text-anchor="middle" font-size="11" fill="#e0b400">สำเนาไฟล์เดียวกัน</text>
+      <rect x="20" y="20" width="280" height="190" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="160" y="44" text-anchor="middle" font-size="12" fill="#e0b400">สมุดบัญชี · หน้าหนึ่ง</text>
+      <line x1="36" y1="56" x2="284" y2="56" stroke="#2a3350"/>
+      <text x="40" y="80" font-size="11" fill="#e7ecf6">สมชาย รับเงิน 100 บาท</text>
+      <line x1="36" y1="94" x2="284" y2="94" stroke="#222a41"/>
+      <text x="40" y="118" font-size="11" fill="#e7ecf6">สมชาย จ่าย ร้าน A 30 บาท</text>
+      <line x1="36" y1="132" x2="284" y2="132" stroke="#222a41"/>
+      <text x="40" y="156" font-size="11" fill="#e7ecf6">ร้าน A จ่าย ร้าน B 10 บาท</text>
+      <line x1="36" y1="170" x2="284" y2="170" stroke="#222a41"/>
+      <text x="40" y="194" font-size="11" fill="#e7ecf6">สมชาย จ่าย ร้าน B 20 บาท</text>
 
-      <rect x="392" y="24" width="152" height="62" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <text x="468" y="48" text-anchor="middle" font-size="14" fill="#e7ecf6">ร้าน A</text>
-      <text x="468" y="70" text-anchor="middle" font-size="11" fill="#e0b400">เห็นแค่ใบของตัวเอง</text>
+      <line x1="304" y1="115" x2="344" y2="115" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-led)"/>
+      <text x="324" y="106" text-anchor="middle" font-size="10" fill="#4ade80">บวกลบเอง</text>
 
-      <rect x="392" y="156" width="152" height="62" rx="10" fill="#141a29" stroke="#2a3350"/>
-      <text x="468" y="180" text-anchor="middle" font-size="14" fill="#e7ecf6">ร้าน B</text>
-      <text x="468" y="202" text-anchor="middle" font-size="11" fill="#e0b400">เห็นแค่ใบของตัวเอง</text>
-
-      <text x="272" y="124" text-anchor="middle" font-size="26" fill="#9aa7bd">?</text>
-      <text x="272" y="146" text-anchor="middle" font-size="12" fill="#9aa7bd">ไม่มีใครรู้ว่ามีอีกใบ</text>
+      <rect x="352" y="78" width="152" height="76" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="428" y="102" text-anchor="middle" font-size="12" fill="#9aa7bd">ยอดของสมชาย</text>
+      <text x="428" y="124" text-anchor="middle" font-size="12" fill="#e7ecf6">100 − 30 − 20</text>
+      <text x="428" y="144" text-anchor="middle" font-size="13" fill="#4ade80">= 50 บาท</text>
     </svg>
   </ZoomableDiagram>
 
-  <h2>ทางออกแรกที่ใครก็คิดออก คือให้ทุกคนจดเอง</h2>
+  <p>
+    จุดที่ต้องสังเกตไว้ตั้งแต่ตอนนี้ เพราะจะได้ใช้ยาวไปจนจบบท คือ
+    <strong>ไม่มีบรรทัดไหนในสมุดที่จดยอดคงเหลือของใครเอาไว้เลย</strong>
+    ยอดของแต่ละคนคือผลบวกลบของรายการที่ผ่านมาทั้งหมด ใครถือสมุดครบก็คำนวณเองได้
+    ส่วนรายการหนึ่งบรรทัดแบบนี้ ภาษาทางการเรียกว่า <strong>ธุรกรรม (transaction)</strong>
+    อ่านว่า "แทรนแซกชัน" บทนี้จะใช้สองคำนี้สลับกันไป
+  </p>
+
+  <h2>ทำไมถึงอยากเอาสมุดออกจากมือคนกลาง</h2>
 
   <p>
-    ลองนึกถึงร้านชำหน้าปากซอย เจ้าของร้านมีสมุดหนี้เล่มเดียวจดว่าใครติดเท่าไร วันไหนเขาขีดผิด
-    หรือแอบเติมบรรทัดให้ญาติตัวเอง ก็ไม่มีใครรู้ ถ้าไม่อยากเชื่อใจเขา ทางออกที่ตรงที่สุดคือ
-    <strong>ให้ทุกบ้านในซอยถือสมุดคนละเล่ม</strong> ใครจ่ายเงินให้ใครก็ตะโกนบอกทั้งซอย แล้วทุกบ้านจดตามในเล่มของตัวเอง
-    เครื่องที่ทำหน้าที่ถือสมุดแบบนี้เรียกว่า <strong>โหนด (node)</strong> อ่านว่า "โหนด" แปลว่าจุดต่อในเครือข่าย
+    ทั้งระบบข้างบนเดินได้เพราะข้อเท็จจริงข้อเดียว คือ
+    <strong>มีคนกลางหนึ่งรายที่ทุกคนยอมให้ถือสมุดเล่มจริง</strong>
+    เล่มของธนาคารถูกเสมอ เพราะไม่มีเล่มอื่นในโลกให้เอามาเทียบ
+  </p>
+
+  <ZoomableDiagram
+    caption="ทุกเส้นวิ่งเข้าหาจุดเดียว คนที่ถือเล่มเดียวในโลกจึงได้อำนาจที่คนอื่นไม่มีมาด้วยโดยอัตโนมัติ ไม่ใช่เพราะเขาอยากได้ แต่เพราะโครงสร้างมันเป็นแบบนั้น"
+  >
+    <svg class="btc-dgm" viewBox="0 0 540 230" role="img" aria-label="แผนภาพระบบที่มีคนกลาง สมชาย ร้านเอ และร้านบี อยู่ทางซ้าย มีลูกศรวิ่งเข้าหากล่องธนาคารตรงกลางซึ่งถือสมุดบัญชีเล่มเดียว ทางขวาเป็นรายการอำนาจที่มากับการถือเล่มเดียว คือแก้ตัวเลขได้ อายัดได้ และปิดทำการได้" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-mid" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="18" width="120" height="46" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="74" y="47" text-anchor="middle" font-size="12" fill="#e7ecf6">สมชาย</text>
+      <rect x="14" y="92" width="120" height="46" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="74" y="121" text-anchor="middle" font-size="12" fill="#e7ecf6">ร้าน A</text>
+      <rect x="14" y="166" width="120" height="46" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="74" y="195" text-anchor="middle" font-size="12" fill="#e7ecf6">ร้าน B</text>
+
+      <path d="M138 41 C 172 41, 176 96, 204 100" fill="none" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#bt-ar-mid)"/>
+      <line x1="138" y1="115" x2="204" y2="115" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#bt-ar-mid)"/>
+      <path d="M138 189 C 172 189, 176 134, 204 130" fill="none" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#bt-ar-mid)"/>
+
+      <rect x="210" y="76" width="150" height="78" rx="10" fill="#1b2436" stroke="#e0b400"/>
+      <text x="285" y="106" text-anchor="middle" font-size="13" fill="#e0b400">ธนาคาร</text>
+      <text x="285" y="130" text-anchor="middle" font-size="11" fill="#9aa7bd">สมุดบัญชีเล่มเดียว</text>
+
+      <text x="380" y="66" font-size="11" fill="#9aa7bd">อำนาจที่มากับการถือเล่มเดียว</text>
+      <text x="386" y="96" font-size="11" fill="#f08b8b">· แก้ตัวเลขในบัญชีคุณได้</text>
+      <text x="386" y="120" font-size="11" fill="#f08b8b">· อายัดหรือปฏิเสธการโอนได้</text>
+      <text x="386" y="144" font-size="11" fill="#f08b8b">· ปิดทำการวันไหนก็ได้</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ตราบใดที่ธนาคารทำตัวดี ทุกอย่างก็เรียบร้อย แต่โครงสร้างแบบนี้แปลว่าอำนาจสามข้อนั้นอยู่ในมือเขาตลอดเวลา
+    โดยไม่ต้องขออนุญาตคุณสักครั้ง ถ้าไม่อยากยกอำนาจก้อนนี้ให้ใคร ทางเดียวที่เหลือคือ
+    <strong>ไม่ต้องมีเล่มกลาง ให้ทุกคนถือสำเนาของตัวเอง</strong> ใครจ่ายเงินให้ใครก็ประกาศออกไปให้ทุกคนได้ยิน
+    แล้วต่างคนต่างจดลงเล่มของตัวเอง เครื่องที่ทำหน้าที่ถือสมุดแบบนี้เรียกว่า
+    <strong>โหนด (node)</strong> แปลว่าจุดต่อในเครือข่าย
+  </p>
+
+  <ZoomableDiagram
+    caption="จุดกลางหายไป ทุกคนถือเล่มของตัวเองและคุยกันตรง ๆ ราคาของความอิสระข้อนี้คือกติกาที่โผล่มาพร้อมกัน ว่าทุกเล่มต้องมีรายการเหมือนกัน"
+  >
+    <svg class="btc-dgm" viewBox="0 0 500 245" role="img" aria-label="แผนภาพระบบที่ไม่มีคนกลาง สมชาย ร้านเอ ร้านบี และนาย ค. อยู่สี่มุม แต่ละคนถือสมุดของตัวเอง มีเส้นเชื่อมถึงกันทุกคู่ ตรงกลางมีข้อความว่าทุกเล่มมีรายการเหมือนกันเป๊ะ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <line x1="160" y1="53" x2="340" y2="53" stroke="#2a3350" stroke-width="1.6"/>
+      <line x1="160" y1="177" x2="340" y2="177" stroke="#2a3350" stroke-width="1.6"/>
+      <line x1="95" y1="80" x2="95" y2="150" stroke="#2a3350" stroke-width="1.6"/>
+      <line x1="405" y1="80" x2="405" y2="150" stroke="#2a3350" stroke-width="1.6"/>
+      <line x1="160" y1="66" x2="340" y2="164" stroke="#2a3350" stroke-width="1.6"/>
+      <line x1="340" y1="66" x2="160" y2="164" stroke="#2a3350" stroke-width="1.6"/>
+
+      <rect x="30" y="26" width="130" height="54" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="95" y="49" text-anchor="middle" font-size="12" fill="#e7ecf6">สมชาย</text>
+      <text x="95" y="68" text-anchor="middle" font-size="10" fill="#4ade80">สมุดของตัวเอง</text>
+
+      <rect x="340" y="26" width="130" height="54" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="405" y="49" text-anchor="middle" font-size="12" fill="#e7ecf6">ร้าน A</text>
+      <text x="405" y="68" text-anchor="middle" font-size="10" fill="#4ade80">สมุดของตัวเอง</text>
+
+      <rect x="30" y="150" width="130" height="54" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="95" y="173" text-anchor="middle" font-size="12" fill="#e7ecf6">ร้าน B</text>
+      <text x="95" y="192" text-anchor="middle" font-size="10" fill="#4ade80">สมุดของตัวเอง</text>
+
+      <rect x="340" y="150" width="130" height="54" rx="9" fill="#141a29" stroke="#2a3350"/>
+      <text x="405" y="173" text-anchor="middle" font-size="12" fill="#e7ecf6">นาย ค.</text>
+      <text x="405" y="192" text-anchor="middle" font-size="10" fill="#4ade80">สมุดของตัวเอง</text>
+
+      <rect x="176" y="94" width="148" height="42" rx="8" fill="#0b1220"/>
+      <text x="250" y="111" text-anchor="middle" font-size="11" fill="#e0b400">ทุกเล่มต้องมีรายการ</text>
+      <text x="250" y="128" text-anchor="middle" font-size="11" fill="#e0b400">เหมือนกันเป๊ะ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    กติกาข้อที่โผล่มาพร้อมกันคือ <strong>ทุกเล่มต้องมีรายการเหมือนกัน</strong>
+    ข้อนี้ไม่ใช่ความเรียบร้อย แต่เป็นเงื่อนไขบังคับ เพราะเงินจะมีค่าก็ต่อเมื่อคนอื่นยอมรับ
+    ถ้าร้าน A กับร้าน B จดคนละอย่างแล้วยังอยู่กันได้ วันที่ร้าน A เอาเงินที่รับมาไปจ่ายต่อให้ร้าน B ก็จะจ่ายไม่ได้
+    เพราะในเล่มของร้าน B ไม่มีรายการนั้นอยู่จริง กลายเป็นเงินสองสกุลที่บังเอิญชื่อเหมือนกัน
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แล้วคนที่ไม่ได้เกี่ยวข้องต้องจดด้วยไหม</p>
+    <p>
+      ต้องจดครับ ทุกคน แม้ไม่ได้เป็นคู่กรณีของรายการนั้นเลยสักนิด เพราะถ้านาย ค. ไม่จดรายการของสมชายวันนี้
+      วันหน้าที่ร้าน A เอาเงินก้อนนั้นมาจ่ายเขา เขาจะเปิดเล่มตัวเองแล้วไม่เจอว่าร้าน A ได้เงินมาจากไหน
+      ก็ต้องปฏิเสธทั้งที่เงินนั้นถูกต้อง การจดทุกอย่างของทุกคนจึงเป็นราคาที่ต้องจ่ายเพื่อไม่ต้องเชื่อใจใคร
+      และเป็นที่มาของตัวเลขขนาดสมุดที่จะโผล่มาอีกหลายรอบในบทนี้
+    </p>
+  </div>
+
+  <h2>กติกาข้อนี้พังได้ยังไง</h2>
+
+  <p>
+    สมชายมีเงิน 100 บาท และ 100 บาทนั้นปรากฏเหมือนกันในทุกเล่ม เย็นวันหนึ่งเขาสั่งของออนไลน์สองเจ้าพร้อมกัน
+    ร้าน A กับร้าน B อยู่คนละจังหวัด ไม่รู้จักกัน ไม่ได้โทรหากัน
   </p>
 
   <p>
-    แล้วก็เจอปัญหาใหม่ทันที ถ้าสองบ้านจดไม่ตรงกันจะเชื่อเล่มไหน และถ้าใครอยากโกง
-    เขาก็แค่ตั้งโหนดปลอมขึ้นมาพันเครื่องแล้วโหวตทับเสียงคนอื่น เพราะการสร้างตัวตนปลอมบนอินเทอร์เน็ตแทบไม่มีต้นทุน
+    เขาเขียนใบสั่งจ่ายเงิน 100 บาทให้ร้าน A แล้วอีกสองวินาทีเขียนใบสั่งอีกใบ
+    จ่ายเงิน 100 บาท<strong>ก้อนเดิม</strong>ให้ร้าน B ใบสั่งทั้งสองใบถูกต้องสมบูรณ์ในตัวมันเอง
+    ไม่มีอะไรผิดให้ร้านไหนจับได้ ลองกดเดินดูทีละจังหวะว่าเกิดอะไรขึ้นกับสมุดทั้งสามเล่ม
+  </p>
+
+  <div class="lab" data-dspend data-steps={JSON.stringify(dsSteps)} data-books={JSON.stringify(dsBooks)}>
+    <p class="lab-title">จ่ายเงินก้อนเดียวสองรอบ</p>
+    <div class="ds-slips"></div>
+    <div class="ds-books"></div>
+    <p class="ds-title"></p>
+    <p class="lab-note ds-say"></p>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn lab-btn-ghost ds-prev" aria-label="ย้อนกลับหนึ่งจังหวะ">ย้อน</button>
+      <button type="button" class="lab-btn ds-play">เล่นอัตโนมัติ</button>
+      <button type="button" class="lab-btn lab-btn-ghost ds-next" aria-label="ไปข้างหน้าหนึ่งจังหวะ">ถัดไป</button>
+      <span class="ds-count"></span>
+    </div>
+    <input type="range" class="ds-range" min="0" value="0" aria-label="เลือกจังหวะ" />
+  </div>
+
+  <p class="pull">
+    ทุกคนทำถูกทุกขั้นตอน ไม่มีใครโกหก ไม่มีใครสะเพร่า แต่ผลลัพธ์ยังพัง
+    เพราะไม่มีใครในระบบตอบได้ว่าใบไหนมาก่อน
+  </p>
+
+  <p>
+    ธนาคารตอบคำถามนี้ได้เพราะมีเล่มเดียว ใบไหนถึงก่อนก็จดก่อน จบ พอเอาเล่มกลางออกไป
+    คำถามว่าอะไรเกิดก่อนก็หายไปพร้อมกัน ปัญหาข้อนี้มีชื่อเรียกว่า
+    <strong>ปัญหาใช้เงินซ้ำ (double-spend)</strong> อ่านว่า "ดับเบิลสเปนด์" แปลตรงตัวว่าจ่ายซ้ำ
+    ที่เหลือของบทนี้คือการไล่ดูว่าคนแก้ปัญหาข้อนี้กันยังไง
+  </p>
+
+  <h2>แล้วใครมีสิทธิ์เขียนหน้าถัดไป</h2>
+
+  <p>
+    ปัญหาถูกบีบเหลือคำถามเดียวแล้ว คือใครเป็นคนตัดสินลำดับ
+    วิธีที่ทุกคนคิดออกเป็นอันดับแรกคือโหวต ให้ทุกโหนดยกมือว่าเห็นใบไหนก่อน แล้วถือเสียงข้างมากเป็นข้อยุติ
+  </p>
+
+  <p>
+    วิธีนี้พังทันทีบนอินเทอร์เน็ต เพราะการสร้างตัวตนขึ้นมาใหม่แทบไม่มีต้นทุน
+    คนที่อยากโกงเปิดโหนดปลอมขึ้นมาหมื่นตัวจากเครื่องเดียวก็ยังได้ แล้วโหวตทับเสียงคนจริงทั้งหมด
+    <strong>การนับหัวใช้ไม่ได้ ถ้าการสร้างหัวใหม่ไม่มีราคา</strong>
   </p>
 
   <div class="callout callout-note">
     <p class="callout-label">โจทย์ที่ค้างอยู่</p>
     <p>
-      สมุดกระจายไปทุกบ้านแล้ว แต่ยังไม่มีวิธีตัดสินว่าเล่มไหนถูก
+      สมุดกระจายไปถึงทุกคนแล้ว แต่ยังไม่มีวิธีตัดสินว่าใบไหนมาก่อน และโหวตด้วยจำนวนโหนดก็ใช้ไม่ได้
       คำถามที่ต้องตอบให้ได้คือ จะทำให้การเสนอหน้าใหม่ในสมุดมีต้นทุนที่ปลอมไม่ได้ยังไง
     </p>
   </div>
@@ -588,6 +774,9 @@ const DESC =
       <defs>
         <marker id="bt-ar-h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+        <marker id="bt-ar-no" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#d64545"/>
         </marker>
       </defs>
 
@@ -616,12 +805,12 @@ const DESC =
       <text x="14" y="250" font-size="12" fill="#e0b400">3 · เดินหน้าได้ ถอยหลังไม่ได้</text>
       <rect x="14" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
       <text x="89" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อความ</text>
-      <line x1="170" y1="268" x2="240" y2="268" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
-      <line x1="240" y1="282" x2="176" y2="282" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4"/>
+      <line x1="170" y1="268" x2="230" y2="268" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <line x1="230" y1="282" x2="176" y2="282" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-no)"/>
       <line x1="200" y1="274" x2="216" y2="290" stroke="#d64545" stroke-width="2"/>
       <line x1="216" y1="274" x2="200" y2="290" stroke="#d64545" stroke-width="2"/>
-      <rect x="246" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
-      <text x="321" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮช</text>
+      <rect x="236" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="311" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮช</text>
     </svg>
   </ZoomableDiagram>
 
@@ -1453,7 +1642,7 @@ const DESC =
   <p>
     ใบสั่งจ่ายที่เห็นตอนคุยเรื่องกุญแจ ของจริงมีรายละเอียดมากกว่านั้นอยู่ข้อหนึ่ง
     คือมันไม่ได้เขียนว่า "หักจากยอดของฉัน" แต่ระบุเจาะจงว่า <strong>จะใช้ก้อนเงินก้อนไหน</strong>
-    เพราะในสมุดไม่มีบรรทัดไหนเก็บยอดคงเหลือของใครเลย มีแต่ก้อนเงินที่ยังไม่ถูกใช้กระจายอยู่
+    ซึ่งต่อยอดจากที่ปูไว้ตั้งแต่หัวข้อแรก คือในสมุดไม่มีบรรทัดไหนเก็บยอดคงเหลือของใครเลย มีแต่ก้อนเงินที่ยังไม่ถูกใช้กระจายอยู่
   </p>
 
   <p>
@@ -2631,6 +2820,61 @@ const DESC =
   .tl li.tl-bad b{color:#f08b8b;}
   .tl-cap{font-size:0.8rem;color:var(--dl-muted);text-align:center;margin-bottom:1.25rem;}
 
+  /* ตัวเดินเรื่องปัญหาใช้เงินซ้ำ สมุดสามเล่มเป็น HTML ไม่ใช่ SVG เพราะเนื้อหาเป็นข้อความล้วน */
+  .ds-slips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.4rem;
+    min-height:2rem;
+    margin-bottom:0.6rem;
+  }
+  .ds-slip{
+    font-size:0.76rem;
+    color:#e0b400;
+    border:1px dashed #e0b400;
+    border-radius:6px;
+    padding:0.25rem 0.5rem;
+    background:#221c07;
+  }
+  .ds-books{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:0.5rem;
+  }
+  .ds-book{
+    border:1px solid var(--dl-border);
+    border-radius:8px;
+    background:#0f1626;
+    padding:0.5rem;
+    min-height:6.5rem;
+  }
+  .ds-book-head{
+    font-size:0.74rem;
+    color:var(--dl-muted);
+    margin-bottom:0.4rem;
+    padding-bottom:0.3rem;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .ds-line{
+    font-size:0.76rem;
+    color:var(--dl-ink);
+    padding:0.22rem 0;
+    line-height:1.5;
+  }
+  .ds-line.is-new{color:#4ade80;}
+  .ds-line.is-bad{color:#f08b8b;}
+  .ds-book.is-clash{border-color:#d64545;}
+  .ds-title{
+    font-size:0.9rem;
+    color:var(--dl-ink);
+    font-weight:600;
+    margin:0.8rem 0 0.25rem;
+  }
+  @media (max-width:560px){
+    .ds-books{grid-template-columns:1fr;}
+    .ds-book{min-height:0;}
+  }
+
   /* MERKLE LAB */
   .mk-tree{display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.85rem;overflow-x:auto;}
   .mk-tree :global(.mk-row){display:flex;gap:0.4rem;justify-content:center;min-width:max-content;}
@@ -3115,6 +3359,120 @@ const DESC =
     })();
   }
 
+  interface DsLine {
+    t: string;
+    s?: 'new' | 'bad';
+  }
+  interface DsStep {
+    title: string;
+    say: string;
+    slips: string[];
+    books: DsLine[][];
+  }
+
+  function initDspend(root: HTMLElement): void {
+    const slipsEl = root.querySelector<HTMLElement>('.ds-slips');
+    const booksEl = root.querySelector<HTMLElement>('.ds-books');
+    const titleEl = root.querySelector<HTMLElement>('.ds-title');
+    const sayEl = root.querySelector<HTMLElement>('.ds-say');
+    const prev = root.querySelector<HTMLButtonElement>('.ds-prev');
+    const next = root.querySelector<HTMLButtonElement>('.ds-next');
+    const play = root.querySelector<HTMLButtonElement>('.ds-play');
+    const range = root.querySelector<HTMLInputElement>('.ds-range');
+    const count = root.querySelector<HTMLElement>('.ds-count');
+    if (!slipsEl || !booksEl || !titleEl || !sayEl || !prev || !next || !play || !range || !count) return;
+
+    const rawSteps: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const rawBooks: unknown = JSON.parse(root.dataset.books ?? '[]');
+    if (!Array.isArray(rawSteps) || !Array.isArray(rawBooks)) return;
+    const steps = rawSteps.filter(
+      (x): x is DsStep =>
+        typeof x === 'object' && x !== null && 'title' in x && 'say' in x && 'books' in x,
+    );
+    const bookNames = rawBooks.filter((x): x is string => typeof x === 'string');
+    if (steps.length === 0 || bookNames.length === 0) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let at = 0;
+    let timer = 0;
+
+    const render = (): void => {
+      const step = steps[at];
+      slipsEl.replaceChildren();
+      step.slips.forEach((text) => {
+        const chip = document.createElement('span');
+        chip.className = 'ds-slip';
+        chip.textContent = text;
+        slipsEl.append(chip);
+      });
+
+      booksEl.replaceChildren();
+      bookNames.forEach((name, i) => {
+        const lines = step.books[i] ?? [];
+        const box = document.createElement('div');
+        box.className = 'ds-book' + (lines.some((l) => l.s === 'bad') ? ' is-clash' : '');
+        const head = document.createElement('p');
+        head.className = 'ds-book-head';
+        head.textContent = name;
+        box.append(head);
+        lines.forEach((line) => {
+          const row = document.createElement('p');
+          row.className = 'ds-line' + (line.s === 'new' ? ' is-new' : line.s === 'bad' ? ' is-bad' : '');
+          row.textContent = line.t;
+          box.append(row);
+        });
+        booksEl.append(box);
+      });
+
+      titleEl.textContent = at + 1 + '. ' + step.title;
+      sayEl.textContent = step.say;
+      count.textContent = at + 1 + ' / ' + steps.length;
+      range.value = String(at);
+      prev.disabled = at === 0;
+      next.disabled = at === steps.length - 1;
+    };
+
+    const stop = (): void => {
+      if (timer) window.clearInterval(timer);
+      timer = 0;
+      play.textContent = 'เล่นอัตโนมัติ';
+    };
+
+    range.max = String(steps.length - 1);
+    prev.addEventListener('click', () => {
+      stop();
+      at = Math.max(0, at - 1);
+      render();
+    });
+    next.addEventListener('click', () => {
+      stop();
+      at = Math.min(steps.length - 1, at + 1);
+      render();
+    });
+    range.addEventListener('input', () => {
+      stop();
+      at = Number(range.value);
+      render();
+    });
+    play.addEventListener('click', () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      play.textContent = 'หยุด';
+      timer = window.setInterval(() => {
+        if (at >= steps.length - 1) {
+          stop();
+          return;
+        }
+        at += 1;
+        render();
+      }, reduced ? 2600 : 2200);
+    });
+
+    render();
+  }
+
   interface JourneyStep {
     station: number;
     title: string;
@@ -3239,6 +3597,7 @@ const DESC =
       ['[data-mine-lab]', initMineLab],
       ['[data-merkle-lab]', initMerkleLab],
       ['[data-journey]', initJourney],
+      ['[data-dspend]', initDspend],
     ];
     for (const [selector, init] of labs) {
       document.querySelectorAll<HTMLElement>(selector).forEach((el) => {
