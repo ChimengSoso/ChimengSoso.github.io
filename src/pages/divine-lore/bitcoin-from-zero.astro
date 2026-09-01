@@ -184,6 +184,15 @@ const hashLong = sha(HASH_LONG);
 const sameChars = Array.from(hashA).filter((c, i) => c === hashB[i]).length;
 
 const HEX_BITS = 4;
+/** ตัวอักษรรายตัวของแฮชคู่เปรียบเทียบ ใช้ระบายเฉพาะตำแหน่งที่ตรงกัน
+    ระยะ 6 หน่วยต่อตัวคือความกว้างของ JetBrains Mono ที่ font-size 10 */
+const HASH_CH_W = 6;
+const HASH_CH_X0 = 14;
+const hashChars = (text: string, other: string): Array<{ c: string; x: number; same: boolean }> =>
+  Array.from(text).map((c, i) => ({ c, x: HASH_CH_X0 + i * HASH_CH_W, same: c === other[i] }));
+const hashCharsA = hashChars(hashA, hashB);
+const hashCharsB = hashChars(hashB, hashA);
+
 const HASH_BITS = 256;
 const HASH_HEX_LEN = HASH_BITS / HEX_BITS;
 
@@ -433,7 +442,8 @@ const visaRatio = VISA_TPS / txPerSecond;
 /** ตัวเดินเรื่องปัญหาใช้เงินซ้ำ สมุดสามเล่มเดินไปพร้อมกัน สร้างตอน build สคริปต์แค่เรนเดอร์ */
 interface DsLine {
   t: string;
-  s?: 'new' | 'bad';
+  /** new = เพิ่งจดลงเล่ม, no = ถูกปฏิเสธเพราะเงินก้อนนั้นถูกใช้ไปแล้วในเล่มนี้ */
+  s?: 'new' | 'no';
 }
 interface DsStep {
   title: string;
@@ -443,54 +453,58 @@ interface DsStep {
 }
 const dsBooks = ['สมุดของร้าน A', 'สมุดของร้าน B', 'สมุดของนาย ค.'];
 const dsBase: DsLine[] = [{ t: 'สมชาย รับเงิน 100 บาท' }];
-const dsToA: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'new' };
-const dsToB: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'new' };
-const dsToAbad: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'bad' };
-const dsToBbad: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'bad' };
-const dsSlipA = 'ใบ #1 · สมชาย จ่าย ร้าน A 100 บาท';
-const dsSlipB = 'ใบ #2 · สมชาย จ่าย ร้าน B 100 บาท';
+const A_NEW: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'new' };
+const B_NEW: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'new' };
+const A_KEEP: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท' };
+const B_KEEP: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท' };
+const A_NO: DsLine = { t: 'สมชาย จ่าย ร้าน A 100 บาท', s: 'no' };
+const B_NO: DsLine = { t: 'สมชาย จ่าย ร้าน B 100 บาท', s: 'no' };
+const SLIP_A = 'ใบ #1 · สมชาย จ่าย ร้าน A 100 บาท';
+const SLIP_B = 'ใบ #2 · สมชาย จ่าย ร้าน B 100 บาท';
 const dsSteps: DsStep[] = [
   {
     title: 'ทุกเล่มตรงกัน',
-    say: 'ก่อนเกิดเรื่อง สมุดทั้งสามเล่มมีรายการเหมือนกันทุกบรรทัด ใครเปิดเล่มไหนก็คำนวณได้ตรงกันว่าสมชายมีอยู่ 100 บาท',
+    say: 'ก่อนเกิดเรื่อง สมุดสามเล่มมีรายการเหมือนกันทุกบรรทัด เปิดเล่มไหนก็ได้ 100 บาทเท่ากัน',
     slips: [],
     books: [dsBase, dsBase, dsBase],
   },
   {
-    title: 'สมชายเซ็นใบสั่งที่หนึ่ง',
-    say: 'สมชายเขียนใบสั่งว่าจ่าย 100 บาทให้ร้าน A แล้วเซ็นกำกับ ตอนนี้ยังไม่มีเล่มไหนจดอะไรทั้งนั้น ใบสั่งเพิ่งออกจากมือเขา',
-    slips: [dsSlipA],
+    title: 'สมชายเซ็นสองใบ ห่างกันสองวินาที',
+    say: 'ใบแรกจ่ายให้ร้าน A ใบที่สองจ่ายเงินก้อนเดิมให้ร้าน B ทั้งสองใบลายเซ็นถูกต้องสมบูรณ์ ไม่มีอะไรผิดให้ใครจับได้',
+    slips: [SLIP_A, SLIP_B],
     books: [dsBase, dsBase, dsBase],
   },
   {
-    title: 'อีกสองวินาที เซ็นใบที่สอง',
-    say: 'เขาเขียนใบสั่งอีกใบ จ่ายเงิน 100 บาทก้อนเดิมให้ร้าน B แล้วเซ็นเหมือนกัน ใบนี้ก็ถูกต้องสมบูรณ์ในตัวมันเอง ไม่มีอะไรผิดให้ใครจับได้',
-    slips: [dsSlipA, dsSlipB],
+    title: 'ทั้งสองใบถูกประกาศออกไปหาทุกคน',
+    say: 'ไม่มีใครได้รับใบสั่งแบบส่วนตัว ทุกใบวิ่งไปหาทุกเล่ม แต่สายไม่ได้ยาวเท่ากัน ใครอยู่ใกล้ใครก็ได้ยินของคนนั้นก่อน',
+    slips: [SLIP_A, SLIP_B],
     books: [dsBase, dsBase, dsBase],
   },
   {
-    title: 'ใบ #1 ถึงร้าน A',
-    say: 'ร้าน A เปิดสมุดของตัวเองตรวจ เห็นว่าสมชายมี 100 บาทอยู่จริงและลายเซ็นใช้ได้ ทุกอย่างผ่าน ร้าน A จึงจดลงเล่มแล้วส่งของ',
-    slips: [dsSlipB],
-    books: [[...dsBase, dsToA], dsBase, dsBase],
+    title: 'ร้าน A ได้ยินใบ #1 ก่อน',
+    say: 'ร้าน A ตรวจแล้วผ่าน จดลงเล่ม ส่งของ ส่วนร้าน B กับนาย ค. อยู่ไกลกว่า ใบ #2 ไปถึงก่อน ทั้งสองคนจึงจดใบ #2',
+    slips: [SLIP_A, SLIP_B],
+    books: [[...dsBase, A_NEW], [...dsBase, B_NEW], [...dsBase, B_NEW]],
   },
   {
-    title: 'ใบ #2 ถึงร้าน B',
-    say: 'ร้าน B เปิดสมุดของตัวเองตรวจบ้าง เห็นว่าสมชายมี 100 บาทอยู่จริงและลายเซ็นใช้ได้เหมือนกันเป๊ะ ก็ผ่านเหมือนกัน จดลงเล่มแล้วส่งของ สังเกตว่าสองร้านเห็นภาพเดียวกันตอนตัดสินใจ',
+    title: 'อีกใบตามไปถึงทีหลัง',
+    say: 'ใบ #2 ตามไปถึงร้าน A แต่ในเล่มของเขา เงินก้อนนั้นถูกใช้ไปแล้ว เขาจึงปฏิเสธ ฝั่งร้าน B กับนาย ค. ก็ปฏิเสธใบ #1 ด้วยเหตุผลเดียวกันเป๊ะ',
     slips: [],
-    books: [[...dsBase, dsToA], [...dsBase, dsToB], dsBase],
+    books: [
+      [...dsBase, A_KEEP, B_NO],
+      [...dsBase, B_KEEP, A_NO],
+      [...dsBase, B_KEEP, A_NO],
+    ],
   },
   {
-    title: 'ใบสองใบมาเจอกันที่นาย ค.',
-    say: 'นาย ค. ไม่ได้เกี่ยวอะไรกับใครเลย แต่เขาต้องจดทุกอย่างเหมือนกัน พอใบสั่งทั้งสองใบเดินทางมาถึงเขาก็จดไม่ลง เพราะสองใบนี้ใช้เงินก้อนเดียวกัน จะจดทั้งคู่ก็เท่ากับเสกเงินขึ้นมา จะเลือกใบเดียวก็ต้องรู้ก่อนว่าใบไหนมาก่อน',
+    title: 'ทุกเล่มถูกตามกติกาของตัวเอง แต่ไม่ตรงกัน',
+    say: 'ไม่มีเล่มไหนจดเงินก้อนเดียวสองรอบ ไม่มีใครสะเพร่า ทุกคนทำถูกทุกขั้นตอน แต่เล่มของร้าน A บอกว่าเงินไปที่ร้าน A ส่วนอีกสองเล่มบอกว่าไปที่ร้าน B กติกาที่ว่าทุกเล่มต้องมีรายการเหมือนกันแตกไปแล้ว',
     slips: [],
-    books: [[...dsBase, dsToAbad], [...dsBase, dsToBbad], [...dsBase, dsToAbad, dsToBbad]],
-  },
-  {
-    title: 'ไม่มีใครทำผิด แต่กติกาแตก',
-    say: 'เล่มของร้าน A บอกว่าเงินไปที่ร้าน A เล่มของร้าน B บอกว่าเงินไปที่ร้าน B และไม่มีทางที่สองเล่มจะจริงพร้อมกัน กติกาที่ว่าทุกเล่มต้องมีรายการเหมือนกันแตกไปเรียบร้อย ทั้งที่ทุกคนทำถูกทุกขั้นตอน',
-    slips: [],
-    books: [[...dsBase, dsToAbad], [...dsBase, dsToBbad], [...dsBase, dsToAbad, dsToBbad]],
+    books: [
+      [...dsBase, A_KEEP, B_NO],
+      [...dsBase, B_KEEP, A_NO],
+      [...dsBase, B_KEEP, A_NO],
+    ],
   },
 ];
 
@@ -729,7 +743,8 @@ const DESC =
   <p>
     เขาเขียนใบสั่งจ่ายเงิน 100 บาทให้ร้าน A แล้วอีกสองวินาทีเขียนใบสั่งอีกใบ
     จ่ายเงิน 100 บาท<strong>ก้อนเดิม</strong>ให้ร้าน B ใบสั่งทั้งสองใบถูกต้องสมบูรณ์ในตัวมันเอง
-    ไม่มีอะไรผิดให้ร้านไหนจับได้ ลองกดเดินดูทีละจังหวะว่าเกิดอะไรขึ้นกับสมุดทั้งสามเล่ม
+    ไม่มีอะไรผิดให้ร้านไหนจับได้ และใบสั่งทั้งสองใบถูกประกาศออกไปหาทุกคน ไม่ได้ส่งให้ใครเป็นการส่วนตัว
+    ลองกดเดินดูทีละจังหวะว่าเกิดอะไรขึ้นกับสมุดทั้งสามเล่ม
   </p>
 
   <div class="lab" data-dspend data-steps={JSON.stringify(dsSteps)} data-books={JSON.stringify(dsBooks)}>
@@ -748,13 +763,13 @@ const DESC =
   </div>
 
   <p class="pull">
-    ทุกคนทำถูกทุกขั้นตอน ไม่มีใครโกหก ไม่มีใครสะเพร่า แต่ผลลัพธ์ยังพัง
-    เพราะไม่มีใครในระบบตอบได้ว่าใบไหนมาก่อน
+    ทุกคนทำถูกทุกขั้นตอน แต่ผลลัพธ์ยังพัง เพราะคำว่ามาก่อนไม่มีคำตอบเดียว
+    มันแปลว่ามาก่อนสำหรับใคร
   </p>
 
   <p>
-    ธนาคารตอบคำถามนี้ได้เพราะมีเล่มเดียว ใบไหนถึงก่อนก็จดก่อน จบ พอเอาเล่มกลางออกไป
-    คำถามว่าอะไรเกิดก่อนก็หายไปพร้อมกัน ปัญหาข้อนี้มีชื่อเรียกว่า
+    ธนาคารไม่เจอปัญหานี้เพราะมีเล่มเดียว ใบไหนถึงเล่มนั้นก่อนก็คือมาก่อน จบ
+    พอเอาเล่มกลางออกไป แต่ละเล่มก็มีลำดับของตัวเอง ปัญหาข้อนี้ชื่อ
     <strong>ปัญหาใช้เงินซ้ำ (double-spend)</strong> อ่านว่า "ดับเบิลสเปนด์" แปลตรงตัวว่าจ่ายซ้ำ
     ที่เหลือของบทนี้คือการไล่ดูว่าคนแก้ปัญหาข้อนี้กันยังไง
   </p>
@@ -762,7 +777,7 @@ const DESC =
   <h2>แล้วใครมีสิทธิ์เขียนหน้าถัดไป</h2>
 
   <p>
-    ปัญหาถูกบีบเหลือคำถามเดียวแล้ว คือใครเป็นคนตัดสินลำดับ
+    ปัญหาถูกบีบเหลือคำถามเดียวแล้ว คือใครเป็นคนตัดสินว่าลำดับของใครถูก
     วิธีที่ทุกคนคิดออกเป็นอันดับแรกคือโหวต ให้ทุกโหนดยกมือว่าเห็นใบไหนก่อน แล้วถือเสียงข้างมากเป็นข้อยุติ
   </p>
 
@@ -796,9 +811,9 @@ const DESC =
   </p>
 
   <ZoomableDiagram
-    caption={`คุณสมบัติสามข้อที่ทำให้แฮชมีค่า แฮชทั้งสามชุดในภาพคำนวณจากข้อความจริงตอนสร้างหน้านี้ สังเกตคู่กลาง ข้อความต่างกันแค่ตัวสุดท้าย แต่ผลออกมาตรงกันแค่ ${sameChars} ตัวจาก ${HASH_HEX_LEN} ตัว ซึ่งพอ ๆ กับการเดาสุ่ม`}
+    caption="คุณสมบัติสามข้อที่ทำให้แฮชมีค่า แฮชในภาพคำนวณจากข้อความจริงตอนสร้างหน้านี้ คู่กลางต่างกันแค่ตัวอักษรสุดท้าย ผลที่ได้จึงไม่เหลือเค้าเดิม"
   >
-    <svg class="btc-dgm" viewBox="0 0 430 300" role="img" aria-label="แผนภาพคุณสมบัติของแฮชสามข้อ แถวบนคือข้อความยาวกับข้อความสั้นที่ให้ผลลัพธ์ยาวเท่ากัน แถวกลางคือข้อความสองอันที่ต่างกันตัวเดียวแต่ผลลัพธ์ต่างกันทั้งชุด แถวล่างคือลูกศรเดินหน้าที่ทำได้ กับลูกศรย้อนกลับที่ถูกกากบาททับ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+    <svg class="btc-dgm" viewBox="0 0 430 360" role="img" aria-label="แผนภาพคุณสมบัติของแฮชสามข้อ ข้อแรกคือข้อความสั้นกับข้อความยาวให้ผลลัพธ์ยาวเท่ากัน ข้อสองคือข้อความสองอันที่ต่างกันตัวเดียวแต่ผลลัพธ์ต่างกันเกือบทั้งชุด โดยระบายสีเขียวเฉพาะตำแหน่งที่บังเอิญตรงกัน ข้อสามคือลูกศรเดินหน้าที่ทำได้ กับลูกศรย้อนกลับที่ถูกกากบาททับ" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
       <defs>
         <marker id="bt-ar-h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
@@ -819,26 +834,31 @@ const DESC =
       <line x1="170" y1="85" x2="196" y2="85" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
       <text x="202" y="89" font-size="10" fill="#4ade80" font-family="JetBrains Mono, monospace">{hashLong.slice(0, 32)}…</text>
 
-      <text x="14" y="136" font-size="12" fill="#e0b400">2 · เปลี่ยนตัวเดียว เปลี่ยนทั้งชุด</text>
-      <rect x="14" y="146" width="150" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
-      <text x="89" y="166" text-anchor="middle" font-size="11" fill="#e7ecf6">"{HASH_A}"</text>
-      <line x1="170" y1="161" x2="196" y2="161" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
-      <text x="202" y="165" font-size="10" fill="#4ade80" font-family="JetBrains Mono, monospace">{hashA.slice(0, 32)}…</text>
+      <text x="14" y="140" font-size="12" fill="#e0b400">2 · เปลี่ยนตัวเดียว เปลี่ยนทั้งชุด</text>
 
-      <rect x="14" y="184" width="150" height="30" rx="7" fill="#1f1418" stroke="#d64545"/>
-      <text x="89" y="204" text-anchor="middle" font-size="11" fill="#f08b8b">"{HASH_B}"</text>
-      <line x1="170" y1="199" x2="196" y2="199" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
-      <text x="202" y="203" font-size="10" fill="#f08b8b" font-family="JetBrains Mono, monospace">{hashB.slice(0, 32)}…</text>
+      <rect x="14" y="150" width="100" height="26" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="64" y="168" text-anchor="middle" font-size="11" fill="#e7ecf6">"{HASH_A}"</text>
+      {hashCharsA.map((ch) => (
+        <text x={ch.x} y="196" font-size="10" fill={ch.same ? '#4ade80' : '#6b7690'} font-family="JetBrains Mono, monospace">{ch.c}</text>
+      ))}
 
-      <text x="14" y="250" font-size="12" fill="#e0b400">3 · เดินหน้าได้ ถอยหลังไม่ได้</text>
-      <rect x="14" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
-      <text x="89" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อความ</text>
-      <line x1="170" y1="268" x2="230" y2="268" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
-      <line x1="230" y1="282" x2="176" y2="282" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-no)"/>
-      <line x1="200" y1="274" x2="216" y2="290" stroke="#d64545" stroke-width="2"/>
-      <line x1="216" y1="274" x2="200" y2="290" stroke="#d64545" stroke-width="2"/>
-      <rect x="236" y="260" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
-      <text x="311" y="279" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮช</text>
+      <rect x="14" y="212" width="100" height="26" rx="7" fill="#1f1418" stroke="#d64545"/>
+      <text x="64" y="230" text-anchor="middle" font-size="11" fill="#f08b8b">"{HASH_B}"</text>
+      {hashCharsB.map((ch) => (
+        <text x={ch.x} y="258" font-size="10" fill={ch.same ? '#4ade80' : '#6b7690'} font-family="JetBrains Mono, monospace">{ch.c}</text>
+      ))}
+
+      <text x="14" y="282" font-size="10" fill="#4ade80">สีเขียวคือตำแหน่งที่บังเอิญตรงกัน นับได้ {sameChars} ตัวจาก {HASH_HEX_LEN}</text>
+
+      <text x="14" y="312" font-size="12" fill="#e0b400">3 · เดินหน้าได้ ถอยหลังไม่ได้</text>
+      <rect x="14" y="322" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="89" y="341" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อความ</text>
+      <line x1="170" y1="330" x2="230" y2="330" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
+      <line x1="230" y1="344" x2="176" y2="344" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-no)"/>
+      <line x1="194" y1="336" x2="210" y2="352" stroke="#d64545" stroke-width="2"/>
+      <line x1="210" y1="336" x2="194" y2="352" stroke="#d64545" stroke-width="2"/>
+      <rect x="236" y="322" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="311" y="341" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮช</text>
     </svg>
   </ZoomableDiagram>
 
@@ -849,6 +869,13 @@ const DESC =
 
   <div class="lab" data-hash-lab>
     <p class="lab-title">HASH LAB</p>
+
+    <div class="hl-prev">
+      <p class="hl-prev-label">ก่อนหน้า</p>
+      <p class="hl-prev-text">-</p>
+      <code class="hl-prev-hash">-</code>
+    </div>
+
     <label class="lab-field">
       <span>ข้อความ</span>
       <input type="text" class="hl-input" value="สวัสดีบิตคอยน์" autocomplete="off" spellcheck="false" />
@@ -861,7 +888,7 @@ const DESC =
       <button type="button" class="lab-btn hl-nudge">เปลี่ยนตัวอักษรท้ายสุดหนึ่งตัว</button>
       <button type="button" class="lab-btn lab-btn-ghost hl-reset">เริ่มใหม่</button>
     </div>
-    <p class="lab-note hl-note">ตัวอักษรที่ต่างจากผลก่อนหน้าจะถูกไฮไลต์ให้เห็น</p>
+    <p class="lab-note hl-note">ตัวที่ระบายเขียวคือตำแหน่งที่บังเอิญตรงกับผลก่อนหน้า ที่เหลือเปลี่ยนหมด</p>
   </div>
 
   <h2>กุญแจสองดอกที่ทำให้ไม่ต้องเชื่อใจใคร</h2>
@@ -1165,22 +1192,27 @@ const DESC =
     <p class="lab-title">CHAIN LAB</p>
     <div class="cl-blocks"></div>
     <div class="lab-actions">
-      <button type="button" class="lab-btn cl-mineall" disabled>ซ่อมทั้งโซ่</button>
+      <button type="button" class="lab-btn cl-mineall" disabled>หาเลขใหม่ให้ทั้งโซ่</button>
       <button type="button" class="lab-btn lab-btn-ghost cl-reset" disabled>เริ่มใหม่</button>
       <span class="cl-status"></span>
     </div>
     <p class="lab-note">
       บล็อกจะถือว่าใช้ได้ก็ต่อเมื่อแฮชขึ้นต้นด้วยเลขศูนย์สามตัว และช่องแฮชก่อนหน้าตรงกับแฮชจริงของบล็อกซ้ายมือ
-      เงื่อนไขข้อแรกคือหัวข้อถัดไป
+      ช่อง "เลขที่หาได้" คือเลขที่ต้องเดาไปเรื่อย ๆ จนกว่าแฮชจะขึ้นต้นถูกเงื่อนไข
+      ทำไมต้องเป็นเลขศูนย์ และใครเป็นคนเดา อยู่ในหัวข้อถัดไป
     </p>
   </div>
 
-  <h2>ธุรกรรมสองพันใบถูกย่อเป็นแฮชเดียวได้ยังไง</h2>
+  <h2>ธุรกรรมห้าพันใบถูกย่อเป็นแฮชเดียวได้ยังไง</h2>
 
   <p>
-    หัวของแต่ละบล็อกมีขนาดคงที่แค่ {headerBytes} ไบต์ ซึ่งไม่มีที่พอจะใส่ธุรกรรมได้เลยสักใบ
-    ทั้งที่บล็อกจริงในช่วงนี้บรรจุธุรกรรมเฉลี่ยราว {fmt(txPerBlock)} รายการต่อบล็อก
-    สิ่งที่ใส่ไว้จึงเป็นแฮชตัวเดียวที่สรุปธุรกรรมทั้งหมด สร้างจากโครงสร้างที่เรียกว่า
+    หน้ากระดาษหนึ่งหน้าไม่ได้จดรายการเดียว มันรวบธุรกรรมที่รออยู่มาไว้ด้วยกันทั้งกอง
+    บล็อกจริงในช่วงนี้บรรจุเฉลี่ยราว {fmt(txPerBlock)} รายการต่อบล็อก
+  </p>
+
+  <p>
+    แต่หัวของแต่ละบล็อกมีขนาดคงที่แค่ {headerBytes} ไบต์ ซึ่งไม่มีที่พอจะใส่ธุรกรรมได้เลยสักใบ
+    สิ่งที่ใส่ไว้จึงเป็นแฮชตัวเดียวที่สรุปทั้งกอง สร้างจากโครงสร้างที่เรียกว่า
     <strong>ต้นไม้เมอร์เคิล (Merkle tree)</strong> อ่านว่า "เมอร์เคิลทรี" ตั้งตามชื่อ Ralph Merkle
     อ่านว่า "ราล์ฟ เมอร์เคิล" นักวิทยาการรหัสลับที่จดสิทธิบัตรวิธีนี้ไว้ตั้งแต่ปี 1979
   </p>
@@ -1189,6 +1221,17 @@ const DESC =
     วิธีสร้างง่ายมาก แฮชธุรกรรมทีละใบ แล้วจับผลลัพธ์มาเข้าคู่กันแฮชอีกรอบ จำนวนจะเหลือครึ่งหนึ่ง
     ทำซ้ำไปเรื่อย ๆ จนเหลือแฮชเดียว เรียกว่า <strong>รากของต้นไม้</strong> แฮชตัวนั้นแหละที่ไปนั่งอยู่ในหัวบล็อก
   </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">นี่ไม่ใช่การเข้ารหัส</p>
+    <p>
+      การเข้ารหัสมีกุญแจไว้ถอดกลับ และมีไว้ปิดบังเนื้อหา ส่วนแฮชถอดกลับไม่ได้และไม่ได้ปิดบังอะไรเลย
+      <strong>ธุรกรรมทุกใบยังอยู่ในบล็อกแบบอ่านออกทุกตัวอักษร</strong>
+      ต้นไม้เมอร์เคิลไม่ได้เก็บธุรกรรม มันแค่คำนวณลายนิ้วมือของทั้งกองให้เหลือตัวเดียวไปแปะไว้ในหัวบล็อก
+      เข้ารหัสคือเอาเอกสารใส่ตู้เซฟ ส่วนแฮชคือชั่งน้ำหนักเอกสารทั้งกองแล้วจดตัวเลขไว้
+      เอกสารยังวางเปิดอยู่บนโต๊ะ แต่ถ้าใครสับเปลี่ยนแผ่นไหน น้ำหนักที่ชั่งใหม่จะไม่ตรงกับที่จด
+    </p>
+  </div>
 
   <ZoomableDiagram
     caption={"ธุรกรรมแปดใบถูกจับคู่ขึ้นไปทีละชั้นจนเหลือแฮชเดียว แก้ธุรกรรมใบไหนก็ตาม รากจะเปลี่ยนทันที หัวบล็อกจึงผูกกับเนื้อหาทั้งบล็อกด้วยแฮชเพียงตัวเดียว"}
@@ -1276,6 +1319,11 @@ const DESC =
     ที่ตอนนี้ใหญ่หลายร้อยกิกะไบต์
   </p>
 
+  <p>
+    หัวข้อนี้จบชิ้นแรกของการจัดลำดับ คือทำให้สิ่งที่จดไปแล้วแก้ย้อนหลังไม่ได้
+    ส่วนคำถามว่าใครได้เขียนหน้าถัดไป ยังไม่ถูกตอบ นั่นคือหัวข้อต่อไป
+  </p>
+
   <h2>การขุด: ทำไมต้องเผาไฟเพื่อจดสมุด</h2>
 
   <p>
@@ -1314,7 +1362,8 @@ const DESC =
 
   <p>
     ช่องที่ว่างช่องนั้นชื่อ <strong>นอนซ์ (nonce)</strong> ย่อมาจาก number used once
-    แปลว่าเลขที่ใช้ครั้งเดียวทิ้ง คนที่อยากเสนอบล็อกต้องหาเลขนอนซ์ที่ทำให้แฮชของทั้งหัวบล็อกออกมา
+    แปลว่าเลขที่ใช้ครั้งเดียวทิ้ง มันคือช่อง "เลขที่หาได้" ที่คุณกดเล่นไปแล้วในแล็บโซ่
+    คนที่อยากเสนอบล็อกต้องหาเลขนอนซ์ที่ทำให้แฮชของทั้งหัวบล็อกออกมา
     <strong>ขึ้นต้นด้วยเลขศูนย์ตามจำนวนที่กำหนด</strong> และเพราะแฮชย้อนกลับไม่ได้ตามที่เล่าไว้
     จึงไม่มีวิธีคำนวณเลขนั้นออกมาตรง ๆ มีทางเดียวคือเดาไปเรื่อย ๆ จนกว่าจะเจอ
   </p>
@@ -1886,15 +1935,9 @@ const DESC =
   <h2>สมุดที่ทุกคนถือ มันบวมแค่ไหน</h2>
 
   <p>
-    ถึงตรงนี้มีคำถามที่ควรจะค้างอยู่ในหัวแล้ว ในเมื่อทุกอย่างถูกแฮชไปหมด
-    แล้วคนที่ตามดูย้อนหลังว่าเงินก้อนไหนเดินไปไหน เขาดูจากอะไร คำตอบคือ
-    <strong>ธุรกรรมไม่เคยถูกบดทิ้ง</strong> ทุกใบถูกเก็บไว้เต็ม ๆ อ่านออกทุกตัวอักษร
-    แฮชทำหน้าที่แค่สองอย่างคือร้อยหน้าเข้าด้วยกันกับย่อทั้งบล็อกให้เหลือรากเดียว
-    มันไม่ได้ถูกใช้ปิดบังอะไรเลย นี่คือเหตุผลที่เว็บเปิดดูสมุดเปิดให้ค้นธุรกรรมของปี 2010 ได้ทุกใบ
-  </p>
-
-  <p>
-    ผลที่ตามมาก็ตรงไปตรงมา สมุดมีแต่โตขึ้น และทุกโหนดที่เก็บครบก็ต้องแบกมันทั้งเล่ม
+    ธุรกรรมทุกใบถูกเก็บไว้เต็ม ๆ อ่านออกทุกตัวอักษร ตามที่คุยกันไปตอนเรื่องต้นไม้เมอร์เคิล
+    เว็บเปิดดูสมุดจึงค้นธุรกรรมของปี 2010 ได้ทุกใบ และผลที่ตามมาก็ตรงไปตรงมา
+    สมุดมีแต่โตขึ้น และทุกโหนดที่เก็บครบก็ต้องแบกมันทั้งเล่ม
     ณ {SNAPSHOT_DATE} สมุดทั้งเล่มหนักราว
     <ExplainNumber value={`${fmt(chainGb)} GB`} title={`${fmt(chainGb)} GB มาจากไหน`} html={EX.chainSize} />
     และในรอบหนึ่งปีที่ผ่านมามันโตขึ้นราว
@@ -2239,7 +2282,7 @@ const DESC =
   </p>
 
   <p>
-    รวมกันได้ 4 บวก 32 บวก 32 บวก 4 บวก 4 บวก 4 เท่ากับ 80 ไบต์พอดี ไม่ว่าบล็อกนั้นจะมีธุรกรรมสองพันรายการหรือรายการเดียว
+    รวมกันได้ 4 บวก 32 บวก 32 บวก 4 บวก 4 บวก 4 เท่ากับ 80 ไบต์พอดี ไม่ว่าบล็อกนั้นจะมีธุรกรรมห้าพันรายการหรือรายการเดียว
     ส่วน <code>vtx</code> ที่อยู่ข้างล่างคือรายการธุรกรรมจริง ซึ่งอยู่นอกหัวบล็อกและไม่ถูกแฮชตอนขุด
   </p>
     </div>
@@ -2897,7 +2940,23 @@ const DESC =
     word-break:break-all;
     line-height:1.7;
   }
-  .lab-out code :global(.hl-diff){color:#f0c860;background:rgba(224,180,0,0.14);border-radius:2px;}
+  .lab-out code :global(.hl-same){color:#4ade80;background:rgba(74,222,128,0.16);border-radius:2px;}
+  .hl-prev{
+    border:1px solid var(--dl-border);
+    border-radius:8px;
+    background:#0d1220;
+    padding:0.45rem 0.6rem;
+    margin-bottom:0.6rem;
+  }
+  .hl-prev-label{font-size:0.68rem;color:var(--dl-muted);margin:0 0 0.2rem;}
+  .hl-prev-text{font-size:0.82rem;color:var(--dl-muted);margin:0 0 0.25rem;word-break:break-word;}
+  .hl-prev-hash{
+    display:block;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.72rem;
+    color:var(--dl-muted);
+    word-break:break-all;
+  }
   .lab-actions{display:flex;flex-wrap:wrap;gap:0.5rem;}
   .lab-btn{
     background:var(--dl-emerald);
@@ -2933,7 +2992,7 @@ const DESC =
     margin-bottom:0.85rem;
   }
   .cl-blocks :global(.cl-block){
-    flex:0 0 12rem;
+    flex:0 0 10.4rem;
     background:#0d1220;
     border:1px solid var(--dl-border);
     border-radius:12px;
@@ -2962,6 +3021,12 @@ const DESC =
   }
   .cl-blocks :global(.cl-row b){color:var(--dl-ink);font-weight:400;}
   .cl-blocks :global(.cl-block.is-bad .cl-hash b){color:#f08b8b;}
+  .cl-blocks :global(.is-fresh){
+    color:#e0b400;
+    background:rgba(224,180,0,0.16);
+    border-radius:3px;
+    padding:0 0.15rem;
+  }
   .cl-blocks :global(.cl-block.is-good .cl-hash b){color:var(--dl-emerald-bright);}
   .cl-blocks :global(.cl-data){
     width:100%;
@@ -3078,7 +3143,7 @@ const DESC =
   .ds-books :global(.ds-fill){color:transparent;}
   .ds-books :global(.ds-book .ds-line:last-child), .ds-books :global(.ds-book .ds-fill:last-child){border-bottom:none;}
   .ds-books :global(.ds-line.is-new){color:#4ade80;}
-  .ds-books :global(.ds-line.is-bad){color:#f08b8b;background:#231419;}
+  .ds-books :global(.ds-line.is-no){color:#7b8397;text-decoration:line-through;text-decoration-color:#d64545;}
   .ds-title{
     font-size:0.9rem;
     color:var(--dl-ink);
@@ -3200,11 +3265,13 @@ const DESC =
   }
 
   /** ระบายตัวอักษรที่ต่างจากผลก่อนหน้า เพื่อให้เห็นว่าแฮชเปลี่ยนไปเยอะแค่ไหน */
-  function diffMarkup(now: string, before: string): string {
+  /** ระบายเฉพาะตำแหน่งที่ตรงกับผลก่อนหน้า เพราะตัวที่ต่างมีเกือบครบ 64 ตัว
+      ถ้าระบายตัวที่ต่าง พื้นสีจะกลายเป็นพื้นหลังปกติและไม่สื่ออะไรเลย */
+  function sameMarkup(now: string, before: string): string {
     let out = '';
     for (let i = 0; i < now.length; i += 1) {
-      const ch = now[i];
-      out += before[i] === ch ? ch : `<span class="hl-diff">${ch}</span>`;
+      const ch = escapeHtml(now[i]);
+      out += before[i] === now[i] ? `<span class="hl-same">${ch}</span>` : ch;
     }
     return out;
   }
@@ -3214,15 +3281,29 @@ const DESC =
     const out = root.querySelector<HTMLElement>('.hl-out');
     const nudge = root.querySelector<HTMLButtonElement>('.hl-nudge');
     const reset = root.querySelector<HTMLButtonElement>('.hl-reset');
-    if (!input || !out || !nudge || !reset) return;
+    const prevBox = root.querySelector<HTMLElement>('.hl-prev');
+    const prevText = root.querySelector<HTMLElement>('.hl-prev-text');
+    const prevHash = root.querySelector<HTMLElement>('.hl-prev-hash');
+    if (!input || !out || !nudge || !reset || !prevBox || !prevText || !prevHash) return;
 
     const initial = input.value;
-    let previous = '';
+    let previousHash = '';
+    let previousText = '';
+
+    const showPrev = (): void => {
+      const has = previousHash !== '';
+      prevBox.hidden = !has;
+      prevText.textContent = previousText;
+      prevHash.textContent = previousHash;
+    };
 
     const render = async (): Promise<void> => {
-      const hash = await sha256(input.value);
-      out.innerHTML = previous ? diffMarkup(hash, previous) : escapeHtml(hash);
-      previous = hash;
+      const text = input.value;
+      const hash = await sha256(text);
+      out.innerHTML = previousHash ? sameMarkup(hash, previousHash) : escapeHtml(hash);
+      showPrev();
+      previousHash = hash;
+      previousText = text;
     };
 
     input.addEventListener('input', () => {
@@ -3236,7 +3317,8 @@ const DESC =
     });
     reset.addEventListener('click', () => {
       input.value = initial;
-      previous = '';
+      previousHash = '';
+      previousText = '';
       void render();
     });
 
@@ -3250,7 +3332,11 @@ const DESC =
     const status = root.querySelector<HTMLElement>('.cl-status');
     if (!host || !mineAll || !reset) return;
     let edited = false;
+    let busy = false;
+    /** ดัชนีบล็อกที่เพิ่งได้เลขใหม่ ใช้ไฮไลต์ค่าที่ขยับให้ตาไล่ทัน */
+    let justMined = new Set<number>();
 
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const COUNT = 5;
     const TARGET = '000';
     const GENESIS = '0'.repeat(64);
@@ -3267,7 +3353,7 @@ const DESC =
     const body = (b: ChainBlock, index: number): string =>
       `${index}|${b.data}|${b.prev}|${b.nonce}`;
 
-    /** หา nonce ที่ทำให้แฮชขึ้นต้นด้วยศูนย์สี่ตัว ปล่อยคิวเป็นระยะเพื่อไม่ให้หน้าค้าง */
+    /** หาเลขที่ทำให้แฮชขึ้นต้นด้วยศูนย์ตามเป้า ปล่อยคิวเป็นระยะเพื่อไม่ให้หน้าค้าง */
     const mine = async (index: number): Promise<void> => {
       const b = blocks[index];
       b.prev = index === 0 ? GENESIS : blocks[index - 1].hash;
@@ -3284,50 +3370,61 @@ const DESC =
       }
     };
 
-    const refreshHashes = async (): Promise<void> => {
-      for (let i = 0; i < blocks.length; i += 1) {
+    const refreshFrom = async (from: number): Promise<void> => {
+      for (let i = from; i < blocks.length; i += 1) {
         blocks[i].hash = await sha256(body(blocks[i], i));
       }
     };
 
-    const render = (): void => {
-      host.innerHTML = '';
-      /** บล็อกจะใช้ได้ก็ต่อเมื่อบรรพบุรุษของมันใช้ได้ด้วย ความพังจึงลามไปทางขวาเสมอ */
+    /** บล็อกใช้ได้ก็ต่อเมื่อบรรพบุรุษของมันใช้ได้ด้วย ความพังจึงลามไปทางขวาเสมอ */
+    const validity = (): boolean[] => {
       let ancestorsOk = true;
-      blocks.forEach((b, i) => {
+      return blocks.map((b, i) => {
         const prevReal = i === 0 ? GENESIS : blocks[i - 1].hash;
         const ok = ancestorsOk && b.hash.startsWith(TARGET) && b.prev === prevReal;
         ancestorsOk = ok;
+        return ok;
+      });
+    };
+
+    const render = (): void => {
+      const okList = validity();
+      host.innerHTML = '';
+      blocks.forEach((b, i) => {
+        const ok = okList[i];
+        const hot = justMined.has(i) ? ' is-fresh' : '';
         const el = document.createElement('div');
         el.className = `cl-block ${ok ? 'is-good' : 'is-bad'}`;
         el.innerHTML = `
           <p class="cl-head"><span>บล็อก ${i + 1}</span><span class="cl-state">${ok ? 'ใช้ได้' : 'พัง'}</span></p>
           <input class="cl-data" type="text" value="${escapeHtml(b.data)}" data-index="${i}" />
-          <p class="cl-row">nonce: <b>${b.nonce}</b></p>
-          <p class="cl-row">ก่อนหน้า: <b>${b.prev.slice(0, 16)}…</b></p>
-          <p class="cl-row cl-hash">แฮช: <b>${b.hash.slice(0, 16)}…</b></p>
-          <button type="button" class="cl-mine" data-index="${i}">ขุดบล็อกนี้ใหม่</button>
+          <p class="cl-row">เลขที่หาได้: <b class="cl-nonce${hot}">${b.nonce}</b></p>
+          <p class="cl-row">ก่อนหน้า: <b>${b.prev.slice(0, 12)}…</b></p>
+          <p class="cl-row cl-hash">แฮช: <b class="${hot.trim()}">${b.hash.slice(0, 12)}…</b></p>
+          <button type="button" class="cl-mine" data-index="${i}"${ok || busy ? ' disabled' : ''}>หาเลขใหม่</button>
         `;
         host.appendChild(el);
       });
-      syncButtons();
+      syncButtons(okList);
     };
 
-    /** ปุ่มซ่อมจะกดได้เฉพาะตอนโซ่พังจริง ไม่งั้นกดแล้วหน้าจอนิ่งสนิทเพราะได้ nonce เดิม */
-    const chainBroken = (): boolean => {
-      let ok = true;
-      for (let i = 0; i < blocks.length; i += 1) {
-        const prevReal = i === 0 ? GENESIS : blocks[i - 1].hash;
-        ok = ok && blocks[i].hash.startsWith(TARGET) && blocks[i].prev === prevReal;
+    const syncButtons = (okList: boolean[]): void => {
+      const broken = okList.some((ok) => !ok);
+      mineAll.disabled = broken ? busy : true;
+      reset.disabled = !edited || busy;
+      if (status && !busy) {
+        status.textContent = broken
+          ? 'โซ่พังอยู่ กดหาเลขใหม่ให้ทั้งโซ่ได้'
+          : 'โซ่สมบูรณ์ ลองแก้ข้อความในบล็อกไหนก็ได้';
       }
-      return !ok;
     };
 
-    const syncButtons = (): void => {
-      const broken = chainBroken();
-      mineAll.disabled = !broken;
-      reset.disabled = !edited;
-      if (status) status.textContent = broken ? 'โซ่พังอยู่ กดซ่อมได้' : 'โซ่สมบูรณ์';
+    /** เลื่อนบล็อกที่กำลังทำให้อยู่ในสายตา โดยไม่ลากหน้าเว็บทั้งหน้า */
+    const keepInView = (index: number): void => {
+      const el = host.children[index];
+      if (!(el instanceof HTMLElement)) return;
+      const left = el.offsetLeft - host.clientWidth / 2 + el.offsetWidth / 2;
+      host.scrollLeft = Math.max(0, left);
     };
 
     host.addEventListener('input', (e) => {
@@ -3336,8 +3433,9 @@ const DESC =
       if (Number.isNaN(idx)) return;
       blocks[idx].data = e.target.value;
       edited = true;
+      justMined = new Set();
       const caret = e.target.selectionStart;
-      void refreshHashes().then(() => {
+      void refreshFrom(idx).then(() => {
         render();
         const next = host.querySelector<HTMLInputElement>(`.cl-data[data-index="${idx}"]`);
         if (next) {
@@ -3350,48 +3448,69 @@ const DESC =
     host.addEventListener('click', (e) => {
       if (!(e.target instanceof HTMLElement)) return;
       const btn = e.target.closest<HTMLButtonElement>('.cl-mine');
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
       const idx = Number(btn.dataset.index);
       if (Number.isNaN(idx)) return;
+      busy = true;
       btn.disabled = true;
-      btn.textContent = 'กำลังขุด';
-      void mine(idx)
-        .then(refreshHashesFrom(idx + 1))
-        .then(render);
+      btn.textContent = 'กำลังหา';
+      void (async () => {
+        await mine(idx);
+        await refreshFrom(idx + 1);
+        justMined = new Set([idx]);
+        busy = false;
+        render();
+        if (status) status.textContent = `บล็อก ${idx + 1} ได้เลขใหม่แล้ว บล็อกขวามือยังพังอยู่จนกว่าจะหาเลขใหม่ตาม`;
+      })();
     });
-
-    /** หลังขุดบล็อกหนึ่งเสร็จ แฮชของบล็อกขวามือต้องคำนวณใหม่ทั้งหมด */
-    function refreshHashesFrom(start: number): () => Promise<void> {
-      return async () => {
-        for (let i = start; i < blocks.length; i += 1) {
-          blocks[i].hash = await sha256(body(blocks[i], i));
-        }
-      };
-    }
 
     const build = async (): Promise<void> => {
       blocks = defaults.map((data) => ({ data, nonce: 0, prev: GENESIS, hash: '' }));
       edited = false;
+      justMined = new Set();
+      busy = true;
       mineAll.disabled = true;
-      if (status) status.textContent = 'กำลังขุดโซ่ตั้งต้น';
+      reset.disabled = true;
+      if (status) status.textContent = 'กำลังหาเลขให้โซ่ตั้งต้น';
       for (let i = 0; i < COUNT; i += 1) await mine(i);
+      busy = false;
       render();
     };
 
+    /** ซ่อมทีละก้อนจากซ้ายไปขวา ให้เห็นว่าการแก้ก้อนเดียวลากงานทั้งแถวไปด้วย */
     mineAll.addEventListener('click', () => {
+      if (busy) return;
+      busy = true;
       mineAll.disabled = true;
-      if (status) status.textContent = 'กำลังซ่อม';
+      reset.disabled = true;
+      justMined = new Set();
       void (async () => {
-        for (let i = 0; i < blocks.length; i += 1) await mine(i);
+        let count = 0;
+        for (let i = 0; i < blocks.length; i += 1) {
+          if (validity()[i]) continue;
+          if (status) status.textContent = `กำลังหาเลขใหม่ให้บล็อก ${i + 1}`;
+          await mine(i);
+          await refreshFrom(i + 1);
+          count += 1;
+          justMined.add(i);
+          busy = false;
+          render();
+          busy = true;
+          keepInView(i);
+          if (!reduced) await new Promise((r) => setTimeout(r, 420));
+        }
         edited = false;
+        busy = false;
         render();
+        if (status) status.textContent = `หาเลขใหม่ให้ ${count} บล็อก แฮชเปลี่ยนทั้งหมด โซ่กลับมาสมบูรณ์`;
       })();
     });
     reset.addEventListener('click', () => {
+      if (busy) return;
       void build();
     });
 
-    host.innerHTML = '<p class="lab-note">กำลังขุดโซ่ตั้งต้น</p>';
+    host.innerHTML = '<p class="lab-note">กำลังหาเลขให้โซ่ตั้งต้น</p>';
     void build();
   }
 
@@ -3612,7 +3731,7 @@ const DESC =
 
   interface DsLine {
     t: string;
-    s?: 'new' | 'bad';
+    s?: 'new' | 'no';
   }
   interface DsStep {
     title: string;
@@ -3668,8 +3787,8 @@ const DESC =
         box.append(head);
         lines.forEach((line) => {
           const row = document.createElement('p');
-          row.className = 'ds-line' + (line.s === 'new' ? ' is-new' : line.s === 'bad' ? ' is-bad' : '');
-          row.textContent = line.t;
+          row.className = 'ds-line' + (line.s === 'new' ? ' is-new' : line.s === 'no' ? ' is-no' : '');
+          row.textContent = line.s === 'no' ? line.t + ' · ปฏิเสธ' : line.t;
           box.append(row);
         });
         const rows = Math.max(...step.books.map((b) => b.length));
