@@ -419,6 +419,11 @@ console.log('valid:', valid);
 chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
 console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
 
+/** ตัวเลขฝั่งหลักฐานเมอร์เคิล คำนวณจากค่าที่อ่านมาจริงทั้งหมด */
+const headersOnlyMb = (TIP_HEIGHT * headerBytes) / 1e6;
+const proofHashes = Math.ceil(Math.log2(txPerBlock));
+const MERKLE_ROOT_BYTES = 32;
+
 /** ขนาดสมุดจริง อ่านจากกราฟ Blockchain Size ของ blockchain.com ณ วันสแนปช็อต
     ตัวเลขเป็นเมกะไบต์ตามที่ต้นทางรายงาน แล้วแปลงเป็นกิกะไบต์เอง */
 const CHAIN_MB = 764_986;
@@ -549,6 +554,10 @@ const EX = {
     <p>หารเป็นปีได้ราว ${((HALVING_INTERVAL * BLOCK_MINUTES) / (365.25 * 24 * 60)).toFixed(2)} ปี ซึ่งเป็นที่มาของคำว่าทุกสี่ปี</p>`,
   feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
     <p>คิดเป็น ${feeSharePct.toFixed(2)}% ที่เหลือคือรางวัลบล็อก</p>`,
+  headersOnly: `<p>หัวบล็อกก้อนละ ${headerBytes} ไบต์ คูณด้วยจำนวนบล็อกทั้งหมด ${fmt(TIP_HEIGHT)} ก้อน</p>
+    <p>ได้ราว ${fmt(headersOnlyMb)} เมกะไบต์ เทียบกับสมุดทั้งเล่มที่หนัก ${fmt(chainGb)} กิกะไบต์</p>`,
+  proofHashes: `<p>ต้นไม้ที่มีใบ N ใบ มีความสูงราว log ฐานสอง ของ N ชั้น และแต่ละชั้นขอแฮชพี่น้องแค่ตัวเดียว</p>
+    <p>บล็อกจริงมีธุรกรรมเฉลี่ย ${fmt(txPerBlock)} ใบ log ฐานสองของเลขนี้อยู่ราว ${Math.log2(txPerBlock).toFixed(1)} จึงต้องใช้ราว ${proofHashes} ตัว</p>`,
   chainSize: `<p>กราฟ Blockchain Size รายงานเป็นเมกะไบต์ ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
     <p>หารด้วย ${MB_PER_GB} ได้ ${fmt(chainGb)} GB</p>`,
   chainGrowth: `<p>ค่าเมื่อ ${CHAIN_YEAR_AGO_LABEL} คือ ${fmt(CHAIN_MB_YEAR_AGO)} MB ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
@@ -1203,38 +1212,126 @@ const DESC =
     </p>
   </div>
 
-  <h2>ธุรกรรมห้าพันใบถูกย่อเป็นแฮชเดียวได้ยังไง</h2>
+  <h2>เครื่องที่ไม่ได้เก็บสมุดทั้งเล่ม จะเช็คว่าเงินเข้าแล้วยังไง</h2>
 
   <p>
-    หน้ากระดาษหนึ่งหน้าไม่ได้จดรายการเดียว มันรวบธุรกรรมที่รออยู่มาไว้ด้วยกันทั้งกอง
-    บล็อกจริงในช่วงนี้บรรจุเฉลี่ยราว {fmt(txPerBlock)} รายการต่อบล็อก
+    ลองกลับไปที่ร้านที่เพิ่งขายของให้สมชาย ก่อนจะยอมส่งของ ร้านต้องรู้ให้ได้ว่าธุรกรรมนั้น
+    ถูกจดลงบล็อกไปแล้วจริง ไม่ใช่แค่ลอยอยู่ในห้องรอ เครื่องที่เก็บสมุดครบทั้งเล่มก็แค่เปิดดู จบ
   </p>
 
   <p>
-    แต่หัวของแต่ละบล็อกมีขนาดคงที่แค่ {headerBytes} ไบต์ ซึ่งไม่มีที่พอจะใส่ธุรกรรมได้เลยสักใบ
-    สิ่งที่ใส่ไว้จึงเป็นแฮชตัวเดียวที่สรุปทั้งกอง สร้างจากโครงสร้างที่เรียกว่า
+    ปัญหาคือสมุดโตขึ้นทุกวันและไม่ใช่ทุกเครื่องจะเก็บครบไหว เครื่องที่เก็บไม่ไหวเหลือทางเลือกแค่สองทาง
+    คือฝืนเก็บทั้งเล่ม หรือถามคนที่มีของครบแล้วเชื่อคำตอบเขา ทางหลังคือการกลับไปเชื่อใจคนกลาง
+    ซึ่งเป็นสิ่งเดียวที่ทั้งบทนี้พยายามเลี่ยงมาตั้งแต่หัวข้อแรก หัวข้อนี้คือทางที่สาม
+  </p>
+
+  <h3>บล็อกหนึ่งก้อนมีสองส่วน</h3>
+
+  <p>
+    ก่อนอื่นต้องผ่าบล็อกให้เห็นข้างในก่อน บล็อกหนึ่งก้อนแบ่งเป็น <strong>ส่วนหัว</strong> ที่มีขนาดคงที่
+    {headerBytes} ไบต์เสมอ กับ <strong>ตัวบล็อก</strong> ที่เก็บธุรกรรมทั้งกอง
+    ซึ่งช่วงนี้เฉลี่ยราว {fmt(txPerBlock)} ใบต่อบล็อก
+  </p>
+
+  <ZoomableDiagram
+    caption="ส่วนหัวมีขนาดคงที่ไม่ว่าจะมีธุรกรรมกี่ใบ เครื่องที่เก็บไม่ไหวจึงเลือกเก็บเฉพาะส่วนหัวของทุกบล็อกได้ ส่วนต้นไม้ที่วาดด้วยเส้นประไม่มีอยู่จริงในไฟล์ มันถูกคำนวณขึ้นมาใหม่เมื่อต้องใช้"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 250" role="img" aria-label="แผนภาพผ่าบล็อกหนึ่งก้อน ด้านบนคือส่วนหัวขนาดคงที่แปดสิบไบต์ซึ่งมีช่องรากเมอร์เคิลอยู่ข้างใน ด้านล่างคือตัวบล็อกที่เก็บรายการธุรกรรมทั้งกอง ระหว่างสองส่วนมีต้นไม้เส้นประกำกับว่าไม่ได้ถูกเก็บ แต่คำนวณขึ้นมาจากธุรกรรม" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="bt-ar-blk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+
+      <rect x="16" y="16" width="300" height="62" rx="10" fill="#1b2436" stroke="#e0b400"/>
+      <text x="30" y="38" font-size="12" fill="#e0b400">ส่วนหัว · {headerBytes} ไบต์เสมอ</text>
+      <rect x="30" y="46" width="150" height="22" rx="5" fill="#141a29" stroke="#e0b400"/>
+      <text x="105" y="61" text-anchor="middle" font-size="10" fill="#e0b400">รากเมอร์เคิล {MERKLE_ROOT_BYTES} ไบต์</text>
+      <text x="192" y="61" font-size="10" fill="#9aa7bd">+ อีก 5 ช่อง</text>
+
+      <rect x="16" y="150" width="300" height="84" rx="10" fill="#141a29" stroke="#2a3350"/>
+      <text x="30" y="172" font-size="12" fill="#e7ecf6">ตัวบล็อก · ธุรกรรมราว {fmt(txPerBlock)} ใบ</text>
+      <text x="30" y="194" font-size="10" fill="#9aa7bd">สมชาย จ่าย ร้าน A 1 BTC</text>
+      <text x="30" y="212" font-size="10" fill="#9aa7bd">ร้าน A จ่ายซัพพลายเออร์ 0.4 BTC</text>
+      <text x="30" y="228" font-size="10" fill="#6b7690">อ่านออกทุกใบ ไม่ได้ถูกปิดบัง</text>
+
+      <path d="M166 150 L166 82" fill="none" stroke="#9aa7bd" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#bt-ar-blk)"/>
+      <rect x="196" y="98" width="150" height="34" rx="7" fill="none" stroke="#6b7690" stroke-dasharray="5 4"/>
+      <text x="271" y="119" text-anchor="middle" font-size="10" fill="#6b7690">ต้นไม้ คำนวณเอา ไม่ได้เก็บ</text>
+
+      <rect x="352" y="16" width="192" height="62" rx="10" fill="#0f1626" stroke="#2a3350"/>
+      <text x="366" y="38" font-size="11" fill="#e7ecf6">เก็บเฉพาะส่วนหัวทุกบล็อก</text>
+      <text x="366" y="60" font-size="12" fill="#4ade80">ราว {fmt(headersOnlyMb)} MB</text>
+
+      <rect x="352" y="150" width="192" height="62" rx="10" fill="#0f1626" stroke="#2a3350"/>
+      <text x="366" y="172" font-size="11" fill="#e7ecf6">เก็บสมุดครบทั้งเล่ม</text>
+      <text x="366" y="194" font-size="12" fill="#f08b8b">ราว {fmt(chainGb)} GB</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ส่วนหัวของทุกบล็อกรวมกันหนักแค่ราว
+    <ExplainNumber value={`${fmt(headersOnlyMb)} MB`} title="ตัวเลขนี้มาจากไหน" html={EX.headersOnly} />
+    ซึ่งมือถือเครื่องไหนก็เก็บได้สบาย โจทย์จึงเหลือข้อเดียว คือมีแค่ส่วนหัว
+    จะเช็คธุรกรรมที่อยู่ในตัวบล็อกได้ยังไง
+  </p>
+
+  <h3>ย่อธุรกรรมทั้งกองให้เหลือแฮชเดียว</h3>
+
+  <p>
+    ในส่วนหัวมีช่องหนึ่งชื่อ <strong>รากเมอร์เคิล</strong> เป็นแฮชตัวเดียวขนาด {MERKLE_ROOT_BYTES} ไบต์
+    ที่สรุปธุรกรรมทั้งกองไว้ สร้างจากโครงสร้างที่เรียกว่า
     <strong>ต้นไม้เมอร์เคิล (Merkle tree)</strong> อ่านว่า "เมอร์เคิลทรี" ตั้งตามชื่อ Ralph Merkle
     อ่านว่า "ราล์ฟ เมอร์เคิล" นักวิทยาการรหัสลับที่จดสิทธิบัตรวิธีนี้ไว้ตั้งแต่ปี 1979
   </p>
 
   <p>
     วิธีสร้างง่ายมาก แฮชธุรกรรมทีละใบ แล้วจับผลลัพธ์มาเข้าคู่กันแฮชอีกรอบ จำนวนจะเหลือครึ่งหนึ่ง
-    ทำซ้ำไปเรื่อย ๆ จนเหลือแฮชเดียว เรียกว่า <strong>รากของต้นไม้</strong> แฮชตัวนั้นแหละที่ไปนั่งอยู่ในหัวบล็อก
+    ทำซ้ำไปเรื่อย ๆ จนเหลือแฮชเดียว นั่นคือราก
   </p>
 
   <div class="callout callout-note">
-    <p class="callout-label">นี่ไม่ใช่การเข้ารหัส</p>
+    <p class="callout-label">สองข้อที่ต้องรู้ก่อนไปต่อ</p>
     <p>
-      การเข้ารหัสมีกุญแจไว้ถอดกลับ และมีไว้ปิดบังเนื้อหา ส่วนแฮชถอดกลับไม่ได้และไม่ได้ปิดบังอะไรเลย
-      <strong>ธุรกรรมทุกใบยังอยู่ในบล็อกแบบอ่านออกทุกตัวอักษร</strong>
-      ต้นไม้เมอร์เคิลไม่ได้เก็บธุรกรรม มันแค่คำนวณลายนิ้วมือของทั้งกองให้เหลือตัวเดียวไปแปะไว้ในหัวบล็อก
-      เข้ารหัสคือเอาเอกสารใส่ตู้เซฟ ส่วนแฮชคือชั่งน้ำหนักเอกสารทั้งกองแล้วจดตัวเลขไว้
-      เอกสารยังวางเปิดอยู่บนโต๊ะ แต่ถ้าใครสับเปลี่ยนแผ่นไหน น้ำหนักที่ชั่งใหม่จะไม่ตรงกับที่จด
+      <strong>ถ้าชั้นไหนมีจำนวนคี่</strong> ตัวสุดท้ายจะถูกจับคู่กับตัวมันเอง ชั้นที่มี 3 ตัว
+      จึงกลายเป็นคู่ (1, 2) กับ (3, 3) ได้ผลออกมา 2 ตัว แล้วเดินต่อตามปกติ
+    </p>
+    <p>
+      <strong>ลำดับมีผล</strong> เพราะแฮชของ A ต่อ B ไม่เท่ากับแฮชของ B ต่อ A
+      แต่ไม่มีใครเผลอสลับได้ เพราะลำดับไม่ใช่สิ่งที่คนคำนวณเลือกเอง
+      มันคือลำดับที่ธุรกรรมเรียงอยู่ในตัวบล็อกอยู่แล้ว ใครเปิดบล็อกก้อนเดียวกันก็ได้รากเดียวกันเสมอ
+      ส่วนคนที่ขยับลำดับ นั่นคือเขาเปลี่ยนบล็อกไปแล้ว ไม่ใช่คำนวณผิด
     </p>
   </div>
 
   <ZoomableDiagram
-    caption={"ธุรกรรมแปดใบถูกจับคู่ขึ้นไปทีละชั้นจนเหลือแฮชเดียว แก้ธุรกรรมใบไหนก็ตาม รากจะเปลี่ยนทันที หัวบล็อกจึงผูกกับเนื้อหาทั้งบล็อกด้วยแฮชเพียงตัวเดียว"}
+    caption="ชั้นที่มีสามตัว ตัวสุดท้ายถูกจับคู่กับตัวมันเอง จำนวนจึงลดลงได้ตามปกติโดยไม่ต้องมีกติกาพิเศษอะไรเพิ่ม"
+  >
+    <svg class="btc-dgm" viewBox="0 0 380 190" role="img" aria-label="แผนภาพกรณีจำนวนคี่ ชั้นล่างมีสามกล่อง กล่องที่หนึ่งกับสองจับคู่กันตามปกติ ส่วนกล่องที่สามมีเส้นสองเส้นวิ่งขึ้นไปหากล่องเดียวกัน แสดงว่าถูกจับคู่กับตัวเอง ชั้นบนจึงเหลือสองกล่อง" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <rect x="66" y="20" width="120" height="30" rx="7" fill="#141a29" stroke="#2a3350"/>
+      <text x="126" y="40" text-anchor="middle" font-size="11" fill="#e7ecf6">แฮชของ 1 กับ 2</text>
+      <rect x="240" y="20" width="120" height="30" rx="7" fill="#141a29" stroke="#e0b400"/>
+      <text x="300" y="40" text-anchor="middle" font-size="11" fill="#e0b400">แฮชของ 3 กับ 3</text>
+
+      <line x1="100" y1="50" x2="68" y2="110" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="152" y1="50" x2="184" y2="110" stroke="#9aa7bd" stroke-width="1.5"/>
+      <line x1="284" y1="50" x2="292" y2="110" stroke="#e0b400" stroke-width="1.5"/>
+      <line x1="316" y1="50" x2="308" y2="110" stroke="#e0b400" stroke-width="1.5"/>
+
+      <rect x="28" y="110" width="80" height="30" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="68" y="130" text-anchor="middle" font-size="11" fill="#9aa7bd">ตัวที่ 1</text>
+      <rect x="144" y="110" width="80" height="30" rx="6" fill="#141a29" stroke="#2a3350"/>
+      <text x="184" y="130" text-anchor="middle" font-size="11" fill="#9aa7bd">ตัวที่ 2</text>
+      <rect x="260" y="110" width="80" height="30" rx="6" fill="#141a29" stroke="#e0b400"/>
+      <text x="300" y="130" text-anchor="middle" font-size="11" fill="#e0b400">ตัวที่ 3</text>
+
+      <text x="300" y="162" text-anchor="middle" font-size="10" fill="#e0b400">ไม่มีคู่ จับกับตัวเอง</text>
+    </svg>
+  </ZoomableDiagram>
+
+
+  <ZoomableDiagram
+    caption="ธุรกรรมแปดใบถูกจับคู่ขึ้นไปทีละชั้นจนเหลือแฮชเดียว แก้ใบไหนหรือสลับลำดับใบไหน รากก็เปลี่ยนทันที แฮชตัวเดียวจึงผูกกับทั้งเนื้อหาและลำดับของทั้งบล็อก"
   >
     <svg class="btc-dgm" viewBox="0 0 620 250" role="img" aria-label="แผนภาพต้นไม้เมอร์เคิล ชั้นล่างสุดคือธุรกรรมแปดใบ ชั้นถัดขึ้นไปคือแฮชสี่ตัวที่เกิดจากการจับคู่ ชั้นถัดไปคือสองตัว และชั้นบนสุดคือรากหนึ่งตัวที่อยู่ในหัวบล็อก" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
       <rect x="246" y="14" width="128" height="34" rx="8" fill="#141a29" stroke="#e0b400"/>
@@ -1289,35 +1386,72 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
+  <div class="callout callout-note">
+    <p class="callout-label">นี่ไม่ใช่การเข้ารหัส</p>
+    <p>
+      การเข้ารหัสมีกุญแจไว้ถอดกลับ และมีไว้ปิดบังเนื้อหา ส่วนแฮชถอดกลับไม่ได้และไม่ได้ปิดบังอะไรเลย
+      <strong>ธุรกรรมทุกใบยังอยู่ในตัวบล็อกแบบอ่านออกทุกตัวอักษร</strong>
+      เข้ารหัสคือเอาเอกสารใส่ตู้เซฟ ส่วนแฮชคือชั่งน้ำหนักเอกสารทั้งกองแล้วจดตัวเลขไว้
+      เอกสารยังวางเปิดอยู่บนโต๊ะ แต่ถ้าใครสับเปลี่ยนแผ่นไหน น้ำหนักที่ชั่งใหม่จะไม่ตรงกับที่จด
+    </p>
+  </div>
+
+  <p class="pull">
+    ในไฟล์จริงมีของอยู่แค่สองอย่าง คือส่วนหัวกับรายการธุรกรรม
+    แฮชคู่ทุกตัวในภาพไม่ได้ถูกเก็บไว้ที่ไหนเลย มันถูกคำนวณขึ้นมาใหม่ทุกครั้งที่ต้องใช้
+    สิ่งเดียวที่ถูกเก็บคือรากตัวเดียวในส่วนหัว
+  </p>
+
+  <h3>เครื่องที่มีแค่ส่วนหัวจึงต้องขอ</h3>
+
   <p>
-    ประโยชน์ของมันอยู่ตรงนี้ ถ้าคุณอยากพิสูจน์ว่าธุรกรรมของคุณอยู่ในบล็อกนั้นจริง
-    คุณไม่ต้องดาวน์โหลดธุรกรรมทั้งบล็อกมาเทียบ ขอแค่แฮชคู่ตามทางเดินขึ้นไปหาราก
-    ซึ่งกับต้นไม้แปดใบต้องใช้แค่ {merkleProofLen} ตัว ลองกดเลือกใบไหนก็ได้ในของเล่นข้างล่าง
-    แล้วดูว่ามันจะขอแฮชตัวไหนบ้าง
+    ข้อเมื่อกี้อธิบายทุกอย่างที่เหลือ เครื่องที่ถือธุรกรรมครบสร้างต้นไม้เองได้ทั้งต้น
+    ส่วนเครื่องที่ถือแค่ส่วนหัวไม่มีธุรกรรมให้คำนวณ มันจึงต้องขอแฮชจากคนที่มีของครบ
+    แต่ไม่ได้ขอทั้งต้น ขอแค่ <strong>แฮชพี่น้องชั้นละหนึ่งตัวตามทางเดินขึ้นไปหาราก</strong>
+  </p>
+
+  <p>
+    ต้นไม้แปดใบสูงสามชั้น จึงขอแค่ {merkleProofLen} ตัว ส่วนบล็อกจริงที่มีธุรกรรมห้าพันกว่าใบ
+    ขอราว
+    <ExplainNumber value={`${proofHashes} ตัว`} title="ทำไมแค่ไม่กี่ตัว" html={EX.proofHashes} />
+    เท่านั้น จากนั้นเครื่องเล็กเอาธุรกรรมของตัวเองมาแฮช แล้วไล่จับคู่ขึ้นไปเองจนได้ราก
+    ถ้ารากที่คำนวณได้ตรงกับรากในส่วนหัวที่ตัวเองถืออยู่ ก็จบ ธุรกรรมนั้นอยู่ในบล็อกนั้นจริง
+  </p>
+
+  <p>
+    จุดสำคัญอยู่ตรงที่<strong>ไม่ต้องเชื่อคนที่ส่งแฮชมาให้เลยแม้แต่นิดเดียว</strong>
+    ถ้าเขาส่งของปลอมมา ตัวเลขจะไม่ลงตัวและรากจะไม่ตรง เครื่องเล็กรู้ได้เองทันที
+    สิทธิ์ที่จะไม่ต้องเชื่อใครจึงยังอยู่ครบ ทั้งที่เก็บข้อมูลแค่เศษเสี้ยว
+  </p>
+
+  <p>
+    ลองกดเลือกใบไหนก็ได้ในของเล่นข้างล่าง แล้วดูว่ามันขอแฮชตัวไหนบ้าง
+    ปุ่มด้านล่างมีให้ลองสองอย่าง คือแก้เนื้อในธุรกรรมใบหนึ่ง กับสลับลำดับสองใบโดยไม่แก้เนื้อในเลย
   </p>
 
   <div class="lab" data-merkle-lab data-leaves={JSON.stringify(merkleLeafLabels)}>
     <p class="lab-title">MERKLE LAB</p>
     <div class="mk-head">
-      <p class="mk-head-title">หัวบล็อก</p>
+      <p class="mk-head-title">ส่วนหัวของบล็อก</p>
       <div class="mk-head-fields">
         <span class="mk-head-field"><b>รากเมอร์เคิล</b><code class="mk-head-root">-</code></span>
         <span class="mk-head-field"><b>แฮชของบล็อก</b><code class="mk-head-block">-</code></span>
       </div>
-      <p class="mk-head-note">หัวบล็อกยังมีช่องอื่นอีก ตรงนี้ขอโชว์แค่สองช่องที่เกี่ยวกับต้นไม้ก่อน ที่เหลือเล่าในหัวข้อถัดไป</p>
+      <p class="mk-head-note">ส่วนหัวยังมีช่องอื่นอีก ตรงนี้ขอโชว์แค่สองช่องที่เกี่ยวกับต้นไม้ก่อน ที่เหลือเล่าในหัวข้อถัดไป</p>
     </div>
     <div class="mk-tree"></div>
-    <p class="lab-note mk-say">แตะใบธุรกรรมสักใบเพื่อดูว่าต้องใช้แฮชกี่ตัวในการพิสูจน์</p>
+    <p class="mk-legend">
+      <span class="mk-key mk-key-pick">ใบที่เลือก</span>
+      <span class="mk-key mk-key-path">ทางเดินขึ้นที่คำนวณเอง</span>
+      <span class="mk-key mk-key-need">แฮชที่ต้องขอ</span>
+    </p>
+    <p class="lab-note mk-say">แตะใบธุรกรรมสักใบเพื่อดูว่าต้องขอแฮชกี่ตัวในการพิสูจน์</p>
     <div class="lab-actions">
-      <button type="button" class="lab-btn mk-tamper">แก้ธุรกรรมใบที่ 3</button>
+      <button type="button" class="lab-btn mk-tamper">แก้ยอดในใบที่ 3</button>
+      <button type="button" class="lab-btn mk-swap">สลับลำดับใบ 3 กับ 4</button>
       <button type="button" class="lab-btn lab-btn-ghost mk-reset">เริ่มใหม่</button>
     </div>
   </div>
-
-  <p>
-    นี่คือกลไกที่ทำให้กระเป๋าบนมือถือตรวจสอบธุรกรรมของตัวเองได้ โดยไม่ต้องเก็บสมุดทั้งเล่ม
-    ที่ตอนนี้ใหญ่หลายร้อยกิกะไบต์
-  </p>
 
   <p>
     หัวข้อนี้จบชิ้นแรกของการจัดลำดับ คือทำให้สิ่งที่จดไปแล้วแก้ย้อนหลังไม่ได้
@@ -1767,6 +1901,8 @@ const DESC =
   <p>
     คำว่า <strong>กระเป๋า (wallet)</strong> ชวนเข้าใจผิดที่สุดคำหนึ่ง เพราะสิ่งที่มันเก็บไม่ใช่เงิน
     แต่เป็น <strong>กุญแจส่วนตัว</strong> ซึ่งเป็นสิ่งเดียวที่ทำให้คุณเซ็นย้ายเงินได้
+    และเครื่องเบา ๆ ที่เก็บแค่ส่วนหัวของบล็อกแล้วขอหลักฐานเมอร์เคิลเป็นราย ๆ
+    ตามที่เล่าไว้ตอนต้นไม้เมอร์เคิล ก็คือแอปแบบนี้นี่เอง
   </p>
 
   <p>
@@ -1955,8 +2091,8 @@ const DESC =
 
   <p>
     และไม่ใช่ทุกเครื่องที่ต้องเก็บครบ โหนดตั้งค่าให้ตรวจทุกอย่างตั้งแต่บล็อกแรกแล้วทิ้งของเก่าออกก็ได้
-    เหลือไว้แค่ยอดคงเหลือปัจจุบัน ส่วนแอปกระเป๋าในมือถือเก็บแค่หัวบล็อก แล้วขอหลักฐานเมอร์เคิลเป็นราย ๆ
-    ซึ่งก็คือของที่คุณเพิ่งกดเล่นไปในแล็บต้นไม้นั่นเอง
+    เหลือไว้แค่ยอดคงเหลือปัจจุบัน ส่วนแอปกระเป๋าในมือถือเก็บแค่ส่วนหัว แล้วพิสูจน์ด้วยหลักฐานเมอร์เคิล
+    ตามที่เล่าไปแล้ว
   </p>
 
   <div class="callout callout-note">
@@ -3176,6 +3312,8 @@ const DESC =
   .mk-tree :global(.mk-leaf:hover){border-color:var(--dl-emerald);}
   .mk-tree :global(.mk-root){border-color:var(--dl-gold);}
   .mk-tree :global(.mk-node.is-picked){border-color:var(--dl-emerald-bright);background:#10231a;}
+  .mk-tree :global(.mk-node.is-onpath){border-color:#6f8fd0;background:#131b2e;}
+  .mk-tree :global(.mk-node.is-onpath .mk-hash){color:#9db4e0;}
   .mk-tree :global(.mk-node.is-needed){border-color:var(--dl-gold);background:#241f0d;}
   .mk-tree :global(.mk-node.is-changed){border-color:var(--dl-red);background:#1f1418;}
   .mk-tree :global(.mk-name){display:block;font-size:0.7rem;color:var(--dl-ink);}
@@ -3201,6 +3339,30 @@ const DESC =
   .mk-head-note{font-size:0.68rem;color:var(--dl-muted);margin:0.4rem 0 0;}
   .mk-tree :global(.mk-node.is-needed .mk-hash){color:var(--dl-gold);}
   .mk-tree :global(.mk-node.is-changed .mk-hash){color:#f08b8b;}
+  /* เส้นเชื่อมพ่อลูก วาดด้วย ::before ของแถว เพื่อไม่ต้องคำนวณพิกัดใน JS */
+  .mk-tree :global(.mk-row){position:relative;}
+  .mk-tree :global(.mk-row[data-children])::before{
+    content:"";
+    position:absolute;
+    left:50%;
+    bottom:-0.5rem;
+    width:1px;
+    height:0.5rem;
+    background:var(--dl-border);
+  }
+  .mk-legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.35rem 0.9rem;
+    font-size:0.7rem;
+    color:var(--dl-muted);
+    margin:0 0 0.5rem;
+  }
+  .mk-key{display:inline-flex;align-items:center;gap:0.3rem;}
+  .mk-key::before{content:"";width:0.7rem;height:0.7rem;border-radius:3px;border:1px solid;}
+  .mk-key-pick::before{border-color:var(--dl-emerald-bright);background:#10231a;}
+  .mk-key-path::before{border-color:#6f8fd0;background:#131b2e;}
+  .mk-key-need::before{border-color:var(--dl-gold);background:#241f0d;}
 
   /* เส้นทางของธุรกรรม */
   .jn-stage{margin-bottom:0.6rem;}
@@ -3588,13 +3750,16 @@ const DESC =
     const headBlock = root.querySelector<HTMLElement>('.mk-head-block');
     const say = root.querySelector<HTMLElement>('.mk-say');
     const tamper = root.querySelector<HTMLButtonElement>('.mk-tamper');
+    const swap = root.querySelector<HTMLButtonElement>('.mk-swap');
     const reset = root.querySelector<HTMLButtonElement>('.mk-reset');
     const raw: unknown = JSON.parse(root.dataset.leaves ?? '[]');
-    if (!host || !say || !tamper || !reset || !Array.isArray(raw)) return;
+    if (!host || !say || !tamper || !swap || !reset || !Array.isArray(raw)) return;
     const base = raw.filter((x): x is string => typeof x === 'string');
     if (base.length === 0) return;
 
     const TAMPER_INDEX = 2;
+    const SWAP_A = 2;
+    const SWAP_B = 3;
     let labels = base.slice();
     let levels: MerkleNode[][] = [];
     let selected = -1;
@@ -3618,6 +3783,17 @@ const DESC =
       return out;
     };
 
+    /** ดัชนีของบรรพบุรุษของใบที่เลือก คือกล่องที่เครื่องเล็กคำนวณเองได้ */
+    const ancestors = (leaf: number): Array<[number, number]> => {
+      const path: Array<[number, number]> = [];
+      let idx = leaf;
+      for (let lv = 1; lv < levels.length; lv += 1) {
+        idx = Math.floor(idx / 2);
+        path.push([lv, idx]);
+      }
+      return path;
+    };
+
     /** ดัชนีของโหนดพี่น้องที่ต้องใช้พิสูจน์ ในแต่ละชั้น */
     const proofPath = (leaf: number): Array<[number, number]> => {
       const path: Array<[number, number]> = [];
@@ -3632,10 +3808,12 @@ const DESC =
     const render = (): void => {
       const path = selected >= 0 ? proofPath(selected) : [];
       const needed = new Set(path.map(([lv, i]) => lv + ':' + i));
+      const onPath = new Set(selected >= 0 ? ancestors(selected).map(([lv, i]) => lv + ':' + i) : []);
       host.innerHTML = '';
       for (let lv = levels.length - 1; lv >= 0; lv -= 1) {
         const row = document.createElement('div');
         row.className = 'mk-row';
+        if (lv > 0) row.dataset.children = String(levels[lv - 1].length);
         levels[lv].forEach((node, i) => {
           const cell = document.createElement('button');
           cell.type = 'button';
@@ -3644,6 +3822,7 @@ const DESC =
           if (isLeaf) classes.push('mk-leaf');
           if (lv === levels.length - 1) classes.push('mk-root');
           if (isLeaf && i === selected) classes.push('is-picked');
+          if (onPath.has(lv + ':' + i)) classes.push('is-onpath');
           if (needed.has(lv + ':' + i)) classes.push('is-needed');
           if (changed.has(lv + ':' + i)) classes.push('is-changed');
           cell.className = classes.join(' ');
@@ -3658,8 +3837,9 @@ const DESC =
       }
       if (selected >= 0) {
         say.textContent =
-          'ใบที่ ' + (selected + 1) + ' พิสูจน์ได้ด้วยแฮชแค่ ' + path.length +
-          ' ตัวที่ไฮไลต์ไว้ ไม่ต้องดาวน์โหลดอีก ' + (levels[0].length - 1) + ' ใบที่เหลือเลย';
+          'ใบที่ ' + (selected + 1) + ' มีทางเดินขึ้นไปหาราก ' + path.length +
+          ' ชั้น แต่ละชั้นขอแฮชพี่น้องแค่ตัวเดียว รวม ' + path.length +
+          ' ตัว ที่เหลือคำนวณเองได้หมด ไม่ต้องโหลดอีก ' + (levels[0].length - 1) + ' ใบเลย';
       } else if (changed.size > 0) {
         say.textContent =
           'แก้ใบเดียว แฮชที่เปลี่ยนตามคือ ' + changed.size + ' ตัว รากเปลี่ยน ค่าในหัวบล็อกจึงเปลี่ยน และแฮชของบล็อกก็เปลี่ยนตามไปด้วย';
@@ -3710,6 +3890,29 @@ const DESC =
         });
         selected = -1;
         render();
+      })();
+    });
+
+    /** สลับลำดับสองใบโดยไม่แตะเนื้อในเลย เพื่อโชว์ว่ารากผูกกับลำดับด้วย */
+    swap.addEventListener('click', () => {
+      void (async () => {
+        const before = levels;
+        labels = base.slice();
+        const a = labels[SWAP_A];
+        labels[SWAP_A] = labels[SWAP_B];
+        labels[SWAP_B] = a;
+        levels = await build(labels);
+        selected = -1;
+        changed = new Set();
+        levels.forEach((row, lv) => {
+          row.forEach((node, i) => {
+            if (before[lv] && before[lv][i] && before[lv][i].hash !== node.hash) changed.add(lv + ':' + i);
+          });
+        });
+        render();
+        say.textContent =
+          'สลับแค่ลำดับ เนื้อในทุกใบเหมือนเดิมทุกตัวอักษร แต่แฮชเปลี่ยนไป ' +
+          changed.size + ' ตัว และรากก็เปลี่ยน เพราะรากผูกกับลำดับด้วย';
       })();
     });
 
