@@ -4086,16 +4086,13 @@ const DESC =
 
 <style>
   /* ทยอยโชว์เนื้อหาตามการเลื่อนหน้า
-     ค่าตั้งต้นคือ "มองเห็น" เสมอ คลาส btc-veil ถูกใส่โดยสคริปต์ตอนเริ่มเท่านั้น
-     ถ้าสคริปต์ไม่ทำงาน หน้าจึงยังอ่านได้ครบทั้งหน้า ไม่ใช่ว่างเปล่า
-     และซ่อนด้วย opacity ไม่ใช่ display เพื่อให้ Ctrl+F ยังค้นเจอข้อความที่ยังไม่เลื่อนถึง */
-  :global(.btc-veil){opacity:0;transform:translateY(14px);}
-  :global(.btc-veil.btc-seen){opacity:1;transform:none;transition:opacity 0.55s ease, transform 0.55s ease;}
-  @media (prefers-reduced-motion: reduce){
-    :global(.btc-veil){opacity:1;transform:none;}
-    :global(.btc-veil.btc-seen){transition:none;}
-  }
-  @media print{ :global(.btc-veil){opacity:1;transform:none;} }
+     เนื้อหาถูกตัดด้วยความสูงของกล่องครอบ ไม่ใช่ซ่อนทีละชิ้น
+     ความสูงของหน้าจึงโตตามการอ่าน แถบเลื่อนไม่ประกาศความยาวทั้งบทตั้งแต่วินาทีแรก
+     ตัวที่ยังไม่ถูกเปิดยังถูกจัดผังตามปกติ แค่ถูกตัดทิ้ง แล็บที่วัดขนาดตัวเองตอนเริ่ม
+     จึงยังได้ความกว้างจริง ไม่ใช่ศูนย์ ซึ่งเป็นเหตุผลที่ไม่ใช้ display:none
+     ค่าตั้งต้นคือไม่ตัดอะไรเลย สคริปต์เป็นฝ่ายใส่ความสูงเอง ถ้าสคริปต์ไม่ทำงานหน้าจะครบเหมือนเดิม */
+  :global(.btc-flow){overflow:hidden;}
+  @media print{ :global(.btc-flow){max-height:none !important;} }
 
   /* h2 ของเลย์เอาต์อยู่ที่ 1rem หัวข้อย่อยจึงต้องเล็กกว่านั้น และเกาะกลุ่มใต้หัวข้อแม่ */
   h3{
@@ -5820,55 +5817,75 @@ const DESC =
 
 <script>
   /** ทยอยโชว์เนื้อหาตามการเลื่อนหน้า
-      สคริปต์เป็นฝ่ายซ่อนเอง ไม่ใช่ CSS ซ่อนไว้แล้วรอสคริปต์มาเปิด
-      ถ้าไฟล์นี้พังหรือโหลดไม่ทัน บทความจะยังแสดงครบทั้งหน้าเหมือนเดิม
 
-      ใช้ตัวไล่ตามลำดับเอกสารแทน IntersectionObserver ตั้งใจ เพราะ observer รู้จักเฉพาะของ
-      ที่บังเอิญอยู่ในจอตอนนั้น พอผู้อ่านลากแถบเลื่อนเร็ว ๆ หรือกดลิงก์กระโดดข้ามหัวข้อ
-      เนื้อหาที่ถูกข้ามจะไม่เคยถูกแจ้งและค้างขาวถาวร ทดสอบจริงแล้วเหลือค้าง 206 ชิ้น
-      ตัวไล่ด้านล่างจึงเปิดทุกอย่างที่ "ผ่านไปแล้ว" ไม่ใช่เฉพาะที่เห็นอยู่ */
+      แนวคิด: ย้ายเนื้อบทความทั้งก้อนเข้ากล่องครอบหนึ่งใบ แล้วจำกัดความสูงของกล่องนั้น
+      ให้ล้ำหน้าขอบล่างของจอไปเล็กน้อยเสมอ ความสูงของทั้งหน้าจึงโตตามที่ผู้อ่านเลื่อนลงไป
+      แถบเลื่อนค่อย ๆ ยาวขึ้นแทนที่จะประกาศความยาวทั้งบทตั้งแต่วินาทีแรก
+
+      รอยตัดอยู่ต่ำกว่าขอบล่างของจอเสมอ ผู้อ่านจึงไม่เห็นรอย ไม่ต้องมีขอบจางมากลบ
+      เคยลองทา mask ไล่สีที่ขอบล่างแล้วถอดออก เพราะ mask ทาลงทั้งซับทรีรวมถึงกล่องขยายภาพ
+      ที่เป็น position:fixed ซึ่งเป็นความเสี่ยงที่ไม่ได้อะไรกลับมาเลย
+
+      ทำไมตัดด้วยความสูง ไม่ใช่ซ่อนทีละชิ้นด้วย display:none
+      เพราะแล็บหลายตัวในหน้านี้วัดขนาดของตัวเองตอนเริ่ม ถ้าตอนนั้นกล่องถูกถอดออกจากผัง
+      ค่าที่วัดได้จะเป็นศูนย์แล้ววาดเพี้ยนถาวร วิธีตัดทำให้ทุกอย่างยังถูกจัดผังตามจริง
+
+      สคริปต์นี้อยู่ท้ายไฟล์ จึงทำงานหลังแล็บทุกตัววัดขนาดเสร็จแล้ว การย้ายเข้ากล่อง
+      ไม่เปลี่ยนความกว้าง และการย้ายแท็กสคริปต์ที่รันไปแล้วไม่ทำให้มันรันซ้ำ */
   (() => {
     const panel = document.querySelector('.panel');
     if (!panel || panel.hasAttribute('data-reveal-wired')) return;
     panel.setAttribute('data-reveal-wired', '');
 
-    // คนที่ตั้งค่าลดการเคลื่อนไหวไว้ ไม่ต้องซ่อนอะไรเลย เห็นครบตั้งแต่แรก
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
     const kids = Array.from(panel.children);
     const subtitle = panel.querySelector('p.subtitle');
-    // หัวเรื่องกับความนำอยู่เหนือรอยพับ ปล่อยให้เห็นทันที เริ่มซ่อนจากย่อหน้าถัดจากนั้น
+    // หัวเรื่องกับความนำอยู่เหนือรอยพับ ปล่อยไว้นอกกล่อง เห็นเต็มตั้งแต่แรก
     const from = subtitle ? kids.indexOf(subtitle) + 1 : 0;
-    // ข้ามพวกที่ไม่ได้ถูกวาดอยู่แล้ว เช่นแท็กสคริปต์ ไม่งั้นตัวไล่จะไปติดค้างกับมัน
-    const targets = kids
-      .slice(from)
-      .filter((el) => el instanceof HTMLElement && getComputedStyle(el).display !== 'none');
-    if (targets.length === 0) return;
+    const body = kids.slice(from);
+    if (body.length === 0) return;
 
-    for (const el of targets) el.classList.add('btc-veil');
+    const flow = document.createElement('div');
+    flow.className = 'btc-flow';
+    panel.insertBefore(flow, body[0]);
+    for (const el of body) flow.appendChild(el);
 
-    let next = 0;
-    let queued = false;
-    const sweep = (): void => {
-      queued = false;
-      const limit = window.innerHeight * 0.94;
-      while (next < targets.length && targets[next].getBoundingClientRect().top < limit) {
-        targets[next].classList.add('btc-seen');
-        next += 1;
+    /** ระยะที่ยอมให้เนื้อหาล้ำพ้นขอบล่างของจอ เผื่อไว้สองอย่าง
+        หนึ่งคือรอยตัดไม่โผล่มาให้เห็น สองคือผู้อ่านมีที่ให้เลื่อนต่อเสมอ ไม่ชนก้นหน้า */
+    const LEAD = 0.85;
+    /** ตำแหน่งบนของกล่องกับความสูงเนื้อหาเต็ม เก็บไว้เพื่อไม่ต้องอ่านผังทุกครั้งที่เลื่อน
+        ค่าพวกนี้เปลี่ยนได้เมื่อจอเปลี่ยนขนาดหรือมีคนกางกล่องพับ จึงอ่านใหม่ตามจังหวะข้างล่าง */
+    let top = flow.offsetTop;
+    let full = flow.scrollHeight;
+    let ceiling = 0;
+
+    /** ไม่หุ้มด้วย requestAnimationFrame ตั้งใจ
+        เคยเขียนแบบหุ้มไว้แล้วเจอว่าถ้าเบราว์เซอร์วาดเฟรมไม่ทัน งานจะไม่ถูกทำ
+        ผู้อ่านเลื่อนถึงก้นหน้าแล้วหน้าไม่ยอมโตต่อ กลายเป็นชนกำแพง
+        งานในนี้เป็นเลขคณิตล้วนกับค่าที่แคชไว้ จึงถูกพอที่จะทำตรง ๆ ทุกครั้งที่เลื่อน */
+    const grow = (): void => {
+      const want = window.scrollY + window.innerHeight * (1 + LEAD) - top;
+      if (want <= ceiling) return;
+      ceiling = want;
+      if (ceiling >= full) {
+        // ใกล้ถึงท้ายบทแล้ว วัดความสูงจริงอีกครั้งเผื่อมีคนกางกล่องพับระหว่างทาง
+        full = flow.scrollHeight;
+        if (ceiling >= full) {
+          flow.style.maxHeight = '';
+          window.removeEventListener('scroll', grow);
+          window.removeEventListener('resize', remeasure);
+          return;
+        }
       }
-      if (next >= targets.length) {
-        window.removeEventListener('scroll', request);
-        window.removeEventListener('resize', request);
-      }
+      flow.style.maxHeight = ceiling + 'px';
     };
-    function request(): void {
-      if (queued) return;
-      queued = true;
-      requestAnimationFrame(sweep);
-    }
+    const remeasure = (): void => {
+      top = flow.offsetTop;
+      full = flow.scrollHeight;
+      grow();
+    };
 
-    window.addEventListener('scroll', request, { passive: true });
-    window.addEventListener('resize', request, { passive: true });
-    sweep();
+    window.addEventListener('scroll', grow, { passive: true });
+    window.addEventListener('resize', remeasure, { passive: true });
+    grow();
   })();
 </script>
