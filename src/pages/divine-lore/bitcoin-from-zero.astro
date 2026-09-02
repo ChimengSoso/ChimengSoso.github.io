@@ -415,8 +415,9 @@ console.log('valid:', valid);
 chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
 console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
 
-/** ขนาดของช่องนอนซ์ ใช้ตอบคำถามว่า 4 ไบต์พอไหม */
-const NONCE_BITS = 32;
+/** ขนาดของช่องนอนซ์ บทความพูดเป็นไบต์ให้ตรงกับภาพหัวบล็อก */
+const NONCE_BYTES = 4;
+const NONCE_BITS = NONCE_BYTES * 8;
 const nonceSpace = Math.pow(2, NONCE_BITS);
 const nonceSweeps = hashesPerBlock / nonceSpace;
 
@@ -602,10 +603,12 @@ const EX = {
     <p>หารเป็นปีได้ราว ${((HALVING_INTERVAL * BLOCK_MINUTES) / (365.25 * 24 * 60)).toFixed(2)} ปี ซึ่งเป็นที่มาของคำว่าทุกสี่ปี</p>`,
   feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
     <p>คิดเป็น ${feeSharePct.toFixed(2)}% ที่เหลือคือรางวัลบล็อก</p>`,
+  nonceSweeps: `<p>ต้องเดาเฉลี่ย ${fmt(hashesPerBlock / 1e21, 1)} เซกซ์ทิลเลียนครั้งต่อบล็อก</p>
+    <p>หารด้วยความจุของช่องนอนซ์ ${fmt(nonceSpace)} ค่า ได้ราว ${fmt(nonceSweeps / 1e9)} พันล้านรอบ</p>`,
   chinaDrop: `<p>อ่านจากประวัติการปรับความยากของทั้งเครือข่าย รอบที่ความสูง ${fmt(CHINA_DROP_HEIGHT)} เมื่อ ${CHINA_DROP_DATE}</p>
     <p>ความยากลดลง ${CHINA_DROP_PCT}% ซึ่งเป็นการลดครั้งเดียวที่แรงที่สุดเท่าที่เคยมีมา</p>`,
-  nonceSpace: `<p>ช่องนอนซ์กว้าง ${NONCE_BITS} บิต ความเป็นไปได้จึงเท่ากับ 2 ยกกำลัง ${NONCE_BITS} คือ ${fmt(nonceSpace)} ค่า</p>
-    <p>แต่ต้องเดาเฉลี่ย ${fmt(hashesPerBlock / 1e21, 1)} เซกซ์ทิลเลียนครั้งต่อบล็อก หารกันแล้วเท่ากับต้องกวาดช่องนอนซ์จนครบราว ${fmt(nonceSweeps / 1e9)} พันล้านรอบ</p>`,
+  nonceSpace: `<p>ช่องนอนซ์กว้าง ${NONCE_BYTES} ไบต์ ซึ่งเท่ากับ ${NONCE_BITS} บิต เพราะหนึ่งไบต์มี 8 บิต</p>
+    <p>ความเป็นไปได้จึงเท่ากับ 2 ยกกำลัง ${NONCE_BITS} คือ ${fmt(nonceSpace)} ค่า</p>`,
   retargetBlocks: `<p>ระบบเล็งจังหวะไว้ที่ ${BLOCK_MINUTES} นาทีต่อบล็อก และเลือกรอบทบทวนไว้ที่ ${RETARGET_DAYS} วัน</p>
     <p>${RETARGET_DAYS} วันคือ ${fmt(RETARGET_DAYS * 24 * 60)} นาที หารด้วย ${BLOCK_MINUTES} ได้ ${fmt(RETARGET_INTERVAL)} บล็อกพอดี เลขนี้จึงไม่ได้มีความหมายในตัวเอง</p>`,
   headersOnly: `<p>หัวบล็อกก้อนละ ${headerBytes} ไบต์ คูณด้วยจำนวนบล็อกทั้งหมด ${fmt(TIP_HEIGHT)} ก้อน</p>
@@ -917,7 +920,7 @@ const DESC =
       <rect x="14" y="322" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
       <text x="89" y="341" text-anchor="middle" font-size="11" fill="#e7ecf6">ข้อความ</text>
       <line x1="170" y1="330" x2="230" y2="330" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-h)"/>
-      <line x1="230" y1="344" x2="176" y2="344" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-no)"/>
+      <line x1="230" y1="344" x2="168" y2="344" stroke="#d64545" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#bt-ar-no)"/>
       <line x1="194" y1="336" x2="210" y2="352" stroke="#d64545" stroke-width="2"/>
       <line x1="210" y1="336" x2="194" y2="352" stroke="#d64545" stroke-width="2"/>
       <rect x="236" y="322" width="150" height="28" rx="7" fill="#141a29" stroke="#2a3350"/>
@@ -1585,19 +1588,24 @@ const DESC =
   </div>
 
   <div class="callout callout-note">
-    <p class="callout-label">นอนซ์กว้างแค่ {NONCE_BITS} บิต มันพอเหรอ</p>
+    <p class="callout-label">ช่องเล็กแค่ {NONCE_BYTES} ไบต์ เดาได้กี่ครั้ง</p>
     <p>
-      ไม่พอครับ ช่องนอนซ์เก็บได้
+      นับได้
       <ExplainNumber value={`${fmt(nonceSpace)} ค่า`} title="เลขนี้มาจากไหน" html={EX.nonceSpace} />
-      เท่านั้น ขณะที่ต้องเดาเฉลี่ยหลายเซกซ์ทิลเลียนครั้งกว่าจะเจอสักบล็อก
+      ซึ่ง<strong>พอสำหรับการหมุนหนึ่งรอบ</strong> แต่ไม่พอสำหรับทั้งบล็อก
+      เพราะจำนวนครั้งที่ต้องเดาจริงมากกว่านั้นมหาศาล (เดี๋ยวหัวข้อถัดไปจะมีตัวเลขให้ดู)
       กวาดนอนซ์จนครบทั้งช่องแล้วยังไม่เจอ จึงเป็นเรื่องปกติที่เกิดขึ้นทุกเสี้ยววินาที
     </p>
     <p>
-      ทางออกอยู่ที่ช่องรากเมอร์เคิล ซึ่งภาพข้างบนกำกับไว้ว่าถูกล็อกโดยธุรกรรมที่เลือกมา
-      แปลว่า<strong>ถ้าเปลี่ยนธุรกรรมที่เลือก ช่องนี้ก็เปลี่ยน</strong>
+      พอหมุนครบรอบ นักขุดก็สร้างโจทย์ใหม่แล้วหมุนอีกรอบ วิธีสร้างโจทย์ใหม่อยู่ที่ช่องรากเมอร์เคิล
+      ซึ่งภาพข้างบนกำกับไว้ว่าถูกล็อกโดยธุรกรรมที่เลือกมา แปลว่า
+      <strong>ถ้าเปลี่ยนธุรกรรมที่เลือก ช่องนี้ก็เปลี่ยน</strong>
       นักขุดจึงแก้ธุรกรรมใบแรกของบล็อก ซึ่งเป็นใบที่จ่ายรางวัลให้ตัวเองและมีที่ว่างให้ใส่เลขอะไรก็ได้
       พอแก้ปุ๊บ รากเปลี่ยน ส่วนหัวกลายเป็นโจทย์ใหม่ทั้งใบ แล้วหมุนนอนซ์ได้ครบช่องอีกรอบ
-      ห้าช่องที่ภาพบอกว่าล็อก จึงหมายถึงล็อกภายในการหมุนหนึ่งรอบเท่านั้น
+    </p>
+    <p>
+      ห้าช่องที่ภาพบอกว่าล็อก จึงหมายถึง<strong>ล็อกภายในการหมุนหนึ่งรอบ</strong> เท่านั้น
+      ไม่ได้ล็อกตลอดกาล
     </p>
   </div>
 
@@ -1663,8 +1671,8 @@ const DESC =
       <text x="446" y="274" text-anchor="middle" font-size="12" fill="#4ade80">ต่อท้ายโซ่ ยอดขยับ</text>
       <text x="446" y="294" text-anchor="middle" font-size="10" fill="#9aa7bd">ทุกคนเริ่มรอบใหม่บนยอดนี้</text>
       <line x1="446" y1="222" x2="446" y2="248" stroke="#4ade80" stroke-width="2" marker-end="url(#bt-ar-mine)"/>
-      <path d="M356 278 C 200 300, 22 300, 22 62" fill="none" stroke="#4ade80" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#bt-ar-mine)"/>
-      <text x="120" y="326" font-size="10" fill="#4ade80">รอบใหม่ ใช้แฮชก่อนหน้าตัวใหม่</text>
+      <path d="M356 278 C 220 320, 30 300, 30 40 C 30 40, 60 40, 144 40" fill="none" stroke="#4ade80" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#bt-ar-mine)"/>
+      <text x="150" y="336" font-size="10" fill="#4ade80">รอบใหม่ ใช้แฮชก่อนหน้าตัวใหม่</text>
     </svg>
   </ZoomableDiagram>
 
@@ -1797,6 +1805,10 @@ const DESC =
     ต่อจากนั้นทุกอย่างคำนวณได้หมด จำนวนครั้งที่ทั้งโลกต้องเดาโดยเฉลี่ยกว่าจะได้หนึ่งบล็อกคือ
     <ExplainNumber value={fmt(hashesPerBlock / 1e21, 1) + " เซกซ์ทิลเลียนครั้ง"} title="เลขนี้มาจากไหน" html={EX.hashesPerBlock} />
     คำว่า <strong>เซกซ์ทิลเลียน (sextillion)</strong> คือ 10 ยกกำลัง 21 หรือเลข 1 ที่มีศูนย์ตามหลัง 21 ตัว
+    นี่คือตัวเลขที่ค้างไว้ตอนคุยเรื่องนอนซ์ เทียบกับช่องนอนซ์ที่เก็บได้ {fmt(nonceSpace)} ค่า
+    เท่ากับต้องกวาดช่องนั้นจนครบซ้ำแล้วซ้ำอีกราว
+    <ExplainNumber value={`${fmt(nonceSweeps / 1e9)} พันล้านรอบ`} title="คำนวณยังไง" html={EX.nonceSweeps} />
+    กว่าจะได้หนึ่งบล็อก
   </p>
 
   <p>
@@ -4203,16 +4215,19 @@ const DESC =
     const SWAP_A = 2;
     const SWAP_B = 3;
     let mode: MkMode = 'clean';
-    let labels = base.slice();
+    /** ผู้ใช้แตะอะไรไปแล้วหรือยัง ใช้คุมปุ่มเริ่มใหม่ ไม่ผูกกับว่าตอนนี้สถานะสะอาดหรือไม่ */
+    let touched = false;
+    let labels = base.map((text, i) => ({ id: i + 1, text }));
     let levels: MerkleNode[][] = [];
     let selected = -1;
     let changed = new Set<string>();
 
-    const build = async (src: string[]): Promise<MerkleNode[][]> => {
+    /** ป้ายติดไปกับตัวธุรกรรม ไม่ได้ตั้งจากตำแหน่ง เพื่อให้เห็นด้วยตาว่าใบไหนย้ายที่ */
+    const build = async (src: Array<{ id: number; text: string }>): Promise<MerkleNode[][]> => {
       const out: MerkleNode[][] = [];
       const leaves: MerkleNode[] = [];
       for (let i = 0; i < src.length; i += 1) {
-        leaves.push({ hash: await sha256(src[i]), label: 'ใบ ' + (i + 1) });
+        leaves.push({ hash: await sha256(src[i].text), label: 'ใบ ' + src[i].id });
       }
       out.push(leaves);
       while (out[out.length - 1].length > 1) {
@@ -4316,14 +4331,15 @@ const DESC =
       if (!btn) return;
       selected = Number(btn.dataset.leaf);
       changed = new Set();
+      touched = true;
       render();
       syncButtons();
     });
 
     /** ปุ่มทั้งสองเป็นสวิตช์ กดแล้วสลับไปมาได้ ไม่ใช่เซ็ตค่าเดิมทับจนกดซ้ำแล้วหน้าจอนิ่ง */
-    const labelsFor = (m: MkMode): string[] => {
-      const out = base.slice();
-      if (m === 'tampered') out[TAMPER_INDEX] = base[TAMPER_INDEX] + ' (ยอดถูกแก้)';
+    const labelsFor = (m: MkMode): Array<{ id: number; text: string }> => {
+      const out = base.map((text, i) => ({ id: i + 1, text }));
+      if (m === 'tampered') out[TAMPER_INDEX] = { id: TAMPER_INDEX + 1, text: base[TAMPER_INDEX] + ' (ยอดถูกแก้)' };
       if (m === 'swapped') {
         const a = out[SWAP_A];
         out[SWAP_A] = out[SWAP_B];
@@ -4337,10 +4353,11 @@ const DESC =
       swap.textContent = mode === 'swapped' ? 'สลับลำดับกลับ' : 'สลับลำดับใบ 3 กับ 4';
       swap.disabled = mode === 'tampered';
       tamper.disabled = mode === 'swapped';
-      reset.disabled = mode === 'clean' && selected < 0;
+      reset.disabled = !touched;
     };
 
     const apply = (next: MkMode): void => {
+      touched = true;
       void (async () => {
         const before = levels;
         mode = next;
@@ -4364,7 +4381,8 @@ const DESC =
             ' ตัว รากเปลี่ยน ค่าในส่วนหัวจึงเปลี่ยน และแฮชของบล็อกก็เปลี่ยนตามไปด้วย';
         } else {
           say.textContent =
-            'สลับแค่ลำดับ เนื้อในทุกใบเหมือนเดิมทุกตัวอักษร แต่แฮชเปลี่ยนไป ' +
+            'ใบ ' + (SWAP_B + 1) + ' ย้ายมาอยู่หน้าใบ ' + (SWAP_A + 1) +
+            ' เนื้อในทุกใบเหมือนเดิมทุกตัวอักษร ไม่ได้แก้อะไรเลย แต่แฮชเปลี่ยนไป ' +
             changed.size + ' ตัว และรากก็เปลี่ยน เพราะรากผูกกับลำดับด้วย';
         }
       })();
@@ -4379,6 +4397,8 @@ const DESC =
     reset.addEventListener('click', () => {
       selected = -1;
       apply('clean');
+      touched = false;
+      syncButtons();
     });
 
     void (async () => {
