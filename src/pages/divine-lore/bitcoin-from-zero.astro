@@ -4085,6 +4085,18 @@ const DESC =
 </DivineLoreLayout>
 
 <style>
+  /* ทยอยโชว์เนื้อหาตามการเลื่อนหน้า
+     ค่าตั้งต้นคือ "มองเห็น" เสมอ คลาส btc-veil ถูกใส่โดยสคริปต์ตอนเริ่มเท่านั้น
+     ถ้าสคริปต์ไม่ทำงาน หน้าจึงยังอ่านได้ครบทั้งหน้า ไม่ใช่ว่างเปล่า
+     และซ่อนด้วย opacity ไม่ใช่ display เพื่อให้ Ctrl+F ยังค้นเจอข้อความที่ยังไม่เลื่อนถึง */
+  :global(.btc-veil){opacity:0;transform:translateY(14px);}
+  :global(.btc-veil.btc-seen){opacity:1;transform:none;transition:opacity 0.55s ease, transform 0.55s ease;}
+  @media (prefers-reduced-motion: reduce){
+    :global(.btc-veil){opacity:1;transform:none;}
+    :global(.btc-veil.btc-seen){transition:none;}
+  }
+  @media print{ :global(.btc-veil){opacity:1;transform:none;} }
+
   /* h2 ของเลย์เอาต์อยู่ที่ 1rem หัวข้อย่อยจึงต้องเล็กกว่านั้น และเกาะกลุ่มใต้หัวข้อแม่ */
   h3{
     font-size:0.94rem;
@@ -5579,20 +5591,20 @@ const DESC =
     } else if (kind === 'spread') {
       body =
         head('แต่ละตัวตรวจเองแล้วบอกต่อ ข่าวจึงกระจายเป็นทอด') +
-        dot(60, 82, 16, '#132033') +
-        '<circle cx="60" cy="82" r="16" fill="none" stroke="#4ade80" stroke-width="2"/>' +
-        arrow(80, 74, 140, 50, '#4ade80', false) +
-        arrow(80, 90, 140, 114, '#4ade80', false) +
-        dot(162, 46, 14, '#132033') +
-        '<circle cx="162" cy="46" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>' +
-        dot(162, 118, 14, '#132033') +
-        '<circle cx="162" cy="118" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>' +
-        arrow(180, 40, 232, 28, '#4ade80', false) +
-        arrow(180, 54, 232, 74, '#4ade80', false) +
-        arrow(180, 112, 232, 96, '#4ade80', false) +
-        arrow(180, 126, 232, 138, '#4ade80', false) +
-        dot(246, 24, 10, '#1c2536') + dot(246, 78, 10, '#1c2536') +
-        dot(246, 92, 10, '#1c2536') + dot(246, 140, 10, '#1c2536') +
+        dot(60, 90, 16, '#132033') +
+        '<circle cx="60" cy="90" r="16" fill="none" stroke="#4ade80" stroke-width="2"/>' +
+        arrow(80, 82, 140, 62, '#4ade80', false) +
+        arrow(80, 98, 140, 118, '#4ade80', false) +
+        dot(162, 58, 14, '#132033') +
+        '<circle cx="162" cy="58" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>' +
+        dot(162, 122, 14, '#132033') +
+        '<circle cx="162" cy="122" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>' +
+        arrow(180, 52, 232, 44, '#4ade80', false) +
+        arrow(180, 64, 232, 74, '#4ade80', false) +
+        arrow(180, 116, 232, 106, '#4ade80', false) +
+        arrow(180, 128, 232, 136, '#4ade80', false) +
+        dot(246, 42, 10, '#1c2536') + dot(246, 76, 10, '#1c2536') +
+        dot(246, 104, 10, '#1c2536') + dot(246, 138, 10, '#1c2536') +
         '<text x="286" y="70" font-size="11" fill="#4ade80">ไม่กี่วินาทีก็ถึงเกือบทั้งโลก</text>' +
         '<text x="286" y="90" font-size="10" fill="#9aa7bd">ไม่เคยผ่านศูนย์กลางที่ไหน</text>';
     } else if (kind === 'wait') {
@@ -5804,4 +5816,59 @@ const DESC =
       });
     }
   });
+</script>
+
+<script>
+  /** ทยอยโชว์เนื้อหาตามการเลื่อนหน้า
+      สคริปต์เป็นฝ่ายซ่อนเอง ไม่ใช่ CSS ซ่อนไว้แล้วรอสคริปต์มาเปิด
+      ถ้าไฟล์นี้พังหรือโหลดไม่ทัน บทความจะยังแสดงครบทั้งหน้าเหมือนเดิม
+
+      ใช้ตัวไล่ตามลำดับเอกสารแทน IntersectionObserver ตั้งใจ เพราะ observer รู้จักเฉพาะของ
+      ที่บังเอิญอยู่ในจอตอนนั้น พอผู้อ่านลากแถบเลื่อนเร็ว ๆ หรือกดลิงก์กระโดดข้ามหัวข้อ
+      เนื้อหาที่ถูกข้ามจะไม่เคยถูกแจ้งและค้างขาวถาวร ทดสอบจริงแล้วเหลือค้าง 206 ชิ้น
+      ตัวไล่ด้านล่างจึงเปิดทุกอย่างที่ "ผ่านไปแล้ว" ไม่ใช่เฉพาะที่เห็นอยู่ */
+  (() => {
+    const panel = document.querySelector('.panel');
+    if (!panel || panel.hasAttribute('data-reveal-wired')) return;
+    panel.setAttribute('data-reveal-wired', '');
+
+    // คนที่ตั้งค่าลดการเคลื่อนไหวไว้ ไม่ต้องซ่อนอะไรเลย เห็นครบตั้งแต่แรก
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const kids = Array.from(panel.children);
+    const subtitle = panel.querySelector('p.subtitle');
+    // หัวเรื่องกับความนำอยู่เหนือรอยพับ ปล่อยให้เห็นทันที เริ่มซ่อนจากย่อหน้าถัดจากนั้น
+    const from = subtitle ? kids.indexOf(subtitle) + 1 : 0;
+    // ข้ามพวกที่ไม่ได้ถูกวาดอยู่แล้ว เช่นแท็กสคริปต์ ไม่งั้นตัวไล่จะไปติดค้างกับมัน
+    const targets = kids
+      .slice(from)
+      .filter((el) => el instanceof HTMLElement && getComputedStyle(el).display !== 'none');
+    if (targets.length === 0) return;
+
+    for (const el of targets) el.classList.add('btc-veil');
+
+    let next = 0;
+    let queued = false;
+    const sweep = (): void => {
+      queued = false;
+      const limit = window.innerHeight * 0.94;
+      while (next < targets.length && targets[next].getBoundingClientRect().top < limit) {
+        targets[next].classList.add('btc-seen');
+        next += 1;
+      }
+      if (next >= targets.length) {
+        window.removeEventListener('scroll', request);
+        window.removeEventListener('resize', request);
+      }
+    };
+    function request(): void {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(sweep);
+    }
+
+    window.addEventListener('scroll', request, { passive: true });
+    window.addEventListener('resize', request, { passive: true });
+    sweep();
+  })();
 </script>
