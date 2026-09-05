@@ -99,6 +99,17 @@ export const cpProblems: CpProblem[] = [
     dateISO: '2026-09-06',
     readingMinutes: 10,
   },
+  {
+    href: 'hearing-pairs/',
+    setId: 'programming-in-th',
+    label: '2004',
+    title: 'คู่ที่ได้ยินกัน: หมุนกระดาน 45 องศาแล้วข้าวหลามตัดกลายเป็นจัตุรัส',
+    desc: 'นับคู่ตุ๊กตาที่อยู่ห่างกันไม่เกิน D ก้าว บนกระดาน 1, 2 หรือ 3 มิติ ไล่ทุกคู่คือห้าพันล้านครั้ง เฉลยด้วยเอกลักษณ์บรรทัดเดียวที่เปลี่ยนเงื่อนไขพัวพันสองแกนให้ตรวจแยกกันได้ และกระดานสามมิติที่การหมุนช่วยไม่ได้',
+    topics: ['sweep line', 'BIT', 'prefix sum'],
+    difficulty: 4,
+    dateISO: '2026-09-06',
+    readingMinutes: 11,
+  },
 ];
 
 export const publishedCpProblems = cpProblems.filter((p) => !p.soon);
