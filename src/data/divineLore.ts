@@ -7,6 +7,8 @@ export interface DivineLoreEntry {
   desc: string;
   /** Publish date in ISO 8601 (YYYY-MM-DD). */
   dateISO: string;
+  /** Revision date in ISO 8601 (YYYY-MM-DD). Set only when the entry is later revised. */
+  updatedISO?: string;
   /** Estimated reading time in minutes. */
   readingMinutes: number;
 }
@@ -16,10 +18,10 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     href: 'bitcoin-from-zero/',
     tag: 'บันทึกการเงิน',
     title: 'บิตคอยน์ตั้งแต่ศูนย์: เงินที่ไม่มีใครเป็นเจ้าของทำงานยังไง',
-    desc: 'เห็นคำว่าบิตคอยน์มาสิบกว่าปี แต่พอมีคนถามว่ามันทำงานยังไง ก็ยังตอบไม่ได้สักที บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อน มีของให้กดเล่นแปดชิ้น และภาพประกอบกว่าสี่สิบภาพระหว่างทาง',
+    desc: 'เห็นคำว่าบิตคอยน์มาสิบกว่าปี แต่พอมีคนถามว่ามันทำงานยังไง ก็ยังตอบไม่ได้สักที บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อน มีของให้กดเล่นเก้าชิ้น และภาพประกอบสี่สิบห้าภาพระหว่างทาง',
     dateISO: '2026-08-30',
-    updatedISO: '2026-09-03',
-    readingMinutes: 58,
+    updatedISO: '2026-09-05',
+    readingMinutes: 77,
   },
   {
     href: 'ascii-donut/',
