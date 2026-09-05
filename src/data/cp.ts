@@ -77,6 +77,17 @@ export const cpProblems: CpProblem[] = [
     dateISO: '2026-08-26',
     readingMinutes: 7,
   },
+  {
+    href: 'miners/',
+    setId: 'programming-in-th',
+    label: '2003',
+    title: 'Miners: อดีตทั้งกองยุบเหลือสี่ช่อง',
+    desc: 'อาหารไหลมาเป็นแสนชิ้น เลือกได้แค่ว่าชิ้นนี้เข้าเหมืองไหน คนงานให้ถ่านตามจำนวนชนิดอาหารในสามชิ้นล่าสุดของเหมืองตัวเอง วิธีโลภแพ้ตั้งแต่กองห้าชิ้น เฉลยด้วยการถามว่าอดีตส่วนไหนบ้างที่ยังมีผลกับชิ้นถัดไปจริง ๆ',
+    topics: ['dp', 'state compression'],
+    difficulty: 3,
+    dateISO: '2026-09-05',
+    readingMinutes: 9,
+  },
 ];
 
 export const publishedCpProblems = cpProblems.filter((p) => !p.soon);
