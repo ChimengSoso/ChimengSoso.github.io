@@ -88,6 +88,17 @@ export const cpProblems: CpProblem[] = [
     dateISO: '2026-09-05',
     readingMinutes: 9,
   },
+  {
+    href: 'fifteen-puzzle/',
+    setId: 'programming-in-th',
+    label: '2026',
+    title: 'ปริศนา 15: ตอนที่การหาทางสั้นที่สุดคือกับดัก',
+    desc: 'กระดาน 4x4 มีหน้าตาได้สิบล้านล้านแบบ ค้นหาทางที่สั้นที่สุดยังไงก็ไม่ทันในหนึ่งในสิบวินาที แต่โจทย์ไม่เคยขอทางที่สั้นที่สุด ขอแค่ต่ำกว่า 5,000 ตา พอเปลี่ยนคำถาม ปัญหาก็ยุบเหลือการค้นเจ็ดรอบที่รอบใหญ่สุดมีแค่ 40,320 สถานะ',
+    topics: ['bfs', 'constructive'],
+    difficulty: 3,
+    dateISO: '2026-09-06',
+    readingMinutes: 10,
+  },
 ];
 
 export const publishedCpProblems = cpProblems.filter((p) => !p.soon);

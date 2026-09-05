@@ -1,0 +1,1477 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'fifteen-puzzle/';
+
+/* ---------- โมเดล: อัลกอริทึมเดียวกับโค้ด C++ ที่แจกท้ายบท ----------
+   ทุกตัวเลขในหน้านี้ (จำนวนตาของแต่ละกระดาน, ขั้นในตัวเล่น, ป้ายบอกเฟส) งอกจากตรงนี้
+   ผมเทียบผลของสองภาษานี้กับกระดานสุ่ม 400 กระดานแล้วว่าให้สตริงเดียวกันเป๊ะ */
+
+const DR = [-1, 0, 1, 0];
+const DC = [0, 1, 0, -1];
+const LET = ['N', 'E', 'S', 'W'];
+
+type Phase = { name: string; short: string; count: number; until: number; lock: boolean[] };
+type Solved = { moves: string; phases: Phase[] };
+
+function solve(startBoard: number[]): Solved {
+  const g = startBoard.slice();
+  const lock = new Array<boolean>(16).fill(false);
+  let bl = g.indexOf(0);
+  const moves: string[] = [];
+  const phases: Phase[] = [];
+
+  const nb = (p: number, d: number): number => {
+    const r = ((p / 4) | 0) + DR[d];
+    const c = (p % 4) + DC[d];
+    if (r < 0 || r > 3 || c < 0 || c > 3) return -1;
+    const q = r * 4 + c;
+    return lock[q] ? -1 : q;
+  };
+  const apply = (d: number): void => {
+    const q = nb(bl, d);
+    g[bl] = g[q];
+    g[q] = 0;
+    bl = q;
+    moves.push(LET[d]);
+  };
+
+  // เฟสวางหมากทีละตัว: ค้นบนสถานะ (ช่องของหมาก, ช่องว่าง) = 256 แบบ
+  function placeOne(v: number, goal: number): number {
+    const start = g.indexOf(v) * 16 + bl;
+    const from = new Int32Array(256).fill(-2);
+    const dir = new Int8Array(256).fill(-1);
+    from[start] = -1;
+    const q: number[] = [start];
+    let end = -1;
+    for (let h = 0; h < q.length && end < 0; h++) {
+      const s = q[h];
+      const tp = (s / 16) | 0;
+      const bp = s % 16;
+      if (tp === goal) { end = s; break; }
+      for (let d = 0; d < 4; d++) {
+        const np = nb(bp, d);
+        if (np < 0) continue;
+        const ntp = np === tp ? bp : tp;
+        const ns = ntp * 16 + np;
+        if (from[ns] !== -2) continue;
+        from[ns] = s;
+        dir[ns] = d;
+        q.push(ns);
+      }
+    }
+    const path: number[] = [];
+    for (let s = end; from[s] !== -1; s = from[s]) path.push(dir[s]);
+    path.reverse();
+    path.forEach(apply);
+    lock[goal] = true;
+    return path.length;
+  }
+
+  // เฟสวางหมากสองตัวพร้อมกัน: ค้นบนสถานะ (ช่อง A, ช่อง B, ช่องว่าง) = 4096 แบบ
+  function placePair(va: number, vb: number, ga: number, gb: number): number {
+    const enc = (a: number, b: number, c: number): number => (a * 16 + b) * 16 + c;
+    const start = enc(g.indexOf(va), g.indexOf(vb), bl);
+    const from = new Int32Array(4096).fill(-2);
+    const dir = new Int8Array(4096).fill(-1);
+    from[start] = -1;
+    const q: number[] = [start];
+    let end = -1;
+    for (let h = 0; h < q.length && end < 0; h++) {
+      const s = q[h];
+      const ap = (s / 256) | 0;
+      const bp = ((s / 16) | 0) % 16;
+      const bk = s % 16;
+      if (ap === ga && bp === gb) { end = s; break; }
+      for (let d = 0; d < 4; d++) {
+        const np = nb(bk, d);
+        if (np < 0) continue;
+        const nap = np === ap ? bk : ap;
+        const nbp = np === bp ? bk : bp;
+        const ns = enc(nap, nbp, np);
+        if (from[ns] !== -2) continue;
+        from[ns] = s;
+        dir[ns] = d;
+        q.push(ns);
+      }
+    }
+    const path: number[] = [];
+    for (let s = end; from[s] !== -1; s = from[s]) path.push(dir[s]);
+    path.reverse();
+    path.forEach(apply);
+    lock[ga] = true;
+    lock[gb] = true;
+    return path.length;
+  }
+
+  // เฟสสุดท้าย: สองแถวล่างมีแปดช่อง เรียงได้ 8! = 40320 แบบ ค้นทีเดียวจบ
+  const FCT = [1, 1, 2, 6, 24, 120, 720, 5040, 40320];
+  const rankPerm = (a: number[]): number => {
+    let r = 0;
+    for (let i = 0; i < 8; i++) {
+      let less = 0;
+      for (let j = i + 1; j < 8; j++) if (a[j] < a[i]) less++;
+      r += less * FCT[7 - i];
+    }
+    return r;
+  };
+  const unrankPerm = (rk: number): number[] => {
+    const pool = [0, 1, 2, 3, 4, 5, 6, 7];
+    const a: number[] = [];
+    let r = rk;
+    for (let i = 0; i < 8; i++) {
+      const k = (r / FCT[7 - i]) | 0;
+      r %= FCT[7 - i];
+      a.push(pool[k]);
+      pool.splice(k, 1);
+    }
+    return a;
+  };
+
+  function finishBottom(): number {
+    const cur: number[] = [];
+    for (let i = 0; i < 8; i++) cur.push(g[8 + i] === 0 ? 7 : g[8 + i] - 9);
+    const start = rankPerm(cur);
+    const target = rankPerm([0, 1, 2, 3, 4, 5, 6, 7]);
+    const from = new Int32Array(40320).fill(-2);
+    const dir = new Int8Array(40320).fill(-1);
+    from[start] = -1;
+    const q: number[] = [start];
+    for (let h = 0; h < q.length; h++) {
+      const s = q[h];
+      if (s === target) break;
+      const a = unrankPerm(s);
+      const z = a.indexOf(7);
+      for (let d = 0; d < 4; d++) {
+        const nr = ((z / 4) | 0) + DR[d];
+        const nc = (z % 4) + DC[d];
+        if (nr < 0 || nr > 1 || nc < 0 || nc > 3) continue;
+        const nz = nr * 4 + nc;
+        const b = a.slice();
+        b[z] = a[nz];
+        b[nz] = a[z];
+        const ns = rankPerm(b);
+        if (from[ns] !== -2) continue;
+        from[ns] = s;
+        dir[ns] = d;
+        q.push(ns);
+      }
+    }
+    const path: number[] = [];
+    for (let s = target; from[s] !== -1; s = from[s]) path.push(dir[s]);
+    path.reverse();
+    path.forEach(apply);
+    return path.length;
+  }
+
+  const mark = (name: string, short: string, n: number): void => {
+    phases.push({ name, short, count: n, until: moves.length, lock: lock.slice() });
+  };
+
+  for (let r = 0; r < 2; r++) {
+    mark(`วางหมาก ${4 * r + 1} เข้าที่`, `หมาก ${4 * r + 1}`, placeOne(4 * r + 1, r * 4));
+    mark(`วางหมาก ${4 * r + 2} เข้าที่`, `หมาก ${4 * r + 2}`, placeOne(4 * r + 2, r * 4 + 1));
+    mark(
+      `วางหมาก ${4 * r + 3} กับ ${4 * r + 4} พร้อมกัน`,
+      `หมาก ${4 * r + 3}+${4 * r + 4}`,
+      placePair(4 * r + 3, 4 * r + 4, r * 4 + 2, r * 4 + 3),
+    );
+  }
+  mark('สองแถวล่างที่เหลือ ค้นทีเดียวจบ', 'สองแถวล่าง', finishBottom());
+
+  return { moves: moves.join(''), phases };
+}
+
+const parse = (rows: string): number[] => rows.trim().split(/\s+/).map(Number);
+
+const SAMPLE = parse('1 2 8 3  5 7 10 4  9 6 11 0  13 14 15 12');
+const DEMO = parse('12 1 6 4  3 0 2 10  5 9 8 7  13 11 14 15');
+const HARD = parse('14 1 2 3  5 6 7 4  9 12 0 13  10 11 8 15');
+
+const sampleSolved = solve(SAMPLE);
+const demoSolved = solve(DEMO);
+const hardSolved = solve(HARD);
+
+/* ตัวเลขที่วัดมาจริง ไม่ใช่ประมาณเอา (รายละเอียดวิธีวัดอยู่ในเนื้อหา) */
+const STATES_ALL = 10461394944000; // 16! / 2
+const LIMIT_MOVES = 5000;
+const BOUND_TOTAL = 165; // ผลรวมของระยะไกลสุดของแต่ละเฟส คำนวณด้วย BFS ถอยหลัง
+const BOUND_PARTS = [21, 17, 32, 17, 13, 29, 36];
+const TESTED_BOARDS = 31000;
+const OBSERVED_MAX = 135;
+const OBSERVED_AVG = '85';
+
+/* ---------- ขั้นของตัวเล่น: เดินกระดานเดโมทีละตา ---------- */
+
+type Step = { board: number[]; lock: boolean[]; letter: string; phase: string; note: string; idx: number };
+
+function buildSteps(start: number[], sol: Solved): Step[] {
+  const g = start.slice();
+  let bl = g.indexOf(0);
+  const steps: Step[] = [];
+  const phaseAt = (i: number): Phase => sol.phases.find((p) => i <= p.until) ?? sol.phases[sol.phases.length - 1];
+  const lockBefore = (i: number): boolean[] => {
+    let out = new Array<boolean>(16).fill(false);
+    for (const p of sol.phases) {
+      if (p.until <= i) out = p.lock.slice();
+    }
+    return out;
+  };
+
+  steps.push({
+    board: g.slice(),
+    lock: new Array<boolean>(16).fill(false),
+    letter: '',
+    phase: sol.phases[0].name,
+    note: `กระดานเริ่มต้น ยังไม่มีหมากตัวไหนถูกล็อก โปรแกรมจะเดินทั้งหมด ${sol.moves.length} ตา`,
+    idx: 0,
+  });
+
+  [...sol.moves].forEach((ch, i) => {
+    const d = LET.indexOf(ch);
+    const r = ((bl / 4) | 0) + DR[d];
+    const c = (bl % 4) + DC[d];
+    const q = r * 4 + c;
+    const moved = g[q];
+    g[bl] = g[q];
+    g[q] = 0;
+    bl = q;
+    const ph = phaseAt(i + 1);
+    steps.push({
+      board: g.slice(),
+      lock: lockBefore(i + 1),
+      letter: ch,
+      phase: ph.name,
+      note: `ตาที่ ${i + 1} ตัวอักษร <b>${ch}</b> แปลว่าหมากที่อยู่ทาง${
+        { N: 'เหนือ', E: 'ตะวันออก', S: 'ใต้', W: 'ตะวันตก' }[ch]
+      }ของช่องว่างเลื่อนเข้ามาแทน คราวนี้คือหมากหมายเลข ${moved}`,
+      idx: i + 1,
+    });
+  });
+
+  return steps;
+}
+
+const demoSteps = buildSteps(DEMO, demoSolved);
+
+const games = [
+  { label: 'กระดานตัวอย่าง', board: SAMPLE, best: sampleSolved.moves.length },
+  { label: 'กระดานเดโม', board: DEMO, best: demoSolved.moves.length },
+  { label: 'กระดานที่ยุ่งกว่า', board: HARD, best: hardSolved.moves.length },
+];
+
+/* ---------- โค้ด ---------- */
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+int g[16];              // g[i] = หมายเลขหมากในช่อง i (0 = ช่องว่าง)
+bool lockd[16];         // ช่องที่เข้าที่แล้ว ห้ามแตะอีก
+int bl;                 // ช่องว่างอยู่ที่ไหน
+string ans;
+
+const int DR[4] = {-1, 0, 1, 0};
+const int DC[4] = {0, 1, 0, -1};
+const char LET[4] = {'N', 'E', 'S', 'W'};   // ทิศที่ "ช่องว่าง" ขยับไป
+
+// ช่องปลายทางเมื่อช่องว่างที่ p ขยับไปทาง d (คืน -1 ถ้าตกขอบหรือชนช่องที่ล็อกไว้)
+int nb(int p, int d) {
+    int r = p / 4 + DR[d], c = p % 4 + DC[d];
+    if (r < 0 || r > 3 || c < 0 || c > 3) return -1;
+    int q = r * 4 + c;
+    return lockd[q] ? -1 : q;
+}
+
+void apply1(int d) {
+    int q = nb(bl, d);
+    g[bl] = g[q];
+    g[q] = 0;
+    bl = q;
+    ans += LET[d];
+}
+
+// วางหมากตัวเดียว: สถานะคือ (ช่องของหมาก, ช่องว่าง) มีไม่เกิน 16 x 16 แบบ
+void placeOne(int v, int goal) {
+    int start = (int)(find(g, g + 16, v) - g) * 16 + bl;
+    vector<int> from(256, -2);
+    vector<char> dir(256, -1);
+    from[start] = -1;
+    queue<int> q;
+    q.push(start);
+    int end = -1;
+    while (!q.empty()) {
+        int s = q.front(); q.pop();
+        int tp = s >> 4, bp = s & 15;
+        if (tp == goal) { end = s; break; }
+        for (int d = 0; d < 4; d++) {
+            int np = nb(bp, d);
+            if (np < 0) continue;
+            int ntp = (np == tp) ? bp : tp;      // ช่องว่างเดินทับหมาก = หมากถูกดันมาที่เดิมของช่องว่าง
+            int ns = ntp * 16 + np;
+            if (from[ns] != -2) continue;
+            from[ns] = s; dir[ns] = (char)d;
+            q.push(ns);
+        }
+    }
+    vector<int> path;
+    for (int s = end; from[s] != -1; s = from[s]) path.push_back(dir[s]);
+    reverse(path.begin(), path.end());
+    for (int d : path) apply1(d);
+    lockd[goal] = true;
+}
+
+// วางหมากสองตัวท้ายแถวพร้อมกัน: สถานะคือ (ช่อง A, ช่อง B, ช่องว่าง) มีไม่เกิน 16^3 แบบ
+void placePair(int va, int vb, int ga, int gb) {
+    int pa = (int)(find(g, g + 16, va) - g), pb = (int)(find(g, g + 16, vb) - g);
+    int start = (pa * 16 + pb) * 16 + bl;
+    vector<int> from(4096, -2);
+    vector<char> dir(4096, -1);
+    from[start] = -1;
+    queue<int> q;
+    q.push(start);
+    int end = -1;
+    while (!q.empty()) {
+        int s = q.front(); q.pop();
+        int ap = s >> 8, bp = (s >> 4) & 15, bk = s & 15;
+        if (ap == ga && bp == gb) { end = s; break; }
+        for (int d = 0; d < 4; d++) {
+            int np = nb(bk, d);
+            if (np < 0) continue;
+            int nap = (np == ap) ? bk : ap;
+            int nbp = (np == bp) ? bk : bp;
+            int ns = (nap * 16 + nbp) * 16 + np;
+            if (from[ns] != -2) continue;
+            from[ns] = s; dir[ns] = (char)d;
+            q.push(ns);
+        }
+    }
+    vector<int> path;
+    for (int s = end; from[s] != -1; s = from[s]) path.push_back(dir[s]);
+    reverse(path.begin(), path.end());
+    for (int d : path) apply1(d);
+    lockd[ga] = lockd[gb] = true;
+}
+
+// สองแถวล่างที่เหลือ: แปดช่อง เรียงได้ 8! = 40320 แบบ ค้นทีเดียวจบ
+int fct[9];
+
+int rankPerm(const int a[8]) {
+    int r = 0;
+    for (int i = 0; i < 8; i++) {
+        int less = 0;
+        for (int j = i + 1; j < 8; j++) if (a[j] < a[i]) less++;
+        r += less * fct[7 - i];
+    }
+    return r;
+}
+
+void unrankPerm(int r, int a[8]) {
+    int pool[8] = {0, 1, 2, 3, 4, 5, 6, 7}, n = 8;
+    for (int i = 0; i < 8; i++) {
+        int k = r / fct[7 - i];
+        r %= fct[7 - i];
+        a[i] = pool[k];
+        for (int j = k; j < n - 1; j++) pool[j] = pool[j + 1];
+        n--;
+    }
+}
+
+void finishBottom() {
+    fct[0] = 1;
+    for (int i = 1; i <= 8; i++) fct[i] = fct[i - 1] * i;
+
+    int cur[8], goal[8];
+    for (int i = 0; i < 8; i++) {
+        cur[i] = g[8 + i] == 0 ? 7 : g[8 + i] - 9;   // ช่องว่างเป็นเลข 7 หมาก 9..15 เป็น 0..6
+        goal[i] = i;
+    }
+    int start = rankPerm(cur), target = rankPerm(goal);
+
+    vector<int> from(40320, -2);
+    vector<char> dir(40320, -1);
+    from[start] = -1;
+    queue<int> q;
+    q.push(start);
+    while (!q.empty()) {
+        int s = q.front(); q.pop();
+        if (s == target) break;
+        int a[8];
+        unrankPerm(s, a);
+        int z = 0;
+        while (a[z] != 7) z++;
+        for (int d = 0; d < 4; d++) {
+            int nr = z / 4 + DR[d], nc = z % 4 + DC[d];
+            if (nr < 0 || nr > 1 || nc < 0 || nc > 3) continue;   // ขยับได้เฉพาะในกระดานย่อยสองแถว
+            int nz = nr * 4 + nc;
+            int b[8];
+            memcpy(b, a, sizeof b);
+            swap(b[z], b[nz]);
+            int ns = rankPerm(b);
+            if (from[ns] != -2) continue;
+            from[ns] = s; dir[ns] = (char)d;
+            q.push(ns);
+        }
+    }
+    vector<int> path;
+    for (int s = target; from[s] != -1; s = from[s]) path.push_back(dir[s]);
+    reverse(path.begin(), path.end());
+    for (int d : path) apply1(d);
+}
+
+int main() {
+    for (int i = 0; i < 16; i++) {
+        if (!(cin >> g[i])) return 0;
+        if (g[i] == 0) bl = i;
+    }
+
+    for (int r = 0; r < 2; r++) {
+        placeOne(4 * r + 1, r * 4 + 0);
+        placeOne(4 * r + 2, r * 4 + 1);
+        placePair(4 * r + 3, 4 * r + 4, r * 4 + 2, r * 4 + 3);
+    }
+    finishBottom();
+
+    cout << ans << '\\n';
+    return 0;
+}`;
+
+const checkerCode = `// ตัวตรวจ: รับกระดานกับสตริงคำตอบ แล้วเดินตามจริงว่าจบที่สถานะสิ้นสุดไหม
+// ใช้คู่กับตัวสุ่มกระดาน (สุ่มโดยเดินถอยจากสถานะสิ้นสุด กระดานที่ได้จึงแก้ได้เสมอ)
+const D = { N: [-1, 0], E: [0, 1], S: [1, 0], W: [0, -1] };
+
+function check(board, moves) {
+  const g = board.slice();
+  let b = g.indexOf(0);
+  for (const ch of moves) {
+    if (!(ch in D)) return \`มีอักษรที่ไม่ใช่ N E W S: \${ch}\`;
+    const r = ((b / 4) | 0) + D[ch][0];
+    const c = (b % 4) + D[ch][1];
+    if (r < 0 || r > 3 || c < 0 || c > 3) return 'เลื่อนออกนอกกระดาน';
+    const k = r * 4 + c;
+    g[b] = g[k];
+    g[k] = 0;
+    b = k;
+  }
+  for (let i = 0; i < 15; i++) if (g[i] !== i + 1) return 'ยังไม่ถึงสถานะสิ้นสุด';
+  return g[15] === 0 ? null : 'ยังไม่ถึงสถานะสิ้นสุด';
+}`;
+
+const boundCode = `// หาขอบบนของจำนวนตา: BFS ถอยหลังจากเป้าหมายของแต่ละเฟส
+// แล้วดูว่าสถานะที่ไกลที่สุดในเฟสนั้นห่างกี่ตา เอาทุกเฟสมาบวกกัน
+int eccOne(int goal) {              // เฟสวางหมากตัวเดียว
+    vector<int> dist(256, -1);
+    queue<int> q;
+    for (int b = 0; b < 16; b++) {  // ปลายทางคือ "หมากถึงที่แล้ว" ช่องว่างอยู่ไหนก็ได้
+        if (lockd[b] || b == goal) continue;
+        dist[goal * 16 + b] = 0;
+        q.push(goal * 16 + b);
+    }
+    int mx = 0;
+    while (!q.empty()) {
+        int s = q.front(); q.pop();
+        mx = max(mx, dist[s]);
+        int tp = s >> 4, bp = s & 15;
+        for (int d = 0; d < 4; d++) {
+            int np = nb(bp, d);
+            if (np < 0) continue;
+            int ns = ((np == tp) ? bp : tp) * 16 + np;
+            if (dist[ns] != -1) continue;
+            dist[ns] = dist[s] + 1;
+            q.push(ns);
+        }
+    }
+    return mx;                      // ไกลสุดของเฟสนี้
+}`;
+
+const fmtInt = (n: number): string => n.toLocaleString('en-US');
+---
+
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เครื่องขนย้ายมวลสารที่ขอให้แก้ปริศนาก่อน</h2>
+  <p>
+    คุณเพิ่งเจออัญมณีในโบราณสถาน แล้วก็เพิ่งนึกได้ว่าไม่ได้วางแผนทางออกไว้เลย เทพเจ้าที่เฝ้าที่นี่รู้ตัวแล้วว่ามีคนบุกเข้ามา
+    และกำลังถล่มสถานที่ลงช้า ๆ โชคดีที่มีเครื่องขนย้ายมวลสารอยู่ตรงนั้น โชคร้ายที่มันจะทำงานก็ต่อเมื่อคุณแก้
+    <strong>ปริศนา 15</strong> (<i>Fifteen Puzzle</i> อ่านว่า "ฟิฟทีน พัซเซิล") ได้ก่อน
+  </p>
+  <p>
+    ปริศนา 15 คือกระดาน 4×4 ที่มีหมากกำกับเลข 1 ถึง 15 วางอยู่ เหลือหนึ่งช่องว่างไว้ให้ขยับ
+    หมากที่อยู่ติดช่องว่างเลื่อนเข้ามาแทนที่ได้ทีละตัว เป้าหมายคือเรียงให้กลายเป็น 1 ถึง 15 ตามลำดับ
+    โดยช่องว่างไปจบที่มุมขวาล่าง
+  </p>
+  <p>
+    ที่ต้องอ่านให้ดีคือ<strong>ความหมายของตัวอักษรที่เราต้องตอบ</strong> คำตอบเป็นสตริงของอักษรสี่ตัวคือ
+    <code>N</code>, <code>E</code>, <code>W</code>, <code>S</code> และแต่ละตัวบอก<strong>ตำแหน่งของหมากที่จะถูกเลื่อนมาแทนช่องว่าง</strong>
+    ไม่ใช่ทิศที่หมากเคลื่อนที่ พูดอีกแบบคือมันคือทิศที่<strong>ช่องว่าง</strong>ขยับไป
+  </p>
+
+  <ZoomableDiagram caption="ตัวอักษรบอกว่าหยิบหมากจากด้านไหนของช่องว่าง หมากตัวนั้นจะเลื่อนเข้ามาแทน ส่วนช่องว่างก็ย้ายไปอยู่ที่เดิมของหมากตัวนั้น (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 512 244" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ ช่องว่างอยู่กลางกระดาน มีหมากล้อมสี่ด้านกำกับอักษร N ด้านบน E ด้านขวา S ด้านล่าง W ด้านซ้าย ทางขวาเป็นผลลัพธ์หลังเลือกอักษร W คือหมากทางซ้ายเลื่อนมาอยู่กลาง และช่องว่างย้ายไปอยู่ทางซ้าย">
+      <text x="104" y="24" fill="#9aa7bd" font-size="12" text-anchor="middle">ก่อนเดิน</text>
+      <rect x="68" y="38" width="72" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="104" y="68" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">3</text>
+      <text x="104" y="100" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">N</text>
+
+      <rect x="68" y="108" width="72" height="46" rx="8" fill="#0b1220" stroke="#e0b400" stroke-width="1.8" stroke-dasharray="4 3"/>
+      <text x="104" y="138" fill="#e0b400" font-size="12" text-anchor="middle">ช่องว่าง</text>
+
+      <rect x="68" y="178" width="72" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="104" y="208" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">11</text>
+      <text x="104" y="170" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">S</text>
+
+      <rect x="0" y="108" width="60" height="46" rx="8" fill="#1c2536" stroke="#2f9e5c" stroke-width="1.8"/>
+      <text x="30" y="138" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">7</text>
+      <text x="30" y="100" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">W</text>
+
+      <rect x="148" y="108" width="60" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="178" y="138" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">5</text>
+      <text x="178" y="100" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">E</text>
+
+      <defs>
+        <marker id="fp-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+      <line x1="226" y1="131" x2="286" y2="131" stroke="#e0b400" stroke-width="2" marker-end="url(#fp-ar)"/>
+      <text x="256" y="120" fill="#e0b400" font-size="12" text-anchor="middle" font-weight="700">W</text>
+
+      <text x="400" y="24" fill="#9aa7bd" font-size="12" text-anchor="middle">หลังเดิน</text>
+      <rect x="364" y="38" width="72" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="400" y="68" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">3</text>
+
+      <rect x="364" y="108" width="72" height="46" rx="8" fill="#1c2536" stroke="#2f9e5c" stroke-width="1.8"/>
+      <text x="400" y="138" fill="#4ade80" font-size="15" text-anchor="middle" font-family="monospace">7</text>
+
+      <rect x="364" y="178" width="72" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="400" y="208" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">11</text>
+
+      <rect x="296" y="108" width="60" height="46" rx="8" fill="#0b1220" stroke="#e0b400" stroke-width="1.8" stroke-dasharray="4 3"/>
+      <text x="326" y="138" fill="#e0b400" font-size="12" text-anchor="middle">ช่องว่าง</text>
+
+      <rect x="444" y="108" width="60" height="46" rx="8" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="474" y="138" fill="#e7ecf6" font-size="15" text-anchor="middle" font-family="monospace">5</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> จำนวนเต็ม 4 บรรทัด บรรทัดละ 4 ตัว คือกระดานเริ่มต้น เลข 1 ถึง 15 คือหมาก เลข 0 คือช่องว่าง</li>
+      <li><strong>ขอบเขต:</strong> เวลา 0.1 วินาที หน่วยความจำ 32 เมกะไบต์ รับประกันว่ากระดานที่ให้มาแก้ได้เสมอ</li>
+      <li><strong>เอาต์พุต:</strong> บรรทัดเดียว เป็นสตริงของ <code>N</code>, <code>E</code>, <code>W</code>, <code>S</code> ที่พากระดานไปถึงสถานะสิ้นสุด</li>
+      <li>
+        <strong>เกณฑ์คะแนน:</strong> ได้คะแนนเต็มเมื่อใช้จำนวนตา<strong>น้อยกว่า {fmtInt(LIMIT_MOVES)} ตา</strong> (ระบบขึ้นผล <code>P</code>)
+        ถ้าคำตอบพากระดานไปไม่ถึง มีอักษรอื่นปน หรือเลื่อนออกนอกกระดาน จะได้ 0 คะแนนทันที
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1 2 8 3<br />5 7 10 4<br />9 6 11 0<br />13 14 15 12</td>
+        <td>SWNNNESWWSESE</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    คำตอบของข้อนี้ไม่ได้มีแบบเดียว สตริงไหนก็ได้ที่พากระดานไปถึงสถานะสิ้นสุดและยาวไม่ถึง {fmtInt(LIMIT_MOVES)} ตา ถือว่าผ่านหมด
+    โปรแกรมที่ผมเขียนตอบกระดานนี้ด้วย <code>{sampleSolved.moves}</code> ซึ่งยาว {sampleSolved.moves.length} ตา
+  </p>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    ท่าแรกที่ทุกคนคิดถึงคือค้นหา กระดานหนึ่งใบคือหนึ่งสถานะ เดินหนึ่งตาคือย้ายไปสถานะข้างเคียง
+    งั้นก็<strong>ค้นแบบกว้าง</strong> (<i>BFS</i> ย่อจาก <i>breadth-first search</i> คือไล่ดูสถานะที่ห่างหนึ่งตาให้ครบก่อน
+    แล้วค่อยขยับไปสองตา) จากกระดานเริ่มต้นไปจนเจอสถานะสิ้นสุด ได้คำตอบที่สั้นที่สุดด้วย
+  </p>
+  <p>
+    ปัญหาอยู่ที่จำนวนสถานะ กระดาน 4×4 มีของ 16 ชิ้นสลับที่กันได้ <code>16!</code> แบบ และครึ่งหนึ่งของนั้นแก้ไม่ได้เลย
+    เหลือ <strong>{fmtInt(STATES_ALL)}</strong> สถานะที่ไปถึงกันได้จริง มากกว่าสิบล้านล้าน
+    ต่อให้เก็บสถานะละหนึ่งบิต ก็ยังกินพื้นที่เกินหน่วยความจำ 32 เมกะไบต์ไปหลายแสนเท่า และเวลาที่ให้มาคือ 0.1 วินาที
+  </p>
+  <p>
+    ทางที่คนคิดถึงต่อคือ <i>IDA*</i> ที่ใช้ระยะแมนฮัตตันช่วยตัดกิ่ง ซึ่งหาคำตอบสั้นที่สุดของปริศนา 15 ได้จริง
+    แต่มันกินเวลาเป็นวินาทีถึงนาทีในกระดานที่โหด และเราให้มันไม่ได้เลยแม้แต่หนึ่งในสิบวินาที
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      กลับไปอ่านเกณฑ์คะแนนอีกรอบ โจทย์ขออะไรกันแน่ แล้วลองถามต่อว่า ถ้าคุณ<strong>ตกลงกับตัวเองว่าหมากที่เข้าที่แล้วจะไม่ขยับอีก</strong>
+      ปัญหาที่เหลือหลังวางหมากไปหนึ่งตัว ยังใหญ่เท่าเดิมอยู่ไหม
+    </p>
+  </div>
+
+  <h2>ลองเอง · เล่นให้จบด้วยมือ</h2>
+  <p>
+    กดที่หมากตัวที่อยู่ติดช่องว่างเพื่อเลื่อนมันเข้ามา ตัวอักษรของตาที่เดินจะถูกจดไว้ให้ข้างล่าง
+    ลองสังเกตตัวเองว่าคุณแก้มันด้วยวิธีอะไร แล้วจำความรู้สึกนั้นไว้ เพราะเฉลยจะทำเหมือนคุณเป๊ะ
+  </p>
+
+  <figure class="puzzlegame" data-puzzlegame data-games={JSON.stringify(games)}>
+    <div class="pz-bar">
+      <div class="pz-sets">
+        {games.map((s, i) => (
+          <button type="button" class="pz-set" data-set={i} aria-pressed={i === 0 ? 'true' : 'false'}>{s.label}</button>
+        ))}
+      </div>
+      <div class="pz-count"><span class="pz-n">0</span> ตา</div>
+    </div>
+
+    <div class="pz-board" role="group" aria-label="กระดานปริศนา 15"></div>
+
+    <p class="pz-say" aria-live="polite"></p>
+    <div class="pz-moves" aria-live="off"></div>
+
+    <div class="pz-acts">
+      <button type="button" class="pz-b" data-act="undo">ย้อนหนึ่งตา</button>
+      <button type="button" class="pz-b" data-act="reset">เริ่มใหม่</button>
+    </div>
+    <figcaption>
+      กระดานทั้งสามใบนี้แก้ได้แน่นอน ตัวเลขที่ขึ้นตอนแก้จบคือจำนวนตาที่คุณใช้ เทียบกับที่โปรแกรมในเฉลยใช้กับกระดานใบเดียวกัน
+    </figcaption>
+  </figure>
+
+  <p class="ns-cue">ลองเล่นดูก่อนนะครับ พอมีคำตอบในใจแล้ว ค่อยไปดูเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 · โจทย์ไม่เคยขอทางที่สั้นที่สุด</h2>
+  <Spoiler>
+    <p>
+      เกณฑ์คะแนนบอกไว้ตรง ๆ ว่าได้เต็มเมื่อใช้ตาน้อยกว่า {fmtInt(LIMIT_MOVES)} ตา ไม่มีคะแนนพิเศษสำหรับคำตอบที่สั้นกว่านั้น
+      คำตอบยาว {fmtInt(LIMIT_MOVES - 1)} ตากับคำตอบยาว 50 ตาได้คะแนนเท่ากันเป๊ะ ตัวเลข {fmtInt(LIMIT_MOVES)}
+      คือใบอนุญาตให้เราเดินอ้อมได้เยอะมาก
+    </p>
+    <p>
+      ทีนี้ลองคิดว่าตอนคุณเล่นด้วยมือ คุณทำยังไง เกือบทุกคนทำเหมือนกันคือ<strong>ไล่เก็บทีละตัว</strong>
+      จัด 1 เข้ามุมซ้ายบนก่อน แล้วก็ 2, 3, 4 ให้ครบแถวบน จากนั้นห้ามแตะแถวบนอีกเลย ไปทำแถวถัดไปในพื้นที่ที่เหลือ
+      วิธีนี้ไม่มีทางให้คำตอบที่สั้นที่สุด แต่มันจบเสมอ
+    </p>
+    <p>
+      สิ่งที่การล็อกทำให้เกิดขึ้นคือ<strong>ปัญหาหดลงทุกครั้งที่วางหมากได้หนึ่งตัว</strong> พอ 1 เข้าที่และถูกล็อก
+      ตอนหา 2 เราไม่ต้องสนใจอีกแล้วว่าหมากอีกสิบสามตัวเรียงกันยังไง เพราะสิ่งเดียวที่มีผลกับการพา 2 ไปเข้าที่คือ
+      <strong>2 อยู่ช่องไหน</strong> กับ <strong>ช่องว่างอยู่ช่องไหน</strong> เท่านั้น
+    </p>
+    <p>
+      นับสถานะใหม่: ช่องของหมากมี 16 แบบ ช่องว่างมี 16 แบบ รวมแล้วไม่เกิน <strong>256</strong> สถานะ
+      ค้นแบบกว้างบนนี้จบในพริบตา และได้ทางที่สั้นที่สุด<strong>ของเฟสนั้น</strong>ด้วย
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · ทำไมสองตัวท้ายแถวต้องวางพร้อมกัน</h2>
+  <Spoiler>
+    <p>
+      ถ้าไล่วางทีละตัวไปเรื่อย ๆ จะเจอกำแพงที่หมากตัวที่สามของแถว สมมติวาง 1 กับ 2 เข้าที่แล้วล็อกไว้
+      จากนั้นวาง 3 ลงช่องของมันแล้วล็อกอีกตัว ช่องสุดท้ายของแถวคือมุมขวาบน ซึ่งตอนนี้มี<strong>ทางเข้าทางเดียว</strong>
+      คือจากข้างล่าง และหมาก 4 ที่ต้องไปอยู่ตรงนั้น ต้องเข้าไปพร้อมกับที่ช่องว่างต้องออกมา ซึ่งทำไม่ได้พร้อมกัน
+    </p>
+
+    <ZoomableDiagram caption="พอล็อกสามตัวแรกของแถว ช่องที่เหลือกลายเป็นซอกตันที่มีปากทางเดียว หมากตัวสุดท้ายเข้าไปได้ แต่ช่องว่างจะติดอยู่ข้างในและออกมาได้ทางเดียวคือดันหมากตัวนั้นกลับออกไป (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 470 236" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเทียบสองแบบ ซ้ายคือล็อกหมากสามตัวแรกของแถวบนแล้วช่องมุมขวาบนกลายเป็นซอกตันมีลูกศรเข้าออกทางเดียว ขวาคือเว้นสองช่องท้ายไว้ด้วยกัน พื้นที่เปิดกว้างพอให้หมุนหมากสองตัวเข้าที่พร้อมกัน">
+        <text x="104" y="22" fill="#b23b3b" font-size="12" text-anchor="middle" font-weight="700">ล็อกทีละตัวจนถึงตัวที่สาม</text>
+        <g font-family="monospace" font-size="13">
+          <rect x="20" y="34" width="42" height="34" rx="6" fill="#16241b" stroke="#2f9e5c" stroke-width="1.6"/>
+          <text x="41" y="56" fill="#4ade80" text-anchor="middle">1</text>
+          <rect x="64" y="34" width="42" height="34" rx="6" fill="#16241b" stroke="#2f9e5c" stroke-width="1.6"/>
+          <text x="85" y="56" fill="#4ade80" text-anchor="middle">2</text>
+          <rect x="108" y="34" width="42" height="34" rx="6" fill="#16241b" stroke="#2f9e5c" stroke-width="1.6"/>
+          <text x="129" y="56" fill="#4ade80" text-anchor="middle">3</text>
+          <rect x="152" y="34" width="42" height="34" rx="6" fill="#2a1a1a" stroke="#b23b3b" stroke-width="1.8"/>
+          <text x="173" y="56" fill="#e88" text-anchor="middle">?</text>
+
+          <rect x="20" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="64" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="108" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="152" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+        </g>
+        <defs>
+          <marker id="fp-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#b23b3b"/>
+          </marker>
+        </defs>
+        <line x1="173" y1="98" x2="173" y2="74" stroke="#b23b3b" stroke-width="2" marker-end="url(#fp-ar2)"/>
+        <text x="104" y="130" fill="#e88" font-size="11" text-anchor="middle">ปากทางเดียว เข้าได้แต่ออกไม่ได้</text>
+
+        <text x="356" y="22" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">เว้นสองช่องท้ายไว้ด้วยกัน</text>
+        <g font-family="monospace" font-size="13">
+          <rect x="272" y="34" width="42" height="34" rx="6" fill="#16241b" stroke="#2f9e5c" stroke-width="1.6"/>
+          <text x="293" y="56" fill="#4ade80" text-anchor="middle">1</text>
+          <rect x="316" y="34" width="42" height="34" rx="6" fill="#16241b" stroke="#2f9e5c" stroke-width="1.6"/>
+          <text x="337" y="56" fill="#4ade80" text-anchor="middle">2</text>
+          <rect x="360" y="34" width="42" height="34" rx="6" fill="#2a2416" stroke="#e0b400" stroke-width="1.8"/>
+          <text x="381" y="56" fill="#e0b400" text-anchor="middle">3</text>
+          <rect x="404" y="34" width="42" height="34" rx="6" fill="#2a2416" stroke="#e0b400" stroke-width="1.8"/>
+          <text x="425" y="56" fill="#e0b400" text-anchor="middle">4</text>
+
+          <rect x="272" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="316" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="360" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+          <rect x="404" y="72" width="42" height="34" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4"/>
+        </g>
+        <text x="356" y="130" fill="#9aa7bd" font-size="11" text-anchor="middle">พื้นที่เปิดพอให้หมุนสองตัวเข้าที่พร้อมกัน</text>
+
+        <line x1="24" y1="156" x2="446" y2="156" stroke="#2a3350" stroke-width="1.2"/>
+        <text x="235" y="182" fill="#e7ecf6" font-size="12" text-anchor="middle">ทางแก้: เลิกถามว่า "3 ไปไหน" แล้ว "4 ไปไหน"</text>
+        <text x="235" y="204" fill="#e7ecf6" font-size="12" text-anchor="middle">เปลี่ยนเป็นถามว่า "3 กับ 4 ไปพร้อมกันได้ยังไง"</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      ทางแก้คือเลิกวางสองตัวท้ายทีละตัว แล้วถามคำถามใหญ่ขึ้นหนึ่งขั้น: <strong>จะพา 3 กับ 4 ไปเข้าที่พร้อมกันได้ยังไง</strong>
+      สถานะของคำถามนี้คือ (ช่องของ 3, ช่องของ 4, ช่องว่าง) ซึ่งมีไม่เกิน <code>16 × 16 × 16 = 4096</code> แบบ
+      ยังเล็กจนค้นแบบกว้างได้สบาย และคราวนี้ไม่มีซอกตัน เพราะเราไม่ได้ล็อกตัวแรกทิ้งไว้ก่อน
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต: นี่คือจุดที่ผมพลาดตอนเขียนครั้งแรก</p>
+      <p>
+        ผมเขียนแบบวางทีละตัวก่อน แล้วโปรแกรมวนไม่จบในบางกระดาน อาการคือหมากตัวสุดท้ายกับช่องว่างสลับที่กันไปมาในซอกนั้นไม่หยุด
+        การเปลี่ยนมาค้นสองตัวพร้อมกันทำให้ปัญหาหายไปเอง โดยไม่ต้องจำท่าไม้ตายอะไรเลย
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 · สองแถวล่างไม่ต้องประดิษฐ์อะไรอีก</h2>
+  <Spoiler>
+    <p>
+      พอวางแถวบนสองแถวเสร็จ สิ่งที่เหลือคือกระดานย่อยขนาด 2×4 มีหมากเจ็ดตัวกับช่องว่างหนึ่งช่อง
+      จำนวนวิธีเรียงของแปดอย่างในแปดช่องคือ <code>8! = {fmtInt(40320)}</code> แบบ
+    </p>
+    <p>
+      เลขนี้เล็กจนไม่ต้องคิดท่าอะไรเพิ่มอีกแล้ว <strong>ค้นแบบกว้างจากสถานะปัจจุบันไปยังสถานะสิ้นสุดตรง ๆ ทีเดียวจบ</strong>
+      และได้ทางที่สั้นที่สุดของกระดานย่อยนี้แถมมาด้วย ตอนผมไล่ค้นทั้งกราฟดู มีสถานะที่ไปถึงกันได้จริง {fmtInt(20160)} แบบ
+      พอดีครึ่งหนึ่งของ {fmtInt(40320)} ซึ่งตรงกับที่โจทย์บอกว่าครึ่งหนึ่งของการเรียงแก้ไม่ได้
+    </p>
+
+    <ZoomableDiagram caption="เจ็ดรอบของการค้นหา รอบละไม่เกินสี่หมื่นสถานะ แทนที่จะค้นสิบล้านล้านสถานะทีเดียว พื้นที่สีเขียวคือช่องที่ถูกล็อกไปแล้วและจะไม่ถูกแตะอีก (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 512 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพลำดับเจ็ดเฟส แต่ละเฟสวาดกระดานสี่คูณสี่ที่ช่องซึ่งถูกล็อกแล้วเป็นสีเขียวเพิ่มขึ้นเรื่อย ๆ จากหมากหนึ่ง หมากสอง หมากสามกับสี่ หมากห้า หมากหก หมากเจ็ดกับแปด และจบที่สองแถวล่างทั้งแถบ">
+        {[
+          { x: 6, on: [0], t: 'หมาก 1', s: '256' },
+          { x: 76, on: [0, 1], t: 'หมาก 2', s: '256' },
+          { x: 146, on: [0, 1, 2, 3], t: '3 กับ 4', s: '4096' },
+          { x: 216, on: [0, 1, 2, 3, 4], t: 'หมาก 5', s: '256' },
+          { x: 286, on: [0, 1, 2, 3, 4, 5], t: 'หมาก 6', s: '256' },
+          { x: 356, on: [0, 1, 2, 3, 4, 5, 6, 7], t: '7 กับ 8', s: '4096' },
+          { x: 426, on: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], t: 'สองแถวล่าง', s: '40320' },
+        ].map((b) => (
+          <g>
+            {Array.from({ length: 16 }, (_, k) => (
+              <rect
+                x={b.x + (k % 4) * 15}
+                y={40 + ((k / 4) | 0) * 15}
+                width="13"
+                height="13"
+                rx="3"
+                fill={b.on.includes(k) ? '#2f9e5c' : '#1c2536'}
+                stroke="#2a3350"
+                stroke-width="1"
+              />
+            ))}
+            <text x={b.x + 29} y={32} fill="#9aa7bd" font-size="10" text-anchor="middle">{b.t}</text>
+            <text x={b.x + 29} y={118} fill="#e0b400" font-size="10" text-anchor="middle" font-family="monospace">{b.s}</text>
+          </g>
+        ))}
+        <text x="256" y="146" fill="#9aa7bd" font-size="11" text-anchor="middle">จำนวนสถานะที่ต้องค้นในรอบนั้น</text>
+        <text x="256" y="172" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">รวมทุกรอบแล้วยังไม่ถึงห้าหมื่นสถานะ</text>
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เดินให้ดูหนึ่งกระดาน</h2>
+  <Spoiler>
+    <p>
+      กระดานข้างล่างคือกระดานเดโมที่โปรแกรมแก้จบใน <strong>{demoSolved.moves.length} ตา</strong>
+      ช่องสีเขียวคือช่องที่ถูกล็อกแล้ว กดถัดไปเพื่อเดินทีละตา จะเห็นพื้นที่ทำงานหดลงเรื่อย ๆ จนเหลือแค่สองแถวล่าง
+    </p>
+
+    <div class="dpsim" data-pzsim data-steps={JSON.stringify(demoSteps)} data-phases={JSON.stringify(demoSolved.phases.map((p) => ({ short: p.short, until: p.until, count: p.count })))}>
+      <div class="dps-bar">
+        <div class="dps-btns">
+          <button type="button" class="dps-b" data-act="first" aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+          <button type="button" class="dps-b" data-act="prev" aria-label="ขั้นก่อนหน้า">ย้อน</button>
+          <button type="button" class="dps-b dps-play" data-act="play" aria-label="เล่นอัตโนมัติ">เล่น</button>
+          <button type="button" class="dps-b" data-act="next" aria-label="ขั้นถัดไป">ถัดไป</button>
+          <button type="button" class="dps-b" data-act="last" aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+        </div>
+        <label class="dps-seek">
+          <span class="dps-count">ตา 0</span>
+          <input type="range" class="dps-range" min="0" value="0" step="1" aria-label="เลื่อนไปตาที่ต้องการ" />
+        </label>
+      </div>
+
+      <div class="sim-body">
+        <div class="sim-board" aria-hidden="true"></div>
+        <div class="sim-side">
+          <p class="sim-phase"></p>
+          <div class="sim-bars"></div>
+        </div>
+      </div>
+
+      <div class="dps-say" aria-live="polite"></div>
+    </div>
+    <p class="io-note">
+      แถบทางขวาคือเฟสทั้งเจ็ด แถบที่สว่างคือเฟสที่กำลังทำอยู่ ตัวเลขข้างหลังคือจำนวนตาที่เฟสนั้นใช้กับกระดานใบนี้
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ทั้งสามเฟสใช้โครงเดียวกันคือค้นแบบกว้างแล้วย้อนรอยเส้นทาง ต่างกันแค่ว่า "สถานะ" หมายถึงอะไร
+      ตัวช่วยที่ทำให้ทุกอย่างสั้นคือฟังก์ชัน <code>nb</code> ที่คืน <code>-1</code> เมื่อช่องปลายทางตกขอบ<strong>หรือถูกล็อกไว้</strong>
+      การล็อกจึงไม่ต้องมีโค้ดพิเศษที่ไหนอีกเลย มันคือกำแพงที่ทุกเฟสมองเห็นเหมือนกันหมด
+    </p>
+    <CodeBlock code={solution} lang="cpp" title="fifteen-puzzle.cpp" />
+    <p>
+      เวลาที่ใช้จริงคือ <strong>4.6 มิลลิวินาที</strong> ในกระดานที่หนักที่สุดที่ผมสุ่มเจอ จากลิมิต 100 มิลลิวินาที (วัดด้วย <code>steady_clock</code>
+      คร่อมตั้งแต่เฟสแรกถึงเฟสสุดท้าย ไม่รวมเวลาเปิดโปรแกรม) หน่วยความจำที่ใช้มากที่สุดคือสองอาเรย์ของเฟสสุดท้าย
+      ขนาด {fmtInt(40320)} ช่อง คือราวสองแสนไบต์ จากลิมิต 32 เมกะไบต์
+    </p>
+
+    <h3>แล้วมันเกิน {fmtInt(LIMIT_MOVES)} ตาได้ไหม</h3>
+    <p>
+      ตอบได้แบบไม่ต้องเดา เพราะแต่ละเฟสค้นแบบกว้าง มันจึงให้ทางที่<strong>สั้นที่สุดของเฟสนั้น</strong>เสมอ
+      ถ้าเราหาว่าสถานะที่ไกลที่สุดของแต่ละเฟสอยู่ห่างเป้าหมายกี่ตา แล้วเอามาบวกกัน จะได้ขอบบนที่กระดานไหนก็ทะลุไม่ได้
+      วิธีหาคือ BFS ถอยหลังจากเป้าหมายของเฟสนั้นให้ทั่วกราฟ แล้วดูระยะที่มากที่สุด
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตาไกลสุดของแต่ละเฟส</caption>
+        <thead>
+          <tr><th>เฟส</th><th class="num">สถานะที่ค้น</th><th class="num">ไกลสุด (ตา)</th></tr>
+        </thead>
+        <tbody>
+          {[
+            ['วางหมาก 1', '256'],
+            ['วางหมาก 2', '256'],
+            ['วางหมาก 3 กับ 4', '4096'],
+            ['วางหมาก 5', '256'],
+            ['วางหมาก 6', '256'],
+            ['วางหมาก 7 กับ 8', '4096'],
+            ['สองแถวล่าง', '40320'],
+          ].map(([name, states], i) => (
+            <tr>
+              <td>{name}</td>
+              <td class="num">{states}</td>
+              <td class="num">{BOUND_PARTS[i]}</td>
+            </tr>
+          ))}
+          <tr>
+            <td><strong>รวม</strong></td>
+            <td class="num">·</td>
+            <td class="num"><strong>{BOUND_TOTAL}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ไม่ว่ากระดานเริ่มต้นจะโหดแค่ไหน โปรแกรมนี้ใช้ไม่เกิน {BOUND_TOTAL} ตา ห่างจากเพดาน {fmtInt(LIMIT_MOVES)} ตาอยู่สามสิบเท่า
+      </figcaption>
+    </figure>
+
+    <p>
+      ตัวเลข 36 ของเฟสสุดท้ายมีของแถมอยู่ นั่นคือระยะที่ไกลที่สุดของปริศนา 2×4 ทั้งใบ หรือที่เรียกกันว่า
+      <strong>เลขของพระเจ้า</strong> (<i>God's number</i>) ของกระดานขนาดนั้น เราได้มันมาฟรี ๆ จากการค้นทั้งกราฟอยู่แล้ว
+    </p>
+
+    <details class="expander">
+      <summary>ดูโค้ดที่ใช้หาขอบบน</summary>
+      <div class="expander-body">
+        <CodeBlock code={boundCode} lang="cpp" title="bound.cpp (บางส่วน)" />
+        <p>
+          เฟสที่วางสองตัวพร้อมกันกับเฟสสองแถวล่างใช้โครงเดียวกัน ต่างแค่การเข้ารหัสสถานะ
+        </p>
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ผมสุ่มกระดานด้วยการเดินถอยจากสถานะสิ้นสุดสามร้อยตา (กระดานที่ได้จึงแก้ได้แน่นอน) แล้วเอาคำตอบของโปรแกรมมาเดินจริง
+          ทดสอบไป {fmtInt(TESTED_BOARDS)} กระดาน ผ่านทั้งหมด ยาวสุดที่เจอคือ {OBSERVED_MAX} ตา เฉลี่ย {OBSERVED_AVG} ตา
+          ซึ่งอยู่ใต้ขอบบน {BOUND_TOTAL} ที่คำนวณไว้
+        </p>
+        <CodeBlock code={checkerCode} lang="javascript" title="check.js" />
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    สิบล้านล้านสถานะยุบเหลือเจ็ดรอบที่รอบใหญ่สุดมี {fmtInt(40320)} สถานะ เพราะเราเลิกขอคำตอบที่สั้นที่สุด
+    แล้วยอมล็อกของที่เข้าที่แล้วทิ้งไว้ ข้อนี้เกณฑ์คะแนนคือส่วนหนึ่งของโจทย์ ไม่ใช่เชิงอรรถท้ายหน้า
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>ปริศนา 15</i> บน programming.in.th ข้อ 2026 โจทย์โดย อาภาพงศ์ จันทร์ทอง
+      <a href="https://programming.in.th/tasks/2026" target="_blank" rel="noopener noreferrer">programming.in.th/tasks/2026</a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ TOI.CPP:03-2009 ของมูลนิธิโอลิมปิกวิชาการฯ
+      <a href="http://www.thailandoi.org/toi.c/03-2009" target="_blank" rel="noopener noreferrer">thailandoi.org/toi.c/03-2009</a>
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  h3{
+    font-size:0.92rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:.2px;
+    margin:1.6rem 0 0.5rem;
+  }
+
+  /* ---- ตัวเล่นเดินกระดาน ---- */
+  .dpsim{
+    margin:1.2rem 0 0.4rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    overflow:hidden;
+  }
+  .dps-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.7rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    padding:0.6rem 0.75rem;
+    background:#070c17;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .dps-btns{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .dps-b{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.75rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .dps-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .dps-b:disabled{opacity:0.4;cursor:default;}
+  .dps-play{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .dps-seek{display:flex;align-items:center;gap:0.5rem;flex:1 1 12rem;min-width:10rem;}
+  /* ตัวเลขตาโตจากหนึ่งหลักเป็นสองหลักได้ ล็อกความกว้างไว้ก่อน การ์ดจะได้ไม่ขยับ */
+  .dps-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    color:var(--dl-muted);
+    white-space:nowrap;
+    min-width:5.5rem;
+  }
+  .dps-range{flex:1 1 auto;min-width:6rem;accent-color:var(--dl-emerald-bright);cursor:pointer;}
+
+  .sim-body{display:flex;flex-wrap:wrap;gap:1rem;padding:0.9rem;align-items:flex-start;}
+  .sim-board{
+    display:grid;
+    grid-template-columns:repeat(4, 3rem);
+    grid-template-rows:repeat(4, 3rem);
+    gap:0.3rem;
+  }
+  .sim-board :global(.cell){
+    display:grid;
+    place-items:center;
+    border-radius:8px;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.95rem;
+    border:1px solid var(--dl-border);
+    background:#1c2536;
+    color:#e7ecf6;
+    transition:background .12s ease, color .12s ease;
+  }
+  .sim-board :global(.cell.blank){background:#070c17;border-style:dashed;color:transparent;}
+  .sim-board :global(.cell.locked){background:#16241b;border-color:#2f9e5c;color:#4ade80;}
+  .sim-board :global(.cell.moved){background:var(--dl-gold);border-color:#fff3c4;color:#0b1220;font-weight:700;}
+  .sim-side{flex:1 1 11rem;min-width:10rem;}
+  .sim-phase{
+    margin:0 0 0.5rem;
+    font-size:0.8rem;
+    color:var(--dl-gold);
+    width:0;
+    min-width:100%;
+  }
+  .sim-bars{display:flex;flex-direction:column;gap:0.25rem;}
+  .sim-bars :global(.pbar){
+    display:flex;
+    justify-content:space-between;
+    gap:0.5rem;
+    font-size:0.72rem;
+    padding:0.2rem 0.5rem;
+    border-radius:6px;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:#7b8397;
+  }
+  .sim-bars :global(.pbar.now){border-color:var(--dl-emerald);color:#e7ecf6;}
+  .sim-bars :global(.pbar.done){color:#9aa7bd;}
+  .sim-bars :global(.pbar b){font-family:"Fira Code","Fira Mono",monospace;color:var(--dl-emerald-bright);}
+
+  .dps-say{
+    width:0;
+    min-width:100%;
+    padding:0.7rem 0.85rem 0.85rem;
+    border-top:1px solid var(--dl-border);
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:4.5rem;
+  }
+  .dps-say :global(b){color:var(--dl-gold);font-family:"Fira Code","Fira Mono",monospace;}
+
+  /* ---- เกมเล่นเอง ---- */
+  .puzzlegame{
+    margin:1.5rem 0 0.5rem;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:#0b1220;
+    padding:1rem 1.1rem 0.9rem;
+  }
+  .pz-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.6rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:0.8rem;
+  }
+  .pz-sets{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .pz-set{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.8rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .pz-set[aria-pressed="true"]{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .pz-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.9rem;
+    color:var(--dl-gold);
+    white-space:nowrap;
+    min-width:4.5rem;
+    text-align:right;
+  }
+  .pz-board{
+    display:grid;
+    grid-template-columns:repeat(4, 3.4rem);
+    grid-template-rows:repeat(4, 3.4rem);
+    gap:0.35rem;
+    justify-content:center;
+  }
+  .pz-board :global(.tile){
+    font:inherit;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:1.05rem;
+    display:grid;
+    place-items:center;
+    border-radius:9px;
+    border:1px solid var(--dl-border);
+    background:#1c2536;
+    color:#e7ecf6;
+    cursor:default;
+    transition:background .12s ease, border-color .12s ease;
+  }
+  .pz-board :global(.tile.can){cursor:pointer;border-color:var(--dl-emerald);}
+  .pz-board :global(.tile.can:hover){background:#24344c;}
+  .pz-board :global(.tile.home){color:#4ade80;}
+  .pz-board :global(.tile.hole){background:#070c17;border-style:dashed;cursor:default;}
+  .pz-say{
+    width:0;
+    min-width:100%;
+    margin:0.8rem 0 0;
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:2.6rem;
+  }
+  .pz-say :global(.win){color:var(--dl-emerald-bright);font-weight:700;}
+  .pz-moves{
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.74rem;
+    color:var(--dl-muted);
+    word-break:break-all;
+    min-height:1.6rem;
+    width:0;
+    min-width:100%;
+  }
+  .pz-acts{display:flex;gap:0.35rem;margin-top:0.6rem;}
+  .pz-b{
+    font:inherit;
+    font-size:0.72rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.24rem 0.7rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+  }
+  .pz-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .pz-b:disabled{opacity:0.4;cursor:default;}
+  .puzzlegame figcaption{
+    width:0;
+    min-width:100%;
+    margin-top:0.8rem;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+  }
+
+  .ns-cue{color:var(--dl-muted);font-size:0.86rem;}
+
+  @media (prefers-reduced-motion: reduce){
+    .sim-board :global(.cell), .pz-board :global(.tile){transition:none;}
+  }
+  @media (max-width:640px){
+    .dps-say{min-height:6.5rem;}
+    .sim-board{grid-template-columns:repeat(4, 2.6rem);grid-template-rows:repeat(4, 2.6rem);}
+  }
+</style>
+
+<script>
+  // ตัวเล่นเดินกระดานทีละตา ขั้นทั้งหมดถูกสร้างไว้ตอน build แล้วส่งมาทาง data-steps
+  type Step = { board: number[]; lock: boolean[]; letter: string; phase: string; note: string; idx: number };
+  type PhaseInfo = { short: string; until: number; count: number };
+
+  const PLAY_MS = 700;
+
+  function isStep(v: unknown): v is Step {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return Array.isArray(o.board) && Array.isArray(o.lock) && typeof o.note === 'string';
+  }
+  function isPhase(v: unknown): v is PhaseInfo {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.short === 'string' && typeof o.until === 'number' && typeof o.count === 'number';
+  }
+
+  function initSim(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const rawSteps: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const rawPhases: unknown = JSON.parse(root.dataset.phases ?? '[]');
+    const steps: Step[] = Array.isArray(rawSteps) ? rawSteps.filter(isStep) : [];
+    const phases: PhaseInfo[] = Array.isArray(rawPhases) ? rawPhases.filter(isPhase) : [];
+    if (steps.length === 0) return;
+
+    const board = root.querySelector<HTMLElement>('.sim-board');
+    const bars = root.querySelector<HTMLElement>('.sim-bars');
+    const phaseEl = root.querySelector<HTMLElement>('.sim-phase');
+    const say = root.querySelector<HTMLElement>('.dps-say');
+    const range = root.querySelector<HTMLInputElement>('.dps-range');
+    const count = root.querySelector<HTMLElement>('.dps-count');
+    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
+    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
+    if (!board || !bars || !phaseEl || !say || !range || !count || !playBtn) return;
+
+    const cells: HTMLElement[] = [];
+    for (let i = 0; i < 16; i++) {
+      const el = document.createElement('div');
+      el.className = 'cell';
+      board.appendChild(el);
+      cells.push(el);
+    }
+    const barEls: HTMLElement[] = phases.map((p) => {
+      const el = document.createElement('div');
+      el.className = 'pbar';
+      el.innerHTML = `<span>${p.short}</span><b>${p.count}</b>`;
+      bars.appendChild(el);
+      return el;
+    });
+
+    range.max = String(steps.length - 1);
+    let at = 0;
+    let timer: number | null = null;
+
+    const render = () => {
+      const st = steps[at];
+      const prev = at > 0 ? steps[at - 1] : null;
+      for (let i = 0; i < 16; i++) {
+        const v = st.board[i];
+        const el = cells[i];
+        el.textContent = v === 0 ? '' : String(v);
+        el.className = 'cell';
+        if (v === 0) el.classList.add('blank');
+        else if (st.lock[i]) el.classList.add('locked');
+        else if (prev && prev.board[i] !== v && v !== 0) el.classList.add('moved');
+      }
+      phaseEl.textContent = st.phase;
+      barEls.forEach((el, i) => {
+        el.className = 'pbar';
+        const startAt = i === 0 ? 0 : phases[i - 1].until;
+        if (st.idx > phases[i].until) el.classList.add('done');
+        else if (st.idx > startAt || (st.idx === 0 && i === 0)) el.classList.add('now');
+      });
+      say.innerHTML = st.note;
+      range.value = String(at);
+      count.textContent = `ตา ${at} / ${steps.length - 1}`;
+      for (const b of btns) {
+        const act = b.dataset.act;
+        if (act === 'prev' || act === 'first') b.disabled = at === 0;
+        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
+      }
+    };
+
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+      playBtn.textContent = 'เล่น';
+    };
+    const go = (to: number) => {
+      at = Math.max(0, Math.min(steps.length - 1, to));
+      if (at === steps.length - 1) stop();
+      render();
+    };
+
+    for (const b of btns) {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'play') {
+          if (timer !== null) { stop(); return; }
+          if (at === steps.length - 1) at = 0;
+          playBtn.textContent = 'หยุด';
+          timer = window.setInterval(() => go(at + 1), PLAY_MS);
+          go(at + 1);
+          return;
+        }
+        stop();
+        if (act === 'first') go(0);
+        else if (act === 'prev') go(at - 1);
+        else if (act === 'next') go(at + 1);
+        else if (act === 'last') go(steps.length - 1);
+      });
+    }
+
+    range.addEventListener('input', () => { stop(); go(Number(range.value)); });
+    root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') { stop(); go(at + 1); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { stop(); go(at - 1); e.preventDefault(); }
+    });
+
+    document.addEventListener('astro:before-swap', stop, { once: true });
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-pzsim]').forEach(initSim);
+  });
+</script>
+
+<script>
+  // เกมเล่นเอง: กดหมากที่ติดช่องว่างเพื่อเลื่อน จำนวนตาที่โปรแกรมใช้เป็นค่าคงที่ที่คิดไว้ตอน build
+  // (ไม่ส่งตัวแก้ปริศนาลงหน้าเว็บ เพราะเฉลยข้างล่างคือตัวแก้ปริศนาอยู่แล้ว)
+  type Game = { label: string; board: number[]; best: number };
+
+  function isGame(v: unknown): v is Game {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.label === 'string' && Array.isArray(o.board) && typeof o.best === 'number';
+  }
+
+  function initGame(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const parsed: unknown = JSON.parse(root.dataset.games ?? '[]');
+    const games: Game[] = Array.isArray(parsed) ? parsed.filter(isGame) : [];
+    if (games.length === 0) return;
+
+    const boardEl = root.querySelector<HTMLElement>('.pz-board');
+    const nEl = root.querySelector<HTMLElement>('.pz-n');
+    const sayEl = root.querySelector<HTMLElement>('.pz-say');
+    const movesEl = root.querySelector<HTMLElement>('.pz-moves');
+    const setBtns = Array.from(root.querySelectorAll<HTMLButtonElement>('.pz-set'));
+    const acts = Array.from(root.querySelectorAll<HTMLButtonElement>('.pz-b'));
+    if (!boardEl || !nEl || !sayEl || !movesEl) return;
+
+    const LETTER = ['N', 'E', 'S', 'W'];
+    const DR = [-1, 0, 1, 0];
+    const DC = [0, 1, 0, -1];
+
+    let idx = 0;
+    let board: number[] = games[0].board.slice();
+    let hole = board.indexOf(0);
+    let letters: string[] = [];
+    const history: { board: number[]; hole: number }[] = [];
+
+    const tiles: HTMLButtonElement[] = [];
+    for (let i = 0; i < 16; i++) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'tile';
+      el.addEventListener('click', () => tap(i));
+      boardEl.appendChild(el);
+      tiles.push(el);
+    }
+
+    const solved = (): boolean => {
+      for (let i = 0; i < 15; i++) if (board[i] !== i + 1) return false;
+      return board[15] === 0;
+    };
+
+    const dirFromHole = (i: number): number => {
+      for (let d = 0; d < 4; d++) {
+        const r = ((hole / 4) | 0) + DR[d];
+        const c = (hole % 4) + DC[d];
+        if (r >= 0 && r < 4 && c >= 0 && c < 4 && r * 4 + c === i) return d;
+      }
+      return -1;
+    };
+
+    function tap(i: number) {
+      const d = dirFromHole(i);
+      if (d < 0 || solved()) return;
+      history.push({ board: board.slice(), hole });
+      board[hole] = board[i];
+      board[i] = 0;
+      hole = i;
+      letters.push(LETTER[d]);
+      render();
+    }
+
+    const render = () => {
+      for (let i = 0; i < 16; i++) {
+        const v = board[i];
+        const el = tiles[i];
+        el.textContent = v === 0 ? '' : String(v);
+        el.className = 'tile';
+        if (v === 0) {
+          el.classList.add('hole');
+          el.disabled = true;
+        } else {
+          el.disabled = false;
+          if (v === i + 1) el.classList.add('home');
+          if (dirFromHole(i) >= 0) el.classList.add('can');
+        }
+        el.setAttribute('aria-label', v === 0 ? 'ช่องว่าง' : `หมากหมายเลข ${v}`);
+      }
+      nEl.textContent = String(letters.length);
+      movesEl.textContent = letters.join('');
+      const g = games[idx];
+      if (solved()) {
+        sayEl.innerHTML = `<span class="win">แก้ได้แล้วใน ${letters.length} ตา</span> โปรแกรมในเฉลยใช้ ${g.best} ตากับกระดานใบนี้`;
+      } else {
+        sayEl.textContent = 'กดหมากที่อยู่ติดช่องว่างเพื่อเลื่อนมันเข้ามา';
+      }
+      for (const b of acts) {
+        if (b.dataset.act === 'undo') b.disabled = history.length === 0;
+        if (b.dataset.act === 'reset') b.disabled = letters.length === 0;
+      }
+      setBtns.forEach((b, i) => b.setAttribute('aria-pressed', i === idx ? 'true' : 'false'));
+    };
+
+    const load = (i: number) => {
+      idx = i;
+      board = games[i].board.slice();
+      hole = board.indexOf(0);
+      letters = [];
+      history.length = 0;
+      render();
+    };
+
+    for (const b of acts) {
+      b.addEventListener('click', () => {
+        if (b.dataset.act === 'undo') {
+          const prev = history.pop();
+          if (!prev) return;
+          board = prev.board;
+          hole = prev.hole;
+          letters.pop();
+          render();
+        } else {
+          load(idx);
+        }
+      });
+    }
+    setBtns.forEach((b, i) => b.addEventListener('click', () => load(i)));
+
+    load(0);
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-puzzlegame]').forEach(initGame);
+  });
+</script>
