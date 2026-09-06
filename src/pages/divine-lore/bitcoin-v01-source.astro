@@ -1,0 +1,492 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const TITLE = 'เปิดฝาดูโค้ดชิ้นแรกของบิตคอยน์';
+const DESC =
+  'Bitcoin v0.1 ที่ปล่อยเมื่อ 9 มกราคม 2009 ยังอ่านได้ครบทุกบรรทัด หน้านี้พาไล่ดูว่ากติกาแต่ละข้อหน้าตาเป็นยังไงในโค้ดจริง ตั้งแต่หัวบล็อกหกช่องไปจนถึงห้องแชต IRC';
+
+/** ตัวเลขในหน้านี้ใช้ชุดเดียวกับบทบิตคอยน์ตั้งแต่ศูนย์ เพื่อไม่ให้สองหน้าขัดกันเอง */
+const BLOCK_MINUTES = 10;
+const HASHRATE_EHS = 909.6;
+/** การปรับความยาก: เป้าหมายคือสองสัปดาห์ต่อ 2016 ช่วง แต่โค้ดวัดจริงแค่ 2015 ช่วง */
+const RETARGET_INTERVAL = (14 * 24 * 60) / BLOCK_MINUTES;
+const realSpacingMin = (RETARGET_INTERVAL * BLOCK_MINUTES) / (RETARGET_INTERVAL - 1);
+
+/** สองค่านี้คำนวณเองจากกติกาการออกเหรียญ ไม่ได้พิมพ์มือ เพื่อให้ตรงกับบทหลักเสมอ */
+const HALVING_INTERVAL = 210_000;
+const SAT_PER_BTC = 100_000_000;
+const TIP_HEIGHT = 965_238;
+const subsidySat = (height: number): number => Math.floor(50 * SAT_PER_BTC / 2 ** Math.floor(height / HALVING_INTERVAL));
+const currentRewardBtc = subsidySat(TIP_HEIGHT) / SAT_PER_BTC;
+const totalBtc = (() => {
+  let sum = 0;
+  for (let h = 0; subsidySat(h) > 0; h += HALVING_INTERVAL) sum += subsidySat(h) * HALVING_INTERVAL;
+  return sum / SAT_PER_BTC;
+})();
+
+const fmt = (n: number, digits = 0) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+/** โครงสร้างซอร์สโค้ดของ Bitcoin v0.1.0 นับบรรทัดจากไฟล์จริงในชุดที่ปล่อยเมื่อ 9 ม.ค. 2009 */
+interface SourceGroup {
+  files: string;
+  lines: number;
+  job: string;
+}
+const v01Source: SourceGroup[] = [
+  { files: 'ui.cpp, uibase.cpp และเฮดเดอร์', lines: 6171, job: 'หน้าต่างโปรแกรมบนวินโดวส์ ปุ่ม ช่องกรอก รายการธุรกรรม' },
+  { files: 'main.cpp, main.h', lines: 3977, job: 'กติกาทั้งหมด บล็อก ธุรกรรม การขุด การเลือกสายที่ยาวกว่า' },
+  { files: 'serialize.h, uint256.h, bignum.h, base58.h', lines: 2600, job: 'เครื่องมือพื้นฐาน เลข 256 บิต การแปลงเป็นไบต์ การเข้ารหัสที่อยู่' },
+  { files: 'net.cpp, net.h', lines: 1876, job: 'ต่อซ็อกเก็ตกับเพื่อนบ้าน ส่งและรับข้อความ' },
+  { files: 'script.cpp, script.h', lines: 1724, job: 'ภาษาสคริปต์ที่ใช้ล็อกและปลดล็อกเงินแต่ละก้อน' },
+  { files: 'db.cpp, db.h', lines: 1024, job: 'เก็บสมุดลงดิสก์ด้วย Berkeley DB' },
+  { files: 'util.cpp, util.h', lines: 772, job: 'ล็อก เวลา เธรด ฟังก์ชันจิปาถะ' },
+  { files: 'sha.cpp, sha.h', lines: 731, job: 'ตัว SHA-256 ที่ปรับให้ขุดได้เร็วขึ้น' },
+  { files: 'market.cpp, market.h', lines: 446, job: 'หน้าตลาดซื้อขายที่ทำค้างไว้ ไม่เคยเปิดใช้' },
+  { files: 'irc.cpp, irc.h', lines: 272, job: 'หาเพื่อนบ้านครั้งแรกด้วยการเข้าห้องแชต IRC' },
+  { files: 'key.h, headers.h', lines: 227, job: 'กุญแจคู่ผ่าน OpenSSL และการรวมเฮดเดอร์' },
+];
+const v01Total = v01Source.reduce((s, g) => s + g.lines, 0);
+const v01Ui = v01Source[0];
+const v01Main = v01Source[1];
+
+const CODE_HEADER = String.raw`class CBlock
+{
+public:
+    // header
+    int nVersion;
+    uint256 hashPrevBlock;
+    uint256 hashMerkleRoot;
+    unsigned int nTime;
+    unsigned int nBits;
+    unsigned int nNonce;
+
+    // network and disk
+    vector<CTransaction> vtx;`;
+
+const CODE_MINER = String.raw`uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
+uint256 hash;
+loop
+{
+    BlockSHA256(&tmp.block, nBlocks0, &tmp.hash1);
+    BlockSHA256(&tmp.hash1, nBlocks1, &hash);
+
+    if (hash <= hashTarget)
+    {
+        pblock->nNonce = tmp.block.nNonce;
+        assert(hash == pblock->GetHash());
+        // เจอแล้ว ประกาศบล็อกออกไป
+        break;
+    }
+
+    if ((++tmp.block.nNonce & 0x3ffff) == 0)
+    {
+        // ทุก ๆ 262144 รอบ แวะเช็คว่ามีใครเจอบล็อกก่อนเราหรือยัง
+    }
+}`;
+
+const CODE_SUBSIDY = String.raw`int64 CBlock::GetBlockValue(int64 nFees) const
+{
+    int64 nSubsidy = 50 * COIN;
+
+    // Subsidy is cut in half every 4 years
+    nSubsidy >>= (nBestHeight / 210000);
+
+    return nSubsidy + nFees;
+}`;
+
+const CODE_RETARGET = String.raw`unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast)
+{
+    const unsigned int nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+    const unsigned int nTargetSpacing = 10 * 60;
+    const unsigned int nInterval = nTargetTimespan / nTargetSpacing;
+
+    // Only change once per interval
+    if ((pindexLast->nHeight+1) % nInterval != 0)
+        return pindexLast->nBits;
+
+    // Go back by what we want to be 14 days worth of blocks
+    const CBlockIndex* pindexFirst = pindexLast;
+    for (int i = 0; pindexFirst && i < nInterval-1; i++)
+        pindexFirst = pindexFirst->pprev;
+
+    // Limit adjustment step
+    unsigned int nActualTimespan = pindexLast->nTime - pindexFirst->nTime;
+    if (nActualTimespan < nTargetTimespan/4)
+        nActualTimespan = nTargetTimespan/4;
+    if (nActualTimespan > nTargetTimespan*4)
+        nActualTimespan = nTargetTimespan*4;
+
+    // Retarget
+    CBigNum bnNew;
+    bnNew.SetCompact(pindexLast->nBits);
+    bnNew *= nActualTimespan;
+    bnNew /= nTargetTimespan;`;
+
+const CODE_GENESIS = String.raw`char* pszTimestamp = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
+CTransaction txNew;
+txNew.vin.resize(1);
+txNew.vout.resize(1);
+txNew.vin[0].scriptSig     = CScript() << 486604799 << CBigNum(4) << vector<unsigned char>(...);
+txNew.vout[0].nValue       = 50 * COIN;
+txNew.vout[0].scriptPubKey = CScript() << CBigNum("0x5F1DF16B2B704C8A...") << OP_CHECKSIG;
+CBlock block;
+block.vtx.push_back(txNew);
+block.hashPrevBlock = 0;
+block.hashMerkleRoot = block.BuildMerkleTree();
+block.nVersion = 1;
+block.nTime    = 1231006505;
+block.nBits    = 0x1d00ffff;
+block.nNonce   = 2083236893;
+
+assert(block.GetHash() == hashGenesisBlock);`;
+
+const CODE_IRC = String.raw`Send(hSocket, strprintf("NICK %s\r", strMyName.c_str()).c_str());
+Send(hSocket, "JOIN #bitcoin\r");
+Send(hSocket, "WHO #bitcoin\r");`;
+
+const CODE_TOY = String.raw`import { createHash } from 'node:crypto';
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+interface Block { height: number; data: string; prev: string; time: number; nonce: number }
+
+// ชั้นที่ 1 หัวบล็อกหกช่อง แล้วแฮชสองรอบเหมือนของจริง
+const headerOf = (b: Block) => [b.height, b.prev, b.data, b.time, b.nonce].join('|');
+const hashOf = (b: Block) => sha256(sha256(headerOf(b)));
+
+const DIFFICULTY = 4;
+const target = '0'.repeat(DIFFICULTY);
+const ZERO = '0'.repeat(64);
+
+// ชั้นที่ 2 เดานอนซ์จนกว่าแฮชจะเข้าเงื่อนไข
+function mine(height: number, data: string, prev: string): Block {
+  const b: Block = { height, data, prev, time: 1231006505 + height * 600, nonce: 0 };
+  while (!hashOf(b).startsWith(target)) b.nonce += 1;
+  return b;
+}
+
+// ชั้นที่ 3 รางวัลหารครึ่งทุก 210000 บล็อก คิดเป็นซาโตชิ
+function subsidy(height: number): number {
+  return Math.floor(50e8 / 2 ** Math.floor(height / 210000));
+}
+
+// ชั้นที่ 5 บล็อกกำเนิดชี้ไปที่ศูนย์ เพราะไม่มีบล็อกก่อนหน้า
+const chain: Block[] = [mine(0, 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks', ZERO)];
+for (let i = 1; i < 4; i += 1) chain.push(mine(i, 'block ' + i, hashOf(chain[i - 1])));
+
+// ตรวจทั้งโซ่แบบเดียวกับที่โหนดทำ
+const valid = chain.every((b, i) =>
+  hashOf(b).startsWith(target) && b.prev === (i === 0 ? ZERO : hashOf(chain[i - 1])));
+
+console.log('valid:', valid);
+chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
+console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
+---
+
+<DivineLoreLayout title={`${TITLE} | บันทึกศาสตร์แห่งเทพ`} description={DESC}>
+  <nav class="dl-nav">
+    <a href="../bitcoin-from-zero/">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปบทบิตคอยน์ตั้งแต่ศูนย์
+    </a>
+  </nav>
+  <p class="tag">บันทึกการเงิน</p>
+  <h1>{TITLE}</h1>
+  <p class="subtitle">
+    กติกาทุกข้อที่บทหลักเล่าไว้มีตัวตนจริงในรูปของโค้ดที่รันได้ และชุดแรกสุดยังอยู่ครบ
+    หน้านี้คือการเอาสิ่งที่คุณเข้าใจแล้วไปทาบกับโค้ดจริงทีละชั้น
+  </p>
+
+  <hr class="divider" />
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านบทหลักก่อนจะได้ประโยชน์กว่ามาก</p>
+    <p>
+      หน้านี้แยกออกมาจากบท <a href="../bitcoin-from-zero/">บิตคอยน์ตั้งแต่ศูนย์</a>
+      ซึ่งอธิบายกติกาทั้งหมดไว้แล้วโดยไม่ต้องเปิดโค้ดสักบรรทัด
+      ตรงนี้ไม่ได้อธิบายกติกาซ้ำ แต่ชี้ว่ากติกาแต่ละข้อไปอยู่ตรงไหนในไฟล์จริง
+    </p>
+  </div>
+
+  <p>
+    ทุกอย่างที่เล่ามาทั้งบทเป็นกติกา และกติกาพวกนั้นมีตัวตนจริงในรูปของโค้ดที่รันได้
+    ที่สนุกคือชุดแรกสุดยังอยู่ครบและอ่านได้ทั้งหมด บทนี้เหลืออีกนิดเดียวแล้ว
+    ผมเลยอยากพาเปิดฝาดูว่ากติกาแต่ละข้อหน้าตาเป็นยังไงในโค้ดจริง
+    แล้วค่อย ๆ ต่อขึ้นมาทีละชั้นเหมือนที่เราต่อความเข้าใจกันมา
+  </p>
+
+  <p>
+    ชุดที่ปล่อยเมื่อวันที่ 9 มกราคม 2009 ชื่อ Bitcoin v0.1 เป็นภาษา C++ รันบนวินโดวส์อย่างเดียว
+    ทั้งโปรเจกต์มี {fmt(v01Total)} บรรทัด ซึ่งน้อยกว่าที่คนส่วนใหญ่คาดไว้มาก
+    แต่สิ่งที่ผมคิดว่าน่าสนใจกว่าตัวเลขรวม คือสัดส่วนว่าบรรทัดพวกนั้นไปกองอยู่ตรงไหน
+  </p>
+
+  <figure class="tbl">
+    <table class="amo wide">
+      <caption>ซอร์สโค้ด Bitcoin v0.1 แบ่งตามงาน</caption>
+      <thead>
+        <tr>
+          <th>ไฟล์</th>
+          <th>บรรทัด</th>
+          <th>ทำอะไร</th>
+        </tr>
+      </thead>
+      <tbody>
+        {v01Source.map((g) => (
+          <tr>
+            <td>{g.files}</td>
+            <td class="hot">{fmt(g.lines)}</td>
+            <td>{g.job}</td>
+          </tr>
+        ))}
+        <tr class="tie">
+          <td>รวม</td>
+          <td class="cool">{fmt(v01Total)}</td>
+          <td>ทั้งโปรเจกต์</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      นับจากไฟล์ต้นฉบับจริง ไฟล์ที่ยาวที่สุดในโปรเจกต์ไม่ใช่ตัวกติกา แต่เป็นหน้าต่างโปรแกรม
+      ที่กินไป {fmt(v01Ui.lines)} บรรทัด มากกว่าไฟล์กติกาทั้งหมดรวมกันที่ {fmt(v01Main.lines)} บรรทัด
+    </figcaption>
+  </figure>
+
+  <p>
+    สัดส่วนนี้เล่าอะไรบางอย่าง คนที่เขียนโปรแกรมนี้ไม่ได้ตั้งใจปล่อยเปเปอร์แล้วรอให้คนอื่นทำต่อ
+    เขานั่งประกอบปุ่มกับช่องกรอกเพื่อให้คนธรรมดาเปิดใช้ได้ตั้งแต่วันแรก
+    ในกองนั้นยังมีไฟล์ <code>market.cpp</code> ที่เป็นหน้าตลาดซื้อขายทำค้างไว้ {fmt(v01Source[8].lines)} บรรทัด และไม่เคยถูกเปิดใช้เลย
+  </p>
+
+  <p>
+    ที่เหลือคือการไล่โค้ดจริงทีละชั้น ซึ่งอ่านหรือไม่อ่านก็ไม่กระทบเนื้อหาส่วนอื่นของบทนี้
+    ผมพับเก็บไว้เป็นชั้น ๆ ใครสนใจชั้นไหนกดดูชั้นนั้นได้เลย
+  </p>
+
+  <h2>ชั้นที่ 1: หัวบล็อกหกช่อง</h2>
+
+  <p>
+  ตัวเลข 80 ไบต์ที่บทหลักใช้ตอนเล่าเรื่องต้นไม้เมอร์เคิล มาจากตรงนี้
+  </p>
+
+  <CodeBlock code={CODE_HEADER} lang="cpp" title="main.h · หัวบล็อกทั้งใบมีแค่หกช่อง" />
+
+  <p>
+  ไล่ดูทีละช่องแล้วจะเจอทุกอย่างที่บทหลักเล่าไว้ <code>hashPrevBlock</code> คือตราที่ปั๊มคาบหน้ากระดาษ
+  <code>hashMerkleRoot</code> คือแฮชเดียวที่สรุปธุรกรรมทั้งบล็อก <code>nBits</code> คือความยากของรอบนั้น
+  และ <code>nNonce</code> คือช่องว่างที่นักขุดเติมเลขเดาลงไป
+  </p>
+
+  <p>
+  รวมกันได้ 4 บวก 32 บวก 32 บวก 4 บวก 4 บวก 4 เท่ากับ 80 ไบต์พอดี ไม่ว่าบล็อกนั้นจะมีธุรกรรมห้าพันรายการหรือรายการเดียว
+  ส่วน <code>vtx</code> ที่อยู่ข้างล่างคือรายการธุรกรรมจริง ซึ่งอยู่นอกหัวบล็อกและไม่ถูกแฮชตอนขุด
+  </p>
+
+  <h2>ชั้นที่ 2: วงจรการขุด</h2>
+
+  <p>
+  วงจรการขุดที่บทหลักวาดไว้ ในโค้ดจริงคือลูปนี้
+  </p>
+
+  <CodeBlock code={CODE_MINER} lang="cpp" title="main.cpp · หัวใจของ BitcoinMiner (ตัดส่วนพิมพ์ล็อกออก)" />
+
+  <p>
+  ตรงนี้มีเรื่องที่ผมเล่าไม่ครบไว้ตอนต้นบท และจุดนี้เป็นจังหวะที่ควรเฉลย
+  เงื่อนไขจริงไม่ใช่การนับว่าขึ้นต้นด้วยศูนย์กี่ตัว แต่คือ <code>hash &lt;= hashTarget</code>
+  คือเอาแฮชมามองเป็นเลขจำนวนเต็มขนาด 256 บิต แล้วถามว่ามันน้อยกว่าเป้าหมายหรือเปล่า
+  </p>
+
+  <p>
+  สองอย่างนี้ให้ผลใกล้เคียงกัน เพราะเลขที่จะน้อยพอก็ต้องขึ้นต้นด้วยศูนย์อยู่ดี
+  แต่แบบเป้าหมายปรับได้ละเอียดกว่ามาก การนับศูนย์ขยับได้ทีละสิบหกเท่า
+  ส่วนการเลื่อนเป้าหมายขยับได้ทีละนิด ซึ่งจำเป็นสำหรับการรักษาจังหวะสิบนาทีให้แม่น
+  </p>
+
+  <p>
+  อีกบรรทัดที่น่าสังเกตคือ <code>BlockSHA256</code> ถูกเรียกสองครั้งซ้อน แฮชของบล็อกในบิตคอยน์คือการแฮชสองรอบเสมอ
+  รอบแรกแฮชหัวบล็อก รอบสองแฮชผลลัพธ์ของรอบแรกอีกที
+  </p>
+
+  <h2>ชั้นที่ 3: รางวัลกับฮาล์ฟวิง</h2>
+
+  <p>
+  ตารางการออกเหรียญยาว 33 ยุคที่อยู่ข้างบน กับเพดาน {fmt(totalBtc, 4)} เหรียญที่คนถกกันทั้งโลก ทั้งหมดมาจากฟังก์ชันนี้
+  </p>
+
+  <CodeBlock code={CODE_SUBSIDY} lang="cpp" title="main.cpp · กติกาการออกเหรียญทั้งหมด" />
+
+  <p>
+  บรรทัดที่ทำงานจริงมีบรรทัดเดียวคือ <code>nSubsidy &gt;&gt;= (nBestHeight / 210000)</code>
+  เครื่องหมาย <code>&gt;&gt;=</code> คือการเลื่อนบิตไปทางขวา ซึ่งมีค่าเท่ากับการหารด้วยสองแบบปัดลง
+  อยู่ในยุคที่ 5 ก็เลื่อนไป 4 ครั้ง เท่ากับหารสองสี่หน จาก 50 เหลือ {fmt(currentRewardBtc, 3)} เหรียญ
+  </p>
+
+  <p>
+  และเพราะ <code>nSubsidy</code> เป็นจำนวนเต็มหน่วยซาโตชิ พอเลื่อนไปมากพอมันจะกลายเป็นศูนย์เอง
+  เพดาน 21 ล้านจึงไม่ได้ถูกเขียนไว้ที่ไหนในไฟล์นี้เลย มันเป็นผลลัพธ์ของการเลื่อนบิตบรรทัดนี้ล้วน ๆ
+  ตรงกับที่คำนวณให้ดูในตารางก่อนหน้า
+  </p>
+
+  <h2>ชั้นที่ 4: การปรับความยาก และบั๊กที่ยังอยู่ถึงวันนี้</h2>
+
+  <CodeBlock code={CODE_RETARGET} lang="cpp" title="main.cpp · ปรับความยากทุกสองสัปดาห์ (ตัดท้ายออก)" />
+
+  <p>
+  <code>nInterval</code> คำนวณจากสองสัปดาห์หารด้วยสิบนาที ได้ 2,016 ซึ่งเป็นที่มาของเลขที่ผมอ้างไว้ตอนพูดเรื่องกำลังขุด
+  ส่วนการหนีบไว้ที่หนึ่งในสี่และสี่เท่าคือกันไม่ให้ความยากกระโดดเกินสี่เท่าในรอบเดียว
+  แม้กำลังขุดจะหายไปทันทีทั้งโลกก็ตาม
+  </p>
+
+  <div class="callout callout-note">
+  <p class="callout-label">บั๊กเล็ก ๆ ที่แก้ไม่ได้แล้ว</p>
+  <p>
+    ลองอ่านบรรทัด <code>for (int i = 0; pindexFirst &amp;&amp; i &lt; nInterval-1; i++)</code> ดี ๆ
+    มันเดินถอยหลังไป {fmt(RETARGET_INTERVAL - 1)} บล็อก ซึ่งกินช่วงเวลาแค่ {fmt(RETARGET_INTERVAL - 1)} ช่วง
+    แล้วเอาเวลาที่วัดได้ไปเทียบกับเป้าหมายสองสัปดาห์ที่ตั้งไว้สำหรับ {fmt(RETARGET_INTERVAL)} ช่วง
+    ผลคือบิตคอยน์เล็งจังหวะเฉลี่ยไว้ที่ราว {realSpacingMin.toFixed(3)} นาทีต่อบล็อก แทนที่จะเป็น {BLOCK_MINUTES} นาทีเป๊ะ
+    คลาดไปราว {(((realSpacingMin - BLOCK_MINUTES) / BLOCK_MINUTES) * 100).toFixed(2)}% ซึ่งเล็กจนไม่มีใครเดือดร้อน
+    แต่แก้ไม่ได้แล้วเพราะการแก้จะเปลี่ยนกติกา
+    และทำให้โหนดที่ไม่ได้อัปเดตแยกสายออกไปทันที บั๊กบรรทัดนี้จึงยังรันอยู่ในทุกโหนดทั่วโลกจนถึงวันนี้
+  </p>
+  </div>
+
+  <h2>ชั้นที่ 5: บล็อกกำเนิดที่พิมพ์ค้างไว้ในโค้ด</h2>
+
+  <p>
+  หัวข้อร้อยหน้ากระดาษบอกไปแล้วว่าบล็อกกำเนิดถูกเขียนค้างไว้ในโค้ด ตรงนี้คือหน้าตาของมันจริง ๆ
+  </p>
+
+  <CodeBlock code={CODE_GENESIS} lang="cpp" title="main.cpp · บล็อกกำเนิด (ย่อค่าที่ยาวมากเป็นจุดไข่ปลา)" />
+
+  <p>
+  บรรทัดบนสุดคือพาดหัวหนังสือพิมพ์ที่เล่าไปในหัวข้อประวัติ ในโค้ดมันถูกยัดเข้าไปใน <code>scriptSig</code>
+  ซึ่งเป็นช่องที่ปกติใช้ใส่ลายเซ็นของคนจ่าย บล็อกแรกไม่มีคนจ่าย ช่องนั้นเลยว่าง แล้วเขาใช้มันฝากข้อความแทน
+  </p>
+
+  <p>
+  <code>block.hashPrevBlock = 0</code> คือคำตอบของปัญหาไก่กับไข่ ส่วน <code>nTime = 1231006505</code>
+  คือเวลานับเป็นวินาที ซึ่งแปลงออกมาได้เป็นวันที่ 3 มกราคม 2009 เวลา 18:15:05 ตามเวลามาตรฐานสากล
+  และ <code>nNonce = 2083236893</code> คือเลขที่เขาต้องนั่งเดาจนเจอเหมือนนักขุดคนอื่นทุกประการ ไม่มีทางลัดให้ตัวเอง
+  </p>
+
+  <div class="callout callout-tip">
+  <p class="callout-label">เหรียญ 50 เหรียญแรกที่ไม่มีใครใช้ได้</p>
+  <p>
+    รางวัล 50 เหรียญของบล็อกกำเนิดใช้จ่ายไม่ได้เลย เพราะวิธีที่โค้ดชุดนี้เขียนบล็อกกำเนิดลงฐานข้อมูล
+    ทำให้ธุรกรรมใบนั้นไม่ถูกบันทึกเข้าไปในดัชนีธุรกรรมเหมือนบล็อกอื่น โหนดทุกตัวจึงมองไม่เห็นเงินก้อนนั้น
+    ถึงจะมีกุญแจก็ใช้ไม่ได้ และตลอดสิบเจ็ดปีที่ผ่านมามีคนโอนบิตคอยน์เข้าไปที่อยู่นั้นเรื่อย ๆ
+    เป็นเหมือนการวางดอกไม้ ซึ่งทุกเหรียญที่โอนเข้าไปก็หายไปตลอดกาลเหมือนกัน
+  </p>
+  </div>
+
+  <h2>ชั้นที่ 6: แล้วโหนดแรกหาเพื่อนเจอได้ยังไง</h2>
+
+  <p>
+  เหลือคำถามข้อสุดท้าย โปรแกรมที่เพิ่งเปิดครั้งแรกในเครื่องคุณ ยังไม่รู้จักใครในโลกเลย
+  แล้วมันไปหาโหนดตัวอื่นเจอได้ยังไง ในเมื่อไม่มีเซิร์ฟเวอร์กลางให้ถาม
+  </p>
+
+  <p>
+  คำตอบของชุดแรกนั้นง่ายจนน่ารัก มันเข้าห้องแชต
+  </p>
+
+  <CodeBlock code={CODE_IRC} lang="cpp" title="irc.cpp · วิธีหาเพื่อนบ้านครั้งแรกของบิตคอยน์" />
+
+  <p>
+  โปรแกรมต่อเข้าเซิร์ฟเวอร์ IRC ซึ่งเป็นระบบห้องแชตยุคเก่า แล้วเข้าไปในห้องชื่อ <code>#bitcoin</code>
+  จากนั้นสั่ง <code>WHO</code> เพื่อขอรายชื่อคนในห้อง โหนดแต่ละตัวตั้งชื่อเล่นของตัวเองเป็นเลขที่อยู่ไอพีที่เข้ารหัสไว้
+  คนที่อยู่ในห้องเดียวกันก็คือโหนดตัวอื่น อ่านชื่อเล่นแล้วต่อหากันได้เลย
+  </p>
+
+  <p>
+  วิธีนี้ถูกเลิกใช้ไปนานแล้วเพราะพึ่งพาเซิร์ฟเวอร์แชตที่ใครก็ปิดได้ ทุกวันนี้โหนดใหม่ถามที่อยู่จากรายชื่อ
+  ที่ฝังไว้ในโปรแกรมและจากระบบชื่อโดเมนแทน แต่ผมชอบชั้นนี้ที่สุดในทั้งโปรเจกต์
+  เพราะมันเป็นหลักฐานว่าของที่กลายเป็นเรื่องใหญ่ระดับโลก ตอนเริ่มมันคือของที่คนคนเดียวประกอบให้พอใช้งานได้ก่อน
+  </p>
+
+  <h2>แล้ว deploy ยังไง</h2>
+
+  <p>
+    คำว่า deploy ในความหมายที่เราคุ้นกัน คือเอาโค้ดขึ้นเซิร์ฟเวอร์ ต่อฐานข้อมูล เปิดโดเมน
+    กับบิตคอยน์ไม่มีขั้นตอนพวกนั้นเลยสักข้อ เพราะไม่มีเซิร์ฟเวอร์ให้ขึ้น
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>3 ม.ค. 2009</strong> เขารันโปรแกรมในเครื่องตัวเอง โปรแกรมสร้างบล็อกกำเนิดจากค่าที่พิมพ์ค้างไว้
+        แล้วเริ่มขุดบล็อกถัดไปโดยมีโหนดอยู่ในโลกตัวเดียว
+      </li>
+      <li>
+        <strong>9 ม.ค. 2009</strong> เขาโพสต์ลิงก์ไฟล์ติดตั้งสำหรับวินโดวส์พร้อมซอร์สโค้ดทั้งชุดลงเมลลิงลิสต์
+        การเผยแพร่คือการส่งอีเมลหนึ่งฉบับให้คนกลุ่มเล็ก ๆ ที่สนใจวิชารหัสลับ
+      </li>
+      <li>
+        <strong>วันเดียวกัน</strong> Hal Finney อ่านว่า "แฮล ฟินนีย์" นักวิทยาการรหัสลับที่อยู่ในลิสต์นั้น
+        โหลดไปรัน กลายเป็นโหนดตัวที่สองของโลก ตรงนี้เองที่เครือข่ายเริ่มเป็นเครือข่ายจริง
+      </li>
+      <li>
+        <strong>12 ม.ค. 2009</strong> มีธุรกรรมระหว่างคนสองคนเป็นครั้งแรกในบล็อกที่ 170
+        เป็นการโอน 10 บิตคอยน์จาก Satoshi ไปหา Hal Finney
+      </li>
+    </ul>
+  </div>
+
+  <p>
+    ไม่มีสวิตช์ให้เปิดระบบ ไม่มีวันเปิดตัวอย่างเป็นทางการ ระบบเริ่มทำงานตั้งแต่เครื่องแรกเริ่มรัน
+    และมันโตขึ้นทีละเครื่องตามจำนวนคนที่ตัดสินใจกดรันโปรแกรมนั้น จากหนึ่ง เป็นสอง
+    จนวันนี้กลายเป็นเครือข่ายที่มีกำลังขุด {HASHRATE_EHS} เอกซะแฮชต่อวินาที
+  </p>
+
+  <details class="expander">
+    <summary>ของแถม · ทั้งหกชั้นย่อเหลือโค้ดหน้าเดียวที่รันได้จริง</summary>
+    <div class="expander-body">
+      <p>
+        ผมย่อกติกาหลักทั้งหมดที่ผ่านมาให้เหลือโค้ดชุดเดียวที่รันได้ด้วย Node.js
+        ไม่มีเครือข่าย ไม่มีลายเซ็น เหลือแค่หัวบล็อก การแฮชสองรอบ การเดานอนซ์ กติกาฮาล์ฟวิง และการตรวจทั้งโซ่
+        เซฟเป็นไฟล์แล้วสั่งรันได้เลย ใช้เวลาไม่ถึงวินาที
+      </p>
+      <CodeBlock code={CODE_TOY} lang="ts" title="mini-chain.ts · หกชั้นในหน้าเดียว" />
+      <p>
+        ผลที่ได้คือ <code>valid: true</code> ตามด้วยบล็อกสี่ก้อนพร้อมนอนซ์ที่หามาได้ และบรรทัดสุดท้ายพิมพ์ 50 แล้ว 3.125 แล้ว 0
+        ซึ่งคือรางวัลที่ความสูงบล็อก 0 ที่ความสูง 840,000 และที่ความสูง 6,930,000 อันสุดท้ายคือจุดที่การเลื่อนบิตทำให้รางวัลกลายเป็นศูนย์
+        ตรงกับยุคสุดท้ายในตารางการออกเหรียญพอดี
+      </p>
+      <p>
+        ถ้าอยากลองของสนุก ลองแก้ <code>DIFFICULTY</code> จาก 4 เป็น 6 แล้วจับเวลาดู
+        กับลองแก้ข้อความในบล็อกแรกหลังจากขุดครบแล้ว จะเห็นว่า <code>valid</code> กลายเป็น false ทันที
+        เหมือนกับที่กดแก้ในของเล่นชิ้นที่สองข้างบน
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+
+  <p>
+    โค้ดทุกชิ้นในหน้านี้ยกมาจากซอร์สโค้ด Bitcoin v0.1 ที่เผยแพร่เมื่อ 9 มกราคม 2009
+    ตัดเฉพาะส่วนที่เกี่ยวข้องและใส่จุดไข่ปลาไว้ตรงที่ตัดออก โดยไม่แก้ตรรกะเดิม
+  </p>
+
+  <ol class="references">
+    <li>
+      ซอร์สโค้ด Bitcoin v0.1 ที่เผยแพร่เมื่อ 9 มกราคม 2009 สำเนาที่เก็บไว้บน
+      <a href="https://github.com/Fiach-Dubh/bitcoin-0.1.0" target="_blank" rel="noopener">GitHub</a>
+      (สืบค้นเมื่อ 6 กันยายน 2026) ที่มาของทุกบรรทัดในหน้านี้ และของจำนวนบรรทัดในตารางแบ่งตามงาน
+      ซึ่งผมนับเองจากไฟล์จริงในชุดนั้น โค้ดบางชิ้นตัดคอมเมนต์ที่เป็นล็อกดีบักออก โดยกำกับไว้ที่หัวกรอบแล้ว
+      ส่วน <code>mini-chain.ts</code> ผมเขียนเองและรันจริงด้วย Node.js ก่อนใส่ลงหน้านี้
+    </li>
+    <li>
+      เอกสารต้นฉบับ Bitcoin: A Peer-to-Peer Electronic Cash System โดย Satoshi Nakamoto เผยแพร่ 31 ตุลาคม 2008
+      <a href="https://bitcoin.org/bitcoin.pdf" target="_blank" rel="noopener">bitcoin.org/bitcoin.pdf</a>
+      ที่มาของกติกาที่โค้ดชุดนี้เขียนขึ้นเพื่อทำให้เป็นจริง
+    </li>
+  </ol>
+
+  <p class="dl-nav">
+    <a href="../bitcoin-from-zero/">กลับไปอ่านบทหลักต่อ</a>
+  </p>
+</DivineLoreLayout>
