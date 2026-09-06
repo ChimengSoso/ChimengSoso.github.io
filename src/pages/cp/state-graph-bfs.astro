@@ -1,0 +1,635 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'state-graph-bfs/';
+
+/* ---------- โมเดลกลาง ทุกตัวเลขและทุกภาพในหน้านี้งอกจากตรงนี้ ---------- */
+
+/* เหยือกน้ำสองใบ ใช้เป็นตัวอย่างเดินเรื่องทั้งบท */
+const JUG_X = 3;
+const JUG_Y = 5;
+const JUG_Z = 4;
+
+type Jug = [number, number];
+const jugId = (a: number, b: number): number => a * (JUG_Y + 1) + b;
+
+/** ท่าที่ทำได้จากสถานะหนึ่ง เติมเต็มสองแบบ เททิ้งสองแบบ เทใส่กันสองแบบ */
+function jugMoves([a, b]: Jug): Jug[] {
+  const t = Math.min(a, JUG_Y - b);
+  const t2 = Math.min(b, JUG_X - a);
+  return [
+    [JUG_X, b],
+    [a, JUG_Y],
+    [0, b],
+    [a, 0],
+    [a - t, b + t],
+    [a + t2, b - t2],
+  ];
+}
+const MOVE_NAMES = [
+  'เติมใบเล็กให้เต็ม',
+  'เติมใบใหญ่ให้เต็ม',
+  'เททิ้งใบเล็ก',
+  'เททิ้งใบใหญ่',
+  'เทใบเล็กใส่ใบใหญ่',
+  'เทใบใหญ่ใส่ใบเล็ก',
+];
+
+/** ค้นตามความกว้าง คืนชั้นของสถานะทั้งหมดที่ไปถึงได้ */
+function jugLayers(): { layers: Jug[][]; dist: number[] } {
+  const dist = new Array<number>((JUG_X + 1) * (JUG_Y + 1)).fill(-1);
+  const layers: Jug[][] = [];
+  const q: Jug[] = [[0, 0]];
+  dist[jugId(0, 0)] = 0;
+  for (let head = 0; head < q.length; head++) {
+    const cur = q[head];
+    const d = dist[jugId(cur[0], cur[1])];
+    (layers[d] = layers[d] ?? []).push(cur);
+    for (const nx of jugMoves(cur))
+      if (dist[jugId(nx[0], nx[1])] === -1) {
+        dist[jugId(nx[0], nx[1])] = d + 1;
+        q.push(nx);
+      }
+  }
+  return { layers, dist };
+}
+const { layers: JUG_LAYERS, dist: JUG_DIST } = jugLayers();
+
+const jugTotal = (JUG_X + 1) * (JUG_Y + 1);
+const jugReachable = JUG_DIST.filter((d) => d >= 0).length;
+/** ชั้นแรกที่มีเหยือกใบไหนสักใบเก็บน้ำได้ Z ลิตรพอดี */
+const jugAnswerLayer = JUG_LAYERS.findIndex((l) => l.some(([a, b]) => a === JUG_Z || b === JUG_Z));
+const jugAnswerState = JUG_LAYERS[jugAnswerLayer].find(([a, b]) => a === JUG_Z || b === JUG_Z) as Jug;
+
+/** เดินย้อนจากคำตอบกลับไปหาจุดเริ่ม เพื่อเล่าว่าหกท่าคืออะไรบ้าง */
+function jugPath(goal: Jug): { from: Jug; move: string; to: Jug }[] {
+  const steps: { from: Jug; move: string; to: Jug }[] = [];
+  let cur = goal;
+  while (JUG_DIST[jugId(cur[0], cur[1])] > 0) {
+    const d = JUG_DIST[jugId(cur[0], cur[1])];
+    let found: { from: Jug; move: string; to: Jug } | null = null;
+    for (let a = 0; a <= JUG_X && !found; a++)
+      for (let b = 0; b <= JUG_Y && !found; b++) {
+        if (JUG_DIST[jugId(a, b)] !== d - 1) continue;
+        jugMoves([a, b]).forEach((nx, k) => {
+          if (!found && nx[0] === cur[0] && nx[1] === cur[1])
+            found = { from: [a, b], move: MOVE_NAMES[k], to: cur };
+        });
+      }
+    if (!found) break;
+    steps.push(found);
+    cur = (found as { from: Jug }).from;
+  }
+  return steps.reverse();
+}
+const JUG_PATH = jugPath(jugAnswerState);
+
+/* ---------- ตารางขนาดสถานะของโจทย์ต่าง ๆ ---------- */
+
+/** 16! หารสอง คือจำนวนหน้าตาที่ปริศนา 15 เป็นไปได้ */
+const factorial16 = (() => {
+  let f = 1n;
+  for (let i = 2n; i <= 16n; i++) f *= i;
+  return f;
+})();
+const puzzleStates = factorial16 / 2n;
+
+const sizeRows = [
+  { name: 'กริด 1000 × 1000', state: 'ตำแหน่ง (แถว, คอลัมน์)', count: BigInt(1000 * 1000) },
+  { name: `เหยือกน้ำ ${JUG_X} กับ ${JUG_Y} ลิตร`, state: 'ปริมาณน้ำในเหยือกทั้งสองใบ', count: BigInt(jugTotal) },
+  { name: 'ล็อกรหัสสี่หลัก', state: 'ตัวเลขสี่หลักที่วงล้อชี้อยู่', count: 10000n },
+  { name: 'ปริศนา 15', state: 'ตำแหน่งของเบี้ยทั้ง 16 ช่อง', count: puzzleStates },
+];
+
+const fmt = (n: number | bigint): string => n.toLocaleString('en-US');
+
+/* ---------- ตัวช่วยวาดกราฟชั้น ---------- */
+
+const COL = 68;
+const ROW_H = 52;
+const PAD_L = 30;
+const TOP = 44;
+const MAXROW = Math.max(...JUG_LAYERS.map((l) => l.length));
+const G_W = PAD_L * 2 + JUG_LAYERS.length * COL;
+const G_H = TOP + MAXROW * ROW_H + 46;
+
+/** ตำแหน่งกลางของสถานะหนึ่งบนภาพ */
+function nodePos(d: number, k: number): { x: number; y: number } {
+  const inLayer = JUG_LAYERS[d].length;
+  const offset = (MAXROW - inLayer) / 2;
+  return { x: PAD_L + d * COL + COL / 2, y: TOP + (offset + k) * ROW_H + 16 };
+}
+
+/** เส้นเชื่อมที่ทำให้สถานะปลายทางถูกพบครั้งแรก (โครงของต้นไม้ค้นหา) */
+const treeEdges: { a: { x: number; y: number }; b: { x: number; y: number } }[] = [];
+JUG_LAYERS.forEach((layer, d) => {
+  layer.forEach((s, k) => {
+    if (d === 0) return;
+    for (let pd = 0; pd < JUG_LAYERS[d - 1].length; pd++) {
+      const p = JUG_LAYERS[d - 1][pd];
+      if (jugMoves(p).some((nx) => nx[0] === s[0] && nx[1] === s[1])) {
+        treeEdges.push({ a: nodePos(d - 1, pd), b: nodePos(d, k) });
+        break;
+      }
+    }
+  });
+});
+
+/* ---------- โค้ด ---------- */
+
+const shapeCode = `// โครงของการค้นตามความกว้าง ใช้ซ้ำได้ทุกข้อ เปลี่ยนแค่สามจุดที่มีคอมเมนต์กำกับ
+vector<int> dist(STATES, -1);          // (1) จำนวนสถานะทั้งหมด
+queue<int> q;
+
+dist[START] = 0;                       // (2) สถานะเริ่มต้น
+q.push(START);
+
+while (!q.empty()) {
+    int v = q.front(); q.pop();
+    if (isGoal(v)) { answer = dist[v]; break; }
+
+    for (int u : neighbours(v)) {      // (3) หนึ่งท่าที่ทำได้จากสถานะ v
+        if (dist[u] != -1) continue;   // เคยไปถึงแล้วด้วยระยะที่สั้นกว่าหรือเท่ากัน
+        dist[u] = dist[v] + 1;
+        q.push(u);
+    }
+}`;
+
+const q1Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int R, C;
+    scanf("%d %d", &R, &C);
+    vector<string> g(R);
+    for (auto& s : g) { char b[1024]; scanf("%s", b); s = b; }
+
+    int sr = 0, sc = 0, tr = 0, tc = 0;
+    for (int i = 0; i < R; i++)
+        for (int j = 0; j < C; j++) {
+            if (g[i][j] == 'S') { sr = i; sc = j; }
+            if (g[i][j] == 'T') { tr = i; tc = j; }
+        }
+
+    vector<vector<int>> dist(R, vector<int>(C, -1));
+    queue<pair<int, int>> q;
+    dist[sr][sc] = 0;
+    q.push({sr, sc});
+
+    const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+    while (!q.empty()) {
+        auto [x, y] = q.front(); q.pop();
+        for (int k = 0; k < 4; k++) {
+            int nx = x + dx[k], ny = y + dy[k];
+            if (nx < 0 || ny < 0 || nx >= R || ny >= C) continue;
+            if (g[nx][ny] == '#') continue;
+            if (dist[nx][ny] != -1) continue;
+            dist[nx][ny] = dist[x][y] + 1;
+            q.push({nx, ny});
+        }
+    }
+    printf("%d\\n", dist[tr][tc]);   // ไปไม่ถึงจะยังเป็น -1 อยู่พอดี
+    return 0;
+}`;
+
+const q2Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int X, Y, Z;
+    scanf("%d %d %d", &X, &Y, &Z);
+
+    // สถานะคือ (a, b) ปริมาณน้ำในใบเล็กและใบใหญ่ อัดเป็นเลขตัวเดียว a*(Y+1)+b
+    int S = (X + 1) * (Y + 1);
+    vector<int> dist(S, -1);
+    auto id = [&](int a, int b) { return a * (Y + 1) + b; };
+
+    queue<int> q;
+    dist[id(0, 0)] = 0;
+    q.push(id(0, 0));
+
+    int ans = -1;
+    while (!q.empty()) {
+        int cur = q.front(); q.pop();
+        int a = cur / (Y + 1), b = cur % (Y + 1);
+        if (a == Z || b == Z) { ans = dist[cur]; break; }
+
+        int t  = min(a, Y - b);        // เทใบเล็กใส่ใบใหญ่ ได้เท่าที่ใบใหญ่ยังว่าง
+        int t2 = min(b, X - a);        // เทใบใหญ่ใส่ใบเล็ก
+        int nx[6][2] = {{X, b}, {a, Y}, {0, b}, {a, 0}, {a - t, b + t}, {a + t2, b - t2}};
+
+        for (auto& p : nx) {
+            int j = id(p[0], p[1]);
+            if (dist[j] == -1) { dist[j] = dist[cur] + 1; q.push(j); }
+        }
+    }
+    printf("%d\\n", ans);
+    return 0;
+}`;
+
+const q3Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    char tgt[16];
+    int m;
+    scanf("%s %d", tgt, &m);
+
+    vector<char> bad(10000, 0);
+    for (int i = 0; i < m; i++) { char s[16]; scanf("%s", s); bad[atoi(s)] = 1; }
+    int target = atoi(tgt);
+
+    if (bad[0]) { printf("-1\\n"); return 0; }   // ออกจากจุดเริ่มไม่ได้เลย
+
+    vector<int> dist(10000, -1);
+    queue<int> q;
+    dist[0] = 0;
+    q.push(0);
+
+    while (!q.empty()) {
+        int v = q.front(); q.pop();
+        if (v == target) break;
+
+        int p[4] = {1000, 100, 10, 1};
+        for (int k = 0; k < 4; k++) {
+            int digit = (v / p[k]) % 10;
+            for (int d : {1, 9}) {                 // หมุนขึ้นหนึ่ง กับหมุนลงหนึ่ง (คือขึ้นเก้าแบบวน)
+                int nd = (digit + d) % 10;
+                int u = v + (nd - digit) * p[k];
+                if (bad[u] || dist[u] != -1) continue;
+                dist[u] = dist[v] + 1;
+                q.push(u);
+            }
+        }
+    }
+    printf("%d\\n", dist[target]);
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>อาการ · โจทย์ที่ถามว่า "อย่างน้อยกี่ท่า" แต่ไม่มีกราฟมาให้</h2>
+  <p>
+    โจทย์กลุ่มนี้หน้าตาไม่เหมือนโจทย์กราฟเลยสักนิด มีเหยือกน้ำสองใบ ตวงให้ได้สี่ลิตรพอดีต้องทำอย่างน้อยกี่ท่า
+    มีล็อกรหัสสี่หลัก หมุนจาก 0000 ไปเป็นรหัสหนึ่งโดยห้ามผ่านรหัสต้องห้าม ทำได้ไหมและกี่ครั้ง
+    มีกระดานเลื่อนเบี้ย จัดให้เข้าที่ต้องเลื่อนกี่ตา
+  </p>
+  <p>
+    ทั้งหมดนี้เป็นโจทย์เดียวกัน และมันเป็นโจทย์กราฟที่<strong>เราต้องสร้างกราฟขึ้นมาเอง</strong>
+    ความยากไม่ได้อยู่ที่อัลกอริทึม เพราะอัลกอริทึมคือการค้นตามความกว้างธรรมดาที่เขียนสิบบรรทัดจบ
+    ความยากอยู่ที่การมองให้ออกว่า<strong>อะไรคือจุด และอะไรคือเส้น</strong>
+  </p>
+
+  <h2>สองคำที่ต้องนิยามให้ได้ก่อนเขียนโค้ด</h2>
+  <p>
+    <strong>สถานะ</strong> (state) คือภาพนิ่งของโลกที่<strong>มีข้อมูลพอจะเดินต่อได้โดยไม่ต้องรู้อดีต</strong>
+    ในโจทย์เหยือกน้ำ สถานะคือปริมาณน้ำในเหยือกทั้งสองใบ ไม่ต้องรู้เลยว่ากว่าจะมาถึงตรงนี้เททิ้งไปกี่รอบ
+    เพราะสิ่งที่ทำได้ต่อจากนี้ขึ้นกับปริมาณน้ำตอนนี้เท่านั้น
+  </p>
+  <p>
+    <strong>เส้นเชื่อม</strong>คือหนึ่งท่าที่กติกาอนุญาต ในโจทย์เหยือกน้ำมีหกท่าคือเติมใบใดใบหนึ่งให้เต็ม
+    เททิ้งใบใดใบหนึ่ง และเทใบหนึ่งใส่อีกใบจนกว่าใบรับจะเต็มหรือใบเทจะหมด
+  </p>
+  <p>
+    เมื่อทุกท่าราคาเท่ากันคือหนึ่งท่า การหาทางที่สั้นที่สุดจึงเป็นงานของ<strong>การค้นตามความกว้าง</strong>
+    (breadth-first search หรือ BFS) ซึ่งกวาดสถานะออกไปเป็นชั้น ๆ ชั้นที่ <code>d</code> คือสถานะทุกอันที่ไปถึงได้
+    ด้วย <code>d</code> ท่าพอดี ไม่มากไม่น้อยกว่านั้น
+  </p>
+
+  <ZoomableDiagram caption={`สถานะทั้ง ${jugReachable} อันที่ไปถึงได้ จัดเป็นชั้นตามจำนวนท่าที่ใช้ ตัวเลขในวงคือ (น้ำในใบเล็ก, น้ำในใบใหญ่) วงสีทองคือชั้นแรกที่มีเหยือกใบไหนสักใบเก็บน้ำได้ ${JUG_Z} ลิตรพอดี (วาดประกอบโดยผู้เขียน)`}>
+    <svg
+      viewBox={`0 0 ${G_W} ${G_H}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label={`แผนภาพกราฟสถานะของโจทย์เหยือกน้ำ จัดเป็นแปดชั้นเรียงจากซ้ายไปขวา ชั้นซ้ายสุดมีสถานะเริ่มต้นหนึ่งอัน แต่ละชั้นถัดไปมีสถานะที่ไปถึงได้เพิ่มขึ้น มีเส้นเชื่อมจากสถานะในชั้นก่อนหน้าไปยังสถานะที่มันพาไปถึงเป็นครั้งแรก`}
+    >
+      {JUG_LAYERS.map((_, d) => (
+        <text x={PAD_L + d * COL + COL / 2} y={26} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">
+          {d}
+        </text>
+      ))}
+      {treeEdges.map((e) => (
+        <line x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y} stroke="#2a3350" stroke-width="1.3" />
+      ))}
+      {JUG_LAYERS.map((layer, d) =>
+        layer.map((s, k) => {
+          const p = nodePos(d, k);
+          const hit = s[0] === JUG_Z || s[1] === JUG_Z;
+          return (
+            <g>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="18"
+                fill={hit ? '#2a2010' : d === 0 ? '#101827' : '#1c2536'}
+                stroke={hit ? '#e0b400' : d === 0 ? '#2f9e5c' : '#3d4763'}
+                stroke-width="1.7"
+              />
+              <text
+                x={p.x}
+                y={p.y + 4}
+                fill={hit ? '#e0b400' : d === 0 ? '#4ade80' : '#cdd6ea'}
+                font-size="11"
+                text-anchor="middle"
+                font-family="monospace"
+              >
+                {s[0]},{s[1]}
+              </text>
+            </g>
+          );
+        }),
+      )}
+      <text x={PAD_L} y={G_H - 16} fill="#7b8397" font-size="11">
+        เลขบนหัวคอลัมน์คือจำนวนท่าที่ใช้
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ชั้นแรกที่มีสถานะที่เราต้องการคือชั้นที่ {jugAnswerLayer} คำตอบของโจทย์นี้จึงเป็น {jugAnswerLayer} ท่า
+    และเพราะเราเดินเป็นชั้น เราจึงรู้ทันทีว่าไม่มีทางที่สั้นกว่านี้ ไม่ต้องพิสูจน์อะไรเพิ่ม
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ทาง {jugAnswerLayer} ท่าที่ได้ · เหยือก {JUG_X} กับ {JUG_Y} ลิตร ตวงให้ได้ {JUG_Z}</caption>
+      <thead>
+        <tr><th class="num">ท่าที่</th><th>จาก</th><th>ทำอะไร</th><th>ได้เป็น</th></tr>
+      </thead>
+      <tbody>
+        {JUG_PATH.map((s, k) => (
+          <tr>
+            <td class="num">{k + 1}</td>
+            <td><code>({s.from[0]}, {s.from[1]})</code></td>
+            <td>{s.move}</td>
+            <td><code>({s.to[0]}, {s.to[1]})</code></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ทางนี้ได้จากการเดินย้อนจากสถานะปลายทางกลับมาหาจุดเริ่ม โดยไล่หาสถานะในชั้นก่อนหน้าที่พามาถึงได้
+      นี่คือเหตุผลที่ควรเก็บระยะไว้ทุกสถานะ ไม่ใช่เก็บแค่ว่าเคยไปแล้วหรือยัง
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ทำไมต้องเป็นการค้นตามความกว้าง</p>
+    <p>
+      การค้นตามความลึก (DFS) ก็ไปถึงทุกสถานะเหมือนกัน แต่<strong>ระยะที่มันเจอครั้งแรกไม่ใช่ระยะที่สั้นที่สุด</strong>
+      เพราะมันดิ่งไปสุดทางหนึ่งก่อน สถานะที่อยู่ห่างจากจุดเริ่มแค่สองท่าอาจถูกพบตอนที่เดินไปแล้วสิบท่า
+      แล้วถูกทำเครื่องหมายว่าเคยไปแล้ว จนไม่มีใครมาแก้ให้อีก การค้นตามความกว้างปลอดภัยเพราะมันกวาดครบทั้งชั้น
+      ก่อนขึ้นชั้นถัดไป <strong>สถานะจึงถูกพบครั้งแรกด้วยระยะที่สั้นที่สุดเสมอ</strong> ซึ่งเป็นเหตุผลที่เราตัดทิ้งได้เลย
+      เมื่อเจอสถานะที่เคยไปแล้ว
+    </p>
+  </div>
+
+  <h2>โครงที่ใช้ซ้ำได้ทุกข้อ</h2>
+  <p>
+    เมื่อนิยามสถานะกับเส้นเชื่อมได้แล้ว โค้ดที่เหลือเหมือนกันหมดทุกข้อ เปลี่ยนแค่สามจุด
+  </p>
+  <CodeBlock code={shapeCode} lang="cpp" title="โครง BFS" />
+  <p>
+    จุดที่เหลือให้คิดจริง ๆ มีข้อเดียว คือ<strong>จะเข้ารหัสสถานะเป็นเลขตัวเดียวยังไง</strong>
+    เพราะเราอยากใช้อาเรย์ธรรมดาเป็นตัวจำว่าไปถึงหรือยัง ไม่ใช่ตารางแฮชที่ช้ากว่าหลายเท่า
+    ในโจทย์เหยือกน้ำ สถานะ <code>(a, b)</code> อัดเป็น <code>a × (Y + 1) + b</code> ได้ตรง ๆ
+    เหมือนการอ่านเลขสองหลักในฐาน <code>Y + 1</code>
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ขนาดของกราฟสถานะในโจทย์ต่าง ๆ</caption>
+      <thead>
+        <tr><th>โจทย์</th><th>สถานะคืออะไร</th><th class="num">มีกี่สถานะ</th></tr>
+      </thead>
+      <tbody>
+        {sizeRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.state}</td>
+            <td class="num">{fmt(r.count)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สามแถวบนสร้างอาเรย์เก็บระยะได้สบาย ๆ ส่วนแถวล่างสร้างไม่ได้ในจักรวาลนี้ ตรงนั้นคือจุดที่ต้อง
+      <strong>เปลี่ยนคำถาม</strong>แทนที่จะเปลี่ยนอัลกอริทึม ซึ่งเป็นเรื่องของข้อ
+      <a href="/cp/fifteen-puzzle/">ปริศนา 15</a> ทั้งข้อ
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คิดก่อนอ่านต่อ</p>
+    <p>
+      ก่อนเขียนโค้ดทุกครั้ง ให้ตอบสามคำถามนี้ให้ได้เป็นคำพูดก่อน หนึ่ง สถานะของโจทย์นี้คืออะไร และมีทั้งหมดกี่อัน
+      สอง จากสถานะหนึ่ง ท่าที่ทำได้มีอะไรบ้าง สาม จะแปลงสถานะเป็นเลขจำนวนเต็มยังไงให้ไม่ชนกัน
+      ถ้าตอบข้อแรกแล้วได้ตัวเลขที่ใหญ่เกินกว่าจะสร้างอาเรย์ได้ แปลว่าโจทย์ไม่ได้ต้องการ BFS ธรรมดา
+      และต้องกลับไปอ่านโจทย์ใหม่ว่ามันขออะไรกันแน่
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้ตอบคนละคำถาม ข้อแรกถามว่า "สถานะที่เห็นชัดอยู่แล้วเขียนยังไง" ข้อสองถามว่า
+    "ถ้าสถานะไม่ใช่ตำแหน่งบนแผนที่" ข้อสามถามว่า "ถ้าบางสถานะเข้าไม่ได้เลย" ลองคิดเองก่อนแล้วค่อยแตะดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · เดินออกจากเขาวงกต</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้กริด <code>R</code> คูณ <code>C</code> ที่ <code>#</code> คือกำแพง <code>.</code> คือช่องว่าง
+      <code>S</code> คือจุดเริ่ม และ <code>T</code> คือจุดหมาย เดินได้สี่ทิศ ถามว่าต้องเดินอย่างน้อยกี่ก้าว
+      ถ้าไปไม่ถึงให้ตอบ <code>-1</code> โดย <code>R, C ≤ 1 000</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ข้อนี้สถานะคือตำแหน่งตรง ๆ ไม่ต้องแปลงอะไร แต่มีจุดหนึ่งที่ทำให้ไม่ต้องเขียนเงื่อนไขพิเศษสำหรับกรณี
+      "ไปไม่ถึง" เลย ลองดูว่าค่าตั้งต้นของตารางระยะควรเป็นเท่าไร
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ตั้งค่าเริ่มต้นของตารางระยะไว้ที่ <code>-1</code> ซึ่งทำหน้าที่สองอย่างพร้อมกัน คือแปลว่า "ยังไม่เคยไปถึง"
+      ระหว่างการค้น และแปลว่า "ไปไม่ถึงเลย" ตอนพิมพ์คำตอบ ไม่ต้องมีเงื่อนไข <code>if</code> เพิ่มสักบรรทัด
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · กริด" />
+    <p>
+      สุ่มเทียบ 400 เทส กับตัวตรวจที่<strong>ไม่ใช้คิวเลย</strong> คือไล่ผ่อนคลายค่าไปเรื่อย ๆ จนไม่มีอะไรเปลี่ยน
+      ซึ่งช้ากว่ามากแต่ถูกต้องโดยไม่ขึ้นกับลำดับในคิว ตรงกันทั้งหมด รวมกรณีที่กำแพงล้อมจุดเริ่มจนออกไปไหนไม่ได้
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · เหยือกน้ำสองใบ</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้เหยือกความจุ <code>X</code> กับ <code>Y</code> ลิตร เริ่มต้นว่างทั้งคู่ ทำได้หกท่าคือเติมใบใดใบหนึ่งให้เต็ม
+      เททิ้งใบใดใบหนึ่ง และเทใบหนึ่งใส่อีกใบจนใบรับเต็มหรือใบเทหมด ถามว่าอย่างน้อยกี่ท่าถึงจะมีเหยือกใบใดใบหนึ่ง
+      เก็บน้ำได้ <code>Z</code> ลิตรพอดี ทำไม่ได้ให้ตอบ <code>-1</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      โจทย์ไม่ได้พูดถึงกราฟเลยสักคำ แต่ถ้าเขียน "ปริมาณน้ำตอนนี้" ลงกระดาษเป็นคู่ตัวเลข แล้วลากลูกศรไปยัง
+      ทุกคู่ที่ทำต่อได้ คุณจะได้กราฟมาแล้วหนึ่งอัน เหลือแค่ต้องแปลงคู่ตัวเลขเป็นดัชนีของอาเรย์
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      สถานะคือ <code>(a, b)</code> โดย <code>0 ≤ a ≤ X</code> และ <code>0 ≤ b ≤ Y</code> มีทั้งหมด
+      <code>(X + 1)(Y + 1)</code> อัน อัดเป็นเลขตัวเดียวด้วย <code>a × (Y + 1) + b</code> แล้วแตกกลับด้วยการหาร
+      กับหารเอาเศษ ท่าที่ยากที่สุดคือการเท ซึ่งย้ายน้ำได้เท่ากับ<strong>ค่าที่น้อยกว่า</strong>ระหว่างน้ำที่มีในใบเท
+      กับที่ว่างที่เหลือในใบรับ
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · เหยือกน้ำ" />
+    <p>
+      สุ่มเทียบ 400 เทส กับตัวตรวจแบบผ่อนคลายค่าเช่นเดิม รวมกรณี <code>Z = 0</code> ซึ่งตอบ 0 ตั้งแต่ยังไม่ทำอะไร
+      และกรณี <code>Z</code> ที่ใหญ่กว่าเหยือกทั้งสองใบซึ่งตอบ <code>-1</code> ตรงกันทั้งหมด
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · ล็อกรหัสที่มีรหัสต้องห้าม</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ล็อกมีวงล้อสี่วง แต่ละวงเป็นเลข 0 ถึง 9 หมุนวนได้ทั้งสองทาง (จาก 9 หมุนขึ้นได้ 0) หนึ่งท่าคือหมุนวงเดียว
+      ขึ้นหรือลงหนึ่งขั้น เริ่มที่ <code>0000</code> มีรายการรหัสต้องห้าม <code>m</code> ตัวที่<strong>ห้ามให้ล็อกอยู่ในสภาพนั้น
+      แม้แต่ระหว่างทาง</strong> ถามว่าหมุนอย่างน้อยกี่ครั้งถึงจะได้รหัสเป้าหมาย ทำไม่ได้ให้ตอบ <code>-1</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      รหัสสี่หลักเป็นเลข 0 ถึง 9999 อยู่แล้ว จึงเป็นดัชนีของอาเรย์ได้เลยโดยไม่ต้องแปลงอะไร
+      ส่วนรหัสต้องห้ามไม่ใช่กรณีพิเศษ มันแค่เป็นสถานะที่<strong>ไม่มีเส้นเชื่อมเข้าไป</strong>
+      แล้วมีกรณีหนึ่งที่ต้องตอบก่อนเริ่มค้นด้วยซ้ำ ลองหาให้เจอ
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      กรณีที่ต้องดักก่อนคือ <code>0000</code> เองอยู่ในรายการต้องห้าม ซึ่งแปลว่าเราออกตัวไม่ได้เลย ต้องตอบ
+      <code>-1</code> ทันที ถ้าไม่ดัก โค้ดจะเริ่มค้นจากสถานะที่ผิดกติกาแล้วอาจตอบเป็นตัวเลขออกมา
+    </p>
+    <p>
+      ส่วนการหมุนหนึ่งขั้น เขียนได้สะอาดด้วยการมองเลขสี่หลักเป็นผลรวมของหลักคูณค่าประจำหลัก
+      ดึงหลักที่ <code>k</code> ออกมาด้วยการหารแล้วหารเอาเศษ เปลี่ยนค่าแล้วบวกกลับด้วย
+      <strong>ส่วนต่าง</strong>คูณค่าประจำหลัก ไม่ต้องแปลงเป็นสตริงเลย ทั้งข้อมี 10 000 สถานะ สถานะละ 8 ท่า
+      จึงจบเร็วมาก
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · ล็อกรหัส" />
+    <p>
+      สุ่มเทียบ 200 เทส กับตัวตรวจแบบผ่อนคลายค่าซึ่งกวาดทั้ง 10 000 สถานะซ้ำจนนิ่ง โดยจงใจให้รหัสต้องห้าม
+      บางเทสไปตกที่ <code>0000</code> พอดี ตรงกันทั้งหมด
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        การหมุนลงหนึ่งขั้นเขียนเป็น <code>(digit - 1) % 10</code> ไม่ได้ เพราะภาษา C++ ให้เศษที่ติดลบ
+        เมื่อตัวตั้งติดลบ ตอน <code>digit</code> เป็น 0 จะได้ <code>-1</code> แล้วดัชนีหลุดขอบอาเรย์
+        ท่าที่ปลอดภัยคือบวก 9 แทนการลบ 1 ซึ่งให้ผลเดียวกันในโลกที่วนครบสิบ
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้าโจทย์ถามว่า "อย่างน้อยกี่ท่า" และทุกท่าราคาเท่ากัน ให้หยุดคิดเรื่องอัลกอริทึมทันที แล้วไปตอบสองคำถามแทน
+    ว่า<strong>สถานะคืออะไร</strong>กับ<strong>ท่าหนึ่งท่าพาไปไหนได้บ้าง</strong> ที่เหลือคือโครงสิบบรรทัดที่เหมือนกันทุกข้อ
+    และถ้านับสถานะแล้วได้ตัวเลขที่ใหญ่เกินสร้างอาเรย์ นั่นไม่ใช่สัญญาณว่าต้องหาอัลกอริทึมที่แรงกว่า
+    แต่เป็นสัญญาณว่าอ่านโจทย์ยังไม่ครบ
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ (1rem) และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem 0 0.5rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+</style>
