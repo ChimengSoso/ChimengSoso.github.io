@@ -16,6 +16,45 @@ export interface CpSet {
 /** ระดับความยากที่ผมให้เอง 1 = อุ่นเครื่อง, 5 = ต้องนั่งคิดข้ามวัน */
 export type CpDifficulty = 1 | 2 | 3 | 4 | 5;
 
+/**
+ * คลังหัวข้อที่อนุญาต เป็นรายการปิด ไม่ใช่สตริงอิสระ
+ *
+ * เหตุผล: หัวข้อกลายเป็นชิปตัวกรองบนหน้า /cp/ แล้ว ถ้าปล่อยให้พิมพ์อะไรก็ได้
+ * วันหนึ่งจะมีทั้ง 'bfs' และ 'BFS' หรือ 'prefix sum' และ 'prefix-sum' อยู่ในคลังพร้อมกัน
+ * กลายเป็นชิปคนละอันที่กรองได้คนละครึ่ง โดยไม่มีอะไรเตือนเลย
+ * พอประกาศเป็น union แบบนี้ การพิมพ์ผิดจะกลายเป็น error ตอน npm run check ทันที
+ *
+ * จะเพิ่มหัวข้อใหม่ก็เพิ่มบรรทัดในนี้ ซึ่งเป็นการตัดสินใจที่ตั้งใจทำ ไม่ใช่หลุดมือ
+ * เรียงตามกลุ่มเพื่อให้หาง่าย ลำดับในนี้ไม่มีผลกับหน้าเว็บ (ชิปเรียงตามความถี่ที่ใช้จริง)
+ */
+export const CP_TOPICS = [
+  // เทคนิคหลัก
+  'dp',
+  'interval dp',
+  'state compression',
+  'greedy',
+  'constructive',
+  'simulation',
+  'invariant',
+  'ad hoc',
+  // โครงสร้างข้อมูล
+  'stack',
+  'BIT',
+  'prefix sum',
+  'hashing',
+  'string',
+  // กราฟและต้นไม้
+  'bfs',
+  'dfs',
+  'tree',
+  'state space',
+  'sweep line',
+  // ป้ายกำกับอื่น
+  'พื้นฐาน',
+] as const;
+
+export type CpTopic = (typeof CP_TOPICS)[number];
+
 export interface CpProblem {
   /** path แบบไดเรกทอรีเทียบกับ /cp/ (เช่น 'icpc-2026-needle/') */
   href: string;
@@ -26,8 +65,8 @@ export interface CpProblem {
   title: string;
   /** หนึ่งบรรทัดว่าโจทย์ถามอะไร โชว์บนการ์ด */
   desc: string;
-  /** หัวข้ออัลกอริทึม เช่น ['greedy', 'binary search'] โชว์เป็นชิป */
-  topics: string[];
+  /** หัวข้ออัลกอริทึม โชว์เป็นชิปบนการ์ดและเป็นตัวกรองบนหน้า /cp/ เลือกจาก CP_TOPICS เท่านั้น */
+  topics: CpTopic[];
   difficulty: CpDifficulty;
   /**
    * 'problem' (ค่าเริ่มต้น) = โจทย์หนึ่งข้อพร้อมเฉลย
@@ -199,6 +238,50 @@ export const cpProblems: CpProblem[] = [
     readingMinutes: 11,
   },
 ];
+
+/**
+ * ด่านตรวจที่รันตอน build
+ *
+ * ไฟล์นี้ถูก import โดยหน้า /cp/ ทุกหน้า โค้ดตรงนี้จึงทำงานทุกครั้งที่ astro build
+ * ของที่ผิดกติกาจะทำให้ build ล้มพร้อมข้อความบอกตรง ๆ แทนที่จะเงียบแล้วไปโผล่เป็น
+ * ลิงก์ตาย ชิปตัวกรองที่ซ้ำซ้อน หรือการ์ดที่หายไปจากหน้าคลังโดยไม่มีใครรู้
+ *
+ * เช็กเฉพาะเรื่องที่ระบบชนิดข้อมูลตรวจให้ไม่ได้ ส่วนที่ตรวจได้แล้ว (ระดับ 1 ถึง 5,
+ * ชื่อหัวข้อที่ต้องอยู่ใน CP_TOPICS) ปล่อยให้ npm run check จัดการ
+ */
+function assertCpData(): void {
+  const setIds = new Set(cpSets.map((s) => s.id));
+  const seen = new Set<string>();
+
+  for (const p of cpProblems) {
+    const at = `cp.ts: โจทย์ "${p.title || p.href}"`;
+
+    // href ต้องเป็นแบบไดเรกทอรี เพราะ build.format ของโปรเจกต์นี้เป็น "directory"
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*\/$/.test(p.href))
+      throw new Error(`${at}: href "${p.href}" ต้องเป็นตัวพิมพ์เล็กคั่นด้วยขีด และลงท้ายด้วย / เช่น "pick-books/"`);
+    if (seen.has(p.href)) throw new Error(`${at}: href "${p.href}" ซ้ำกับข้ออื่น`);
+    seen.add(p.href);
+
+    // setId ที่ไม่มีจริง ทำให้การ์ดหายไปจากหน้าคลังแบบเงียบ ๆ เพราะ cpProblemsBySet กรองตามชุด
+    if (!setIds.has(p.setId))
+      throw new Error(`${at}: setId "${p.setId}" ไม่มีใน cpSets (มีอยู่: ${[...setIds].join(', ')})`);
+
+    if (!p.title.trim()) throw new Error(`${at}: title ว่าง`);
+    if (!p.desc.trim()) throw new Error(`${at}: desc ว่าง`);
+
+    if (p.topics.length === 0) throw new Error(`${at}: ต้องมีหัวข้ออย่างน้อยหนึ่งอัน`);
+    if (new Set(p.topics).size !== p.topics.length)
+      throw new Error(`${at}: หัวข้อซ้ำกันเองใน ${JSON.stringify(p.topics)}`);
+
+    if (p.soon) continue; // การ์ด "เร็วๆ นี้" ยังไม่ต้องมีวันที่กับเวลาอ่าน
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.dateISO) || Number.isNaN(Date.parse(p.dateISO)))
+      throw new Error(`${at}: dateISO "${p.dateISO}" ต้องเป็นวันที่จริงในรูป YYYY-MM-DD`);
+    if (!Number.isInteger(p.readingMinutes) || p.readingMinutes <= 0)
+      throw new Error(`${at}: readingMinutes ต้องเป็นจำนวนเต็มบวก`);
+  }
+}
+assertCpData();
 
 export const publishedCpProblems = cpProblems.filter((p) => !p.soon);
 
