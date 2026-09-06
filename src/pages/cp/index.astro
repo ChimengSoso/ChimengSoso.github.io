@@ -5,6 +5,51 @@ import { formatThaiDateShort } from '../../lib/dates';
 
 const groups = cpProblemsBySet();
 const total = publishedCpProblems.length;
+
+/* ---------- ค่าของตัวกรอง คิดจากข้อที่มีจริง ไม่ได้พิมพ์รายการไว้ตายตัว ---------- */
+
+/** ชุด เรียงตามลำดับใน cpSets เหมือนที่โชว์บนหน้า */
+const setValues = groups.map((g) => ({ value: g.set.id, label: g.set.title, count: g.problems.length }));
+
+/** หัวข้อ เรียงจากที่โผล่บ่อยสุดไปน้อยสุด แล้วค่อยเรียงตามชื่อ (ค่าที่คนใช้บ่อยควรอยู่ต้น ๆ) */
+const topicCount = new Map<string, number>();
+for (const p of publishedCpProblems)
+  for (const t of p.topics) topicCount.set(t, (topicCount.get(t) ?? 0) + 1);
+/** โชว์หัวข้อที่ใช้บ่อยแค่ชุดแรก ที่เหลือพับไว้ ไม่งั้นพอโจทย์เยอะ แถบจะยาวเกินจอ */
+const TOPIC_VISIBLE = 8;
+const topicValues = [...topicCount.entries()]
+  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))
+  .map(([value, count], i) => ({ value, label: value, count, extra: i >= TOPIC_VISIBLE }));
+const topicExtra = Math.max(0, topicValues.length - TOPIC_VISIBLE);
+
+/** ระดับ เรียงจากน้อยไปมากเสมอ ตามธรรมชาติของค่าที่เป็นตัวเลข */
+const diffCount = new Map<number, number>();
+for (const p of publishedCpProblems) diffCount.set(p.difficulty, (diffCount.get(p.difficulty) ?? 0) + 1);
+const diffValues = [...diffCount.entries()]
+  .sort((a, b) => a[0] - b[0])
+  .map(([d, count]) => ({ value: String(d), label: '★'.repeat(d) + '☆'.repeat(5 - d), count }));
+
+/** ตัวเลือกการเรียง ตัวแรกคือค่าเริ่มต้นซึ่งคงการจัดกลุ่มตามชุดไว้ */
+const sortOptions = [
+  { value: 'set', label: 'จัดกลุ่มตามชุด' },
+  { value: 'new', label: 'ใหม่สุดก่อน' },
+  { value: 'old', label: 'เก่าสุดก่อน' },
+  { value: 'title', label: 'ชื่อ ก ถึง ฮ' },
+  { value: 'easy', label: 'ง่ายไปยาก' },
+  { value: 'hard', label: 'ยากไปง่าย' },
+  { value: 'short', label: 'อ่านสั้นไปยาว' },
+];
+
+/** ข้อความที่ช่องค้นหาจะกวาด รวมชื่อ คำโปรย หัวข้อ และเลขข้อ */
+const searchBlob = (p: (typeof publishedCpProblems)[number]): string =>
+  [p.title, p.desc, p.topics.join(' '), p.label ?? ''].join(' ').toLowerCase();
+
+interface FacetValue { value: string; label: string; count: number; extra?: boolean }
+const facets: { key: string; legend: string; values: FacetValue[]; extra: number }[] = [
+  { key: 'set', legend: 'ชุด', values: setValues, extra: 0 },
+  { key: 'topic', legend: 'หัวข้อ', values: topicValues, extra: topicExtra },
+  { key: 'diff', legend: 'ระดับ', values: diffValues, extra: 0 },
+];
 ---
 <DivineLoreLayout
   title="หมวดโจทย์แข่ง | ChimengSoso"
@@ -25,16 +70,103 @@ const total = publishedCpProblems.length;
     ส่วนบทปูพื้นฐานข้างล่างคือเทคนิคที่โจทย์พวกนี้เรียกใช้ อ่านก่อนได้ถ้าอยากให้ข้อที่เหลือง่ายขึ้น
   </p>
 
+  {total > 0 && (
+    /* ซ่อนไว้ก่อน แล้วให้สคริปต์เปิดเอง คนที่ปิด JS จะได้เห็นรายการเต็มโดยไม่มีปุ่มที่กดแล้วไม่เกิดอะไร
+       จอกว้างแถบนี้ลอยไปอยู่ช่องว่างซ้ายมือแบบตรึงไว้ จะได้กดเรียงหรือกรองได้โดยไม่ต้องเลื่อนขึ้นมาบนสุด
+       จอแคบไม่มีที่ให้ลอย จึงพับเก็บไว้ใต้ปุ่มเดียวแล้วหนึบไว้บนสุดแทน */
+    <aside class="cp-rail" data-cp-tools hidden aria-label="กรองและเรียงรายการ">
+      <div class="cp-rail-bar">
+        <button
+          type="button"
+          class="cp-rail-toggle"
+          data-cp-toggle
+          aria-expanded="false"
+          aria-controls="cp-rail-body"
+        >
+          กรองและเรียง
+          <span class="cp-rail-n" data-cp-activen hidden>0</span>
+        </button>
+      </div>
+
+      <div class="cp-rail-body" id="cp-rail-body">
+        <p class="cp-rail-title">กรองและเรียง</p>
+
+        <div class="cp-bar">
+          <p class="cp-result" data-cp-result role="status" aria-live="polite" aria-atomic="true"></p>
+          <button type="button" class="cp-clear" data-cp-clear hidden>ล้างทั้งหมด</button>
+        </div>
+
+        <label class="cp-search">
+          <span class="vh">ค้นหาในคลัง</span>
+          <input type="search" data-cp-q placeholder="ค้นชื่อโจทย์ หรือเทคนิค" autocomplete="off" />
+        </label>
+
+        <label class="cp-sort">
+          <span>เรียงตาม</span>
+          <select data-cp-sort>
+            {sortOptions.map((o) => <option value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+
+        {facets.map((f) => (
+          <fieldset class="cp-facet" data-facet-group={f.key}>
+            <legend>{f.legend}</legend>
+            <div class="cp-chips">
+              {f.values.map((v) => (
+                <button
+                  type="button"
+                  class="cp-chip"
+                  data-facet={f.key}
+                  data-value={v.value}
+                  data-extra={v.extra ? '1' : undefined}
+                  aria-pressed="false"
+                >
+                  <span class="cp-chip-label">{v.label}</span>
+                  <span class="cp-chip-n" data-chip-n>{v.count}</span>
+                </button>
+              ))}
+              {f.extra > 0 && (
+                <button type="button" class="cp-more" data-cp-more aria-expanded="false">
+                  อีก {f.extra} หัวข้อ
+                </button>
+              )}
+            </div>
+          </fieldset>
+        ))}
+      </div>
+    </aside>
+  )}
+
   {total === 0 ? (
     <p class="cp-empty">ยังไม่มีข้อในคลัง กำลังทยอยแกะอยู่ครับ</p>
   ) : (
-    groups.map((g) => (
-      <section class="cp-group">
-        <h2>{g.set.title} <span class="cp-count">{g.problems.length} {g.problems.every((p) => p.kind === 'lesson') ? 'บท' : 'ข้อ'}</span></h2>
-        {g.set.desc && <p class="cp-group-desc">{g.set.desc}</p>}
-        <div class="list">
+    <div class="cp-list" data-cp-list>
+      {groups.map((g) => (
+        <>
+          <div class="cp-head" data-head={g.set.id}>
+            <h2>
+              {g.set.title}
+              <span class="cp-count">
+                <span data-head-n>{g.problems.length}</span>
+                {' '}
+                {g.problems.every((p) => p.kind === 'lesson') ? 'บท' : 'ข้อ'}
+              </span>
+            </h2>
+            {g.set.desc && <p class="cp-group-desc">{g.set.desc}</p>}
+          </div>
           {g.problems.map((p) => (
-            <a class="item" href={p.href}>
+            <a
+              class="item"
+              href={p.href}
+              data-item
+              data-set={g.set.id}
+              data-topics={p.topics.join('|')}
+              data-diff={p.difficulty}
+              data-date={p.dateISO}
+              data-title={p.title}
+              data-minutes={p.readingMinutes}
+              data-text={searchBlob(p)}
+            >
               {p.kind === 'lesson' && <span class="item-kind">บทปูพื้นฐาน</span>}
               {p.label && <span class="item-label">ข้อ {p.label}</span>}
               <h3>{p.title}</h3>
@@ -47,14 +179,515 @@ const total = publishedCpProblems.length;
               </div>
             </a>
           ))}
-        </div>
-      </section>
-    ))
+        </>
+      ))}
+    </div>
+  )}
+
+  {total > 0 && (
+    <p class="cp-none" data-cp-none hidden>
+      ไม่มีข้อไหนตรงกับที่กรองไว้ ลองถอดตัวกรองบางอันออก หรือกดล้างทั้งหมดข้างบน
+    </p>
   )}
 </DivineLoreLayout>
 
+<script>
+  // ตัวกรองกับการเรียงของหน้าคลังโจทย์
+  // ทุกอย่างทำฝั่งเบราว์เซอร์ล้วน การ์ดทั้งหมดถูกเรนเดอร์มาตั้งแต่ตอน build แล้ว
+  // สคริปต์นี้แค่ซ่อน แสดง และสลับลำดับ ไม่ได้สร้างการ์ดขึ้นมาใหม่
+  type FacetKey = 'set' | 'topic' | 'diff';
+  const FACETS: FacetKey[] = ['set', 'topic', 'diff'];
+
+  interface Card {
+    el: HTMLElement;
+    set: string;
+    topics: string[];
+    diff: string;
+    date: string;
+    title: string;
+    minutes: number;
+    text: string;
+  }
+
+  interface State {
+    q: string;
+    sort: string;
+    set: Set<string>;
+    topic: Set<string>;
+    diff: Set<string>;
+  }
+
+  function wire(): void {
+    const tools = document.querySelector<HTMLElement>('[data-cp-tools]');
+    const list = document.querySelector<HTMLElement>('[data-cp-list]');
+    if (!tools || !list || tools.dataset.wired === '1') return;
+    tools.dataset.wired = '1';
+
+    const input = tools.querySelector<HTMLInputElement>('[data-cp-q]');
+    const sortSel = tools.querySelector<HTMLSelectElement>('[data-cp-sort]');
+    const resultEl = tools.querySelector<HTMLElement>('[data-cp-result]');
+    const clearBtn = tools.querySelector<HTMLButtonElement>('[data-cp-clear]');
+    const toggle = tools.querySelector<HTMLButtonElement>('[data-cp-toggle]');
+    const activeN = tools.querySelector<HTMLElement>('[data-cp-activen]');
+    const noneEl = document.querySelector<HTMLElement>('[data-cp-none]');
+    const chips = [...tools.querySelectorAll<HTMLButtonElement>('.cp-chip')];
+    const heads = [...list.querySelectorAll<HTMLElement>('[data-head]')];
+    if (!input || !sortSel || !resultEl || !clearBtn || !noneEl) return;
+
+    // ผูกเป็นตัวแปรใหม่หลังผ่านด่านตรวจ เพราะการรับประกันว่าไม่ใช่ null
+    // จะหายไปเมื่อถูกใช้ในฟังก์ชันซ้อนข้างล่าง
+    const listEl: HTMLElement = list;
+    const toolsEl: HTMLElement = tools;
+    const resEl: HTMLElement = resultEl;
+    const clearEl: HTMLButtonElement = clearBtn;
+    const emptyEl: HTMLElement = noneEl;
+
+    const cards: Card[] = [...list.querySelectorAll<HTMLElement>('[data-item]')].map((el) => ({
+      el,
+      set: el.dataset.set ?? '',
+      topics: (el.dataset.topics ?? '').split('|').filter(Boolean),
+      diff: el.dataset.diff ?? '',
+      date: el.dataset.date ?? '',
+      title: el.dataset.title ?? '',
+      minutes: Number(el.dataset.minutes ?? '0'),
+      text: el.dataset.text ?? '',
+    }));
+
+    // ลำดับเดิมของทุกอย่างในรายการ ใช้คืนค่าเวลากลับไปโหมดจัดกลุ่ม
+    const original = [...list.children] as HTMLElement[];
+
+    const state: State = { q: '', sort: 'set', set: new Set(), topic: new Set(), diff: new Set() };
+
+    /* ---------- อ่านค่าเริ่มต้นจาก URL เพื่อให้ลิงก์ที่กรองไว้แล้วส่งต่อกันได้ ---------- */
+    const params = new URLSearchParams(window.location.search);
+    state.q = params.get('q') ?? '';
+    const rawSort = params.get('sort') ?? 'set';
+    const sortOk = [...sortSel.options].some((o) => o.value === rawSort);
+    state.sort = sortOk ? rawSort : 'set';
+    for (const key of FACETS) {
+      const raw = params.get(key);
+      if (!raw) continue;
+      // รับเฉพาะค่าที่มีชิปอยู่จริง กันค่าที่พิมพ์มั่วมาใน URL
+      const allowed = new Set(chips.filter((c) => c.dataset.facet === key).map((c) => c.dataset.value ?? ''));
+      for (const v of raw.split(',')) if (allowed.has(v)) state[key].add(v);
+    }
+    input.value = state.q;
+    sortSel.value = state.sort;
+
+    /* ---------- ตัวช่วยตัดสินว่าการ์ดผ่านเงื่อนไขไหม ---------- */
+    const matchFacet = (c: Card, key: FacetKey): boolean => {
+      const picked = state[key];
+      if (picked.size === 0) return true;
+      // ในหมวดเดียวกันคือ "หรือ" เลือกหลายค่าแล้วได้ผลรวมกว้างขึ้น
+      if (key === 'topic') return c.topics.some((t) => picked.has(t));
+      return picked.has(key === 'set' ? c.set : c.diff);
+    };
+    const matchQuery = (c: Card): boolean => state.q === '' || c.text.includes(state.q.toLowerCase());
+    // ข้ามหมวดกันคือ "และ" ทุกหมวดต้องผ่านหมด
+    const matchAll = (c: Card): boolean => matchQuery(c) && FACETS.every((k) => matchFacet(c, k));
+    /** ผ่านทุกอย่างยกเว้นหมวดที่กำลังนับ ใช้คิดตัวเลขบนชิปว่า "ถ้ากดอันนี้จะเหลือกี่ข้อ" */
+    const matchExcept = (c: Card, skip: FacetKey): boolean =>
+      matchQuery(c) && FACETS.every((k) => k === skip || matchFacet(c, k));
+
+    const cmp: Record<string, (a: Card, b: Card) => number> = {
+      new: (a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title, 'th'),
+      old: (a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, 'th'),
+      title: (a, b) => a.title.localeCompare(b.title, 'th'),
+      easy: (a, b) => Number(a.diff) - Number(b.diff) || a.title.localeCompare(b.title, 'th'),
+      hard: (a, b) => Number(b.diff) - Number(a.diff) || a.title.localeCompare(b.title, 'th'),
+      short: (a, b) => a.minutes - b.minutes || a.title.localeCompare(b.title, 'th'),
+    };
+
+    /* ---------- เขียนสถานะกลับลง URL ---------- */
+    function syncUrl(): void {
+      const p = new URLSearchParams();
+      if (state.q) p.set('q', state.q);
+      if (state.sort !== 'set') p.set('sort', state.sort);
+      for (const key of FACETS) if (state[key].size) p.set(key, [...state[key]].join(','));
+      const qs = p.toString();
+      // ใช้ replaceState ไม่ใช่ pushState เพราะการกดชิปสิบครั้งไม่ควรกลายเป็นประวัติสิบหน้า
+      // ที่ทำให้ปุ่มย้อนกลับพาออกจากหน้านี้ไม่ได้ ลิงก์ยังก็อปส่งต่อและรีเฟรชได้เหมือนเดิม
+      window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    function apply(): void {
+      const shown = cards.filter(matchAll);
+      const shownSet = new Set(shown.map((c) => c.el));
+      for (const c of cards) c.el.hidden = !shownSet.has(c.el);
+
+      // ตัวเลขบนชิป บอกว่าเหลือกี่ข้อถ้าเลือกค่านั้น คิดจากตัวกรองหมวดอื่นที่เปิดอยู่
+      for (const chip of chips) {
+        const key = chip.dataset.facet as FacetKey;
+        const value = chip.dataset.value ?? '';
+        const n = cards.filter(
+          (c) => matchExcept(c, key) && (key === 'topic' ? c.topics.includes(value) : (key === 'set' ? c.set : c.diff) === value),
+        ).length;
+        const nEl = chip.querySelector<HTMLElement>('[data-chip-n]');
+        if (nEl) nEl.textContent = String(n);
+        const on = state[key].has(value);
+        chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        // ค่าที่กดแล้วได้ศูนย์ ปิดไว้เลย กันทางตันที่ต้องกดแล้วค่อยรู้ว่าไม่มีอะไร
+        chip.disabled = n === 0 && !on;
+      }
+
+      // จัดลำดับ ถ้าเลือกเรียงแบบอื่น หัวข้อกลุ่มจะถูกซ่อนเพราะมันขัดกับลำดับใหม่
+      if (state.sort === 'set') {
+        listEl.append(...original);
+        for (const h of heads) {
+          const id = h.dataset.head ?? '';
+          const n = shown.filter((c) => c.set === id).length;
+          const nEl = h.querySelector<HTMLElement>('[data-head-n]');
+          if (nEl) nEl.textContent = String(n);
+          h.hidden = n === 0;
+        }
+      } else {
+        for (const h of heads) h.hidden = true;
+        const order = [...shown].sort(cmp[state.sort]);
+        listEl.append(...order.map((c) => c.el));
+      }
+
+      const active = FACETS.reduce((s, k) => s + state[k].size, 0) + (state.q ? 1 : 0);
+      if (activeN) {
+        activeN.textContent = String(active);
+        activeN.hidden = active === 0;
+      }
+      resEl.textContent =
+        active === 0
+          ? `ทั้งหมด ${cards.length} รายการ`
+          : `แสดง ${shown.length} จาก ${cards.length} รายการ`;
+      clearEl.hidden = active === 0;
+      emptyEl.hidden = shown.length > 0;
+      syncUrl();
+    }
+
+    for (const chip of chips) {
+      chip.addEventListener('click', () => {
+        const key = chip.dataset.facet as FacetKey;
+        const value = chip.dataset.value ?? '';
+        if (state[key].has(value)) state[key].delete(value);
+        else state[key].add(value);
+        apply();
+      });
+    }
+
+    let timer = 0;
+    input.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        state.q = input.value.trim();
+        apply();
+      }, 150);
+    });
+
+    sortSel.addEventListener('change', () => {
+      state.sort = sortSel.value;
+      apply();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      state.q = '';
+      input.value = '';
+      for (const key of FACETS) state[key].clear();
+      apply();
+      input.focus();
+    });
+
+    /* เลือกโหมดของแถบจากช่องว่างที่มีจริง วัดเองแทนการเดาด้วย media query
+       เพราะ media query คิด rem ที่ 16px ตายตัว แต่ root font-size ของเว็บนี้ยืดตามจอ */
+    const RAIL_MIN_REM = 11;   // แคบกว่านี้ชิปหัวข้อเริ่มขึ้นบรรทัดละคำ
+    const RAIL_GAP_REM = 1.4;  // ระยะห่างจากขอบการ์ด ต้องตรงกับ 22.4rem ใน CSS
+    const RAIL_EDGE_REM = 0.8; // เผื่อขอบจอไว้ไม่ให้แถบไปชนขอบพอดี
+    const panel = listEl.closest('.panel');
+    function layoutRail(): void {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const panelW = panel ? panel.getBoundingClientRect().width : 0;
+      const gutter = (window.innerWidth - panelW) / 2;
+      const need = (RAIL_MIN_REM + RAIL_GAP_REM + RAIL_EDGE_REM) * rem;
+      const side = gutter >= need;
+      toolsEl.dataset.rail = side ? 'side' : 'inline';
+      if (side) {
+        if (toolsEl.parentElement !== document.body) document.body.appendChild(toolsEl);
+      } else goHome();
+    }
+    /* .panel ของเลย์เอาต์มี animation ที่ค้าง transform ไว้ และ transform ที่ไม่ใช่ none
+       ทำให้ธาตุนั้นกลายเป็น containing block ของลูกที่เป็น position:fixed แถบจึงเลื่อนตาม
+       หน้าไปแทนที่จะตรึงกับจอ ทางที่ไม่ต้องไปยุ่งกับอนิเมชันของเลย์เอาต์ที่หน้าอื่นใช้ร่วมกัน
+       คือย้ายแถบออกไปเป็นลูกของ body ตอนใช้โหมดข้าง แล้วคืนที่เดิมเมื่อกลับเป็นโหมดในสาย */
+    const home = document.createComment('cp-rail');
+    toolsEl.parentNode?.insertBefore(home, toolsEl);
+    const goHome = (): void => {
+      if (toolsEl.parentElement !== document.body) return;
+      home.parentNode?.insertBefore(toolsEl, home);
+    };
+    // คืนที่เดิมก่อน ClientRouter สลับ DOM จะได้ไม่มีธาตุค้างอยู่บน body ของหน้าถัดไป
+    document.addEventListener('astro:before-swap', goHome, { once: true });
+
+    layoutRail();
+    let resizeTimer = 0;
+    window.addEventListener('resize', () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(layoutRail, 120);
+    });
+
+    /* ปุ่มขยายรายการหัวข้อที่พับไว้ */
+    for (const more of tools.querySelectorAll<HTMLButtonElement>('[data-cp-more]')) {
+      const group = more.closest<HTMLElement>('.cp-facet');
+      if (!group) continue;
+      const label = more.textContent ?? '';
+      more.addEventListener('click', () => {
+        const open = group.dataset.showall === '1';
+        group.dataset.showall = open ? '0' : '1';
+        more.setAttribute('aria-expanded', open ? 'false' : 'true');
+        more.textContent = open ? label : 'ย่อรายการ';
+      });
+    }
+    // ถ้าค่าที่เปิดอยู่ตอนเริ่ม (จาก URL) ดันอยู่ในส่วนที่พับไว้ ต้องกางให้เห็นด้วย
+    for (const chip of chips) {
+      if (chip.dataset.extra !== '1') continue;
+      const key = chip.dataset.facet as FacetKey;
+      if (!state[key].has(chip.dataset.value ?? '')) continue;
+      const group = chip.closest<HTMLElement>('.cp-facet');
+      const more = group?.querySelector<HTMLButtonElement>('[data-cp-more]');
+      if (group) group.dataset.showall = '1';
+      if (more) {
+        more.setAttribute('aria-expanded', 'true');
+        more.textContent = 'ย่อรายการ';
+      }
+    }
+
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const open = tools.dataset.open === '1';
+        tools.dataset.open = open ? '0' : '1';
+        toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+      });
+    }
+
+    tools.hidden = false;
+    apply();
+  }
+
+  document.addEventListener('astro:page-load', wire);
+</script>
+
 <style>
   .cp-empty{color:var(--dl-muted);font-size:0.92rem;}
+  .vh{
+    position:absolute;
+    width:1px;height:1px;
+    padding:0;margin:-1px;
+    overflow:hidden;
+    clip:rect(0 0 0 0);
+    white-space:nowrap;
+    border:0;
+  }
+  /* การ์ดกับหัวข้อกลุ่มเป็น block ต้องบังคับทับ hidden ของเบราว์เซอร์ */
+  [hidden]{display:none !important;}
+
+  /* ---- แถบกรองและเรียง ---- */
+  /* จอกว้าง: ลอยอยู่ช่องว่างซ้ายของการ์ด ตรึงไว้กับหน้าจอ เลื่อนอ่านไปไกลแค่ไหนก็ยังกดได้
+     ตำแหน่งอิงจากกึ่งกลางหน้าจอ เพราะการ์ดถูกจัดกลางไว้ที่ความกว้าง 42rem
+     จอแคบ: กลับมาอยู่ในสายเนื้อหา พับเก็บใต้ปุ่มเดียว และหนึบไว้บนสุด */
+  .cp-rail{
+    position:sticky;
+    top:0;
+    z-index:6;
+    margin:1.4rem 0 0.4rem;
+    padding:0.55rem 0 0.65rem;
+    background:var(--dl-panel);
+  }
+  .cp-rail-bar{display:flex;align-items:center;gap:0.6rem;}
+  .cp-rail-toggle{
+    display:inline-flex;
+    align-items:center;
+    gap:0.45rem;
+    font:inherit;
+    font-size:0.78rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.35rem 0.9rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-ink);
+  }
+  .cp-rail-toggle:hover{border-color:var(--dl-emerald);}
+  .cp-rail-n{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.62rem;
+    background:var(--dl-emerald-bright);
+    color:#0b1220;
+    border-radius:999px;
+    padding:0.05rem 0.4rem;
+  }
+  .cp-rail:not([data-open="1"]) .cp-rail-body{display:none;}
+  .cp-rail-body{
+    margin-top:0.7rem;
+    padding:0.9rem 1rem 0.85rem;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:rgba(255,255,255,0.015);
+  }
+  .cp-rail-title{
+    display:none;
+    margin:0 0 0.5rem;
+    font-size:0.7rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--dl-muted);
+  }
+
+  .cp-search{display:block;margin-top:0.7rem;}
+  .cp-search input{
+    width:100%;
+    font:inherit;
+    font-size:0.85rem;
+    color:var(--dl-ink);
+    background:#070c17;
+    border:1px solid var(--dl-border);
+    border-radius:999px;
+    padding:0.4rem 0.85rem;
+  }
+  .cp-search input::placeholder{color:#5c6784;}
+  .cp-search input:focus-visible,
+  .cp-sort select:focus-visible,
+  .cp-chip:focus-visible,
+  .cp-clear:focus-visible,
+  .cp-rail-toggle:focus-visible{
+    outline:2px solid var(--dl-emerald-bright);
+    outline-offset:2px;
+  }
+  .cp-sort{
+    display:flex;
+    align-items:center;
+    gap:0.45rem;
+    margin-top:0.6rem;
+    font-size:0.72rem;
+    color:var(--dl-muted);
+  }
+  .cp-sort select{
+    flex:1 1 auto;
+    min-width:0;
+    font:inherit;
+    font-size:0.78rem;
+    color:var(--dl-ink);
+    background:#070c17;
+    border:1px solid var(--dl-border);
+    border-radius:999px;
+    padding:0.3rem 0.6rem;
+    cursor:pointer;
+  }
+
+  .cp-facet{
+    border:0;
+    margin:0.85rem 0 0;
+    padding:0;
+    min-width:0;
+  }
+  .cp-facet legend{
+    font-size:0.66rem;
+    color:var(--dl-muted);
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    padding:0;
+    margin-bottom:0.35rem;
+  }
+  .cp-chips{display:flex;flex-wrap:wrap;gap:0.3rem;}
+  .cp-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:0.3rem;
+    font:inherit;
+    font-size:0.7rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.2rem 0.6rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .cp-chip .cp-chip-label{font-family:"JetBrains Mono", monospace;}
+  .cp-chip .cp-chip-n{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.6rem;
+    color:#5c6784;
+  }
+  .cp-chip:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .cp-chip[aria-pressed="true"]{
+    border-color:var(--dl-emerald-bright);
+    background:rgba(47,158,92,0.16);
+    color:#fff;
+  }
+  .cp-chip[aria-pressed="true"] .cp-chip-n{color:var(--dl-emerald-bright);}
+  .cp-chip:disabled{opacity:0.35;cursor:default;}
+  /* หัวข้อที่เกินชุดแรก ซ่อนไว้จนกว่าจะกดขยาย */
+  .cp-facet:not([data-showall="1"]) .cp-chip[data-extra]{display:none;}
+  .cp-more{
+    font:inherit;
+    font-size:0.68rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.2rem 0.6rem;
+    border:1px dashed var(--dl-border);
+    background:transparent;
+    color:var(--dl-muted);
+  }
+  .cp-more:hover{border-color:var(--dl-emerald);color:#fff;}
+  .cp-more:focus-visible{outline:2px solid var(--dl-emerald-bright);outline-offset:2px;}
+
+  .cp-bar{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:0.4rem 0.7rem;
+  }
+  .cp-result{
+    margin:0;
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.7rem;
+    color:var(--dl-muted);
+  }
+  .cp-clear{
+    font:inherit;
+    font-size:0.68rem;
+    cursor:pointer;
+    margin-left:auto;
+    border-radius:999px;
+    padding:0.18rem 0.6rem;
+    border:1px solid var(--dl-border);
+    background:transparent;
+    color:var(--dl-gold);
+  }
+  .cp-clear:hover{border-color:var(--dl-gold);}
+  .cp-none{
+    margin-top:1.2rem;
+    color:var(--dl-muted);
+    font-size:0.88rem;
+  }
+
+  /* โหมดแถบข้าง เปิดโดยสคริปต์ที่วัดช่องว่างจริงให้ ไม่ได้ใช้ media query
+     เพราะ media query คิด rem ที่ 16px เสมอ ขณะที่ root font-size ของเว็บนี้ยืดตามจอ
+     (วัดได้ราว 20 พิกเซลบนจอกว้าง) สองเลขนี้ไม่ตรงกัน แถบจึงเคยหลุดออกไปนอกจอ
+     42rem คือความกว้างการ์ด ครึ่งหนึ่งคือ 21rem จึงวางขอบขวาของแถบไว้ที่ 21rem บวกระยะห่าง */
+  .cp-rail[data-rail="side"]{
+    position:fixed;
+    top:5.5rem;
+    right:calc(50% + 22.4rem);
+    /* กว้าง 15rem ถ้าช่องว่างพอ ถ้าไม่พอก็หดลงมาเท่าที่มี สคริปต์การันตีแล้วว่าไม่ต่ำกว่า 13rem */
+    width:min(15rem, calc(50vw - 22.4rem - 1rem));
+    margin:0;
+    padding:0;
+    background:transparent;
+    max-height:calc(100vh - 8rem);
+    overflow-y:auto;
+    overscroll-behavior:contain;
+  }
+  .cp-rail[data-rail="side"] .cp-rail-bar{display:none;}
+  .cp-rail[data-rail="side"]:not([data-open="1"]) .cp-rail-body{display:block;}
+  .cp-rail[data-rail="side"] .cp-rail-body{margin-top:0;}
+  .cp-rail[data-rail="side"] .cp-rail-title{display:block;}
+
+  /* ---- รายการ ---- */
   .item-kind{
     display:inline-block;
     font-family:"JetBrains Mono", monospace;
@@ -67,15 +700,16 @@ const total = publishedCpProblems.length;
     padding:0.12rem 0.5rem;
     margin-bottom:0.4rem;
   }
-  .cp-group{margin-top:2.25rem;}
+  .cp-list{display:flex;flex-direction:column;gap:0.75rem;}
+  .cp-head{margin-top:1.5rem;}
+  .cp-head:first-child{margin-top:0;}
   .cp-count{
     font-family:"JetBrains Mono", monospace;
     font-size:0.62rem;
     color:var(--dl-muted);
     letter-spacing:.4px;
   }
-  .cp-group-desc{color:var(--dl-muted);font-size:0.86rem;margin:0.35rem 0 0.9rem;}
-  .list{display:flex;flex-direction:column;gap:0.75rem;}
+  .cp-group-desc{color:var(--dl-muted);font-size:0.86rem;margin:0.35rem 0 0;}
   .item{
     display:block;
     border:1px solid var(--dl-border);
@@ -122,5 +756,6 @@ const total = publishedCpProblems.length;
   .meta .date{margin-left:auto;}
   @media (prefers-reduced-motion: reduce){
     .item:hover{transform:none;}
+    .cp-chip{transition:none;}
   }
 </style>
