@@ -3,6 +3,30 @@ import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import { cpProblemsBySet, publishedCpProblems } from '../../data/cp';
 import { formatThaiDateShort } from '../../lib/dates';
 
+/* ด่านตรวจคู่ระหว่างรายการใน cp.ts กับไฟล์หน้าโจทย์ที่มีอยู่จริง
+   ทิศทางหนึ่ง (มีไฟล์แต่ไม่มีรายการ) CpProblemLayout โยน error ให้อยู่แล้ว
+   ทิศทางที่ขาดคืออีกทาง คือมีรายการแต่ไม่มีไฟล์ ซึ่งจะกลายเป็นการ์ดที่กดแล้ว 404
+   import.meta.glob อ่านรายชื่อไฟล์ตอน build โดยไม่ได้โหลดตัวหน้าจริง */
+const pageSlugs = new Set(
+  Object.keys(import.meta.glob('./*.astro'))
+    .map((f) => f.replace('./', '').replace('.astro', ''))
+    .filter((n) => n !== 'index'),
+);
+for (const p of publishedCpProblems) {
+  const slug = p.href.replace(/\/$/, '');
+  if (!pageSlugs.has(slug))
+    throw new Error(
+      `cp.ts มีรายการ "${p.title}" (href "${p.href}") แต่ไม่มีไฟล์ src/pages/cp/${slug}.astro การ์ดนี้จะกดแล้ว 404`,
+    );
+}
+const listed = new Set(publishedCpProblems.map((p) => p.href.replace(/\/$/, '')));
+for (const slug of pageSlugs) {
+  if (!listed.has(slug))
+    throw new Error(
+      `มีไฟล์ src/pages/cp/${slug}.astro แต่ไม่มีรายการใน cp.ts หน้านี้จะไม่โผล่ในคลัง ไม่มีลิงก์ก่อนหน้า/ถัดไป และไม่มีการ์ดแชร์`,
+    );
+}
+
 const groups = cpProblemsBySet();
 const total = publishedCpProblems.length;
 
