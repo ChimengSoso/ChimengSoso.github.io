@@ -1,0 +1,696 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'rolling-state-dp/';
+
+/* ---------- โมเดลกลาง ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ไม่มีที่ไหนพิมพ์มือ ---------- */
+
+const NEG = Number.NEGATIVE_INFINITY;
+const MAX_RUN = 3; // ห้ามเลือกติดกันครบสามชิ้น
+
+/** แถวของตาราง หนึ่งช่องต่อหนึ่งค่าของ "เลือกติดกันมาแล้วกี่ชิ้น" */
+type Layer = number[];
+
+/** เดินตารางทีละชิ้น คืนแถวตั้งแต่ก่อนเริ่มจนจบแถว */
+function layers(a: number[]): Layer[] {
+  const out: Layer[] = [[0, NEG, NEG]];
+  for (const v of a) {
+    const cur = out[out.length - 1];
+    const nxt: Layer = [NEG, NEG, NEG];
+    cur.forEach((val, j) => {
+      if (val === NEG) return;
+      nxt[0] = Math.max(nxt[0], val); // ข้าม
+      if (j < MAX_RUN - 1) nxt[j + 1] = Math.max(nxt[j + 1], val + v); // เก็บ
+    });
+    out.push(nxt);
+  }
+  return out;
+}
+const bestOf = (a: number[]): number => Math.max(...layers(a)[a.length]);
+
+/** แผนที่ดีที่สุด ลองทุกแบบด้วยบิตมาสก์ ใช้ได้เฉพาะแถวสั้น ๆ ที่เอามาเล่า */
+function bestPlan(a: number[]): { total: number; picks: number[] } {
+  let best = { total: NEG, picks: [] as number[] };
+  for (let m = 0; m < 1 << a.length; m++) {
+    let run = 0;
+    let ok = true;
+    let s = 0;
+    const picks: number[] = [];
+    for (let i = 0; i < a.length && ok; i++) {
+      if ((m >> i) & 1) {
+        run++;
+        s += a[i];
+        picks.push(i + 1);
+        if (run >= MAX_RUN) ok = false;
+      } else run = 0;
+    }
+    if (ok && s > best.total) best = { total: s, picks };
+  }
+  return best;
+}
+
+/* แถวที่ใช้เล่าทั้งบท */
+const MINI = [5, 5, 100];
+const DEMO = [5, 5, 100, 1, 8, 9];
+
+const miniBest = bestOf(MINI);
+const miniPlan = bestPlan(MINI);
+const demoBest = bestOf(DEMO);
+const demoPlan = bestPlan(DEMO);
+const demoLayers = layers(DEMO);
+
+/** คะแนนที่ดีที่สุดของ MINI ถ้าจำแค่ตัวเลขเดียวต่อหนึ่งความยาวคำนำหน้า */
+const miniGreedyPrefix = Math.max(...layers(MINI.slice(0, 2))[2]); // ดีที่สุดของสองชิ้นแรก
+const miniTrapTotal = miniGreedyPrefix; // ทางนั้นเดินต่อไม่ได้แล้ว จบเท่านี้
+
+const fmtCell = (v: number): string => (v === NEG ? '·' : String(v));
+
+/* ---------- ตารางจำนวนสถานะ ---------- */
+
+type Mem = { name: string; what: string; alpha: number; win: number; note?: string };
+const MEMS: Mem[] = [
+  { name: 'ตัวอย่างประจำบท', what: 'เลือกติดกันมาแล้วกี่ชิ้น', alpha: MAX_RUN, win: 1 },
+  { name: 'ฝึกข้อ 2', what: 'สองช่องล่าสุดสีเหมือนกันไหม', alpha: 2, win: 1 },
+  { name: 'ฝึกข้อ 3', what: 'ตัวอักษรสองตัวล่าสุด', alpha: 3, win: 2 },
+  { name: 'ข้อ Miners', what: 'คู่ล่าสุดของสองเหมือง', alpha: 4, win: 4 },
+];
+const memRows = MEMS.map((m) => ({ ...m, count: m.alpha ** m.win }));
+
+const N_BIG = 100000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+/* ---------- สูตร ---------- */
+
+const texMove = texCode(
+  `\\begin{aligned}
+${mc.fn("dp'")}[${mc.num('0')}] &${mc.op('=')} ${mc.max}_{j} \\; ${mc.fn('dp')}[j] \\\\[4pt]
+${mc.fn("dp'")}[j ${mc.op('+')} ${mc.num('1')}] &${mc.op('=')} ${mc.fn('dp')}[j] ${mc.op('+')} ${mc.fn('a')}[i] \\qquad (j ${mc.op('<')} ${mc.num('2')})
+\\end{aligned}`,
+);
+const texCount = texCode(
+  `${mc.fn('states')} ${mc.op('=')} ${mc.fn('alphabet')}^{\\,${mc.fn('window')}}`,
+);
+
+/* ---------- โค้ด ---------- */
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<long long> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+
+    const long long NEG = LLONG_MIN / 4;          // เผื่อที่ให้บวกค่าเข้าไปโดยไม่ล้น
+    vector<long long> cur(3, NEG), nxt(3);
+    cur[0] = 0;                                   // ยังไม่เลือกอะไร ค้างศูนย์ชิ้น
+
+    for (int i = 0; i < n; i++) {
+        fill(nxt.begin(), nxt.end(), NEG);        // ต้องล้างก่อนทุกรอบ เพราะเราเขียนแบบผลัก
+        for (int j = 0; j < 3; j++) {
+            if (cur[j] == NEG) continue;          // สถานะนี้ยังไปไม่ถึง
+            nxt[0] = max(nxt[0], cur[j]);                     // ข้ามชิ้นนี้ ช่วงที่เลือกติดกันขาด
+            if (j < 2) nxt[j + 1] = max(nxt[j + 1], cur[j] + a[i]);  // เก็บชิ้นนี้ ช่วงยาวขึ้นหนึ่ง
+        }
+        cur = nxt;
+    }
+
+    printf("%lld\\n", *max_element(cur.begin(), cur.end()));
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจสอบแบบซื่อ ๆ ลองทุกชุดที่เลือกได้ด้วยบิตมาสก์ ใช้ได้แค่ n ราว ๆ 20
+// เอาไว้สุ่มเทียบกับโค้ดจริงก่อนส่ง ไม่ใช่โค้ดที่ส่งเข้าระบบตัดสิน
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<long long> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+
+    long long best = LLONG_MIN;
+    for (int m = 0; m < (1 << n); m++) {
+        int run = 0;
+        bool ok = true;
+        long long s = 0;
+        for (int i = 0; i < n; i++) {
+            if (m >> i & 1) {
+                run++; s += a[i];
+                if (run >= 3) { ok = false; break; }
+            } else run = 0;
+        }
+        if (ok) best = max(best, s);
+    }
+    printf("%lld\\n", best);
+}`;
+
+const q1Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<long long> c(n);
+    for (auto& x : c) scanf("%lld", &x);
+
+    const long long INF = LLONG_MAX / 4;
+    vector<long long> cur(3, INF), nxt(3);
+    cur[0] = 0;                                   // ยังไม่เว้นติดกันเลย
+
+    for (int i = 0; i < n; i++) {
+        fill(nxt.begin(), nxt.end(), INF);
+        for (int j = 0; j < 3; j++) {
+            if (cur[j] == INF) continue;
+            nxt[0] = min(nxt[0], cur[j] + c[i]);           // เลือก ช่วงที่เว้นขาดทันที
+            if (j < 2) nxt[j + 1] = min(nxt[j + 1], cur[j]);  // เว้น ช่วงยาวขึ้นหนึ่ง
+        }
+        cur = nxt;
+    }
+
+    printf("%lld\\n", *min_element(cur.begin(), cur.end()));
+    return 0;
+}`;
+
+const q2Code = `#include <bits/stdc++.h>
+using namespace std;
+const long long MOD = 1000000007;
+
+int main() {
+    long long n, k;
+    scanf("%lld %lld", &n, &k);
+    long long k1 = (k - 1) % MOD;
+
+    // สถานะไม่ใช่ "ช่องล่าสุดเป็นสีอะไร" ซึ่งมี k แบบ
+    // แต่เป็น "สองช่องล่าสุดสีเหมือนกันไหม" ซึ่งมีสองแบบ ไม่ว่า k จะใหญ่แค่ไหน
+    long long diff = k % MOD, same = 0;           // ช่องแรกนับรวมไว้ฝั่ง diff
+    for (long long i = 2; i <= n; i++) {
+        long long nd = (diff + same) % MOD * k1 % MOD;   // ทาสีต่างจากช่องก่อนหน้า
+        long long ns = diff;                             // ทาซ้ำได้ ก็ต่อเมื่อคู่ก่อนหน้าไม่ซ้ำ
+        diff = nd;
+        same = ns;
+    }
+
+    printf("%lld\\n", (diff + same) % MOD);
+    return 0;
+}`;
+
+const q3Code = `#include <bits/stdc++.h>
+using namespace std;
+const long long MOD = 1000000007;
+
+int main() {
+    long long n;
+    scanf("%lld", &n);
+    if (n == 1) { printf("3\\n"); return 0; }      // ยังไม่มีคู่ให้จำ ตอบตรง ๆ
+
+    // สถานะคือคู่ตัวอักษรสองตัวล่าสุด อัดเป็น p*3+q โดย q คือตัวล่าสุด
+    vector<long long> cur(9, 0), nxt(9);
+    for (int p = 0; p < 3; p++)
+        for (int q = 0; q < 3; q++) cur[p * 3 + q] = 1;   // ความยาว 2 ทุกคู่ยังไม่ผิดกติกา
+
+    for (long long i = 3; i <= n; i++) {
+        fill(nxt.begin(), nxt.end(), 0);
+        for (int p = 0; p < 3; p++)
+            for (int q = 0; q < 3; q++) {
+                long long v = cur[p * 3 + q];
+                if (!v) continue;
+                for (int r = 0; r < 3; r++) {
+                    if (p == q && q == r) continue;            // สามตัวติดกันเหมือนกัน
+                    if (p == 0 && q == 1 && r == 2) continue;  // abc
+                    nxt[q * 3 + r] = (nxt[q * 3 + r] + v) % MOD;
+                }
+            }
+        cur = nxt;
+    }
+
+    long long s = 0;
+    for (int i = 0; i < 9; i++) s = (s + cur[i]) % MOD;
+    printf("%lld\\n", s);
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>อาการ · ตัวเลขเดียวต่อหนึ่งคำนำหน้า เก็บได้ไม่พอ</h2>
+  <p>
+    โจทย์ตัวอย่างสั้นที่สุดที่ทำให้เห็นปัญหานี้คือ ให้ของเรียงมาเป็นแถว เลือกกี่ชิ้นก็ได้ ได้คะแนนเท่าค่าของชิ้นที่เลือก
+    มีกติกาข้อเดียวคือ<strong>ห้ามเลือกของสามชิ้นที่ติดกัน</strong> ให้คะแนนรวมมากที่สุด
+  </p>
+  <p>
+    ท่ามาตรฐานของ DP คือให้ <code>dp[i]</code> เป็นคะแนนดีที่สุดเมื่อดูของ <code>i</code> ชิ้นแรก แล้วเดินไปข้างหน้าทีละชิ้น
+    ลองใช้กับแถวสั้น ๆ แค่สามชิ้นคือ <code>{MINI.join(' ')}</code> ดู
+  </p>
+  <p>
+    ดูของสองชิ้นแรกก่อน คะแนนดีที่สุดคือเลือกทั้งคู่ ได้ {miniGreedyPrefix} ถ้าเราจดไว้แค่เลขนี้แล้วเดินต่อ
+    พอถึงชิ้นที่สามซึ่งมีค่า {MINI[2]} เราจะเลือกมันไม่ได้ เพราะนั่นจะเป็นการเลือกสามชิ้นติดกัน คำตอบที่ได้คือ {miniTrapTotal}
+  </p>
+  <p>
+    แต่คำตอบจริงของแถวนี้คือ <strong>{miniBest}</strong> ซึ่งได้จากการเลือกชิ้นที่ {miniPlan.picks.join(' กับ ')}
+    นั่นคือ<strong>ยอมทิ้งชิ้นที่สอง</strong> ทั้งที่มันทำให้คะแนนของคำนำหน้าลดลงจาก {miniGreedyPrefix} เหลือ {MINI[0]}
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ตรงนี้คือหัวใจของทั้งบท</p>
+    <p>
+      ทางที่คะแนน<strong>น้อยกว่า</strong>ในตอนนี้ กลับเป็นทางที่พาไปสู่คำตอบที่ดีกว่าในตอนจบ เพราะมันทิ้ง<strong>สภาพ</strong>
+      ที่ดีกว่าไว้ให้ก้าวถัดไป ตราบใดที่ตารางเก็บได้แค่ตัวเลขเดียวต่อหนึ่งคำนำหน้า มันจะโยนทางที่ถูกทิ้งไปทุกครั้ง
+      โดยไม่มีทางรู้ตัวเลย
+    </p>
+  </div>
+
+  <h2>ทางออก · จดสภาพลงไปในสถานะด้วย</h2>
+  <p>
+    สิ่งที่ตารางขาดคือ "ตอนนี้เลือกติดกันมาแล้วกี่ชิ้น" ถ้าเพิ่มค่านี้เข้าไปเป็นดัชนีที่สองของตาราง ทางที่คะแนนน้อยกว่า
+    แต่สภาพดีกว่าก็จะไม่ถูกโยนทิ้ง เพราะมันไปอยู่คนละช่องกัน
+  </p>
+  <p>
+    ค่านี้เป็นได้แค่ 0, 1 หรือ 2 เท่านั้น (ถ้าถึง 3 ก็ผิดกติกาไปแล้ว) ตารางจึงกว้างขึ้นแค่<strong>สามเท่า</strong>
+    ไม่ใช่โตแบบทวีคูณตามความยาวแถว และนี่คือรูปแบบที่บทนี้จะพูดถึงตลอด คือ<strong>สถานะที่เป็นความจำล่าสุด</strong>
+    ของสิ่งที่เพิ่งเกิดขึ้น ไม่ใช่บันทึกของอดีตทั้งหมด
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">สองข้อสอบที่ของชิ้นหนึ่งต้องผ่าน ถึงจะเรียกว่าสถานะได้</p>
+    <ul>
+      <li>
+        <strong>ข้อหนึ่ง พอไหม</strong> รู้แค่สถานะนี้แล้วคำนวณกำไรของก้าวถัดไปได้ครบทุกทางเลือกไหม
+        โดยไม่ต้องย้อนกลับไปดูอดีตอีกเลยสักครั้ง
+      </li>
+      <li>
+        <strong>ข้อสอง ปิดตัวเองไหม</strong> รู้สถานะเดิมกับสิ่งที่เพิ่งตัดสินใจ แล้วคำนวณ<strong>สถานะใหม่</strong>
+        ได้ทันทีไหม โดยไม่ต้องย้อนกลับไปดูอดีตเช่นกัน
+      </li>
+    </ul>
+    <p>
+      ของที่ตกข้อใดข้อหนึ่งใช้เป็นสถานะไม่ได้ ส่วนของที่ผ่านทั้งสองข้อยังต้องผ่านด่านที่สามอีกหนึ่งด่าน
+      คือ<strong>มันมีได้กี่แบบ</strong> ซึ่งเป็นด่านที่ตัดสินว่าท่านี้รอดหรือตาย
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="สถานะทั้งสามกับเส้นทางที่เดินได้ ทุกครั้งที่ข้าม ช่วงที่เลือกติดกันจะขาดแล้วกลับไปเริ่มนับใหม่ที่ศูนย์ ส่วนช่องขวาสุดไม่มีลูกศรเก็บออกไปไหน ซึ่งคือกติกาของโจทย์ที่ถูกวาดออกมาเป็นภาพ (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 600 268" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสถานะสามวง เรียงจากซ้ายไปขวาคือเลือกติดกันศูนย์ชิ้น หนึ่งชิ้น และสองชิ้น มีลูกศรกำกับว่าเก็บ ชี้จากวงซ้ายไปวงขวาทีละขั้น และลูกศรกำกับว่าข้าม ชี้กลับมาที่วงซ้ายสุด วงขวาสุดไม่มีลูกศรเก็บออกไป">
+      <defs>
+        <marker id="rs-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+        </marker>
+        <marker id="rs-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd" />
+        </marker>
+      </defs>
+
+      {[0, 1, 2].map((k) => (
+        <g>
+          <circle
+            cx={100 + k * 200}
+            cy={128}
+            r="38"
+            fill={k === 2 ? '#2a2010' : '#101827'}
+            stroke={k === 2 ? '#e0b400' : '#2f9e5c'}
+            stroke-width="1.9"
+          />
+          <text
+            x={100 + k * 200}
+            y={123}
+            fill={k === 2 ? '#e0b400' : '#4ade80'}
+            font-size="14"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {k}
+          </text>
+          <text x={100 + k * 200} y={142} fill="#7b8397" font-size="10" text-anchor="middle">
+            ชิ้น
+          </text>
+        </g>
+      ))}
+
+      <path d="M138 116 C 190 88, 210 88, 262 116" fill="none" stroke="#4ade80" stroke-width="1.7" marker-end="url(#rs-g)" />
+      <text x="200" y="88" fill="#4ade80" font-size="12" text-anchor="middle">เก็บ</text>
+      <path d="M338 116 C 390 88, 410 88, 462 116" fill="none" stroke="#4ade80" stroke-width="1.7" marker-end="url(#rs-g)" />
+      <text x="400" y="88" fill="#4ade80" font-size="12" text-anchor="middle">เก็บ</text>
+
+      <path d="M262 152 C 210 184, 190 184, 138 152" fill="none" stroke="#9aa7bd" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#rs-m)" />
+      <text x="200" y="200" fill="#9aa7bd" font-size="12" text-anchor="middle">ข้าม</text>
+      <path d="M462 158 C 380 232, 190 232, 116 168" fill="none" stroke="#9aa7bd" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#rs-m)" />
+      <text x="330" y="248" fill="#9aa7bd" font-size="12" text-anchor="middle">ข้าม</text>
+
+      <path d="M78 95 C 60 60, 140 60, 122 95" fill="none" stroke="#9aa7bd" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#rs-m)" />
+      <text x="100" y="52" fill="#9aa7bd" font-size="12" text-anchor="middle">ข้าม</text>
+
+      <text x="530" y="128" fill="#e0b400" font-size="11">เก็บต่อ</text>
+      <text x="530" y="144" fill="#e0b400" font-size="11">ไม่ได้แล้ว</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>สมการจึงมีแค่สองบรรทัด อ่านจากมุมของ<strong>การผลัก</strong> คือยืนที่สถานะเดิมแล้วส่งค่าออกไปยังปลายทาง</p>
+  <div set:html={texMove} />
+  <p>
+    บรรทัดบนคือข้ามของชิ้นนี้ ช่วงที่เลือกติดกันขาดทันที ไม่ว่าก่อนหน้าจะค้างมากี่ชิ้นก็ตกมาที่ศูนย์เหมือนกันหมด
+    บรรทัดล่างคือเก็บของชิ้นนี้ ช่วงยาวขึ้นหนึ่ง ซึ่งทำได้เฉพาะตอนที่ค้างอยู่ไม่ถึงสองชิ้น
+  </p>
+
+  <h2>เดินตารางให้ดูหนึ่งแถว</h2>
+  <p>
+    เอาแถว <code>{DEMO.join(' ')}</code> มาเดินจริง แต่ละแถวของตารางคือหลังตัดสินใจของชิ้นนั้นเสร็จแล้ว
+    ช่องที่เป็นจุดคือสถานะที่ยังไปไม่ถึง
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>แถว {DEMO.join(' ')} · คำตอบคือ {demoBest}</caption>
+      <thead>
+        <tr>
+          <th>หลังชิ้นที่</th>
+          <th class="num">ค้าง 0 ชิ้น</th>
+          <th class="num">ค้าง 1 ชิ้น</th>
+          <th class="num">ค้าง 2 ชิ้น</th>
+        </tr>
+      </thead>
+      <tbody>
+        {demoLayers.map((row, i) => (
+          <tr>
+            <td>{i === 0 ? 'ก่อนเริ่ม' : `${i}. ค่า ${DEMO[i - 1]}`}</td>
+            {row.map((v) => <td class="num">{fmtCell(v)}</td>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      แผนที่ดีที่สุดคือเก็บชิ้นที่ {demoPlan.picks.join(', ')} รวม {demoPlan.total} คะแนน
+      สังเกตแถวที่เขียนว่า <code>2. ค่า {DEMO[1]}</code> สองช่องซ้ายยังเก็บ {fmtCell(demoLayers[2][0])} ไว้
+      ทั้งที่ช่องขวาสุดของแถวเดียวกันมี {fmtCell(demoLayers[2][2])} ซึ่งมากกว่า ถ้าตารางมีคอลัมน์เดียว
+      เลข {fmtCell(demoLayers[2][2])} จะกลืนที่เหลือไปหมดตั้งแต่ตรงนั้น แล้วของชิ้นที่ 3 ที่มีค่า {DEMO[2]}
+      ก็จะเก็บไม่ได้ ทั้งที่แถวถัดมาบอกชัดว่าเลข {fmtCell(demoLayers[2][0])} คือตัวที่พาไปถึง {fmtCell(demoLayers[3][1])}
+    </figcaption>
+  </figure>
+
+  <h2>ด่านที่สาม · สถานะมีได้กี่แบบ</h2>
+  <p>
+    สองข้อสอบข้างบนบอกว่าอะไร<strong>ใช้เป็นสถานะได้</strong> แต่ไม่ได้บอกว่ามัน<strong>คุ้ม</strong>
+    เพราะของที่ผ่านสองข้อนั้นเสมอมีอยู่อย่างหนึ่ง คือ "จำอดีตทั้งหมดไว้เลย" ซึ่งพอไหมก็พอ ปิดตัวเองไหมก็ปิด
+    แต่มันมีได้ถึง <code>2^n</code> แบบ ซึ่งที่ <code>n = {fmt(N_BIG)}</code> คือจำนวนที่เขียนลงกระดาษยังไม่ไหว
+  </p>
+  <p>
+    เวลาความจำที่ต้องเก็บมีหน้าตาเป็น<strong>หน้าต่างของค่าไม่กี่ค่าล่าสุด</strong> จำนวนสถานะคิดตรง ๆ ได้จากสองตัวเลข
+    คือค่าหนึ่งช่องเป็นได้กี่แบบ กับหน้าต่างกว้างกี่ช่อง
+  </p>
+  <div set:html={texCount} />
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตัวอย่างจากบทนี้และจากคลังโจทย์</caption>
+      <thead>
+        <tr><th>ที่ไหน</th><th>จำอะไร</th><th class="num">ค่าต่อช่อง</th><th class="num">กว้าง</th><th class="num">มีกี่แบบ</th></tr>
+      </thead>
+      <tbody>
+        {memRows.map((m) => (
+          <tr>
+            <td>{m.name}</td>
+            <td>{m.what}</td>
+            <td class="num">{m.alpha}</td>
+            <td class="num">{m.win}</td>
+            <td class="num">{fmt(m.count)}</td>
+          </tr>
+        ))}
+        <tr>
+          <td>ถ้าเผลอจำทั้งอดีต</td>
+          <td>ตัดสินใจไปแล้วยังไงบ้างทุกชิ้น</td>
+          <td class="num">2</td>
+          <td class="num">n</td>
+          <td class="num">2^n</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      สี่แถวบนมีจำนวนสถานะที่<strong>ไม่โตตามความยาวอินพุตเลย</strong> ต่อให้แถวยาวเป็นแสนชิ้น ตารางก็ยังกว้างเท่าเดิม
+      งานทั้งหมดจึงเป็นความยาวแถวคูณจำนวนสถานะ ซึ่งเป็นเส้นตรง
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คิดก่อนอ่านต่อ</p>
+    <p>
+      แถวที่สองของตารางน่าสนใจกว่าที่เห็น ในโจทย์ทาสีนั้นค่าหนึ่งช่องคือ<strong>สี</strong> ซึ่งมีได้เป็นล้านแบบ
+      แต่ช่องขวาสุดกลับเขียนว่ามีสถานะแค่สองแบบ ลองเดาก่อนว่าเป็นไปได้ยังไง
+      คำถามที่จะพาไปถึงคำตอบคือ กติกาของโจทย์นั้นถามถึง<strong>ค่า</strong>ของช่องก่อนหน้า หรือถามถึง<strong>ความสัมพันธ์</strong>
+      ระหว่างช่องก่อนหน้ากับช่องนี้กันแน่
+    </p>
+  </div>
+
+  <h2>เขียนเป็นโค้ด</h2>
+  <p>
+    ตารางไม่ต้องเก็บทั้งผืน เพราะสมการอ้างถึงแถวก่อนหน้าแค่แถวเดียว เก็บสองแถวสลับกันไปมาก็พอ
+    หน่วยความจำจึงเป็นค่าคงที่ ไม่ขึ้นกับความยาวแถวเลย
+  </p>
+  <CodeBlock code={solution} lang="cpp" title="rolling.cpp" />
+  <p>
+    สองบรรทัดที่คนพลาดบ่อยที่สุดอยู่ในนี้ทั้งคู่ อย่างแรกคือ <code>fill</code> ที่ล้างแถวปลายทางก่อนทุกรอบ
+    เพราะเราเขียนแบบผลัก ปลายทางบางช่องอาจไม่มีใครส่งค่าเข้ามาเลยในรอบนี้ ถ้าไม่ล้างก็จะเหลือค่าเก่าจากรอบก่อนค้างอยู่
+    แล้วกลายเป็นสถานะผีที่ไม่มีทางเดินไปถึงได้จริง
+  </p>
+  <p>
+    อย่างที่สองคือค่า <code>NEG</code> ที่ใช้แทน "สถานะนี้ยังไปไม่ถึง" ซึ่งต้องแยกจากคะแนน 0 ให้ขาด เพราะ 0
+    เป็นคะแนนที่ถูกต้องได้ (ตอนยังไม่เลือกอะไรเลย) และต้องหารสี่ทิ้งไว้ด้วย เพราะเราจะเอาค่าไปบวกกับ <code>a[i]</code>
+    ถ้าใช้ <code>LLONG_MIN</code> ตรง ๆ แล้วบวกเลขบวกเข้าไป มันจะล้นกลับไปเป็นค่าบวกมหาศาลแล้วชนะทุกอย่างในตาราง
+  </p>
+
+  <details class="expander">
+    <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+    <div class="expander-body">
+      <p>
+        ผมสุ่มแถวยาวไม่เกิน 14 ชิ้น ห้าร้อยแถว โดยจงใจให้มีค่าติดลบปนด้วย (เพื่อกดดันกรณีที่คำตอบคือไม่เลือกอะไรเลย)
+        แล้วเทียบกับตัวลองทุกชุดข้างล่างนี้ ตรงกันทั้งหมด
+      </p>
+      <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+    </div>
+  </details>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้ตอบคนละคำถาม ข้อแรกถามว่า "ท่านี้ย้ายไปกติกาที่กลับด้านกันได้ไหม" ข้อสองถามว่า
+    "ถ้าค่าหนึ่งช่องมีได้เป็นล้านแบบจะทำยังไง" ข้อสามถามว่า "แล้วเมื่อไรที่ต้องจำค่าจริง ๆ"
+    ลองคิดเองก่อนแล้วค่อยแตะดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · ห้ามเว้นสามชิ้นติดกัน</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ของเรียงมาเป็นแถว <code>n ≤ 200 000</code> ชิ้น ชิ้นที่ <code>i</code> มีราคา <code>c[i]</code> ซึ่งเป็นบวก
+      คุณต้องซื้อบางชิ้น โดยมีกติกาว่า<strong>ห้ามเว้นสามชิ้นติดกัน</strong> คือในทุกช่วงยาวสามชิ้นต้องมีของที่ซื้ออย่างน้อยหนึ่งชิ้น
+      ให้จ่ายน้อยที่สุด
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      กติกาข้อนี้เป็นภาพสะท้อนในกระจกของโจทย์ประจำบทพอดี ลองถามว่าสิ่งที่ต้องนับตอนนี้คืออะไร
+      แล้วเปลี่ยนอะไรบ้างในสมการสองบรรทัดข้างบน
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      สิ่งที่ต้องจำเปลี่ยนจาก "เลือกติดกันมาแล้วกี่ชิ้น" เป็น "<strong>เว้นติดกันมาแล้วกี่ชิ้น</strong>" ซึ่งยังเป็น 0, 1, 2 เหมือนเดิม
+      ส่วนสมการก็สลับที่กัน การ<strong>เลือก</strong>กลายเป็นสิ่งที่ตัดช่วงให้ขาดแล้วกลับไปที่ศูนย์ และการ<strong>เว้น</strong>
+      คือสิ่งที่ทำให้ช่วงยาวขึ้น
+    </p>
+    <p>
+      จุดที่ต้องคิดเพิ่มคือค่าตั้งต้นต้องเป็นค่ามาก ไม่ใช่ค่าน้อย เพราะเราหาค่าต่ำสุด และเงื่อนไข "ห้ามเว้นสามติดกัน"
+      ที่ปลายแถวก็จบเองโดยไม่ต้องเขียนอะไรเพิ่ม เพราะสถานะที่เว้นครบสามชิ้นไม่เคยถูกสร้างขึ้นมาตั้งแต่แรก
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · กลับด้านของโจทย์ประจำบท" />
+    <p>
+      สุ่มเทียบกับตัวลองทุกชุด 500 แถว ตรงกันทั้งหมด
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · ทาสีที่ห้ามซ้ำสามช่องติดกัน</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      มีช่องเรียงกัน <code>n</code> ช่อง ทาสีได้ <code>k</code> สี ห้ามให้สามช่องที่ติดกันเป็นสีเดียวกัน
+      นับจำนวนวิธีทาทั้งหมด เอาเศษจากการหารด้วย <code>10^9 + 7</code> โดย <code>n ≤ 10^18</code> และ
+      <code>k ≤ 10^9</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ตอบคำถามในกล่อง "คิดก่อนอ่านต่อ" ข้างบนก่อน กติกาบอกว่าห้ามสามช่อง<strong>เป็นสีเดียวกัน</strong>
+      มันไม่ได้สนใจเลยว่าสีนั้นคือสีอะไร
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ถ้าจำ "ช่องล่าสุดเป็นสีอะไร" เราจะได้ตาราง <code>k</code> ช่อง ซึ่งที่ <code>k</code> ระดับพันล้านคือสร้างไม่ไหว
+      แต่ลองใช้ข้อสอบสองข้อกับของที่เล็กกว่านั้น คือ "<strong>สองช่องล่าสุดสีเหมือนกันไหม</strong>" ซึ่งมีแค่สองแบบ
+    </p>
+    <ul>
+      <li>
+        <strong>พอไหม</strong> พอ ถ้าสองช่องล่าสุดสีต่างกัน ช่องถัดไปทาสีเดียวกับช่องล่าสุดได้ (1 ทาง)
+        หรือทาสีอื่นก็ได้ (<code>k − 1</code> ทาง) ถ้าสองช่องล่าสุดสีเหมือนกัน ช่องถัดไปต้องทาสีอื่นเท่านั้น
+        (<code>k − 1</code> ทาง) ทั้งหมดนี้ไม่ต้องรู้เลยว่าสีนั้นชื่ออะไร
+      </li>
+      <li>
+        <strong>ปิดตัวเองไหม</strong> ปิด เพราะ "ทาสีเดียวกับช่องล่าสุด" พาไปสถานะเหมือนกันเสมอ และ "ทาสีอื่น"
+        พาไปสถานะต่างกันเสมอ
+      </li>
+    </ul>
+    <p>
+      จำนวนสถานะจึงหล่นจาก <code>k</code> เหลือ 2 และเพราะแต่ละก้าวเป็นแค่การคูณกับบวก โค้ดจึงเป็นลูปเดียว
+      ไม่ต้องมีตารางเลย
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · สถานะคือความสัมพันธ์ ไม่ใช่ค่า" />
+    <p>
+      สุ่มเทียบกับตัวไล่ทุกการทาสี 200 เทส ที่ <code>n ≤ 8</code> และ <code>k ≤ 4</code> ตรงกันทั้งหมด
+      รวมกรณี <code>k = 1</code> ซึ่งตอบ 0 ทันทีที่ <code>n ≥ 3</code>
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        <code>n</code> ระดับ <code>10^18</code> แปลว่าลูปที่วน <code>n</code> รอบก็ยังช้าเกินไปอยู่ดี
+        โค้ดข้างบนตอบได้ถึงราว <code>n</code> หลักร้อยล้าน ถ้าโจทย์ดัน <code>n</code> ไปไกลกว่านั้น
+        ท่าถัดไปคือเขียนการก้าวหนึ่งขั้นเป็น<strong>เมทริกซ์ 2 คูณ 2</strong> แล้วยกกำลังด้วยการยกกำลังเร็ว
+        ซึ่งเป็นไปได้ก็เพราะเราบีบสถานะเหลือสองแบบไว้ก่อนแล้ว
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · เมื่อต้องจำค่าจริง ๆ</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      นับสตริงยาว <code>n</code> ที่สร้างจากตัวอักษร <code>a</code>, <code>b</code>, <code>c</code>
+      โดยห้ามมีตัวอักษรเดียวกันสามตัวติดกัน และห้ามมีคำว่า <code>abc</code> โผล่เป็นสามตัวติดกัน
+      เอาเศษจากการหารด้วย <code>10^9 + 7</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ลองใช้ท่าของฝึกข้อ 2 ดูก่อน คือจำแค่ว่าสองตัวล่าสุดเหมือนกันไหม แล้วดูว่ามันตกข้อสอบข้อไหน
+      คำตอบอยู่ที่กติกาข้อที่สองของโจทย์นี้
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ท่าของข้อ 2 ตก<strong>ข้อสอบข้อหนึ่ง</strong> ทันที กติกา "ห้ามมี <code>abc</code>" ถามถึงค่าจริง ๆ ของสองตัวล่าสุด
+      ไม่ใช่แค่ความสัมพันธ์ ถ้าเรารู้แค่ว่าสองตัวล่าสุด "ต่างกัน" เราตอบไม่ได้ว่าเติม <code>c</code> ต่อท้ายได้หรือเปล่า
+      เพราะมันขึ้นกับว่าสองตัวนั้นคือ <code>ab</code> หรือ <code>ba</code> หรือ <code>ac</code>
+    </p>
+    <p>
+      สถานะจึงต้องเป็น<strong>คู่ตัวอักษรสองตัวล่าสุดจริง ๆ</strong> ซึ่งมี 3 คูณ 3 เท่ากับ 9 แบบ ยังเล็กมาก
+      อัดเป็นเลขตัวเดียวด้วย <code>p × 3 + q</code> โดยให้ <code>q</code> เป็นตัวล่าสุดเสมอ เวลาเติมตัวใหม่
+      สถานะปลายทางคือ <code>q × 3 + r</code> ซึ่งอ่านออกทันทีว่า "ตัวเก่าหลุดออกไปหนึ่งตัว ตัวใหม่เข้ามาหนึ่งตัว"
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · จำคู่ตัวอักษรล่าสุด" />
+    <p>
+      ผมเทียบกับตัวไล่ทุกสตริง<strong>ครบทุกค่าของ <code>n</code> ตั้งแต่ 1 ถึง 12</strong> ไม่ใช่แค่สุ่ม
+      บวกกับสุ่มอีก 120 เทส ตรงกันทั้งหมด ที่ต้องไล่ให้ครบเพราะกรณี <code>n = 1</code> กับ <code>n = 2</code>
+      ยังไม่มีคู่ให้จำ ต้องดักแยกไว้ ซึ่งเป็นจุดที่โค้ดพลาดกันบ่อยที่สุดของข้อนี้
+    </p>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อทางที่คะแนนน้อยกว่าตอนนี้พาไปคำตอบที่ดีกว่าตอนจบได้ แปลว่าตารางขาด<strong>สภาพ</strong>ไปหนึ่งมิติ
+    ให้ถามว่าอนาคตต้องรู้อะไรจากอดีตบ้าง ตัดที่เหลือทิ้งให้หมด แล้วนับดูว่าสิ่งที่เหลือมีได้กี่แบบ
+    ถ้าจำนวนนั้นไม่โตตามความยาวอินพุต ข้อนั้นก็จบแล้ว
+  </p>
+  <p>
+    ข้อที่ใช้ของในบทนี้เต็ม ๆ คือ <a href="/cp/miners/">Miners</a> ซึ่งความจำคือคู่ล่าสุดของสองเหมืองรวมเป็น 256 แบบ
+    ส่วน <a href="/cp/pick-books/">หยิบหนังสือ</a> เป็นญาติที่ความจำไม่ใช่หน้าต่างของค่าล่าสุด แต่เป็นตัวนับที่ค้างอยู่
+    และบท <a href="/cp/interval-dp/">DP บนช่วง</a> คือกรณีที่ความจำแบบหน้าต่างช่วยไม่ได้เลย จนต้องเปลี่ยนสถานะทั้งใบ
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ (1rem) และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem 0 0.5rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+</style>
