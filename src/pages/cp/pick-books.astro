@@ -468,6 +468,80 @@ const ivStopTex = texCode(
     mc.max + '_{i' + mc.op('<') + 'k}\\big( ' + G + '[i] ' + mc.op('+') + ' ' + F + '[i][k' + M1 + '] \\big) \\Big)',
 );
 
+/* ชั้น g คิดจริงบนกอง D (อาร์เรย์เดียวกับ demo) เพื่อให้ภาพข้างล่างไม่มีเลขที่พิมพ์มือ
+   n เท่ากับ 7 จึงคิดตรงตามสมการเต็มได้เลย ไม่ต้องมี t มาช่วยลดงาน
+   back[k] เก็บว่าช่องนี้ชนะด้วยกิ่งไหน ว่างไว้คือกิ่งข้าม มีเลขคือจุดเริ่มของช่วงที่กวาด */
+interface Sweep { from: number; to: number; score: number }
+interface StopPlan { g: number[]; sweeps: Sweep[]; left: number[] }
+function ivStopPlan(a: number[]): StopPlan {
+  const n = a.length;
+  const f: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(n + 1).fill(NEG));
+  const at = (i: number, j: number): number => (i > j ? 0 : i < 0 || j >= n ? NEG : f[i][j]);
+  for (let len = 3; len <= n; len++)
+    for (let i = 0; i + len - 1 < n; i++) {
+      const j = i + len - 1;
+      let best = NEG;
+      for (let y = i + 2; y <= j; y++) {
+        let two = NEG;
+        for (let x = i + 1; x < y; x++) {
+          const l = at(i + 1, x - 1);
+          const m = at(x + 1, y - 1);
+          if (l === NEG || m === NEG) continue;
+          two = Math.max(two, a[i] + a[x] + l + m);
+        }
+        const rest = at(y + 1, j);
+        if (two === NEG || rest === NEG) continue;
+        best = Math.max(best, two - a[y] + rest);
+      }
+      f[i][j] = best;
+    }
+  const g = new Array<number>(n + 1).fill(0);
+  const back: (number | null)[] = new Array<number | null>(n + 1).fill(null);
+  for (let k = 1; k <= n; k++) {
+    g[k] = g[k - 1];
+    for (let i = 0; i < k; i++) {
+      const v = at(i, k - 1);
+      if (v !== NEG && g[i] + v > g[k]) {
+        g[k] = g[i] + v;
+        back[k] = i;
+      }
+    }
+  }
+  const sweeps: Sweep[] = [];
+  const left: number[] = [];
+  let k = n;
+  while (k > 0) {
+    const i = back[k];
+    if (i === null) {
+      left.push(k - 1);
+      k -= 1;
+      continue;
+    }
+    sweeps.push({ from: i, to: k - 1, score: at(i, k - 1) });
+    k = i;
+  }
+  return { g, sweeps: sweeps.reverse(), left: left.reverse() };
+}
+const stopPlan = ivStopPlan(demo);
+const stopTotal = stopPlan.g[demo.length];
+
+/* พิกัดของภาพชั้น g คิดจากขนาดช่องเดียว ความกว้าง viewBox จึงพอดีกับเนื้อภาพเสมอ
+   ที่บวก 12 ทางขวาและ 34 ทางล่าง คือที่ว่างให้ปุ่ม "ขยาย" ของ ZoomableDiagram ลอยทับได้ */
+const BW = 74;
+const BGAP = 8;
+const bx = (i: number): number => 18 + i * (BW + BGAP);
+const bcx = (i: number): number => bx(i) + BW / 2;
+const stopVB = `0 0 ${bx(demo.length - 1) + BW + 12} 154`;
+/* เช็คในเฟรนต์แมตเทอร์ เพราะถ้าเขียน i <= sw.to ในเทมเพลต
+   คอมไพเลอร์ของ Astro จะอ่าน "<" ตัวนั้นเป็นการเปิดแท็กแล้วพังทั้งหน้า */
+const isSwept = (i: number): boolean => stopPlan.sweeps.some((sw) => sw.from <= i && sw.to >= i);
+const stopAlt =
+  `แถวหนังสือเจ็ดเล่มคือ ${demo.join(', ')} ` +
+  stopPlan.sweeps
+    .map((sw) => `ช่วงตำแหน่ง ${sw.from} ถึง ${sw.to} ถูกกวาดออกได้ ${sw.score} แต้ม`)
+    .join(' ') +
+  ` ส่วนเล่มที่ตำแหน่ง ${stopPlan.left.join(', ')} ถูกปล่อยคาไว้บนชั้น รวมได้ ${stopTotal} แต้ม`;
+
 const intervalCode = `// DP บนช่วง: ทางที่คนคิดถึงก่อน ถูกต้องแต่แพงเกินลิมิตของโจทย์ข้อนี้
 // f[i][j] = แต้มสูงสุดถ้า "เก็บกวาดช่วง [i..j] ออกให้หมดทั้งช่วง"
 // t[i][y] = ตัวช่วย: เลือกบวกสองเล่มคือ i กับ x แล้วเคลียร์ของแทรกจนพร้อมจะเจอ y
@@ -1354,7 +1428,75 @@ const demoCells = (i: number) =>
   </p>
   <Fragment set:html={ivStopTex} />
   <p>
-    ชั้นนี้เพิ่มมาอีก <code>n²</code> ซึ่งไม่ใช่ตัวปัญหา ตัวปัญหาคือ <code>f</code> กับ <code>t</code> ที่อยู่ข้างล่าง
+    ก่อนอ่านสมการนี้ ต้องรู้ก่อนว่าสองตารางนับของไม่เหมือนกัน <code>g</code> นับเป็น<strong>จำนวนเล่ม</strong>
+    ส่วน <code>f</code> นับเป็น<strong>ตำแหน่งเล่ม</strong> ที่เริ่มจาก 0 พอ <code>g[i]</code> แปลว่าจัดการเล่มแรก <code>i</code> เล่มเสร็จแล้ว
+    เล่มถัดไปที่ยังไม่ถูกแตะจึงอยู่ที่ตำแหน่ง <code>i</code> พอดี เลข <code>i</code> ตัวเดียวเลยทำสองหน้าที่พร้อมกัน
+    คือเป็นทั้งจำนวนเล่มที่จบไปแล้ว และตำแหน่งเริ่มของช่วงใหม่ ส่วนปลายช่วงคือเล่มที่ <code>k</code> ซึ่งอยู่ตำแหน่ง <code>k-1</code>
+    ช่วงที่กำลังจะกวาดจึงเขียนว่า <code>f[i][k-1]</code>
+  </p>
+  <ul>
+    <li>
+      <strong>กิ่ง <code>g[k-1]</code> คือปล่อยเล่มที่ <code>k</code> คาไว้บนชั้น</strong> ไม่เอามาคิดแต้มเลย
+      แต้มจึงเท่ากับของเล่มแรก <code>k-1</code> เล่มเป๊ะ ๆ กิ่งนี้ใช้ได้ทุกกรณีโดยไม่มีเงื่อนไข
+      และมันเป็นกิ่งเดียวที่ทำให้ "หยุดกลางทาง" เกิดขึ้นได้ ถ้าตัดกิ่งนี้ออก ทุกเล่มจะถูกบังคับให้ไปอยู่ในช่วงที่กวาดเกลี้ยงช่วงใดช่วงหนึ่ง
+      ซึ่งเข้มกว่าที่โจทย์ขอไว้
+    </li>
+    <li>
+      <strong>กิ่ง <code>g[i] + f[i][k-1]</code> คือปิดท้ายด้วยการกวาดช่วง <code>[i .. k-1]</code> ให้เกลี้ยง</strong>
+      เล่มแรก <code>i</code> เล่มคิดจบไปแล้วใน <code>g[i]</code> ที่บวกเข้ามาจึงเป็นแต้มของช่วงใหม่ล้วน ๆ ซึ่ง <code>f</code> ตอบไว้ให้แล้ว
+      ช่วงใหม่จ่อกับของเก่าพอดี ไม่มีเล่มไหนถูกนับสองครั้งและไม่มีเล่มไหนหลุดหาย
+      กิ่งนี้มีอยู่เฉพาะช่วงที่กวาดเกลี้ยงได้จริง ช่วงที่ทำไม่ได้ <code>f</code> จะคืนค่าว่าเป็นไปไม่ได้ แล้วกิ่งนี้ก็หายไปเอง
+      (โค้ดในเฉลยข้างล่างเช็คตรงนี้ด้วย <code>v != NEG</code>)
+    </li>
+  </ul>
+  <p>
+    เพราะกิ่งแรกไม่มีเงื่อนไข <code>g[k]</code> จึงมีค่าเสมอ ไม่มีช่องไหนตอบว่าทำไม่ได้
+    และคำตอบของโจทย์คือ <code>g[n]</code> ที่อ่านว่า "ดูหนังสือครบทุกเล่มแล้ว" ไม่ได้อ่านว่า "กวาดหนังสือออกครบทุกเล่มแล้ว"
+  </p>
+
+  <ZoomableDiagram caption={`กอง D จากเกมข้างบน กับคำตอบ ${stopTotal} แต้ม สองช่วงสีเขียวคือกิ่งที่สองทำงานสองครั้ง ${stopPlan.sweeps.map((sw) => `${sw.score} แต้ม`).join(' กับ ')} ส่วนเล่มสีเทาคือกิ่งแรกทำงานหนึ่งครั้ง ปล่อยมันคาไว้เพราะความยาวที่เหลือหารสามไม่ลงตัว สังเกตว่าเล่มที่ถูกทิ้งไม่จำเป็นต้องอยู่ริม มันคาอยู่กลางแถวได้ (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={stopVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={stopAlt}>
+      {demo.map((v, i) => {
+        const swept = isSwept(i);
+        return (
+          <>
+            <text x={bcx(i)} y="20" fill="#7b8397" font-size="11.5" text-anchor="middle" font-family="monospace">{i}</text>
+            <rect
+              x={bx(i)}
+              y="30"
+              width={BW}
+              height="54"
+              rx="8"
+              fill={swept ? '#12291c' : '#141b2b'}
+              stroke={swept ? '#4ade80' : '#2a3350'}
+              stroke-width={swept ? '2' : '1.5'}
+              stroke-dasharray={swept ? undefined : '5 4'}
+            />
+            <text x={bcx(i)} y="63" fill={swept ? '#d7ffe4' : '#7b8397'} font-size="16" text-anchor="middle" font-weight="700">{v}</text>
+          </>
+        );
+      })}
+      {stopPlan.sweeps.map((sw) => (
+        <>
+          <path
+            d={`M${bx(sw.from)} 96 L${bx(sw.from)} 90 L${bx(sw.to) + BW} 90 L${bx(sw.to) + BW} 96`}
+            fill="none"
+            stroke="#4ade80"
+            stroke-width="1.6"
+          />
+          <text x={(bx(sw.from) + bx(sw.to) + BW) / 2} y="116" fill="#4ade80" font-size="12.5" text-anchor="middle" font-family="monospace">
+            f[{sw.from}][{sw.to}] = {sw.score}
+          </text>
+        </>
+      ))}
+      {stopPlan.left.map((i) => (
+        <text x={bcx(i)} y="116" fill="#e0b400" font-size="12" text-anchor="middle">คาไว้</text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ชั้นนี้เพิ่มงานมาอีก <code>n²</code> ครั้ง ซึ่งไม่ใช่ตัวปัญหา ตัวปัญหาคือ <code>f</code> กับ <code>t</code> ที่อยู่ข้างล่าง
   </p>
 
   <h3>บิลค่าใช้จ่าย ตอนที่ทำให้รู้ว่าลิมิตคือคำใบ้</h3>
