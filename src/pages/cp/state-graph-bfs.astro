@@ -268,6 +268,64 @@ int main() {
     printf("%d\\n", dist[target]);
     return 0;
 }`;
+/* ---------- มินิเกม ตวงน้ำเอง ----------
+   จำนวนท่าที่น้อยที่สุดของแต่ละชุดหาด้วยการค้นตามความกว้างจริง ๆ ตอนบิลด์
+   ซึ่งเป็นวิธีเดียวกับที่บทนี้สอน เกมจึงตัดสินด้วยของจริง ไม่ใช่ด้วยเลขที่พิมพ์ไว้ */
+type JugPuzzle = { id: string; label: string; tease: string; x: number; y: number; z: number };
+
+/** จำนวนท่าที่น้อยที่สุด หรือ -1 ถ้าทำไม่ได้ */
+function jugBfs(x: number, y: number, z: number): number {
+  const key = (a: number, b: number): number => a * (y + 1) + b;
+  const dist = new Map<number, number>([[key(0, 0), 0]]);
+  const q: [number, number][] = [[0, 0]];
+  for (let h = 0; h < q.length; h++) {
+    const [a, b] = q[h];
+    const d = dist.get(key(a, b)) as number;
+    if (a === z || b === z) return d;
+    const moves: [number, number][] = [
+      [x, b],
+      [a, y],
+      [0, b],
+      [a, 0],
+      [a - Math.min(a, y - b), b + Math.min(a, y - b)],
+      [a + Math.min(b, x - a), b - Math.min(b, x - a)],
+    ];
+    for (const [na, nb] of moves) {
+      if (!dist.has(key(na, nb))) {
+        dist.set(key(na, nb), d + 1);
+        q.push([na, nb]);
+      }
+    }
+  }
+  return -1;
+}
+
+const JUG_PUZZLES: JugPuzzle[] = [
+  { id: 'j1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'เหยือกสามกับห้าลิตร ขอสี่ลิตรพอดี', x: 3, y: 5, z: 4 },
+  { id: 'j2', label: 'ชุดที่ 2 · ยากขึ้น', tease: 'ชุดนี้ต้องเทกลับไปกลับมาหลายรอบกว่าจะได้', x: 5, y: 9, z: 7 },
+  { id: 'j3', label: 'ชุดที่ 3 · ทำไม่ได้', tease: 'ชุดนี้อาจไม่มีทางตวงได้เลย ถ้าคิดว่าไม่มีทาง ก็กดปุ่มบอกได้', x: 4, y: 6, z: 5 },
+];
+
+type JugPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  x: number;
+  y: number;
+  z: number;
+  best: number;
+};
+const jugPuzzles: JugPuzzleData[] = JUG_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  x: p.x,
+  y: p.y,
+  z: p.z,
+  best: jugBfs(p.x, p.y, p.z),
+}));
+const jugJson = JSON.stringify(jugPuzzles);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -491,6 +549,52 @@ int main() {
 
   <hr class="divider" />
 
+  <h2>ลองเอง · ตวงน้ำให้ได้พอดี</h2>
+  <div class="cpgame juggame" data-juggame data-puzzles={jugJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {jugPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{jugPuzzles[0].tease}</p>
+    <p class="fg-sub">ต้องการ <b data-jg-goal>{jugPuzzles[0].z}</b> ลิตรพอดี ในเหยือกใบใดใบหนึ่ง</p>
+
+    <div class="jg-jars">
+      <div class="jg-jar">
+        <div class="jg-glass"><div class="jg-water" data-jg-a></div></div>
+        <span class="cpg-cap" data-jg-acap>0 / 0</span>
+      </div>
+      <div class="jg-jar">
+        <div class="jg-glass"><div class="jg-water" data-jg-b></div></div>
+        <span class="cpg-cap" data-jg-bcap>0 / 0</span>
+      </div>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-jg-fillA>เติมใบซ้าย</button>
+      <button type="button" class="cpg-btn" data-jg-fillB>เติมใบขวา</button>
+      <button type="button" class="cpg-btn" data-jg-emptyA>เทใบซ้ายทิ้ง</button>
+      <button type="button" class="cpg-btn" data-jg-emptyB>เทใบขวาทิ้ง</button>
+      <button type="button" class="cpg-btn" data-jg-AtoB>ซ้ายเทใส่ขวา</button>
+      <button type="button" class="cpg-btn" data-jg-BtoA>ขวาเทใส่ซ้าย</button>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-jg-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn" data-jg-none>ชุดนี้ตวงไม่ได้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>เติม เททิ้ง หรือเทใส่กัน ทีละท่า จนกว่าจะมีใบไหนได้ปริมาณที่ขอ</p>
+    <p class="cpg-score" data-cpg-score>ใช้ไปแล้ว <b data-jg-moves>0</b> ท่า</p>
+    <p class="cpg-hint">ทุกท่าราคาเท่ากันหมด ซึ่งเป็นเงื่อนไขที่ทำให้การค้นตามความกว้างใช้ได้</p>
+  </div>
+  <p class="io-note">
+    ลองนับดูว่าสถานะที่ต่างกันจริง ๆ มีกี่แบบ แล้วเทียบกับจำนวนลำดับท่าที่เป็นไปได้ ซึ่งโตแบบทวีคูณ
+  </p>
+
   <h3>ฝึกข้อ 2 ★★☆☆☆ · เหยือกน้ำสองใบ</h3>
   <div class="callout callout-note">
     <p class="callout-label">โจทย์กำหนด</p>
@@ -653,4 +757,134 @@ int main() {
     color:var(--dl-emerald-bright);
     letter-spacing:0.02em;
   }
+
+  /* ---------- เหยือกของมินิเกมตวงน้ำ ---------- */
+  .jg-jars{display:flex;gap:2rem;align-items:flex-end;margin:0.9rem 0 0.2rem;}
+  .jg-jar{display:flex;flex-direction:column;align-items:center;gap:0.35rem;}
+  .jg-glass{
+    width:3.2rem;height:6rem;
+    display:flex;align-items:flex-end;
+    border:2px solid #3d5a80;border-top:none;
+    border-radius:0 0 8px 8px;
+    background:#0b1220;
+    overflow:hidden;
+  }
+  .jg-water{
+    width:100%;
+    background:linear-gradient(#3d7ab8,#2a5a8a);
+    transition:height 0.2s ease;
+  }
+  .jg-water.hit{background:linear-gradient(#4ade80,#2f9e5c);}
+  @media (prefers-reduced-motion: reduce){
+    .jg-water{transition:none;}
+  }
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type JgPuzzle = { id: string; label: string; tease: string; x: number; y: number; z: number; best: number };
+
+  function initJugGame(): void {
+    const maybeUi = cpGameUi('[data-juggame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as JgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const aFill = ui.root.querySelector<HTMLElement>('[data-jg-a]');
+    const bFill = ui.root.querySelector<HTMLElement>('[data-jg-b]');
+    const aCap = ui.root.querySelector<HTMLElement>('[data-jg-acap]');
+    const bCap = ui.root.querySelector<HTMLElement>('[data-jg-bcap]');
+    const movesEl = ui.root.querySelector<HTMLElement>('[data-jg-moves]');
+    const goalEl = ui.root.querySelector<HTMLElement>('[data-jg-goal]');
+    if (!aFill || !bFill || !aCap || !bCap || !movesEl || !goalEl) return;
+    const jarA: HTMLElement = aFill;
+    const jarB: HTMLElement = bFill;
+    const capA: HTMLElement = aCap;
+    const capB: HTMLElement = bCap;
+    const movesOut: HTMLElement = movesEl;
+    const goalOut: HTMLElement = goalEl;
+
+    let pi = 0;
+    let a = 0;
+    let b = 0;
+    let moves = 0;
+
+    const pz = (): JgPuzzle => puzzles[pi];
+
+    function render(): void {
+      const p = pz();
+      jarA.style.height = `${(a / p.x) * 100}%`;
+      jarB.style.height = `${(b / p.y) * 100}%`;
+      jarA.dataset.v = String(a);
+      jarB.dataset.v = String(b);
+      capA.textContent = `${a} / ${p.x}`;
+      capB.textContent = `${b} / ${p.y}`;
+      movesOut.textContent = String(moves);
+      goalOut.textContent = String(p.z);
+      const hit = a === p.z || b === p.z;
+      jarA.classList.toggle('hit', a === p.z);
+      jarB.classList.toggle('hit', b === p.z);
+      if (hit) {
+        if (moves === p.best) {
+          ui.setStatus(`ได้ ${p.z} ลิตรพอดีด้วย ${moves} ท่า ซึ่งน้อยที่สุดแล้ว`, 'good');
+        } else {
+          ui.setStatus(`ได้ ${p.z} ลิตรแล้ว แต่ใช้ ${moves} ท่า ยังมีทางที่ใช้แค่ ${p.best} ท่า`, 'bad');
+        }
+      }
+    }
+
+    function act(kind: string): void {
+      const p = pz();
+      if (kind === 'fillA') a = p.x;
+      else if (kind === 'fillB') b = p.y;
+      else if (kind === 'emptyA') a = 0;
+      else if (kind === 'emptyB') b = 0;
+      else if (kind === 'AtoB') {
+        const t = Math.min(a, p.y - b);
+        a -= t;
+        b += t;
+      } else if (kind === 'BtoA') {
+        const t = Math.min(b, p.x - a);
+        b -= t;
+        a += t;
+      }
+      moves++;
+      ui.setStatus('เติม เททิ้ง หรือเทใส่กัน ทีละท่า จนกว่าจะมีใบไหนได้ปริมาณที่ขอ');
+      render();
+    }
+
+    function sayImpossible(): void {
+      const p = pz();
+      if (p.best === -1) {
+        ui.setStatus(`ถูกต้องครับ ${p.z} ลิตรตวงไม่ได้เลยด้วยเหยือก ${p.x} กับ ${p.y}`, 'good');
+      } else {
+        ui.setStatus(`ตวงได้ครับ มีทางที่ใช้ ${p.best} ท่า ลองใหม่อีกที`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      a = 0;
+      b = 0;
+      moves = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('เติม เททิ้ง หรือเทใส่กัน ทีละท่า จนกว่าจะมีใบไหนได้ปริมาณที่ขอ');
+      render();
+    }
+
+    for (const kind of ['fillA', 'fillB', 'emptyA', 'emptyB', 'AtoB', 'BtoA']) {
+      ui.onClick(`data-jg-${kind}`, () => act(kind));
+    }
+    ui.onClick('data-jg-reset', () => selectPuzzle(pi));
+    ui.onClick('data-jg-none', sayImpossible);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initJugGame);
+</script>
