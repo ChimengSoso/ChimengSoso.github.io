@@ -75,3 +75,30 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 4. **Search/filter** (see the parked "Tag filter or search" note): once scrolling hundreds of cards is impractical, a client-side filter/search over `articles.ts` beats an ever-longer listing.
 
 **When to actually start:** none of this is warranted at the current ~9 articles. Revisit item 1 (pagination) around low-hundreds; the rest as each threshold above is reached.
+
+## 8. [ ] Retrofit the no-em-dash rule onto the older published prose
+
+**Why:** `CLAUDE.md` states the zero-em-dash rule as a hard rule for all published prose (`/knowledge/*`, `/divine-lore/*`, `/cp/*`, plus `articles.ts`/`divineLore.ts`/`cp.ts`), and commit `6096395` already stripped every em-dash from the ICPC editorial. The rule was adopted after most `/knowledge/` articles were written, so those were never retrofitted. Every new page since then complies, which means the site's voice is currently split: recent pages read as the owner, older ones still carry the loudest AI tell in the guide. **1,152 em-dashes remain in 16 files** (counted 2026-09-07, after `eb5226f` cleared `divine-lore/index.astro` and `divineLore.ts`):
+
+- `src/pages/knowledge/claude-toolbox.astro` 184
+- `src/pages/knowledge/new-languages.astro` 124
+- `src/pages/knowledge/model-memory.astro` 117
+- `src/pages/knowledge/ai-taste.astro` 106
+- `src/pages/divine-lore/global-workspace.astro` 104
+- `src/pages/knowledge/claude-intro.astro` 91
+- `src/pages/knowledge/video-editing.astro` 80
+- `src/pages/knowledge/ai-persistence.astro` 64
+- `src/pages/knowledge/claude-agent-team.astro` 58
+- `src/pages/knowledge/context-pollution.astro` 56
+- `src/pages/knowledge/watch.astro` 47
+- `src/pages/knowledge/claude-code-workflow.astro` 45
+- `src/pages/knowledge/grill-and-loop.astro` 34
+- `src/pages/knowledge/handoff.astro` 25
+- `src/data/articles.ts` 13
+- `src/pages/knowledge/index.astro` 4
+
+**This is NOT a find-and-replace job. Do not run one.** A blanket swap to a space or a dash produces broken Thai and mangles code. Every occurrence needs reading in context, and the guide already gives the substitution order: (a) just a space, which Thai usually reads fine without any connector; (b) split into a new sentence; (c) parentheses for a genuine aside or a heading label (`ท่าที่ 1 — ปิดเสียงเตือน` becomes `ท่าที่ 1: ปิดเสียงเตือน`); (d) a colon when what follows really is an explanation. In `<figcaption>`, `<CodeBlock title>`, SVG `<text>` labels and `<li>` lead-ins use `·` or parentheses. Inside code strings use a plain space in comments. Watch for the em-dashes that are **not** prose and must survive judgement rather than deletion: ones inside `<CodeBlock code={...}>` strings, inside SVG `<text>` labels where width is fixed, and any inside a quotation actually lifted from a cited source.
+
+**Steps:** one file per commit, largest first or in reading order, whichever the owner prefers. Per file: read the surrounding sentence for each hit, apply the substitution order above, then `python -c "import io;print(io.open('<file>',encoding='utf-8').read().count('—'))"` must print `0`. Also grep the same file for smuggled zero-width spaces (U+200B). Changing a `title`/`desc` string in `articles.ts` regenerates that article's OG PNG and its RSS item, so rebuild and eyeball `dist/og/<slug>.png` for those. Ask the owner before rewording anything that changes meaning rather than punctuation, and never invent new claims while editing.
+
+**Verify:** per file, the count above reaches 0; `npm run check` + `npm run lint` + `npm run build` stay green; the article renders with no orphaned punctuation or double spaces (read the touched paragraphs in the live preview, do not trust the diff alone); for any `articles.ts` edit, `/rss.xml` and `dist/og/<slug>.png` still show the new title correctly. Whole-repo done-check: the scan in **Why** returns TOTAL 0.
