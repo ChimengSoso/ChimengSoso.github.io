@@ -118,6 +118,77 @@ int main() {
     while (lo < hi) { ll md = lo + (hi - lo) / 2; if (enough(md)) hi = md; else lo = md + 1; }
     printf("%lld\\n", lo);
 }`;
+/* ---------- มินิเกม บวกทั้งช่วง ถามค่าน้อยสุดของช่วง ----------
+   คำตอบของทุกคำถามคิดจากอาเรย์จริงตอนบิลด์ ด้วยการวนหาค่าน้อยสุดตรง ๆ
+   ไม่ได้ใช้เซกเมนต์ทรีที่บทนี้กำลังจะสอน */
+type SgOp =
+  | { kind: 'add'; l: number; r: number; v: number }
+  | { kind: 'min'; l: number; r: number };
+
+type SgPuzzle = { id: string; label: string; tease: string; arr: number[]; ops: SgOp[] };
+
+const SG_PUZZLES: SgPuzzle[] = [
+  {
+    id: 'g1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'บวกทีละช่วง แล้วถามค่าน้อยสุด ลองไล่ด้วยตาก่อน',
+    arr: [5, 3, 8, 6, 2, 7],
+    ops: [
+      { kind: 'min', l: 1, r: 6 },
+      { kind: 'add', l: 2, r: 4, v: 4 },
+      { kind: 'min', l: 1, r: 4 },
+      { kind: 'min', l: 4, r: 6 },
+    ],
+  },
+  {
+    id: 'g2',
+    label: 'ชุดที่ 2 · บวกซ้อนกัน',
+    tease: 'ชุดนี้ช่วงที่บวกซ้อนทับกัน ต้องระวังว่าช่องไหนโดนบวกกี่รอบ',
+    arr: [9, 1, 4, 4, 7, 2, 6, 3],
+    ops: [
+      { kind: 'add', l: 1, r: 5, v: 2 },
+      { kind: 'min', l: 1, r: 5 },
+      { kind: 'add', l: 3, r: 8, v: 3 },
+      { kind: 'min', l: 3, r: 6 },
+      { kind: 'min', l: 1, r: 8 },
+    ],
+  },
+];
+
+type SgStep = { kind: string; text: string; answer: number; arr: number[]; l: number; r: number };
+type SgPuzzleData = { id: string; label: string; tease: string; arr: number[]; steps: SgStep[] };
+
+const sgPuzzles: SgPuzzleData[] = SG_PUZZLES.map((p) => {
+  const cur = [...p.arr];
+  const steps: SgStep[] = [];
+  for (const op of p.ops) {
+    if (op.kind === 'add') {
+      for (let k = op.l - 1; k <= op.r - 1; k++) cur[k] += op.v;
+      steps.push({
+        kind: 'add',
+        text: `บวก ${op.v} ให้ช่องที่ ${op.l} ถึง ${op.r}`,
+        answer: -1,
+        arr: [...cur],
+        l: op.l,
+        r: op.r,
+      });
+    } else {
+      let m = Number.POSITIVE_INFINITY;
+      for (let k = op.l - 1; k <= op.r - 1; k++) m = Math.min(m, cur[k]);
+      steps.push({
+        kind: 'min',
+        text: `ค่าน้อยสุดของช่องที่ ${op.l} ถึง ${op.r}`,
+        answer: m,
+        arr: [...cur],
+        l: op.l,
+        r: op.r,
+      });
+    }
+  }
+  return { id: p.id, label: p.label, tease: p.tease, arr: p.arr, steps };
+});
+const sgJson = JSON.stringify(sgPuzzles);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -137,6 +208,37 @@ int main() {
   <p>
     ที่เอามาไว้ด้วยกันเพราะโจทย์หนักหลายข้อใช้ทั้งคู่พร้อมกัน คือค้นหาคำตอบแบบไบนารีอยู่ชั้นนอก
     แล้วชั้นในใช้เซกเมนต์ทรีตอบว่า "ค่านี้ทำได้ไหม"
+  </p>
+
+  <h2>ลองเอง · ตอบค่าน้อยสุดหลังบวกทั้งช่วง</h2>
+  <div class="cpgame sggame" data-sggame data-puzzles={sgJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {sgPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{sgPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><div class="ps-strip" data-sg-strip></div></div>
+
+    <p class="fg-sub">คำถามตอนนี้ <b data-sg-task></b></p>
+
+    <div class="cpg-controls" data-sg-pad></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-sg-clear>ล้างคำตอบ</button>
+      <button type="button" class="cpg-btn main" data-sg-submit>ตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>อ่านคำถามแล้วพิมพ์ค่าน้อยสุดของช่วงที่ถูกไฮไลต์</p>
+    <p class="cpg-score" data-cpg-score>พิมพ์ไว้ <b data-sg-typed>-</b> · ตอบถูกแล้ว <b data-sg-right>0</b> จาก <b data-sg-total>0</b> ข้อ</p>
+    <p class="cpg-hint">การบวกทั้งช่วงจะทำให้ตัวเลขในกระดานเปลี่ยนเองก่อนคำถามถัดไป</p>
+  </div>
+  <p class="io-note">
+    ถ้าต้องไล่ดูทีละช่องทุกครั้งที่ถูกถาม ลองคิดว่าจะเก็บอะไรไว้ล่วงหน้า ให้ตอบได้โดยไม่ต้องแตะทุกช่อง
   </p>
 
   <h2>ส่วนที่ 1 เซกเมนต์ทรีแบบมีป้ายค้าง</h2>
@@ -440,4 +542,159 @@ int main() {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- แถบอาเรย์ของมินิเกมเซกเมนต์ทรี ---------- */
+  .ps-strip{display:flex;gap:5px;width:max-content;}
+  .sg-cell{
+    min-width:2.4rem;padding:0.25rem 0.35rem;
+    display:flex;flex-direction:column;align-items:center;gap:0.1rem;
+    border:1px solid #2a3350;border-radius:6px;background:#101827;
+  }
+  .sg-cell small{font-size:0.65rem;color:#7b8397;}
+  .sg-cell b{font-family:var(--dl-mono,monospace);font-size:0.9rem;color:#cdd6ea;}
+  .sg-cell.in{background:#14351f;border-color:#2f9e5c;}
+  .sg-cell.in b{color:#4ade80;}
+  .sg-cell.touched{background:#132235;border-color:#3d5a80;}
+  .ps-key{min-width:2.1rem;font-family:var(--dl-mono,monospace);}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type SgStep = { kind: string; text: string; answer: number; arr: number[]; l: number; r: number };
+  type SgPuzzle = { id: string; label: string; tease: string; arr: number[]; steps: SgStep[] };
+
+  function initSegGame(): void {
+    const maybeUi = cpGameUi('[data-sggame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as SgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripEl = ui.root.querySelector<HTMLElement>('[data-sg-strip]');
+    const taskEl = ui.root.querySelector<HTMLElement>('[data-sg-task]');
+    const padEl = ui.root.querySelector<HTMLElement>('[data-sg-pad]');
+    const typedEl = ui.root.querySelector<HTMLElement>('[data-sg-typed]');
+    const scoreEl = ui.root.querySelector<HTMLElement>('[data-sg-right]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-sg-total]');
+    if (!stripEl || !taskEl || !padEl || !typedEl || !scoreEl || !totalEl) return;
+    const strip: HTMLElement = stripEl;
+    const taskOut: HTMLElement = taskEl;
+    const pad: HTMLElement = padEl;
+    const typedOut: HTMLElement = typedEl;
+    const rightOut: HTMLElement = scoreEl;
+    const totalOut: HTMLElement = totalEl;
+
+    let pi = 0;
+    let si = 0;
+    let typed = '';
+    let right = 0;
+
+    const pz = (): SgPuzzle => puzzles[pi];
+    const step = (): SgStep | undefined => pz().steps[si];
+
+    function buildPad(): void {
+      pad.textContent = '';
+      for (const d of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn ps-key';
+        b.dataset.digit = d;
+        b.textContent = d;
+        pad.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const st = step();
+      const arr = st ? st.arr : p.arr;
+      strip.textContent = '';
+      arr.forEach((v, i) => {
+        const cell = document.createElement('span');
+        cell.className = 'sg-cell';
+        const idx = document.createElement('small');
+        idx.textContent = String(i + 1);
+        const val = document.createElement('b');
+        val.textContent = String(v);
+        cell.append(idx, val);
+        if (st && i + 1 >= st.l && i + 1 <= st.r) {
+          cell.classList.add(st.kind === 'min' ? 'in' : 'touched');
+        }
+        strip.appendChild(cell);
+      });
+      taskOut.textContent = st ? st.text : 'จบชุดนี้แล้ว';
+      typedOut.textContent = typed === '' ? '-' : typed;
+      rightOut.textContent = String(right);
+      totalOut.textContent = String(p.steps.filter((x) => x.kind === 'min').length);
+    }
+
+    function advanceThroughSets(): void {
+      // ข้ามขั้นที่เป็นการแก้ค่าไปเอง เพราะไม่ต้องให้ผู้เล่นตอบ
+      while (step() !== undefined && (step() as SgStep).kind === 'add') {
+        ui.setStatus(`${(step() as SgStep).text} แล้ว ลองดูว่าค่าน้อยสุดของช่วงไหนเปลี่ยนไปบ้าง`, 'plain');
+        si++;
+      }
+    }
+
+    function submit(): void {
+      const st = step();
+      if (st === undefined) {
+        ui.setStatus('จบชุดนี้แล้วครับ', 'plain');
+        return;
+      }
+      if (typed === '') {
+        ui.setStatus('พิมพ์คำตอบก่อนครับ', 'bad');
+        return;
+      }
+      if (Number(typed) === st.answer) {
+        right++;
+        ui.setStatus(`ถูกต้อง ${st.text} เท่ากับ ${st.answer}`, 'good');
+      } else {
+        ui.setStatus(`ยังไม่ใช่ ${st.text} เท่ากับ ${st.answer}`, 'bad');
+      }
+      typed = '';
+      si++;
+      advanceThroughSets();
+      render();
+      if (step() === undefined) {
+        const p = pz();
+        const asks = p.steps.filter((x) => x.kind === 'min').length;
+        ui.setStatus(`จบชุดนี้ ตอบถูก ${right} จาก ${asks} ข้อ`, right === asks ? 'good' : 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      si = 0;
+      typed = '';
+      right = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildPad();
+      advanceThroughSets();
+      ui.setStatus('อ่านคำถามแล้วพิมพ์ค่าน้อยสุดของช่วงที่ถูกไฮไลต์');
+      render();
+    }
+
+    pad.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-digit]');
+      if (!(b instanceof HTMLElement)) return;
+      typed += b.dataset.digit ?? '';
+      render();
+    });
+
+    ui.onClick('data-sg-clear', () => {
+      typed = '';
+      render();
+    });
+    ui.onClick('data-sg-submit', submit);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initSegGame);
+</script>

@@ -118,6 +118,77 @@ int main() {
     for (size_t h = 0; h < q.size(); h++) if (--indeg[f[q[h]]] == 0) q.push_back(f[q[h]]);
     printf("%d\\n", n - (int)q.size());           // ที่ปอกไม่ออกคือปมบนวงพอดี
 }`;
+/* ---------- มินิเกม เดินตามลูกศรเอง ----------
+   ปลายทางของทุกคำถามหาโดยเดินจริงทีละก้าวตอนบิลด์ ซึ่งช้าแต่ถูกแน่
+   ไม่ได้ใช้ท่ากระโดดทีละสองยกกำลังที่บทนี้กำลังจะสอน */
+type FgGamePuzzle = { id: string; label: string; tease: string; f: number[]; asks: { from: number; k: number }[] };
+
+/** เดินจากปม v ไป k ก้าวแบบซื่อ ๆ */
+function walkNaive(f: number[], v: number, k: number): number {
+  let cur = v;
+  for (let i = 0; i < k; i++) cur = f[cur - 1];
+  return cur;
+}
+
+/** ปมที่อยู่บนวง หาโดยปอกใบทิ้ง */
+function onCycleOf(f: number[]): boolean[] {
+  const n = f.length;
+  const indeg = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) indeg[f[i - 1]]++;
+  const q: number[] = [];
+  for (let i = 1; i <= n; i++) if (indeg[i] === 0) q.push(i);
+  for (let h = 0; h < q.length; h++) {
+    const p = f[q[h] - 1];
+    if (--indeg[p] === 0) q.push(p);
+  }
+  const on = new Array<boolean>(n + 1).fill(false);
+  for (let i = 1; i <= n; i++) on[i] = indeg[i] > 0;
+  return on;
+}
+
+const FG_PUZZLES: FgGamePuzzle[] = [
+  {
+    id: 'f1',
+    label: 'ชุดที่ 1 · วงเดียว',
+    tease: 'หกปม มีหางห้อยอยู่หน่อยหนึ่ง ลองเดินดูก่อน',
+    f: [2, 3, 4, 2, 4, 5],
+    asks: [
+      { from: 1, k: 3 },
+      { from: 6, k: 7 },
+      { from: 5, k: 0 },
+    ],
+  },
+  {
+    id: 'f2',
+    label: 'ชุดที่ 2 · ก้าวเยอะ',
+    tease: 'ชุดนี้ขอให้เดินเป็นพัน ๆ ก้าว ซึ่งเดินทีละก้าวด้วยมือไม่ไหวแล้ว',
+    f: [2, 3, 1, 3, 4, 5, 6],
+    asks: [
+      { from: 7, k: 1000 },
+      { from: 4, k: 999 },
+    ],
+  },
+];
+
+type FgAsk = { from: number; k: number; ans: number };
+type FgPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  f: number[];
+  onCycle: boolean[];
+  asks: FgAsk[];
+};
+const fgPuzzles: FgPuzzleData[] = FG_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  f: p.f,
+  onCycle: onCycleOf(p.f),
+  asks: p.asks.map((a) => ({ from: a.from, k: a.k, ans: walkNaive(p.f, a.from, a.k) })),
+}));
+const fgJson = JSON.stringify(fgPuzzles);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -244,6 +315,36 @@ int main() {
       ซึ่งเอาไปแจกข้อมูลจากรากลงใบต่อได้เลยโดยไม่ต้องเรียกซ้ำ
     </p>
   </div>
+
+  <h2>ลองเอง · เดินตามลูกศรให้ครบ k ก้าว</h2>
+  <div class="cpgame fggame" data-fggame data-puzzles={fgJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {fgPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{fgPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><table class="fg-map" data-fg-map></table></div>
+
+    <p class="fg-sub">เลือกคำถาม</p>
+    <div class="cpg-controls" data-fg-asks></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-fg-step>เดินหนึ่งก้าว</button>
+      <button type="button" class="cpg-btn main" data-fg-answer>ตอบว่าอยู่ตรงนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเดินทีละก้าว หรือถ้าเห็นวงแล้วก็ข้ามไปตอบเลย</p>
+    <p class="cpg-score" data-cpg-score>คำถาม <b data-fg-ask></b> · ตอนนี้อยู่ปม <b data-fg-pos>1</b> · เหลืออีก <b data-fg-left>0</b> ก้าว</p>
+    <p class="cpg-hint">ช่องที่ระบายไว้คือปมที่อยู่บนวง เข้าไปแล้วออกไม่ได้อีก</p>
+  </div>
+  <p class="io-note">
+    พอเจอคำถามที่ขอเป็นพันก้าว การกดทีละก้าวจะเริ่มไร้เหตุผล ลองคิดว่าอะไรที่ทำให้ข้ามทีเดียวหลายก้าวได้
+  </p>
 
   <h2>ท่าที่ 2 เดิน k ก้าวโดยไม่เดินจริง</h2>
   <p>
@@ -446,4 +547,166 @@ int main() {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- ตารางลูกศรของมินิเกมกราฟทางออกเดียว ---------- */
+  .fg-map{border-collapse:collapse;font-size:0.85rem;}
+  .fg-map th, .fg-map td{
+    border:1px solid #2a3350;padding:0.25rem 0.6rem;text-align:center;
+    font-family:var(--dl-mono,monospace);color:#cdd6ea;min-width:2rem;
+  }
+  .fg-map th.here{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .fg-map td.oncyc{background:#132235;color:#9ecbff;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type FgAsk = { from: number; k: number; ans: number };
+  type FgPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    f: number[];
+    onCycle: boolean[];
+    asks: FgAsk[];
+  };
+
+  function initFuncGraphGame(): void {
+    const maybeUi = cpGameUi('[data-fggame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as FgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const mapEl = ui.root.querySelector<HTMLElement>('[data-fg-map]');
+    const askEl = ui.root.querySelector<HTMLElement>('[data-fg-ask]');
+    const posEl = ui.root.querySelector<HTMLElement>('[data-fg-pos]');
+    const leftEl = ui.root.querySelector<HTMLElement>('[data-fg-left]');
+    if (!mapEl || !askEl || !posEl || !leftEl) return;
+    const mapOut: HTMLElement = mapEl;
+    const askOut: HTMLElement = askEl;
+    const posOut: HTMLElement = posEl;
+    const leftOut: HTMLElement = leftEl;
+
+    let pi = 0;
+    let ai = 0;
+    let pos = 1;
+    let left = 0;
+
+    const pz = (): FgPuzzle => puzzles[pi];
+    const ask = (): FgAsk => pz().asks[ai];
+
+    function buildMap(): void {
+      const p = pz();
+      mapOut.textContent = '';
+      const head = document.createElement('tr');
+      const h0 = document.createElement('th');
+      h0.textContent = 'ปม';
+      head.appendChild(h0);
+      p.f.forEach((_, i) => {
+        const th = document.createElement('th');
+        th.textContent = String(i + 1);
+        th.dataset.node = String(i + 1);
+        head.appendChild(th);
+      });
+      mapOut.appendChild(head);
+      const row = document.createElement('tr');
+      const r0 = document.createElement('th');
+      r0.textContent = 'ลูกศรไปที่';
+      row.appendChild(r0);
+      p.f.forEach((v, i) => {
+        const td = document.createElement('td');
+        td.textContent = String(v);
+        td.dataset.arrow = String(i + 1);
+        if (p.onCycle[i + 1]) td.classList.add('oncyc');
+        row.appendChild(td);
+      });
+      mapOut.appendChild(row);
+    }
+
+    function render(): void {
+      const a = ask();
+      for (const th of Array.from(mapOut.querySelectorAll<HTMLElement>('[data-node]'))) {
+        th.classList.toggle('here', Number(th.dataset.node) === pos);
+      }
+      askOut.textContent = `เริ่มที่ปม ${a.from} เดิน ${a.k} ก้าว`;
+      posOut.textContent = String(pos);
+      leftOut.textContent = String(left);
+    }
+
+    function step(): void {
+      if (left === 0) {
+        ui.setStatus('เดินครบตามที่ขอแล้ว กดตอบได้เลย', 'plain');
+        return;
+      }
+      pos = pz().f[pos - 1];
+      left--;
+      ui.setStatus(`เดินแล้วหนึ่งก้าว เหลืออีก ${left} ก้าว`);
+      render();
+    }
+
+    function answer(): void {
+      const a = ask();
+      if (pos === a.ans && left === 0) {
+        ui.setStatus(`ถูกต้องครับ เดินครบ ${a.k} ก้าวแล้วอยู่ที่ปม ${a.ans}`, 'good');
+      } else if (left > 0) {
+        ui.setStatus(`ยังเดินไม่ครบ เหลืออีก ${left} ก้าว ปลายทางจริงคือปม ${a.ans}`, 'bad');
+      } else {
+        ui.setStatus(`ปลายทางที่ถูกคือปม ${a.ans}`, 'bad');
+      }
+    }
+
+    function pickAsk(k: number): void {
+      ai = k;
+      const a = ask();
+      pos = a.from;
+      left = a.k;
+      for (const b of Array.from(ui.root.querySelectorAll<HTMLElement>('[data-fg-pick]'))) {
+        b.classList.toggle('picked', Number(b.dataset.fgPick) === k);
+      }
+      ui.setStatus('กดเดินทีละก้าว หรือถ้าเห็นวงแล้วก็ข้ามไปตอบเลย');
+      render();
+    }
+
+    function buildAsks(): void {
+      const p = pz();
+      const bar = ui.root.querySelector<HTMLElement>('[data-fg-asks]');
+      if (!bar) return;
+      bar.textContent = '';
+      p.asks.forEach((a, k) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn';
+        b.dataset.fgPick = String(k);
+        b.textContent = `จากปม ${a.from} เดิน ${a.k} ก้าว`;
+        bar.appendChild(b);
+      });
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildMap();
+      buildAsks();
+      pickAsk(0);
+    }
+
+    const askBar = ui.root.querySelector<HTMLElement>('[data-fg-asks]');
+    askBar?.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-fg-pick]');
+      if (!(b instanceof HTMLElement)) return;
+      pickAsk(Number(b.dataset.fgPick));
+    });
+
+    ui.onClick('data-fg-step', step);
+    ui.onClick('data-fg-answer', answer);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initFuncGraphGame);
+</script>
