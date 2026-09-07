@@ -57,6 +57,64 @@ function cheapest(cs: Case, s: number): { cost: number; x: number; y: number } |
   return best;
 }
 
+/* ---------- มินิเกม เลื่อนฐานปิรามิดเอง ----------
+   ค่าใช้จ่ายของทุกตำแหน่งคิดด้วย costAt ตัวเดียวกับที่บทความใช้
+   ส่วนคำตอบของแต่ละชุดหาโดยไล่ทุกขนาดทุกตำแหน่งตรง ๆ ตอนบิลด์ */
+type PbPuzzle = { id: string; label: string; tease: string; cs: Case };
+
+/** ด้านที่ใหญ่ที่สุดที่วางได้ในงบ ไล่ทุกขนาดทุกตำแหน่ง */
+function biggestSide(cs: Case): number {
+  let best = 0;
+  const lim = Math.min(cs.M, cs.N);
+  for (let s = 1; s <= lim; s++) {
+    const c = cheapest(cs, s);
+    if (c && c.cost <= cs.B) best = s;
+  }
+  return best;
+}
+
+const PB_PUZZLES: PbPuzzle[] = [
+  { id: 'b1', label: 'ชุดที่ 1 · ตัวอย่างแรก', tease: 'ตารางเดียวกับตัวอย่างแรกของโจทย์ งบ 42', cs: EX1 },
+  { id: 'b2', label: 'ชุดที่ 2 · ตัวอย่างที่สอง', tease: 'ชุดนี้งบเป็นศูนย์ ต้องหาที่โล่งล้วน ๆ', cs: EX2 },
+  {
+    id: 'b3',
+    label: 'ชุดที่ 3 · งบพอดีเป๊ะ',
+    tease: 'ชุดนี้ถ้าเลือกตำแหน่งพลาดนิดเดียวก็เกินงบทันที',
+    cs: {
+      M: 6,
+      N: 6,
+      B: 5,
+      obs: [
+        { x1: 1, y1: 1, x2: 2, y2: 6, c: 6 },
+        { x1: 4, y1: 4, x2: 4, y2: 4, c: 5 },
+        { x1: 6, y1: 1, x2: 6, y2: 6, c: 4 },
+      ],
+    },
+  },
+];
+
+type PbPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  m: number;
+  n: number;
+  b: number;
+  obs: Obstacle[];
+  answer: number;
+};
+const pbPuzzles: PbPuzzleData[] = PB_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  m: p.cs.M,
+  n: p.cs.N,
+  b: p.cs.B,
+  obs: p.cs.obs,
+  answer: biggestSide(p.cs),
+}));
+const pbJson = JSON.stringify(pbPuzzles);
+
 function answerOf(cs: Case): number {
   let best = 0;
   for (let s = 1; s <= Math.min(cs.M, cs.N); s++) {
@@ -277,6 +335,35 @@ while (lo < hi) {
       สิ่งกีดขวางหนึ่งก้อนจะห้ามมุมล่างซ้ายไว้ที่บริเวณรูปอะไร
     </p>
   </div>
+
+  <h2>ลองเอง · หาที่วางฐานให้ใหญ่ที่สุดในงบ</h2>
+  <div class="cpgame pbgame" data-pbgame data-puzzles={pbJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {pbPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{pbPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><div class="pb-board" data-pb-board></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-pb-minus>ฐานเล็กลง</button>
+      <span class="cpg-cap">ด้านยาว <b data-pb-side>1</b></span>
+      <button type="button" class="cpg-btn" data-pb-plus>ฐานใหญ่ขึ้น</button>
+      <button type="button" class="cpg-btn main" data-pb-check>ตรวจตำแหน่งนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น</p>
+    <p class="cpg-score" data-cpg-score>ต้องจ่าย <b data-pb-cost>0</b> จากงบ <b data-pb-budget>0</b> · ใหญ่ที่สุดที่วางได้แล้ว <b data-pb-best>0</b></p>
+    <p class="cpg-hint">ก้อนหนึ่งก้อนคิดเงินครั้งเดียว ไม่ว่าฐานจะทับมันกี่ช่องก็ตาม</p>
+  </div>
+  <p class="io-note">
+    ลองเลื่อนฐานไปเรื่อย ๆ แล้วสังเกตว่าค่าใช้จ่ายเปลี่ยนตอนไหน มันไม่ได้เปลี่ยนทุกช่อง แต่เปลี่ยนตอนขอบของฐานข้ามขอบของก้อน
+  </p>
 
   <h2>เฉลย · ค้นหาคำตอบแบบไบนารี แล้วกวาดเส้นหาจุดที่ถูกที่สุด</h2>
   <Spoiler>
@@ -524,4 +611,177 @@ while (lo < hi) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- กระดานของมินิเกมฐานปิรามิด ---------- */
+  .pb-board{display:flex;flex-direction:column;gap:3px;width:max-content;}
+  .pb-row{display:flex;gap:3px;}
+  .pb-cell{
+    width:1.8rem;height:1.8rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:0.72rem;
+    cursor:pointer;
+    border:1px solid #2a3350;border-radius:5px;
+    background:#101827;color:#7b8397;
+  }
+  .pb-cell:hover{border-color:var(--dl-emerald);}
+  .pb-cell.rock{background:#241a1a;color:#f0a6a6;border-color:#4a2a2a;}
+  .pb-cell.in{outline:2px solid #2f9e5c;outline-offset:-2px;}
+  .pb-cell.over{outline:2px solid #8a3b3b;outline-offset:-2px;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type PbObstacle = { x1: number; y1: number; x2: number; y2: number; c: number };
+  type PbPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    m: number;
+    n: number;
+    b: number;
+    obs: PbObstacle[];
+    answer: number;
+  };
+
+  function initPyramidGame(): void {
+    const maybeUi = cpGameUi('[data-pbgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as PbPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const boardEl = ui.root.querySelector<HTMLElement>('[data-pb-board]');
+    const sideEl = ui.root.querySelector<HTMLElement>('[data-pb-side]');
+    const costEl = ui.root.querySelector<HTMLElement>('[data-pb-cost]');
+    const budgetEl = ui.root.querySelector<HTMLElement>('[data-pb-budget]');
+    const bestEl = ui.root.querySelector<HTMLElement>('[data-pb-best]');
+    const minusEl = ui.root.querySelector<HTMLElement>('[data-pb-minus]');
+    const plusEl = ui.root.querySelector<HTMLElement>('[data-pb-plus]');
+    if (!boardEl || !sideEl || !costEl || !budgetEl || !bestEl || !minusEl || !plusEl) return;
+    const board: HTMLElement = boardEl;
+    const sideOut: HTMLElement = sideEl;
+    const costOut: HTMLElement = costEl;
+    const budgetOut: HTMLElement = budgetEl;
+    const bestOut: HTMLElement = bestEl;
+
+    let pi = 0;
+    let x = 1;
+    let y = 1;
+    let s = 1;
+    let bestFound = 0;
+
+    const pz = (): PbPuzzle => puzzles[pi];
+
+    function hitObstacles(): PbObstacle[] {
+      const p = pz();
+      return p.obs.filter((o) => x <= o.x2 && x + s - 1 >= o.x1 && y <= o.y2 && y + s - 1 >= o.y1);
+    }
+    const costNow = (): number => hitObstacles().reduce((t, o) => t + o.c, 0);
+
+    function clamp(): void {
+      const p = pz();
+      s = Math.max(1, Math.min(Math.min(p.m, p.n), s));
+      x = Math.max(1, Math.min(p.m - s + 1, x));
+      y = Math.max(1, Math.min(p.n - s + 1, y));
+    }
+
+    function buildBoard(): void {
+      const p = pz();
+      board.textContent = '';
+      /* วาดจากแถวบนลงล่าง แต่พิกัด y ของโจทย์นับจากล่างขึ้นบน จึงกลับลำดับตอนวาด */
+      for (let row = p.n; row >= 1; row--) {
+        const tr = document.createElement('div');
+        tr.className = 'pb-row';
+        for (let col = 1; col <= p.m; col++) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'pb-cell';
+          cell.dataset.x = String(col);
+          cell.dataset.y = String(row);
+          const on = p.obs.filter((o) => col >= o.x1 && col <= o.x2 && row >= o.y1 && row <= o.y2);
+          if (on.length > 0) {
+            cell.classList.add('rock');
+            cell.textContent = String(on.reduce((t, o) => t + o.c, 0));
+          }
+          cell.setAttribute('aria-label', `ช่อง ${col} ${row}`);
+          tr.appendChild(cell);
+        }
+        board.appendChild(tr);
+      }
+    }
+
+    function render(): void {
+      clamp();
+      const p = pz();
+      const cost = costNow();
+      const over = cost > p.b;
+      for (const cell of Array.from(board.querySelectorAll<HTMLElement>('.pb-cell'))) {
+        const cx = Number(cell.dataset.x);
+        const cy = Number(cell.dataset.y);
+        const inside = cx >= x && cx < x + s && cy >= y && cy < y + s;
+        cell.classList.toggle('in', inside && !over);
+        cell.classList.toggle('over', inside && over);
+      }
+      sideOut.textContent = String(s);
+      costOut.textContent = String(cost);
+      budgetOut.textContent = String(p.b);
+      bestOut.textContent = String(bestFound);
+    }
+
+    function check(): void {
+      const p = pz();
+      const cost = costNow();
+      if (cost > p.b) {
+        ui.setStatus(`ด้าน ${s} ตรงนี้ต้องจ่าย ${cost} ซึ่งเกินงบ ${p.b}`, 'bad');
+        return;
+      }
+      if (s > bestFound) bestFound = s;
+      if (s === p.answer) {
+        ui.setStatus(`ใช่ครับ ด้าน ${s} คือฐานที่ใหญ่ที่สุดที่งบนี้วางได้`, 'good');
+      } else {
+        ui.setStatus(`ด้าน ${s} วางได้จริงในงบ แต่ยังมีที่ที่วางได้ใหญ่กว่านี้`, 'good');
+      }
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      x = 1;
+      y = 1;
+      s = 1;
+      bestFound = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildBoard();
+      ui.setStatus('คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น');
+      render();
+    }
+
+    board.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const cell = e.target.closest('.pb-cell');
+      if (!(cell instanceof HTMLElement)) return;
+      x = Number(cell.dataset.x);
+      y = Number(cell.dataset.y);
+      ui.setStatus('คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น');
+      render();
+    });
+    minusEl.addEventListener('click', () => {
+      s -= 1;
+      render();
+    });
+    plusEl.addEventListener('click', () => {
+      s += 1;
+      render();
+    });
+
+    ui.onClick('data-pb-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initPyramidGame);
+</script>
