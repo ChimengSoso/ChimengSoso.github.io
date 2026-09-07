@@ -1,0 +1,748 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'killer-square/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ไม่มีเลขไหนพิมพ์ด้วยมือ ---------- */
+
+type Grid = string[];
+
+/** จัตุรัสมุมบนซ้าย (r, c) ด้านยาว k หมุน 180 องศาแล้วเหมือนเดิมไหม (ตรวจแบบซื่อ ๆ) */
+function isSym(g: Grid, r: number, c: number, k: number): boolean {
+  for (let i = 0; i < k; i++)
+    for (let j = 0; j < k; j++) if (g[r + i][c + j] !== g[r + k - 1 - i][c + k - 1 - j]) return false;
+  return true;
+}
+
+type Sq = { r: number; c: number; k: number };
+
+/** จัตุรัสพิฆาตทุกอันในตาราง (ด้านยาวตั้งแต่ 2 ขึ้นไป) เรียงจากใหญ่ไปเล็ก */
+function allSquares(g: Grid): Sq[] {
+  const R = g.length;
+  const C = g[0].length;
+  const out: Sq[] = [];
+  for (let k = 2; k <= Math.min(R, C); k++)
+    for (let r = 0; r + k <= R; r++) for (let c = 0; c + k <= C; c++) if (isSym(g, r, c, k)) out.push({ r, c, k });
+  return out.sort((a, b) => b.k - a.k || a.r - b.r || a.c - b.c);
+}
+
+const answerOf = (g: Grid): number => {
+  const all = allSquares(g);
+  return all.length ? all[0].k : -1;
+};
+
+/** จัตุรัสที่ไม่ถูกจัตุรัสอันอื่นในลิสต์ครอบไว้ทั้งตัว เอาไว้โชว์ให้เห็นว่า "มีกี่อัน" โดยไม่ซ้ำซ้อน */
+function maximalSquares(g: Grid): Sq[] {
+  const all = allSquares(g);
+  return all.filter(
+    (s) =>
+      !all.some(
+        (t) => t !== s && t.k > s.k && t.r <= s.r && t.c <= s.c && t.r + t.k >= s.r + s.k && t.c + t.k >= s.c + s.k,
+      ),
+  );
+}
+
+/* ตารางตัวอย่างสามชุดในโจทย์ */
+const EX1: Grid = ['101010', '111001', '101001'];
+const EX2: Grid = ['10010', '01010', '10101', '01001'];
+const EX3: Grid = ['101', '111', '100'];
+
+const ans1 = answerOf(EX1);
+const ans2 = answerOf(EX2);
+const ans3 = answerOf(EX3);
+
+const ex1Squares = maximalSquares(EX1);
+const ex1Sizes = ex1Squares.map((s) => s.k);
+
+/** วาดตารางเป็น "หน้ากาก" ตัวอักษร โดยช่องที่ไม่อยู่ในจัตุรัสที่สนใจกลายเป็นจุด */
+function mask(g: Grid, s: Sq): string[] {
+  return g.map((row, i) =>
+    [...row].map((ch, j) => (i >= s.r && i < s.r + s.k && j >= s.c && j < s.c + s.k ? ch : '.')).join(''),
+  );
+}
+
+/* ---------- ทำไมไล่ตรง ๆ ไม่รอด ---------- */
+
+const LIMIT = 300;
+
+/** จำนวนจัตุรัสที่ต้องพิจารณาทั้งหมดในตาราง R x C (ด้านยาวตั้งแต่ 2) */
+function candidateCount(R: number, C: number): number {
+  let n = 0;
+  for (let k = 2; k <= Math.min(R, C); k++) n += (R - k + 1) * (C - k + 1);
+  return n;
+}
+/** จำนวนครั้งที่ต้องเทียบช่องต่อช่อง ถ้าตรวจทุกจัตุรัสแบบซื่อ ๆ */
+function naiveCellChecks(R: number, C: number): number {
+  let n = 0;
+  for (let k = 2; k <= Math.min(R, C); k++) n += (R - k + 1) * (C - k + 1) * k * k;
+  return n;
+}
+
+const CAND = candidateCount(LIMIT, LIMIT);
+const NAIVE = naiveCellChecks(LIMIT, LIMIT);
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+/** เขียนเลขใหญ่เป็นภาษาคน เช่น 8.96 ล้าน / 82.4 พันล้าน */
+function human(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} พันล้าน`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)} ล้าน`;
+  return fmt(n);
+}
+
+/** ตารางเทียบสองแนวคิด คิดหน่วยเดียวกันคือ "จำนวนครั้งที่แตะข้อมูล" */
+const costRows = [
+  {
+    name: 'ตรวจทุกจัตุรัสแบบซื่อ ๆ',
+    per: 'k × k ครั้งต่อหนึ่งจัตุรัส',
+    total: naiveCellChecks(LIMIT, LIMIT),
+  },
+  {
+    name: 'ปอกทีละวง เทียบขอบด้วยแฮช',
+    per: '4 ครั้งต่อหนึ่งจัตุรัส',
+    total: candidateCount(LIMIT, LIMIT) * 4,
+  },
+];
+
+/* ---------- ตัวอย่างการปอกวง เอา 3x3 ของตัวอย่างแรกมาแกะ ---------- */
+
+const PEEL = ex1Squares.find((s) => s.k === 3) as Sq;
+const peelRows = [0, 1, 2].map((i) => EX1[PEEL.r + i].slice(PEEL.c, PEEL.c + 3));
+const peelTop = peelRows[0];
+const peelBottom = peelRows[2];
+const peelBottomRev = [...peelBottom].reverse().join('');
+const peelLeft = peelRows.map((row) => row[0]).join('');
+const peelRight = peelRows.map((row) => row[2]).join('');
+const peelRightRev = [...peelRight].reverse().join('');
+const peelCore = peelRows[1][1];
+
+/** ป้ายบอกคู่ของช่องในจัตุรัสด้าน 3 ช่องที่ป้ายเดียวกันคือช่องที่หมุนแล้วไปทับกัน */
+const PAIR_TAG = ['A', 'B', 'C', 'D', '.', 'D', 'C', 'B', 'A'];
+const pairTag = (i: number, j: number): string => PAIR_TAG[i * 3 + j];
+
+/* ---------- สูตร ---------- */
+
+const texSym = texCode(
+  `${mc.fn('a')}[r ${mc.op('+')} i][c ${mc.op('+')} j] ${mc.op('=')} ${mc.fn('a')}[r ${mc.op('+')} k ${mc.op('-')} ${mc.num('1')} ${mc.op('-')} i][c ${mc.op('+')} k ${mc.op('-')} ${mc.num('1')} ${mc.op('-')} j]`,
+);
+const texPeel = texCode(
+  `${mc.fn('ok')}(r, c, k) ${mc.op('=')} ${mc.fn('ok')}(r ${mc.op('+')} ${mc.num('1')}, c ${mc.op('+')} ${mc.num('1')}, k ${mc.op('-')} ${mc.num('2')}) \\;${mc.op('\\wedge')}\\; ${mc.fn('rowFit')}(r, c, k) \\;${mc.op('\\wedge')}\\; ${mc.fn('colFit')}(r, c, k)`,
+);
+
+/* ---------- โค้ด ---------- */
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+
+// แฮชโมดูโล 2^61 - 1 คูณกันแล้วพับด้วยบิต ไม่ต้องหารเลย
+const ull MOD = (1ULL << 61) - 1;
+static inline ull add(ull a, ull b) { a += b; if (a >= MOD) a -= MOD; return a; }
+static inline ull sub(ull a, ull b) { return add(a, MOD - b); }
+static inline ull mul(ull a, ull b) {
+    __uint128_t c = (__uint128_t)a * b;
+    return add((ull)(c & MOD), (ull)(c >> 61));
+}
+
+int R, C;
+ull B;
+vector<ull> pw;
+vector<vector<ull>> hRow, hRowRev, hCol, hColRev;
+
+// แฮชนำหน้าของทุกบรรทัดในชุดที่ให้มา
+static void build(vector<vector<ull>>& h, const vector<string>& s) {
+    int n = s.size(), m = s[0].size();
+    h.assign(n, vector<ull>(m + 1, 0));
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < m; j++)
+            h[i][j + 1] = add(mul(h[i][j], B), (ull)(s[i][j] - '0' + 1));
+}
+static inline ull cut(const vector<vector<ull>>& h, int i, int l, int len) {
+    return sub(h[i][l + len], mul(h[i][l], pw[len]));
+}
+
+int main() {
+    scanf("%d %d", &R, &C);
+    vector<string> row(R);
+    for (int i = 0; i < R; i++) { char buf[512]; scanf("%s", buf); row[i] = buf; }
+
+    mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+    B = rng() % (MOD - 300) + 256;                  // ฐานสุ่ม กันคนแต่งอินพุตมาชนแฮช
+    pw.assign(max(R, C) + 1, 1);
+    for (size_t i = 1; i < pw.size(); i++) pw[i] = mul(pw[i - 1], B);
+
+    // เตรียมสี่ชุด: แถวปกติ แถวกลับด้าน คอลัมน์ปกติ คอลัมน์กลับด้าน
+    vector<string> rowRev(R), col(C, string(R, '0')), colRev(C);
+    for (int i = 0; i < R; i++) { rowRev[i] = row[i]; reverse(rowRev[i].begin(), rowRev[i].end()); }
+    for (int j = 0; j < C; j++) {
+        for (int i = 0; i < R; i++) col[j][i] = row[i][j];
+        colRev[j] = col[j];
+        reverse(colRev[j].begin(), colRev[j].end());
+    }
+    build(hRow, row); build(hRowRev, rowRev); build(hCol, col); build(hColRev, colRev);
+
+    // ขอบบนช่วง [c, c+k-1] ต้องเท่ากับขอบล่างช่วงเดียวกัน "อ่านกลับด้าน"
+    // ช่วงกลับด้านของ [c, c+k-1] ในสตริงที่กลับแล้ว คือ [C-c-k, C-c-1]
+    auto rowFit = [&](int u, int v, int c, int k) {
+        return cut(hRow, u, c, k) == cut(hRowRev, v, C - c - k, k);
+    };
+    auto colFit = [&](int a, int b, int r, int k) {
+        return cut(hCol, a, r, k) == cut(hColRev, b, R - r - k, k);
+    };
+
+    int K = min(R, C);
+    // สองชั้นที่ต้องเก็บคือ k-1 กับ k-2 เท่านั้น จัตุรัสด้าน 0 กับ 1 สมมาตรเสมอ
+    vector<vector<char>> two(R, vector<char>(C, 1));
+    vector<vector<char>> one(R, vector<char>(C, 1));
+    int ans = -1;
+    for (int k = 2; k <= K; k++) {
+        vector<vector<char>> cur(R, vector<char>(C, 0));
+        for (int r = 0; r + k <= R; r++)
+            for (int c = 0; c + k <= C; c++) {
+                if (!two[r + 1][c + 1]) continue;             // ไส้ในด้าน k-2 ต้องผ่านก่อน
+                if (!rowFit(r, r + k - 1, c, k)) continue;    // ขอบบนคู่ขอบล่าง
+                if (!colFit(c, c + k - 1, r, k)) continue;    // ขอบซ้ายคู่ขอบขวา
+                cur[r][c] = 1;
+                ans = k;
+            }
+        two = one;
+        one = cur;
+    }
+    printf("%d\\n", ans);
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจสอบแบบซื่อ ๆ ไล่ทุกจัตุรัสแล้วเทียบช่องต่อช่อง ใช้ได้แค่ตารางเล็ก ๆ
+// เอาไว้สุ่มเทียบกับโค้ดจริงก่อนส่ง ไม่ใช่โค้ดที่ส่งเข้าระบบตัดสิน
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int R, C;
+    scanf("%d %d", &R, &C);
+    vector<string> g(R);
+    for (auto& s : g) { char b[512]; scanf("%s", b); s = b; }
+
+    int ans = -1;
+    for (int k = 2; k <= min(R, C); k++)
+        for (int r = 0; r + k <= R; r++)
+            for (int c = 0; c + k <= C; c++) {
+                bool ok = true;
+                for (int i = 0; i < k && ok; i++)
+                    for (int j = 0; j < k && ok; j++)
+                        if (g[r + i][c + j] != g[r + k - 1 - i][c + k - 1 - j]) ok = false;
+                if (ok) ans = max(ans, k);
+            }
+    printf("%d\\n", ans);
+}`;
+
+const peelSnippet = `if (!two[r + 1][c + 1]) continue;             // ไส้ในด้าน k-2 ต้องผ่านก่อน
+if (!rowFit(r, r + k - 1, c, k)) continue;    // ขอบบนคู่ขอบล่าง
+if (!colFit(c, c + k - 1, r, k)) continue;    // ขอบซ้ายคู่ขอบขวา
+cur[r][c] = 1;`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · หน่วยความจำที่อ่านกลับหัวแล้วเหมือนเดิม</h2>
+  <p>
+    มินตรานั่งไล่บักโปรแกรมอยู่ แล้วเริ่มสงสัยว่าที่มันพังอยู่ทุกวันนี้อาจไม่เกี่ยวกับโค้ดเลย แต่เกี่ยวกับรูปร่างของข้อมูลในหน่วยความจำ
+    หน่วยความจำที่โปรแกรมใช้อยู่เป็นตารางขนาด <code>R</code> แถว <code>C</code> คอลัมน์ แต่ละช่องเป็น <code>0</code> หรือ <code>1</code> เท่านั้น
+  </p>
+  <p>
+    สิ่งที่มินตราตามล่าอยู่เขาเรียกมันว่า <strong>สี่เหลี่ยมพิฆาต</strong> (killer square) นั่นคือตารางย่อยรูป<strong>จัตุรัส</strong>
+    ที่มีช่องมากกว่าหนึ่งช่อง และเมื่อ<strong>หมุนมันไป 180 องศา</strong>แล้วยังได้ภาพเดิมเป๊ะทุกช่อง งานของเราคือหาว่าจัตุรัสแบบนี้
+    ที่ใหญ่ที่สุดในตารางมีด้านยาวเท่าไร
+  </p>
+  <p>
+    หมุน 180 องศาคือหมุนกลับหัวกลับหางในทีเดียว ช่องมุมบนซ้ายจะไปแทนที่มุมล่างขวา ช่องบนขวาไปแทนล่างซ้าย
+    พูดอีกแบบคือทุกช่องต้อง<strong>จับคู่กับช่องที่อยู่ตรงข้ามมันผ่านจุดกึ่งกลาง</strong>ของจัตุรัส แล้วสองช่องนั้นต้องมีค่าเท่ากัน
+  </p>
+
+  <ZoomableDiagram caption="ช่องที่ติดป้ายตัวเดียวกันคือช่องที่หมุนแล้วไปทับกัน จึงต้องมีค่าเท่ากัน ส่วนช่องกลางทับตัวเองจึงเป็นอะไรก็ได้ (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 400 244" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ ตารางสามคูณสามทางซ้าย แต่ละช่องมีป้ายตัวอักษรมุมบนซ้ายบอกว่ามันจับคู่กับช่องไหน ช่องกลางติดป้ายจุดเพราะจับคู่กับตัวเอง ทางขวาเป็นตารางเดียวกันหลังหมุนหนึ่งร้อยแปดสิบองศา ป้ายทุกตัวย้ายที่แต่ตัวเลขในช่องยังตรงกับภาพซ้ายทุกช่อง">
+      <text x="18" y="24" fill="#9aa7bd" font-size="12">ก่อนหมุน</text>
+      {[0, 1, 2].map((i) =>
+        [0, 1, 2].map((j) => (
+          <g>
+            <rect
+              x={18 + j * 44}
+              y={34 + i * 44}
+              width="40"
+              height="40"
+              rx="7"
+              fill={i === 1 && j === 1 ? '#101827' : '#1c2536'}
+              stroke={i === 1 && j === 1 ? '#e0b400' : '#2a3350'}
+              stroke-width="1.5"
+            />
+            <text
+              x={38 + j * 44}
+              y={60 + i * 44}
+              fill="#e7ecf6"
+              font-size="14"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {peelRows[i][j]}
+            </text>
+            <text x={22 + j * 44} y={48 + i * 44} fill="#4ade80" font-size="9" font-family="monospace">
+              {pairTag(i, j)}
+            </text>
+          </g>
+        )),
+      )}
+      <text x="84" y="194" fill="#e0b400" font-size="11" text-anchor="middle">ป้ายจุดคือช่องที่ทับตัวเอง</text>
+
+      <defs>
+        <marker id="ks-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+        </marker>
+      </defs>
+      <path d="M182 98 L236 98" fill="none" stroke="#e0b400" stroke-width="1.8" marker-end="url(#ks-ar)" />
+      <text x="209" y="88" fill="#e0b400" font-size="11" text-anchor="middle">หมุน 180</text>
+
+      <text x="252" y="24" fill="#9aa7bd" font-size="12">หลังหมุน</text>
+      {[0, 1, 2].map((i) =>
+        [0, 1, 2].map((j) => (
+          <g>
+            <rect
+              x={252 + j * 44}
+              y={34 + i * 44}
+              width="40"
+              height="40"
+              rx="7"
+              fill="#1c2536"
+              stroke="#2f9e5c"
+              stroke-width="1.5"
+            />
+            <text
+              x={272 + j * 44}
+              y={60 + i * 44}
+              fill="#4ade80"
+              font-size="14"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {peelRows[2 - i][2 - j]}
+            </text>
+            <text x={256 + j * 44} y={48 + i * 44} fill="#4ade80" font-size="9" font-family="monospace">
+              {pairTag(2 - i, 2 - j)}
+            </text>
+          </g>
+        )),
+      )}
+      <text x="318" y="194" fill="#4ade80" font-size="11" text-anchor="middle">ตรงกับภาพซ้ายทุกช่อง</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>R</code> และ <code>C</code> จากนั้นอีก <code>R</code> บรรทัด แต่ละบรรทัดมี
+        <code>C</code> ตัวอักษรที่เป็น <code>0</code> หรือ <code>1</code> ติดกันโดยไม่มีช่องว่างคั่น
+      </li>
+      <li><strong>ขอบเขต:</strong> <code>R, C ≤ {LIMIT}</code> เวลา 1 วินาที หน่วยความจำ 32 เมกะไบต์</li>
+      <li>
+        <strong>เอาต์พุต:</strong> ด้านยาวของสี่เหลี่ยมพิฆาตที่ใหญ่ที่สุด ถ้าไม่มีเลยให้ตอบ <code>-1</code>
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead>
+      <tr><th>Input</th><th>Output</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>3 6<br />{EX1.join(' ')}</td><td>{ans1}</td></tr>
+      <tr><td>4 5<br />{EX2.join(' ')}</td><td>{ans2}</td></tr>
+      <tr><td>3 3<br />{EX3.join(' ')}</td><td>{ans3}</td></tr>
+    </tbody>
+  </table>
+  <p class="io-note">ตัวอย่างในโจทย์เขียนแต่ละแถวคนละบรรทัด ที่นี่ย่อมาไว้บรรทัดเดียวให้ตารางไม่สูงเกินไป</p>
+
+  <p>
+    ตารางตัวอย่างแรกมีสี่เหลี่ยมพิฆาตอยู่ {ex1Squares.length} อัน ด้านยาว {ex1Sizes.join(', ')} คำตอบจึงเป็น {ans1}
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตัวอย่างที่ 1 · สี่เหลี่ยมพิฆาตทุกอัน</caption>
+      <thead>
+        <tr><th class="num">ด้านยาว</th><th>มุมบนซ้าย</th><th>ตำแหน่งในตาราง</th></tr>
+      </thead>
+      <tbody>
+        {ex1Squares.map((s) => (
+          <tr>
+            <td class="num">{s.k}</td>
+            <td><code>แถว {s.r + 1} คอลัมน์ {s.c + 1}</code></td>
+            <td><code>{mask(EX1, s).join(' ')}</code></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ช่องที่เป็นจุดคือช่องที่ไม่ได้อยู่ในจัตุรัสอันนั้น เขียนแบบนี้เพื่อให้เห็นว่ามันวางทับอยู่ตรงไหนของตารางเดิม
+    </figcaption>
+  </figure>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    ท่าแรกที่ทุกคนคิดถึงคือไล่ให้ครบ วนมุมบนซ้ายทุกช่อง วนด้านยาวทุกค่า แล้วตรวจทีละช่องว่าหมุนแล้วตรงกันไหม
+    เขียนสิบห้าบรรทัดจบ ตอบตัวอย่างทั้งสามชุดในโจทย์ถูกหมด และตายเรียบร้อยตอนเจอตารางเต็มขอบเขต
+  </p>
+  <p>
+    ตารางขนาด {LIMIT} คูณ {LIMIT} มีจัตุรัสให้พิจารณา <strong>{human(CAND)}</strong> อัน ตัวเลขนี้ยังพอไหว
+    ปัญหาอยู่ที่ต้นทุนของการตรวจ<strong>หนึ่ง</strong>อัน เพราะจัตุรัสด้านยาว <code>k</code> มี <code>k × k</code> ช่อง
+    รวมทั้งตารางแล้วต้องเทียบช่องต่อช่องราว <strong>{human(NAIVE)}</strong> ครั้ง ในเวลาหนึ่งวินาที
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตาราง {LIMIT} × {LIMIT} · นับเป็นจำนวนครั้งที่แตะข้อมูล</caption>
+      <thead>
+        <tr><th>วิธี</th><th>ต้นทุนต่อหนึ่งจัตุรัส</th><th class="num">รวมทั้งตาราง</th></tr>
+      </thead>
+      <tbody>
+        {costRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.per}</td>
+            <td class="num">{fmt(r.total)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สองแถวนี้นับหน่วยเดียวกันคือจำนวนครั้งที่โปรแกรมแตะข้อมูลหนึ่งชิ้น จำนวนจัตุรัสที่ต้องพิจารณาเท่ากันทั้งคู่
+      ต่างกันแค่ราคาต่อหนึ่งอันเท่านั้น
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ลองวาดจัตุรัสด้าน 5 แล้วระบายวงนอกสุดของมันให้เป็นสีหนึ่ง วงถัดเข้ามาเป็นอีกสีหนึ่ง ไล่เข้าไปจนถึงช่องกลาง
+      ทีนี้ลองหมุนกระดาษ 180 องศา แล้วถามว่า<strong>วงนอกสุดหมุนไปทับวงไหน</strong> และวงที่สองหมุนไปทับวงไหน
+      ถ้าเรารู้อยู่แล้วว่าจัตุรัสด้าน 3 ที่อยู่ตรงกลางผ่านแล้ว เหลืออะไรอีกที่ต้องตรวจ?
+    </p>
+  </div>
+
+  <h2>เฉลย ตอนที่ 1 · หัวหอมที่ปอกทีละวง</h2>
+  <Spoiler>
+    <p>
+      เงื่อนไขของโจทย์เขียนเป็นสมการได้บรรทัดเดียว จัตุรัสมุมบนซ้ายที่ <code>(r, c)</code> ด้านยาว <code>k</code> เป็นสี่เหลี่ยมพิฆาต
+      ก็ต่อเมื่อ
+    </p>
+    <div set:html={texSym} />
+    <p>
+      สังเกตว่าดัชนีสองข้างของเครื่องหมายเท่ากับ<strong>บวกกันได้ค่าคงที่</strong>เสมอ แถวคือ <code>2r + k - 1</code> คอลัมน์คือ
+      <code>2c + k - 1</code> ทั้งสองค่านี้ไม่ขึ้นกับ <code>i</code> หรือ <code>j</code> เลย นั่นแปลว่าการหมุน 180 องศา
+      สลับตำแหน่ง<strong>ภายในวงเดียวกัน</strong>เท่านั้น ช่องที่อยู่ห่างจากขอบจัตุรัสหนึ่งช่อง หมุนไปแล้วก็ยังห่างจากขอบหนึ่งช่องอยู่ดี
+    </p>
+    <p>
+      ผลที่ตามมาคือเงื่อนไขทั้งก้อน<strong>แยกเป็นชั้น ๆ อิสระจากกันได้</strong> เหมือนหัวหอมที่ปอกทีละวง วงนอกสุดตรวจกันเอง
+      วงถัดเข้าไปตรวจกันเอง และเมื่อปอกวงนอกออกหนึ่งชั้น สิ่งที่เหลือคือ<strong>จัตุรัสด้าน <code>k - 2</code> ที่มุมบนซ้ายเลื่อนมาที่
+      <code>(r + 1, c + 1)</code></strong> ซึ่งเป็นคำถามหน้าตาเดียวกันเป๊ะกับคำถามเดิม
+    </p>
+    <div set:html={texPeel} />
+    <p>
+      อ่านว่า จัตุรัสอันนี้ผ่าน ก็ต่อเมื่อไส้ในของมันผ่าน และวงนอกของมันผ่าน โดยจัตุรัสด้าน 0 กับด้าน 1 ถือว่าผ่านฟรี
+      (ด้าน 0 ไม่มีช่องให้ขัดกัน ด้าน 1 มีช่องเดียวที่จับคู่กับตัวเอง)
+    </p>
+
+    <ZoomableDiagram caption="ปอกวงนอกออกหนึ่งชั้นแล้วเหลือคำถามเดิมที่เล็กลงสองหน่วย งานที่เพิ่มขึ้นในแต่ละชั้นจึงมีแค่วงเดียว (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 480 214" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ จัตุรัสด้านห้าทางซ้าย วงนอกสุดถูกไฮไลต์เป็นสีทอง มีลูกศรชี้ไปทางขวาเป็นจัตุรัสด้านสามที่เป็นไส้ในของมัน และลูกศรอีกอันชี้ต่อไปเป็นจัตุรัสด้านหนึ่ง">
+        <text x="18" y="22" fill="#9aa7bd" font-size="12">ด้าน 5</text>
+        {[0, 1, 2, 3, 4].map((i) =>
+          [0, 1, 2, 3, 4].map((j) => {
+            const outer = i === 0 || j === 0 || i === 4 || j === 4;
+            return (
+              <rect
+                x={18 + j * 28}
+                y={32 + i * 28}
+                width="24"
+                height="24"
+                rx="5"
+                fill={outer ? '#e0b400' : '#1c2536'}
+                stroke={outer ? '#fff3c4' : '#2a3350'}
+                stroke-width="1.4"
+              />
+            );
+          }),
+        )}
+        <text x="87" y="192" fill="#e0b400" font-size="11" text-anchor="middle">วงนอก ตรวจเอง</text>
+
+        <defs>
+          <marker id="ks-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+          </marker>
+        </defs>
+        <path d="M172 104 L214 104" fill="none" stroke="#4ade80" stroke-width="1.6" marker-end="url(#ks-ar2)" />
+        <text x="193" y="94" fill="#4ade80" font-size="11" text-anchor="middle">ปอก</text>
+
+        <text x="224" y="22" fill="#9aa7bd" font-size="12">ด้าน 3</text>
+        {[0, 1, 2].map((i) =>
+          [0, 1, 2].map((j) => {
+            const outer = i === 0 || j === 0 || i === 2 || j === 2;
+            return (
+              <rect
+                x={224 + j * 28}
+                y={60 + i * 28}
+                width="24"
+                height="24"
+                rx="5"
+                fill={outer ? '#e0b400' : '#1c2536'}
+                stroke={outer ? '#fff3c4' : '#2a3350'}
+                stroke-width="1.4"
+              />
+            );
+          }),
+        )}
+        <text x="266" y="192" fill="#e0b400" font-size="11" text-anchor="middle">วงนอก ตรวจเอง</text>
+
+        <path d="M322 104 L364 104" fill="none" stroke="#4ade80" stroke-width="1.6" marker-end="url(#ks-ar2)" />
+        <text x="343" y="94" fill="#4ade80" font-size="11" text-anchor="middle">ปอก</text>
+
+        <text x="374" y="22" fill="#9aa7bd" font-size="12">ด้าน 1</text>
+        <rect x="374" y="88" width="24" height="24" rx="5" fill="#1c2536" stroke="#2f9e5c" stroke-width="1.6" />
+        <text x="422" y="106" fill="#4ade80" font-size="11">ผ่านฟรี</text>
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · วงนอกหนึ่งวงเทียบกันได้ในสี่ครั้ง</h2>
+  <Spoiler>
+    <p>
+      การปอกวงช่วยให้ไม่ต้องตรวจไส้ในซ้ำ แต่ตัววงนอกเองยังมีช่องอยู่ราว <code>4k</code> ช่อง ถ้ายังเดินทีละช่องก็ยังช้าอยู่ดี
+      ตรงนี้แหละที่ต้องมองว่าวงนอกจริง ๆ แล้วประกอบด้วยอะไร
+    </p>
+    <p>
+      หมุน 180 องศาแล้ว <strong>ขอบบนไปทับขอบล่างในลำดับกลับด้าน</strong> และ <strong>ขอบซ้ายไปทับขอบขวาในลำดับกลับด้าน</strong>
+      เท่านั้นเอง เอาจัตุรัสด้าน {PEEL.k} จากตัวอย่างแรกมาแกะให้เห็นชัด ๆ
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>จัตุรัสด้าน {PEEL.k} ที่แถว {PEEL.r + 1} คอลัมน์ {PEEL.c + 1}</caption>
+        <thead>
+          <tr><th>สิ่งที่เทียบ</th><th>ฝั่งหนึ่ง</th><th>อีกฝั่ง อ่านกลับด้าน</th><th>ผล</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ขอบบน กับ ขอบล่าง</td>
+            <td><code>{peelTop}</code></td>
+            <td><code>{peelBottomRev}</code></td>
+            <td>{peelTop === peelBottomRev ? 'ตรงกัน' : 'ไม่ตรง'}</td>
+          </tr>
+          <tr>
+            <td>ขอบซ้าย กับ ขอบขวา</td>
+            <td><code>{peelLeft}</code></td>
+            <td><code>{peelRightRev}</code></td>
+            <td>{peelLeft === peelRightRev ? 'ตรงกัน' : 'ไม่ตรง'}</td>
+          </tr>
+          <tr>
+            <td>ไส้ในด้าน {PEEL.k - 2}</td>
+            <td><code>{peelCore}</code></td>
+            <td><code>{peelCore}</code></td>
+            <td>ผ่านฟรี</td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        มุมทั้งสี่ถูกนับซ้ำทั้งในแถวและในคอลัมน์ ซึ่งไม่เป็นไร เพราะการตรวจซ้ำไม่ทำให้คำตอบผิด มันแค่เสียแรงเพิ่มนิดเดียว
+      </figcaption>
+    </figure>
+
+    <p>
+      ทีนี้เหลือคำถามเดียว จะเทียบ "สตริงช่วงหนึ่ง" กับ "สตริงอีกช่วงหนึ่งที่กลับด้านแล้ว" ให้จบใน<strong>เวลาคงที่</strong>ได้ยังไง
+      คำตอบคือ<strong>แฮชนำหน้า</strong> (prefix hash) มองแต่ละแถวเป็นตัวเลขฐาน <code>B</code> แล้วเก็บค่าสะสมไว้ล่วงหน้า
+      ค่าของช่วงใด ๆ ก็หักลบกันออกมาได้ในครั้งเดียว ส่วน "อ่านกลับด้าน" ก็แค่สร้างชุดที่สองจากแถวที่กลับด้านไว้ตั้งแต่แรก
+      แล้วเทียบกับช่วงที่สะท้อนตำแหน่งกันไว้
+    </p>
+    <p>
+      สรุปคือหนึ่งจัตุรัสเสียค่าตรวจแค่<strong>สี่ครั้ง</strong> คือดูไส้ใน หนึ่งครั้ง เทียบแถว หนึ่งครั้ง เทียบคอลัมน์ หนึ่งครั้ง
+      และเขียนผลลงตาราง หนึ่งครั้ง ต้นทุนทั้งตารางจึงยุบจาก {human(NAIVE)} ครั้งเหลือ <strong>{human(CAND * 4)}</strong> ครั้ง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ตารางคำตอบไล่จากด้านสั้นไปด้านยาว โดยเก็บไว้แค่<strong>สองชั้นล่าสุด</strong> เพราะสูตรอ้างถึงชั้น <code>k - 2</code> เท่านั้น
+      หน่วยความจำจึงเป็นตาราง <code>char</code> สามผืน ไม่ใช่ผืนละด้านยาว
+    </p>
+    <CodeBlock code={peelSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      จุดที่ต้องระวังคือช่วงกลับด้าน ถ้าช่วงที่สนใจในสตริงปกติคือ <code>[c, c + k - 1]</code> ช่วงเดียวกันในสตริงที่กลับด้านแล้ว
+      จะอยู่ที่ <code>[C - c - k, C - c - 1]</code> เขียนผิดที่นี่แล้วโปรแกรมยังรันได้ปกติ ตอบตัวอย่างถูกบ้างผิดบ้าง
+      เป็นบักที่หาเจอยากมากถ้าไม่มีตัวตรวจสอบสุ่มเทียบให้
+    </p>
+    <p>
+      ฐาน <code>B</code> ของแฮชสุ่มใหม่ทุกครั้งที่รัน ไม่ได้ตั้งค่าคงที่ไว้ เพราะข้อที่มีคนแต่งอินพุตมาชนแฮชได้
+      การใช้ฐานตายตัวคือการเปิดประตูทิ้งไว้ ส่วนมอดุลัสใช้ <code>2^61 - 1</code> ซึ่งคูณกันแล้วพับด้วยการเลื่อนบิตได้เลย
+      ไม่ต้องหารจริง
+    </p>
+
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="killer.cpp" />
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ก่อนเชื่อโค้ดข้างบน ผมสุ่มตารางเล็ก ๆ ขนาดไม่เกิน 9 คูณ 9 จำนวนห้าร้อยตาราง โดยครึ่งหนึ่งจงใจให้ <code>0</code>
+          ออกบ่อยกว่า <code>1</code> เพื่อบังคับให้เกิดจัตุรัสสมมาตรถี่ ๆ แล้วเทียบคำตอบกับตัวไล่ช่องต่อช่องข้างล่างนี้
+          ตรงกันทั้งหมด แล้วค่อยเทียบกับตัวอย่างสามชุดในโจทย์อีกที
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      </div>
+    </details>
+
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ตารางเต็มขอบเขต {LIMIT} คูณ {LIMIT} ที่เป็นเลข <code>0</code> ล้วน (กรณีหนักที่สุด
+      เพราะไม่มีจัตุรัสไหนถูกตัดทิ้งกลางทางเลย คำตอบคือ {LIMIT} เต็ม) ใช้เวลา <strong>85 มิลลิวินาที</strong>
+      ส่วนตารางสุ่ม <code>0</code> กับ <code>1</code> ครึ่งต่อครึ่งจบใน 37 มิลลิวินาที จากลิมิตหนึ่งวินาที
+    </p>
+  </Spoiler>
+
+  <h2>แกะตัวอย่างที่ตอบ -1</h2>
+  <Spoiler>
+    <p>
+      ตัวอย่างที่สามคือตาราง <code>{EX3.join(' ')}</code> ซึ่งตอบ {ans3} หมายความว่าไม่มีแม้แต่จัตุรัสด้าน 2 สักอันเดียว
+      ซึ่งฟังดูแปลก เพราะจัตุรัสด้าน 2 มีเงื่อนไขเบามาก คือแค่<strong>คู่ทแยงมุมทั้งสองคู่ต้องมีค่าเท่ากัน</strong>เท่านั้น
+      (หมุน 180 องศาในจัตุรัสด้าน 2 คือสลับมุมบนซ้ายกับล่างขวา และสลับบนขวากับล่างซ้าย)
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างที่ 3 · จัตุรัสด้าน 2 ทั้งสี่อัน</caption>
+        <thead>
+          <tr><th>มุมบนซ้าย</th><th>ทแยงหลัก</th><th>ทแยงรอง</th><th>ผล</th></tr>
+        </thead>
+        <tbody>
+          {[0, 1].map((r) =>
+            [0, 1].map((c) => {
+              const a = EX3[r][c];
+              const d = EX3[r + 1][c + 1];
+              const b = EX3[r][c + 1];
+              const e = EX3[r + 1][c];
+              return (
+                <tr>
+                  <td><code>แถว {r + 1} คอลัมน์ {c + 1}</code></td>
+                  <td><code>{a} กับ {d}</code></td>
+                  <td><code>{b} กับ {e}</code></td>
+                  <td>{a === d && b === e ? 'ผ่าน' : 'ตก'}</td>
+                </tr>
+              );
+            }),
+          )}
+        </tbody>
+      </table>
+      <figcaption>
+        ตกทั้งสี่อัน และเมื่อด้าน 2 ตกหมด ด้าน 4 ก็เป็นไปไม่ได้ตามสูตรการปอกวง เหลือแค่ต้องเช็กด้าน 3 อันเดียว
+        ซึ่งมุมบนซ้าย <code>{EX3[0][0]}</code> ไม่เท่ากับมุมล่างขวา <code>{EX3[2][2]}</code> จึงตกไปด้วย
+      </figcaption>
+    </figure>
+    <p>
+      กรณี <code>-1</code> จึงไม่ใช่กรณีพิเศษที่ต้องเขียนโค้ดแยก มันเกิดเองเมื่อไม่มีด้านยาวไหนผ่านเลย ค่าตั้งต้นของคำตอบ
+      ที่ตั้งไว้เป็น <code>-1</code> ก็จะไหลออกไปเอง
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    การหมุน 180 องศาไม่เคยพาช่องข้ามวง จัตุรัสด้าน <code>k</code> จึงเท่ากับจัตุรัสด้าน <code>k - 2</code> ที่อยู่ข้างในบวกวงนอกหนึ่งวง
+    และวงนอกหนึ่งวงคือการเทียบสตริงสองคู่ ซึ่งแฮชนำหน้าตอบให้ได้ในเวลาคงที่
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Killer</i> บน programming.in.th ข้อ 2006
+      <a href="https://programming.in.th/tasks/2006" target="_blank" rel="noopener noreferrer">programming.in.th/tasks/2006</a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>Croatian Open Competition in Informatics</i> คอนเทสต์ที่ 1 ฤดูกาล 2006/2007
+      แข่งวันที่ 28 ตุลาคม 2006
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+</style>

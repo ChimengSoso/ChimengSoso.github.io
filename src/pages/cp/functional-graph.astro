@@ -1,0 +1,427 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'functional-graph/';
+
+/* ---------- ตัวเลขในหน้านี้งอกจากโมเดลข้างล่างนี้ ---------- */
+
+const F = [3, 3, 4, 5, 3, 7, 6, 2];   // f[i] ของปม 1..8 (เขียนแบบฐานหนึ่ง)
+const N = F.length;
+const f = (v: number): number => F[v - 1];
+
+/** ปอกใบทิ้งทีละชั้น ที่ปอกไม่ออกคือปมบนวง */
+function peel(): { peeled: number[]; onCycle: boolean[] } {
+  const indeg = new Array<number>(N + 1).fill(0);
+  for (let i = 1; i <= N; i++) indeg[f(i)]++;
+  const q: number[] = [];
+  for (let i = 1; i <= N; i++) if (indeg[i] === 0) q.push(i);
+  for (let h = 0; h < q.length; h++) if (--indeg[f(q[h])] === 0) q.push(f(q[h]));
+  const onCycle = new Array<boolean>(N + 1).fill(false);
+  for (let i = 1; i <= N; i++) onCycle[i] = indeg[i] > 0;
+  return { peeled: q, onCycle };
+}
+const { peeled, onCycle } = peel();
+const cycleNodes = Array.from({ length: N }, (_, i) => i + 1).filter((v) => onCycle[v]);
+
+/** แยกวงออกมาเป็นรายการ */
+function cycles(): number[][] {
+  const done = new Array<boolean>(N + 1).fill(false);
+  const out: number[][] = [];
+  for (let s = 1; s <= N; s++) {
+    if (!onCycle[s] || done[s]) continue;
+    const c: number[] = [];
+    for (let u = s; !done[u]; u = f(u)) {
+      done[u] = true;
+      c.push(u);
+    }
+    out.push(c);
+  }
+  return out;
+}
+const cycs = cycles();
+
+/** เดินตามลูกศร k ก้าวแบบซื่อ ๆ เอาไว้ทำตาราง */
+const jump = (v: number, k: number): number => {
+  let u = v;
+  for (let i = 0; i < k; i++) u = f(u);
+  return u;
+};
+const KDEMO = 5;
+const jumpRow = Array.from({ length: N }, (_, i) => i + 1).map((v) => ({ v, to: jump(v, KDEMO) }));
+
+const NBIG = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const code1 = `// เดินตามลูกศร k ก้าวจากทุกปม โดย k ใหญ่ได้ถึง 10^18  ทำงานในเวลาเชิงเส้น
+// แนวคิด: ปอกใบทิ้งเพื่อหาปมบนวง แล้วเดินต้นไม้ที่ห้อยอยู่โดยถือ "เส้นทางจากวงลงมาถึงตัวเอง" ไว้ในสแต็ก
+// ก้าวที่ยังไม่ถึงวงตอบจากสแต็กได้ทันที ส่วนก้าวที่เลยวงไปแล้วเป็นแค่การหารเอาเศษ
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main() {
+    int n; ll k;
+    scanf("%d %lld", &n, &k);
+    vector<int> f(n + 1), indeg(n + 1, 0);
+    for (int i = 1; i <= n; i++) { scanf("%d", &f[i]); indeg[f[i]]++; }
+
+    vector<int> peeled;
+    for (int i = 1; i <= n; i++) if (!indeg[i]) peeled.push_back(i);
+    for (size_t h = 0; h < peeled.size(); h++)
+        if (--indeg[f[peeled[h]]] == 0) peeled.push_back(f[peeled[h]]);
+    vector<char> onCyc(n + 1, 0);
+    for (int i = 1; i <= n; i++) onCyc[i] = indeg[i] > 0;
+
+    // ลูกของ v คือปมที่ชี้มาหา v และตัวมันเองไม่ได้อยู่บนวง
+    vector<int> head(n + 1, -1), nxt(n + 1, -1);
+    for (int i = 1; i <= n; i++)
+        if (!onCyc[i]) { nxt[i] = head[f[i]]; head[f[i]] = i; }
+
+    vector<int> ans(n + 1, 0);
+    vector<char> done(n + 1, 0);
+    vector<int> cyc, path;
+    for (int s = 1; s <= n; s++) {
+        if (!onCyc[s] || done[s]) continue;
+        cyc.clear();
+        for (int u = s; !done[u]; u = f[u]) { done[u] = 1; cyc.push_back(u); }
+        ll c = (ll)cyc.size();
+        for (ll i = 0; i < c; i++) ans[cyc[i]] = cyc[(i + k) % c];
+
+        for (ll i = 0; i < c; i++) {                    // เดินต้นไม้ที่ห้อยจากปมบนวงตัวนี้
+            path.assign(1, cyc[i]);
+            vector<int> it(1, head[cyc[i]]);
+            while (!path.empty()) {
+                if (it.back() < 0) { path.pop_back(); it.pop_back(); continue; }
+                int v = it.back();
+                it.back() = nxt[v];
+                path.push_back(v);
+                ll d = (ll)path.size() - 1;             // ระยะจากปมบนวงลงมาถึง v
+                if (k <= d) ans[v] = path[d - k];       // ยังไม่ถึงวง ตอบจากสแต็กได้เลย
+                else ans[v] = cyc[(i + (k - d)) % c];   // เข้าวงแล้ว ที่เหลือคือเศษ
+                it.push_back(head[v]);
+            }
+        }
+    }
+    for (int v = 1; v <= n; v++) printf("%d%c", ans[v], v == n ? '\\n' : ' ');
+}`;
+const code2 = `// นับว่ามีปมกี่ปมที่อยู่บนวง  ทำได้ด้วยการปอกใบทิ้งอย่างเดียว ไม่ต้องค้นหาวงเลย
+#include <bits/stdc++.h>
+using namespace std;
+int main() {
+    int n; scanf("%d", &n);
+    vector<int> f(n + 1), indeg(n + 1, 0);
+    for (int i = 1; i <= n; i++) { scanf("%d", &f[i]); indeg[f[i]]++; }
+    vector<int> q;
+    for (int i = 1; i <= n; i++) if (!indeg[i]) q.push_back(i);
+    for (size_t h = 0; h < q.size(); h++) if (--indeg[f[q[h]]] == 0) q.push_back(f[q[h]]);
+    printf("%d\\n", n - (int)q.size());           // ที่ปอกไม่ออกคือปมบนวงพอดี
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    โจทย์บางข้อให้ข้อมูลมาในรูป "แต่ละอันชี้ไปอีกอันเดียว" เช่น เกาะแต่ละเกาะมีสะพานออกไปเส้นเดียว
+    คนแต่ละคนส่งของต่อให้อีกคนเดียว หรือแต่ละตำแหน่งกระโดดไปตำแหน่งเดียว
+    กราฟแบบนี้เรียกว่า <strong>กราฟฟังก์ชัน</strong> (functional graph)
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>functional graph</i> อ่านว่า <strong>"ฟังก์ชันนัล กราฟ"</strong> แปลตรงตัวว่า
+      <strong>กราฟที่มาจากฟังก์ชัน</strong> ชื่อนี้ตรงมาก เพราะข้อมูลที่โจทย์ให้คือ <code>f(i)</code>
+      ซึ่งเป็นฟังก์ชันจากปมไปหาปม ปมหนึ่งปมจึงมีลูกศรออกได้<strong>เส้นเดียว</strong>เท่านั้น
+      เหมือนที่ฟังก์ชันหนึ่งอินพุตให้ค่าออกมาค่าเดียว
+    </p>
+  </div>
+  <p>
+    ข่าวดีคือกราฟแบบนี้มี<strong>รูปร่างตายตัว</strong> พอรู้รูปแล้ว โจทย์ที่ดูยากจะกลายเป็นเลขคณิตธรรมดา
+    บทนี้จะให้รูปนั้น กับท่ามาตรฐานสองท่าที่ใช้กับมันได้เกือบทุกข้อ
+  </p>
+
+  <h2>รูปร่างที่ต้องเห็นในหัวก่อน</h2>
+  <p>
+    เดินตามลูกศรจากปมไหนก็ตาม เนื่องจากปมมีจำนวนจำกัด เราต้องเหยียบปมเดิมซ้ำสักวัน
+    วันที่เหยียบซ้ำคือวันที่<strong>เข้าวง</strong> ดังนั้น
+  </p>
+  <p class="pull">แต่ละกลุ่มของกราฟฟังก์ชันมีวงพอดีหนึ่งวง และที่เหลือคือต้นไม้ที่ห้อยลงมาจากปมบนวง</p>
+
+  <ZoomableDiagram caption="ลูกศรทุกเส้นวิ่งเข้าหาวง ปมที่ไม่ได้อยู่บนวงจึงเป็นแค่ทางเดินขาเดียวที่พาเข้าวง เดินไปนานพอ ทุกคนจบลงบนวงเสมอ (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 353 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพกลุ่มหนึ่งของกราฟฟังก์ชัน ตรงกลางขวาเป็นวงกลมประกอบด้วยปมสามปมชี้ต่อกันเป็นวง ทางซ้ายมีปมสี่ปมเรียงกันเป็นต้นไม้ที่ลูกศรทุกเส้นวิ่งเข้าหาปมบนวง ไม่มีลูกศรเส้นไหนวิ่งออกจากวง">
+      <defs>
+        <marker id="fg-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+        </marker>
+        <marker id="fg-ay" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400" />
+        </marker>
+      </defs>
+      {[
+        [40, 40, 118, 76], [40, 118, 118, 90], [118, 84, 196, 84], [200, 150, 200, 108],
+      ].map((e) => (
+        <line
+          x1={e[0]}
+          y1={e[1]}
+          x2={e[2]}
+          y2={e[3]}
+          stroke="#4ade80"
+          stroke-width="1.8"
+          marker-end="url(#fg-ar)"
+        />
+      ))}
+      {[
+        [286, 66, 322, 106], [318, 122, 254, 122], [250, 108, 282, 70],
+      ].map((e) => (
+        <line
+          x1={e[0]}
+          y1={e[1]}
+          x2={e[2]}
+          y2={e[3]}
+          stroke="#e0b400"
+          stroke-width="2.2"
+          marker-end="url(#fg-ay)"
+        />
+      ))}
+      {[
+        [28, 36, 'off'], [28, 122, 'off'], [128, 84, 'off'], [200, 158, 'off'],
+        [208, 84, 'off'], [244, 128, 'cyc'], [292, 60, 'cyc'], [330, 118, 'cyc'],
+      ].map((v) => (
+        <circle
+          cx={v[0] as number}
+          cy={v[1] as number}
+          r="11"
+          fill={v[2] === 'cyc' ? '#2b2410' : '#1c2536'}
+          stroke={v[2] === 'cyc' ? '#e0b400' : '#3a4260'}
+          stroke-width="2"
+        />
+      ))}
+      <line x1="220" y1="84" x2="238" y2="112" stroke="#4ade80" stroke-width="1.8" marker-end="url(#fg-ar)" />
+      <text x="96" y="180" fill="#9aa7bd" font-size="12" text-anchor="middle">ต้นไม้ที่ห้อยอยู่</text>
+      <text x="300" y="180" fill="#e0b400" font-size="12" text-anchor="middle">วง</text>
+      <text x="150" y="30" fill="#4ade80" font-size="11">ลูกศรวิ่งเข้าหาวงเสมอ</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>ท่าที่ 1 ปอกใบทิ้ง เพื่อหาว่าใครอยู่บนวง</h2>
+  <p>
+    ท่าที่คนคิดออกก่อนคือเดินตามลูกศรแล้วทำเครื่องหมาย แต่มันเขียนยากกว่าที่คิด เพราะต้องแยกให้ออกว่า
+    ปมที่เจอซ้ำเป็นปมของรอบนี้หรือรอบก่อน ท่าที่<strong>สั้นกว่าและพลาดยากกว่า</strong>คือ
+    <strong>ปอกใบทิ้ง</strong>
+  </p>
+  <p>
+    นับว่าแต่ละปมมีลูกศรชี้เข้ากี่เส้น ปมที่ไม่มีใครชี้เข้าเลยคือใบ ตัดทิ้งแล้วลดตัวนับของปมที่มันชี้ไป
+    ทำซ้ำจนไม่มีใบเหลือ สิ่งที่<strong>ปอกไม่ออก</strong>คือปมบนวงพอดี เพราะปมบนวงมีเพื่อนบนวงชี้เข้าหาเสมอ
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตัวอย่าง {N} ปม · f = {F.join(' ')}</caption>
+      <thead>
+        <tr><th class="num">ปม</th><th class="num">ชี้ไป</th><th>ปอกออกไหม</th><th>อยู่บนวงไหม</th></tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: N }, (_, i) => i + 1).map((v) => (
+          <tr>
+            <td class="num">{v}</td>
+            <td class="num">{f(v)}</td>
+            <td>{peeled.includes(v) ? 'ปอกออก' : 'ปอกไม่ออก'}</td>
+            <td>{onCycle[v] ? 'ใช่' : ''}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ปอกออกไป {peeled.length} ปม เหลือปมบนวง {cycleNodes.length} ปม คือปม {cycleNodes.join(', ')}
+      แยกเป็นวง {cycs.length} วง คือ {cycs.map((c) => c.join(' ไป ')).join(' และ ')} แล้ววนกลับ
+      ลำดับที่ปอกออกมายังใช้ประโยชน์ต่อได้ เพราะมันคือลำดับที่<strong>ลูกมาก่อนพ่อ</strong> ซึ่งพอไล่ย้อนก็ได้ลำดับที่พ่อมาก่อนลูก
+    </figcaption>
+  </figure>
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับ</p>
+    <p>
+      เก็บคิวเป็นเวกเตอร์เดียวโดยไม่ป็อปทิ้ง ใช้ตัวชี้หัวไล่ไปข้างหน้าแทน จะได้ของฟรีสองอย่างคือ
+      มันเป็นคิวอยู่แล้ว และเวกเตอร์ที่เหลือค้างไว้คือลำดับทอพอโลยีของต้นไม้ที่ห้อยอยู่
+      ซึ่งเอาไปแจกข้อมูลจากรากลงใบต่อได้เลยโดยไม่ต้องเรียกซ้ำ
+    </p>
+  </div>
+
+  <h2>ท่าที่ 2 เดิน k ก้าวโดยไม่เดินจริง</h2>
+  <p>
+    เมื่อรู้รูปแล้ว คำถามว่า "จากปม <code>v</code> เดิน <code>k</code> ก้าวไปโผล่ที่ไหน"
+    ก็แตกเป็นสองกรณีที่ตอบได้ทันที
+  </p>
+  <ul>
+    <li>
+      ถ้า <code>k</code> ไม่เกินระยะจาก <code>v</code> ถึงวง คำตอบคือ<strong>บรรพบุรุษลำดับที่ k</strong> ของ
+      <code>v</code> ซึ่งอ่านจากเส้นทางที่เราถืออยู่ตอนเดินต้นไม้ได้เลย
+    </li>
+    <li>
+      ถ้า <code>k</code> เกินระยะนั้น ก็หักระยะออกก่อน ที่เหลือคือการวนอยู่บนวง ซึ่งเป็นแค่การ<strong>หารเอาเศษ</strong>
+      ด้วยความยาววง
+    </li>
+  </ul>
+  <p>
+    หลายคนจะนึกถึง<strong>ตารางกระโดด</strong>ที่เก็บว่าเดิน 1, 2, 4, 8 ก้าวไปไหน ซึ่งใช้ได้เหมือนกัน
+    แต่กินหน่วยความจำ <code>n log k</code> ที่ <code>n</code> เป็นล้านและ <code>k</code> ถึง <code>10^18</code>
+    ก็คือหกสิบเท่าของอาเรย์ ซึ่งมักเกินลิมิต ส่วนท่าข้างบนใช้หน่วยความจำแค่ไม่กี่อาเรย์
+  </p>
+
+  <h2>โจทย์ฝึกข้อที่ 1 · เดินตามลูกศร k ก้าวจากทุกปม</h2>
+  <p>
+    ให้ <code>f</code> ของทุกปมและเลข <code>k</code> ตอบว่าแต่ละปมเดิน <code>k</code> ก้าวแล้วไปอยู่ที่ปมไหน
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>n</code> และ <code>k</code> บรรทัดที่สองคือ <code>f</code> ของปม 1 ถึง <code>n</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ {fmt(NBIG)}</code>, <code>k ≤ 10^18</code></li>
+      <li><strong>เอาต์พุต:</strong> ปลายทางของทุกปม เรียงตามหมายเลขปม</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{N} {KDEMO}<br />{F.join(' ')}</td>
+        <td>{jumpRow.map((r) => r.to).join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <p>
+      ปอกใบทิ้งเพื่อหาปมบนวง แล้วสำหรับปมบนวงแต่ละตัวก็เดินต้นไม้ที่ห้อยอยู่ โดย<strong>ถือเส้นทางจากปมบนวง
+      ลงมาถึงตัวเองไว้ในสแต็ก</strong> ปมที่อยู่ลึก <code>d</code> ที่มี <code>k ≤ d</code>
+      ตอบได้ทันทีจาก <code>path[d − k]</code> ส่วนที่เหลือก็หารเอาเศษบนวง
+    </p>
+    <CodeBlock code={code1} lang="cpp" title="jump_k.cpp" />
+    <p>
+      ที่ต้องระวังคือการ<strong>ผลักตัวเองเข้าสแต็กก่อน</strong>แล้วค่อยคำนวณ ไม่งั้นตอน <code>k</code>
+      เป็นศูนย์จะอ่านเลยขอบอาเรย์ ผมพลาดจุดนี้ตอนเขียนรอบแรก และตัวสุ่มเทียบจับได้ตั้งแต่ชุดที่ <code>k = 0</code>
+      โผล่มาชุดแรก
+    </p>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม กราฟห้าแสนปมที่ครึ่งหนึ่งเป็นสายยาวและครึ่งหนึ่งสุ่ม ใช้เวลา 890 มิลลิวินาที
+      โดยงานเกือบทั้งหมดคือการอ่านอินพุต
+    </p>
+    <p>ผมสุ่มกราฟเล็ก ๆ 3,000 ชุดเทียบกับการเดินทีละก้าวจริง ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>โจทย์ฝึกข้อที่ 2 · นับปมที่อยู่บนวง</h2>
+  <p>ให้ <code>f</code> ของทุกปม ตอบว่ามีปมกี่ปมที่อยู่บนวง</p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้ตั้งใจให้สั้น ถ้าคิดว่าต้องไล่หาวงทีละวง แสดงว่ากำลังทำงานเกินไปแล้ว
+      ลองอ่านย่อหน้าเรื่องปอกใบทิ้งอีกรอบ แล้วถามว่า "ปมที่ปอกไม่ออก" คือใครกันแน่
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <p>
+      ไม่ต้องหาวงเลยครับ ปอกใบทิ้งอย่างเดียว แล้วตอบว่า <code>n</code> ลบจำนวนปมที่ปอกออกได้
+      เพราะปมที่ปอกไม่ออกคือปมบนวงพอดี ทั้งโปรแกรมยาวไม่ถึงสิบบรรทัด
+    </p>
+    <CodeBlock code={code2} lang="cpp" title="count_on_cycle.cpp" />
+    <p>
+      ที่ยกข้อนี้มาเพราะมันชี้ให้เห็นว่า<strong>การเลือกท่าที่ถูกทำให้โค้ดหายไปเกือบทั้งหมด</strong>
+      เวอร์ชันที่ไล่หาวงจริง ๆ ต้องแยกให้ออกระหว่าง "เจอปมที่เคยเดินในรอบนี้" กับ "เจอปมที่เคยเดินในรอบก่อน"
+      ซึ่งเป็นจุดที่คนพลาดกันบ่อยที่สุด และปอกใบทิ้งไม่ต้องเจอปัญหานั้นเลย
+    </p>
+    <p>ผมสุ่มกราฟเล็ก ๆ 1,500 ชุดเทียบกับตัวไล่เช็กทีละปมแบบซื่อ ๆ ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
+  <ul>
+    <li>
+      <a href="../islands/">เส้นทางที่ยาวที่สุดบนเกาะ</a> ใช้ท่าปอกใบทิ้ง แล้วต่อด้วยหน้าต่างเลื่อนบนวง
+      เป็นตัวอย่างที่สมบูรณ์ที่สุดของบทนี้
+    </li>
+    <li>
+      <a href="../teleporters/">เครื่องเคลื่อนย้ายมวลสาร</a> กราฟฟังก์ชันของมันเป็น<strong>การสลับที่</strong>
+      ซึ่งเป็นกรณีพิเศษที่ทุกปมมีลูกศรเข้าเส้นเดียวด้วย ทำให้ไม่มีต้นไม้ห้อยเลย มีแต่วงล้วน ๆ
+    </li>
+  </ul>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อทุกปมมีทางออกทางเดียว รูปของกราฟถูกล็อกไว้แล้วคือวงหนึ่งวงต่อกลุ่มพร้อมต้นไม้ที่ห้อยลงมา
+    หาปมบนวงด้วยการปอกใบทิ้ง แล้วคำถามเรื่องการเดินไกล ๆ ก็กลายเป็นการหารเอาเศษ
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

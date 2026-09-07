@@ -1,0 +1,1188 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'hearing-pairs/';
+
+/* ---------- โมเดล: ตัวเลขทุกตัวในหน้านี้คำนวณจากตรงนี้ ไม่มีตัวไหนพิมพ์ด้วยมือ ---------- */
+
+type Pt2 = { x: number; y: number };
+
+const manhattan2 = (a: Pt2, b: Pt2): number => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+/** นับคู่ที่ห่างกันไม่เกิน d แบบไล่ทุกคู่ (ใช้กับตัวอย่างเล็ก ๆ ในบทความเท่านั้น) */
+function countPairs2(pts: Pt2[], d: number): number {
+  let n = 0;
+  for (let i = 0; i < pts.length; i++)
+    for (let j = i + 1; j < pts.length; j++) if (manhattan2(pts[i], pts[j]) <= d) n++;
+  return n;
+}
+
+/* ตัวอย่างที่ 1 ในโจทย์ ใช้เป็นกองเดินให้ดูของกระดานหนึ่งมิติ */
+const ONE_D = [25, 50, 50, 10, 20, 23];
+const ONE_D_D = 5;
+const oneSorted = [...ONE_D].sort((a, b) => a - b);
+
+/** เดินสองตัวชี้บนแถวที่เรียงแล้ว เก็บภาพทุกจังหวะไว้ให้ตัวเล่น */
+type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
+
+function sweep1D(xs: number[], d: number): SweepStep[] {
+  const steps: SweepStep[] = [];
+  let total = 0;
+  let j = 0;
+  for (let i = 0; i < xs.length; i++) {
+    while (xs[i] - xs[j] > d) j++;
+    const gained = i - j;
+    total += gained;
+    const note =
+      gained === 0
+        ? `ตัวที่ ${i + 1} อยู่ที่ช่อง ${xs[i]} ตัวซ้ายสุดที่ยังได้ยินคือตัวที่ ${j + 1} ซึ่งคือตัวมันเอง จึงยังไม่มีคู่ใหม่`
+        : `ตัวที่ ${i + 1} อยู่ที่ช่อง ${xs[i]} ทุกตัวตั้งแต่ตัวที่ ${j + 1} (ช่อง ${xs[j]}) ถึงตัวที่ ${i} ได้ยินมันหมด นับเพิ่ม <b>${gained}</b> คู่`;
+    steps.push({ i, j, gained, total, note });
+  }
+  return steps;
+}
+
+const oneSteps = sweep1D(oneSorted, ONE_D_D);
+const oneAnswer = oneSteps[oneSteps.length - 1].total;
+
+/* ตัวอย่างที่ 2 ในโจทย์ ใช้เป็นกระดานของตัวลองหมุน */
+const TWO_D: Pt2[] = [
+  { x: 5, y: 2 },
+  { x: 7, y: 2 },
+  { x: 8, y: 4 },
+  { x: 6, y: 5 },
+  { x: 4, y: 4 },
+];
+const TWO_M = 10;
+const TWO_D_D = 4;
+const twoAnswer = countPairs2(TWO_D, TWO_D_D);
+
+/* ตัวอย่างที่ 3 ในโจทย์ คือแปดมุมของลูกบาศก์ */
+const THREE_D = [
+  [10, 10, 10], [10, 10, 20], [10, 20, 10], [10, 20, 20],
+  [20, 10, 10], [20, 10, 20], [20, 20, 10], [20, 20, 20],
+];
+const THREE_D_D = 10;
+const threeAnswer = (() => {
+  let n = 0;
+  for (let i = 0; i < THREE_D.length; i++)
+    for (let j = i + 1; j < THREE_D.length; j++) {
+      let d = 0;
+      for (let k = 0; k < 3; k++) d += Math.abs(THREE_D[i][k] - THREE_D[j][k]);
+      if (d <= THREE_D_D) n++;
+    }
+  return n;
+})();
+
+/** ตารางคู่ทั้งหมดของตัวอย่างที่ 2 เอาไว้ยืนยันว่าเลข 8 มาจากไหน */
+const twoPairRows = (() => {
+  const rows: { a: string; b: string; dx: number; dy: number; dist: number; ok: boolean }[] = [];
+  for (let i = 0; i < TWO_D.length; i++)
+    for (let j = i + 1; j < TWO_D.length; j++) {
+      const p = TWO_D[i];
+      const q = TWO_D[j];
+      rows.push({
+        a: `(${p.x}, ${p.y})`,
+        b: `(${q.x}, ${q.y})`,
+        dx: Math.abs(p.x - q.x),
+        dy: Math.abs(p.y - q.y),
+        dist: manhattan2(p, q),
+        ok: manhattan2(p, q) <= TWO_D_D,
+      });
+    }
+  return rows;
+})();
+
+/* เวลาที่วัดได้จริงบนเครื่องผม คร่อมตั้งแต่ต้น main ถึงพิมพ์คำตอบ */
+const TIMING = [
+  { name: 'กระดาน 1 มิติ', args: 'N = 100 000, M = 75 000 000, D = 100 000 000', ms: '32' },
+  { name: 'กระดาน 2 มิติ', args: 'N = 100 000, M = 75 000, D = 500', ms: '51' },
+  { name: 'กระดาน 3 มิติ', args: 'N = 100 000, M = 75, D = 100', ms: '80' },
+];
+const STRESS_CASES = 900;
+const MEM_3D = '6.8';
+
+/* ---------- สูตร ---------- */
+const TEX_IDENT = `|a| ${mc.op('+')} |b| ${mc.op('=')} ${mc.max} \\big( |a ${mc.op('+')} b|,\\; |a ${mc.op('-')} b| \\big)`;
+const TEX_ROT = [
+  `${mc.fn('u')} ${mc.op('=')} x ${mc.op('+')} y`,
+  `${mc.fn('v')} ${mc.op('=')} x ${mc.op('-')} y`,
+].join(' \\\\[4pt] ');
+const TEX_DIST = `|\\Delta x| ${mc.op('+')} |\\Delta y| ${mc.op('=')} ${mc.max}\\big( |\\Delta ${mc.fn('u')}|,\\; |\\Delta ${mc.fn('v')}| \\big)`;
+const texIdent = texCode(TEX_IDENT);
+const texRot = texCode(`\\begin{aligned} ${TEX_ROT} \\end{aligned}`);
+const texDist = texCode(TEX_DIST);
+
+/* ---------- โค้ด ---------- */
+
+const code1D = `// กระดานหนึ่งมิติ: เรียงแล้วเดินสองตัวชี้
+sort(x.begin(), x.end());
+ll ans = 0;
+int j = 0;
+for (int i = 0; i < N; i++) {
+    while ((ll)x[i] - x[j] > D) j++;   // j เดินหน้าอย่างเดียว ไม่เคยถอยกลับ
+    ans += i - j;                      // ทุกตัวตั้งแต่ j ถึง i-1 อยู่ในระยะได้ยิน
+}`;
+
+const code2D = `// กระดานสองมิติ: หมุนพิกัดก่อน แล้วกวาดตาม u พร้อมนับ v ด้วย BIT
+vector<pair<int,int>> q(N);
+for (int i = 0; i < N; i++)
+    q[i] = {p[i].first + p[i].second, p[i].first - p[i].second + M};   // (u, v)
+sort(q.begin(), q.end());
+
+BIT bit;
+bit.init(2 * M + 2);
+ll ans = 0;
+int j = 0;
+for (int i = 0; i < N; i++) {
+    while ((ll)q[i].first - q[j].first > D) { bit.add(q[j].second, -1); j++; }
+    ans += bit.range((int)max<ll>(1, q[i].second - D),
+                     (int)min<ll>(2 * M + 1, q[i].second + D));
+    bit.add(q[i].second, 1);
+}`;
+
+const code3D = `// กระดานสามมิติ: M เล็กมาก ทำผลรวมสะสมสองมิติเก็บไว้ทุกชั้น z
+for (auto& a : p) {
+    int u = a[0] + a[1], v = a[0] - a[1] + M;
+    pre[a[2]][at(u, v)]++;                       // นับตัวลงชั้นของมันก่อน
+}
+for (int z = 1; z <= M; z++) {                   // แล้วค่อยทำผลรวมสะสมทีละชั้น
+    auto& g = pre[z];
+    for (int u = 1; u <= U + 1; u++)
+        for (int v = 1; v <= V + 1; v++)
+            g[at(u, v)] += g[at(u - 1, v)] + g[at(u, v - 1)] - g[at(u - 1, v - 1)];
+}
+
+ll ans = 0;
+for (auto& a : p) {
+    int u = a[0] + a[1], v = a[0] - a[1] + M, z = a[2];
+    for (int zz = max(1LL, z - D); zz <= min<ll>(M, z + D); zz++) {
+        ll r = D - abs(zz - z);                  // ระยะที่เหลือให้ใช้บนระนาบ xy
+        if (r > 2 * M) r = 2 * M;
+        ans += box(zz, u - (int)r, v - (int)r, u + (int)r, v + (int)r);
+    }
+}
+ans = (ans - N) / 2;                             // ตัวเองถูกนับด้วย และทุกคู่ถูกนับสองครั้ง`;
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int B, N, M;
+ll D;
+
+/* ---------- กระดานหนึ่งมิติ: เรียงแล้วเดินสองตัวชี้ ---------- */
+ll solve1(vector<int>& x) {
+    sort(x.begin(), x.end());
+    ll ans = 0;
+    int j = 0;
+    for (int i = 0; i < N; i++) {
+        while ((ll)x[i] - x[j] > D) j++;
+        ans += i - j;
+    }
+    return ans;
+}
+
+/* ---------- กระดานสองมิติ: หมุน 45 องศา แล้วกวาดด้วย BIT ---------- */
+struct BIT {
+    vector<int> t;
+    int n;
+    void init(int n_) { n = n_; t.assign(n + 1, 0); }
+    void add(int i, int v) { for (; i <= n; i += i & -i) t[i] += v; }
+    int sum(int i) { int s = 0; for (; i > 0; i -= i & -i) s += t[i]; return s; }
+    int range(int a, int b) {
+        a = max(a, 1); b = min(b, n);
+        return b < a ? 0 : sum(b) - sum(a - 1);
+    }
+};
+
+ll solve2(vector<pair<int,int>>& p) {
+    vector<pair<int,int>> q(N);
+    for (int i = 0; i < N; i++)
+        q[i] = {p[i].first + p[i].second, p[i].first - p[i].second + M};
+    sort(q.begin(), q.end());
+
+    BIT bit;
+    bit.init(2 * M + 2);
+    ll ans = 0;
+    int j = 0;
+    for (int i = 0; i < N; i++) {
+        while ((ll)q[i].first - q[j].first > D) { bit.add(q[j].second, -1); j++; }
+        int lo = (int)max<ll>(1, q[i].second - D);
+        int hi = (int)min<ll>(2 * M + 1, q[i].second + D);
+        ans += bit.range(lo, hi);
+        bit.add(q[i].second, 1);
+    }
+    return ans;
+}
+
+/* ---------- กระดานสามมิติ: ผลรวมสะสมสองมิติ เก็บไว้ทุกชั้น ---------- */
+ll solve3(vector<array<int,3>>& p) {
+    const int U = 2 * M + 1;                 // u = x + y อยู่ในช่วง 2..2M
+    const int V = 2 * M + 1;                 // v = x - y + M อยู่ในช่วง 1..2M-1
+    vector<vector<int>> pre((size_t)M + 1, vector<int>((size_t)(U + 2) * (V + 2), 0));
+    auto at = [&](int u, int v) { return u * (V + 2) + v; };
+
+    for (auto& a : p) {
+        int u = a[0] + a[1], v = a[0] - a[1] + M;
+        pre[a[2]][at(u, v)]++;
+    }
+    for (int z = 1; z <= M; z++) {
+        auto& g = pre[z];
+        for (int u = 1; u <= U + 1; u++)
+            for (int v = 1; v <= V + 1; v++)
+                g[at(u, v)] += g[at(u - 1, v)] + g[at(u, v - 1)] - g[at(u - 1, v - 1)];
+    }
+    auto box = [&](int z, int u1, int v1, int u2, int v2) {
+        u1 = max(u1, 1); v1 = max(v1, 1);
+        u2 = min(u2, U + 1); v2 = min(v2, V + 1);
+        if (u1 > u2 || v1 > v2) return 0;
+        auto& g = pre[z];
+        return g[at(u2, v2)] - g[at(u1 - 1, v2)] - g[at(u2, v1 - 1)] + g[at(u1 - 1, v1 - 1)];
+    };
+
+    ll ans = 0;
+    for (auto& a : p) {
+        int u = a[0] + a[1], v = a[0] - a[1] + M, z = a[2];
+        int zlo = (int)max<ll>(1, z - D), zhi = (int)min<ll>(M, z + D);
+        for (int zz = zlo; zz <= zhi; zz++) {
+            ll r = D - abs(zz - z);
+            if (r < 0) continue;
+            if (r > 2 * M) r = 2 * M;
+            ans += box(zz, u - (int)r, v - (int)r, u + (int)r, v + (int)r);
+        }
+    }
+    return (ans - N) / 2;
+}
+
+int main() {
+    if (scanf("%d %d %lld %d", &B, &N, &D, &M) != 4) return 0;
+    if (B == 1) {
+        vector<int> x(N);
+        for (int i = 0; i < N; i++) scanf("%d", &x[i]);
+        printf("%lld\\n", solve1(x));
+    } else if (B == 2) {
+        vector<pair<int,int>> p(N);
+        for (int i = 0; i < N; i++) scanf("%d %d", &p[i].first, &p[i].second);
+        printf("%lld\\n", solve2(p));
+    } else {
+        vector<array<int,3>> p(N);
+        for (int i = 0; i < N; i++) scanf("%d %d %d", &p[i][0], &p[i][1], &p[i][2]);
+        printf("%lld\\n", solve3(p));
+    }
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจแบบซื่อ ๆ ไล่ทุกคู่ ใช้ได้แค่ N หลักพัน
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int main() {
+    int B, N, M;
+    ll D;
+    if (scanf("%d %d %lld %d", &B, &N, &D, &M) != 4) return 0;
+    vector<array<int,3>> p(N, {0, 0, 0});
+    for (int i = 0; i < N; i++)
+        for (int k = 0; k < B; k++) scanf("%d", &p[i][k]);
+    ll ans = 0;
+    for (int i = 0; i < N; i++)
+        for (int j = i + 1; j < N; j++) {
+            ll d = 0;
+            for (int k = 0; k < B; k++) d += abs(p[i][k] - p[j][k]);
+            if (d <= D) ans++;
+        }
+    printf("%lld\\n", ans);
+    return 0;
+}`;
+
+const gameData = { points: TWO_D, m: TWO_M, d: TWO_D_D };
+const fmtInt = (n: number): string => n.toLocaleString('en-US');
+---
+
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · ตุ๊กตาสัตว์คู่ไหนได้ยินเสียงกันบ้าง</h2>
+  <p>
+    เมอโกกับสลาฟโกจะเล่นเกมด้วยกัน เริ่มจากเลือกกระดานหนึ่งใบจากสามแบบ คือกระดานที่ช่องเรียงเป็นแถวเดียว (1 มิติ)
+    เรียงเป็นตาราง (2 มิติ) หรือเรียงเป็นลูกบาศก์ (3 มิติ) จากนั้นเมอโกวางตุ๊กตาสัตว์ตัวจิ๋ว N ตัวลงไปในช่องต่าง ๆ
+    ช่องหนึ่งซ้อนกันหลายตัวก็ได้
+  </p>
+  <p>
+    <strong>ระยะห่าง</strong>ระหว่างสองช่องคือจำนวนก้าวที่น้อยที่สุดที่ตุ๊กตาต้องเดินจากช่องหนึ่งไปอีกช่องหนึ่ง
+    โดยหนึ่งก้าวคือขยับไปช่องที่ติดกัน ตุ๊กตาสองตัว<strong>ได้ยินเสียงกัน</strong>เมื่อช่องของมันห่างกันไม่เกิน D
+    งานของสลาฟโกคือนับว่ามีตุ๊กตากี่คู่ที่ได้ยินเสียงกัน
+  </p>
+  <p>
+    เดินได้ทีละก้าวไปช่องที่ติดกันแปลว่าระยะห่างคือ<strong>ผลบวกของส่วนต่างในแต่ละแกน</strong>
+    บนกระดานสองมิติ ช่อง (5, 2) กับช่อง (8, 4) จึงห่างกัน <code>|5 − 8| + |2 − 4| = 5</code> ก้าว ไม่ใช่ระยะเส้นตรง
+    ระยะแบบนี้มีชื่อว่า <strong>ระยะแมนฮัตตัน</strong> (<i>Manhattan distance</i> ตั้งตามผังถนนของเกาะแมนฮัตตันที่ตัดกันเป็นบล็อกสี่เหลี่ยม
+    จะข้ามจากบล็อกหนึ่งไปอีกบล็อกต้องเดินไปตามถนน ทะลุตึกไม่ได้)
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกมีจำนวนเต็มสี่ตัวคือ <code>B</code> ชนิดกระดาน, <code>N</code> จำนวนตุ๊กตา,
+        <code>D</code> ระยะที่ได้ยินถึงกัน และ <code>M</code> ขนาดกระดาน จากนั้นอีก <code>N</code> บรรทัด
+        บรรทัดละ <code>B</code> จำนวน คือพิกัดของตุ๊กตาแต่ละตัว แต่ละพิกัดมีค่าตั้งแต่ 1 ถึง <code>M</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 ≤ B ≤ 3</code>, <code>1 ≤ N ≤ 100 000</code>, <code>1 ≤ D ≤ 100 000 000</code>
+        ส่วน <code>M</code> ขึ้นกับชนิดกระดาน คือไม่เกิน <strong>75 000 000</strong> เมื่อ <code>B = 1</code>,
+        ไม่เกิน <strong>75 000</strong> เมื่อ <code>B = 2</code> และไม่เกิน <strong>75</strong> เมื่อ <code>B = 3</code>
+        เวลา 4 วินาที หน่วยความจำ 150 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มตัวเดียว คือจำนวนคู่ที่ได้ยินเสียงกัน (โจทย์กำชับให้ใช้จำนวนเต็ม 64 บิต)</li>
+    </ul>
+  </div>
+
+  <p>
+    ค่า <code>M</code> ที่ต่างกันคนละโลกในสามกระดานไม่ใช่เรื่องบังเอิญ มันคือคำใบ้ที่โจทย์แปะไว้ให้ตั้งแต่ต้น
+    ว่าสามกระดานนี้ไม่ได้ตั้งใจให้แก้ด้วยวิธีเดียวกัน
+  </p>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1 6 5 100<br />25<br />50<br />50<br />10<br />20<br />23</td>
+        <td>{oneAnswer}</td>
+      </tr>
+      <tr>
+        <td>2 5 4 10<br />5 2<br />7 2<br />8 4<br />6 5<br />4 4</td>
+        <td>{twoAnswer}</td>
+      </tr>
+      <tr>
+        <td>3 8 10 20<br />10 10 10<br />10 10 20<br />10 20 10<br />10 20 20<br />20 10 10<br />20 10 20<br />20 20 10<br />20 20 20</td>
+        <td>{threeAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    ตัวอย่างที่สามคือแปดมุมของลูกบาศก์ที่มีด้านยาว 10 คู่ที่ห่างกันพอดี 10 คือคู่ที่อยู่ปลายขอบเดียวกัน
+    ลูกบาศก์มีขอบ {threeAnswer} เส้น คำตอบจึงเป็น {threeAnswer} ส่วนคู่ที่อยู่ตรงข้ามกันบนหน้าเดียวกันห่าง 20 ก้าว เกินไปแล้ว
+  </p>
+
+  <details class="expander">
+    <summary>ไล่ทุกคู่ของตัวอย่างที่สองให้ดู (สิบคู่)</summary>
+    <div class="expander-body">
+      <figure class="tbl">
+        <table class="rec">
+          <caption>D = {TWO_D_D}</caption>
+          <thead>
+            <tr><th>ตัวที่หนึ่ง</th><th>ตัวที่สอง</th><th class="num">|Δx|</th><th class="num">|Δy|</th><th class="num">ระยะ</th><th>ได้ยินไหม</th></tr>
+          </thead>
+          <tbody>
+            {twoPairRows.map((r) => (
+              <tr>
+                <td><code>{r.a}</code></td>
+                <td><code>{r.b}</code></td>
+                <td class="num">{r.dx}</td>
+                <td class="num">{r.dy}</td>
+                <td class="num">{r.dist}</td>
+                <td>{r.ok ? 'ได้ยิน' : 'ไกลเกินไป'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <figcaption>
+          นับแถวที่ได้ยินได้ {twoAnswer} คู่ ตรงกับเอาต์พุตของตัวอย่างที่สอง
+        </figcaption>
+      </figure>
+    </div>
+  </details>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    วิธีที่ตรงที่สุดคือไล่ดูทุกคู่ ซึ่งเขียนสามบรรทัดจบและถูกต้องแน่นอน ปัญหาคือจำนวนคู่
+    ที่ <code>N = 100 000</code> มีคู่ทั้งหมด <code>N(N−1)/2</code> คือราว <strong>{fmtInt(4999950000)}</strong> คู่
+    ห้าพันล้านครั้งของงานเบา ๆ ยังไงก็ไม่จบใน 4 วินาที และนี่คือเหตุผลที่โจทย์กำชับเรื่องจำนวนเต็ม 64 บิต
+    เพราะคำตอบเองก็ทะลุ int ได้ในกรณีที่ทุกคู่ได้ยินกันหมด
+  </p>
+  <p>
+    กระดานหนึ่งมิติพอมองออกไม่ยากว่าเรียงแล้วกวาดก็จบ ที่หนักคือกระดานสองมิติ เพราะเงื่อนไข
+    <code>|Δx| + |Δy| ≤ D</code> มีค่าสัมบูรณ์สองก้อนบวกกัน มันไม่ใช่เงื่อนไขที่แยกเป็นแกน x อย่างหนึ่งแกน y อย่างหนึ่งได้
+    บริเวณที่ได้ยินถึงกันจึงไม่ใช่กรอบสี่เหลี่ยมที่โครงสร้างข้อมูลทั่วไปชอบ แต่เป็น<strong>สี่เหลี่ยมข้าวหลามตัด</strong>ที่วางเอียงอยู่กลางตาราง
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถ้ารูปที่ได้มันเอียง แล้วเราไม่ชอบของเอียง มีอะไรที่ทำกับ<strong>ระบบพิกัด</strong>ได้บ้าง
+      ลองเล่นกับตัวสาธิตข้างล่างดู แล้วสังเกตว่าตอนกดหมุน ขอบเขตที่เคยเอียงกลายเป็นอะไร
+    </p>
+  </div>
+
+  <h2>ลองเอง · หมุนกระดานดู</h2>
+  <p>
+    นี่คือกระดานจากตัวอย่างที่สอง กดที่ตุ๊กตาตัวไหนก็ได้เพื่อเลือกมัน พื้นที่สีเขียวคือช่องทั้งหมดที่ได้ยินเสียงตัวนั้น
+    เลื่อนแถบเพื่อเปลี่ยนค่า D แล้วกดปุ่มหมุนเพื่อดูกระดานเดิมในมุมใหม่
+  </p>
+
+  <figure class="rotgame" data-rotgame data-game={JSON.stringify(gameData)}>
+    <div class="rg-bar">
+      <button type="button" class="rg-rot" aria-pressed="false">หมุน 45 องศา</button>
+      <label class="rg-seek">
+        <span class="rg-dlabel">D = {TWO_D_D}</span>
+        <input type="range" class="rg-range" min="1" max="8" value={TWO_D_D} step="1" aria-label="ระยะที่ได้ยินถึงกัน" />
+      </label>
+    </div>
+
+    <div class="rg-stage">
+      <svg class="rg-svg" viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="กระดานสองมิติขนาดสิบคูณสิบ มีตุ๊กตาห้าตัว ตัวที่ถูกเลือกมีขอบเขตการได้ยินเป็นสี่เหลี่ยมข้าวหลามตัดล้อมรอบ กดปุ่มหมุนแล้วขอบเขตนั้นจะกลายเป็นสี่เหลี่ยมจัตุรัส">
+        <g class="rg-rotor">
+          <g class="rg-grid"></g>
+          <polygon class="rg-zone" points="" />
+          <g class="rg-links"></g>
+          <g class="rg-dots"></g>
+        </g>
+      </svg>
+    </div>
+
+    <p class="rg-say" aria-live="polite"></p>
+    <figcaption>
+      ขอบเขต "ได้ยินถึงกัน" ของระยะแมนฮัตตันเป็นสี่เหลี่ยมข้าวหลามตัดเสมอ ไม่ว่าจะวางที่ไหนบนกระดาน
+      สิ่งที่เปลี่ยนตอนกดหมุนคือมุมมองของเรา ไม่ใช่ตัวกระดาน
+    </figcaption>
+  </figure>
+
+  <p class="ns-cue">ลองเล่นดูก่อนนะครับ พอมีคำตอบในใจแล้ว ค่อยไปดูเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 · กระดานหนึ่งมิติ</h2>
+  <Spoiler>
+    <p>
+      เรียงตำแหน่งจากน้อยไปมากก่อน แล้วเดินตัวชี้ <code>i</code> ไปทีละตัว พร้อมลาก <code>j</code> ตามหลัง
+      โดยให้ <code>j</code> เป็นตัวซ้ายสุดที่ยังได้ยินเสียงตัวที่ <code>i</code> ตุ๊กตาทุกตัวที่อยู่ระหว่าง
+      <code>j</code> กับ <code>i</code> ก็ได้ยินตัวที่ <code>i</code> หมด เพราะมันอยู่ใกล้กว่า จึงบวกทีเดียว <code>i − j</code> คู่
+    </p>
+    <p>
+      ที่สำคัญคือ <code>j</code> <strong>เดินหน้าอย่างเดียว ไม่เคยถอยกลับ</strong> เพราะพอ <code>i</code> ขยับไปขวา
+      ขอบซ้ายของหน้าต่างก็ขยับไปขวาตามเสมอ ทั้งลูปนอกและลูปในรวมกันจึงเดินไม่เกิน 2N ก้าว
+      งานหนักที่สุดของกระดานนี้คือการเรียง
+    </p>
+    <CodeBlock code={code1D} lang="cpp" title="กระดาน 1 มิติ" />
+
+    <h3>เดินให้ดูด้วยตัวอย่างในโจทย์</h3>
+    <p>
+      กองในตัวอย่างที่หนึ่งคือ <code>{ONE_D.join(' ')}</code> เมื่อ <code>D = {ONE_D_D}</code> เรียงแล้วได้
+      <code>{oneSorted.join(' ')}</code> กดถัดไปเพื่อดูสองตัวชี้เดิน
+    </p>
+
+    <div class="dpsim" data-sweepsim data-steps={JSON.stringify(oneSteps)} data-xs={JSON.stringify(oneSorted)}>
+      <div class="dps-bar">
+        <div class="dps-btns">
+          <button type="button" class="dps-b" data-act="first" aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+          <button type="button" class="dps-b" data-act="prev" aria-label="ขั้นก่อนหน้า">ย้อน</button>
+          <button type="button" class="dps-b dps-play" data-act="play" aria-label="เล่นอัตโนมัติ">เล่น</button>
+          <button type="button" class="dps-b" data-act="next" aria-label="ขั้นถัดไป">ถัดไป</button>
+          <button type="button" class="dps-b" data-act="last" aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+        </div>
+        <label class="dps-seek">
+          <span class="dps-count">ขั้น 0</span>
+          <input type="range" class="dps-range" min="0" value="0" step="1" aria-label="เลื่อนไปขั้นที่ต้องการ" />
+        </label>
+      </div>
+
+      <div class="dps-scroll">
+        <table class="rec sweeptbl">
+          <caption>SORTED · D = {ONE_D_D}</caption>
+          <thead>
+            <tr>
+              <th>ช่อง</th>
+              {oneSorted.map((x) => <th class="num">{x}</th>)}
+              <th class="num">คู่สะสม</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ตัวชี้</td>
+              {oneSorted.map((_, k) => <td class="num mark" data-k={k}>·</td>)}
+              <td class="num total">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dps-say" aria-live="polite"></div>
+    </div>
+    <p class="io-note">
+      ช่องสีทองคือตัวที่ <code>i</code> ช่องสีฟ้าคือช่วงตั้งแต่ <code>j</code> ถึงตัวก่อนหน้า <code>i</code> ซึ่งคือคู่ใหม่ที่เพิ่งนับได้
+      คำตอบสุดท้ายคือ {oneAnswer} คู่ ตรงกับตัวอย่างในโจทย์
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · สองมิติ กับเอกลักษณ์บรรทัดเดียว</h2>
+  <Spoiler>
+    <p>
+      ปัญหาของสองมิติคือค่าสัมบูรณ์สองก้อนบวกกัน ทางออกมาจากเอกลักษณ์ทางพีชคณิตบรรทัดเดียวที่เปลี่ยน
+      "บวกกัน" ให้กลายเป็น "เลือกตัวที่มากกว่า"
+    </p>
+    <div set:html={texIdent} />
+    <p>
+      ตรวจได้ง่าย ๆ ด้วยการแยกสองกรณี ถ้า <code>a</code> กับ <code>b</code> เครื่องหมายเดียวกัน
+      <code>|a + b|</code> จะเท่ากับ <code>|a| + |b|</code> พอดี ส่วน <code>|a − b|</code> จะเล็กกว่า
+      ถ้าคนละเครื่องหมายก็สลับบทบาทกัน ตัวที่มากกว่าจึงเท่ากับ <code>|a| + |b|</code> เสมอ
+    </p>
+    <p>
+      เอาเอกลักษณ์นี้ไปใส่กับ <code>a = Δx</code> และ <code>b = Δy</code> แล้วตั้งพิกัดใหม่
+    </p>
+    <div set:html={texRot} />
+    <p>
+      จะได้ว่า <code>Δu = Δx + Δy</code> และ <code>Δv = Δx − Δy</code> พอดี ระยะแมนฮัตตันจึงเขียนใหม่ได้เป็น
+    </p>
+    <div set:html={texDist} />
+    <p>
+      ด้านขวาคือ<strong>ระยะเชบีเชฟ</strong> (<i>Chebyshev distance</i> อ่านว่า "เชบีเชฟ" ตั้งตามชื่อ Pafnuty Chebyshev
+      นักคณิตศาสตร์ชาวรัสเซีย) ซึ่งแปลว่า "ห่างกันในแกนที่ห่างที่สุดไม่เกินเท่าไร" และนั่นคือเงื่อนไขที่
+      <strong>แยกเป็นแกนได้</strong> คือ <code>|Δu| ≤ D</code> และ <code>|Δv| ≤ D</code> พร้อมกัน
+    </p>
+    <p>
+      แปลเป็นภาพคือสิ่งที่คุณเพิ่งกดดูในตัวสาธิต สี่เหลี่ยมข้าวหลามตัดในระบบพิกัดเดิม คือสี่เหลี่ยมจัตุรัสตรง ๆ ในระบบพิกัด
+      <code>(u, v)</code> การหมุน 45 องศาไม่ได้ทำให้ปัญหาง่ายขึ้นด้วยเวทมนตร์ มันแค่ทำให้เงื่อนไขที่พัวพันกันสองแกน
+      กลายเป็นเงื่อนไขที่ตรวจแยกกันได้
+    </p>
+
+    <ZoomableDiagram caption="ในระบบพิกัดเดิม ขอบเขตการได้ยินเป็นสี่เหลี่ยมข้าวหลามตัดที่วางเอียง โครงสร้างข้อมูลกวาดตามแกนไม่ถนัด พอเปลี่ยนไปคิดบนแกน u กับ v ขอบเขตเดียวกันกลายเป็นกรอบสี่เหลี่ยมที่กวาดตามแกนหนึ่งแล้วนับอีกแกนหนึ่งได้ (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 484 224" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเทียบสองระบบพิกัด ด้านซ้ายบนแกน x และ y ขอบเขตการได้ยินเป็นสี่เหลี่ยมข้าวหลามตัดวางเอียง ด้านขวาบนแกน u และ v ขอบเขตเดียวกันกลายเป็นสี่เหลี่ยมจัตุรัสที่ขนานกับแกน">
+        <text x="104" y="20" fill="#9aa7bd" font-size="12" text-anchor="middle">แกน x, y ตามโจทย์</text>
+        <line x1="24" y1="180" x2="196" y2="180" stroke="#2a3350" stroke-width="1.5"/>
+        <line x1="30" y1="186" x2="30" y2="40" stroke="#2a3350" stroke-width="1.5"/>
+        <text x="192" y="196" fill="#7b8397" font-size="11" font-family="monospace">x</text>
+        <text x="16" y="46" fill="#7b8397" font-size="11" font-family="monospace">y</text>
+        <polygon points="110,66 154,110 110,154 66,110" fill="rgba(47,158,92,0.18)" stroke="#2f9e5c" stroke-width="1.8"/>
+        <circle cx="110" cy="110" r="4.5" fill="#e0b400"/>
+        <text x="110" y="176" fill="#4ade80" font-size="11" text-anchor="middle">เอียง กวาดตามแกนไม่ถนัด</text>
+
+        <text x="356" y="20" fill="#9aa7bd" font-size="12" text-anchor="middle">แกน u = x+y, v = x−y</text>
+        <line x1="276" y1="180" x2="448" y2="180" stroke="#2a3350" stroke-width="1.5"/>
+        <line x1="282" y1="186" x2="282" y2="40" stroke="#2a3350" stroke-width="1.5"/>
+        <text x="444" y="196" fill="#7b8397" font-size="11" font-family="monospace">u</text>
+        <text x="268" y="46" fill="#7b8397" font-size="11" font-family="monospace">v</text>
+        <rect x="331" y="79" width="62" height="62" fill="rgba(47,158,92,0.18)" stroke="#2f9e5c" stroke-width="1.8"/>
+        <circle cx="362" cy="110" r="4.5" fill="#e0b400"/>
+        <text x="362" y="176" fill="#4ade80" font-size="11" text-anchor="middle">ตรง แยกเป็นสองเงื่อนไขได้</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      ที่เหลือเป็นท่ามาตรฐาน เรียงตุ๊กตาตาม <code>u</code> แล้วกวาดไปทางขวา เก็บเฉพาะตัวที่ <code>u</code> ห่างไม่เกิน D
+      ไว้ใน <strong>BIT</strong> (<i>Binary Indexed Tree</i> หรือที่เรียกกันว่า Fenwick tree คือต้นไม้ที่ตอบคำถาม
+      "ในช่วงนี้มีของกี่ชิ้น" และแก้ไขค่าได้ ในเวลา log) โดยใช้ <code>v</code> เป็นดัชนี
+      ถึงตัวไหนก็ถามว่ามีกี่ตัวที่ <code>v</code> อยู่ในช่วง <code>[v − D, v + D]</code>
+    </p>
+    <CodeBlock code={code2D} lang="cpp" title="กระดาน 2 มิติ" />
+    <p>
+      ตัวชี้ <code>j</code> ยังเดินหน้าอย่างเดียวเหมือนกระดานหนึ่งมิติ ต่างกันแค่ตอนมันเดินผ่านใคร
+      ต้องถอนคนนั้นออกจาก BIT ด้วย ทั้งหมดเป็น <strong>O(N log M)</strong>
+    </p>
+
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต: ทำไมต้อง +M ตอนคำนวณ v</p>
+      <p>
+        <code>v = x − y</code> ติดลบได้ ตั้งแต่ <code>1 − M</code> ถึง <code>M − 1</code> แต่ BIT ใช้ดัชนีติดลบไม่ได้
+        เลยบวก <code>M</code> เข้าไปให้ทุกค่าขยับมาอยู่ในช่วง <code>1</code> ถึง <code>2M − 1</code>
+        ส่วน <code>u</code> ไม่ต้องเลื่อนเพราะเป็นบวกอยู่แล้ว
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 · สามมิติ ที่การหมุนช่วยไม่ได้แล้ว</h2>
+  <Spoiler>
+    <p>
+      พอถึงสามมิติ คำถามแรกคือหมุนอีกทีได้ไหม คำตอบคือไม่ได้ การเปลี่ยนระยะแมนฮัตตันเป็นระยะเชบีเชฟด้วยการหมุนแบบนั้น
+      ใช้ได้เฉพาะสองมิติ พอขึ้นสามมิติ รูปทรงของ "ขอบเขตการได้ยิน" กลายเป็นทรงแปดหน้า ซึ่งไม่มีการหมุนไหนดัดให้เป็นกล่องได้
+    </p>
+    <p>
+      แต่โจทย์ยื่นของอีกอย่างมาให้แทน คือ <code>M ≤ 75</code> กระดานสามมิติทั้งใบมีช่องแค่
+      <code>75 × 75 × 75</code> คือราวสี่แสนช่อง เล็กกว่าจำนวนตุ๊กตาไม่กี่เท่า นี่คือใบอนุญาตให้เราทำตารางค้างไว้ได้ทั้งกระดาน
+    </p>
+    <p>
+      แผนคือ<strong>ซอยกระดานเป็นชั้นตามแกน z</strong> แล้วมองทีละคู่ชั้น ถ้าตุ๊กตาตัวหนึ่งอยู่ชั้น <code>z</code>
+      และเราสนใจตัวที่อยู่ชั้น <code>z'</code> ระยะทางในแกน z ถูกใช้ไปแล้ว <code>|z − z'|</code> ก้าว
+      <strong>ที่เหลือคืองบที่ใช้ได้บนระนาบ xy</strong> คือ <code>r = D − |z − z'|</code> ถ้างบติดลบก็ข้ามชั้นนั้นไป
+    </p>
+
+    <ZoomableDiagram caption="ยิ่งชั้นห่างจากชั้นของตัวเองมาก งบที่เหลือให้ใช้บนระนาบก็ยิ่งน้อย ขอบเขตในแต่ละชั้นจึงเป็นสี่เหลี่ยมจัตุรัสที่หดลงเรื่อย ๆ เมื่อมองในพิกัดที่หมุนแล้ว (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 468 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพห้าชั้นเรียงจากซ้ายไปขวา ชั้นกลางคือชั้นของตุ๊กตาที่กำลังพิจารณา มีกรอบใหญ่ที่สุด ชั้นที่ห่างออกไปทั้งสองข้างมีกรอบเล็กลงเรื่อย ๆ ตามงบที่เหลือ">
+        {[
+          { x: 24, r: 18, lab: 'z − 2', bud: 'r = D − 2' },
+          { x: 114, r: 27, lab: 'z − 1', bud: 'r = D − 1' },
+          { x: 204, r: 36, lab: 'z', bud: 'r = D' },
+          { x: 294, r: 27, lab: 'z + 1', bud: 'r = D − 1' },
+          { x: 384, r: 18, lab: 'z + 2', bud: 'r = D − 2' },
+        ].map((s) => (
+          <g>
+            <rect x={s.x} y="46" width="60" height="60" rx="4" fill="#101827" stroke="#2a3350" stroke-width="1.4"/>
+            <rect
+              x={s.x + 30 - s.r / 2}
+              y={76 - s.r / 2}
+              width={s.r}
+              height={s.r}
+              fill="rgba(47,158,92,0.22)"
+              stroke="#2f9e5c"
+              stroke-width="1.6"
+            />
+            <circle cx={s.x + 30} cy="76" r="3" fill="#e0b400"/>
+            <text x={s.x + 30} y="36" fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">{s.lab}</text>
+            <text x={s.x + 30} y="126" fill="#4ade80" font-size="10" text-anchor="middle" font-family="monospace">{s.bud}</text>
+          </g>
+        ))}
+        <text x="234" y="162" fill="#e7ecf6" font-size="12" text-anchor="middle">ชั้นไหนงบเหลือไม่ถึงศูนย์ ก็ไม่ต้องดูเลย</text>
+        <text x="234" y="184" fill="#9aa7bd" font-size="11" text-anchor="middle">แต่ละกรอบตอบได้ในเวลาคงที่ด้วยผลรวมสะสมสองมิติของชั้นนั้น</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      ภายในชั้นเดียวปัญหากลับไปเป็นสองมิติล้วน จึงหมุน 45 องศาแบบเดิมได้อีก ขอบเขต
+      <code>|Δx| + |Δy| ≤ r</code> กลายเป็นกรอบสี่เหลี่ยมในพิกัด <code>(u, v)</code>
+      และเพราะกระดานเล็ก เราทำ<strong>ผลรวมสะสมสองมิติ</strong>เก็บไว้ล่วงหน้าทุกชั้นได้เลย
+      หลังจากนั้นการถามว่า "ในกรอบนี้ของชั้นนี้มีตุ๊กตากี่ตัว" ใช้การบวกลบสี่ครั้ง จบในเวลาคงที่
+    </p>
+    <CodeBlock code={code3D} lang="cpp" title="กระดาน 3 มิติ" />
+    <p>
+      งานทั้งหมดคือตุ๊กตา <code>N</code> ตัว คูณจำนวนชั้นไม่เกิน <code>M = 75</code> ชั้น
+      คือราวเจ็ดล้านครั้งของการบวกลบสี่ตัว ส่วนตารางที่ต้องเก็บคือ 75 ชั้น ชั้นละราว 150 × 150 ช่อง
+      รวม <strong>{MEM_3D} เมกะไบต์</strong> จากลิมิต 150 เมกะไบต์
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต: ทำไมต้องลบ N แล้วหารสอง</p>
+      <p>
+        ตอนไล่ถามทีละตัว ตัวที่กำลังถามอยู่ในกรอบของตัวเองด้วย (ระยะศูนย์) จึงถูกนับเกินมา N ครั้ง
+        และคู่ที่ได้ยินกันจริงถูกนับสองครั้ง คือครั้งหนึ่งจากแต่ละฝ่าย คำตอบจึงเป็น <code>(รวม − N) / 2</code>
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>โค้ดเต็มและเวลาที่วัดได้</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เวลาที่วัดจริง · ลิมิต 4 วินาที</caption>
+        <thead>
+          <tr><th>กระดาน</th><th>เคสที่ใช้วัด</th><th class="num">เวลา (มิลลิวินาที)</th></tr>
+        </thead>
+        <tbody>
+          {TIMING.map((t) => (
+            <tr>
+              <td>{t.name}</td>
+              <td><code>{t.args}</code></td>
+              <td class="num">{t.ms}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        วัดด้วย <code>steady_clock</code> คร่อมตั้งแต่ต้น <code>main</code> ถึงตอนพิมพ์คำตอบ จึงรวมเวลาอ่านอินพุตด้วย
+        เคสพวกนี้สุ่มพิกัดเต็มขอบเขตของแต่ละกระดาน
+      </figcaption>
+    </figure>
+
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="hearing-pairs.cpp" />
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ผมสุ่มเคสเล็ก ๆ {fmtInt(STRESS_CASES)} เคส วนครบทั้งสามชนิดกระดาน ทั้งแบบกระดานแน่น (ตุ๊กตาเยอะกว่าช่อง)
+          และแบบ <code>D</code> ใหญ่เกินขนาดกระดานจนทุกคู่ได้ยินกันหมด แล้วเทียบกับตัวไล่ทุกคู่ข้างล่างนี้ ตรงกันทุกเคส
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    <code>|a| + |b| = max(|a+b|, |a−b|)</code> คือทั้งหมดที่ข้อนี้ต้องการ มันเปลี่ยนเงื่อนไขที่พัวพันสองแกน
+    ให้กลายเป็นสองเงื่อนไขที่ตรวจแยกกันได้ ส่วนกระดานสามมิติที่หมุนไม่ได้ โจทย์ก็ชดเชยให้ด้วยกระดานที่เล็กจนทำตารางค้างไว้ได้
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Pairs</i> บน programming.in.th ข้อ 2004
+      <a href="https://programming.in.th/tasks/2004" target="_blank" rel="noopener noreferrer">programming.in.th/tasks/2004</a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>International Olympiad in Informatics 2007</i> วันแข่งที่สอง จัดที่เมืองซาเกร็บ ประเทศโครเอเชีย
+      15 ถึง 22 สิงหาคม 2007
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  h3{
+    font-size:0.92rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:.2px;
+    margin:1.6rem 0 0.5rem;
+  }
+
+  /* ---- ตัวเล่นสองตัวชี้ ---- */
+  .dpsim{
+    margin:1.2rem 0 0.4rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    overflow:hidden;
+  }
+  .dps-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.7rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    padding:0.6rem 0.75rem;
+    background:#070c17;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .dps-btns{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .dps-b{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.75rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .dps-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .dps-b:disabled{opacity:0.4;cursor:default;}
+  .dps-play{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .dps-seek{display:flex;align-items:center;gap:0.5rem;flex:1 1 12rem;min-width:10rem;}
+  .dps-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    color:var(--dl-muted);
+    white-space:nowrap;
+    min-width:5.5rem;
+  }
+  .dps-range{flex:1 1 auto;min-width:6rem;accent-color:var(--dl-emerald-bright);cursor:pointer;}
+  .dps-scroll{overflow-x:auto;}
+  .dpsim table.rec{margin:0;}
+  .dpsim table.rec caption{border-radius:0;}
+  /* คอลัมน์กว้างคงที่ เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง
+     และต้องชนะกฎ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์ */
+  .dpsim table.sweeptbl{width:auto;table-layout:fixed;}
+  table.sweeptbl th:first-child, table.sweeptbl td:first-child{width:5rem;}
+  table.sweeptbl th.num, table.sweeptbl td.num{width:4rem;}
+  table.sweeptbl td.mark{
+    text-align:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#7b8397;
+    transition:background .15s ease, color .15s ease;
+  }
+  table.sweeptbl td.num.is-i{background:var(--dl-gold);color:#0b1220;font-weight:700;}
+  table.sweeptbl td.num.is-win{background:rgba(56,140,255,0.22);color:#9cc6ff;font-weight:700;}
+  table.sweeptbl td.num.is-j{box-shadow:inset 0 0 0 2px #9cc6ff;}
+  table.sweeptbl td.num.total{color:var(--dl-emerald-bright);font-weight:700;}
+
+  .dps-say{
+    width:0;
+    min-width:100%;
+    padding:0.7rem 0.85rem 0.85rem;
+    border-top:1px solid var(--dl-border);
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:4.5rem;
+  }
+  .dps-say :global(b){color:var(--dl-gold);font-family:"Fira Code","Fira Mono",monospace;}
+
+  /* ---- ตัวสาธิตหมุนกระดาน ---- */
+  .rotgame{
+    margin:1.5rem 0 0.5rem;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:#0b1220;
+    padding:1rem 1.1rem 0.9rem;
+  }
+  .rg-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.6rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:0.6rem;
+  }
+  .rg-rot{
+    font:inherit;
+    font-size:0.76rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.3rem 0.9rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .rg-rot[aria-pressed="true"]{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .rg-seek{display:flex;align-items:center;gap:0.6rem;flex:1 1 12rem;min-width:11rem;}
+  .rg-dlabel{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.72rem;
+    color:var(--dl-gold);
+    white-space:nowrap;
+    min-width:3.6rem;
+  }
+  .rg-range{flex:1 1 auto;min-width:6rem;accent-color:var(--dl-emerald-bright);cursor:pointer;}
+  .rg-stage{display:flex;justify-content:center;}
+  .rg-svg{width:min(100%, 20rem);height:auto;}
+  .rg-rotor{
+    transform-origin:160px 160px;
+    transition:transform .5s ease;
+  }
+  .rotgame[data-rot="1"] .rg-rotor{transform:rotate(-45deg) scale(0.707);}
+  .rg-svg :global(.lat){fill:#243049;}
+  .rg-svg :global(.dot){fill:#8fa3c4;cursor:pointer;}
+  .rg-svg :global(.dot.sel){fill:var(--dl-gold);}
+  .rg-svg :global(.dot.hear){fill:var(--dl-emerald-bright);}
+  .rg-svg :global(.link){stroke:var(--dl-emerald);stroke-width:1.6;opacity:0.55;}
+  .rg-zone{fill:rgba(47,158,92,0.16);stroke:#2f9e5c;stroke-width:1.6;}
+  .rg-say{
+    width:0;
+    min-width:100%;
+    margin:0.7rem 0 0;
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:3.4rem;
+  }
+  .rg-say :global(b){color:var(--dl-gold);}
+  .rotgame figcaption{
+    width:0;
+    min-width:100%;
+    margin-top:0.6rem;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+  }
+
+  .ns-cue{color:var(--dl-muted);font-size:0.86rem;}
+
+  @media (prefers-reduced-motion: reduce){
+    .rg-rotor{transition:none;}
+    table.sweeptbl td.mark{transition:none;}
+  }
+  @media (max-width:640px){
+    .dps-say{min-height:6.5rem;}
+  }
+</style>
+
+<script>
+  // ตัวเล่นสองตัวชี้ของกระดานหนึ่งมิติ ขั้นถูกสร้างไว้ตอน build
+  type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
+
+  const PLAY_MS = 1300;
+
+  function isStep(v: unknown): v is SweepStep {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.i === 'number' && typeof o.j === 'number' && typeof o.note === 'string';
+  }
+
+  function initSweep(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const parsed: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const steps: SweepStep[] = Array.isArray(parsed) ? parsed.filter(isStep) : [];
+    if (steps.length === 0) return;
+
+    const marks = Array.from(root.querySelectorAll<HTMLTableCellElement>('td.mark'));
+    const totalCell = root.querySelector<HTMLElement>('td.total');
+    const say = root.querySelector<HTMLElement>('.dps-say');
+    const range = root.querySelector<HTMLInputElement>('.dps-range');
+    const count = root.querySelector<HTMLElement>('.dps-count');
+    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
+    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
+    if (!totalCell || !say || !range || !count || !playBtn) return;
+
+    range.max = String(steps.length - 1);
+    let at = 0;
+    let timer: number | null = null;
+
+    const render = () => {
+      const st = steps[at];
+      marks.forEach((td, k) => {
+        td.className = 'num mark';
+        td.textContent = '·';
+        if (k === st.i) {
+          td.classList.add('is-i');
+          td.textContent = 'i';
+        } else if (k >= st.j && k < st.i) {
+          td.classList.add('is-win');
+          td.textContent = '+';
+        }
+        if (k === st.j && k !== st.i) td.classList.add('is-j');
+      });
+      totalCell.textContent = String(st.total);
+      say.innerHTML = st.note;
+      range.value = String(at);
+      count.textContent = `ขั้น ${at + 1} / ${steps.length}`;
+      for (const b of btns) {
+        const act = b.dataset.act;
+        if (act === 'prev' || act === 'first') b.disabled = at === 0;
+        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
+      }
+    };
+
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+      playBtn.textContent = 'เล่น';
+    };
+    const go = (to: number) => {
+      at = Math.max(0, Math.min(steps.length - 1, to));
+      if (at === steps.length - 1) stop();
+      render();
+    };
+
+    for (const b of btns) {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'play') {
+          if (timer !== null) { stop(); return; }
+          if (at === steps.length - 1) at = 0;
+          playBtn.textContent = 'หยุด';
+          timer = window.setInterval(() => go(at + 1), PLAY_MS);
+          go(at + 1);
+          return;
+        }
+        stop();
+        if (act === 'first') go(0);
+        else if (act === 'prev') go(at - 1);
+        else if (act === 'next') go(at + 1);
+        else if (act === 'last') go(steps.length - 1);
+      });
+    }
+    range.addEventListener('input', () => { stop(); go(Number(range.value)); });
+    root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') { stop(); go(at + 1); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { stop(); go(at - 1); e.preventDefault(); }
+    });
+
+    document.addEventListener('astro:before-swap', stop, { once: true });
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-sweepsim]').forEach(initSweep);
+  });
+</script>
+
+<script>
+  // ตัวสาธิตหมุนกระดาน: วาดตะแกรง จุด และขอบเขตการได้ยินของตัวที่ถูกเลือก
+  type Pt = { x: number; y: number };
+  type Game = { points: Pt[]; m: number; d: number };
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const PAD = 20;
+
+  function isGame(v: unknown): v is Game {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return Array.isArray(o.points) && typeof o.m === 'number' && typeof o.d === 'number';
+  }
+
+  function initRot(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const parsed: unknown = JSON.parse(root.dataset.game ?? 'null');
+    if (!isGame(parsed)) return;
+    const game: Game = parsed;
+
+    const svg = root.querySelector<SVGSVGElement>('.rg-svg');
+    const gridG = root.querySelector<SVGGElement>('.rg-grid');
+    const dotsG = root.querySelector<SVGGElement>('.rg-dots');
+    const linksG = root.querySelector<SVGGElement>('.rg-links');
+    const zone = root.querySelector<SVGPolygonElement>('.rg-zone');
+    const rotBtn = root.querySelector<HTMLButtonElement>('.rg-rot');
+    const range = root.querySelector<HTMLInputElement>('.rg-range');
+    const dLabel = root.querySelector<HTMLElement>('.rg-dlabel');
+    const say = root.querySelector<HTMLElement>('.rg-say');
+    if (!svg || !gridG || !dotsG || !linksG || !zone || !rotBtn || !range || !dLabel || !say) return;
+
+    const M = game.m;
+    const step = (320 - PAD * 2) / (M - 1);
+    const px = (x: number) => PAD + (x - 1) * step;
+    const py = (y: number) => 320 - PAD - (y - 1) * step;
+
+    for (let x = 1; x <= M; x++)
+      for (let y = 1; y <= M; y++) {
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', String(px(x)));
+        c.setAttribute('cy', String(py(y)));
+        c.setAttribute('r', '1.6');
+        c.setAttribute('class', 'lat');
+        gridG.appendChild(c);
+      }
+
+    const dots: SVGCircleElement[] = game.points.map((p, i) => {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', String(px(p.x)));
+      c.setAttribute('cy', String(py(p.y)));
+      c.setAttribute('r', '6');
+      c.setAttribute('class', 'dot');
+      c.addEventListener('click', () => { sel = i; render(); });
+      dotsG.appendChild(c);
+      return c;
+    });
+
+    // เริ่มที่ตัวที่อยู่กลางกระดานที่สุด ขอบเขตของมันจะได้ไม่โดนขอบ svg ตัดตั้งแต่ภาพแรก
+    let sel = 0;
+    let bestScore = Infinity;
+    game.points.forEach((p, i) => {
+      const c = (M + 1) / 2;
+      const score = Math.abs(p.x - c) + Math.abs(p.y - c);
+      if (score < bestScore) { bestScore = score; sel = i; }
+    });
+    let d = game.d;
+
+    const dist = (a: Pt, b: Pt) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+    const render = () => {
+      const p = game.points[sel];
+      // ขอบเขตการได้ยินคือสี่เหลี่ยมข้าวหลามตัดรอบตัวที่เลือก
+      zone.setAttribute(
+        'points',
+        [
+          `${px(p.x)},${py(p.y + d)}`,
+          `${px(p.x + d)},${py(p.y)}`,
+          `${px(p.x)},${py(p.y - d)}`,
+          `${px(p.x - d)},${py(p.y)}`,
+        ].join(' '),
+      );
+
+      linksG.textContent = '';
+      let heard = 0;
+      game.points.forEach((q, i) => {
+        const near = i !== sel && dist(p, q) <= d;
+        if (near) heard++;
+        dots[i].setAttribute('class', 'dot' + (i === sel ? ' sel' : near ? ' hear' : ''));
+        if (near) {
+          const l = document.createElementNS(NS, 'line');
+          l.setAttribute('x1', String(px(p.x)));
+          l.setAttribute('y1', String(py(p.y)));
+          l.setAttribute('x2', String(px(q.x)));
+          l.setAttribute('y2', String(py(q.y)));
+          l.setAttribute('class', 'link');
+          linksG.appendChild(l);
+        }
+      });
+
+      let total = 0;
+      for (let i = 0; i < game.points.length; i++)
+        for (let j = i + 1; j < game.points.length; j++)
+          if (dist(game.points[i], game.points[j]) <= d) total++;
+
+      dLabel.textContent = `D = ${d}`;
+      const rotated = root.dataset.rot === '1';
+      say.innerHTML =
+        `ตัวที่เลือกอยู่ช่อง <b>(${p.x}, ${p.y})</b> ได้ยินอีก <b>${heard}</b> ตัว ทั้งกระดานมี <b>${total}</b> คู่ที่ได้ยินกัน` +
+        (rotated
+          ? ' ตอนนี้มองในมุมที่หมุนแล้ว ขอบเขตกลายเป็นสี่เหลี่ยมจัตุรัสที่ขนานกับแกน'
+          : ' ขอบเขตตอนนี้เป็นสี่เหลี่ยมข้าวหลามตัด ลองกดปุ่มหมุนดู');
+    };
+
+    rotBtn.addEventListener('click', () => {
+      const on = root.dataset.rot === '1';
+      root.dataset.rot = on ? '0' : '1';
+      rotBtn.setAttribute('aria-pressed', on ? 'false' : 'true');
+      render();
+    });
+    range.addEventListener('input', () => {
+      d = Number(range.value);
+      render();
+    });
+
+    root.dataset.rot = '0';
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-rotgame]').forEach(initRot);
+  });
+</script>

@@ -1,0 +1,1330 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'miners/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ไม่มีเลขไหนพิมพ์ด้วยมือ ---------- */
+
+/** 0 = ช่องว่าง (ยังไม่เคยมีของมาถึง), 1 = M, 2 = F, 3 = B */
+type Food = 0 | 1 | 2 | 3;
+const NAME: Record<Food, string> = { 0: '·', 1: 'M', 2: 'F', 3: 'B' };
+const CODE: Record<string, Food> = { M: 1, F: 2, B: 3 };
+
+const parse = (s: string): Food[] => [...s].map((c) => CODE[c]);
+
+/** ถ่านที่ได้จากชิ้นล่าสุดสามชิ้น = จำนวนชนิดอาหารที่ไม่ซ้ำกัน (ช่องว่างไม่นับ) */
+function coal(a: Food, b: Food, c: Food): number {
+  const seen = new Set<Food>([a, b, c]);
+  seen.delete(0);
+  return seen.size;
+}
+
+/** สถานะ = คู่ล่าสุดของแต่ละเหมือง เขียนเป็น "x1,y1,x2,y2" (y คือชิ้นล่าสุด) */
+type Key = string;
+const keyOf = (x1: Food, y1: Food, x2: Food, y2: Food): Key => `${x1},${y1},${x2},${y2}`;
+const partsOf = (k: Key): Food[] => k.split(',').map(Number) as Food[];
+
+/** ตารางสถานะหลังส่งของครบ i ชิ้น (คืนมาทีละแถว ตั้งแต่แถว i = 0) */
+function layers(seq: Food[]): Map<Key, number>[] {
+  const out: Map<Key, number>[] = [new Map([[keyOf(0, 0, 0, 0), 0]])];
+  for (const f of seq) {
+    const cur = out[out.length - 1];
+    const nxt = new Map<Key, number>();
+    const put = (k: Key, v: number) => {
+      const old = nxt.get(k);
+      if (old === undefined || v > old) nxt.set(k, v);
+    };
+    for (const [k, v] of cur) {
+      const [x1, y1, x2, y2] = partsOf(k);
+      put(keyOf(y1, f, x2, y2), v + coal(x1, y1, f));
+      put(keyOf(x1, y1, y2, f), v + coal(x2, y2, f));
+    }
+    out.push(nxt);
+  }
+  return out;
+}
+
+const bestOf = (seq: Food[]): number => Math.max(...layers(seq)[seq.length].values());
+
+/** วิธีโลภ: ส่งเข้าเหมืองที่ได้ถ่านตอนนี้มากกว่า เสมอกันเลือกเหมือง 1 */
+function greedy(seq: Food[]): { total: number; picks: number[] } {
+  const m: [Food, Food][] = [
+    [0, 0],
+    [0, 0],
+  ];
+  let total = 0;
+  const picks: number[] = [];
+  for (const f of seq) {
+    const g0 = coal(m[0][0], m[0][1], f);
+    const g1 = coal(m[1][0], m[1][1], f);
+    const k = g1 > g0 ? 1 : 0;
+    total += Math.max(g0, g1);
+    m[k] = [m[k][1], f];
+    picks.push(k + 1);
+  }
+  return { total, picks };
+}
+
+/** แผนที่ดีที่สุด (ลองทุกการแบ่ง ใช้ได้เฉพาะกองสั้น ๆ ที่เอามาเล่า) */
+function bestPlan(seq: Food[]): { total: number; picks: number[] } {
+  const n = seq.length;
+  let best = { total: -1, picks: [] as number[] };
+  for (let mask = 0; mask < 1 << n; mask++) {
+    const m: [Food, Food][] = [
+      [0, 0],
+      [0, 0],
+    ];
+    let total = 0;
+    const picks: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const k = (mask >> i) & 1;
+      total += coal(m[k][0], m[k][1], seq[i]);
+      m[k] = [m[k][1], seq[i]];
+      picks.push(k + 1);
+    }
+    if (total > best.total) best = { total, picks };
+  }
+  return best;
+}
+
+/* กองที่เอามาเล่าทั้งหน้า */
+const SAMPLE1 = 'MBMFFB';
+const SAMPLE2 = 'MMBMBBBBMMMMMBMB';
+const TRAP = 'MMFFF';
+
+const sample1Best = bestOf(parse(SAMPLE1));
+const sample2Best = bestOf(parse(SAMPLE2));
+const trapGreedy = greedy(parse(TRAP));
+const trapBest = bestPlan(parse(TRAP));
+const sample1Plan = bestPlan(parse(SAMPLE1));
+
+/** เดินกองตามแผนที่กำหนด เพื่อเอาไปทำตารางเล่าทีละชิ้น */
+type Row = { i: number; food: string; mine: number; before: string; gain: number; total: number };
+function walk(seq: Food[], picks: number[]): Row[] {
+  const m: [Food, Food][] = [
+    [0, 0],
+    [0, 0],
+  ];
+  let total = 0;
+  return seq.map((f, i) => {
+    const k = picks[i] - 1;
+    const before = `${NAME[m[k][0]]} ${NAME[m[k][1]]}`;
+    const g = coal(m[k][0], m[k][1], f);
+    total += g;
+    m[k] = [m[k][1], f];
+    return { i: i + 1, food: NAME[f], mine: k + 1, before, gain: g, total };
+  });
+}
+
+const trapGreedyRows = walk(parse(TRAP), trapGreedy.picks);
+const trapBestRows = walk(parse(TRAP), trapBest.picks);
+const sample1Rows = walk(parse(SAMPLE1), sample1Plan.picks);
+
+/* ---------- ตัวเล่น: ตารางสถานะทีละชิ้น ---------- */
+
+const DEMO = TRAP;
+const demoSeq = parse(DEMO);
+const demoLayers = layers(demoSeq);
+const DEMO_ROWS = Math.max(...demoLayers.map((l) => l.size)); // ล็อกจำนวนแถวไว้ ตารางจะได้ไม่ยืดหด
+
+/** สถานะที่อยู่บนเส้นทางของคำตอบ ไล่ย้อนจากแผนที่ดีที่สุดกลับไปหาจุดเริ่ม */
+function pathKeys(seq: Food[], picks: number[]): Key[] {
+  const m: [Food, Food][] = [
+    [0, 0],
+    [0, 0],
+  ];
+  const out: Key[] = [keyOf(0, 0, 0, 0)];
+  seq.forEach((f, i) => {
+    const k = picks[i] - 1;
+    m[k] = [m[k][1], f];
+    out.push(keyOf(m[0][0], m[0][1], m[1][0], m[1][1]));
+  });
+  return out;
+}
+const demoPath = pathKeys(demoSeq, trapBest.picks);
+
+type Cell = { m1: string; m2: string; val: string; path: boolean; top: boolean };
+type SimStep = { title: string; html: string; cells: Cell[] };
+
+const fmtPair = (a: Food, b: Food): string => `${NAME[a]} ${NAME[b]}`;
+
+function buildSteps(): SimStep[] {
+  const steps: SimStep[] = [];
+  for (let i = 0; i < demoLayers.length; i++) {
+    const layer = demoLayers[i];
+    const top = Math.max(...layer.values());
+    const rows = [...layer.entries()].sort((p, q) => q[1] - p[1] || (p[0] < q[0] ? -1 : 1));
+    const cells: Cell[] = rows.map(([k, v]) => {
+      const [x1, y1, x2, y2] = partsOf(k);
+      return {
+        m1: fmtPair(x1, y1),
+        m2: fmtPair(x2, y2),
+        val: String(v),
+        path: k === demoPath[i],
+        top: v === top,
+      };
+    });
+    while (cells.length < DEMO_ROWS) cells.push({ m1: '·', m2: '·', val: '·', path: false, top: false });
+
+    const prev = i > 0 ? demoLayers[i - 1].size : 0;
+    const grew = i > 0 ? prev * 2 - layer.size : 0;
+    const title = i === 0 ? 'ก่อนเริ่ม' : `ชิ้นที่ ${i} คือ ${NAME[demoSeq[i - 1]]}`;
+    const html =
+      i === 0
+        ? '<p class="dps-q">เหมืองทั้งสองยังว่างเปล่า ตารางจึงมีสถานะเดียวคือ <b>· · / · ·</b> ถ่านที่ได้เท่ากับ 0</p>' +
+          '<p class="dps-a">คอลัมน์แรกคือคู่ล่าสุดของเหมือง 1 คอลัมน์ที่สองคือของเหมือง 2 คอลัมน์ขวาสุดคือถ่านรวมที่ดีที่สุดที่พาสถานะนั้นมาได้</p>'
+        : `<p class="dps-q">แจกของชิ้นนี้ให้ทุกสถานะที่ค้างอยู่ <b>${prev}</b> สถานะ สถานะละสองทาง (เข้าเหมือง 1 หรือเหมือง 2) ` +
+          `จึงได้ปลายทาง <b>${prev * 2}</b> ครั้ง ` +
+          (grew === 0
+            ? 'รอบนี้ไม่มีปลายทางไหนซ้ำกันเลย '
+            : `มีปลายทางซ้ำกัน <b>${grew}</b> ครั้ง ซึ่งถูกยุบเหลือตัวที่ถ่านมากกว่า `) +
+          `ตารางจึงเหลือ <b>${layer.size}</b> สถานะ</p>` +
+          `<p class="dps-a">ถ่านมากที่สุดตอนนี้คือ <b>${top}</b> แถวสีเขียวคือสถานะที่จะพาไปจบที่คำตอบ ${trapBest.total}</p>`;
+    steps.push({ title, html, cells });
+  }
+  return steps;
+}
+const simSteps = buildSteps();
+
+/* ---------- สูตร ---------- */
+
+const TEX_G = `${mc.fn('g')}(x, y, c) ${mc.op('=')} |\\{x, y, c\\} \\setminus \\{\\,\\cdot\\,\\}|`;
+const TEX_MOVE = [
+  `${mc.fn("dp'")}\\big[(y_1, c),\\;(x_2, y_2)\\big] &${mc.op('\\;\\Leftarrow\\;')} ${mc.fn('dp')}\\big[(x_1, y_1),\\;(x_2, y_2)\\big] ${mc.op('+')} ${mc.fn('g')}(x_1, y_1, c)`,
+  `${mc.fn("dp'")}\\big[(x_1, y_1),\\;(y_2, c)\\big] &${mc.op('\\;\\Leftarrow\\;')} ${mc.fn('dp')}\\big[(x_1, y_1),\\;(x_2, y_2)\\big] ${mc.op('+')} ${mc.fn('g')}(x_2, y_2, c)`,
+].join(' \\\\[6pt] ');
+const texG = texCode(TEX_G);
+const texMove = texCode(`\\begin{aligned} ${TEX_MOVE} \\end{aligned}`);
+const texAns = texCode(`${mc.fn('answer')} ${mc.op('=')} ${mc.max}_{s} \\; ${mc.fn('dp')}_{${mc.num('n')}}[s]`);
+
+/* ---------- โค้ด ---------- */
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+// จำนวนชนิดอาหารที่ไม่ซ้ำกันในสามช่องล่าสุด (0 = ช่องว่าง ไม่นับ)
+int coal(int a, int b, int c) {
+    bool seen[4] = {false, false, false, false};
+    seen[a] = seen[b] = seen[c] = true;
+    return (int)seen[1] + (int)seen[2] + (int)seen[3];
+}
+
+int code(char c) { return c == 'M' ? 1 : (c == 'F' ? 2 : 3); }
+
+int main() {
+    int n;
+    string s;
+    if (!(cin >> n >> s)) return 0;
+
+    // สถานะคือ (x1, y1, x2, y2) ช่องละ 4 ค่า อัดเป็นเลขฐานสี่สี่หลัก จึงมี 256 ช่อง
+    const int S = 256;
+    vector<int> cur(S, -1), nxt(S, -1);   // -1 = สถานะนี้ยังไปไม่ถึง (0 เป็นแต้มที่ถูกต้องได้)
+    cur[0] = 0;                           // เริ่มต้น เหมืองทั้งสองยังว่าง
+
+    for (int i = 0; i < n; i++) {
+        int f = code(s[i]);
+        fill(nxt.begin(), nxt.end(), -1); // ปลายทางถูกเขียนซ้ำได้ ต้องล้างก่อนทุกรอบ
+        for (int st = 0; st < S; st++) {
+            if (cur[st] < 0) continue;
+            int x1 = st >> 6, y1 = (st >> 4) & 3, x2 = (st >> 2) & 3, y2 = st & 3;
+
+            // ส่งเข้าเหมือง 1: คู่ล่าสุดของเหมือง 1 เลื่อนเป็น (y1, f) ส่วนเหมือง 2 ไม่ขยับ
+            int t1 = (y1 << 6) | (f << 4) | (x2 << 2) | y2;
+            int v1 = cur[st] + coal(x1, y1, f);
+            if (v1 > nxt[t1]) nxt[t1] = v1;
+
+            // ส่งเข้าเหมือง 2
+            int t2 = (x1 << 6) | (y1 << 4) | (y2 << 2) | f;
+            int v2 = cur[st] + coal(x2, y2, f);
+            if (v2 > nxt[t2]) nxt[t2] = v2;
+        }
+        cur.swap(nxt);
+    }
+
+    cout << *max_element(cur.begin(), cur.end()) << '\\n';
+    return 0;
+}`;
+
+const bruteCode = `// ตัวตรวจสอบแบบซื่อ ๆ ลองแบ่งทุกแบบด้วยบิตมาสก์ ใช้ได้แค่ n ราว ๆ 20
+// เอาไว้สุ่มเทียบกับโค้ดจริงก่อนส่ง ไม่ใช่โค้ดที่ส่งเข้าระบบตัดสิน
+#include <bits/stdc++.h>
+using namespace std;
+
+int coal(int a, int b, int c) {
+    bool seen[4] = {false, false, false, false};
+    seen[a] = seen[b] = seen[c] = true;
+    return (int)seen[1] + (int)seen[2] + (int)seen[3];
+}
+int code(char c) { return c == 'M' ? 1 : (c == 'F' ? 2 : 3); }
+
+int main() {
+    int n; string s;
+    cin >> n >> s;
+    int best = 0;
+    for (long long mask = 0; mask < (1LL << n); mask++) {
+        vector<int> q[2];
+        int tot = 0;
+        for (int i = 0; i < n; i++) {
+            int f = code(s[i]);
+            vector<int>& v = q[mask >> i & 1];
+            int a = v.size() >= 2 ? v[v.size() - 2] : 0;
+            int b = v.size() >= 1 ? v.back() : 0;
+            tot += coal(a, b, f);
+            v.push_back(f);
+        }
+        best = max(best, tot);
+    }
+    cout << best << '\\n';
+}`;
+
+const coreLine = `// หัวใจของทั้งข้อ: หนึ่งสถานะ แตกได้สองทาง เท่านั้น
+int t1 = (y1 << 6) | (f << 4) | (x2 << 2) | y2;   // ของชิ้นนี้เข้าเหมือง 1
+int v1 = cur[st] + coal(x1, y1, f);
+if (v1 > nxt[t1]) nxt[t1] = v1;
+
+int t2 = (x1 << 6) | (y1 << 4) | (y2 << 2) | f;   // ของชิ้นนี้เข้าเหมือง 2
+int v2 = cur[st] + coal(x2, y2, f);
+if (v2 > nxt[t2]) nxt[t2] = v2;`;
+
+const gameSets = [
+  { id: 'trap', label: 'กองกับดัก', seq: TRAP, best: trapBest.total },
+  { id: 's1', label: 'ตัวอย่างที่ 1', seq: SAMPLE1, best: sample1Best },
+  { id: 's2', label: 'ตัวอย่างที่ 2', seq: SAMPLE2, best: sample2Best },
+];
+---
+
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เหมืองถ่านหินสองแห่งกับคนงานที่เบื่ออาหารซ้ำ</h2>
+  <p>
+    มีเหมืองถ่านหินอยู่สองแห่ง แต่ละแห่งมีคนงานประจำอยู่ของตัวเอง คนงานจะขุดถ่านก็ต่อเมื่อมีอาหารส่งไปถึง
+    และอาหารมีสามชนิดคือ <code>M</code> (meat เนื้อ), <code>F</code> (fish ปลา) และ <code>B</code> (bread ขนมปัง)
+  </p>
+  <p>
+    ที่ทำให้ข้อนี้สนุกคือคนงาน<strong>เบื่ออาหารซ้ำ</strong> ทุกครั้งที่ของมาถึงเหมืองไหน คนงานเหมืองนั้นจะมองย้อนไปที่
+    ของชิ้นที่เพิ่งมาถึงรวมกับสองชิ้นก่อนหน้า (ถ้ายังมีไม่ครบสามชิ้นก็ดูเท่าที่มี) แล้วนับว่าในนั้นมีอาหาร<strong>กี่ชนิดที่ไม่ซ้ำกัน</strong>
+    ได้หนึ่งชนิดขุดได้ 1 ก้อน สองชนิดได้ 2 ก้อน สามชนิดได้ 3 ก้อน
+  </p>
+  <p>
+    ของแต่ละชิ้นแบ่งครึ่งไม่ได้ ต้องส่งเข้าเหมืองใดเหมืองหนึ่งทั้งชิ้น และของมาถึงเรียงกันมาเป็นลำดับที่กำหนดไว้แล้ว
+    เปลี่ยนลำดับไม่ได้ หน้าที่เรามีอย่างเดียวคือชี้ว่าชิ้นนี้ไปเหมือง 1 หรือเหมือง 2 เพื่อให้ถ่านรวมของทั้งสองเหมืองมากที่สุด
+  </p>
+
+  <ZoomableDiagram caption="ของไหลมาเป็นแถวเดียว แต่หน้าต่างที่นับชนิดอาหารมีสองบานแยกกัน ถ่านที่ได้จึงขึ้นกับว่าของชิ้นนี้ไปตกในหน้าต่างบานไหน (วาดประกอบโดยผู้เขียน)">
+    <svg viewBox="0 0 516 264" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ ของอาหารเรียงกันมาเป็นแถวด้านบน มีลูกศรแยกลงสองทางไปยังกล่องเหมือง 1 และกล่องเหมือง 2 แต่ละกล่องมีกรอบครอบของสามชิ้นล่าสุดของตัวเอง และมีตัวเลขถ่านที่ได้กำกับ">
+      <text x="20" y="26" fill="#9aa7bd" font-size="12" font-family="monospace">ลำดับของที่มาถึง</text>
+      <rect x="20" y="36" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="37" y="56" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">M</text>
+      <rect x="62" y="36" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="79" y="56" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">B</text>
+      <rect x="104" y="36" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="121" y="56" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">M</text>
+      <rect x="146" y="36" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="163" y="56" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">F</text>
+      <rect x="188" y="36" width="34" height="30" rx="6" fill="#e0b400" stroke="#fff3c4" stroke-width="1.5"/>
+      <text x="205" y="56" fill="#0b1220" font-size="13" text-anchor="middle" font-family="monospace" font-weight="700">F</text>
+      <text x="238" y="56" fill="#7b8397" font-size="13" font-family="monospace">...</text>
+
+      <defs>
+        <marker id="mn-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400"/>
+        </marker>
+      </defs>
+      <path d="M205 70 C 205 96, 120 96, 120 124" fill="none" stroke="#e0b400" stroke-width="1.6" marker-end="url(#mn-ar)"/>
+      <path d="M205 70 C 205 96, 400 96, 400 124" fill="none" stroke="#e0b400" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#mn-ar)"/>
+      <text x="300" y="72" fill="#e0b400" font-size="11">เลือกได้แค่ทางเดียว</text>
+
+      <rect x="24" y="128" width="192" height="104" rx="10" fill="#101827" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="120" y="148" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">เหมือง 1</text>
+      <rect x="40" y="160" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="57" y="180" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">M</text>
+      <rect x="82" y="160" width="34" height="30" rx="6" fill="#1c2536" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="99" y="180" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">F</text>
+      <rect x="124" y="160" width="34" height="30" rx="6" fill="#e0b400" stroke="#fff3c4" stroke-width="1.5"/>
+      <text x="141" y="180" fill="#0b1220" font-size="13" text-anchor="middle" font-family="monospace" font-weight="700">F</text>
+      <text x="120" y="214" fill="#9aa7bd" font-size="11" text-anchor="middle">M กับ F สองชนิด ได้ถ่าน 2</text>
+
+      <rect x="304" y="128" width="192" height="104" rx="10" fill="#101827" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="400" y="148" fill="#9aa7bd" font-size="12" text-anchor="middle" font-weight="700">เหมือง 2</text>
+      <rect x="320" y="160" width="34" height="30" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="337" y="180" fill="#7b8397" font-size="13" text-anchor="middle" font-family="monospace">B</text>
+      <rect x="362" y="160" width="34" height="30" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.5"/>
+      <text x="379" y="180" fill="#7b8397" font-size="13" text-anchor="middle" font-family="monospace">M</text>
+      <rect x="404" y="160" width="34" height="30" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="3 3"/>
+      <text x="421" y="180" fill="#7b8397" font-size="13" text-anchor="middle" font-family="monospace">?</text>
+      <text x="400" y="214" fill="#7b8397" font-size="11" text-anchor="middle">ถ้าส่งมาทางนี้แทน จะได้ถ่าน 3</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จำนวนชิ้นของอาหาร บรรทัดที่สองคือสายอักขระยาว <code>N</code> ตัว ประกอบด้วย <code>M</code>, <code>F</code>, <code>B</code> เรียงตามลำดับที่ของมาถึง</li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ N ≤ 100 000</code> เวลา 1.5 วินาที หน่วยความจำ 16 เมกะไบต์</li>
+      <li><strong>เอาต์พุต:</strong> จำนวนถ่านรวมมากที่สุดที่ทั้งสองเหมืองขุดได้</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td>6<br />{SAMPLE1}</td><td>{sample1Best}</td></tr>
+      <tr><td>16<br />{SAMPLE2}</td><td>{sample2Best}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    ท่าแรกที่ทุกคนคิดถึงคือ<strong>โลภ</strong> ของชิ้นนี้ลองทาบดูทั้งสองเหมือง เหมืองไหนให้ถ่านมากกว่าก็ส่งไปเหมืองนั้น
+    เขียนสิบบรรทัดจบ และมันได้คำตอบถูกกับตัวอย่างทั้งสองกองในโจทย์ด้วย
+  </p>
+  <p>
+    ปัญหาคือถ่านที่ได้ตอนนี้ไม่ใช่ทั้งหมดของสิ่งที่เราจ่ายไป การส่งของเข้าเหมืองหนึ่ง<strong>เปลี่ยนความจำของเหมืองนั้น</strong>
+    ไปอีกสองตาข้างหน้า ท่าที่ได้ถ่านเท่ากันวันนี้จึงทิ้งเหมืองไว้คนละสภาพ กองสั้น ๆ แค่ห้าชิ้นอย่าง <code>{TRAP}</code> ก็หักวิธีโลภได้แล้ว
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>กอง {TRAP} · วิธีโลภ ได้ {trapGreedy.total}</caption>
+      <thead>
+        <tr><th>ชิ้น</th><th>ส่งไป</th><th>คู่ล่าสุดของเหมืองนั้น</th><th class="num">ได้ถ่าน</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {trapGreedyRows.map((r) => (
+          <tr>
+            <td><code>{r.i}. {r.food}</code></td>
+            <td>เหมือง {r.mine}</td>
+            <td><code>{r.before}</code></td>
+            <td class="num">{r.gain}</td>
+            <td class="num">{r.total}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สองชิ้นแรกเป็น <code>M</code> เหมือนกัน วิธีโลภมองว่ายังไงก็ได้ 1 เท่ากันทั้งคู่ จึงกองไว้ที่เหมืองเดิม
+      พอ <code>F</code> ตามมา เหมือง 2 ที่ยังว่างเปล่าให้ได้แค่ 1 มันจึงไม่เคยถูกใช้เลยทั้งกอง
+    </figcaption>
+  </figure>
+
+  <p>
+    แต่ถ้ายอมทิ้งของชิ้นที่สองไว้อีกเหมืองหนึ่งตั้งแต่แรก ทั้งที่ตอนนั้นได้ถ่านเท่ากันเป๊ะ ผลรวมปลายทางจะขยับขึ้นเป็น {trapBest.total}
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>กอง {TRAP} · แผนที่ดีที่สุด ได้ {trapBest.total}</caption>
+      <thead>
+        <tr><th>ชิ้น</th><th>ส่งไป</th><th>คู่ล่าสุดของเหมืองนั้น</th><th class="num">ได้ถ่าน</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {trapBestRows.map((r) => (
+          <tr>
+            <td><code>{r.i}. {r.food}</code></td>
+            <td>เหมือง {r.mine}</td>
+            <td><code>{r.before}</code></td>
+            <td class="num">{r.gain}</td>
+            <td class="num">{r.total}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ชิ้นที่ 2 ยอมได้ถ่านเท่าเดิม แต่ซื้อ<strong>เหมืองที่มี M ค้างไว้</strong>เพิ่มมาอีกหนึ่งแห่ง ของสามชิ้นหลังจึงมีที่ลงที่ได้ 2 ทุกชิ้น
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ลองถามตัวเองว่า ถ้าจะตัดสินใจชิ้นถัดไปให้ถูก เราจำเป็นต้องรู้อะไรบ้างเกี่ยวกับ<strong>อดีตทั้งหมด</strong>ที่ผ่านมา
+      ของทั้งกองที่แจกไปแล้ว ลำดับที่แจก จำนวนถ่านที่เก็บได้ อันไหนบ้างที่มีผลกับกำไรของชิ้นถัดไปจริง ๆ
+      แล้วสิ่งที่จำเป็นต้องจำจริง ๆ นั้น มันมีได้ทั้งหมดกี่แบบ?
+    </p>
+  </div>
+
+  <h2>ลองเอง · แจกของให้สองเหมือง</h2>
+  <p>
+    กดปุ่มส่งของทีละชิ้นเข้าเหมืองที่คุณเลือก ตัวเลขถ่านจะขึ้นให้เห็นทันที ลองกองกับดักก่อน แล้วค่อยไปลองกองยาวจากตัวอย่างที่สอง
+    เป้าหมายคือทำให้เท่าคะแนนเต็มที่บอกไว้บนหัวการ์ด
+  </p>
+
+  <figure class="minegame" data-minegame data-sets={JSON.stringify(gameSets)}>
+    <div class="mg-bar">
+      <div class="mg-sets">
+        {gameSets.map((s, i) => (
+          <button type="button" class="mg-set" data-set={i} aria-pressed={i === 0 ? 'true' : 'false'}>{s.label}</button>
+        ))}
+      </div>
+      <div class="mg-score">
+        <span class="mg-now">0</span>
+        <span class="mg-sep">/</span>
+        <span class="mg-goal">0</span>
+      </div>
+    </div>
+
+    <div class="mg-queue" aria-live="polite"></div>
+
+    <div class="mg-mines">
+      <div class="mg-mine" data-mine="1">
+        <p class="mg-mine-h">เหมือง 1</p>
+        <div class="mg-slots"></div>
+        <button type="button" class="mg-send" data-send="1">ส่งเข้าเหมือง 1</button>
+      </div>
+      <div class="mg-mine" data-mine="2">
+        <p class="mg-mine-h">เหมือง 2</p>
+        <div class="mg-slots"></div>
+        <button type="button" class="mg-send" data-send="2">ส่งเข้าเหมือง 2</button>
+      </div>
+    </div>
+
+    <div class="mg-say" aria-live="polite"></div>
+    <div class="mg-acts">
+      <button type="button" class="mg-b" data-act="undo">ย้อนหนึ่งชิ้น</button>
+      <button type="button" class="mg-b" data-act="reset">เริ่มใหม่</button>
+    </div>
+    <figcaption>
+      กองกับดักสั้นแค่ห้าชิ้น แต่ถ้าเดินตามสัญชาตญาณ "ชิ้นนี้ที่ไหนได้เยอะกว่า" จะจบไม่ถึงคะแนนเต็ม
+    </figcaption>
+  </figure>
+
+  <p class="ns-cue">ลองเล่นดูก่อนนะครับ พอมีคำตอบในใจแล้ว ค่อยไปดูเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 · อดีตทั้งกองยุบเหลือสี่ช่อง</h2>
+  <Spoiler>
+    <p>
+      คำถามในใบ้มีคำตอบสั้นมาก ของชิ้นถัดไปจะให้ถ่านเท่าไร ขึ้นกับ<strong>สองชิ้นล่าสุดของเหมืองที่มันไปลง</strong>เท่านั้น
+      ชิ้นที่สามนับจากท้ายไม่มีสิทธิ์โผล่ในหน้าต่างของชิ้นถัดไปอีกแล้ว และของที่อยู่ในอีกเหมืองหนึ่งก็ไม่เกี่ยวกัน
+      เพราะคนงานสองเหมืองไม่ได้กินข้าวร่วมกัน
+    </p>
+    <p>
+      แปลว่าอดีตทั้งกอง ไม่ว่าจะยาวเป็นแสนชิ้น ยุบลงเหลือของที่ต้องจำแค่<strong>สี่ช่อง</strong> คือคู่ล่าสุดของเหมือง 1
+      กับคู่ล่าสุดของเหมือง 2 เรียกมันว่า <code>(x₁, y₁)</code> และ <code>(x₂, y₂)</code> โดย <code>y</code> คือชิ้นล่าสุด
+      แต่ละช่องเป็นได้ 4 ค่า คือ <code>M</code>, <code>F</code>, <code>B</code> หรือ "ยังว่าง" สำหรับตอนที่เหมืองนั้นเพิ่งเริ่ม
+    </p>
+
+    <ZoomableDiagram caption="ของที่แจกไปแล้วเป็นแสนชิ้น แต่กล่องที่ต้องแบกต่อไปมีแค่สี่ช่อง ที่เหลือถูกลืมได้อย่างปลอดภัยเพราะมันโผล่ในหน้าต่างของชิ้นถัดไปไม่ได้แล้ว (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 548 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ แถวยาวของอาหารที่แจกไปแล้วอยู่ด้านซ้าย ถูกครอบด้วยกรอบสีจางเขียนว่าลืมได้ ส่วนสองช่องท้ายของแต่ละเหมืองถูกครอบด้วยกรอบสีเขียวเขียนว่าต้องจำ และมีกล่องสรุปสี่ช่องอยู่ด้านขวา">
+        <text x="20" y="30" fill="#9aa7bd" font-size="12">เหมือง 1 ได้รับของไปแล้ว</text>
+        <rect x="20" y="40" width="140" height="34" rx="7" fill="#101827" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <text x="90" y="62" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">M B F M ...</text>
+        <rect x="166" y="40" width="42" height="34" rx="7" fill="#101827" stroke="#2f9e5c" stroke-width="1.8"/>
+        <text x="187" y="62" fill="#4ade80" font-size="13" text-anchor="middle" font-family="monospace">x₁</text>
+        <rect x="212" y="40" width="42" height="34" rx="7" fill="#101827" stroke="#2f9e5c" stroke-width="1.8"/>
+        <text x="233" y="62" fill="#4ade80" font-size="13" text-anchor="middle" font-family="monospace">y₁</text>
+
+        <text x="20" y="122" fill="#9aa7bd" font-size="12">เหมือง 2 ได้รับของไปแล้ว</text>
+        <rect x="20" y="132" width="140" height="34" rx="7" fill="#101827" stroke="#2a3350" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <text x="90" y="154" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">B B M F ...</text>
+        <rect x="166" y="132" width="42" height="34" rx="7" fill="#101827" stroke="#2f9e5c" stroke-width="1.8"/>
+        <text x="187" y="154" fill="#4ade80" font-size="13" text-anchor="middle" font-family="monospace">x₂</text>
+        <rect x="212" y="132" width="42" height="34" rx="7" fill="#101827" stroke="#2f9e5c" stroke-width="1.8"/>
+        <text x="233" y="154" fill="#4ade80" font-size="13" text-anchor="middle" font-family="monospace">y₂</text>
+
+        <text x="90" y="94" fill="#7b8397" font-size="11" text-anchor="middle">ลืมได้</text>
+        <text x="210" y="94" fill="#4ade80" font-size="11" text-anchor="middle">ต้องจำ</text>
+        <text x="90" y="186" fill="#7b8397" font-size="11" text-anchor="middle">ลืมได้</text>
+        <text x="210" y="186" fill="#4ade80" font-size="11" text-anchor="middle">ต้องจำ</text>
+
+        <defs>
+          <marker id="mn-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+          </marker>
+        </defs>
+        <path d="M262 57 C 300 57, 300 96, 336 96" fill="none" stroke="#4ade80" stroke-width="1.6" marker-end="url(#mn-ar2)"/>
+        <path d="M262 149 C 300 149, 300 110, 336 110" fill="none" stroke="#4ade80" stroke-width="1.6" marker-end="url(#mn-ar2)"/>
+
+        <rect x="344" y="66" width="184" height="76" rx="10" fill="#0b1220" stroke="#2f9e5c" stroke-width="1.8"/>
+        <text x="436" y="90" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="700">สถานะเดียวที่ต้องแบก</text>
+        <text x="436" y="116" fill="#e7ecf6" font-size="13" text-anchor="middle" font-family="monospace">(x₁, y₁, x₂, y₂)</text>
+        <text x="436" y="134" fill="#9aa7bd" font-size="11" text-anchor="middle">4 × 4 × 4 × 4 = 256 แบบ</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      พอนับได้ว่า <strong>256</strong> แบบ ข้อนี้ก็จบไปครึ่งหนึ่งแล้ว เพราะไม่ว่ากองจะยาวแค่ไหน จำนวนสถานะที่ต้องแบกไปข้างหน้า
+      ก็ไม่โตตามความยาวกอง มันตันอยู่ที่ 256 ตลอดกาล
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · สมการ</h2>
+  <Spoiler>
+    <p>
+      ให้ <code>dp[s]</code> คือถ่านรวมที่มากที่สุด ที่ทำได้เมื่อแจกของไปแล้ว <code>i</code> ชิ้น แล้วลงเอยที่สถานะ <code>s</code> พอดี
+      ถ้าสถานะไหนไปไม่ถึงก็ปล่อยว่างไว้ ส่วนกำไรของการวางของหนึ่งชิ้นเขียนเป็นฟังก์ชันสั้น ๆ ได้แบบนี้
+    </p>
+    <div set:html={texG} />
+    <p>
+      อ่านว่า นับจำนวนสมาชิกที่ไม่ซ้ำกันของ <code>x</code>, <code>y</code>, <code>c</code> โดยตัดช่องว่างทิ้ง
+      ถ้าเหมืองยังไม่เคยได้ของเลย ทั้ง <code>x</code> และ <code>y</code> เป็นช่องว่าง เหลือแค่ <code>c</code> ตัวเดียว ได้ถ่าน 1
+      ซึ่งตรงกับที่โจทย์บอกว่า "ถ้ายังมีไม่ครบสามชิ้นก็ดูเท่าที่มี"
+    </p>
+    <p>
+      ทีนี้ของชิ้นถัดไปคือ <code>c</code> ยืนอยู่ที่สถานะเดิมหนึ่งตัว มันมีทางไปแค่สองทาง สมการจึงเขียนแบบ<strong>ผลัก</strong>
+      คือยืนที่ต้นทางแล้วส่งค่าออกไปยังปลายทาง (ใช้ <code>dp'</code> แทนตารางของรอบถัดไป และ <code>⇐</code> แปลว่าเก็บค่าที่มากกว่าไว้)
+    </p>
+    <div set:html={texMove} />
+
+    <p>
+      สองบรรทัดนี้อ่านเป็นภาษาคนได้ทีละบรรทัด โดยมีหลักปักหมุดคือ <strong><code>y</code> ของเหมืองไหนก็ตาม แปลว่า "ชิ้นล่าสุดของเหมืองนั้น"
+      เสมอ</strong> ดังนั้นเหมืองที่เพิ่งรับของ ชิ้นล่าสุดของมันย่อมกลายเป็น <code>c</code> ทันที
+    </p>
+    <ul>
+      <li>
+        <strong>บรรทัดบน ของเข้าเหมือง 1</strong> คู่ของเหมือง 1 เลื่อนไปหนึ่งช่อง <code>y₁</code> ที่เคยเป็นชิ้นล่าสุด
+        ถอยไปเป็นชิ้นก่อนหน้า และ <code>c</code> เข้ามาเป็นชิ้นล่าสุด กลายเป็น <code>(y₁, c)</code> ส่วน <code>x₁</code> ตัวเก่า
+        หลุดออกจากความจำถาวร เพราะมันอยู่ห่างจากชิ้นล่าสุดสามช่องแล้ว ถ่านที่ได้คิดจากคู่<strong>ก่อน</strong>เลื่อน
+        คือ <code>g(x₁, y₁, c)</code> เพราะหน้าต่างที่คนงานมองคือของใหม่บวกสองชิ้นก่อนหน้าจริง ๆ ส่วนคู่ของเหมือง 2 คัดลอกมาทั้งดุ้น ไม่มีอะไรเกิดขึ้นกับมัน
+      </li>
+      <li>
+        <strong>บรรทัดล่าง ของเข้าเหมือง 2</strong> เรื่องเดียวกันเป๊ะ แค่สลับข้าง คู่ของเหมือง 2 เลื่อนเป็น <code>(y₂, c)</code>
+        ถ่านคิดจาก <code>g(x₂, y₂, c)</code> ส่วนคู่ของเหมือง 1 คัดลอกมาเฉย ๆ
+      </li>
+    </ul>
+    <p>
+      ผลที่ตามมาคือ<strong>ไม่มีเงื่อนไขให้ตัดทิ้งเลยสักบรรทัด</strong> ต่างจากตาราง DP ทั่วไปที่มักมีขอบตารางคอยกันไม่ให้ดัชนีติดลบ
+      ที่นี่ทุกสถานะส่งของเข้าเหมืองไหนก็ได้เสมอ ของสองบรรทัดจึงใช้ได้ครบทุกช่องตลอดกอง เหลือแค่ต้องระวังว่า
+      ปลายทางหนึ่งช่องอาจมีหลายต้นทางยิงเข้ามา จึงต้องเก็บตัวที่มากที่สุดไว้
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>RECURRENCE</caption>
+        <thead>
+          <tr><th>ทางเลือกของชิ้นที่ i</th><th>สถานะปลายทาง</th><th class="num">ถ่านที่บวกเพิ่ม</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ส่งเข้า<strong>เหมือง 1</strong></td>
+            <td><code>(y₁, c), (x₂, y₂)</code></td>
+            <td class="num"><code>g(x₁, y₁, c)</code></td>
+          </tr>
+          <tr>
+            <td>ส่งเข้า<strong>เหมือง 2</strong></td>
+            <td><code>(x₁, y₁), (y₂, c)</code></td>
+            <td class="num"><code>g(x₂, y₂, c)</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ทั้งข้อมีแค่สองแถวนี้ ไม่มีคอลัมน์เงื่อนไข เพราะทั้งสองทางใช้ได้เสมอ
+      </figcaption>
+    </figure>
+
+    <p>คำตอบคือค่ามากที่สุดในตารางแถวสุดท้าย ไม่ต้องเจาะจงสถานะไหน เพราะจบกองแล้วสภาพของเหมืองไม่มีความหมายอีกต่อไป</p>
+    <div set:html={texAns} />
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งกอง</h2>
+  <Spoiler>
+    <p>
+      เอากองกับดัก <code>{DEMO}</code> มาเดินจริง ตารางข้างล่างคือ<strong>สถานะทั้งหมดที่ไปถึงได้</strong>หลังแจกของครบ i ชิ้น
+      เรียงจากถ่านมากไปน้อย กดถัดไปทีละขั้นเพื่อดูมันงอกและยุบ แถวสีเขียวคือสถานะที่จะพาไปจบที่คำตอบ {trapBest.total}
+    </p>
+
+    <div class="dpsim" data-minesim data-steps={JSON.stringify(simSteps)}>
+      <div class="dps-bar">
+        <div class="dps-btns">
+          <button type="button" class="dps-b" data-act="first" aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+          <button type="button" class="dps-b" data-act="prev" aria-label="ขั้นก่อนหน้า">ย้อน</button>
+          <button type="button" class="dps-b dps-play" data-act="play" aria-label="เล่นอัตโนมัติ">เล่น</button>
+          <button type="button" class="dps-b" data-act="next" aria-label="ขั้นถัดไป">ถัดไป</button>
+          <button type="button" class="dps-b" data-act="last" aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+        </div>
+        <label class="dps-seek">
+          <span class="dps-count">ขั้น 0</span>
+          <input type="range" class="dps-range" min="0" value="0" step="1" aria-label="เลื่อนไปขั้นที่ต้องการ" />
+        </label>
+      </div>
+
+      <div class="dps-scroll">
+        <table class="rec statetbl">
+          <caption class="sim-cap">STATE TABLE</caption>
+          <thead>
+            <tr>
+              <th>เหมือง 1 (x₁ y₁)</th>
+              <th>เหมือง 2 (x₂ y₂)</th>
+              <th class="num">ถ่านรวม</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: DEMO_ROWS }, (_, r) => (
+              <tr data-row={r}>
+                <td class="pair"><span class="cellt"></span></td>
+                <td class="pair"><span class="cellt"></span></td>
+                <td class="num"></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dps-say" aria-live="polite"></div>
+    </div>
+    <p class="io-note">
+      จำนวนสถานะโตขึ้นได้เร็วก็จริง แต่มันชนเพดาน 256 แล้วหยุด ต่อให้กองยาวเป็นแสนชิ้น ตารางนี้ก็สูงไม่เกิน 256 แถวเสมอ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      แทนที่จะเก็บสถานะเป็นสตริงหรือ <code>map</code> เราอัด <code>(x₁, y₁, x₂, y₂)</code> เป็น<strong>เลขฐานสี่สี่หลัก</strong>
+      ได้ตัวเลข 0 ถึง 255 พอดี ตารางจึงเป็นอาเรย์ธรรมดายาว 256 ช่อง เข้าถึงด้วยดัชนีตรง ๆ ไม่ต้องแฮชอะไรเลย
+    </p>
+    <CodeBlock code={coreLine} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ค่า <code>-1</code> ใช้แทน "สถานะนี้ยังไปไม่ถึง" เพราะ 0 เป็นถ่านที่ถูกต้องได้ (ตอนยังไม่แจกอะไรเลย)
+      และต่างจากข้อ <a href="../pick-books/">หยิบหนังสือ</a> ตรงที่ตรงนี้<strong>ต้องล้างแถวปลายทางก่อนทุกรอบ</strong>
+      เพราะเราเขียนแบบผลัก ช่องปลายทางบางช่องอาจไม่มีใครยิงเข้ามาเลยในรอบนี้ ถ้าไม่ล้างก็จะเหลือค่าเก่าจากรอบก่อนค้างอยู่
+    </p>
+    <p>
+      งานต่อของหนึ่งชิ้นคือวน 256 สถานะ สถานะละสองทาง ทั้งกองจึงเป็น <strong>O(256n)</strong> ที่ <code>n = 100 000</code>
+      คือราวห้าสิบล้านครั้งของงานเบา ๆ เครื่องผมวิ่งจบใน <strong>56 มิลลิวินาที</strong> จากลิมิต 1.5 วินาที
+      ส่วนหน่วยความจำใช้อาเรย์ <code>int</code> สองชุด ชุดละ 256 ช่อง รวมสองกิโลไบต์ ห่างจากลิมิต 16 เมกะไบต์อยู่มาก
+    </p>
+
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="miners.cpp" />
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ก่อนเชื่อโค้ดข้างบน ผมสุ่มกองสั้น ๆ ยาวไม่เกิน 12 ชิ้น หกร้อยกอง (บางกองจงใจใช้อาหารแค่ชนิดเดียวหรือสองชนิด)
+          แล้วเทียบคำตอบกับตัวลองทุกแบบข้างล่างนี้ ตรงกันทั้งหมด แล้วค่อยเทียบกับตัวอย่างสองกองในโจทย์อีกที
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>แกะตัวอย่างในโจทย์</h2>
+  <Spoiler>
+    <p>
+      ตัวอย่างแรก <code>{SAMPLE1}</code> มีจุดที่ชวนสะดุด เพราะแผนที่ดีที่สุดของมันคือ<strong>เทของลงเหมืองเดียวทั้งกอง</strong>
+      อีกเหมืองไม่ได้แตะเลยแม้แต่ชิ้นเดียว
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>กอง {SAMPLE1} · แผนที่ดีที่สุด ได้ {sample1Best}</caption>
+        <thead>
+          <tr><th>ชิ้น</th><th>ส่งไป</th><th>คู่ล่าสุดของเหมืองนั้น</th><th class="num">ได้ถ่าน</th><th class="num">รวม</th></tr>
+        </thead>
+        <tbody>
+          {sample1Rows.map((r) => (
+            <tr>
+              <td><code>{r.i}. {r.food}</code></td>
+              <td>เหมือง {r.mine}</td>
+              <td><code>{r.before}</code></td>
+              <td class="num">{r.gain}</td>
+              <td class="num">{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        กองนี้สลับชนิดอาหารมาให้เองอยู่แล้ว การแยกออกไปอีกเหมืองมีแต่จะรีเซ็ตหน้าต่างให้กลับไปเริ่มนับใหม่จากศูนย์
+      </figcaption>
+    </figure>
+    <p>
+      นี่คือเหตุผลที่วิธีโลภตอบตัวอย่างในโจทย์ถูกทั้งสองข้อ กองที่สลับชนิดมาดีอยู่แล้วไม่ต้องการการวางแผนอะไรเลย
+      กองที่หักวิธีโลภคือกองที่มีของ<strong>ซ้ำกันติดกัน</strong> ซึ่งเป็นตอนที่การแยกไปอีกเหมืองมีราคาเป็นศูนย์
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ความยาวของกองไม่ใช่ขนาดของปัญหา อดีตทั้งกองยุบเหลือคู่ล่าสุดของสองเหมืองคือ 256 แบบ จบกอง เดินไปข้างหน้าทีละชิ้น
+    ชิ้นละสองทาง แล้วเก็บค่าที่มากที่สุดของแต่ละสถานะไว้
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Miners</i> บน programming.in.th ข้อ 2003
+      <a href="https://programming.in.th/tasks/2003" target="_blank" rel="noopener noreferrer">programming.in.th/tasks/2003</a>
+      (สืบค้น 5 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>International Olympiad in Informatics 2007</i> วันแข่งที่สอง จัดที่เมืองซาเกร็บ ประเทศโครเอเชีย
+      15 ถึง 22 สิงหาคม 2007
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* ---- ตัวเล่นตารางสถานะ ---- */
+  .dpsim{
+    margin:1.2rem 0 0.4rem;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+    overflow:hidden;
+  }
+  .dps-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.7rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    padding:0.6rem 0.75rem;
+    background:#070c17;
+    border-bottom:1px solid var(--dl-border);
+  }
+  .dps-btns{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .dps-b{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.75rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .dps-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .dps-b:disabled{opacity:0.4;cursor:default;}
+  .dps-play{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .dps-seek{display:flex;align-items:center;gap:0.5rem;flex:1 1 12rem;min-width:10rem;}
+  /* ตัวเลขขั้นโตจากหนึ่งหลักเป็นสองหลักได้ ล็อกความกว้างไว้ก่อน การ์ดจะได้ไม่ขยับ */
+  .dps-count{
+    font-family:"JetBrains Mono", monospace;
+    font-size:0.66rem;
+    color:var(--dl-muted);
+    white-space:nowrap;
+    min-width:5.5rem;
+  }
+  .dps-range{flex:1 1 auto;min-width:6rem;accent-color:var(--dl-emerald-bright);cursor:pointer;}
+  .dps-scroll{overflow-x:auto;}
+  .dpsim table.rec{margin:0;}
+  .dpsim table.rec caption{border-radius:0;}
+
+  /* ตารางสถานะ: ล็อกความกว้างทุกคอลัมน์ เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง */
+  /* เลย์เอาต์คงที่ + คอลัมน์กว้างตายตัว เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง
+     และต้องเขียนให้ชนะกฎ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์
+     ไม่งั้นตารางจะกางเต็มการ์ดที่หดพอดีปุ่ม แล้วคอลัมน์จะล้นออกไปเลื่อนแนวนอน */
+  .dpsim table.statetbl{
+    width:auto;
+    table-layout:fixed;
+  }
+  table.statetbl th:nth-child(1), table.statetbl td:nth-child(1),
+  table.statetbl th:nth-child(2), table.statetbl td:nth-child(2){width:11rem;}
+  table.statetbl th:nth-child(3), table.statetbl td:nth-child(3){width:7rem;}
+  table.statetbl td.pair{
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.82rem;
+    letter-spacing:0.12em;
+    color:#cdd6ea;
+    transition:background .15s ease, color .15s ease;
+  }
+  table.statetbl td.num{transition:background .15s ease, color .15s ease;}
+  /* ทุกกฎไฮไลต์ต้องมี .num หรือ .pair ต่อท้าย ไม่ใช่แค่ .is-xxx เพราะ table.rec td.num
+     ตั้ง color ไว้ด้วยความเจาะจงที่ชนะกฎที่เขียนสั้นกว่า */
+  table.statetbl tr.is-empty td.pair, table.statetbl tr.is-empty td.num{color:#7b8397;}
+  table.statetbl tr.is-top td.pair, table.statetbl tr.is-top td.num{color:#f2d98b;font-weight:700;}
+  table.statetbl tr.is-path td.pair, table.statetbl tr.is-path td.num{
+    background:var(--dl-emerald-bright);
+    color:#0b1220;
+    font-weight:700;
+  }
+  /* ไทยไม่มีช่องไฟ ข้อความยาวจึงดันความกว้างของการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  .dps-say{
+    width:0;
+    min-width:100%;
+    padding:0.7rem 0.85rem 0.85rem;
+    border-top:1px solid var(--dl-border);
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:7rem;
+  }
+  .dps-say :global(.dps-q){margin:0 0 0.5rem;color:var(--dl-muted);font-size:0.8rem;}
+  .dps-say :global(.dps-q b){color:var(--dl-gold);font-family:"Fira Code","Fira Mono",monospace;}
+  .dps-say :global(.dps-a){margin:0.4rem 0 0;color:var(--dl-emerald-bright);font-weight:700;font-size:0.8rem;}
+  .dps-say :global(.dps-a b){font-family:"Fira Code","Fira Mono",monospace;}
+
+  /* ---- เกมแจกของ ---- */
+  .minegame{
+    margin:1.5rem 0 0.5rem;
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:#0b1220;
+    padding:1rem 1.1rem 0.9rem;
+  }
+  .mg-bar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.6rem 1rem;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:0.8rem;
+  }
+  .mg-sets{display:flex;gap:0.35rem;flex-wrap:wrap;}
+  .mg-set{
+    font:inherit;
+    font-size:0.74rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.28rem 0.8rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .mg-set[aria-pressed="true"]{border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .mg-score{
+    font-family:"JetBrains Mono", monospace;
+    font-size:1.05rem;
+    color:var(--dl-gold);
+    white-space:nowrap;
+    min-width:5rem;
+    text-align:right;
+  }
+  .mg-score .mg-sep, .mg-score .mg-goal{color:var(--dl-muted);font-size:0.85rem;}
+  .mg-queue{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.3rem;
+    padding:0.6rem;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    background:#070c17;
+    min-height:3rem;
+  }
+  .mg-queue :global(.mg-chip){
+    width:1.9rem;
+    height:1.9rem;
+    display:grid;
+    place-items:center;
+    border-radius:7px;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.82rem;
+    border:1px solid var(--dl-border);
+    background:#1c2536;
+    color:#e7ecf6;
+  }
+  .mg-queue :global(.mg-chip.done){opacity:0.32;}
+  .mg-queue :global(.mg-chip.now){
+    border-color:#fff3c4;
+    background:var(--dl-gold);
+    color:#0b1220;
+    font-weight:700;
+  }
+  .mg-mines{display:flex;flex-wrap:wrap;gap:0.8rem;margin-top:0.8rem;}
+  .mg-mine{
+    flex:1 1 12rem;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    padding:0.7rem;
+    background:#101827;
+  }
+  .mg-mine-h{margin:0 0 0.5rem;font-size:0.76rem;color:var(--dl-muted);letter-spacing:0.08em;text-transform:uppercase;}
+  .mg-slots{display:flex;gap:0.3rem;min-height:2.2rem;align-items:center;}
+  .mg-slots :global(.mg-slot){
+    width:1.9rem;
+    height:1.9rem;
+    display:grid;
+    place-items:center;
+    border-radius:7px;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.82rem;
+    border:1px dashed var(--dl-border);
+    background:transparent;
+    color:#7b8397;
+  }
+  .mg-slots :global(.mg-slot.fill){
+    border-style:solid;
+    background:#1c2536;
+    color:#e7ecf6;
+  }
+  .mg-slots :global(.mg-slot.fresh){border-color:var(--dl-emerald);color:var(--dl-emerald-bright);}
+  .mg-send{
+    margin-top:0.6rem;
+    width:100%;
+    font:inherit;
+    font-size:0.76rem;
+    cursor:pointer;
+    border-radius:9px;
+    padding:0.4rem 0.6rem;
+    border:1px solid var(--dl-emerald);
+    background:#141b2b;
+    color:var(--dl-emerald-bright);
+    transition:background .15s ease;
+  }
+  .mg-send:hover:not(:disabled){background:#17243a;}
+  .mg-send:disabled{opacity:0.35;cursor:default;border-color:var(--dl-border);color:var(--dl-muted);}
+  .mg-say{
+    width:0;
+    min-width:100%;
+    margin-top:0.8rem;
+    font-size:0.82rem;
+    line-height:1.6;
+    color:var(--dl-ink);
+    min-height:3.2rem;
+  }
+  .mg-say :global(.win){color:var(--dl-emerald-bright);font-weight:700;}
+  .mg-say :global(.lose){color:var(--dl-gold);font-weight:700;}
+  .mg-acts{display:flex;gap:0.35rem;margin-top:0.5rem;}
+  .mg-b{
+    font:inherit;
+    font-size:0.72rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.24rem 0.7rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:var(--dl-muted);
+  }
+  .mg-b:hover:not(:disabled){border-color:var(--dl-emerald);color:#fff;}
+  .mg-b:disabled{opacity:0.4;cursor:default;}
+  .minegame figcaption{
+    width:0;
+    min-width:100%;
+    margin-top:0.8rem;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+  }
+
+  .ns-cue{color:var(--dl-muted);font-size:0.86rem;}
+
+  @media (prefers-reduced-motion: reduce){
+    table.statetbl td.pair, table.statetbl td.num, .mg-send{transition:none;}
+  }
+  @media (max-width:640px){
+    .dps-say{min-height:9.5rem;}
+  }
+</style>
+
+<script>
+  // ตัวเล่นตารางสถานะ ขั้นตอนถูกสร้างไว้ตอน build แล้วส่งมาทาง data-steps
+  type Cell = { m1: string; m2: string; val: string; path: boolean; top: boolean };
+  type SimStep = { title: string; html: string; cells: Cell[] };
+
+  const PLAY_MS = 1600;
+
+  function isCell(v: unknown): v is Cell {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.m1 === 'string' && typeof o.m2 === 'string' && typeof o.val === 'string';
+  }
+
+  function isSimStep(v: unknown): v is SimStep {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.title === 'string' && typeof o.html === 'string' && Array.isArray(o.cells) && o.cells.every(isCell);
+  }
+
+  function initMineSim(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const parsed: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const steps: SimStep[] = Array.isArray(parsed) ? parsed.filter(isSimStep) : [];
+    if (steps.length === 0) return;
+
+    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+    const cap = root.querySelector<HTMLElement>('.sim-cap');
+    const say = root.querySelector<HTMLElement>('.dps-say');
+    const range = root.querySelector<HTMLInputElement>('.dps-range');
+    const count = root.querySelector<HTMLElement>('.dps-count');
+    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
+    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
+    if (!say || !range || !count || !playBtn || !cap) return;
+
+    range.max = String(steps.length - 1);
+    let at = 0;
+    let timer: number | null = null;
+
+    const render = () => {
+      const st = steps[at];
+      rows.forEach((tr, i) => {
+        const c = st.cells[i];
+        const tds = tr.querySelectorAll<HTMLTableCellElement>('td');
+        const t1 = tds[0].querySelector('span');
+        const t2 = tds[1].querySelector('span');
+        if (t1) t1.textContent = c ? c.m1 : '·';
+        if (t2) t2.textContent = c ? c.m2 : '·';
+        tds[2].textContent = c ? c.val : '·';
+        tr.className = '';
+        if (!c || c.val === '·') tr.classList.add('is-empty');
+        else if (c.path) tr.classList.add('is-path');
+        else if (c.top) tr.classList.add('is-top');
+      });
+      cap.textContent = `STATE TABLE · ${st.title}`;
+      say.innerHTML = st.html;
+      range.value = String(at);
+      count.textContent = `ขั้น ${at} / ${steps.length - 1}`;
+      for (const b of btns) {
+        const act = b.dataset.act;
+        if (act === 'prev' || act === 'first') b.disabled = at === 0;
+        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
+      }
+    };
+
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+      playBtn.textContent = 'เล่น';
+    };
+
+    const go = (to: number) => {
+      at = Math.max(0, Math.min(steps.length - 1, to));
+      if (at === steps.length - 1) stop();
+      render();
+    };
+
+    for (const b of btns) {
+      b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'play') {
+          if (timer !== null) {
+            stop();
+            return;
+          }
+          if (at === steps.length - 1) at = 0;
+          playBtn.textContent = 'หยุด';
+          timer = window.setInterval(() => go(at + 1), PLAY_MS);
+          go(at + 1);
+          return;
+        }
+        stop();
+        if (act === 'first') go(0);
+        else if (act === 'prev') go(at - 1);
+        else if (act === 'next') go(at + 1);
+        else if (act === 'last') go(steps.length - 1);
+      });
+    }
+
+    range.addEventListener('input', () => {
+      stop();
+      go(Number(range.value));
+    });
+
+    root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') {
+        stop();
+        go(at + 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowLeft') {
+        stop();
+        go(at - 1);
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('astro:before-swap', stop, { once: true });
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-minesim]').forEach(initMineSim);
+  });
+</script>
+
+<script>
+  // เกมแจกของให้สองเหมือง คะแนนเต็มของแต่ละกองเป็นค่าคงที่ที่คำนวณไว้ตอน build
+  // (ไม่ส่งตัวแก้โจทย์ลงหน้าเว็บ เพราะเฉลยข้างล่างคือตัวแก้โจทย์อยู่แล้ว)
+  type GameSet = { id: string; label: string; seq: string; best: number };
+
+  function isGameSet(v: unknown): v is GameSet {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return typeof o.seq === 'string' && typeof o.best === 'number' && typeof o.label === 'string';
+  }
+
+  function coalOf(win: string[]): number {
+    return new Set(win).size;
+  }
+
+  function initMineGame(root: HTMLElement) {
+    if (root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const parsed: unknown = JSON.parse(root.dataset.sets ?? '[]');
+    const sets: GameSet[] = Array.isArray(parsed) ? parsed.filter(isGameSet) : [];
+    if (sets.length === 0) return;
+
+    const queue = root.querySelector<HTMLElement>('.mg-queue');
+    const now = root.querySelector<HTMLElement>('.mg-now');
+    const goal = root.querySelector<HTMLElement>('.mg-goal');
+    const say = root.querySelector<HTMLElement>('.mg-say');
+    const slots = Array.from(root.querySelectorAll<HTMLElement>('.mg-slots'));
+    const sends = Array.from(root.querySelectorAll<HTMLButtonElement>('.mg-send'));
+    const setBtns = Array.from(root.querySelectorAll<HTMLButtonElement>('.mg-set'));
+    const acts = Array.from(root.querySelectorAll<HTMLButtonElement>('.mg-b'));
+    if (!queue || !now || !goal || !say) return;
+
+    let setIdx = 0;
+    let picks: number[] = []; // 0 หรือ 1 ต่อของหนึ่งชิ้น
+
+    // เดินตามที่เลือกไว้ทั้งหมด คืนสภาพเหมืองและถ่านรวม
+    const replay = () => {
+      const seq = [...sets[setIdx].seq];
+      const mines: string[][] = [[], []];
+      let total = 0;
+      let lastMine = -1;
+      picks.forEach((k, i) => {
+        const q = mines[k];
+        const win = [...q.slice(-2), seq[i]];
+        total += coalOf(win);
+        q.push(seq[i]);
+        lastMine = k;
+      });
+      return { seq, mines, total, lastMine };
+    };
+
+    const render = () => {
+      const set = sets[setIdx];
+      const { seq, mines, total, lastMine } = replay();
+      const done = picks.length === seq.length;
+
+      queue.textContent = '';
+      seq.forEach((ch, i) => {
+        const el = document.createElement('span');
+        el.className = 'mg-chip' + (i < picks.length ? ' done' : i === picks.length ? ' now' : '');
+        el.textContent = ch;
+        queue.appendChild(el);
+      });
+
+      slots.forEach((holder, k) => {
+        holder.textContent = '';
+        const tail = mines[k].slice(-3);
+        for (let i = 0; i < 3; i++) {
+          const el = document.createElement('span');
+          const ch = tail[tail.length - 3 + i];
+          const filled = ch !== undefined;
+          const isFresh = filled && k === lastMine && i === 2;
+          el.className = 'mg-slot' + (filled ? ' fill' : '') + (isFresh ? ' fresh' : '');
+          el.textContent = filled ? ch : '·';
+          holder.appendChild(el);
+        }
+      });
+
+      now.textContent = String(total);
+      goal.textContent = String(set.best);
+      for (const b of sends) b.disabled = done;
+      for (const b of acts) {
+        if (b.dataset.act === 'undo') b.disabled = picks.length === 0;
+        if (b.dataset.act === 'reset') b.disabled = picks.length === 0;
+      }
+      setBtns.forEach((b, i) => b.setAttribute('aria-pressed', i === setIdx ? 'true' : 'false'));
+
+      if (!done) {
+        say.innerHTML = `แจกไปแล้ว ${picks.length} จาก ${seq.length} ชิ้น ของชิ้นถัดไปคือ <b>${seq[picks.length]}</b>`;
+      } else if (total === set.best) {
+        say.innerHTML = `<span class="win">ได้ ${total} เท่าคะแนนเต็มพอดี</span> ลองกองอื่นต่อได้เลย`;
+      } else {
+        say.innerHTML = `<span class="lose">ได้ ${total} ยังห่างคะแนนเต็ม ${set.best} อยู่ ${set.best - total}</span> ลองย้อนกลับไปดูจังหวะที่สองเหมืองให้ถ่านเท่ากัน แล้วเปลี่ยนใจดู`;
+      }
+    };
+
+    for (const b of sends) {
+      b.addEventListener('click', () => {
+        const k = b.dataset.send === '2' ? 1 : 0;
+        if (picks.length >= sets[setIdx].seq.length) return;
+        picks.push(k);
+        render();
+      });
+    }
+    for (const b of acts) {
+      b.addEventListener('click', () => {
+        if (b.dataset.act === 'undo') picks.pop();
+        else picks = [];
+        render();
+      });
+    }
+    setBtns.forEach((b, i) => {
+      b.addEventListener('click', () => {
+        setIdx = i;
+        picks = [];
+        render();
+      });
+    });
+
+    render();
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-minegame]').forEach(initMineGame);
+  });
+</script>

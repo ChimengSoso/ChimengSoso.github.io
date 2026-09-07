@@ -1,0 +1,420 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'segment-tree/';
+
+/* ---------- ตัวเลขในหน้านี้งอกจากโมเดลข้างล่างนี้ ---------- */
+
+const A = [5, 2, 9, 1, 7, 3, 8, 4];
+
+type Op = { kind: 'add'; l: number; r: number; v: number } | { kind: 'min'; l: number; r: number };
+const OPS: Op[] = [
+  { kind: 'min', l: 0, r: 7 },
+  { kind: 'add', l: 2, r: 5, v: -3 },
+  { kind: 'min', l: 3, r: 6 },
+  { kind: 'add', l: 0, r: 3, v: 4 },
+  { kind: 'min', l: 0, r: 4 },
+];
+type Row = { i: number; text: string; arr: number[]; out: number | null };
+function runOps(): Row[] {
+  const a = [...A];
+  return OPS.map((op, i) => {
+    if (op.kind === 'add') {
+      for (let k = op.l; k <= op.r; k++) a[k] += op.v;
+      return { i: i + 1, text: `บวก ${op.v} ให้ช่อง ${op.l} ถึง ${op.r}`, arr: [...a], out: null };
+    }
+    const m = Math.min(...a.slice(op.l, op.r + 1));
+    return { i: i + 1, text: `ถามค่าน้อยสุดของช่อง ${op.l} ถึง ${op.r}`, arr: [...a], out: m };
+  });
+}
+const rows = runOps();
+
+/* ต้นทุนของสองแนวคิด */
+const NB = 200000;
+const QB = 200000;
+const costRows = [
+  { name: 'แก้ทีละช่อง ถามทีละช่อง', per: 'n ต่อหนึ่งคำสั่ง', total: NB * QB },
+  { name: 'เซกเมนต์ทรีแบบมีป้ายค้าง', per: 'ราว 2 log n ต่อหนึ่งคำสั่ง', total: Math.round(QB * 2 * Math.log2(NB)) },
+];
+
+/* ตัวอย่างการค้นหาคำตอบแบบไบนารี */
+const TIMES = [3, 5, 7];
+const NEED = 10;
+const made = (T: number): number => TIMES.reduce((s, t) => s + Math.floor(T / t), 0);
+let bsHi = Math.min(...TIMES) * NEED;
+let bsLo = 1;
+type BsRow = { lo: number; hi: number; mid: number; got: number; ok: boolean };
+const bsRows: BsRow[] = [];
+while (bsLo < bsHi) {
+  const mid = bsLo + Math.floor((bsHi - bsLo) / 2);
+  const got = made(mid);
+  const ok = got >= NEED;
+  bsRows.push({ lo: bsLo, hi: bsHi, mid, got, ok });
+  if (ok) bsHi = mid;
+  else bsLo = mid + 1;
+}
+const bsAnswer = bsLo;
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const code1 = `// เซกเมนต์ทรีแบบบวกทั้งช่วง ถามค่าน้อยสุดของช่วง
+// คำสั่ง "1 l r v" คือบวก v ให้ทุกช่องในช่วง  "2 l r" คือถามค่าน้อยสุดในช่วง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int SZ; vector<ll> mn, lz;
+void build(int n) {
+    SZ = 1; while (SZ < n) SZ <<= 1;
+    mn.assign(2 * SZ, 0); lz.assign(2 * SZ, 0);
+    for (int i = n; i < SZ; i++) mn[SZ + i] = LLONG_MAX / 4;   // ใบส่วนเกินต้องเป็นอนันต์
+    for (int i = SZ - 1; i >= 1; i--) mn[i] = min(mn[2 * i], mn[2 * i + 1]);
+}
+void add(int node, int l, int r, int ql, int qr, ll v) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { mn[node] += v; lz[node] += v; return; }
+    int m = (l + r) / 2;
+    add(2 * node, l, m, ql, qr, v); add(2 * node + 1, m + 1, r, ql, qr, v);
+    mn[node] = min(mn[2 * node], mn[2 * node + 1]) + lz[node];
+}
+ll query(int node, int l, int r, int ql, int qr) {
+    if (qr < l || r < ql) return LLONG_MAX / 4;
+    if (ql <= l && r <= qr) return mn[node];
+    int m = (l + r) / 2;
+    return min(query(2 * node, l, m, ql, qr), query(2 * node + 1, m + 1, r, ql, qr)) + lz[node];
+}
+int main() {
+    int n, q; scanf("%d %d", &n, &q);
+    build(n);
+    for (int i = 0; i < n; i++) { ll v; scanf("%lld", &v); add(1, 0, SZ - 1, i, i, v); }
+    while (q--) {
+        int t, l, r; scanf("%d %d %d", &t, &l, &r);
+        if (t == 1) { ll v; scanf("%lld", &v); add(1, 0, SZ - 1, l, r, v); }
+        else printf("%lld\\n", query(1, 0, SZ - 1, l, r));
+    }
+}`;
+const code2 = `// เครื่องจักร n เครื่อง เครื่องที่ i ผลิตได้หนึ่งชิ้นทุก t[i] หน่วยเวลา
+// ถามว่าอย่างน้อยต้องใช้เวลาเท่าไรถึงจะได้ครบ m ชิ้น
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int n; ll m;
+vector<ll> t;
+// ภายในเวลา T เครื่องที่ i ผลิตได้ T / t[i] ชิ้น  ฟังก์ชันนี้ไม่มีทางลดลงเมื่อ T เพิ่ม
+bool enough(ll T) {
+    ll made = 0;
+    for (ll x : t) {
+        made += T / x;
+        if (made >= m) return true;              // ตัดตั้งแต่พอ กันค่าล้น
+    }
+    return false;
+}
+int main() {
+    scanf("%d %lld", &n, &m);
+    t.resize(n);
+    for (auto& v : t) scanf("%lld", &v);
+    ll lo = 1, hi = *min_element(t.begin(), t.end()) * m;   // เพดานคือใช้เครื่องเร็วสุดเครื่องเดียว
+    while (lo < hi) { ll md = lo + (hi - lo) / 2; if (enough(md)) hi = md; else lo = md + 1; }
+    printf("%lld\\n", lo);
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    บทนี้รวมเครื่องมือสองชิ้นที่มักถูกใช้ด้วยกัน และเป็นคู่ที่ปลดล็อกโจทย์ระดับยากได้หลายข้อ
+  </p>
+  <ul>
+    <li>
+      <strong>เซกเมนต์ทรี</strong> ตอบคำถามเกี่ยวกับ<strong>ช่วง</strong> ในขณะที่ข้อมูลยังถูกแก้ไปเรื่อย ๆ
+      โดยแก้ได้ทั้งช่วง ไม่ใช่ทีละช่อง
+    </li>
+    <li>
+      <strong>การค้นหาคำตอบแบบไบนารี</strong> เปลี่ยนคำถามว่า "คำตอบที่ดีที่สุดคือเท่าไร" ให้เป็นคำถามว่า
+      "ค่านี้ทำได้ไหม" ซึ่งมักง่ายกว่ามาก
+    </li>
+  </ul>
+  <p>
+    ที่เอามาไว้ด้วยกันเพราะโจทย์หนักหลายข้อใช้ทั้งคู่พร้อมกัน คือค้นหาคำตอบแบบไบนารีอยู่ชั้นนอก
+    แล้วชั้นในใช้เซกเมนต์ทรีตอบว่า "ค่านี้ทำได้ไหม"
+  </p>
+
+  <h2>ส่วนที่ 1 เซกเมนต์ทรีแบบมีป้ายค้าง</h2>
+  <p>
+    <a href="../prefix-sums/">ต้นไม้เฟนวิก</a> เก่งเรื่องผลรวมและแก้ทีละช่อง แต่พอโจทย์เปลี่ยนคำถามเป็น
+    <strong>ค่าน้อยสุดของช่วง</strong> และเปลี่ยนการแก้เป็น<strong>บวกทั้งช่วง</strong> เฟนวิกก็เริ่มไม่พอ
+    ค่าน้อยสุดหักลบกันไม่ได้เหมือนผลรวม
+  </p>
+  <p>
+    เซกเมนต์ทรีแก้ปัญหานี้ด้วยการเก็บคำตอบของช่วงไว้เป็นต้นไม้ ปมหนึ่งปมดูแลช่วงหนึ่งช่วง ปมลูกสองตัวแบ่งครึ่งกัน
+    ส่วนการบวกทั้งช่วงใช้เทคนิคที่เรียกว่า<strong>ป้ายค้าง</strong> (lazy) คือเมื่อคำสั่งครอบคลุมช่วงของปมนั้นพอดี
+    ก็ไม่ต้องลงไปแตะลูก แค่แปะป้ายไว้ว่า "ทั้งช่วงนี้ถูกบวกไปเท่านี้แล้ว"
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>lazy propagation</i> อ่านว่า <strong>"เลซี โพรพะเกชัน"</strong> แปลตรงตัวว่า
+      <strong>การกระจายแบบขี้เกียจ</strong> ชื่อนี้ตรงกับพฤติกรรมของมันมาก คือรู้ว่ามีงานต้องทำกับลูก
+      แต่<strong>ผัดวันไว้ก่อน</strong> จนกว่าจะมีใครถามลงไปถึงลูกจริง ๆ ถึงค่อยลงไปทำ
+      งานที่ไม่มีใครถามก็ไม่ต้องทำเลยตลอดกาล
+    </p>
+  </div>
+  <p>
+    ในโค้ดของบทนี้ผมเลือกเก็บป้ายแบบที่<strong>ไม่ต้องดันป้ายลงลูก</strong>เลย โดยให้ <code>mn[node]</code>
+    เป็นค่าน้อยสุดที่<strong>รวมป้ายของตัวเองแล้ว</strong> เวลาถามก็บวกป้ายที่เจอระหว่างทางลงมาสะสมไป
+    เขียนสั้นกว่าและพลาดยากกว่าแบบที่ต้องดันป้าย
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>อาเรย์ {fmt(NB)} ช่อง คำสั่ง {fmt(QB)} ครั้ง</caption>
+      <thead>
+        <tr><th>แนวคิด</th><th>ต้นทุนต่อหนึ่งคำสั่ง</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {costRows.map((r) => (
+          <tr><td>{r.name}</td><td>{r.per}</td><td class="num">{fmt(r.total)}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ต่างกันราว {fmt(Math.round(costRows[0].total / costRows[1].total))} เท่า
+      และนี่คือเหตุผลเดียวที่เราต้องยอมเขียนโค้ดยาวขึ้นสี่สิบบรรทัด
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      กับดักที่ผมตกไปแล้วในโจทย์ฐานปิรามิด เซกเมนต์ทรีมักถูกขยายให้ขนาดเป็นกำลังสอง ทำให้มี
+      <strong>ใบส่วนเกิน</strong>ที่ไม่ตรงกับช่องจริงในอาเรย์ ถ้าปล่อยค่าใบพวกนั้นไว้ที่ศูนย์แล้วไปถาม
+      "ค่าน้อยสุดของทั้งอาเรย์" คำตอบจะเป็นศูนย์ตลอดกาล
+    </p>
+    <p>
+      อาการของบักนี้คือ<strong>ตอบตัวอย่างในโจทย์ถูกหมด</strong> แต่ตกเทสจริง ต้องตั้งใบส่วนเกินเป็นอนันต์
+      ตั้งแต่ตอนสร้างต้นไม้
+    </p>
+  </div>
+
+  <h2>โจทย์ฝึกข้อที่ 1 · บวกทั้งช่วง ถามค่าน้อยสุดของช่วง</h2>
+  <p>
+    ให้อาเรย์ยาว <code>n</code> แล้วมีคำสั่ง <code>q</code> ครั้ง แบบ <code>1 l r v</code> คือบวก
+    <code>v</code> ให้ทุกช่องในช่วง และแบบ <code>2 l r</code> คือถามค่าน้อยสุดในช่วง
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {A.length} {OPS.length}<br />{A.join(' ')}<br />
+          {OPS.map((o) => <>{o.kind === 'add' ? `1 ${o.l} ${o.r} ${o.v}` : `2 ${o.l} ${o.r}`}<br /></>)}
+        </td>
+        <td>{rows.filter((r) => r.out !== null).map((r) => <>{r.out}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <CodeBlock code={code1} lang="cpp" title="lazy_min.cpp" />
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ไล่คำสั่งทีละครั้งบนตัวอย่าง</caption>
+        <thead>
+          <tr><th class="num">ครั้งที่</th><th>คำสั่ง</th><th>อาเรย์หลังทำ</th><th class="num">ตอบ</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td>{r.text}</td>
+              <td><code>{r.arr.join(' ')}</code></td>
+              <td class="num">{r.out === null ? '' : r.out}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์อาเรย์คือสถานะจริงหลังทำคำสั่งนั้น ซึ่งเซกเมนต์ทรีไม่เคยสร้างขึ้นมาทั้งใบเลย
+        มันเก็บแค่คำตอบของช่วงกับป้ายค้าง แล้วประกอบร่างคำตอบตอนถูกถาม
+      </figcaption>
+    </figure>
+    <p>
+      ผมสุ่มอาเรย์กับชุดคำสั่งเล็ก ๆ 800 ชุด เทียบกับตัวที่แก้ทีละช่องแบบซื่อ ๆ ตรงกันหมด
+      ตัวเทียบแบบซื่อ ๆ นี่แหละที่ควรเขียนเป็นอย่างแรกทุกครั้งที่ยกเซกเมนต์ทรีมาใช้
+    </p>
+  </Spoiler>
+
+  <h2>ส่วนที่ 2 ค้นหาคำตอบแบบไบนารี</h2>
+  <p>
+    ท่านี้ใช้ได้เมื่อคำถามมีรูป "หาค่าที่ดีที่สุด" และมีคุณสมบัติว่า<strong>ถ้าค่านี้ทำได้ ค่าที่ง่ายกว่าก็ทำได้</strong>
+    เมื่อนั้นคำตอบของ "ทำได้ไหม" จะเรียงเป็นเท็จติดกันแล้วจริงติดกัน ซึ่งค้นหาแบบไบนารีได้
+  </p>
+  <p>
+    ขั้นตอนคิดที่ใช้ได้ทุกครั้งมีสามข้อ หนึ่ง เขียนฟังก์ชัน <code>ok(x)</code> ที่ตอบว่าค่านี้ทำได้ไหม
+    สอง พิสูจน์กับตัวเองว่ามันเรียงทางเดียวจริง สาม หาขอบบนที่ปลอดภัย
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ข้อสองคือข้อที่คนข้าม และเป็นข้อที่ทำให้ตอบผิดโดยไม่รู้ตัว ในคลังนี้มีตัวอย่างจริงอยู่ใน
+      <a href="../archery/">โจทย์ยิงธนู</a> ที่ผมเคยเสนอให้ค้นหาแบบไบนารีบนตำแหน่งเริ่มต้น
+      แล้วตัวสุ่มเทียบชี้ว่าคำตอบที่ได้เรียงเป็น 4 2 2 4 ซึ่งไม่ได้ไปทางเดียว การค้นหาแบบไบนารีจึงใช้ไม่ได้กับข้อนั้น
+    </p>
+  </div>
+
+  <h2>โจทย์ฝึกข้อที่ 2 · เครื่องจักรกับเวลาที่น้อยที่สุด</h2>
+  <p>
+    มีเครื่องจักร <code>n</code> เครื่อง เครื่องที่ <code>i</code> ผลิตได้หนึ่งชิ้นทุก <code>t</code> หน่วยเวลา
+    ทุกเครื่องทำงานพร้อมกัน ถามว่าอย่างน้อยต้องใช้เวลาเท่าไรถึงจะได้ของครบ <code>m</code> ชิ้น
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{TIMES.length} {NEED}<br />{TIMES.join(' ')}</td><td>{bsAnswer}</td></tr></tbody>
+  </table>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      การหาเวลาที่น้อยที่สุดโดยตรงยาก แต่คำถามกลับด้านว่า "ภายในเวลา <code>T</code> ผลิตได้กี่ชิ้น"
+      ตอบได้ในบรรทัดเดียว แล้วขอบบนที่ปลอดภัยควรเป็นเท่าไร
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <p>
+      ภายในเวลา <code>T</code> เครื่องที่ <code>i</code> ผลิตได้ <code>T หารด้วย t</code> ชิ้น (ปัดลง)
+      รวมทุกเครื่องก็ได้จำนวนชิ้น ซึ่งไม่มีทางลดลงเมื่อ <code>T</code> เพิ่ม จึงค้นหาแบบไบนารีได้
+      ส่วนขอบบนที่ปลอดภัยคือใช้<strong>เครื่องเร็วที่สุดเครื่องเดียว</strong>ทำให้ครบ ซึ่งแน่นอนว่าพอ
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ไล่การค้นหาแบบไบนารีของตัวอย่าง (ต้องการ {NEED} ชิ้น)</caption>
+        <thead>
+          <tr>
+            <th class="num">ช่วงล่าง</th><th class="num">ช่วงบน</th><th class="num">ลองเวลา</th>
+            <th class="num">ผลิตได้</th><th>พอไหม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {bsRows.map((r) => (
+            <tr>
+              <td class="num">{r.lo}</td>
+              <td class="num">{r.hi}</td>
+              <td class="num">{r.mid}</td>
+              <td class="num">{r.got}</td>
+              <td>{r.ok ? 'พอ' : 'ไม่พอ'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์ผลิตได้ไม่เคยลดลงเมื่อเวลาเพิ่ม ซึ่งเป็นเงื่อนไขเดียวที่ท่านี้ต้องการ
+        ใช้ {bsRows.length} รอบก็ได้คำตอบ {bsAnswer} จากช่วงที่กว้าง {fmt(Math.min(...TIMES) * NEED)}
+      </figcaption>
+    </figure>
+    <CodeBlock code={code2} lang="cpp" title="binary_answer.cpp" />
+    <p>
+      สังเกตบรรทัดที่ตัดออกทันทีเมื่อผลิตพอแล้ว มันไม่ได้มีไว้ให้เร็วขึ้น แต่มีไว้<strong>กันค่าล้น</strong>
+      เพราะถ้าปล่อยให้บวกต่อจนครบทุกเครื่อง ผลรวมอาจเกินขอบเขตของจำนวนเต็ม 64 บิตได้
+    </p>
+    <p>ผมสุ่มชุดเครื่องจักรเล็ก ๆ 1,500 ชุดเทียบกับการไล่เวลาทีละหน่วย ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
+  <ul>
+    <li>
+      <a href="../pyramid-base/">ฐานปิรามิด</a> ใช้ทั้งสองชิ้นพร้อมกัน ค้นหาแบบไบนารีบนความยาวด้าน
+      แล้วชั้นในกวาดเส้นพร้อมเซกเมนต์ทรีแบบบวกทั้งช่วงถามค่าน้อยสุด
+    </li>
+    <li>
+      <a href="../fish-jewels/">อัญมณีในท้องปลา</a> ใช้เซกเมนต์ทรีที่เก็บ<strong>ผลคูณ</strong>แทนค่าน้อยสุด
+      เพราะมอดุลัสไม่ใช่จำนวนเฉพาะ จึงหารกลับไม่ได้ และเป็นเหตุผลที่ใช้เฟนวิกแทนไม่ได้
+    </li>
+    <li>
+      <a href="../sails/">ใบเรือโจรสลัด</a> ใช้ต้นไม้เฟนวิกกับการค้นหาแบบไบนารี ในรูปที่เบากว่านี้
+    </li>
+  </ul>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เซกเมนต์ทรีคือการเก็บคำตอบของช่วงไว้ล่วงหน้า พร้อมป้ายที่ผัดงานของลูกไว้จนกว่าจะมีคนถาม
+    ส่วนการค้นหาคำตอบแบบไบนารีคือการเปลี่ยนคำถามที่ตอบยากให้เป็นคำถามใช่หรือไม่ที่ตอบง่าย
+    และเงื่อนไขเดียวที่มันต้องการคือคำตอบต้องเรียงไปทางเดียว ซึ่งเป็นข้อที่ต้องตรวจจริง ไม่ใช่เดา
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

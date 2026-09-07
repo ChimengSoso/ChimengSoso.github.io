@@ -10,8 +10,10 @@ import 'katex/dist/katex.min.css';
 interface Props {
   title: string;
   description?: string;
+  /** เปิดสารบัญลอยกับแถบความคืบหน้า สำหรับหน้ายาวที่คนอ่านต้องรู้ว่าตัวเองอยู่ตรงไหน */
+  toc?: boolean;
 }
-const { title, description = "บันทึกลับของ ChimengSoso" } = Astro.props;
+const { title, description = "บันทึกลับของ ChimengSoso", toc = false } = Astro.props;
 const year = new Date().getFullYear();
 
 // Share card: only for pages that are a real divine-lore entry (articles, not the
@@ -102,6 +104,11 @@ const ogImage = ogEntry
       scrollbar-width:thin;
       scrollbar-color:#3d4b73 #0d1220;
     }
+    .xnum-pop,
+    .dl-toc-list{
+      scrollbar-width:thin;
+      scrollbar-color:#3d4b73 transparent;
+    }
     .dgm-scroll::-webkit-scrollbar,
     .jn-stage::-webkit-scrollbar,
     .jn-scene::-webkit-scrollbar,
@@ -110,6 +117,8 @@ const ogImage = ogEntry
     .mk-tree::-webkit-scrollbar,
     .lab-out::-webkit-scrollbar,
     .dpsim-scroll::-webkit-scrollbar,
+    .xnum-pop::-webkit-scrollbar,
+    .dl-toc-list::-webkit-scrollbar,
     figure.tbl::-webkit-scrollbar{height:10px;width:10px;}
     .dgm-scroll::-webkit-scrollbar-track,
     .jn-stage::-webkit-scrollbar-track,
@@ -119,6 +128,8 @@ const ogImage = ogEntry
     .mk-tree::-webkit-scrollbar-track,
     .lab-out::-webkit-scrollbar-track,
     .dpsim-scroll::-webkit-scrollbar-track,
+    .xnum-pop::-webkit-scrollbar-track,
+    .dl-toc-list::-webkit-scrollbar-track,
     figure.tbl::-webkit-scrollbar-track{background:#0d1220;border-radius:999px;}
     .dgm-scroll::-webkit-scrollbar-thumb,
     .jn-stage::-webkit-scrollbar-thumb,
@@ -128,6 +139,8 @@ const ogImage = ogEntry
     .mk-tree::-webkit-scrollbar-thumb,
     .lab-out::-webkit-scrollbar-thumb,
     .dpsim-scroll::-webkit-scrollbar-thumb,
+    .xnum-pop::-webkit-scrollbar-thumb,
+    .dl-toc-list::-webkit-scrollbar-thumb,
     figure.tbl::-webkit-scrollbar-thumb{
       background:#3d4b73;
       border:2px solid #0d1220;
@@ -141,7 +154,19 @@ const ogImage = ogEntry
     .mk-tree::-webkit-scrollbar-thumb:hover,
     .lab-out::-webkit-scrollbar-thumb:hover,
     .dpsim-scroll::-webkit-scrollbar-thumb:hover,
+    .xnum-pop::-webkit-scrollbar-thumb:hover,
+    .dl-toc-list::-webkit-scrollbar-thumb:hover,
     figure.tbl::-webkit-scrollbar-thumb:hover{background:#54659a;}
+    /* สองอันนี้ลอยอยู่บนพื้นการ์ด ไม่ใช่พื้นหน้า ถ้าใช้รางกับขอบสีพื้นหน้า
+       จะเห็นเป็นแถบเข้มพาดอยู่ในกล่อง จึงปล่อยรางโปร่งแล้วให้หัวแม่มือลอยแทน
+       ต้องอยู่หลังกฎรวมข้างบน ไม่งั้นโดนทับ */
+    .xnum-pop::-webkit-scrollbar-track,
+    .dl-toc-list::-webkit-scrollbar-track{background:transparent;}
+    .xnum-pop::-webkit-scrollbar-thumb,
+    .dl-toc-list::-webkit-scrollbar-thumb{
+      border-color:transparent;
+      background-clip:padding-box;
+    }
     html{font-size:clamp(16px, 1rem + 0.3vw, 22px);}
     html,body{
       font-family:"Sarabun", system-ui, sans-serif;
@@ -399,6 +424,170 @@ const ogImage = ogEntry
       font-size:0.72rem;
       color:#6b7690;
     }
+    /* ---------- สารบัญลอย + แถบความคืบหน้า (เฉพาะหน้าที่ส่ง toc) ---------- */
+    .dl-progress{
+      position:fixed;
+      top:0;
+      left:0;
+      height:3px;
+      width:100%;
+      transform:scaleX(0);
+      transform-origin:0 50%;
+      background:linear-gradient(90deg, var(--dl-emerald), var(--dl-emerald-bright));
+      z-index:44;
+      pointer-events:none;
+    }
+    .dl-toc-btn{
+      position:fixed;
+      left:1.25rem;
+      bottom:1.25rem;
+      z-index:45;
+      display:inline-flex;
+      align-items:center;
+      gap:0.5rem;
+      padding:0.6rem 0.95rem;
+      border:1px solid var(--dl-border);
+      border-radius:999px;
+      background:var(--dl-panel);
+      color:var(--dl-ink);
+      font-family:inherit;
+      font-size:0.8rem;
+      cursor:pointer;
+      box-shadow:0 10px 30px -10px rgba(0,0,0,0.8);
+      transition:border-color .15s, transform .15s;
+    }
+    .dl-toc-btn:hover{border-color:var(--dl-emerald);transform:translateY(-1px);}
+    .dl-toc-btn svg{width:15px;height:15px;flex-shrink:0;}
+    .dl-toc-here{
+      color:var(--dl-muted);
+      max-width:8rem;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    /* ต้องประกาศคู่กับ display:flex ข้างล่าง เพราะกฎของผู้เขียนชนะ [hidden] ของเบราว์เซอร์เสมอ
+       ถ้าไม่มีบรรทัดนี้ การตั้ง hidden จะไม่ปิดอะไรเลย กล่องค้างเปิดตลอด */
+    .dl-toc-overlay[hidden]{display:none;}
+    .dl-toc-overlay{
+      position:fixed;
+      inset:0;
+      z-index:46;
+      display:flex;
+      align-items:flex-end;
+      justify-content:flex-start;
+      padding:1.25rem;
+      background:rgba(6,10,18,0.7);
+      backdrop-filter:blur(2px);
+    }
+    .dl-toc-sheet{
+      width:100%;
+      max-width:24rem;
+      max-height:min(30rem, 78vh);
+      display:flex;
+      flex-direction:column;
+      background:var(--dl-panel);
+      border:1px solid var(--dl-border);
+      border-radius:18px;
+      box-shadow:0 24px 70px -16px rgba(0,0,0,0.85);
+      animation:dl-toc-in .22s cubic-bezier(.16,1,.3,1) both;
+    }
+    @keyframes dl-toc-in{
+      from{opacity:0;transform:translateY(12px);}
+      to{opacity:1;transform:none;}
+    }
+    .dl-toc-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:1rem;
+      padding:1rem 1.15rem 0.75rem;
+      border-bottom:1px solid var(--dl-border);
+    }
+    .dl-toc-head p{
+      font-size:0.72rem;
+      letter-spacing:1.5px;
+      text-transform:uppercase;
+      color:var(--dl-emerald-bright);
+    }
+    .dl-toc-head span{font-size:0.72rem;color:var(--dl-muted);}
+    .dl-toc-close{
+      border:none;
+      background:none;
+      color:var(--dl-muted);
+      font-size:1.1rem;
+      line-height:1;
+      cursor:pointer;
+      padding:0.2rem 0.35rem;
+    }
+    .dl-toc-close:hover{color:var(--dl-ink);}
+    .dl-toc-list{
+      overflow-y:auto;
+      padding:0.75rem 0.5rem 1rem;
+      list-style:none;
+    }
+    .dl-toc-list li{list-style:none;margin:0;}
+    .dl-toc-list a{
+      display:block;
+      padding:0.4rem 0.75rem;
+      border-radius:8px;
+      font-size:0.85rem;
+      line-height:1.5;
+      color:var(--dl-muted);
+      text-decoration:none;
+      border-left:2px solid transparent;
+    }
+    .dl-toc-list a:hover{color:var(--dl-ink);background:rgba(255,255,255,0.04);}
+    .dl-toc-list .dl-toc-part a{
+      margin-top:0.75rem;
+      color:var(--dl-emerald-bright);
+      font-size:0.75rem;
+      letter-spacing:0.5px;
+    }
+    .dl-toc-list .dl-toc-part:first-child a{margin-top:0;}
+    .dl-toc-list .dl-toc-sub a{padding-left:1.4rem;}
+    .dl-toc-list a[aria-current="true"]{
+      color:var(--dl-ink);
+      border-left-color:var(--dl-emerald-bright);
+      background:rgba(74,222,128,0.08);
+    }
+    /* ---------- แผ่นคั่นภาค ---------- */
+    .panel h2.part-head{
+      margin:3.5rem 0 1.25rem;
+      padding:1.15rem 1.25rem;
+      border:1px solid var(--dl-border);
+      border-left:3px solid var(--dl-emerald);
+      border-radius:14px;
+      background:rgba(47,158,92,0.07);
+      font-size:1.05rem;
+      text-transform:none;
+      letter-spacing:normal;
+      color:var(--dl-ink);
+    }
+    .panel h2.part-head::before{content:none;}
+    .panel h2.part-head .part-kicker{
+      display:block;
+      margin-bottom:0.3rem;
+      font-size:0.7rem;
+      letter-spacing:1.6px;
+      text-transform:uppercase;
+      color:var(--dl-emerald-bright);
+    }
+    .panel h2.part-head .part-say{
+      display:block;
+      margin-top:0.45rem;
+      font-size:0.82rem;
+      font-weight:400;
+      line-height:1.7;
+      color:var(--dl-muted);
+    }
+    @media (prefers-reduced-motion: reduce){
+      .dl-toc-sheet{animation:none;}
+      .dl-toc-btn:hover{transform:none;}
+    }
+    @media (max-width:520px){
+      .dl-toc-here{display:none;}
+      .dl-toc-sheet{max-width:none;}
+    }
     .site-footer{
       width:100%;
       max-width:34rem;
@@ -440,6 +629,26 @@ const ogImage = ogEntry
   </style>
 </head>
 <body>
+  {toc && (
+    <>
+      <div class="dl-progress" data-dl-progress></div>
+      <button type="button" class="dl-toc-btn" data-dl-toc-open aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3.5h12v1.2H2zm0 4h12v1.2H2zm0 4h8v1.2H2z"/></svg>
+        สารบัญ
+        <span class="dl-toc-here" data-dl-toc-here></span>
+      </button>
+      <div class="dl-toc-overlay" data-dl-toc-overlay hidden>
+        <div class="dl-toc-sheet" role="dialog" aria-modal="true" aria-label="สารบัญ">
+          <div class="dl-toc-head">
+            <p>สารบัญ</p>
+            <span data-dl-toc-count></span>
+            <button type="button" class="dl-toc-close" data-dl-toc-close aria-label="ปิดสารบัญ">&#215;</button>
+          </div>
+          <ul class="dl-toc-list" data-dl-toc-list></ul>
+        </div>
+      </div>
+    </>
+  )}
   <div class="panel">
     <slot />
   </div>
@@ -454,5 +663,134 @@ const ogImage = ogEntry
     <p class="site-footer-copyright">&copy; {year} <a href="/">ChimengSoso</a> — สร้างด้วย <a href="https://astro.build" target="_blank" rel="noopener noreferrer">Astro</a> · <a href="/privacy/">นโยบายความเป็นส่วนตัว</a></p>
   </footer>
   <DonateButton />
+  {toc && (
+    <script>
+      /* สารบัญลอย + แถบความคืบหน้า สร้างจาก h2 ในพาเนลตอนโหลด
+         h2.part-head คือหัวภาค ส่วน h2 อื่นคือหัวข้อย่อยใต้ภาคนั้น */
+      document.addEventListener('astro:page-load', () => {
+        const openBtn = document.querySelector('[data-dl-toc-open]');
+        const overlay = document.querySelector('[data-dl-toc-overlay]');
+        const listEl = document.querySelector('[data-dl-toc-list]');
+        const bar = document.querySelector('[data-dl-progress]');
+        const hereEl = document.querySelector('[data-dl-toc-here]');
+        const countEl = document.querySelector('[data-dl-toc-count]');
+        const closeBtn = document.querySelector('[data-dl-toc-close]');
+        const panel = document.querySelector('.panel');
+        if (!(openBtn instanceof HTMLButtonElement) || !(overlay instanceof HTMLElement)
+          || !(listEl instanceof HTMLElement) || !(bar instanceof HTMLElement)
+          || !(panel instanceof HTMLElement)) return;
+
+        /* บางหน้าค่อย ๆ กางเนื้อหาตามการเลื่อน (ดูสคริปต์ท้ายหน้าบิตคอยน์)
+           กล่องที่ห่อไว้ถูกตัดความสูงอยู่ ทำให้สองอย่างเพี้ยนถ้าไม่รู้จักมัน
+           หนึ่งคือ scrollHeight ของหน้าคือความยาวที่เปิดแล้ว ไม่ใช่ความยาวทั้งบท
+           แถบความคืบหน้าที่หารด้วยค่านั้นจะค้างอยู่แถวเก้าสิบเปอร์เซ็นต์ตลอดทาง
+           สองคือหัวข้อที่ยังไม่ถูกเปิดยังไม่มีตำแหน่งจริงในผัง กระโดดไปแล้วไปไม่ถึง
+           กล่องนี้ฟังเหตุการณ์ dl-reveal-open-all เพื่อกางตัวเองให้หมดก่อนกระโดด */
+        const getFlow = () => panel.querySelector('.btc-flow');
+
+        const heads = Array.from(panel.querySelectorAll('h2'));
+        if (heads.length === 0) return;
+
+        listEl.textContent = '';
+        const links: HTMLAnchorElement[] = [];
+        let sectionCount = 0;
+        heads.forEach((h, i) => {
+          if (!h.id) h.id = `sec-${i + 1}`;
+          const isPart = h.classList.contains('part-head');
+          if (!isPart) sectionCount += 1;
+          const li = document.createElement('li');
+          li.className = isPart ? 'dl-toc-part' : 'dl-toc-sub';
+          const a = document.createElement('a');
+          a.href = `#${h.id}`;
+          const kicker = h.querySelector('.part-kicker');
+          const name = h.querySelector('.part-name');
+          const label = isPart
+            ? `${kicker ? (kicker.textContent ?? '').trim() + ' ' : ''}${(name?.textContent ?? '').trim()}`
+            : (h.textContent ?? '').trim();
+          a.textContent = label.trim();
+          li.appendChild(a);
+          listEl.appendChild(li);
+          links.push(a);
+        });
+        if (countEl instanceof HTMLElement) countEl.textContent = `${sectionCount} หัวข้อ`;
+
+        let open = false;
+        let lastFocus: HTMLElement | null = null;
+        const setOpen = (v: boolean) => {
+          open = v;
+          overlay.hidden = !v;
+          openBtn.setAttribute('aria-expanded', String(v));
+          if (v) {
+            lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            const current = links.find((a) => a.getAttribute('aria-current') === 'true');
+            (current ?? links[0]).focus();
+          } else if (lastFocus) {
+            lastFocus.focus();
+          }
+        };
+        openBtn.addEventListener('click', () => setOpen(true));
+        if (closeBtn instanceof HTMLElement) closeBtn.addEventListener('click', () => setOpen(false));
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) setOpen(false);
+        });
+        document.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (open && e.key === 'Escape') setOpen(false);
+        });
+        links.forEach((a, i) => a.addEventListener('click', (e: MouseEvent) => {
+          setOpen(false);
+          if (!getFlow()) return;
+          /* ปลายทางอาจยังไม่ถูกกางออกมา ตำแหน่งที่จะกระโดดไปจึงยังไม่มีอยู่จริง
+             กางให้หมดก่อนแล้วค่อยเลื่อนในเฟรมถัดไป ตอนที่ผังนิ่งแล้ว */
+          e.preventDefault();
+          panel.dispatchEvent(new CustomEvent('dl-reveal-open-all'));
+          requestAnimationFrame(() => {
+            /* ไม่ใช้ scrollIntoView เพราะกล่องที่ห่อเนื้อหาไว้เป็น overflow:hidden
+               ซึ่งยังนับเป็นกล่องเลื่อนได้ แล้วเบราว์เซอร์อาจเลือกเลื่อนข้างในกล่องแทนหน้า */
+            const f = getFlow();
+            if (f instanceof HTMLElement) f.scrollTop = 0;
+            window.scrollTo(0, heads[i].getBoundingClientRect().top + window.scrollY);
+            history.replaceState(null, '', `#${heads[i].id}`);
+            update();
+          });
+        }));
+
+        let ticking = false;
+        const update = () => {
+          ticking = false;
+          const doc = document.documentElement;
+          const flow = getFlow();
+          const total = Math.max(
+            doc.scrollHeight,
+            flow instanceof HTMLElement ? flow.offsetTop + flow.scrollHeight : 0,
+          );
+          const span = total - window.innerHeight;
+          bar.style.transform = `scaleX(${span > 0 ? Math.min(1, doc.scrollTop / span) : 0})`;
+          let active = 0;
+          for (let i = 0; i < heads.length; i += 1) {
+            if (heads[i].getBoundingClientRect().top <= 120) active = i;
+          }
+          links.forEach((a, i) => {
+            if (i === active) a.setAttribute('aria-current', 'true');
+            else a.removeAttribute('aria-current');
+          });
+          if (hereEl instanceof HTMLElement) {
+            const h = heads[active];
+            const name = h.querySelector('.part-name');
+            hereEl.textContent = h.classList.contains('part-head')
+              ? (name?.textContent ?? '').trim()
+              : (h.textContent ?? '').trim();
+          }
+        };
+        const onScroll = () => {
+          if (ticking) return;
+          ticking = true;
+          requestAnimationFrame(update);
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll, { passive: true });
+        update();
+      });
+    </script>
+  )}
 </body>
 </html>

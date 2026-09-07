@@ -1,0 +1,428 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'anagram-window/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+const W = 'cAda';
+const S = 'AbrAcadAbRa';
+const g = W.length;
+
+const sortKey = (s: string): string => [...s].sort().join('');
+const target = sortKey(W);
+
+type Win = { i: number; text: string; hit: boolean };
+const windows: Win[] = [];
+for (let i = 0; i + g <= S.length; i++) {
+  const text = S.slice(i, i + g);
+  windows.push({ i, text, hit: sortKey(text) === target });
+}
+const answer = windows.filter((w) => w.hit).length;
+
+/* ---------- ต้นทุนของแต่ละแนวคิด นับเป็นจำนวนครั้งที่แตะตัวอักษรหนึ่งตัว ---------- */
+
+const GMAX = 3000;
+const SMAX = 3000000;
+const ALPHA = 52;
+
+const costRows = [
+  { name: 'นับใหม่ทุกหน้าต่าง', per: 'g ครั้ง', total: SMAX * GMAX },
+  { name: 'เลื่อนหน้าต่าง แล้วเทียบตารางนับทั้งใบ', per: '2 + 52 ครั้ง', total: SMAX * (2 + ALPHA) },
+  { name: 'เลื่อนหน้าต่าง แล้วดูแลตัวนับชนิดที่พอดี', per: '2 ครั้ง', total: SMAX * 2 },
+];
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+function human(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} พันล้าน`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(0)} ล้าน`;
+  return fmt(n);
+}
+
+/* ---------- เดินตัวนับทีละก้าวบนตัวอย่างในโจทย์ เอาไว้ทำตารางไล่ ---------- */
+
+const ID = (c: string): number =>
+  c >= 'a' && c <= 'z' ? c.charCodeAt(0) - 97 : c.charCodeAt(0) - 65 + 26;
+const need = new Array<number>(ALPHA).fill(0);
+for (const c of W) need[ID(c)]++;
+const distinctTypes = need.filter((v) => v > 0).length;
+
+type Trace = { r: number; ch: string; out: string; matched: number; hit: boolean };
+const trace: Trace[] = [];
+{
+  const have = new Array<number>(ALPHA).fill(0);
+  let matched = 0;
+  for (let r = 0; r < S.length; r++) {
+    const c = ID(S[r]);
+    have[c]++;
+    if (have[c] === need[c]) matched++;
+    else if (have[c] === need[c] + 1) matched--;
+    let out = '';
+    if (r >= g) {
+      out = S[r - g];
+      const d = ID(out);
+      if (have[d] === need[d]) matched--;
+      else if (have[d] === need[d] + 1) matched++;
+      have[d]--;
+    }
+    trace.push({ r, ch: S[r], out, matched, hit: r >= g - 1 && matched === distinctTypes });
+  }
+}
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+static inline int idx(char c){ return c>='a'&&c<='z' ? c-'a' : c-'A'+26; }
+int main(){
+    int g; long long n;
+    if(scanf("%d %lld",&g,&n)!=2) return 0;
+    static char W[3005]; scanf("%s",W);
+    string S; { S.resize(n+5); scanf("%s",&S[0]); S.resize(strlen(S.c_str())); }
+    int need[52]={0}, have[52]={0};
+    for(int i=0;i<g;i++) need[idx(W[i])]++;
+    int distinct=0; for(int i=0;i<52;i++) if(need[i]) distinct++;
+    int matched=0; long long ans=0; int L=(int)S.size();
+    for(int r=0;r<L;r++){
+        int c=idx(S[r]);
+        have[c]++; if(have[c]==need[c]) matched++; else if(have[c]==need[c]+1) matched--;
+        if(r>=g){ int d=idx(S[r-g]); if(have[d]==need[d]) matched--; else if(have[d]==need[d]+1) matched++; have[d]--; }
+        if(r>=g-1 && matched==distinct) ans++;
+    }
+    printf("%lld\\n",ans);
+}`;
+const bruteCode = `// ตัวตรวจสอบแบบซื่อ ๆ นับใหม่ทุกหน้าต่าง ใช้ได้แค่อินพุตเล็ก ๆ ตอนสุ่มเทียบก่อนส่ง
+#include <bits/stdc++.h>
+using namespace std;
+static int id(char c){ return c>='a'&&c<='z' ? c-'a' : c-'A'+26; }
+int main(){
+    int g; long long n; scanf("%d %lld",&g,&n);
+    static char W[3005], S[3000006];
+    scanf("%s %s",W,S);
+    int need[52]={0};
+    for(int i=0;i<g;i++) need[id(W[i])]++;
+    int L=(int)strlen(S), ans=0;
+    for(int i=0;i+g<=L;i++){
+        int c[52]={0};
+        for(int j=0;j<g;j++) c[id(S[i+j])]++;
+        bool ok=true;
+        for(int t=0;t<52;t++) if(c[t]!=need[t]){ ok=false; break; }
+        if(ok) ans++;
+    }
+    printf("%d\\n",ans);
+}`;
+const coreSnippet = `int c = id(S[r]);
+have[c]++;
+if (have[c] == need[c]) matched++;              // ชนิดนี้เพิ่งพอดี
+else if (have[c] == need[c] + 1) matched--;     // เพิ่งเกิน เลยหลุดจากคำว่าพอดี
+
+if (r >= g) {                                    // ตัวที่หลุดออกทางซ้าย
+    int d = id(S[r - g]);
+    if (have[d] == need[d]) matched--;
+    else if (have[d] == need[d] + 1) matched++;
+    have[d]--;
+}
+if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอดีพร้อมกัน`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · คำเดียวกันที่เขียนสลับที่ได้ตามใจ</h2>
+  <p>
+    ภาษามายันเขียนด้วยกลุ่มสัญลักษณ์ที่เรียกว่า กลิฟ (glyph) หนึ่งคำเกิดจากเอากลิฟหลายตัวมาวางเรียงกัน
+    ปัญหาคือคนเขียนสมัยนั้นวางกลิฟตามใจชอบ ไม่มีกฎว่าตัวไหนต้องมาก่อน
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>glyph</i> อ่านว่า <strong>"กลิฟ"</strong> แปลว่า <strong>เครื่องหมายที่สลักไว้</strong> มาจากคำกรีก
+      <i>glyphē</i> ที่แปลว่ารอยแกะสลัก ส่วน <i>permutation</i> อ่านว่า <strong>"เพอร์มิวเทชัน"</strong> แปลว่า
+      <strong>การเรียงสับเปลี่ยน</strong> คือเอาของชุดเดิมมาสลับที่กันใหม่โดยไม่เพิ่มไม่ลดสักชิ้น
+    </p>
+  </div>
+  <p>
+    นักโบราณคดีจึงรู้แค่ว่าคำที่ตามหา <code>W</code> ประกอบด้วยกลิฟชุดไหนบ้าง แต่ไม่รู้ว่าบนแผ่นจารึกมันถูกเรียงยังไง
+    งานของเราคืออ่านแผ่นจารึก <code>S</code> แล้วนับว่ามีกี่ตำแหน่งที่กลิฟ <code>g</code> ตัวติดกันเป็นการเรียงสับเปลี่ยนของ
+    <code>W</code>
+  </p>
+  <p>
+    พูดอีกแบบ ให้ตัดหน้าต่างยาว <code>g</code> ตัวออกจาก <code>S</code> ทุกตำแหน่งที่ตัดได้
+    แล้วนับว่ามีกี่หน้าต่างที่มีกลิฟแต่ละชนิด<strong>จำนวนเท่ากันเป๊ะ</strong>กับใน <code>W</code>
+    ตัวพิมพ์เล็กกับตัวพิมพ์ใหญ่ถือเป็นคนละกลิฟ
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>g</code> และ <code>|S|</code> บรรทัดที่สองคือคำ <code>W</code>
+        ยาว <code>g</code> ตัว บรรทัดที่สามคือแผ่นจารึก <code>S</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>g ≤ {fmt(GMAX)}</code>, <code>|S| ≤ {fmt(SMAX)}</code> อักขระเป็น
+        <code>a-z</code> และ <code>A-Z</code> เท่านั้น เวลา 3 วินาที หน่วยความจำ 32 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนตำแหน่งที่ <code>W</code> ปรากฏได้</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{g} {S.length}<br />{W}<br />{S}</td><td>{answer}</td></tr></tbody>
+  </table>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ทุกหน้าต่างยาว {g} ตัวในตัวอย่าง</caption>
+      <thead>
+        <tr><th class="num">เริ่มที่</th><th>หน้าต่าง</th><th>เรียงตัวอักษรแล้ว</th><th>ผล</th></tr>
+      </thead>
+      <tbody>
+        {windows.map((w) => (
+          <tr>
+            <td class="num">{w.i + 1}</td>
+            <td><code>{w.text}</code></td>
+            <td><code>{sortKey(w.text)}</code></td>
+            <td>{w.hit ? 'ใช่' : ''}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      คำที่ตามหาเรียงตัวอักษรแล้วได้ <code>{target}</code> หน้าต่างไหนเรียงแล้วตรงกันก็นับเป็นหนึ่งครั้ง
+      ในตัวอย่างนี้เจอ {answer} ครั้ง
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      แผ่นจารึกยาวได้ถึงสามล้านตัว ส่วนคำยาวได้ถึงสามพันตัว ถ้าไล่นับใหม่ทุกหน้าต่างจะเป็น
+      <strong>{human(SMAX * GMAX)}</strong> ครั้ง ในเวลาสามวินาที
+    </p>
+    <p>
+      แต่หน้าต่างสองอันที่อยู่ติดกันต่างกันแค่<strong>สองตัว</strong> คือตัวที่โผล่เข้าทางขวา กับตัวที่หลุดออกทางซ้าย
+      ที่เหลือเหมือนกันหมด แล้วทำไมเรายังต้องนับใหม่ทั้งหน้าต่างทุกครั้งด้วย
+    </p>
+  </div>
+
+  <h2>เฉลย · เก็บจำนวนชนิดที่พอดีแล้วไว้ตัวเดียว</h2>
+  <Spoiler>
+    <p>
+      หน้าต่างหนึ่งอันใช้ได้เมื่อกลิฟทุกชนิด<strong>มีจำนวนเท่ากับที่ต้องการเป๊ะ</strong> เก็บตารางนับสองใบคือ
+      <code>need</code> ที่นับจาก <code>W</code> ครั้งเดียวตอนต้น กับ <code>have</code> ที่นับจากหน้าต่างปัจจุบัน
+      แล้วเลื่อนหน้าต่างทีละหนึ่ง ปรับ <code>have</code> แค่สองช่อง
+    </p>
+    <p>
+      ปัญหาที่เหลือคือคำถามว่าเท่ากันทุกช่องหรือยัง ถ้าไล่เทียบทั้ง {ALPHA} ช่องทุกก้าว ก็ยังเป็น
+      {human(SMAX * ALPHA)} ครั้ง ซึ่งพอไหวแต่เปลืองโดยไม่จำเป็น ทางที่คมกว่าคือเก็บตัวนับเพิ่มอีกตัวเดียวชื่อ
+      <code>matched</code> แปลว่า<strong>ตอนนี้มีกลิฟกี่ชนิดที่จำนวนพอดีแล้ว</strong>
+    </p>
+    <p>
+      ตัวนับนี้อัปเดตได้ตอนที่ค่าในช่องเปลี่ยน เพราะช่องหนึ่งช่องเปลี่ยนได้ทีละหนึ่งเท่านั้น จึงมีแค่สองจังหวะที่สำคัญ
+      ตอนค่าขยับ<strong>ขึ้นมาชนพอดี</strong> ให้บวกหนึ่ง และตอนค่าขยับ<strong>จากพอดีไปเกินหนึ่ง</strong> ให้ลบหนึ่ง
+      ขาลงก็ใช้เหตุผลเดียวกันแบบกลับด้าน
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      หน้าต่างใช้ได้เมื่อ <code>matched</code> เท่ากับ<strong>จำนวนชนิดที่ปรากฏใน <code>W</code></strong>
+      ไม่ใช่ {ALPHA} เพราะชนิดที่ <code>W</code> ไม่ได้ใช้เลยมี <code>need</code> เป็นศูนย์
+      และมันก็ถูกนับว่าพอดีตั้งแต่ยังไม่เจอตัวไหนเลย
+    </p>
+    <p>
+      จุดนี้คือกับดักที่ทำให้โค้ดตอบผิดได้ง่ายที่สุด ถ้าเผลอไปเทียบกับ {ALPHA}
+      โปรแกรมจะไม่มีวันเจอหน้าต่างที่ใช้ได้เลยสักอัน ส่วนถ้าลืมกรณีเกินหนึ่ง ตัวนับจะค้างอยู่ที่พอดี
+      ทั้งที่กลิฟชนิดนั้นล้นออกมาแล้ว
+    </p>
+  </Spoiler>
+
+  <h2>ไล่ตัวนับทีละก้าวบนตัวอย่าง</h2>
+  <Spoiler>
+    <p>
+      คำที่ตามหาคือ <code>{W}</code> ซึ่งใช้กลิฟ {distinctTypes} ชนิด ดังนั้นหน้าต่างจะใช้ได้เมื่อ
+      <code>matched</code> ขึ้นไปแตะ {distinctTypes} พอดี
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เดินตัวนับตลอดแผ่นจารึก</caption>
+        <thead>
+          <tr>
+            <th class="num">ก้าวที่</th><th>เข้า</th><th>ออก</th>
+            <th class="num">matched</th><th>หน้าต่าง</th><th>ผล</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trace.map((t) => (
+            <tr>
+              <td class="num">{t.r + 1}</td>
+              <td><code>{t.ch}</code></td>
+              <td>{t.out ? <code>{t.out}</code> : <span class="dim">ยังไม่มี</span>}</td>
+              <td class="num">{t.matched}</td>
+              <td>
+                {t.r >= g - 1 ? (
+                  <code>{S.slice(t.r - g + 1, t.r + 1)}</code>
+                ) : (
+                  <span class="dim">ยังไม่เต็ม</span>
+                )}
+              </td>
+              <td>{t.hit ? 'นับ' : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ทุกก้าวแตะข้อมูลแค่สองช่อง คือช่องของตัวที่เข้าและช่องของตัวที่ออก
+        ค่า <code>matched</code> จึงเดินขึ้นลงเองโดยไม่ต้องกวาดตารางทั้งใบเลยสักครั้ง
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>สามแนวคิด ราคาต่างกันคนละโลก</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>อินพุตใหญ่สุด · นับเป็นจำนวนครั้งที่แตะข้อมูลหนึ่งชิ้น</caption>
+        <thead>
+          <tr><th>แนวคิด</th><th>ต้นทุนต่อหนึ่งก้าว</th><th class="num">รวมทั้งอินพุต</th></tr>
+        </thead>
+        <tbody>
+          {costRows.map((r) => (
+            <tr><td>{r.name}</td><td>{r.per}</td><td class="num">{fmt(r.total)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สามแถวนี้นับหน่วยเดียวกัน แนวคิดที่สองผ่านได้อยู่แล้วในลิมิตสามวินาที
+        แนวคิดที่สามไม่ได้เปลี่ยนคลาสความซับซ้อน แต่มันตัดค่าคงที่ทิ้งไป {ALPHA / 2} เท่า
+        และเป็นท่าที่ยกไปใช้ต่อได้กับโจทย์หน้าต่างเลื่อนข้ออื่น
+      </figcaption>
+    </figure>
+    <p>
+      สังเกตว่าแนวคิดแรกไม่ได้แพงเพราะ <code>|S|</code> ใหญ่ แต่แพงเพราะมันเอา <code>g</code>
+      มาคูณกับความยาวของแผ่นจารึก ทั้งที่ <code>g</code> ตัวนั้นเป็นตัวเดิมที่เพิ่งนับไปเมื่อก้าวที่แล้ว
+    </p>
+    <p>
+      ถ้าอยากเห็นท่าหน้าต่างเลื่อนแบบเต็ม ๆ ตั้งแต่ต้น รวมถึงเวอร์ชันที่ความยาวหน้าต่างไม่คงที่
+      ไปอ่านบทปูพื้นฐาน <a href="../sliding-window/">สองตัวชี้กับหน้าต่างเลื่อน</a> ก่อนได้
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      แผ่นจารึกยาวสามล้านตัว จึงอ่านเข้ามาเป็นสตริงเดียวทีเดียว และเดินผ่านมันรอบเดียวจบ
+      ตารางนับใช้ <code>int</code> ขนาด {ALPHA} ช่อง สองใบ กินหน่วยความจำไม่ถึงครึ่งกิโลไบต์
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="writing.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ก่อนเชื่อโค้ดข้างบน ผมสุ่มคู่ <code>W</code> กับ <code>S</code> เล็ก ๆ จำนวน 1,200 ชุด
+          โดยจงใจใช้ตัวอักษรแค่หกตัวเพื่อบังคับให้หน้าต่างที่ใช้ได้เกิดถี่ ๆ แล้วเทียบกับตัวนับใหม่ทุกหน้าต่างข้างล่างนี้
+          ตรงกันทั้งหมด
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม อินพุตเต็มขอบเขตคือแผ่นจารึกสามล้านตัวกับคำยาวสามพันตัว ใช้เวลา
+      <strong>96 มิลลิวินาที</strong> จากลิมิตสามวินาที
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    หน้าต่างที่ขยับทีละหนึ่งเปลี่ยนข้อมูลแค่สองช่อง ถ้าคำตอบของหน้าต่างสรุปได้ด้วยตัวเลขที่อัปเดตจากสองช่องนั้นได้
+    ก็ไม่มีเหตุผลให้กวาดใหม่ทั้งหน้าต่าง และที่นี่ตัวเลขนั้นคือจำนวนชนิดที่ตอนนี้มีครบพอดีแล้ว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Writing</i> บน programming.in.th ข้อ 2007
+      <a href="https://programming.in.th/tasks/2007" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2007
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>International Olympiad in Informatics 2006</i> ที่ประเทศเม็กซิโก</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

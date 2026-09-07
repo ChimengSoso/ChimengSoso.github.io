@@ -1,0 +1,587 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'islands/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Bridge = { to: number; len: number };
+const EX: Bridge[] = [
+  { to: 3, len: 8 },
+  { to: 7, len: 2 },
+  { to: 4, len: 2 },
+  { to: 1, len: 4 },
+  { to: 1, len: 9 },
+  { to: 3, len: 4 },
+  { to: 2, len: 3 },
+];
+const N = EX.length;
+const f = (v: number): number => EX[v - 1].to;
+const L = (v: number): number => EX[v - 1].len;
+
+/** ปอกใบทิ้งทีละชั้นจนเหลือแต่ปมบนวง พร้อมเก็บสองกิ่งที่ลึกที่สุดของแต่ละปม */
+function peel(): { t1: number[]; t2: number[]; onCycle: boolean[]; order: number[] } {
+  const indeg = new Array<number>(N + 1).fill(0);
+  for (let i = 1; i <= N; i++) indeg[f(i)]++;
+  const t1 = new Array<number>(N + 1).fill(0);
+  const t2 = new Array<number>(N + 1).fill(0);
+  const q: number[] = [];
+  for (let i = 1; i <= N; i++) if (indeg[i] === 0) q.push(i);
+  for (let h = 0; h < q.length; h++) {
+    const u = q[h];
+    const p = f(u);
+    const v = t1[u] + L(u);
+    if (v > t1[p]) {
+      t2[p] = t1[p];
+      t1[p] = v;
+    } else if (v > t2[p]) t2[p] = v;
+    if (--indeg[p] === 0) q.push(p);
+  }
+  const onCycle = new Array<boolean>(N + 1).fill(false);
+  for (let i = 1; i <= N; i++) onCycle[i] = indeg[i] > 0;
+  return { t1, t2, onCycle, order: q };
+}
+const { t1, t2, onCycle } = peel();
+
+/** แยกกลุ่มออกเป็นวง ๆ แล้วคิดคำตอบของแต่ละกลุ่ม */
+type Comp = { cyc: number[]; d: number[]; w: number[]; pref: number[]; bestPair: string; local: number; treeBest: number };
+function components(): Comp[] {
+  const done = new Array<boolean>(N + 1).fill(false);
+  const out: Comp[] = [];
+  const compOf = new Array<number>(N + 1).fill(-1);
+  for (let s = 1; s <= N; s++) {
+    if (!onCycle[s] || done[s]) continue;
+    const cyc: number[] = [];
+    for (let u = s; !done[u]; u = f(u)) {
+      done[u] = true;
+      cyc.push(u);
+      compOf[u] = out.length;
+    }
+    const c = cyc.length;
+    const d = cyc.map((v) => t1[v]);
+    const w = cyc.map((v) => L(v));
+    const pref = new Array<number>(2 * c).fill(0);
+    for (let i = 1; i < 2 * c; i++) pref[i] = pref[i - 1] + w[(i - 1) % c];
+    let local = 0;
+    let bestPair = '';
+    for (let j = 0; j < 2 * c; j++)
+      for (let i = Math.max(0, j - (c - 1)); i < j; i++) {
+        const v = d[j % c] + pref[j] + d[i % c] - pref[i];
+        if (v > local) {
+          local = v;
+          bestPair = `${cyc[i % c]} ไป ${cyc[j % c]}`;
+        }
+      }
+    out.push({ cyc, d, w, pref, bestPair, local, treeBest: 0 });
+  }
+  // เส้นทางที่อยู่ในต้นไม้ห้อยล้วน ๆ ก็เป็นคำตอบของกลุ่มได้ ต้องแจกหมายเลขกลุ่มลงไปก่อน
+  const stack = [...Array(N).keys()].map((i) => i + 1);
+  const assign = (v: number): number => {
+    if (compOf[v] >= 0) return compOf[v];
+    const c = assign(f(v));
+    compOf[v] = c;
+    return c;
+  };
+  for (const v of stack) assign(v);
+  for (let v = 1; v <= N; v++) {
+    const c = compOf[v];
+    out[c].treeBest = Math.max(out[c].treeBest, t1[v] + t2[v]);
+  }
+  for (const c of out) c.local = Math.max(c.local, c.treeBest);
+  return out;
+}
+const comps = components();
+const answer = comps.reduce((a, c) => a + c.local, 0);
+
+const NMAX = 1000000;
+const LMAX = 100000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main(){
+    int n; if(scanf("%d",&n)!=1) return 0;
+    vector<int> f(n+1),L(n+1),indeg(n+1,0);
+    for(int i=1;i<=n;i++){ scanf("%d %d",&f[i],&L[i]); indeg[f[i]]++; }
+    vector<ll> t1(n+1,0),t2(n+1,0);                  // สองกิ่งที่ลึกที่สุดของแต่ละปม
+    vector<int> q; q.reserve(n);
+    for(int i=1;i<=n;i++) if(!indeg[i]) q.push_back(i);
+    for(size_t h=0;h<q.size();h++){                  // ปอกใบทิ้งทีละชั้น เหลือไว้แต่ปมบนวง
+        int u=q[h],p=f[u]; ll v=t1[u]+L[u];
+        if(v>t1[p]){ t2[p]=t1[p]; t1[p]=v; } else if(v>t2[p]) t2[p]=v;
+        if(--indeg[p]==0) q.push_back(p);
+    }
+    vector<int> comp(n+1,-1); vector<ll> res;
+    vector<char> done(n+1,0);
+    vector<int> cyc; vector<ll> d,P; vector<int> W;
+    for(int s=1;s<=n;s++){
+        if(indeg[s]==0||done[s]) continue;
+        int id=(int)res.size(); cyc.clear();
+        for(int u=s; !done[u]; u=f[u]){ done[u]=1; cyc.push_back(u); comp[u]=id; }
+        int c=(int)cyc.size();
+        d.assign(c,0); W.assign(c,0);
+        for(int i=0;i<c;i++){ d[i]=t1[cyc[i]]; W[i]=L[cyc[i]]; }
+        P.assign(2*c,0);
+        for(int i=1;i<2*c;i++) P[i]=P[i-1]+W[(i-1)%c];
+        ll local=0; deque<int> dq;                   // หน้าต่างเลื่อน หาค่ามากสุดของ d[i]-P[i]
+        for(int j=0;j<2*c;j++){
+            while(!dq.empty() && dq.front()<j-(c-1)) dq.pop_front();
+            if(!dq.empty()) local=max(local, d[j%c]+P[j] + d[dq.front()%c]-P[dq.front()]);
+            ll cur=d[j%c]-P[j];
+            while(!dq.empty() && d[dq.back()%c]-P[dq.back()]<=cur) dq.pop_back();
+            dq.push_back(j);
+        }
+        res.push_back(local);
+    }
+    for(int h=(int)q.size()-1;h>=0;h--) comp[q[h]]=comp[f[q[h]]];   // แจกหมายเลขกลุ่มลงต้นไม้ที่ห้อยอยู่
+    for(int u=1;u<=n;u++) res[comp[u]]=max(res[comp[u]],t1[u]+t2[u]);
+    ll ans=0; for(ll v:res) ans+=v;
+    printf("%lld\\n",ans);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย N ไม่เกิน 4,000 (40 คะแนน)
+// ความคิดหลัก: ตัดเส้นบนวงออกทีละเส้น กลุ่มนั้นจะกลายเป็นต้นไม้ทันที
+// แล้วเส้นทางยาวสุดในต้นไม้ก็คือเส้นผ่านศูนย์กลาง ซึ่งหาได้ด้วยการค้นสองรอบ
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int n;
+struct E { int to, w, id; };
+vector<vector<E>> g;                                // กราฟไม่มีทิศ สะพานสองเส้นระหว่างเกาะคู่เดียวกันเป็นคนละเส้น จึงต้องมีหมายเลขกำกับ
+
+pair<int,ll> farthest(int s, const vector<char>& alive, int banId) {
+    vector<ll> d(n + 1, -1);
+    d[s] = 0;
+    vector<int> st{s};
+    int bi = s; ll bd = 0;
+    while (!st.empty()) {
+        int u = st.back(); st.pop_back();
+        for (auto& e : g[u]) {
+            int v = e.to;
+            if (!alive[v] || d[v] >= 0 || e.id == banId) continue;   // ข้ามสะพานเส้นที่ตัดทิ้ง
+            d[v] = d[u] + e.w;
+            if (d[v] > bd) { bd = d[v]; bi = v; }
+            st.push_back(v);
+        }
+    }
+    return {bi, bd};
+}
+
+int main() {
+    scanf("%d", &n);
+    vector<int> f(n + 1), L(n + 1);
+    g.assign(n + 1, {});
+    for (int i = 1; i <= n; i++) {
+        scanf("%d %d", &f[i], &L[i]);
+        g[i].push_back({f[i], L[i], i});
+        g[f[i]].push_back({i, L[i], i});
+    }
+    vector<char> seen(n + 1, 0);
+    ll ans = 0;
+    for (int s = 1; s <= n; s++) {
+        if (seen[s]) continue;
+        // เก็บสมาชิกของกลุ่มนี้
+        vector<int> comp; vector<char> alive(n + 1, 0);
+        vector<int> st{s}; seen[s] = 1;
+        while (!st.empty()) {
+            int u = st.back(); st.pop_back(); comp.push_back(u); alive[u] = 1;
+            for (auto& e : g[u]) if (!seen[e.to]) { seen[e.to] = 1; st.push_back(e.to); }
+        }
+        // หาวงด้วยการเดินตามลูกศรจนวนกลับมาที่เดิม
+        vector<int> mark(n + 1, 0);
+        int u = s; while (!mark[u]) { mark[u] = 1; u = f[u]; }
+        vector<int> cyc; int v = u;
+        do { cyc.push_back(v); v = f[v]; } while (v != u);
+        ll best = 0;
+        for (size_t i = 0; i < cyc.size(); i++) {
+            int a = cyc[i];                           // สะพานหมายเลข a คือเส้นที่ออกจากเกาะ a
+            auto p1 = farthest(a, alive, a);          // ตัดสะพานนั้นแล้วหาเส้นผ่านศูนย์กลางของต้นไม้
+            auto p2 = farthest(p1.first, alive, a);
+            best = max(best, p2.second);
+        }
+        ans += best;
+    }
+    printf("%lld\\n", ans);
+}`;
+const coreSnippet = `// ค่าของเส้นทางที่ลงต้นไม้ที่ i ไต่วงไปทางเดียวจนถึง j แล้วลงต้นไม้ที่ j คือ
+//     d[i] + d[j] + (P[j] - P[i])   =   (d[j] + P[j]) + (d[i] - P[i])
+// ก้อนหลังไม่ขึ้นกับ j เลย จึงใช้หน้าต่างเลื่อนเก็บค่ามากสุดของมันได้
+deque<int> dq;
+for (int j = 0; j < 2 * c; j++) {
+    while (!dq.empty() && dq.front() < j - (c - 1)) dq.pop_front();   // ไต่วงเกินรอบไม่ได้
+    if (!dq.empty())
+        local = max(local, d[j % c] + P[j] + d[dq.front() % c] - P[dq.front()]);
+    ll cur = d[j % c] - P[j];
+    while (!dq.empty() && d[dq.back() % c] - P[dq.back()] <= cur) dq.pop_back();
+    dq.push_back(j);
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เดินให้ไกลที่สุด แต่ห้ามซ้ำเกาะ</h2>
+  <p>
+    สวนสาธารณะมีเกาะ <code>N</code> เกาะ จากเกาะ <code>i</code> มีสะพานหนึ่งสะพานทอดไปยังอีกเกาะหนึ่ง
+    ยาว <code>L</code> ทั้งสวนจึงมีสะพาน <code>N</code> สะพานพอดี สะพานเดินได้สองทาง
+    และระหว่างเกาะคู่ไหนก็มีเรือแล่นถึงกันได้
+  </p>
+  <p>เราอยากให้<strong>ผลรวมความยาวสะพานที่เดินข้าม</strong>มากที่สุด ภายใต้กฎว่า</p>
+  <ul>
+    <li>เริ่มที่เกาะไหนก็ได้</li>
+    <li>ห้ามแวะเกาะเดิมซ้ำ</li>
+    <li>
+      จะย้ายจากเกาะที่ยืนอยู่ไปเกาะใหม่ได้สองทาง คือ<strong>เดินข้ามสะพาน</strong> ซึ่งได้ระยะทางบวกเพิ่ม
+      หรือ<strong>นั่งเรือ</strong> ซึ่งทำได้ก็ต่อเมื่อเกาะปลายทางไปถึงไม่ได้เลยด้วยสะพานและเส้นทางเรือที่เคยใช้มา
+      และไม่ได้ระยะทางเพิ่ม
+    </li>
+  </ul>
+  <p>
+    กฎเรือฟังดูซับซ้อน แต่ผลของมันเรียบง่ายมาก มันแปลว่าเรา<strong>ข้ามไปกลุ่มอื่นได้ฟรี แต่กลับเข้ากลุ่มเดิมไม่ได้</strong>
+    เพราะพอเข้ากลุ่มไหนแล้ว ทุกเกาะในกลุ่มนั้นก็นับว่า "ไปถึงได้" หมด คำตอบจึงเป็น
+    <strong>ผลรวมของเส้นทางที่ยาวที่สุดในแต่ละกลุ่ม</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้น <code>N</code> บรรทัด บรรทัดที่ <code>i</code>
+        คือหมายเลขเกาะปลายทางกับความยาวของสะพานที่ออกจากเกาะ <code>i</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>2 ≤ N ≤ {fmt(NMAX)}</code>, <code>1 ≤ L ≤ {fmt(LMAX)}</code>
+        เวลา 2.2 วินาที หน่วยความจำ 128 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ระยะทางรวมมากที่สุด ต้องใช้จำนวนเต็ม 64 บิต</li>
+      <li><strong>ให้คะแนน:</strong> มี 40 คะแนนสำหรับชุดทดสอบที่ <code>N</code> ไม่เกิน 4,000</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{N}<br />{EX.map((b) => <>{b.to} {b.len}<br /></>)}</td>
+        <td>{answer}</td>
+      </tr>
+    </tbody>
+  </table>
+  <Spoiler linked>
+    <p class="io-note">
+      ระวังจุดหนึ่ง ระหว่างเกาะ 2 กับเกาะ 7 มีสะพาน<strong>สองสะพาน</strong> คือเส้นยาว 2 ที่ออกจากเกาะ 2
+      กับเส้นยาว 3 ที่ออกจากเกาะ 7 มันเป็นคนละสะพานกัน ไม่ใช่สะพานเดียวที่ถูกเขียนสองรอบ
+      ถ้าเผลอยุบให้เหลือเส้นเดียว คำตอบจะเพี้ยนทันที
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ทุกเกาะมีสะพานออกไป<strong>เส้นเดียว</strong> ลองวาดลูกศรจากเกาะ <code>i</code> ไปเกาะที่มันชี้ถึง
+      แล้วดูว่ารูปที่ได้หน้าตาเป็นยังไง เดินตามลูกศรจากเกาะไหนก็ตาม สุดท้ายจะไปจบที่ไหน
+    </p>
+    <p>
+      พอเห็นรูปแล้ว ลองแยกว่า "เส้นทางที่ยาวที่สุด" ในรูปแบบนั้นมีได้กี่ทรง
+    </p>
+  </div>
+
+  <h2>เฉลย · ทุกกลุ่มคือวงหนึ่งวงที่มีต้นไม้ห้อยอยู่</h2>
+  <Spoiler>
+    <p>
+      กราฟที่ทุกปมมีลูกศรออกเส้นเดียวมีรูปร่างตายตัวมาก เดินตามลูกศรไปเรื่อย ๆ จากปมไหนก็ตาม จำนวนปมมีจำกัด
+      เราจึงต้องวนกลับมาที่เดิมสักวัน แปลว่า<strong>ทุกกลุ่มมีวงพอดีหนึ่งวง</strong> และสิ่งที่ไม่ได้อยู่บนวง
+      ก็คือ<strong>ต้นไม้ที่ห้อยลงมาจากปมบนวง</strong> รูปนี้บางคนเรียกว่ารูปตัวโรว์ (ρ) ตามหน้าตาของมัน
+    </p>
+
+    <ZoomableDiagram caption="ทุกกลุ่มของกราฟแบบนี้มีวงพอดีหนึ่งวง ที่เหลือคือต้นไม้ที่ห้อยลงมา เส้นทางที่ยาวที่สุดจึงมีแค่สองทรง คือจมอยู่ในต้นไม้ต้นเดียว หรือลงต้นไม้ฝั่งหนึ่ง ไต่วงไปทางเดียว แล้วลงต้นไม้อีกฝั่ง (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 388 272" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพกลุ่มของกราฟที่ทุกปมมีทางออกทางเดียว ตรงกลางเป็นวงกลมที่ประกอบด้วยปมสี่ปมต่อกันเป็นวง จากปมบนวงสองปมมีต้นไม้ห้อยลงมา ปมละสองชั้น เส้นทางที่ยาวที่สุดวาดเป็นเส้นหนา ลากจากใบของต้นไม้ฝั่งซ้าย ขึ้นไปหาปมบนวง ไต่วงไปทางเดียวจนถึงปมบนวงอีกปม แล้วลงไปหาใบของต้นไม้ฝั่งขวา">
+        {[
+          [150, 96, 230, 96],
+          [230, 96, 230, 160],
+          [230, 160, 150, 160],
+          [150, 160, 150, 96],
+        ].map((e, i) => (
+          <line
+            x1={e[0]}
+            y1={e[1]}
+            x2={e[2]}
+            y2={e[3]}
+            stroke={i === 0 ? '#4ade80' : '#3a4260'}
+            stroke-width={i === 0 ? '3' : '1.6'}
+          />
+        ))}
+        {[
+          [150, 96, 84, 56, true],
+          [84, 56, 32, 26, true],
+          [84, 56, 40, 92, false],
+          [230, 96, 300, 56, true],
+          [300, 56, 356, 26, true],
+          [300, 56, 350, 96, false],
+          [230, 160, 300, 200, false],
+        ].map((e) => (
+          <line
+            x1={e[0] as number}
+            y1={e[1] as number}
+            x2={e[2] as number}
+            y2={e[3] as number}
+            stroke={e[4] ? '#4ade80' : '#3a4260'}
+            stroke-width={e[4] ? '3' : '1.6'}
+          />
+        ))}
+        {[
+          [150, 96, 'cyc'],
+          [230, 96, 'cyc'],
+          [230, 160, 'cyc'],
+          [150, 160, 'cyc'],
+          [84, 56, 'on'],
+          [32, 26, 'on'],
+          [40, 92, 'off'],
+          [300, 56, 'on'],
+          [356, 26, 'on'],
+          [350, 96, 'off'],
+          [300, 200, 'off'],
+        ].map((v) => (
+          <circle
+            cx={v[0] as number}
+            cy={v[1] as number}
+            r="9"
+            fill={v[2] === 'cyc' ? '#1a2b3d' : '#1c2536'}
+            stroke={v[2] === 'off' ? '#3a4260' : v[2] === 'cyc' ? '#e0b400' : '#4ade80'}
+            stroke-width="2"
+          />
+        ))}
+        <text x="190" y="134" fill="#e0b400" font-size="12" text-anchor="middle">วง</text>
+        <text x="66" y="128" fill="#9aa7bd" font-size="11" text-anchor="middle">ต้นไม้ที่ห้อยอยู่</text>
+        <text x="344" y="132" fill="#9aa7bd" font-size="11" text-anchor="middle">ต้นไม้ที่ห้อยอยู่</text>
+        <text x="190" y="84" fill="#4ade80" font-size="11" text-anchor="middle">ไต่วงได้ทางเดียว</text>
+        <text x="214" y="234" fill="#4ade80" font-size="11" text-anchor="middle">เส้นหนาคือเส้นทางที่ยาวที่สุด</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>เมื่อรูปเป็นแบบนี้ เส้นทางที่ยาวที่สุดในกลุ่มหนึ่งมีได้แค่สองทรง</p>
+    <ul>
+      <li>
+        <strong>จมอยู่ในต้นไม้ต้นเดียว</strong> ไม่แตะวงเลย ค่าของมันคือผลรวมของ<strong>สองกิ่งที่ลึกที่สุด</strong>
+        ของปมใดปมหนึ่ง
+      </li>
+      <li>
+        <strong>ลงต้นไม้ที่ปมบนวงตัวหนึ่ง ไต่วงไปทางเดียว แล้วลงต้นไม้ที่ปมบนวงอีกตัว</strong>
+        ไต่ได้ทางเดียวเพราะห้ามซ้ำเกาะ
+      </li>
+    </ul>
+
+    <h3>ทรงแรกหาได้ระหว่างปอกใบ</h3>
+    <p>
+      แทนที่จะค้นหาวงก่อน ให้<strong>ปอกใบทิ้ง</strong>ก่อน นับว่าแต่ละปมมีลูกศรชี้เข้ากี่เส้น
+      ปมที่ไม่มีใครชี้เข้าเลยคือใบ ตัดทิ้งแล้วลดตัวนับของปมที่มันชี้ไป ทำซ้ำจนไม่มีใบเหลือ
+      สิ่งที่เหลือคือปมบนวงเป๊ะ ๆ และระหว่างปอกเราก็เก็บ<strong>สองกิ่งที่ลึกที่สุด</strong>ของทุกปมไปด้วยเลย
+      ท่านี้ไม่ใช้การเรียกซ้ำ จึงไม่ล้นสแต็กแม้ต้นไม้จะลึกเป็นล้านชั้น
+    </p>
+
+    <h3>ทรงที่สองคือหน้าต่างเลื่อนบนวง</h3>
+    <p>
+      ให้ <code>d[i]</code> คือความลึกของต้นไม้ที่ห้อยอยู่ที่ปมบนวงตัวที่ <code>i</code> และ <code>P[i]</code>
+      คือระยะสะสมรอบวง ค่าของเส้นทางที่ลงต้นไม้ที่ <code>i</code> ไต่ไปถึง <code>j</code> แล้วลงต้นไม้ที่ <code>j</code> คือ
+      <code>d[i] + d[j] + (P[j] − P[i])</code>
+    </p>
+    <p>
+      จับกลุ่มใหม่เป็น <code>(d[j] + P[j]) + (d[i] − P[i])</code> จะเห็นว่าก้อนหลังไม่ขึ้นกับ <code>j</code> เลย
+      ดังนั้นเดิน <code>j</code> ไปข้างหน้า แล้วเก็บค่ามากสุดของก้อนหลังในหน้าต่างที่ยาวไม่เกิน <code>c − 1</code>
+      ก็จบในเวลาเชิงเส้น ส่วนการ<strong>คลี่วงออกเป็นสองรอบ</strong> เป็นวิธีจัดการกับการไต่ที่วนข้ามจุดเริ่ม
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        หน้าต่างต้องยาวไม่เกิน <code>c − 1</code> ไม่ใช่ <code>c</code> เพราะเส้นทางที่ไม่ซ้ำเกาะไต่วงได้มากที่สุด
+        <code>c − 1</code> เส้น ถ้าปล่อยเป็น <code>c</code> โปรแกรมจะยอมให้ไต่ครบรอบแล้วกลับมาที่เดิม
+        ซึ่งผิดกติกาแต่ไม่มีอะไรฟ้อง มันแค่ตอบเกินจริงเงียบ ๆ
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>แกะตัวอย่างในโจทย์</h2>
+  <Spoiler>
+    {comps.map((c, ci) => (
+      <figure class="tbl">
+        <table class="rec">
+          <caption>กลุ่มที่ {ci + 1} · วงคือเกาะ {c.cyc.join(' ไป ')} แล้ววนกลับ</caption>
+          <thead>
+            <tr>
+              <th class="num">ลำดับบนวง</th><th class="num">เกาะ</th>
+              <th class="num">ต้นไม้ที่ห้อยลึก d</th><th class="num">สะพานไปตัวถัดไป</th><th class="num">ระยะสะสม P</th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.cyc.map((v, i) => (
+              <tr>
+                <td class="num">{i}</td>
+                <td class="num">{v}</td>
+                <td class="num">{c.d[i]}</td>
+                <td class="num">{c.w[i]}</td>
+                <td class="num">{c.pref[i]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <figcaption>
+          คู่ที่ดีที่สุดของกลุ่มนี้คือลงต้นไม้ที่เกาะ {c.bestPair} ได้ {c.local} ส่วนเส้นทางที่จมอยู่ในต้นไม้ล้วน ๆ
+          ยาวที่สุด {c.treeBest} คำตอบของกลุ่มคือค่าที่มากกว่า นั่นคือ {c.local}
+        </figcaption>
+      </figure>
+    ))}
+    <p>
+      รวมทุกกลุ่มได้ {comps.map((c) => c.local).join(' + ')} = <strong>{answer}</strong>
+      ตรงกับคำตอบในโจทย์
+    </p>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ตัดเส้นบนวงทิ้งทีละเส้น (ชุดทดสอบย่อย N ≤ 4,000)</h2>
+  <Spoiler>
+    <p>
+      ถ้ายังไม่อยากคิดเรื่องหน้าต่างเลื่อน มีท่าที่ตรงไปตรงมากว่ามาก และได้ 40 คะแนน
+      สังเกตว่าเส้นทางที่ไม่ซ้ำเกาะจะไต่วงได้ทางเดียว แปลว่ามันต้อง<strong>ไม่ใช้เส้นบนวงอย่างน้อยหนึ่งเส้น</strong>
+    </p>
+    <p>
+      งั้นก็ลอง<strong>ตัดเส้นบนวงออกทีละเส้น</strong> พอตัดแล้วกลุ่มนั้นกลายเป็นต้นไม้ทันที
+      และเส้นทางที่ยาวที่สุดในต้นไม้คือ<strong>เส้นผ่านศูนย์กลาง</strong> ซึ่งหาได้ด้วยการค้นสองรอบคือ
+      ค้นจากปมไหนก็ได้เพื่อหาปมที่ไกลที่สุด แล้วค้นจากปมนั้นอีกรอบ
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="islands_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      ต้นทุนคือความยาววงคูณขนาดกลุ่ม ซึ่งแย่ที่สุดคือ <code>N²</code> ตาย ๆ ที่ <code>N</code> เป็นล้าน
+      แต่ที่สี่พันมันสบายมาก และเหมือนเดิม มันเป็น<strong>ตัวตรวจสอบ</strong>ให้เวอร์ชันเร็ว
+      ผมสุ่มสวนเล็ก ๆ 800 ชุดเทียบสองโปรแกรม ตรงกันหมด
+    </p>
+    <p>
+      บักที่เวอร์ชันนี้ทำให้ผมเจอตอนเขียนคือ ตอนแรกผมตัด "เส้นระหว่างเกาะคู่นี้" แทนที่จะตัด "สะพานหมายเลขนี้"
+      พอเจอเกาะสองเกาะที่มีสะพานถึงกันสองเส้น มันเลยตัดทิ้งทีเดียวสองเส้น กลุ่มขาดออกจากกัน คำตอบจึงต่ำเกินจริง
+      อาการนี้ไม่โผล่ในตัวอย่างเล็ก ๆ ที่คิดเองด้วยมือเลย
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ที่ <code>N</code> เป็นล้าน ทุกอย่างต้องเป็นอาเรย์แบน ๆ และห้ามเรียกซ้ำ
+      ตัวปอกใบใช้คิวที่เก็บเป็นเวกเตอร์เดียวโดยไม่ป็อปทิ้ง ซึ่งได้ประโยชน์สองต่อ คือมันเป็นคิวไปในตัว
+      และลำดับใน<strong>เวกเตอร์นั้นเองคือลำดับที่ลูกมาก่อนพ่อ</strong> ซึ่งพอไล่ย้อนกลับก็ได้ลำดับที่พ่อมาก่อนลูก
+      เอาไว้แจกหมายเลขกลุ่มลงต้นไม้ที่ห้อยอยู่ได้พอดี
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="islands.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม สวน {fmt(NMAX)} เกาะ ทั้งแบบที่วงสั้นเยอะ ๆ และแบบที่เป็นวงเดียวยาวหนึ่งล้าน
+      ใช้เวลา <strong>606 มิลลิวินาที</strong> เท่ากันทั้งสองแบบ จากลิมิต 2.2 วินาที
+    </p>
+    <p>
+      ท่าปอกใบกับการแยกวงในกราฟแบบนี้ใช้ซ้ำได้กับอีกหลายข้อ อ่านเวอร์ชันเต็มได้ที่
+      <a href="../functional-graph/">กราฟที่ทุกปมมีทางออกทางเดียว</a> ส่วนเรื่องเส้นผ่านศูนย์กลางของต้นไม้อยู่ใน
+      <a href="../tree-dp/">ดีพีบนต้นไม้</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อทุกปมมีทางออกทางเดียว กลุ่มหนึ่งกลุ่มคือวงหนึ่งวงที่มีต้นไม้ห้อย เส้นทางที่ยาวที่สุดจึงมีแค่สองทรง
+    และทรงที่ข้ามวงยุบเป็นการหาค่ามากสุดในหน้าต่างเลื่อน หลังจากคลี่วงออกเป็นสองรอบแล้ว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Islands</i> บน programming.in.th ข้อ 2009
+      <a href="https://programming.in.th/tasks/2009" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2009
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 1
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

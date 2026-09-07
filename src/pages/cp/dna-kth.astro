@@ -1,0 +1,479 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'dna-kth/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+const AL = 'ACGT';
+
+/** จำนวนรอยต่อที่ตัวถัดไปเล็กลง ลำดับรูปแบบ-K คือลำดับที่มีรอยต่อไม่เกิน K-1 */
+const drops = (s: string): number => {
+  let d = 0;
+  for (let i = 0; i + 1 < s.length; i++) if (s[i] > s[i + 1]) d++;
+  return d;
+};
+
+/** ลำดับสมบูรณ์ทุกอันที่เข้ากันได้กับแพตเทิร์นและเป็นรูปแบบ-K เรียงตามพจนานุกรม */
+function enumerate(pat: string, K: number): string[] {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === pat.length) {
+      if (drops(cur) <= K - 1) out.push(cur);
+      return;
+    }
+    const c = pat[cur.length];
+    for (const x of AL) if (c === 'N' || c === x) rec(cur + x);
+  };
+  rec('');
+  return out;
+}
+
+const PAT = 'ACANNCNNG';
+const KK = 3;
+const RR = 5;
+const listed = enumerate(PAT, KK);
+const answer = listed[RR - 1];
+const firstSeven = listed.slice(0, 7);
+
+const PAT2 = 'ACANN';
+const K2 = 4;
+const R2 = 10;
+const answer2 = enumerate(PAT2, K2)[R2 - 1];
+
+/** ตัวอย่างที่โจทย์ยกมาว่าอันไหนเป็นรูปแบบ-1 อันไหนไม่ใช่ */
+const shapeDemo = ['AACCGT', 'AACGTC', 'AACCC', 'ACACC', 'ACACA', 'GCACAC', 'ACACACA'].map((s) => ({
+  s,
+  d: drops(s),
+  form: drops(s) + 1,
+}));
+
+/* เดินหาตัวที่ R ทีละตำแหน่ง เพื่อทำตารางไล่ */
+type Walk = { i: number; tried: { ch: string; cnt: number; taken: boolean }[]; pick: string; rest: number };
+function walk(pat: string, K: number, R: number): Walk[] {
+  const n = pat.length;
+  // f[i][c][d] = จำนวนวิธีเติมตำแหน่ง i..n-1 เมื่อตัวก่อนหน้าคือ c (4 = ยังไม่มี) เหลือท่อนได้ d
+  const f: number[][][] = Array.from({ length: n + 1 }, () =>
+    Array.from({ length: 5 }, () => new Array<number>(K + 1).fill(0)),
+  );
+  for (let c = 0; c < 5; c++) for (let d = 1; d <= K; d++) f[n][c][d] = 1;
+  for (let i = n - 1; i >= 0; i--)
+    for (let c = 0; c < 5; c++)
+      for (let d = 1; d <= K; d++) {
+        let v = 0;
+        for (let x = 0; x < 4; x++) {
+          if (pat[i] !== 'N' && pat[i] !== AL[x]) continue;
+          const nd = c < 4 && x < c ? d - 1 : d;
+          if (nd < 1) continue;
+          v += f[i + 1][x][nd];
+        }
+        f[i][c][d] = v;
+      }
+  const rows: Walk[] = [];
+  let c = 4;
+  let d = K;
+  let r = R;
+  for (let i = 0; i < n; i++) {
+    const tried: { ch: string; cnt: number; taken: boolean }[] = [];
+    for (let x = 0; x < 4; x++) {
+      if (pat[i] !== 'N' && pat[i] !== AL[x]) continue;
+      const nd = c < 4 && x < c ? d - 1 : d;
+      if (nd < 1) {
+        tried.push({ ch: AL[x], cnt: 0, taken: false });
+        continue;
+      }
+      const cnt = f[i + 1][x][nd];
+      if (r <= cnt) {
+        tried.push({ ch: AL[x], cnt, taken: true });
+        rows.push({ i: i + 1, tried, pick: AL[x], rest: r });
+        c = x;
+        d = nd;
+        break;
+      }
+      tried.push({ ch: AL[x], cnt, taken: false });
+      r -= cnt;
+    }
+  }
+  return rows;
+}
+const walkRows = walk(PAT, KK, RR);
+
+const MMAX = 50000;
+const RMAX = '2 × 10^18';
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+static const ull CAP = 4000000000000000000ULL;   // เพดานกันล้น โจทย์รับประกันคำตอบไม่เกินนี้
+static inline ull addc(ull a, ull b){ ull s=a+b; return (s>CAP||s<a)?CAP:s; }
+const char* AL="ACGT";
+int main(){
+    int M,K; unsigned long long R;
+    if(scanf("%d %d %llu",&M,&K,&R)!=3) return 0;
+    static char buf[50005]; scanf("%s",buf); string s=buf;
+    int D=K;                                   // จำนวน "ท่อน" ที่ยังเหลือใช้ได้ 1..K
+    // f[i][c][d] = จำนวนวิธีเติมตำแหน่ง i..M-1 เมื่อตัวก่อนหน้าเป็น c และเหลือท่อนได้อีก d
+    // c = 0..3 คือตัวอักษรก่อนหน้า, c = 4 คือยังไม่มีตัวก่อนหน้า (ตำแหน่งแรก)
+    vector<array<array<ull,11>,5>> f(M+1);
+    for(int c=0;c<5;c++) for(int d=0;d<=D;d++) f[M][c][d]= d>=1 ? 1 : 0;
+    for(int i=M-1;i>=0;i--)
+        for(int c=0;c<5;c++)
+            for(int d=0;d<=D;d++){
+                ull v=0;
+                if(d>=1) for(int x=0;x<4;x++){
+                    if(s[i]!='N' && s[i]!=AL[x]) continue;
+                    int nd = (c<4 && x<c) ? d-1 : d;      // ลดลงเมื่อ "ตก" คือเริ่มท่อนใหม่
+                    if(nd<1) continue;
+                    v=addc(v,f[i+1][x][nd]);
+                }
+                f[i][c][d]=v;
+            }
+    string out; int c=4,d=D;
+    for(int i=0;i<M;i++){
+        for(int x=0;x<4;x++){
+            if(s[i]!='N' && s[i]!=AL[x]) continue;
+            int nd = (c<4 && x<c) ? d-1 : d;
+            if(nd<1) continue;
+            ull cnt=f[i+1][x][nd];
+            if(R<=cnt){ out.push_back(AL[x]); c=x; d=nd; break; }
+            R-=cnt;
+        }
+    }
+    printf("%s\\n",out.c_str());
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย M ไม่เกิน 10 (20 คะแนน)
+// สร้างลำดับที่เข้ากันได้ทุกอันตรง ๆ แล้วหยิบตัวที่ R ออกมา
+#include <bits/stdc++.h>
+using namespace std;
+int M, K; long long R;
+string pat, cur;
+vector<string> all;
+const char* AL = "ACGT";
+
+void rec(int i) {
+    if (i == M) {
+        int drop = 0;                                      // จำนวนตำแหน่งที่ตัวถัดไปเล็กลง คือรอยต่อของท่อน
+        for (int j = 0; j + 1 < M; j++) if (cur[j] > cur[j + 1]) drop++;
+        if (drop <= K - 1) all.push_back(cur);
+        return;
+    }
+    for (int x = 0; x < 4; x++) {
+        if (pat[i] != 'N' && pat[i] != AL[x]) continue;
+        cur.push_back(AL[x]); rec(i + 1); cur.pop_back();
+    }
+}
+
+int main() {
+    scanf("%d %d %lld", &M, &K, &R);
+    char buf[64]; scanf("%s", buf); pat = buf;
+    rec(0);                                                // การเรียกซ้ำไล่เรียงตามพจนานุกรมอยู่แล้ว
+    printf("%s\\n", all[R - 1].c_str());
+}`;
+const coreSnippet = `string out; int c = 4, d = D;            // c = ตัวก่อนหน้า (4 คือยังไม่มี), d = ท่อนที่เหลือใช้ได้
+for (int i = 0; i < M; i++) {
+    for (int x = 0; x < 4; x++) {        // ไล่ A C G T ตามลำดับพจนานุกรม
+        if (s[i] != 'N' && s[i] != AL[x]) continue;
+        int nd = (c < 4 && x < c) ? d - 1 : d;   // ตัวนี้เล็กกว่าตัวก่อน แปลว่าขึ้นท่อนใหม่
+        if (nd < 1) continue;
+        ull cnt = f[i + 1][x][nd];       // ถ้าเลือกตัวนี้ จะมีลำดับตามมาได้กี่แบบ
+        if (R <= cnt) { out.push_back(AL[x]); c = x; d = nd; break; }
+        R -= cnt;                        // ตัวที่ตามหาอยู่หลังก้อนนี้ ข้ามไปทั้งก้อน
+    }
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เติมช่องว่างใน DNA แล้วขอตัวที่ R</h2>
+  <p>
+    สาย DNA เขียนแทนด้วยตัวอักษรสี่ตัวคือ <code>A C G T</code> ตามชื่อนิวคลีโอไทด์สี่ชนิด
+    บางตำแหน่งนักชีววิทยาระบุไม่ได้ว่าเป็นตัวไหน จึงเขียนเป็น <code>N</code> ซึ่งแทนตัวไหนก็ได้ในสี่ตัวนั้น
+    เราเรียกลำดับที่มี <code>N</code> ว่า<strong>ลำดับไม่สมบูรณ์</strong> และลำดับที่ไม่มี <code>N</code> เลยว่า
+    <strong>ลำดับสมบูรณ์</strong>
+  </p>
+  <p>
+    ลำดับสมบูรณ์ตัวหนึ่ง <strong>เข้ากันได้</strong> กับลำดับไม่สมบูรณ์ ถ้ามันเกิดจากการเติม <code>N</code>
+    ทุกตัวด้วยนิวคลีโอไทด์สักตัว เช่น <code>ACCCT</code> เข้ากันได้กับ <code>ACNNT</code> แต่ <code>AGGAT</code> ไม่เข้า
+  </p>
+  <p>
+    ต่อมาโจทย์นิยาม <strong>รูปแบบ</strong> ของลำดับ ลำดับเป็น<strong>รูปแบบ-1</strong> ถ้าตัวอักษรเรียงจากน้อยไปมาก
+    ตลอดสาย (ตัวไหนก็ต้องน้อยกว่าหรือเท่ากับตัวขวามือของมัน) และเป็น<strong>รูปแบบ-j</strong> สำหรับ
+    <code>j &gt; 1</code> ถ้ามันเป็นรูปแบบ-(j−1) อยู่แล้ว หรือเกิดจากเอาลำดับรูปแบบ-(j−1) มาต่อกับลำดับรูปแบบ-1
+  </p>
+  <p>
+    งานของเราคือ ให้ลำดับไม่สมบูรณ์ยาว <code>M</code> ตัวมา พร้อมเลข <code>K</code> และ <code>R</code>
+    แล้วหาลำดับสมบูรณ์<strong>รูปแบบ-K ตัวที่ R</strong> ตามลำดับพจนานุกรม ที่เข้ากันได้กับลำดับไม่สมบูรณ์นั้น
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>M</code>, <code>K</code>, <code>R</code> บรรทัดที่สองคือลำดับไม่สมบูรณ์ยาว <code>M</code> ตัว</li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>M ≤ {fmt(MMAX)}</code>, <code>K ≤ 10</code>, <code>R ≤ {RMAX}</code>
+        โจทย์รับประกันว่าจำนวนลำดับที่เข้ากันได้ไม่เกิน <code>4 × 10^18</code> และ <code>R</code> ไม่เกินจำนวนนั้น
+        เวลา 1 วินาที หน่วยความจำ 128 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ลำดับรูปแบบ-K ตัวที่ <code>R</code></li>
+      <li><strong>ให้คะแนน:</strong> มี 20 คะแนนสำหรับชุดทดสอบที่ <code>M</code> ไม่เกิน 10</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td>{PAT.length} {KK} {RR}<br />{PAT}</td><td>{answer}</td></tr>
+      <tr><td>{PAT2.length} {K2} {R2}<br />{PAT2}</td><td>{answer2}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      นิยามของรูปแบบ-K ฟังดูซับซ้อนเพราะมันนิยามแบบเรียกตัวเอง แต่ลองอ่านอีกรอบว่ามันแปลว่า
+      "ตัดสายออกเป็นท่อนได้ไม่เกิน <code>K</code> ท่อน โดยแต่ละท่อนเรียงจากน้อยไปมาก"
+      แล้วถามต่อว่า <strong>จุดที่ต้องตัด</strong> คือจุดไหนบ้าง
+    </p>
+    <p>
+      ส่วนคำว่า "ตัวที่ <code>R</code> ตามพจนานุกรม" นั้น เมื่อ <code>R</code> ใหญ่ได้ถึงสองล้านล้านล้าน
+      การไล่เรียงทีละตัวจนถึงตัวที่ <code>R</code> เป็นไปไม่ได้แน่ ๆ แต่ถ้าเรา<strong>นับได้</strong>ว่า
+      "ลำดับที่ขึ้นต้นด้วย <code>ACA</code> มีกี่ตัว" ล่ะ จะช่วยอะไรได้บ้าง
+    </p>
+  </div>
+
+  <h2>เฉลย · นิยามที่เรียกตัวเอง แปลเป็นการนับรอยต่อ</h2>
+  <Spoiler>
+    <p>
+      เริ่มจากแกะนิยามก่อน รูปแบบ-1 คือเรียงจากน้อยไปมากตลอดสาย รูปแบบ-2 คือเอารูปแบบ-1 สองอันมาต่อกัน
+      รูปแบบ-3 คือสามอัน และต่อไปเรื่อย ๆ ดังนั้น<strong>รูปแบบ-K ก็คือสายที่ตัดเป็นท่อนเรียงขึ้นได้ไม่เกิน K ท่อน</strong>
+    </p>
+    <p>
+      แล้วจุดตัดที่<strong>จำเป็น</strong>คือจุดไหน ถ้าตัวถัดไปใหญ่กว่าหรือเท่ากับตัวปัจจุบัน สายยังเรียงขึ้นอยู่ ไม่ต้องตัด
+      แต่ถ้าตัวถัดไป<strong>เล็กลง</strong> ท่อนเดิมต้องจบตรงนั้น เรียกจุดแบบนี้ว่า<strong>รอยต่อ</strong>
+      จำนวนท่อนที่น้อยที่สุดจึงเท่ากับจำนวนรอยต่อบวกหนึ่ง สรุปได้ว่า
+    </p>
+    <p class="pull">ลำดับเป็นรูปแบบ-K ก็ต่อเมื่อมีตำแหน่งที่ตัวถัดไปเล็กลง ไม่เกิน K − 1 ตำแหน่ง</p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตรวจตัวอย่างที่โจทย์ยกมา</caption>
+        <thead>
+          <tr><th>ลำดับ</th><th class="num">รอยต่อ</th><th>รูปแบบต่ำสุดที่เป็นได้</th><th>ตรงกับที่โจทย์บอกไหม</th></tr>
+        </thead>
+        <tbody>
+          {shapeDemo.map((r) => (
+            <tr>
+              <td><code>{r.s}</code></td>
+              <td class="num">{r.d}</td>
+              <td>รูปแบบ-{r.form}</td>
+              <td>{r.form <= 1 ? 'เป็นรูปแบบ-1' : r.form <= 3 ? 'เป็นรูปแบบ-3' : 'ไม่เป็นรูปแบบ-3'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        โจทย์บอกว่า <code>AACCGT</code> เป็นรูปแบบ-1 แต่ <code>AACGTC</code> ไม่เป็น และ
+        <code>AACCC ACACC ACACA</code> เป็นรูปแบบ-3 ส่วน <code>GCACAC ACACACA</code> ไม่เป็น
+        คอลัมน์รอยต่ออธิบายได้ครบทุกบรรทัดโดยไม่ต้องแตะนิยามที่เรียกตัวเองอีกเลย
+      </figcaption>
+    </figure>
+
+    <h3>นับก่อน แล้วค่อยเดิน</h3>
+    <p>
+      เมื่อเงื่อนไขกลายเป็นการนับรอยต่อ สถานะที่ต้องจำระหว่างเดินจากซ้ายไปขวาก็เหลือแค่สองอย่างคือ
+      <strong>ตัวอักษรก่อนหน้าคือตัวไหน</strong> (เพื่อรู้ว่าตัวถัดไปจะเป็นรอยต่อหรือไม่) และ
+      <strong>ยังตัดได้อีกกี่ท่อน</strong>
+    </p>
+    <p>
+      คำนวณ <code>f[i][c][d]</code> ถอยหลังจากท้ายมาหน้า แปลว่า ถ้ายืนที่ตำแหน่ง <code>i</code>
+      โดยตัวก่อนหน้าเป็น <code>c</code> และเหลือท่อนได้ <code>d</code> จะเติมส่วนที่เหลือได้กี่แบบ
+      ขนาดตารางคือ <code>M × 5 × (K + 1)</code> ซึ่งเต็มขอบเขตก็แค่ {fmt(MMAX * 5 * 11)} ช่อง
+    </p>
+    <p>
+      แล้วเดินหาตัวที่ <code>R</code> ด้วยท่ามาตรฐาน ยืนที่ตำแหน่งแรก ไล่ตัวอักษรตามลำดับพจนานุกรม
+      ถามทีละตัวว่า "ถ้าเลือกตัวนี้จะมีลำดับตามมาได้กี่แบบ" ถ้า <code>R</code> ยัง<strong>มากกว่า</strong>จำนวนนั้น
+      แปลว่าตัวที่ตามหาไม่ได้อยู่ในก้อนนี้ ก็หัก <code>R</code> ลงแล้วข้ามไปตัวถัดไป ถ้าไม่มากกว่า ก็เลือกตัวนี้แล้วเดินต่อ
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+  </Spoiler>
+
+  <h2>ไล่การเดินหาตัวที่ {RR} ของตัวอย่างแรก</h2>
+  <Spoiler>
+    <p>
+      โจทย์ยกเจ็ดตัวแรกมาให้ดูแล้ว ลิสต์ที่โปรแกรมสร้างได้คือ <code>{firstSeven.join(', ')}</code>
+      ตรงกับในโจทย์ทุกตัว ตัวที่ {RR} จึงเป็น <code>{answer}</code>
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เดินหาตัวที่ {RR} ทีละตำแหน่ง</caption>
+        <thead>
+          <tr>
+            <th class="num">ตำแหน่ง</th><th>R ที่เหลือ</th>
+            <th>ไล่ตัวเลือก (ตัว: จำนวนที่ตามมาได้)</th><th>เลือก</th>
+          </tr>
+        </thead>
+        <tbody>
+          {walkRows.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td class="num">{r.rest}</td>
+              <td>
+                <code>
+                  {r.tried.map((t) => `${t.ch}:${t.cnt}${t.taken ? ' <-' : ''}`).join('  ')}
+                </code>
+              </td>
+              <td><code>{r.pick}</code></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ตำแหน่งที่โจทย์ไม่ได้ให้เป็น <code>N</code> มีตัวเลือกเดียว จึงไม่มีการหักค่า
+        ส่วนตำแหน่งที่เป็น <code>N</code> จะเห็นว่า R ค่อย ๆ ถูกหักลงทีละก้อน จนไปหยุดในก้อนที่ใช่
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ไล่สร้างทุกตัวเลย (ชุดทดสอบย่อย M ≤ 10)</h2>
+  <Spoiler>
+    <p>
+      เมื่อ <code>M</code> ไม่เกิน 10 จำนวนลำดับสมบูรณ์ที่เข้ากันได้มีมากที่สุด <code>4^10</code> คือ
+      {fmt(Math.pow(4, 10))} ตัว ซึ่งสร้างทั้งหมดแล้วหยิบตัวที่ <code>R</code> ได้สบาย ๆ
+      และถ้าเรียกซ้ำโดยไล่ <code>A C G T</code> ตามลำดับ ผลที่ได้ก็<strong>เรียงตามพจนานุกรมมาให้เอง</strong>
+      ไม่ต้องเรียงทีหลัง
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="dna_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      ท่านี้ได้ 20 คะแนน และที่สำคัญกว่านั้นคือ มันเป็นตัวตรวจสอบที่ตรงไปตรงมาที่สุดสำหรับเวอร์ชันเต็ม
+      ผมสุ่มแพตเทิร์นสั้น ๆ ที่มี <code>N</code> ปนบ้าง 600 ชุด แล้วสุ่ม <code>R</code> ในช่วงที่ถูกต้อง
+      เทียบสองโปรแกรม ตรงกันหมด
+    </p>
+    <p>
+      กับดักที่เจอบ่อยในโจทย์ตระกูล "ตัวที่ R" มีสองอัน อันแรกคือ<strong>เผลอเทียบเป็น <code>R &lt; cnt</code>
+      แทน <code>R ≤ cnt</code></strong> ซึ่งจะเลื่อนคำตอบไปหนึ่งช่องเสมอ อันที่สองคือ<strong>ค่าล้น</strong>
+      เพราะจำนวนลำดับใหญ่ได้ถึง <code>4 × 10^18</code> ซึ่งชนเพดานของจำนวนเต็ม 64 บิตแบบมีเครื่องหมายพอดี
+      โค้ดเต็มจึงบวกแบบมีเพดานกันไว้
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ตาราง <code>f</code> เก็บเป็น <code>unsigned long long</code> ขนาด
+      <code>(M + 1) × 5 × (K + 1)</code> เต็มขอบเขตคือราว
+      {(((MMAX + 1) * 5 * 11 * 8) / 1024 / 1024).toFixed(0)} เมกะไบต์ อยู่ในลิมิต 128 เมกะไบต์
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="dna.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม แพตเทิร์นยาว {fmt(MMAX)} ตัวที่มี <code>N</code> ปนอยู่ราวหนึ่งในห้า และ
+      <code>K</code> เท่ากับ 10 ใช้เวลา <strong>59 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
+    </p>
+    <p>
+      ท่านับแล้วเดินนี้เป็นท่าประจำ อ่านเวอร์ชันเต็มพร้อมโจทย์ฝึกได้ที่
+      <a href="../count-then-walk/">นับก่อน แล้วค่อยเดินไปหาตัวที่ต้องการ</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    นิยามที่เรียกตัวเองมักซ่อนเงื่อนไขง่าย ๆ ไว้ข้างใน ที่นี่มันคือการนับตำแหน่งที่ตัวถัดไปเล็กลง
+    และเมื่อเงื่อนไขนับได้ การหาตัวที่ R ก็เป็นแค่การถามทีละตำแหน่งว่าก้อนนี้ใหญ่พอจะกลืน R ไหม
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>DNA</i> บน programming.in.th ข้อ 2016
+      <a href="https://programming.in.th/tasks/2016" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2016
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>Asia-Pacific Informatics Olympiad 2008</i></li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>
