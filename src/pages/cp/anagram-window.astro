@@ -34,6 +34,59 @@ const costRows = [
   { name: 'เลื่อนหน้าต่าง แล้วดูแลตัวนับชนิดที่พอดี', per: '2 ครั้ง', total: SMAX * 2 },
 ];
 
+/* ---------- มินิเกม ลากหน้าต่างหาคำที่สลับที่แล้วตรงกัน ----------
+   ชุดโจทย์เลือกมาให้กดดันคนละจุด ชุดแรกคือตัวอย่างในโจทย์
+   ชุดสองบังคับให้ต้องนับจำนวนตัวซ้ำ ไม่ใช่แค่ดูว่ามีตัวอักษรครบชนิดไหม
+   ชุดสามเป็นกับดักตัวพิมพ์ใหญ่พิมพ์เล็ก ซึ่งโจทย์นับเป็นคนละกลิฟ */
+type Puzzle = {
+  id: string;
+  label: string;
+  W: string;
+  S: string;
+  tease: string;
+};
+const PUZZLES: Puzzle[] = [
+  { id: 'p1', label: 'ชุดที่ 1 · ตัวอย่างในโจทย์', W, S, tease: 'อุ่นเครื่องด้วยแผ่นจารึกเดียวกับที่โจทย์ยกมา' },
+  { id: 'p2', label: 'ชุดที่ 2 · ตัวซ้ำ', W: 'aab', S: 'abaabbaaba', tease: 'ชุดนี้มีตัวซ้ำ ระวังหน้าต่างที่มีครบทุกชนิดแต่จำนวนไม่ตรง' },
+  { id: 'p3', label: 'ชุดที่ 3 · ใหญ่เล็กไม่เท่ากัน', W: 'aA', S: 'aaAAaAaa', tease: 'โจทย์นับพิมพ์ใหญ่กับพิมพ์เล็กเป็นคนละกลิฟ' },
+];
+
+type PuzzleData = {
+  id: string;
+  label: string;
+  W: string;
+  S: string;
+  g: number;
+  tease: string;
+  hits: number[];
+  total: number;
+  chars: string[];
+  need: Record<string, number>;
+};
+const puzzleData: PuzzleData[] = PUZZLES.map((pz) => {
+  const key = sortKey(pz.W);
+  const hits: number[] = [];
+  for (let i = 0; i + pz.W.length <= pz.S.length; i++) {
+    if (sortKey(pz.S.slice(i, i + pz.W.length)) === key) hits.push(i);
+  }
+  const needMap: Record<string, number> = {};
+  for (const c of pz.W) needMap[c] = (needMap[c] ?? 0) + 1;
+  const chars = [...new Set([...pz.S, ...pz.W])].sort();
+  return {
+    id: pz.id,
+    label: pz.label,
+    W: pz.W,
+    S: pz.S,
+    g: pz.W.length,
+    tease: pz.tease,
+    hits,
+    total: hits.length,
+    chars,
+    need: needMap,
+  };
+});
+const puzzleJson = JSON.stringify(puzzleData);
+
 const fmt = (n: number): string => n.toLocaleString('en-US');
 function human(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} พันล้าน`;
@@ -204,6 +257,51 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
       ที่เหลือเหมือนกันหมด แล้วทำไมเรายังต้องนับใหม่ทั้งหน้าต่างทุกครั้งด้วย
     </p>
   </div>
+
+  <h2>ลองเอง · ลากหน้าต่างหาคำที่สลับที่แล้วตรงกัน</h2>
+  <div class="glyphgame" data-glyphgame data-puzzles={puzzleJson}>
+    <div class="gg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {puzzleData.map((pz, k) => (
+        <button type="button" class="gg-tab" role="tab" data-gg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {pz.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="gg-tease" data-gg-tease>{puzzleData[0].tease}</p>
+
+    <div class="gg-wordline">
+      <span class="gg-cap">คำที่ตามหา</span>
+      <code class="gg-word" data-gg-word>{puzzleData[0].W}</code>
+      <span class="gg-cap">ยาว <b data-gg-len>{puzzleData[0].g}</b> กลิฟ</span>
+    </div>
+
+    <div class="gg-scroll">
+      <div class="gg-strip" data-gg-strip role="slider" tabindex="0"
+        aria-label="ตำแหน่งซ้ายสุดของหน้าต่าง กดลูกศรซ้ายขวาเพื่อเลื่อน"
+        aria-valuemin="1" aria-valuenow="1" aria-valuemax="1"></div>
+    </div>
+
+    <div class="gg-controls">
+      <button type="button" class="gg-btn" data-gg-prev aria-label="เลื่อนหน้าต่างไปทางซ้าย">&#8592;</button>
+      <button type="button" class="gg-btn gg-claim" data-gg-claim>ตรงกัน เก็บเลย</button>
+      <button type="button" class="gg-btn" data-gg-next aria-label="เลื่อนหน้าต่างไปทางขวา">&#8594;</button>
+    </div>
+
+    <table class="gg-count">
+      <thead><tr data-gg-head><th>กลิฟ</th></tr></thead>
+      <tbody>
+        <tr data-gg-rowneed><th>ต้องการ</th></tr>
+        <tr data-gg-rowhave><th>ในหน้าต่าง</th></tr>
+      </tbody>
+    </table>
+
+    <p class="gg-status" data-gg-status aria-live="polite">เลื่อนหน้าต่างไปเรื่อย ๆ เจอหน้าต่างที่ใช้ได้เมื่อไรก็กดเก็บ</p>
+    <p class="gg-score">เก็บได้ <b data-gg-found>0</b> จาก <b data-gg-total>{puzzleData[0].total}</b> หน้าต่างที่ใช้ได้</p>
+  </div>
+  <p class="io-note">
+    ตัวนับสองแถวข้างบนคือของที่โปรแกรมต้องดูแล ลองสังเกตว่าตอนเลื่อนหนึ่งช่อง มีกี่ช่องในตารางที่เปลี่ยนค่าจริง ๆ
+  </p>
 
   <h2>เฉลย · เก็บจำนวนชนิดที่พอดีแล้วไว้ตัวเดียว</h2>
   <Spoiler>
@@ -447,4 +545,292 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- มินิเกมลากหน้าต่าง ---------- */
+  .glyphgame{
+    border:1px solid var(--dl-border);
+    border-radius:14px;
+    background:#0e1626;
+    padding:1rem 1.1rem 1.15rem;
+    box-shadow:0 10px 30px rgba(0,0,0,0.35);
+  }
+  .gg-tabs{display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.7rem;}
+  .gg-tab{
+    font:inherit;font-size:0.82rem;cursor:pointer;
+    padding:0.32rem 0.7rem;border-radius:999px;
+    border:1px solid var(--dl-border);background:#111c2e;color:#cdd6ea;
+  }
+  .gg-tab[aria-selected='true']{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  /* ข้อความไทยจะดันความกว้างของการ์ดถ้าปล่อยให้มันมีส่วนร่วมกับ max-content */
+  .gg-tease{width:0;min-width:100%;margin:0 0 0.8rem;font-size:0.9rem;color:#cdd6ea;}
+  .gg-wordline{display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:0.75rem;}
+  .gg-cap{font-size:0.82rem;color:#9aa7bd;}
+  .gg-word{font-family:var(--dl-mono,monospace);font-size:1rem;letter-spacing:0.12em;}
+  .gg-scroll{overflow-x:auto;padding-bottom:0.35rem;}
+  .gg-strip{display:flex;gap:4px;width:max-content;outline:none;}
+  .gg-strip:focus-visible{box-shadow:0 0 0 2px var(--dl-emerald-bright);border-radius:8px;}
+  .gg-cell{
+    width:2rem;height:2.4rem;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:1rem;
+    border:1px solid #2a3350;border-radius:7px;background:#101827;color:#7b8397;
+    transition:background 0.15s ease,color 0.15s ease,border-color 0.15s ease;
+  }
+  .gg-cell.in{background:#132235;color:#e6edfb;border-color:#3d5a80;}
+  .gg-cell.edge{border-color:var(--dl-emerald-bright);}
+  .gg-cell.win{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .gg-cell.got{box-shadow:inset 0 -3px 0 #2f9e5c;}
+  .gg-controls{display:flex;gap:0.5rem;align-items:center;margin:0.85rem 0 0.9rem;}
+  .gg-btn{
+    font:inherit;font-size:0.85rem;cursor:pointer;
+    padding:0.4rem 0.8rem;border-radius:8px;
+    border:1px solid var(--dl-border);background:#111c2e;color:#cdd6ea;
+  }
+  .gg-btn:hover{border-color:var(--dl-emerald);color:#fff;}
+  .gg-claim{flex:1;font-weight:700;}
+  .gg-count{border-collapse:collapse;font-size:0.85rem;margin-bottom:0.7rem;}
+  .gg-count th, .gg-count td{
+    border:1px solid #2a3350;padding:0.24rem 0.5rem;text-align:center;
+    font-family:var(--dl-mono,monospace);color:#cdd6ea;
+  }
+  .gg-count tbody th{text-align:left;font-family:inherit;color:#9aa7bd;white-space:nowrap;}
+  .gg-count td.ok{color:#4ade80;background:#14351f;}
+  .gg-count td.over{color:#f0a6a6;background:#351717;}
+  .gg-count td.moved{border-color:var(--dl-emerald-bright);}
+  .gg-status{width:0;min-width:100%;margin:0 0 0.35rem;font-size:0.88rem;color:#cdd6ea;min-height:1.4em;}
+  .gg-status.good{color:#4ade80;}
+  .gg-status.bad{color:#f0a6a6;}
+  .gg-score{width:0;min-width:100%;margin:0;font-size:0.88rem;color:#9aa7bd;}
+  .gg-score b{color:#e6edfb;}
+  @media (prefers-reduced-motion: reduce){
+    .gg-cell{transition:none;}
+  }
 </style>
+
+<script>
+  type GgPuzzle = {
+    id: string;
+    label: string;
+    W: string;
+    S: string;
+    g: number;
+    tease: string;
+    hits: number[];
+    total: number;
+    chars: string[];
+    need: Record<string, number>;
+  };
+
+  function initGlyphGame(): void {
+    const root = document.querySelector<HTMLElement>('[data-glyphgame]');
+    if (!root || root.dataset.wired === '1') return;
+    root.dataset.wired = '1';
+
+    const raw: unknown = JSON.parse(root.dataset.puzzles ?? '[]');
+    if (!Array.isArray(raw)) return;
+    const puzzles = raw as GgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const strip = root.querySelector<HTMLElement>('[data-gg-strip]');
+    const status = root.querySelector<HTMLElement>('[data-gg-status]');
+    const teaseEl = root.querySelector<HTMLElement>('[data-gg-tease]');
+    const wordEl = root.querySelector<HTMLElement>('[data-gg-word]');
+    const lenEl = root.querySelector<HTMLElement>('[data-gg-len]');
+    const foundEl = root.querySelector<HTMLElement>('[data-gg-found]');
+    const totalEl = root.querySelector<HTMLElement>('[data-gg-total]');
+    const head = root.querySelector<HTMLElement>('[data-gg-head]');
+    const rowNeed = root.querySelector<HTMLElement>('[data-gg-rowneed]');
+    const rowHave = root.querySelector<HTMLElement>('[data-gg-rowhave]');
+    if (!strip || !status || !teaseEl || !wordEl || !lenEl || !foundEl || !totalEl || !head || !rowNeed || !rowHave) return;
+
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ตัวแปรข้ามฟังก์ชันที่ถูก hoist
+       วิธีนี้ได้ชนิดที่ไม่เป็น null โดยไม่ต้องใช้เครื่องหมายอัศเจรีย์กดทับ */
+    const elRoot: HTMLElement = root;
+    const elStrip: HTMLElement = strip;
+    const elStatus: HTMLElement = status;
+    const elFound: HTMLElement = foundEl;
+    const elTotal: HTMLElement = totalEl;
+    const elTease: HTMLElement = teaseEl;
+    const elWord: HTMLElement = wordEl;
+    const elLen: HTMLElement = lenEl;
+    const elHead: HTMLElement = head;
+    const elNeed: HTMLElement = rowNeed;
+    const elHave: HTMLElement = rowHave;
+
+    let pi = 0;
+    let left = 0;
+    let prevLeft = 0;
+    let found = new Set<number>();
+
+    const pz = (): GgPuzzle => puzzles[pi];
+    const maxLeft = (): number => pz().S.length - pz().g;
+
+    function countFound(): number {
+      let n = 0;
+      for (const h of pz().hits) if (found.has(h)) n++;
+      return n;
+    }
+
+    function buildBoard(): void {
+      const p = pz();
+      elStrip.textContent = '';
+      for (let k = 0; k < p.S.length; k++) {
+        const cell = document.createElement('span');
+        cell.className = 'gg-cell';
+        cell.textContent = p.S[k];
+        cell.dataset.k = String(k);
+        elStrip.appendChild(cell);
+      }
+      elHead.textContent = '';
+      elNeed.textContent = '';
+      elHave.textContent = '';
+      const h0 = document.createElement('th');
+      h0.textContent = 'กลิฟ';
+      elHead.appendChild(h0);
+      const n0 = document.createElement('th');
+      n0.textContent = 'ต้องการ';
+      elNeed.appendChild(n0);
+      const v0 = document.createElement('th');
+      v0.textContent = 'ในหน้าต่าง';
+      elHave.appendChild(v0);
+      for (const c of p.chars) {
+        const th = document.createElement('th');
+        th.textContent = c;
+        elHead.appendChild(th);
+        const td1 = document.createElement('td');
+        td1.textContent = String(p.need[c] ?? 0);
+        elNeed.appendChild(td1);
+        const td2 = document.createElement('td');
+        td2.dataset.ch = c;
+        td2.textContent = '0';
+        elHave.appendChild(td2);
+      }
+      elWord.textContent = p.W;
+      elLen.textContent = String(p.g);
+      elTease.textContent = p.tease;
+      elTotal.textContent = String(p.total);
+      elStrip.setAttribute('aria-valuemin', '1');
+      elStrip.setAttribute('aria-valuemax', String(maxLeft() + 1));
+    }
+
+    function windowCounts(): Record<string, number> {
+      const p = pz();
+      const m: Record<string, number> = {};
+      for (let k = left; k < left + p.g; k++) m[p.S[k]] = (m[p.S[k]] ?? 0) + 1;
+      return m;
+    }
+
+    function keepInView(): void {
+      const scroll = elStrip.parentElement;
+      const cell = elStrip.children[left];
+      if (!scroll || !(cell instanceof HTMLElement)) return;
+      const cl = cell.offsetLeft;
+      const cr = cl + cell.offsetWidth * pz().g;
+      if (cl < scroll.scrollLeft) scroll.scrollLeft = cl - 8;
+      else if (cr > scroll.scrollLeft + scroll.clientWidth) scroll.scrollLeft = cr - scroll.clientWidth + 8;
+    }
+
+    function render(): void {
+      const p = pz();
+      const counts = windowCounts();
+      for (let k = 0; k < p.S.length; k++) {
+        const cell = elStrip.children[k];
+        if (!(cell instanceof HTMLElement)) continue;
+        const inside = k >= left && k < left + p.g;
+        cell.classList.toggle('in', inside);
+        cell.classList.toggle('edge', inside && (k === left || k === left + p.g - 1));
+        cell.classList.toggle('got', found.has(k));
+      }
+      const movedChars = new Set<string>();
+      if (prevLeft !== left) {
+        const lo = Math.min(prevLeft, left);
+        const hi = Math.max(prevLeft, left);
+        for (let k = lo; k < lo + p.g; k++) if (k < hi || k >= hi + p.g) movedChars.add(p.S[k]);
+        for (let k = hi; k < hi + p.g; k++) if (k < lo || k >= lo + p.g) movedChars.add(p.S[k]);
+      }
+      for (const td of Array.from(elHave.querySelectorAll<HTMLElement>('td'))) {
+        const ch = td.dataset.ch ?? '';
+        const have = counts[ch] ?? 0;
+        const need = p.need[ch] ?? 0;
+        td.textContent = String(have);
+        td.classList.toggle('ok', need > 0 && have === need);
+        td.classList.toggle('over', need === 0 ? have > 0 : have > need);
+        td.classList.toggle('moved', movedChars.has(ch));
+      }
+      elStrip.setAttribute('aria-valuenow', String(left + 1));
+      elStrip.setAttribute('aria-valuetext', 'หน้าต่างเริ่มที่กลิฟตัวที่ ' + (left + 1) + ' คือ ' + p.S.slice(left, left + p.g));
+      elFound.textContent = String(countFound());
+    }
+
+    function move(d: number): void {
+      prevLeft = left;
+      left = Math.min(maxLeft(), Math.max(0, left + d));
+      elStatus.textContent = 'เลื่อนหน้าต่างไปเรื่อย ๆ เจอหน้าต่างที่ใช้ได้เมื่อไรก็กดเก็บ';
+      elStatus.className = 'gg-elStatus';
+      render();
+      keepInView();
+    }
+
+    function claim(): void {
+      const p = pz();
+      if (!p.hits.includes(left)) {
+        elStatus.textContent = 'ยังไม่ตรงครับ ดูแถวตัวนับว่าช่องไหนยังไม่เท่ากับที่ต้องการ';
+        elStatus.className = 'gg-elStatus bad';
+        return;
+      }
+      if (found.has(left)) {
+        elStatus.textContent = 'หน้าต่างนี้เก็บไปแล้ว ลองหาอันถัดไป';
+        elStatus.className = 'gg-elStatus';
+        return;
+      }
+      found.add(left);
+      const n = countFound();
+      elStatus.textContent = n === p.total
+        ? 'ครบแล้ว ' + p.total + ' หน้าต่าง ลองสลับไปชุดอื่นดูครับ'
+        : 'ใช่ครับ เก็บได้ ' + n + ' จาก ' + p.total;
+      elStatus.className = 'gg-elStatus good';
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      left = 0;
+      prevLeft = 0;
+      found = new Set<number>();
+      for (const t of Array.from(elRoot.querySelectorAll<HTMLElement>('[data-gg-tab]'))) {
+        t.setAttribute('aria-selected', t.dataset.ggTab === String(k) ? 'true' : 'false');
+      }
+      buildBoard();
+      elStatus.textContent = 'เลื่อนหน้าต่างไปเรื่อย ๆ เจอหน้าต่างที่ใช้ได้เมื่อไรก็กดเก็บ';
+      elStatus.className = 'gg-elStatus';
+      render();
+    }
+
+    elRoot.querySelector('[data-gg-prev]')?.addEventListener('click', () => move(-1));
+    elRoot.querySelector('[data-gg-next]')?.addEventListener('click', () => move(1));
+    elRoot.querySelector('[data-gg-claim]')?.addEventListener('click', claim);
+    for (const t of Array.from(elRoot.querySelectorAll<HTMLElement>('[data-gg-tab]'))) {
+      t.addEventListener('click', () => selectPuzzle(Number(t.dataset.ggTab ?? '0')));
+    }
+    elStrip.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); move(1); }
+      else if (e.key === 'Home') { e.preventDefault(); move(-1000000); }
+      else if (e.key === 'End') { e.preventDefault(); move(1000000); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); claim(); }
+    });
+    elStrip.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const k = e.target.dataset.k;
+      if (k === undefined) return;
+      prevLeft = left;
+      left = Math.min(maxLeft(), Math.max(0, Number(k)));
+      render();
+      keepInView();
+    });
+
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initGlyphGame);
+</script>

@@ -43,6 +43,48 @@ const K2 = 4;
 const R2 = 10;
 const answer2 = enumerate(PAT2, K2)[R2 - 1];
 
+/* ---------- มินิเกม เติมช่องว่างให้ได้ลำดับอันดับที่ R ----------
+   ทุกชุดเล็กพอที่จะไล่ลำดับที่เข้ากันได้ออกมาครบตอนบิลด์
+   อันดับที่เกมใช้ตัดสินจึงมาจากรายการจริง ตัวเดียวกับที่บทความใช้ */
+type DnaPuzzle = { id: string; label: string; tease: string; pat: string; k: number; r: number };
+const DNA_PUZZLES: DnaPuzzle[] = [
+  { id: 'd1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'ช่องว่างสองช่อง พอให้เห็นว่ารอยต่อคืออะไร', pat: 'ACNN', k: 2, r: 3 },
+  { id: 'd2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'แพตเทิร์นเดียวกับที่บทความใช้เดินให้ดู', pat: PAT, k: KK, r: RR },
+  { id: 'd3', label: 'ชุดที่ 3 · เพดานรอยต่อบีบขึ้น', tease: 'ชุดนี้ K น้อย ลำดับที่ผ่านจึงเหลือไม่มาก เดาสุ่มยาก', pat: 'NNCNN', k: 2, r: 12 },
+];
+
+type DnaPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  pat: string;
+  k: number;
+  r: number;
+  total: number;
+  answer: string;
+  slots: number[];
+};
+const dnaPuzzles: DnaPuzzleData[] = DNA_PUZZLES.map((p) => {
+  const list = enumerate(p.pat, p.k);
+  if (p.r < 1 || p.r > list.length) {
+    throw new Error(`มินิเกมของ dna-kth: ชุด ${p.id} ขออันดับ ${p.r} แต่มีลำดับที่ผ่านแค่ ${list.length} แบบ`);
+  }
+  const slots: number[] = [];
+  for (let i = 0; i < p.pat.length; i++) if (p.pat[i] === 'N') slots.push(i);
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    pat: p.pat,
+    k: p.k,
+    r: p.r,
+    total: list.length,
+    answer: list[p.r - 1],
+    slots,
+  };
+});
+const dnaJson = JSON.stringify(dnaPuzzles);
+
 /** ตัวอย่างที่โจทย์ยกมาว่าอันไหนเป็นรูปแบบ-1 อันไหนไม่ใช่ */
 const shapeDemo = ['AACCGT', 'AACGTC', 'AACCC', 'ACACC', 'ACACA', 'GCACAC', 'ACACACA'].map((s) => ({
   s,
@@ -242,6 +284,40 @@ for (int i = 0; i < M; i++) {
       "ลำดับที่ขึ้นต้นด้วย <code>ACA</code> มีกี่ตัว" ล่ะ จะช่วยอะไรได้บ้าง
     </p>
   </div>
+
+  <h2>ลองเอง · เติมช่องว่างให้ได้ลำดับอันดับที่ขอ</h2>
+  <div class="cpgame dnagame" data-dnagame data-puzzles={dnaJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {dnaPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{dnaPuzzles[0].tease}</p>
+
+    <p class="gg2-goal">
+      แพตเทิร์น <code data-dn-pat>{dnaPuzzles[0].pat}</code> · ขอ<b>ลำดับรูปแบบ-<span data-dn-k>{dnaPuzzles[0].k}</span> อันดับที่
+      <span data-dn-r>{dnaPuzzles[0].r}</span></b> จากทั้งหมด <span data-dn-total>{dnaPuzzles[0].total}</span> แบบ
+    </p>
+
+    <div class="cpg-scroll">
+      <div class="dn-strip" data-dn-strip></div>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-dn-reset>ล้างช่องว่าง</button>
+      <button type="button" class="cpg-btn main" data-dn-check>ตรวจอันดับ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ</p>
+    <p class="cpg-score" data-cpg-score>รอยต่อตอนนี้ <b data-dn-drops>0</b> ตำแหน่ง · เพดานคือ <b data-dn-cap>0</b></p>
+    <p class="cpg-hint">ลำดับรูปแบบ-K คือลำดับที่มีรอยต่อไม่เกิน K ลบหนึ่งตำแหน่ง</p>
+  </div>
+  <p class="io-note">
+    ถ้าเดาสุ่มแล้วเหนื่อย ลองคิดแบบนี้ดู ถ้าตรึงตัวอักษรตัวแรกไว้ค่าหนึ่ง จะเหลือลำดับที่ผ่านกี่แบบ แล้วเลขนั้นบอกอะไรกับอันดับที่ขอ
+  </p>
 
   <h2>เฉลย · นิยามที่เรียกตัวเอง แปลเป็นการนับรอยต่อ</h2>
   <Spoiler>
@@ -500,4 +576,154 @@ for (int i = 0; i < M; i++) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- แถบตัวอักษรของมินิเกม DNA ---------- */
+  .dn-strip{display:flex;gap:5px;width:max-content;}
+  .dn-cell{
+    width:2rem;height:2.4rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:1rem;
+    border:1px solid #2a3350;border-radius:7px;
+    background:#101827;color:#cdd6ea;
+  }
+  .dn-cell.slot{cursor:pointer;border-color:#3d5a80;color:#9ecbff;}
+  .dn-cell.slot:hover{border-color:var(--dl-emerald);}
+  .dn-cell.fixed{color:#7b8397;}
+  .dn-cell.drop{border-color:#8a3b3b;background:#351717;color:#f0a6a6;}
+  .cpg-score .over{color:#f0a6a6;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type DnPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    pat: string;
+    k: number;
+    r: number;
+    total: number;
+    answer: string;
+    slots: number[];
+  };
+
+  function initDnaGame(): void {
+    const maybeUi = cpGameUi('[data-dnagame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as DnPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripEl = ui.root.querySelector<HTMLElement>('[data-dn-strip]');
+    const dropsEl = ui.root.querySelector<HTMLElement>('[data-dn-drops]');
+    const capEl = ui.root.querySelector<HTMLElement>('[data-dn-cap]');
+    const patEl = ui.root.querySelector<HTMLElement>('[data-dn-pat]');
+    const kEl = ui.root.querySelector<HTMLElement>('[data-dn-k]');
+    const rEl = ui.root.querySelector<HTMLElement>('[data-dn-r]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-dn-total]');
+    if (!stripEl || !dropsEl || !capEl || !patEl || !kEl || !rEl || !totalEl) return;
+    const strip: HTMLElement = stripEl;
+    const dropsOut: HTMLElement = dropsEl;
+    const capOut: HTMLElement = capEl;
+    const patOut: HTMLElement = patEl;
+    const kOut: HTMLElement = kEl;
+    const rOut: HTMLElement = rEl;
+    const totalOut: HTMLElement = totalEl;
+
+    const AL = 'ACGT';
+    let pi = 0;
+    let cur: string[] = [];
+
+    const pz = (): DnPuzzle => puzzles[pi];
+
+    function dropCount(s: string[]): number {
+      let d = 0;
+      for (let i = 0; i + 1 < s.length; i++) if (s[i] > s[i + 1]) d++;
+      return d;
+    }
+
+    function buildStrip(): void {
+      const p = pz();
+      strip.textContent = '';
+      for (let i = 0; i < p.pat.length; i++) {
+        const isSlot = p.pat[i] === 'N';
+        const cell = document.createElement(isSlot ? 'button' : 'span');
+        cell.className = isSlot ? 'dn-cell slot' : 'dn-cell fixed';
+        cell.dataset.i = String(i);
+        if (cell instanceof HTMLButtonElement) {
+          cell.type = 'button';
+          cell.setAttribute('aria-label', `ช่องที่ ${i + 1} กดเพื่อเปลี่ยนตัวอักษร`);
+        }
+        strip.appendChild(cell);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const d = dropCount(cur);
+      const cells = Array.from(strip.querySelectorAll<HTMLElement>('.dn-cell'));
+      cells.forEach((cell, i) => {
+        cell.textContent = cur[i];
+        const isDrop = i + 1 < cur.length && cur[i] > cur[i + 1];
+        cell.classList.toggle('drop', isDrop);
+      });
+      dropsOut.textContent = String(d);
+      capOut.textContent = String(p.k - 1);
+      dropsOut.className = d > p.k - 1 ? 'over' : '';
+      patOut.textContent = p.pat;
+      kOut.textContent = String(p.k);
+      rOut.textContent = String(p.r);
+      totalOut.textContent = String(p.total);
+    }
+
+    function check(): void {
+      const p = pz();
+      const s = cur.join('');
+      const d = dropCount(cur);
+      if (d > p.k - 1) {
+        ui.setStatus(`ลำดับนี้มีรอยต่อ ${d} ตำแหน่ง เกินเพดาน ${p.k - 1} จึงไม่ใช่ลำดับรูปแบบ-${p.k}`, 'bad');
+        return;
+      }
+      if (s === p.answer) {
+        ui.setStatus(`ถูกต้องครับ ${s} คือลำดับอันดับที่ ${p.r} พอดี`, 'good');
+        return;
+      }
+      const cmp = s < p.answer ? 'มาก่อน' : 'มาหลัง';
+      ui.setStatus(
+        `${s} เป็นลำดับที่ผ่านเงื่อนไขจริง แต่มัน${cmp}อันดับที่ ${p.r} ในพจนานุกรม`,
+        'bad',
+      );
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      const p = pz();
+      cur = p.pat.split('').map((c) => (c === 'N' ? 'A' : c));
+      ui.selectTab(k);
+      ui.setTease(p.tease);
+      buildStrip();
+      ui.setStatus('กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ');
+      render();
+    }
+
+    strip.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const cell = e.target.closest('.dn-cell.slot');
+      if (!(cell instanceof HTMLElement)) return;
+      const i = Number(cell.dataset.i);
+      cur[i] = AL[(AL.indexOf(cur[i]) + 1) % AL.length];
+      ui.setStatus('กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ');
+      render();
+    });
+
+    ui.onClick('data-dn-reset', () => selectPuzzle(pi));
+    ui.onClick('data-dn-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initDnaGame);
+</script>

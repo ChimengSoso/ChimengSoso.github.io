@@ -39,6 +39,105 @@ function greedy(masts: Mast[]): GreedyStep[] {
 const steps = greedy(MASTS);
 const answer = steps[steps.length - 1].cost;
 
+/* ---------- มินิเกม วางใบเรือเอง ----------
+   ชุดโจทย์เลือกมาให้กดดันคนละจุด และคำตอบที่ดีที่สุดของทุกชุด
+   คำนวณด้วยการไล่ทุกวิธีจัดจริง ๆ ตอนบิลด์ แล้วเทียบกับท่าโลภ
+   ถ้าสองอย่างไม่ตรงกันเมื่อไร บิลด์จะพังทันที ไม่ปล่อยให้เกมสอนเลขผิด */
+type GamePuzzle = { id: string; label: string; tease: string; masts: Mast[] };
+const GAME_PUZZLES: GamePuzzle[] = [
+  {
+    id: 'g1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'สามเสาเตี้ย ๆ พอให้จับทางว่าอะไรทำให้เสียแต้ม',
+    masts: [
+      { h: 2, k: 1 },
+      { h: 3, k: 2 },
+      { h: 3, k: 1 },
+    ],
+  },
+  {
+    id: 'g2',
+    label: 'ชุดที่ 2 · ตัวอย่างในโจทย์',
+    tease: 'ชุดเดียวกับที่บทความใช้เดินให้ดูทีละเสา',
+    masts: MASTS,
+  },
+  {
+    id: 'g3',
+    label: 'ชุดที่ 3 · กับดักเสาสูง',
+    tease: 'ชุดนี้ลงโทษคนที่รีบวางเสาสูงก่อน ลองวางตามใจดูแล้วเทียบแต้ม',
+    masts: [
+      { h: 5, k: 4 },
+      { h: 2, k: 2 },
+      { h: 2, k: 2 },
+      { h: 5, k: 1 },
+    ],
+  },
+];
+
+/** ไล่ทุกวิธีจัดจริง ๆ เพื่อหาแต้มที่ดีที่สุด ใช้ได้เฉพาะชุดเล็กในเกม */
+function bestByBrute(masts: Mast[]): number {
+  const maxh = Math.max(...masts.map((m) => m.h));
+  let best = Number.POSITIVE_INFINITY;
+  const cnt = new Array<number>(maxh).fill(0);
+  const combos = (h: number, k: number): number[][] => {
+    const out: number[][] = [];
+    const pick = (start: number, acc: number[]): void => {
+      if (acc.length === k) {
+        out.push([...acc]);
+        return;
+      }
+      for (let j = start; j < h; j++) {
+        acc.push(j);
+        pick(j + 1, acc);
+        acc.pop();
+      }
+    };
+    pick(0, []);
+    return out;
+  };
+  const choices = masts.map((m) => combos(m.h, m.k));
+  const walk = (i: number): void => {
+    if (i === masts.length) {
+      best = Math.min(best, cost(cnt));
+      return;
+    }
+    for (const c of choices[i]) {
+      for (const p of c) cnt[p]++;
+      walk(i + 1);
+      for (const p of c) cnt[p]--;
+    }
+  };
+  walk(0);
+  return best;
+}
+
+type GamePuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  masts: Mast[];
+  maxh: number;
+  best: number;
+};
+const gamePuzzles: GamePuzzleData[] = GAME_PUZZLES.map((p) => {
+  const brute = bestByBrute(p.masts);
+  const viaGreedy = greedy(p.masts)[p.masts.length - 1].cost;
+  if (brute !== viaGreedy) {
+    throw new Error(
+      `มินิเกมของ sails: ชุด ${p.id} ท่าโลภได้ ${viaGreedy} แต่การไล่ทุกวิธีได้ ${brute}`,
+    );
+  }
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    masts: p.masts,
+    maxh: Math.max(...p.masts.map((m) => m.h)),
+    best: brute,
+  };
+});
+const gameJson = JSON.stringify(gamePuzzles);
+
 /**
  * เวอร์ชันที่เขียนแบบ "เติมเป็นช่วง" ซึ่งเป็นรูปที่โค้ดจริงใช้
  * headRule = true คือหยิบหัวบล็อกที่ค่าเสมอกัน (ถูก) ส่วน false คือหยิบท้ายบล็อก (ผิด)
@@ -206,6 +305,35 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
       การเลือกระดับล่างกับระดับบนต่างกันไหม
     </p>
   </div>
+
+  <h2>ลองเอง · วางใบเรือให้เสียแต้มน้อยที่สุด</h2>
+  <div class="cpgame sailgame" data-sailgame data-puzzles={gameJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {gamePuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{gamePuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <table class="sg-board" data-sg-board></table>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-sg-clear>ล้างกระดาน</button>
+      <button type="button" class="cpg-btn main" data-sg-check>ตรวจแต้ม</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกช่องบนเสาเพื่อแขวนใบเรือ แต่ละเสาต้องแขวนให้ครบตามจำนวนที่โจทย์กำหนด</p>
+    <p class="cpg-score" data-cpg-score>แต้มตอนนี้ <b data-sg-cost>0</b> · แขวนแล้ว <b data-sg-placed>0</b> จาก <b data-sg-need>0</b> ใบ</p>
+    <p class="cpg-hint">แต้มของหนึ่งระดับคือจำนวนคู่ของใบเรือที่อยู่ระดับนั้น สองใบเสียหนึ่งแต้ม สามใบเสียสามแต้ม</p>
+  </div>
+  <p class="io-note">
+    ลองสังเกตว่าตอนไหนที่การย้ายใบเรือหนึ่งใบลงไปอีกระดับ ทำให้แต้มลดลง แล้วเงื่อนไขของจังหวะนั้นคืออะไร
+  </p>
 
   <h2>เฉลย · ใส่ลงกองที่ว่างที่สุดเสมอ และไล่จากเสาที่เตี้ยที่สุด</h2>
   <Spoiler>
@@ -479,4 +607,222 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- กระดานของมินิเกมวางใบเรือ ---------- */
+  .sg-board{border-collapse:collapse;font-size:0.85rem;}
+  .sg-board th, .sg-board td{
+    border:1px solid #2a3350;
+    padding:0.22rem 0.4rem;
+    text-align:center;
+    color:#cdd6ea;
+  }
+  .sg-board th{font-weight:600;color:#9aa7bd;white-space:nowrap;}
+  .sg-sub{display:block;font-size:0.72rem;color:#7b8397;font-family:var(--dl-mono,monospace);}
+  .sg-sub.done{color:#4ade80;}
+  .sg-sub.over{color:#f0a6a6;}
+  .sg-none{background:repeating-linear-gradient(135deg,#0b1220,#0b1220 5px,#101827 5px,#101827 10px);}
+  .sg-cell{
+    width:1.9rem;height:1.6rem;
+    display:block;margin:0 auto;
+    cursor:pointer;
+    border:1px solid #2a3350;border-radius:5px;
+    background:#101827;
+    transition:background 0.15s ease,border-color 0.15s ease;
+  }
+  .sg-cell:hover{border-color:var(--dl-emerald);}
+  .sg-cell.on{background:#14351f;border-color:#2f9e5c;}
+  .sg-cell.on::after{content:'';display:block;width:0.6rem;height:0.6rem;margin:0 auto;border-radius:50%;background:#4ade80;}
+  .sg-cell.clash{background:#351717;border-color:#8a3b3b;}
+  .sg-cell.clash::after{background:#f0a6a6;}
+  .sg-pen{font-family:var(--dl-mono,monospace);color:#7b8397;}
+  .sg-pen.hot{color:#f0a6a6;}
+  @media (prefers-reduced-motion: reduce){
+    .sg-cell{transition:none;}
+  }
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type SgMast = { h: number; k: number };
+  type SgPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    masts: SgMast[];
+    maxh: number;
+    best: number;
+  };
+
+  function initSailGame(): void {
+    const maybeUi = cpGameUi('[data-sailgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as SgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const boardEl = ui.root.querySelector<HTMLElement>('[data-sg-board]');
+    const costEl = ui.root.querySelector<HTMLElement>('[data-sg-cost]');
+    const placedEl = ui.root.querySelector<HTMLElement>('[data-sg-placed]');
+    const needEl = ui.root.querySelector<HTMLElement>('[data-sg-need]');
+    if (!boardEl || !costEl || !placedEl || !needEl) return;
+    const board: HTMLElement = boardEl;
+    const costOut: HTMLElement = costEl;
+    const placedOut: HTMLElement = placedEl;
+    const needOut: HTMLElement = needEl;
+
+    let pi = 0;
+    let grid: boolean[][] = [];
+
+    const pz = (): SgPuzzle => puzzles[pi];
+    const needTotal = (): number => pz().masts.reduce((a, m) => a + m.k, 0);
+
+    function levelCounts(): number[] {
+      const p = pz();
+      const cnt = new Array<number>(p.maxh).fill(0);
+      for (let c = 0; c < p.masts.length; c++) {
+        for (let r = 0; r < p.maxh; r++) if (grid[c][r]) cnt[r]++;
+      }
+      return cnt;
+    }
+
+    const scoreOf = (cnt: number[]): number => cnt.reduce((a, v) => a + (v * (v - 1)) / 2, 0);
+
+    function buildBoard(): void {
+      const p = pz();
+      board.textContent = '';
+      const head = document.createElement('tr');
+      const corner = document.createElement('th');
+      corner.textContent = 'ระดับ';
+      head.appendChild(corner);
+      p.masts.forEach((m, c) => {
+        const th = document.createElement('th');
+        th.textContent = `เสา ${c + 1}`;
+        const sub = document.createElement('span');
+        sub.className = 'sg-sub';
+        sub.dataset.mast = String(c);
+        sub.textContent = `0/${m.k}`;
+        th.appendChild(sub);
+        head.appendChild(th);
+      });
+      const tally = document.createElement('th');
+      tally.textContent = 'คู่ที่ชนกัน';
+      head.appendChild(tally);
+      board.appendChild(head);
+
+      for (let r = 0; r < p.maxh; r++) {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.textContent = String(r + 1);
+        tr.appendChild(th);
+        for (let c = 0; c < p.masts.length; c++) {
+          const td = document.createElement('td');
+          if (r < p.masts[c].h) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sg-cell';
+            b.dataset.c = String(c);
+            b.dataset.r = String(r);
+            b.setAttribute('aria-label', `เสา ${c + 1} ระดับ ${r + 1}`);
+            b.setAttribute('aria-pressed', 'false');
+            td.appendChild(b);
+          } else {
+            td.className = 'sg-none';
+          }
+          tr.appendChild(td);
+        }
+        const pen = document.createElement('td');
+        pen.className = 'sg-pen';
+        pen.dataset.level = String(r);
+        pen.textContent = '0';
+        tr.appendChild(pen);
+        board.appendChild(tr);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const cnt = levelCounts();
+      const score = scoreOf(cnt);
+      for (const b of Array.from(board.querySelectorAll<HTMLElement>('.sg-cell'))) {
+        const c = Number(b.dataset.c);
+        const r = Number(b.dataset.r);
+        const on = grid[c][r];
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.classList.toggle('clash', on && cnt[r] > 1);
+      }
+      for (const td of Array.from(board.querySelectorAll<HTMLElement>('.sg-pen'))) {
+        const r = Number(td.dataset.level);
+        const v = (cnt[r] * (cnt[r] - 1)) / 2;
+        td.textContent = String(v);
+        td.classList.toggle('hot', v > 0);
+      }
+      for (const sp of Array.from(board.querySelectorAll<HTMLElement>('.sg-sub'))) {
+        const c = Number(sp.dataset.mast);
+        const used = grid[c].filter(Boolean).length;
+        sp.textContent = `${used}/${p.masts[c].k}`;
+        sp.classList.toggle('done', used === p.masts[c].k);
+        sp.classList.toggle('over', used > p.masts[c].k);
+      }
+      const placed = grid.reduce((a, col) => a + col.filter(Boolean).length, 0);
+      costOut.textContent = String(score);
+      placedOut.textContent = String(placed);
+      needOut.textContent = String(needTotal());
+    }
+
+    function check(): void {
+      const p = pz();
+      for (let c = 0; c < p.masts.length; c++) {
+        const used = grid[c].filter(Boolean).length;
+        if (used !== p.masts[c].k) {
+          ui.setStatus(
+            `เสา ${c + 1} ยังแขวนไม่ครบ ต้องได้ ${p.masts[c].k} ใบ ตอนนี้ ${used} ใบ`,
+            'bad',
+          );
+          return;
+        }
+      }
+      const score = scoreOf(levelCounts());
+      if (score === p.best) {
+        ui.setStatus(`ดีที่สุดแล้วครับ ${score} แต้ม ไม่มีวิธีจัดไหนทำได้ต่ำกว่านี้`, 'good');
+      } else {
+        ui.setStatus(
+          `ได้ ${score} แต้ม ยังมีวิธีที่ทำได้ ${p.best} แต้ม ลองดูระดับที่มีคู่ชนกันเยอะที่สุดก่อน`,
+          'bad',
+        );
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      const p = pz();
+      grid = p.masts.map(() => new Array<boolean>(p.maxh).fill(false));
+      ui.selectTab(k);
+      ui.setTease(p.tease);
+      buildBoard();
+      ui.setStatus('คลิกช่องบนเสาเพื่อแขวนใบเรือ แต่ละเสาต้องแขวนให้ครบตามจำนวนที่โจทย์กำหนด');
+      render();
+    }
+
+    board.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const cell = e.target.closest('.sg-cell');
+      if (!(cell instanceof HTMLElement)) return;
+      const c = Number(cell.dataset.c);
+      const r = Number(cell.dataset.r);
+      grid[c][r] = !grid[c][r];
+      ui.setStatus('คลิกช่องบนเสาเพื่อแขวนใบเรือ แต่ละเสาต้องแขวนให้ครบตามจำนวนที่โจทย์กำหนด');
+      render();
+    });
+
+    ui.onClick('data-sg-clear', () => selectPuzzle(pi));
+    ui.onClick('data-sg-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initSailGame);
+</script>
