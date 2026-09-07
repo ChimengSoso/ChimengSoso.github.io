@@ -294,6 +294,65 @@ int main() {
     printf("%lld\\n", max(take[1], skip[1]));
     return 0;
 }`;
+/* ---------- มินิเกม ตอบขนาดของกิ่ง ----------
+   ขนาดของทุกกิ่งคำนวณด้วยการไล่นับลูกหลานตรง ๆ ตอนบิลด์ */
+type TdPuzzle = { id: string; label: string; tease: string; parent: number[] };
+
+/** ขนาดของกิ่งที่ห้อยใต้แต่ละปม รวมตัวมันเอง */
+function gameSubtreeSizes(parent: number[]): number[] {
+  const n = parent.length;
+  const kids: number[][] = Array.from({ length: n + 1 }, () => []);
+  for (let i = 2; i <= n; i++) kids[parent[i - 1]].push(i);
+  const size = new Array<number>(n + 1).fill(0);
+  const order: number[] = [1];
+  for (let h = 0; h < order.length; h++) for (const c of kids[order[h]]) order.push(c);
+  for (let h = order.length - 1; h >= 0; h--) {
+    const v = order[h];
+    size[v] = 1;
+    for (const c of kids[v]) size[v] += size[c];
+  }
+  return size;
+}
+
+const TD_PUZZLES: TdPuzzle[] = [
+  {
+    id: 'd1',
+    label: 'ชุดที่ 1 · ต้นไม้เตี้ย',
+    tease: 'เจ็ดปม แตกกิ่งกว้าง ลองนับดูก่อน',
+    parent: [0, 1, 1, 2, 2, 3, 3],
+  },
+  {
+    id: 'd2',
+    label: 'ชุดที่ 2 · โซ่ยาว',
+    tease: 'ชุดนี้เป็นโซ่ยาว ซึ่งเป็นรูปที่ทำให้การเรียกซ้ำตายในสนามจริง',
+    parent: [0, 1, 2, 3, 4, 5, 6, 7],
+  },
+  {
+    id: 'd3',
+    label: 'ชุดที่ 3 · เอียงข้างเดียว',
+    tease: 'ชุดนี้กิ่งซ้ายหนักกว่ากิ่งขวามาก',
+    parent: [0, 1, 1, 2, 4, 5, 6, 3],
+  },
+];
+
+type TdPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  parent: number[];
+  size: number[];
+  n: number;
+};
+const tdPuzzles: TdPuzzleData[] = TD_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  parent: p.parent,
+  size: gameSubtreeSizes(p.parent),
+  n: p.parent.length,
+}));
+const tdJson = JSON.stringify(tdPuzzles);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -322,6 +381,37 @@ int main() {
   <p>
     บทนี้จึงว่าด้วยสองเรื่องที่มาคู่กันเสมอ หนึ่งคือ<strong>รูปแบบการคิดของ DP บนต้นไม้</strong>
     และสองคือ<strong>วิธีเดินต้นไม้โดยไม่เรียกซ้ำ</strong> ซึ่งไม่ได้ยากกว่ากันเลย แต่ปลอดภัยกว่ามาก
+  </p>
+
+  <h2>ลองเอง · ตอบขนาดของกิ่งให้ครบทุกปม</h2>
+  <div class="cpgame tdgame" data-tdgame data-puzzles={tdJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {tdPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{tdPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><div class="td-tree" data-td-tree></div></div>
+
+    <p class="fg-sub">คำถามตอนนี้ <b data-td-ask>ยังไม่ได้เลือกปม</b></p>
+
+    <div class="cpg-controls" data-td-pad></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-td-clear>ล้างคำตอบ</button>
+      <button type="button" class="cpg-btn main" data-td-submit>ตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่ปมเพื่อถามว่ากิ่งของมันมีกี่ปม แล้วพิมพ์คำตอบ</p>
+    <p class="cpg-score" data-cpg-score>พิมพ์ไว้ <b data-td-typed>-</b> · ตอบถูกแล้ว <b data-td-done>0 / 0</b> ปม</p>
+    <p class="cpg-hint">แถวบนสุดคือราก ยิ่งลงล่างยิ่งลึก ปมในกิ่งของปมที่เลือกจะถูกทำเครื่องหมายไว้ให้</p>
+  </div>
+  <p class="io-note">
+    ลองไล่ตอบจากปมล่างขึ้นบนดู แล้วสังเกตว่าคำตอบของปมบนใช้คำตอบของปมล่างที่เพิ่งตอบไปได้พอดี
   </p>
 
   <h2>กุญแจ · ลำดับที่ลูกเสร็จก่อนพ่อ</h2>
@@ -468,6 +558,28 @@ int main() {
     </p>
   </div>
   <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">ที่มาของท่านี้ · ตัวเลขที่ผมวัดเอง</p>
+      <p>
+        ตัวเลขในกล่องเตือนข้างบนเป็นการประเมิน ผมอยากรู้ว่าของจริงอยู่ตรงไหน เลยเขียนโปรแกรมสั้น ๆ
+        ที่สร้างต้นไม้เป็นโซ่ยาวแล้วเรียกซ้ำลงไปนับขนาดกิ่งตรง ๆ คอมไพล์ด้วย g++ 14.2 ที่ <code>-O2</code>
+        แล้วไล่หาความลึกที่มันเริ่มพังด้วยการค้นแบบไบนารี
+      </p>
+      <p>
+        ผลคือ <strong>ลึก 25,937 ชั้นยังรอด ลึก 26,093 ชั้นตาย</strong> บนเครื่องที่ผมใช้
+        แปลว่ามันไม่ได้ไปตายที่แสนชั้นตามที่โจทย์อนุญาต มันตายตั้งแต่<strong>ราวหนึ่งในสี่ของทาง</strong>
+      </p>
+      <p>
+        และสิ่งที่น่ากลัวกว่าตัวเลขคือหน้าตาของความตาย โปรแกรมไม่พิมพ์อะไรออกมาเลยสักตัวอักษร
+        ไม่มีข้อความว่าสแต็กล้น มีแต่โปรเซสหายไปเฉย ๆ ซึ่งบนเว็บตรวจข้อสอบจะกลายเป็นผลลัพธ์ผิดหรือโปรแกรมตาย
+        โดยไม่มีอะไรชี้เลยว่าปัญหาอยู่ที่ความลึก
+      </p>
+      <p>
+        ตัวเลขนี้เปลี่ยนไปตามเครื่อง ตามคอมไพเลอร์ และตามจำนวนตัวแปรที่ประกาศไว้ในฟังก์ชัน
+        ซึ่งเป็นเหตุผลที่ไม่ควรเดาว่า "ข้อนี้คงไม่ลึกขนาดนั้น" แล้วปล่อยผ่าน ราคาของการเดาผิดคือศูนย์คะแนนโดยไม่รู้สาเหตุ
+        ส่วนราคาของการเขียนแบบไม่เรียกซ้ำตั้งแต่แรกคือโค้ดยาวขึ้นไม่กี่บรรทัด
+      </p>
+    </div>
     <p>
       ลูปต้องหยุดที่ดัชนี 1 ไม่ใช่ 0 เพราะโหนดที่ดัชนี 0 ของลำดับคือราก ซึ่งไม่มีพ่อให้บวกขึ้นไป
       ถ้าปล่อยให้วนถึง 0 มันจะไปบวกใส่ <code>sz[0]</code> ซึ่งเป็นช่องที่ไม่มีความหมาย โปรแกรมไม่พัง
@@ -648,4 +760,187 @@ int main() {
     color:var(--dl-emerald-bright);
     letter-spacing:0.02em;
   }
+
+  /* ---------- ต้นไม้ของมินิเกม DP บนต้นไม้ ---------- */
+  .td-tree{display:flex;flex-direction:column;gap:6px;width:max-content;}
+  .td-row{display:flex;gap:6px;justify-content:center;}
+  .td-node{
+    width:2.1rem;height:2.1rem;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:0.85rem;
+    border:1px solid #2a3350;border-radius:50%;
+    background:#101827;color:#cdd6ea;
+  }
+  .td-node:hover{border-color:var(--dl-emerald);}
+  .td-node.inside{background:#132235;border-color:#3d5a80;color:#9ecbff;}
+  .td-node.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .td-node.done{box-shadow:0 0 0 2px #2f9e5c;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TdPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    parent: number[];
+    size: number[];
+    n: number;
+  };
+
+  function initTreeGame(): void {
+    const maybeUi = cpGameUi('[data-tdgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TdPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const treeEl = ui.root.querySelector<HTMLElement>('[data-td-tree]');
+    const padEl = ui.root.querySelector<HTMLElement>('[data-td-pad]');
+    const typedEl = ui.root.querySelector<HTMLElement>('[data-td-typed]');
+    const askEl = ui.root.querySelector<HTMLElement>('[data-td-ask]');
+    const doneEl = ui.root.querySelector<HTMLElement>('[data-td-done]');
+    if (!treeEl || !padEl || !typedEl || !askEl || !doneEl) return;
+    const tree: HTMLElement = treeEl;
+    const pad: HTMLElement = padEl;
+    const typedOut: HTMLElement = typedEl;
+    const askOut: HTMLElement = askEl;
+    const doneOut: HTMLElement = doneEl;
+
+    let pi = 0;
+    let asked = 0;
+    let typed = '';
+    let solved = new Set<number>();
+
+    const pz = (): TdPuzzle => puzzles[pi];
+
+    /** ปมทุกตัวที่อยู่ในกิ่งของ v รวมตัวมันเอง */
+    function inSubtree(v: number): Set<number> {
+      const p = pz();
+      const out = new Set<number>([v]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (let i = 2; i <= p.n; i++) {
+          if (!out.has(i) && out.has(p.parent[i - 1])) {
+            out.add(i);
+            grew = true;
+          }
+        }
+      }
+      return out;
+    }
+
+    function buildTree(): void {
+      const p = pz();
+      tree.textContent = '';
+      const depth = new Array<number>(p.n + 1).fill(0);
+      for (let i = 2; i <= p.n; i++) depth[i] = depth[p.parent[i - 1]] + 1;
+      const maxd = Math.max(...depth.slice(1));
+      for (let d = 0; d <= maxd; d++) {
+        const row = document.createElement('div');
+        row.className = 'td-row';
+        for (let i = 1; i <= p.n; i++) {
+          if (depth[i] !== d) continue;
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'td-node';
+          b.dataset.node = String(i);
+          b.textContent = String(i);
+          row.appendChild(b);
+        }
+        tree.appendChild(row);
+      }
+      pad.textContent = '';
+      for (const dg of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn ps-key';
+        b.dataset.digit = dg;
+        b.textContent = dg;
+        pad.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const inside = asked === 0 ? new Set<number>() : inSubtree(asked);
+      for (const b of Array.from(tree.querySelectorAll<HTMLElement>('[data-node]'))) {
+        const i = Number(b.dataset.node);
+        b.classList.toggle('picked', i === asked);
+        b.classList.toggle('inside', inside.has(i) && i !== asked);
+        b.classList.toggle('done', solved.has(i));
+      }
+      askOut.textContent = asked === 0 ? 'ยังไม่ได้เลือกปม' : `กิ่งของปม ${asked} มีกี่ปม`;
+      typedOut.textContent = typed === '' ? '-' : typed;
+      doneOut.textContent = `${solved.size} / ${p.n}`;
+    }
+
+    function submit(): void {
+      const p = pz();
+      if (asked === 0) {
+        ui.setStatus('เลือกปมที่จะตอบก่อนครับ', 'bad');
+        return;
+      }
+      if (typed === '') {
+        ui.setStatus('พิมพ์คำตอบก่อนครับ', 'bad');
+        return;
+      }
+      if (Number(typed) === p.size[asked]) {
+        solved.add(asked);
+        ui.setStatus(
+          solved.size === p.n
+            ? `ครบทุกปมแล้วครับ กิ่งของปม ${asked} มี ${p.size[asked]} ปม`
+            : `ถูกต้อง กิ่งของปม ${asked} มี ${p.size[asked]} ปม`,
+          'good',
+        );
+      } else {
+        ui.setStatus(`ยังไม่ใช่ กิ่งของปม ${asked} มี ${p.size[asked]} ปม`, 'bad');
+      }
+      typed = '';
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      asked = 0;
+      typed = '';
+      solved = new Set<number>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildTree();
+      ui.setStatus('กดที่ปมเพื่อถามว่ากิ่งของมันมีกี่ปม แล้วพิมพ์คำตอบ');
+      render();
+    }
+
+    tree.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-node]');
+      if (!(b instanceof HTMLElement)) return;
+      asked = Number(b.dataset.node);
+      typed = '';
+      ui.setStatus(`ถามกิ่งของปม ${asked} แล้ว ปมที่อยู่ในกิ่งถูกทำเครื่องหมายไว้ให้`);
+      render();
+    });
+    pad.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-digit]');
+      if (!(b instanceof HTMLElement)) return;
+      typed += b.dataset.digit ?? '';
+      render();
+    });
+
+    ui.onClick('data-td-clear', () => {
+      typed = '';
+      render();
+    });
+    ui.onClick('data-td-submit', submit);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initTreeGame);
+</script>

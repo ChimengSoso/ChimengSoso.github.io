@@ -21,6 +21,93 @@ const EDGES = prefixes.length;
 const longest = WORDS.reduce((a, b) => (b.length > a.length ? b : a));
 const optimal = 2 * EDGES - longest.length + WORDS.length;
 
+/* ---------- มินิเกม กดเครื่องพิมพ์เอง ----------
+   จำนวนคำสั่งที่น้อยที่สุดของแต่ละชุด คำนวณด้วยสูตรของบทความ
+   แล้วตรวจซ้ำด้วยการไล่ทุกลำดับการพิมพ์จริง ๆ ตอนบิลด์ ถ้าไม่ตรงกันบิลด์จะพัง */
+type TprtPuzzle = { id: string; label: string; tease: string; words: string[] };
+
+function prefixesOf(words: string[]): string[] {
+  const s = new Set<string>();
+  for (const w of words) for (let i = 1; i <= w.length; i++) s.add(w.slice(0, i));
+  return [...s].sort();
+}
+
+/** สูตรของบทความ สองเท่าของจำนวนเส้น ลบความลึกของจุดจบ บวกจำนวนครั้งที่กดพิมพ์ */
+function optimalOf(words: string[]): number {
+  const e = prefixesOf(words).length;
+  const deepest = words.reduce((a, b) => (b.length > a.length ? b : a));
+  return 2 * e - deepest.length + words.length;
+}
+
+/** ไล่ทุกลำดับการพิมพ์คำ แล้วนับคำสั่งตรง ๆ ใช้ยืนยันสูตรกับชุดเล็ก */
+function optimalByBrute(words: string[]): number {
+  const lcp = (a: string, b: string): number => {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    return i;
+  };
+  const n = words.length;
+  let best = Number.POSITIVE_INFINITY;
+  const perm = (rest: string[], acc: string[]): void => {
+    if (rest.length === 0) {
+      let cost = 0;
+      let cur = '';
+      for (const w of acc) {
+        const k = lcp(cur, w);
+        cost += cur.length - k + (w.length - k) + 1;
+        cur = w;
+      }
+      best = Math.min(best, cost);
+      return;
+    }
+    for (let i = 0; i < rest.length; i++) {
+      perm([...rest.slice(0, i), ...rest.slice(i + 1)], [...acc, rest[i]]);
+    }
+  };
+  if (n <= 7) perm(words, []);
+  return best;
+}
+
+const TPRT_PUZZLES: TprtPuzzle[] = [
+  { id: 'p1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'สองคำที่ใช้ส่วนหัวร่วมกัน ลองดูว่าประหยัดตรงไหน', words: ['ab', 'abc'] },
+  { id: 'p2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'สามคำเดียวกับที่บทความใช้เดินให้ดู', words: WORDS },
+  {
+    id: 'p3',
+    label: 'ชุดที่ 3 · เลือกกิ่งค้างให้ถูก',
+    tease: 'ชุดนี้มีกิ่งยาวหนึ่งกิ่ง จะได้เห็นว่าการเลือกกิ่งที่จบเป็นกิ่งสุดท้ายสำคัญแค่ไหน',
+    words: ['a', 'ab', 'abcde', 'b'],
+  },
+];
+
+type TprtPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  words: string[];
+  optimal: number;
+  alphabet: string[];
+};
+const tprtPuzzles: TprtPuzzleData[] = TPRT_PUZZLES.map((p) => {
+  const viaFormula = optimalOf(p.words);
+  const viaBrute = optimalByBrute(p.words);
+  if (viaFormula !== viaBrute) {
+    throw new Error(
+      `มินิเกมของ type-printer: ชุด ${p.id} สูตรได้ ${viaFormula} แต่การไล่ทุกลำดับได้ ${viaBrute}`,
+    );
+  }
+  const letters = new Set<string>();
+  for (const w of p.words) for (const c of w) letters.add(c);
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    words: p.words,
+    optimal: viaFormula,
+    alphabet: [...letters].sort(),
+  };
+});
+const tprtJson = JSON.stringify(tprtPuzzles);
+
 /** จำลองการเดินไทรจริง ๆ เพื่อให้ลำดับคำสั่งในหน้านี้ไม่ใช่ของที่พิมพ์มือ */
 function ops(words: string[], keep: string): string[] {
   const kids = (p: string): string[] =>
@@ -212,13 +299,12 @@ const coreSnippet = `void dfs(int u) {
     <tbody>
       <tr>
         <td>{WORDS.length}<br />{WORDS.map((w) => <>{w}<br /></>)}</td>
-        <td>{optimal}<br />{goodOps.join(' ')}</td>
+        <td>{optimal}<br />{goodOps.map((o) => <>{o}<br /></>)}</td>
       </tr>
     </tbody>
   </table>
   <p class="io-note">
-    โจทย์ให้เขียนคำสั่งบรรทัดละหนึ่งตัว ที่นี่ย่อมาไว้บรรทัดเดียวให้ตารางไม่สูงเกินไป
-    และคำสั่งชุดนี้เป็นคนละชุดกับในโจทย์ แต่ยาวเท่ากันคือ {optimal} ครั้ง ซึ่งโจทย์บอกเองว่าตอบแบบไหนก็ได้
+    คำสั่งชุดนี้เป็นคนละชุดกับในโจทย์ แต่ยาวเท่ากันคือ {optimal} ครั้ง ซึ่งโจทย์บอกเองว่าตอบแบบไหนก็ได้
   </p>
 
   <div class="callout callout-tip">
@@ -233,8 +319,62 @@ const coreSnippet = `void dfs(int u) {
     </p>
   </div>
 
+  <h2>ลองเอง · กดเครื่องพิมพ์ให้ครบทุกคำ</h2>
+  <div class="cpgame tprtgame" data-tprtgame data-puzzles={tprtJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {tprtPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{tprtPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <table class="tr-words" data-tr-words></table>
+    </div>
+
+    <p class="fg-sub">หน้าจอตอนนี้</p>
+    <p class="tr-screen"><code data-tr-screen>(ว่าง)</code></p>
+
+    <div class="cpg-controls" data-tr-keys></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-tr-back>ลบตัวท้าย</button>
+      <button type="button" class="cpg-btn" data-tr-print>กดพิมพ์</button>
+      <button type="button" class="cpg-btn" data-tr-reset>เริ่มใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>เติมตัวอักษรจนได้คำที่ต้องการ แล้วกดพิมพ์ ทำจนครบทุกคำในรายการ</p>
+    <p class="cpg-score" data-cpg-score>ใช้ไปแล้ว <b data-tr-used>0</b> คำสั่ง · น้อยที่สุดคือ <b data-tr-opt>0</b> คำสั่ง</p>
+    <p class="cpg-hint">คำสั่งมีสามอย่างคือเติมตัวอักษร ลบตัวท้าย และกดพิมพ์ ทุกอย่างนับเป็นหนึ่งคำสั่งเท่ากันหมด</p>
+  </div>
+  <p class="io-note">
+    ถ้าลองจัดลำดับคำใหม่แล้วจำนวนคำสั่งเปลี่ยน แปลว่าลำดับมีผล คำถามคือคำไหนควรถูกพิมพ์เป็นคำสุดท้าย
+  </p>
+
   <h2>เฉลย · เครื่องพิมพ์เดินอยู่บนไทร</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งแรกที่ผมสังเกตคือคำสั่งของเครื่องนี้ไม่ใช่คำสั่งอิสระสามแบบ มันเป็น<strong>การเดิน</strong>
+        เติมตัวอักษรคือก้าวลง ลบคือถอยขึ้น และเครื่องจำสถานะล่าสุดไว้ให้เสมอ พอสิ่งที่ทำได้มีแค่ลงหนึ่งขั้นกับขึ้นหนึ่งขั้น
+        โครงสร้างที่รองรับพอดีก็มีอยู่แบบเดียวคือต้นไม้ของส่วนหัวร่วม ไทรจึงไม่ได้มาจากการนึกว่า
+        "โจทย์สตริงต้องใช้ไทร" แต่มาจากการอ่านชุดคำสั่งแล้วเห็นว่ามันคือการเดินบนต้นไม้
+      </p>
+      <p>
+        ที่ทำให้กล้าเชื่อว่ามุมนี้ถูก คือมันไปตรงกับอีกมุมที่คิดทีหลังพอดี ต้นทุนย้ายจากคำ <code>a</code> ไปคำ <code>b</code>
+        เท่ากับ <code>|a| + |b| − 2 × LCP</code> ซึ่งก็คือ<strong>ระยะทางบนไทร</strong>เป๊ะ ๆ
+        และปัญหาเดินเยี่ยมให้ครบบนต้นไม้มีสูตรปิด คือสองเท่าของจำนวนเส้น ลบความลึกของจุดที่จบ
+        สองมุมที่ตั้งต้นคนละทางแต่ลงเอยที่เลขเดียวกัน คือหลักฐานที่หนักกว่าการนั่งพิสูจน์มุมเดียวซ้ำ ๆ
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนเลือกโครงสร้างข้อมูล ให้ไล่ดูก่อนว่า<strong>สิ่งที่โจทย์อนุญาตให้ทำได้</strong>
+        มีหน้าตาเป็นอะไร แล้วเลือกโครงสร้างที่การกระทำเหล่านั้นคือการเดินหนึ่งก้าวพอดี
+      </p>
+    </div>
     <p>
       เอาคำทั้งหมดมาเรียงเป็นต้นไม้ตามส่วนหัวที่ใช้ร่วมกัน ต้นไม้แบบนี้เรียกว่า <strong>ไทร</strong> (trie)
       ปมรากคือสตริงว่าง ปมลูกของ <code>p</code> คือ <code>p</code> ที่ต่อท้ายด้วยหนึ่งตัวอักษร
@@ -391,6 +531,24 @@ const coreSnippet = `void dfs(int u) {
 
   <h2>อีกมุมหนึ่ง: มองเป็นปัญหาเดินเยี่ยมให้ครบ (ชุดทดสอบย่อย N ≤ 18)</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ลำดับจริงคือผมคิดท่าไทรได้ก่อน แล้วค่อยเขียนมุมนี้ทีหลัง และสิ่งที่ได้กลับมาไม่ได้มีแค่คะแนนชุดทดสอบย่อย
+        แต่ได้<strong>ตัวตรวจสอบ</strong>ที่คิดคนละแบบมาด้วย ตอนนั้นเฉลยไทรตอบตัวอย่างในโจทย์ถูกแล้ว แต่ตัวอย่างในโจทย์เขียนขึ้นมาเพื่ออธิบายโจทย์ ไม่ได้เขียนมาเพื่อทำให้โค้ดพัง
+        ผมจึงอยากได้อีกโปรแกรมที่คิดคนละแบบ แล้วเอามาเทียบกัน
+      </p>
+      <p>
+        ผลคือสุ่มชุดคำเล็ก ๆ 400 ชุด สองมุมให้จำนวนคำสั่งตรงกันทุกชุด แต่ผมไม่หยุดแค่นั้น
+        เพราะโปรแกรมที่<strong>นับจำนวนคำสั่งถูก แต่พิมพ์ผิดลำดับ</strong> จะรอดการเทียบตัวเลขไปได้สบาย
+        ผมเลยเขียนตัวตรวจที่เดินตามคำสั่งที่โปรแกรมสั่งออกมาจริง ๆ ทีละตัว แล้วเช็กว่าเซตของคำที่ถูกพิมพ์ตรงกับอินพุตไหม
+        อันนี้รัน 800 ชุด
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ถ้าโจทย์ให้ตอบเป็นชุดคำสั่ง ตัวตรวจสอบต้อง<strong>รันคำสั่งนั้นจริง</strong>
+        ไม่ใช่แค่เทียบความยาวของมัน
+      </p>
+    </div>
     <p>
       ถ้ายังไม่เห็นไทร ยังมีอีกมุมที่พาไปถึง 40 คะแนนได้ และเป็นมุมที่ฝึกวิธีคิดได้ดี
       ลืมเรื่องต้นไม้ไปก่อน แล้วมองว่าเรากำลัง<strong>ไล่พิมพ์คำทีละคำ</strong> โดยเลือกลำดับเอง
@@ -574,4 +732,187 @@ const coreSnippet = `void dfs(int u) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- แผงของมินิเกมเครื่องพิมพ์ ---------- */
+  .tr-words{border-collapse:collapse;font-size:0.85rem;}
+  .tr-words th, .tr-words td{
+    border:1px solid #2a3350;padding:0.26rem 0.7rem;text-align:center;color:#cdd6ea;
+  }
+  .tr-words th{color:#9aa7bd;font-weight:600;white-space:nowrap;font-family:var(--dl-mono,monospace);}
+  .tr-words th.here{color:#4ade80;border-color:#2f9e5c;}
+  .tr-words td.done{background:#14351f;color:#4ade80;}
+  .tr-screen{width:0;min-width:100%;margin:0.3rem 0 0;}
+  .tr-screen code{font-size:1.05rem;letter-spacing:0.1em;}
+  .tr-key{min-width:2.2rem;font-family:var(--dl-mono,monospace);}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TrPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    words: string[];
+    optimal: number;
+    alphabet: string[];
+  };
+
+  function initPrinterGame(): void {
+    const maybeUi = cpGameUi('[data-tprtgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TrPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const wordsEl = ui.root.querySelector<HTMLElement>('[data-tr-words]');
+    const keysEl = ui.root.querySelector<HTMLElement>('[data-tr-keys]');
+    const screenEl = ui.root.querySelector<HTMLElement>('[data-tr-screen]');
+    const usedEl = ui.root.querySelector<HTMLElement>('[data-tr-used]');
+    const optEl = ui.root.querySelector<HTMLElement>('[data-tr-opt]');
+    if (!wordsEl || !keysEl || !screenEl || !usedEl || !optEl) return;
+    const wordsTable: HTMLElement = wordsEl;
+    const keys: HTMLElement = keysEl;
+    const screen: HTMLElement = screenEl;
+    const usedOut: HTMLElement = usedEl;
+    const optOut: HTMLElement = optEl;
+
+    let pi = 0;
+    let cur = '';
+    let used = 0;
+    let printed = new Set<string>();
+
+    const pz = (): TrPuzzle => puzzles[pi];
+
+    function buildWords(): void {
+      const p = pz();
+      wordsTable.textContent = '';
+      const head = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = 'คำที่ต้องพิมพ์';
+      head.appendChild(th);
+      for (const w of p.words) {
+        const t = document.createElement('th');
+        t.textContent = w;
+        t.dataset.word = w;
+        head.appendChild(t);
+      }
+      wordsTable.appendChild(head);
+      const row = document.createElement('tr');
+      const rh = document.createElement('th');
+      rh.textContent = 'พิมพ์แล้ว';
+      row.appendChild(rh);
+      for (const w of p.words) {
+        const td = document.createElement('td');
+        td.dataset.mark = w;
+        td.textContent = 'ยัง';
+        row.appendChild(td);
+      }
+      wordsTable.appendChild(row);
+
+      keys.textContent = '';
+      for (const c of p.alphabet) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn tr-key';
+        b.dataset.letter = c;
+        b.textContent = c;
+        keys.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      screen.textContent = cur === '' ? '(ว่าง)' : cur;
+      usedOut.textContent = String(used);
+      optOut.textContent = String(p.optimal);
+      for (const td of Array.from(wordsTable.querySelectorAll<HTMLElement>('[data-mark]'))) {
+        const w = td.dataset.mark ?? '';
+        const done = printed.has(w);
+        td.textContent = done ? 'พิมพ์แล้ว' : 'ยัง';
+        td.classList.toggle('done', done);
+      }
+      for (const th of Array.from(wordsTable.querySelectorAll<HTMLElement>('[data-word]'))) {
+        th.classList.toggle('here', th.dataset.word === cur);
+      }
+    }
+
+    function finishCheck(): void {
+      const p = pz();
+      if (printed.size !== p.words.length) return;
+      if (used === p.optimal) {
+        ui.setStatus(`ครบทุกคำด้วย ${used} คำสั่ง ซึ่งน้อยที่สุดเท่าที่เป็นไปได้แล้ว`, 'good');
+      } else {
+        ui.setStatus(
+          `ครบทุกคำแล้ว แต่ใช้ ${used} คำสั่ง ยังมีทางที่ใช้แค่ ${p.optimal} คำสั่ง ลองเปลี่ยนลำดับการพิมพ์ดู`,
+          'bad',
+        );
+      }
+    }
+
+    function typeLetter(c: string): void {
+      cur += c;
+      used++;
+      ui.setStatus('เติมตัวอักษรจนได้คำที่ต้องการ แล้วกดพิมพ์ ทำจนครบทุกคำในรายการ');
+      render();
+    }
+
+    function back(): void {
+      if (cur === '') {
+        ui.setStatus('หน้าจอว่างอยู่แล้ว ลบอะไรไม่ได้', 'bad');
+        return;
+      }
+      cur = cur.slice(0, -1);
+      used++;
+      ui.setStatus('เติมตัวอักษรจนได้คำที่ต้องการ แล้วกดพิมพ์ ทำจนครบทุกคำในรายการ');
+      render();
+    }
+
+    function print(): void {
+      const p = pz();
+      if (!p.words.includes(cur)) {
+        ui.setStatus(`บนหน้าจอคือ "${cur}" ซึ่งไม่ใช่คำในรายการ กดพิมพ์ไม่ได้`, 'bad');
+        return;
+      }
+      used++;
+      if (printed.has(cur)) {
+        ui.setStatus(`"${cur}" พิมพ์ไปแล้ว การกดซ้ำเสียคำสั่งฟรี ๆ`, 'bad');
+        render();
+        return;
+      }
+      printed.add(cur);
+      ui.setStatus(`พิมพ์ "${cur}" แล้ว เหลืออีก ${p.words.length - printed.size} คำ`, 'good');
+      render();
+      finishCheck();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      cur = '';
+      used = 0;
+      printed = new Set<string>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildWords();
+      ui.setStatus('เติมตัวอักษรจนได้คำที่ต้องการ แล้วกดพิมพ์ ทำจนครบทุกคำในรายการ');
+      render();
+    }
+
+    keys.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-letter]');
+      if (!(b instanceof HTMLElement)) return;
+      typeLetter(b.dataset.letter ?? '');
+    });
+
+    ui.onClick('data-tr-back', back);
+    ui.onClick('data-tr-print', print);
+    ui.onClick('data-tr-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initPrinterGame);
+</script>

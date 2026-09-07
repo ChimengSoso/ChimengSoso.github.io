@@ -43,6 +43,98 @@ const combos = allCombos();
 const rawAnswer = combos.length;
 const answer = rawAnswer % MODULUS;
 
+/* ---------- มินิเกม เก็บชุดอัญมณีให้ครบทุกแบบ ----------
+   เกมนี้ใช้กติกาเดียวกับที่บทความนับ คือเลือกชนิดที่จะจับก่อน
+   ปลาตัวที่ยาวที่สุดของชนิดนั้นกำหนดเพดาน แล้วปลาตัวไหนที่ยาวไม่เกินครึ่งของเพดานก็เก็บได้ด้วย
+   ชุดที่เป็นไปได้ทั้งหมดคำนวณตอนบิลด์ และตัวเลขของชุดตัวอย่างถูกเทียบกับ combos ของบทความ
+   ถ้าไม่ตรงกันบิลด์จะพัง */
+type FishGamePuzzle = { id: string; label: string; tease: string; fish: Fish[]; k: number };
+
+/** เพดานและจำนวนที่หยิบได้ของแต่ละชนิด เมื่อเลือกจับชนิด t */
+function reachOf(fish: Fish[], k: number, t: number): { cap: number; hi: number[] } | null {
+  const mine = fish.filter((f) => f.type === t);
+  if (mine.length === 0) return null;
+  const cap = Math.max(...mine.map((f) => f.len));
+  const m = new Array<number>(k + 1).fill(0);
+  for (const f of fish) if (2 * f.len <= cap) m[f.type]++;
+  const hi = Array.from({ length: k }, (_, i) => m[i + 1] + (i + 1 === t ? 1 : 0));
+  return { cap, hi };
+}
+
+/** ชุดที่เป็นไปได้ทั้งหมด เขียนเป็นสตริงของจำนวนต่อชนิด */
+function combosOf(fish: Fish[], k: number): string[] {
+  const set = new Set<string>();
+  for (let t = 1; t <= k; t++) {
+    const r = reachOf(fish, k, t);
+    if (!r) continue;
+    const rec = (i: number, cur: number[]): void => {
+      if (i === k) {
+        if (cur[t - 1] >= 1) set.add(cur.join(','));
+        return;
+      }
+      for (let v = 0; v <= r.hi[i]; v++) rec(i + 1, [...cur, v]);
+    };
+    rec(0, []);
+  }
+  return [...set];
+}
+
+const FISH_PUZZLES: FishGamePuzzle[] = [
+  {
+    id: 'f1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'ปลาสามตัวสองชนิด พอให้เห็นว่าเพดานทำงานยังไง',
+    fish: [
+      { len: 1, type: 1 },
+      { len: 3, type: 2 },
+      { len: 2, type: 1 },
+    ],
+    k: 2,
+  },
+  { id: 'f2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'ชุดเดียวกับที่บทความแกะให้ดูทีละชนิด', fish: FISH, k: K },
+  {
+    id: 'f3',
+    label: 'ชุดที่ 3 · ชุดที่นับซ้ำง่าย',
+    tease: 'ชุดนี้มีชุดอัญมณีที่ไปถึงได้จากการจับคนละชนิด ระวังนับซ้ำ',
+    fish: [
+      { len: 2, type: 1 },
+      { len: 2, type: 2 },
+      { len: 5, type: 1 },
+      { len: 5, type: 2 },
+    ],
+    k: 2,
+  },
+];
+
+type FishReach = { type: number; cap: number; hi: number[] };
+type FishPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  fish: Fish[];
+  k: number;
+  reach: FishReach[];
+  all: string[];
+  total: number;
+};
+const fishPuzzles: FishPuzzleData[] = FISH_PUZZLES.map((p) => {
+  const reach: FishReach[] = [];
+  for (let t = 1; t <= p.k; t++) {
+    const r = reachOf(p.fish, p.k, t);
+    if (r) reach.push({ type: t, cap: r.cap, hi: r.hi });
+  }
+  const all = combosOf(p.fish, p.k).sort();
+  return { id: p.id, label: p.label, tease: p.tease, fish: p.fish, k: p.k, reach, all, total: all.length };
+});
+{
+  // ชุดที่สองคือตัวอย่างของบทความ ต้องได้จำนวนเท่ากับที่บทความนับไว้เป๊ะ
+  const sample = fishPuzzles[1];
+  if (sample.total !== rawAnswer) {
+    throw new Error(`มินิเกมของ fish-jewels: นับได้ ${sample.total} ชุด แต่บทความนับได้ ${rawAnswer} ชุด`);
+  }
+}
+const fishJson = JSON.stringify(fishPuzzles);
+
 /** เขียนชุดหนึ่งชุดเป็นข้อความแบบที่โจทย์ใช้ เช่น [1,2,3,3] */
 const show = (c: string): string => {
   const v = c.split(',').map(Number);
@@ -277,8 +369,68 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
     </p>
   </div>
 
+  <h2>ลองเอง · เก็บชุดอัญมณีให้ครบทุกแบบ</h2>
+  <div class="cpgame fishgame" data-fishgame data-puzzles={fishJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {fishPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{fishPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <table class="fg-fish" data-fg-fish></table>
+    </div>
+
+    <p class="fg-sub">เลือกชนิดที่จะจับ ตัวที่ยาวที่สุดของชนิดนั้นจะเป็นตัวกำหนดเพดาน</p>
+    <div class="cpg-controls" data-fg-types></div>
+
+    <div class="cpg-scroll">
+      <table class="fg-pick" data-fg-pick></table>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-fg-reset>เริ่มชุดนี้ใหม่</button>
+      <button type="button" class="cpg-btn main" data-fg-take>เก็บชุดนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>เลือกชนิดที่จะจับก่อน แล้วค่อยปรับจำนวนอัญมณีแต่ละชนิดที่จะเก็บ</p>
+    <p class="cpg-score" data-cpg-score>เก็บได้ <b data-fg-found>0</b> จาก <b data-fg-total>0</b> ชุดที่ต่างกัน</p>
+    <p class="cpg-hint" data-fg-list>ยังไม่ได้เก็บชุดไหนเลย</p>
+  </div>
+  <p class="io-note">
+    ถ้าเจอชุดที่เก็บซ้ำ ให้สังเกตว่ามันมาจากการจับคนละชนิดกันได้ นั่นคือจุดที่การนับตรง ๆ จะนับเกิน
+  </p>
+
   <h2>เฉลย · ตัวจับผูกกับชนิด ไม่ใช่กับตัวปลา</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ผมทำสิ่งที่ควรทำแต่มักขี้เกียจทำ คือ<strong>ไล่สูตรด้วยมือบนตัวอย่างในโจทย์ก่อนแตะคีย์บอร์ด</strong>
+        พอกางกรณี ก และ ข ออกมาแล้วบวกกัน ได้ 1 + 2 + 4 + 4 = <strong>11</strong>
+        ซึ่งตรงกับที่โจทย์บอกว่ามี 11 ชุด และตรงกับรายการทั้ง 11 ชุดที่โจทย์ยกมาให้ดูด้วย ตรงนั้นถึงกล้าเปิดเขียนโค้ด
+        ถ้าเลขไม่ตรง สิ่งที่พังคือวิธีนับ ไม่ใช่โค้ด และการรู้แบบนั้นตั้งแต่ก่อนเขียนช่วยประหยัดเวลาไปทั้งคืน
+      </p>
+      <p>
+        อีกเรื่องที่ต้องตัดสินใจตั้งแต่ต้นคือจะใช้โครงสร้างอะไรมาถามผลคูณของช่วง
+        ตัวแรกที่ทุกคนนึกถึงคือเฟนวิก แต่ข้อนี้ใช้ไม่ได้ เพราะเฟนวิกตอบได้แค่ผลสะสม<strong>จากต้นถึงจุดหนึ่ง</strong>
+        จะเอาช่วงตรงกลางต้องหักส่วนหน้าออก ซึ่งกับการบวกคือการลบ แต่กับ<strong>การคูณคือการหาร</strong>
+        และมอดุลัสของข้อนี้ไม่ใช่จำนวนเฉพาะ จึงหารกลับไม่ได้ ตรงนี้จบด้วยการตัดเฟนวิกทิ้งตั้งแต่ยังไม่เขียน
+      </p>
+      <p>
+        ตอนตรวจ ผมสุ่ม 4,000 ชุดเทียบสามอย่างพร้อมกัน คือเฉลยเต็ม เฉลยชุดทดสอบย่อย
+        และตัวไล่นับที่โยนทุกชุดที่หาได้ลง <code>set</code> ตรง ๆ <strong>โดยไม่มีทฤษฎีกันซ้ำเลยสักบรรทัด</strong>
+        ตัวที่สามสำคัญที่สุด เพราะสองตัวแรกใช้เหตุผลเรื่องการกันนับซ้ำชุดเดียวกัน ถ้าเหตุผลนั้นผิด มันจะผิดพร้อมกันทั้งคู่
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เลือกโครงสร้างข้อมูลจาก<strong>คุณสมบัติของการดำเนินการ</strong>
+        ไม่ใช่จากความคุ้นมือ ถามก่อนว่ามันมีตัวผกผันไหม บนมอดุลัสตัวนี้มันมีจริงหรือเปล่า
+      </p>
+    </div>
     <h3>ขั้นที่ 1 กำหนดว่าปลาตัวหนึ่งจับมาแล้วได้อะไรบ้าง</h3>
     <p>
       ปลา <code>X</code> ยาว <code>Lx</code> กินปลาที่ยาวไม่เกิน <code>Lx / 2</code> ได้ตรง ๆ
@@ -533,4 +685,266 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- ตารางของมินิเกมจับปลา ---------- */
+  .fg-sub{width:0;min-width:100%;margin:0.9rem 0 0;font-size:0.85rem;color:#9aa7bd;}
+  .fg-fish, .fg-pick{border-collapse:collapse;font-size:0.85rem;}
+  .fg-fish th, .fg-fish td, .fg-pick th, .fg-pick td{
+    border:1px solid #2a3350;padding:0.24rem 0.6rem;text-align:center;color:#cdd6ea;
+  }
+  .fg-fish th, .fg-pick th{color:#9aa7bd;font-weight:600;white-space:nowrap;}
+  .fg-fish tr.reach td{background:#131c2c;}
+  .fg-fish tr.caught td{background:#14351f;color:#4ade80;}
+  .cpg-btn.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .fg-step{
+    font:inherit;font-size:0.8rem;cursor:pointer;
+    width:1.4rem;height:1.4rem;line-height:1;
+    margin:0 0.3rem;
+    border:1px solid #2a3350;border-radius:5px;background:#101827;color:#cdd6ea;
+  }
+  .fg-step:hover{border-color:var(--dl-emerald);}
+  .fg-pick b{font-family:var(--dl-mono,monospace);color:#e6edfb;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type FgFish = { len: number; type: number };
+  type FgReach = { type: number; cap: number; hi: number[] };
+  type FgPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    fish: FgFish[];
+    k: number;
+    reach: FgReach[];
+    all: string[];
+    total: number;
+  };
+
+  function initFishGame(): void {
+    const maybeUi = cpGameUi('[data-fishgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as FgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const fishEl = ui.root.querySelector<HTMLElement>('[data-fg-fish]');
+    const typesEl = ui.root.querySelector<HTMLElement>('[data-fg-types]');
+    const pickEl = ui.root.querySelector<HTMLElement>('[data-fg-pick]');
+    const foundEl = ui.root.querySelector<HTMLElement>('[data-fg-found]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-fg-total]');
+    const listEl = ui.root.querySelector<HTMLElement>('[data-fg-list]');
+    if (!fishEl || !typesEl || !pickEl || !foundEl || !totalEl || !listEl) return;
+    const fishTable: HTMLElement = fishEl;
+    const typeBar: HTMLElement = typesEl;
+    const pickTable: HTMLElement = pickEl;
+    const foundOut: HTMLElement = foundEl;
+    const totalOut: HTMLElement = totalEl;
+    const listOut: HTMLElement = listEl;
+
+    let pi = 0;
+    let chosenType = 0;
+    let counts: number[] = [];
+    let found = new Set<string>();
+
+    const pz = (): FgPuzzle => puzzles[pi];
+    const reachFor = (t: number): FgReach | undefined => pz().reach.find((r) => r.type === t);
+
+    function show(key: string): string {
+      const v = key.split(',').map(Number);
+      const out: number[] = [];
+      v.forEach((n, i) => {
+        for (let j = 0; j < n; j++) out.push(i + 1);
+      });
+      return `[${out.join(',')}]`;
+    }
+
+    function buildFish(): void {
+      const p = pz();
+      fishTable.textContent = '';
+      const head = document.createElement('tr');
+      for (const label of ['ปลา', 'ความยาว', 'ชนิดอัญมณี']) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        head.appendChild(th);
+      }
+      fishTable.appendChild(head);
+      p.fish.forEach((f, i) => {
+        const tr = document.createElement('tr');
+        tr.dataset.fish = String(i);
+        for (const text of [`ตัวที่ ${i + 1}`, String(f.len), String(f.type)]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.appendChild(td);
+        }
+        fishTable.appendChild(tr);
+      });
+
+      typeBar.textContent = '';
+      for (const r of p.reach) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn';
+        b.dataset.type = String(r.type);
+        b.textContent = `จับชนิด ${r.type} (เพดาน ${r.cap})`;
+        typeBar.appendChild(b);
+      }
+    }
+
+    function buildPick(): void {
+      const p = pz();
+      pickTable.textContent = '';
+      if (chosenType === 0) return;
+      const r = reachFor(chosenType);
+      if (!r) return;
+      const head = document.createElement('tr');
+      const c0 = document.createElement('th');
+      c0.textContent = 'ชนิด';
+      head.appendChild(c0);
+      for (let t = 1; t <= p.k; t++) {
+        const th = document.createElement('th');
+        th.textContent = String(t);
+        head.appendChild(th);
+      }
+      pickTable.appendChild(head);
+
+      const rowMax = document.createElement('tr');
+      const m0 = document.createElement('th');
+      m0.textContent = 'หยิบได้ถึง';
+      rowMax.appendChild(m0);
+      for (let t = 1; t <= p.k; t++) {
+        const td = document.createElement('td');
+        td.textContent = String(r.hi[t - 1]);
+        rowMax.appendChild(td);
+      }
+      pickTable.appendChild(rowMax);
+
+      const rowNow = document.createElement('tr');
+      const n0 = document.createElement('th');
+      n0.textContent = 'จะเก็บ';
+      rowNow.appendChild(n0);
+      for (let t = 1; t <= p.k; t++) {
+        const td = document.createElement('td');
+        const minus = document.createElement('button');
+        minus.type = 'button';
+        minus.className = 'fg-step';
+        minus.dataset.d = '-1';
+        minus.dataset.t = String(t);
+        minus.textContent = '-';
+        const val = document.createElement('b');
+        val.dataset.val = String(t);
+        val.textContent = '0';
+        const plus = document.createElement('button');
+        plus.type = 'button';
+        plus.className = 'fg-step';
+        plus.dataset.d = '1';
+        plus.dataset.t = String(t);
+        plus.textContent = '+';
+        td.append(minus, val, plus);
+        rowNow.appendChild(td);
+      }
+      pickTable.appendChild(rowNow);
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const b of Array.from(typeBar.querySelectorAll<HTMLElement>('[data-type]'))) {
+        b.classList.toggle('picked', Number(b.dataset.type) === chosenType);
+      }
+      const r = reachFor(chosenType);
+      for (const rowFish of Array.from(fishTable.querySelectorAll<HTMLElement>('[data-fish]'))) {
+        const f = p.fish[Number(rowFish.dataset.fish)];
+        rowFish.classList.toggle('caught', r !== undefined && f.type === chosenType && f.len === r.cap);
+        rowFish.classList.toggle('reach', r !== undefined && 2 * f.len <= r.cap);
+      }
+      for (const v of Array.from(pickTable.querySelectorAll<HTMLElement>('[data-val]'))) {
+        v.textContent = String(counts[Number(v.dataset.val) - 1] ?? 0);
+      }
+      foundOut.textContent = String(found.size);
+      totalOut.textContent = String(p.total);
+      listOut.textContent =
+        found.size === 0
+          ? 'ยังไม่ได้เก็บชุดไหนเลย'
+          : `เก็บแล้ว ${[...found].sort().map(show).join(' ')}`;
+    }
+
+    function pickType(t: number): void {
+      const p = pz();
+      chosenType = t;
+      counts = new Array<number>(p.k).fill(0);
+      counts[t - 1] = 1;
+      buildPick();
+      ui.setStatus(`จับชนิด ${t} แล้ว ปรับจำนวนที่จะเก็บ แล้วกดเก็บชุดนี้`);
+      render();
+    }
+
+    function step(t: number, d: number): void {
+      const r = reachFor(chosenType);
+      if (!r) return;
+      const lo = t === chosenType ? 1 : 0;
+      counts[t - 1] = Math.max(lo, Math.min(r.hi[t - 1], counts[t - 1] + d));
+      render();
+    }
+
+    function take(): void {
+      const p = pz();
+      if (chosenType === 0) {
+        ui.setStatus('เลือกชนิดที่จะจับก่อนครับ', 'bad');
+        return;
+      }
+      const key = counts.join(',');
+      if (!p.all.includes(key)) {
+        ui.setStatus('ชุดนี้ไปถึงไม่ได้ด้วยกติกาของโจทย์', 'bad');
+        return;
+      }
+      if (found.has(key)) {
+        ui.setStatus(`${show(key)} เก็บไปแล้ว ชุดเดียวกันไปถึงได้จากหลายทาง จึงนับแค่ครั้งเดียว`, 'bad');
+        return;
+      }
+      found.add(key);
+      ui.setStatus(
+        found.size === p.total
+          ? `ครบทุกชุดแล้วครับ ${p.total} ชุด`
+          : `เก็บ ${show(key)} แล้ว เหลืออีก ${p.total - found.size} ชุด`,
+        'good',
+      );
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      chosenType = 0;
+      counts = new Array<number>(pz().k).fill(0);
+      found = new Set<string>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildFish();
+      buildPick();
+      ui.setStatus('เลือกชนิดที่จะจับก่อน แล้วค่อยปรับจำนวนอัญมณีแต่ละชนิดที่จะเก็บ');
+      render();
+    }
+
+    typeBar.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-type]');
+      if (!(b instanceof HTMLElement)) return;
+      pickType(Number(b.dataset.type));
+    });
+    pickTable.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('.fg-step');
+      if (!(b instanceof HTMLElement)) return;
+      step(Number(b.dataset.t), Number(b.dataset.d));
+    });
+
+    ui.onClick('data-fg-reset', () => selectPuzzle(pi));
+    ui.onClick('data-fg-take', take);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initFishGame);
+</script>

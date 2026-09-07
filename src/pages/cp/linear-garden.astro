@@ -38,6 +38,42 @@ function allBalanced(n: number): string[] {
 const DEMO_N = 5;
 const demo = allBalanced(DEMO_N);
 const DEMO_TARGET = 'PLPPL';
+
+/* ---------- มินิเกม สร้างสวนสมดุลให้ตรงอันดับที่ขอ ----------
+   ทุกชุดในเกมมี N เล็กพอที่จะไล่สวนสมดุลออกมาได้ครบตอนบิลด์
+   อันดับของคำตอบจึงมาจากรายการจริง ไม่ได้มาจากสูตร ตัวเกมจึงเถียงกับบทความไม่ได้ */
+type GardenPuzzle = { id: string; label: string; tease: string; n: number; rank: number };
+const GARDEN_PUZZLES: GardenPuzzle[] = [
+  { id: 'g1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'สวนสั้น ๆ ห้าต้น ลองไล่ให้ชินกับรางก่อน', n: 5, rank: 6 },
+  { id: 'g2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'ความยาวเท่าตัวอย่างที่บทความใช้เดินให้ดู', n: DEMO_N, rank: demo.indexOf(DEMO_TARGET) + 1 },
+  { id: 'g3', label: 'ชุดที่ 3 · ยาวขึ้นอีกหน่อย', tease: 'พอยาวขึ้น การเดาสุ่มจะเริ่มไม่ไหว ต้องนับเอา', n: 9, rank: 30 },
+];
+
+type GardenPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  rank: number;
+  total: number;
+  answer: string;
+};
+const gardenPuzzles: GardenPuzzleData[] = GARDEN_PUZZLES.map((p) => {
+  const list = allBalanced(p.n);
+  if (p.rank < 1 || p.rank > list.length) {
+    throw new Error(`มินิเกมของ linear-garden: ชุด ${p.id} ขออันดับ ${p.rank} แต่มีสวนสมดุลแค่ ${list.length} แบบ`);
+  }
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    n: p.n,
+    rank: p.rank,
+    total: list.length,
+    answer: list[p.rank - 1],
+  };
+});
+const gardenJson = JSON.stringify(gardenPuzzles);
 const demoRank = demo.indexOf(DEMO_TARGET) + 1;
 
 /* จำนวนสวนสมดุลของแต่ละความยาว เอาไว้ให้เห็นว่ามันโตแบบไหน */
@@ -248,8 +284,67 @@ static inline int stepState(int s, int c) {
     </p>
   </div>
 
+  <h2>ลองเอง · ปลูกสวนให้ได้อันดับที่ขอ</h2>
+  <div class="cpgame gardengame" data-gardengame data-puzzles={gardenJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {gardenPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{gardenPuzzles[0].tease}</p>
+
+    <p class="gg2-goal">
+      ปลูกสวนยาว <b data-gd-n>{gardenPuzzles[0].n}</b> ต้น ให้เป็น<b>สวนสมดุลอันดับที่ <span data-gd-rank>{gardenPuzzles[0].rank}</span></b>
+      จากทั้งหมด <span data-gd-total>{gardenPuzzles[0].total}</span> แบบ โดยเรียงตามพจนานุกรม บัว (L) มาก่อน กก (P)
+    </p>
+
+    <div class="cpg-scroll">
+      <div class="gd-rail" data-gd-rail></div>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-gd-add-l>ปลูกบัว L</button>
+      <button type="button" class="cpg-btn" data-gd-add-p>ปลูกกก P</button>
+      <button type="button" class="cpg-btn" data-gd-undo>ถอนต้นล่าสุด</button>
+      <button type="button" class="cpg-btn main" data-gd-check>ตรวจอันดับ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดปลูกทีละต้น เส้นจะขยับขึ้นเมื่อปลูกบัว และลงเมื่อปลูกกก</p>
+    <p class="cpg-score" data-cpg-score>สวนตอนนี้ <b data-gd-str>ยังว่าง</b> · ความกว้างของราง <b data-gd-span>0</b></p>
+    <p class="cpg-hint">รางกว้างเกินสองเมื่อไร สวนนั้นไม่สมดุลทันที และไม่ว่าจะปลูกต่อยังไงก็แก้ไม่ได้แล้ว</p>
+  </div>
+  <p class="io-note">
+    ลองสังเกตว่าตอนกำลังเลือกต้นถัดไป สิ่งที่ต้องรู้จริง ๆ มีแค่กี่อย่าง แล้วมันคือตำแหน่งของเส้น หรือระยะห่างจากขอบราง
+  </p>
+
   <h2>เฉลย · เงื่อนไขทั้งข้อยุบเหลือรางกว้างสองหน่วย</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        เงื่อนไขในโจทย์พูดถึง<strong>ทุกช่วงที่ติดกัน</strong> ซึ่งอ่านครั้งแรกแล้วเหมือนบังคับให้ต้องตรวจ N² ช่วง
+        และถ้าต้องตรวจทีละช่วงจริง ก็ไม่มีทางเดินไปพร้อมกับการนับอันดับได้เลย ผมเลยลองเขียนเงื่อนไขนั้นใหม่ในรูปผลรวมสะสม
+        พอเขียนออกมา เงื่อนไขของทุกช่วงพร้อมกันก็ยุบเหลือประโยคเดียวคือ
+        <strong>ค่ามากสุดลบค่าน้อยสุดของผลรวมสะสมต้องไม่เกินสอง</strong> ซึ่งตรวจได้ระหว่างเดินทีละต้น
+      </p>
+      <p>
+        ท่าที่ผมทำต่อและอยากให้ลองทำตาม คือ<strong>เขียนเวอร์ชันที่จำทุกอย่างให้ถูกก่อน</strong>
+        จำค่ามากสุด ค่าน้อยสุด และค่าปัจจุบันของผลรวมสะสมไปตรง ๆ ไม่ต้องฉลาด เวอร์ชันนั้นเขียนง่ายและถูกแน่
+        และมันกลายเป็นเฉลยชุดทดสอบย่อย 40 คะแนนพอดี
+      </p>
+      <p>
+        แล้วค่อยถามคำถามเดียวกับมันว่า ข้อมูลชิ้นไหนที่จำไว้ แต่<strong>ไม่เคยถูกใช้จริง</strong>
+        คำตอบคือตำแหน่งสัมบูรณ์ของผลรวมสะสม เพราะทุกการตัดสินใจใช้แค่ระยะห่างระหว่างค่าปัจจุบันกับสองขอบเท่านั้น
+        พอตัดตำแหน่งสัมบูรณ์ทิ้ง สถานะทั้งหมดก็เหลือแค่หกแบบ และผมสุ่ม 300 ชุดเทียบสองเวอร์ชัน ตรงกันหมด
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ วิธีบีบสถานะที่ปลอดภัยที่สุดไม่ใช่การนั่งคิดสถานะที่เล็กที่สุดตั้งแต่แรก
+        แต่คือเขียนตัวที่จำเยอะเกินไปให้ถูกก่อน แล้วไล่ตัดสิ่งที่ไม่มีใครอ่าน
+      </p>
+    </div>
     <p>
       ให้ <code>S[k]</code> คือผลรวมสะสมของ <code>k</code> ต้นแรก จำนวนบัวลบจำนวนกกในช่วง
       <code>(i, j]</code> ก็คือ <code>S[j] − S[i]</code> ตรง ๆ เงื่อนไขว่าทุกช่วงต้องต่างกันไม่เกินสอง
@@ -509,4 +604,197 @@ static inline int stepState(int s, int c) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- รางของมินิเกมปลูกสวน ---------- */
+  .gg2-goal{width:0;min-width:100%;margin:0 0 0.8rem;font-size:0.9rem;color:#cdd6ea;}
+  .gg2-goal b{color:#e6edfb;}
+  .gd-rail{display:flex;gap:5px;width:max-content;}
+  .gd-col{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .gd-dot{
+    width:1.5rem;height:0.5rem;
+    border-radius:3px;
+    background:#101827;
+    border:1px solid #1c2536;
+  }
+  .gd-dot.band{background:#131c2c;border-color:#243050;}
+  .gd-dot.on{background:#4ade80;border-color:#2f9e5c;}
+  .gd-dot.bust{background:#f0a6a6;border-color:#8a3b3b;}
+  .gd-tag{
+    margin-top:0.2rem;
+    font-family:var(--dl-mono,monospace);
+    font-size:0.85rem;
+    color:#7b8397;
+  }
+  .gd-tag.lotus{color:#4ade80;}
+  .gd-tag.reed{color:#9ecbff;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type GdPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    n: number;
+    rank: number;
+    total: number;
+    answer: string;
+  };
+
+  function initGardenGame(): void {
+    const maybeUi = cpGameUi('[data-gardengame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as GdPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const railEl = ui.root.querySelector<HTMLElement>('[data-gd-rail]');
+    const strEl = ui.root.querySelector<HTMLElement>('[data-gd-str]');
+    const spanEl = ui.root.querySelector<HTMLElement>('[data-gd-span]');
+    const nEl = ui.root.querySelector<HTMLElement>('[data-gd-n]');
+    const rankEl = ui.root.querySelector<HTMLElement>('[data-gd-rank]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-gd-total]');
+    if (!railEl || !strEl || !spanEl || !nEl || !rankEl || !totalEl) return;
+    const rail: HTMLElement = railEl;
+    const strOut: HTMLElement = strEl;
+    const spanOut: HTMLElement = spanEl;
+    const nOut: HTMLElement = nEl;
+    const rankOut: HTMLElement = rankEl;
+    const totalOut: HTMLElement = totalEl;
+
+    let pi = 0;
+    let cur = '';
+
+    const pz = (): GdPuzzle => puzzles[pi];
+
+    /** คืนค่าตำแหน่งเส้นหลังปลูกแต่ละต้น เริ่มที่ศูนย์ */
+    function trail(s: string): number[] {
+      const out = [0];
+      let sum = 0;
+      for (const c of s) {
+        sum += c === 'L' ? 1 : -1;
+        out.push(sum);
+      }
+      return out;
+    }
+
+    function spanOf(s: string): number {
+      const t = trail(s);
+      return Math.max(...t) - Math.min(...t);
+    }
+
+    function buildRail(): void {
+      const p = pz();
+      rail.textContent = '';
+      for (let k = 0; k < p.n; k++) {
+        const col = document.createElement('div');
+        col.className = 'gd-col';
+        col.dataset.k = String(k);
+        for (let r = 0; r < 7; r++) {
+          const cell = document.createElement('span');
+          cell.className = 'gd-dot';
+          cell.dataset.level = String(3 - r);
+          col.appendChild(cell);
+        }
+        const tag = document.createElement('b');
+        tag.className = 'gd-tag';
+        tag.textContent = '.';
+        col.appendChild(tag);
+        rail.appendChild(col);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const t = trail(cur);
+      const cols = Array.from(rail.querySelectorAll<HTMLElement>('.gd-col'));
+      const lo = Math.min(...t);
+      const hi = Math.max(...t);
+      cols.forEach((col, k) => {
+        const has = k < cur.length;
+        const lvl = has ? t[k + 1] : null;
+        const tag = col.querySelector<HTMLElement>('.gd-tag');
+        if (tag) {
+          tag.textContent = has ? cur[k] : '.';
+          tag.className = has ? `gd-tag ${cur[k] === 'L' ? 'lotus' : 'reed'}` : 'gd-tag';
+        }
+        for (const dot of Array.from(col.querySelectorAll<HTMLElement>('.gd-dot'))) {
+          const level = Number(dot.dataset.level);
+          dot.classList.toggle('on', has && level === lvl);
+          dot.classList.toggle('band', has && level <= hi && level >= lo);
+          dot.classList.toggle('bust', has && hi - lo > 2 && level === lvl);
+        }
+      });
+      strOut.textContent = cur === '' ? 'ยังว่าง' : cur;
+      spanOut.textContent = String(spanOf(cur));
+      nOut.textContent = String(p.n);
+      rankOut.textContent = String(p.rank);
+      totalOut.textContent = String(p.total);
+    }
+
+    function plant(c: string): void {
+      const p = pz();
+      if (cur.length >= p.n) {
+        ui.setStatus(`สวนเต็มแล้วที่ ${p.n} ต้น กดตรวจอันดับได้เลย`, 'plain');
+        return;
+      }
+      cur += c;
+      if (spanOf(cur) > 2) {
+        ui.setStatus('รางกว้างเกินสองแล้ว สวนนี้ไม่สมดุลอีกต่อไป ถอนต้นล่าสุดออกดูครับ', 'bad');
+      } else {
+        ui.setStatus('กดปลูกทีละต้น เส้นจะขยับขึ้นเมื่อปลูกบัว และลงเมื่อปลูกกก');
+      }
+      render();
+    }
+
+    function undo(): void {
+      if (cur.length === 0) return;
+      cur = cur.slice(0, -1);
+      ui.setStatus('ถอนแล้ว ลองต้นอื่นดู');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (cur.length !== p.n) {
+        ui.setStatus(`ยังปลูกไม่ครบ ต้องได้ ${p.n} ต้น ตอนนี้ ${cur.length} ต้น`, 'bad');
+        return;
+      }
+      if (spanOf(cur) > 2) {
+        ui.setStatus('สวนนี้ไม่สมดุล เพราะมีช่วงที่บัวกับกกต่างกันเกินสอง', 'bad');
+        return;
+      }
+      if (cur === p.answer) {
+        ui.setStatus(`ถูกต้องครับ ${cur} คือสวนสมดุลอันดับที่ ${p.rank} พอดี`, 'good');
+        return;
+      }
+      const cmp = cur < p.answer ? 'มาก่อน' : 'มาหลัง';
+      ui.setStatus(
+        `${cur} เป็นสวนสมดุลจริง แต่มัน${cmp}อันดับที่ ${p.rank} ในพจนานุกรม ลองขยับตัวอักษรจากท้ายมาหน้า`,
+        'bad',
+      );
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      cur = '';
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildRail();
+      ui.setStatus('กดปลูกทีละต้น เส้นจะขยับขึ้นเมื่อปลูกบัว และลงเมื่อปลูกกก');
+      render();
+    }
+
+    ui.onClick('data-gd-add-l', () => plant('L'));
+    ui.onClick('data-gd-add-p', () => plant('P'));
+    ui.onClick('data-gd-undo', undo);
+    ui.onClick('data-gd-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initGardenGame);
+</script>
