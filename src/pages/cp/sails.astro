@@ -1,0 +1,451 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'sails/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Mast = { h: number; k: number };
+const MASTS: Mast[] = [
+  { h: 3, k: 2 },
+  { h: 5, k: 3 },
+  { h: 4, k: 1 },
+  { h: 2, k: 1 },
+  { h: 4, k: 3 },
+  { h: 3, k: 2 },
+];
+const MAXH = Math.max(...MASTS.map((m) => m.h));
+
+const cost = (cnt: number[]): number => cnt.reduce((a, c) => a + (c * (c - 1)) / 2, 0);
+
+/** เดินตามท่าโลภ: ใส่ใบเรือลงระดับที่ตอนนี้ว่างที่สุด โดยไล่จากเสาเตี้ยไปเสาสูง */
+type GreedyStep = { i: number; mast: Mast; picked: number[]; after: number[]; cost: number };
+function greedy(masts: Mast[]): GreedyStep[] {
+  const sorted = [...masts].sort((a, b) => a.h - b.h);
+  const cnt = new Array<number>(MAXH).fill(0);
+  const steps: GreedyStep[] = [];
+  sorted.forEach((m, i) => {
+    const idx = Array.from({ length: m.h }, (_, j) => j);
+    // เรียงตามค่าน้อยไปมาก ค่าเท่ากันเอาระดับล่างก่อน (นี่คือกฎเสมอที่สำคัญมาก)
+    idx.sort((a, b) => cnt[a] - cnt[b] || a - b);
+    const picked = idx.slice(0, m.k).sort((a, b) => a - b);
+    for (const p of picked) cnt[p]++;
+    steps.push({ i: i + 1, mast: m, picked: picked.map((p) => p + 1), after: [...cnt], cost: cost(cnt) });
+  });
+  return steps;
+}
+const steps = greedy(MASTS);
+const answer = steps[steps.length - 1].cost;
+
+/**
+ * เวอร์ชันที่เขียนแบบ "เติมเป็นช่วง" ซึ่งเป็นรูปที่โค้ดจริงใช้
+ * headRule = true คือหยิบหัวบล็อกที่ค่าเสมอกัน (ถูก) ส่วน false คือหยิบท้ายบล็อก (ผิด)
+ */
+function rangeImpl(masts: Mast[], headRule: boolean): { cost: number; snaps: number[][] } {
+  const a = new Array<number>(MAXH + 1).fill(0);
+  const snaps: number[][] = [];
+  for (const m of [...masts].sort((x, y) => x.h - y.h)) {
+    const v = a[m.h - m.k + 1];
+    let l = 1;
+    while (l <= m.h && a[l] > v) l++;
+    let r = m.h;
+    while (r >= 1 && a[r] < v) r--;
+    const below = m.h - r;
+    for (let i = r + 1; i <= m.h; i++) a[i]++;
+    const k2 = m.k - below;
+    if (k2 > 0) {
+      if (headRule) for (let i = l; i <= l + k2 - 1; i++) a[i]++;
+      else for (let i = r - k2 + 1; i <= r; i++) a[i]++;
+    }
+    snaps.push(a.slice(1));
+  }
+  return { cost: cost(a.slice(1)), snaps };
+}
+const good = rangeImpl(MASTS, true);
+const bad = rangeImpl(MASTS, false);
+const isSorted = (row: number[]): boolean => row.every((v, i) => i === 0 || row[i - 1] >= v);
+
+const NMAX = 100000;
+const HMAX = 100000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int MX; vector<long long> bit;                 // BIT แบบ range-update / point-query
+void upd(int i,long long v){ for(;i<=MX;i+=i&-i) bit[i]+=v; }
+void range(int l,int r,long long v){ if(l>r) return; upd(l,v); upd(r+1,-v); }
+long long at(int i){ long long s=0; for(;i>0;i-=i&-i) s+=bit[i]; return s; }
+int main(){
+    int n; if(scanf("%d",&n)!=1) return 0;
+    vector<pair<int,int>> m(n);
+    for(auto&p:m) scanf("%d %d",&p.first,&p.second);
+    sort(m.begin(),m.end());
+    MX=m.back().first; bit.assign(MX+2,0);
+    for(auto&[H,K]:m){
+        long long v=at(H-K+1);
+        // [l,r] = ช่วงใน [1..H] ที่ค่าเท่ากับ v พอดี (อาเรย์ไม่เพิ่ม จึงค้นแบบไบนารีได้)
+        int l=1,r=H,lo,hi;
+        lo=1; hi=H; int first=H+1;
+        while(lo<=hi){ int md=(lo+hi)/2; if(at(md)<=v){ first=md; hi=md-1; } else lo=md+1; }
+        l=first;
+        lo=1; hi=H; int last=0;
+        while(lo<=hi){ int md=(lo+hi)/2; if(at(md)>=v){ last=md; lo=md+1; } else hi=md-1; }
+        r=last;
+        int below=H-r;                 // ช่องที่ค่าน้อยกว่า v อยู่ท้ายสุด เติมก่อนทั้งหมด
+        range(r+1,H,1);
+        int k2=K-below;                // ที่เหลือหยิบจาก "หัว" ของบล็อกค่าเท่ากับ v
+        if(k2>0) range(l,l+k2-1,1);
+    }
+    long long ans=0;
+    for(int i=1;i<=MX;i++){ long long c=at(i); ans+=c*(c-1)/2; }
+    printf("%lld\\n",ans);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย จำนวนวิธีจัดใบเรือทั้งหมดไม่เกินหนึ่งล้านแบบ (25 คะแนน)
+// ไล่ทุกวิธีจัดจริง ๆ แล้วเก็บค่าที่น้อยที่สุด ไม่ต้องรู้อะไรเรื่องความโลภเลย
+#include <bits/stdc++.h>
+using namespace std;
+int n, MX;
+vector<int> H, K, cnt;
+long long best = LLONG_MAX;
+
+void rec(int i) {
+    if (i == n) {
+        long long v = 0;
+        for (int c : cnt) v += 1LL * c * (c - 1) / 2;      // คู่ที่อยู่ระดับเดียวกัน
+        best = min(best, v);
+        return;
+    }
+    vector<int> pick(H[i], 0);
+    fill(pick.begin(), pick.begin() + K[i], 1);
+    sort(pick.begin(), pick.end());                        // เริ่มจากรูปแบบที่เล็กที่สุดของ next_permutation
+    do {
+        for (int h = 0; h < H[i]; h++) if (pick[h]) cnt[h]++;
+        rec(i + 1);
+        for (int h = 0; h < H[i]; h++) if (pick[h]) cnt[h]--;
+    } while (next_permutation(pick.begin(), pick.end()));
+}
+
+int main() {
+    scanf("%d", &n);
+    H.resize(n); K.resize(n); MX = 0;
+    for (int i = 0; i < n; i++) { scanf("%d %d", &H[i], &K[i]); MX = max(MX, H[i]); }
+    cnt.assign(MX, 0);
+    rec(0);
+    printf("%lld\\n", best);
+}`;
+const coreSnippet = `long long v = at(H - K + 1);            // ค่าที่ระดับตัวที่ K นับจากท้ายช่วง [1..H]
+// [l, r] = บล็อกของระดับที่มีค่าเท่ากับ v พอดี หาแบบไบนารีได้เพราะอาเรย์ไม่มีทางเพิ่มขึ้น
+int below = H - r;                      // ระดับที่ค่าน้อยกว่า v อยู่ท้ายสุด ใส่ก่อนทั้งหมด
+range(r + 1, H, 1);
+int k2 = K - below;                     // ที่เหลือหยิบจาก "หัว" ของบล็อก ไม่ใช่ท้าย
+if (k2 > 0) range(l, l + k2 - 1, 1);`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · ใบเรือที่บังลมกันเอง</h2>
+  <p>
+    เรือโจรสลัดลำใหม่มีเสา <code>N</code> ต้น เรียงจากหัวเรือไปท้ายเรือ เสาต้นที่ <code>i</code> สูง
+    <code>H</code> ช่อง และต้องติดใบเรือ <code>K</code> ใบ โดยหนึ่งช่องติดได้ไม่เกินหนึ่งใบ
+    เราเลือกได้ว่าจะติดใบไหนที่ระดับไหนของเสาต้นนั้น
+  </p>
+  <p>
+    ใบเรือที่อยู่<strong>ข้างหน้า</strong>ใบอื่นที่<strong>ระดับเดียวกัน</strong>จะบังลมให้ใบข้างหลัง
+    โจทย์นิยาม <strong>ความไร้ประสิทธิภาพ</strong> ของใบหนึ่งใบว่าคือจำนวนใบที่อยู่ข้างหลังมันและอยู่ระดับเดียวกัน
+    แล้วบวกของทุกใบเข้าด้วยกัน งานของเราคือจัดใบเรือให้ผลรวมนี้<strong>น้อยที่สุด</strong>
+  </p>
+  <p>
+    สังเกตจุดที่ทำให้โจทย์ง่ายลงเยอะทันที ถ้าระดับหนึ่งมีใบเรืออยู่ <code>c</code> ใบ ผลรวมของระดับนั้นคือ
+    จำนวนคู่ที่จับได้จาก <code>c</code> ใบ นั่นคือ <code>c × (c − 1) / 2</code> โดย<strong>ไม่เกี่ยวกับลำดับหัวท้ายเลย</strong>
+    เพราะทุกคู่ในระดับเดียวกันย่อมมีตัวหนึ่งอยู่หน้าอีกตัวหนึ่งอยู่แล้ว
+  </p>
+  <p>
+    คำถามจึงเหลือแค่ ให้แจกใบเรือลงระดับต่าง ๆ โดยเสาต้นที่ <code>i</code> แจกได้เฉพาะระดับ 1 ถึง
+    <code>H</code> และแจกได้ระดับละไม่เกินหนึ่งใบ จะทำยังไงให้ผลรวมของ <code>c × (c − 1) / 2</code> ทุกระดับน้อยที่สุด
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้น <code>N</code> บรรทัด แต่ละบรรทัดคือ
+        <code>H</code> และ <code>K</code> ของเสาต้นนั้น เรียงจากหัวเรือไปท้ายเรือ
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>2 ≤ N ≤ {fmt(NMAX)}</code>, <code>1 ≤ H ≤ {fmt(HMAX)}</code>,
+        <code>1 ≤ K ≤ H</code> เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> ค่าความไร้ประสิทธิภาพรวมที่น้อยที่สุด ต้องใช้จำนวนเต็ม 64 บิต
+      </li>
+      <li>
+        <strong>ให้คะแนน:</strong> มี 25 คะแนนสำหรับชุดทดสอบที่จำนวนวิธีจัดใบเรือทั้งหมดไม่เกินหนึ่งล้านแบบ
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{MASTS.length}<br />{MASTS.map((m) => <>{m.h} {m.k}<br /></>)}</td>
+        <td>{answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ฟังก์ชัน <code>c × (c − 1) / 2</code> มีคุณสมบัติหนึ่งที่ตัดสินทั้งข้อ คือส่วนต่างของมันเวลาเพิ่มขึ้นทีละหนึ่ง
+      เท่ากับ <code>c</code> พอดี พูดง่าย ๆ คือ<strong>ยิ่งกองไหนสูง การเติมใบลงกองนั้นยิ่งแพง</strong>
+    </p>
+    <p>
+      แล้วถ้าเราจะไล่ใส่เสาทีละต้น ควรไล่จากเสาต้นไหนก่อน และตอนที่หลายระดับมีจำนวนใบเท่ากันเป๊ะ
+      การเลือกระดับล่างกับระดับบนต่างกันไหม
+    </p>
+  </div>
+
+  <h2>เฉลย · ใส่ลงกองที่ว่างที่สุดเสมอ และไล่จากเสาที่เตี้ยที่สุด</h2>
+  <Spoiler>
+    <p>
+      เริ่มจากคำถามที่ง่ายกว่า สมมติเสาทุกต้นสูงเท่ากันหมด คำตอบชัดเจนว่าต้องกระจายให้<strong>เท่ากันที่สุด</strong>
+      เพราะ <code>c × (c − 1) / 2</code> เป็นฟังก์ชันนูน การย้ายใบจากกองสูงไปกองต่ำลดผลรวมได้เสมอ
+    </p>
+    <p>
+      ความยากจริงอยู่ที่เสาสูงไม่เท่ากัน เสาเตี้ยเลือกได้แค่ระดับล่าง ส่วนเสาสูงเลือกได้ทุกระดับ
+      ดังนั้น<strong>เสาเตี้ยมีสิทธิ์น้อยกว่า ต้องได้เลือกก่อน</strong> เรียงเสาตามความสูงจากน้อยไปมาก
+      แล้วไล่ใส่ทีละต้น ต้นละ <code>K</code> ใบ ลงระดับที่ตอนนี้มีใบน้อยที่สุด
+    </p>
+    <p>
+      ท่านี้ทำให้เกิดคุณสมบัติที่สวยมากอย่างหนึ่งคือ <strong>อาเรย์จำนวนใบต่อระดับจะไม่มีทางเพิ่มขึ้นตามระดับ</strong>
+      ระดับล่างมีใบมากกว่าหรือเท่ากับระดับบนเสมอ เพราะเสาทุกต้นที่แตะระดับบนได้ ก็แตะระดับล่างได้อยู่แล้ว
+      คุณสมบัตินี้แหละที่ทำให้เราค้นหาแบบไบนารีบนอาเรย์นี้ได้ และเป็นกุญแจของโค้ดที่เร็ว
+    </p>
+
+    <h3>กฎตอนค่าเสมอกัน คือจุดที่พลาดกันมากที่สุด</h3>
+    <p>
+      สมมติกำลังจะใส่ <code>K</code> ใบลงในช่วง 1 ถึง <code>H</code> ระดับที่ค่าน้อยกว่าค่าอื่นชัดเจนต้องใส่แน่นอน
+      แต่พอมาถึงบล็อกที่ค่าเท่ากันหมด แล้วเราต้องเลือกใส่แค่บางระดับในบล็อกนั้น จะเลือกอันไหน
+    </p>
+    <p>
+      ถ้ามองแค่ผลรวมอย่างเดียว การหยิบระดับไหนในบล็อกก็ให้ค่าเท่ากัน เพราะกองที่ได้ออกมาเป็นชุดเดิม
+      แค่สลับที่กัน ประเด็นจึงไม่ได้อยู่ที่ค่า แต่อยู่ที่<strong>ความเป็นระเบียบของอาเรย์</strong>
+      หยิบระดับบนเมื่อไร อาเรย์ก็เลิกเป็นแบบไม่เพิ่มขึ้นทันที
+    </p>
+    <p>
+      และเมื่ออาเรย์เลิกเป็นระเบียบ การค้นแบบไบนารีที่ใช้หาขอบบล็อกในก้าวถัดไปก็ตอบมั่ว
+      บักจึงไม่ได้โผล่ตรงที่เราเขียนผิด แต่ไปโผล่ในก้าวหลัง ๆ ซึ่งเป็นบักประเภทที่หายากที่สุด
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างในโจทย์ · จำนวนใบต่อระดับหลังใส่เสาแต่ละต้น</caption>
+        <thead>
+          <tr>
+            <th class="num">ลำดับ</th><th>หยิบหัวบล็อก</th><th>เป็นระเบียบ</th>
+            <th>หยิบท้ายบล็อก</th><th>เป็นระเบียบ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {good.snaps.map((row, i) => (
+            <tr>
+              <td class="num">{i + 1}</td>
+              <td><code>{row.join(' ')}</code></td>
+              <td>{isSorted(row) ? 'ใช่' : 'ไม่'}</td>
+              <td><code>{bad.snaps[i].join(' ')}</code></td>
+              <td>{isSorted(bad.snaps[i]) ? 'ใช่' : 'ไม่'}</td>
+            </tr>
+          ))}
+          <tr>
+            <td class="num">ค่ารวม</td>
+            <td class="num"><strong>{good.cost}</strong></td><td></td>
+            <td class="num">{bad.cost}</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ฝั่งขวาพังตั้งแต่เสาต้นแรก อาเรย์ขึ้นต้นด้วย <code>0 1</code> ซึ่งเพิ่มขึ้นตามระดับ
+        พอถึงเสาต้นหลัง ๆ การค้นขอบบล็อกก็เลยผิด และค่ารวมจบที่ {bad.cost} แทนที่จะเป็น {good.cost}
+        ตัวเลขทั้งสองฝั่งคำนวณสดจากโค้ดชุดเดียวกัน ต่างกันแค่บรรทัดเดียว
+      </figcaption>
+    </figure>
+
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+  </Spoiler>
+
+  <h2>ไล่ท่าโลภทีละเสาบนตัวอย่าง</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เรียงเสาจากเตี้ยไปสูง แล้วใส่ใบทีละต้น</caption>
+        <thead>
+          <tr>
+            <th class="num">ลำดับ</th><th>เสา (สูง, ใบ)</th><th>ใส่ที่ระดับ</th>
+            <th>จำนวนใบต่อระดับ</th><th class="num">ค่ารวม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map((s) => (
+            <tr>
+              <td class="num">{s.i}</td>
+              <td><code>({s.mast.h}, {s.mast.k})</code></td>
+              <td><code>{s.picked.join(', ')}</code></td>
+              <td><code>{s.after.join(' ')}</code></td>
+              <td class="num">{s.cost}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์จำนวนใบต่อระดับอ่านจากระดับ 1 ไป {MAXH} สังเกตว่ามันไม่เคยเพิ่มขึ้นตามระดับเลยสักแถว
+        นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ไล่ทุกวิธีจัด (ชุดทดสอบย่อย 25 คะแนน)</h2>
+  <Spoiler>
+    <p>
+      ชุดทดสอบย่อยบอกว่าจำนวนวิธีจัดใบเรือทั้งหมดไม่เกินหนึ่งล้านแบบ นั่นคือคำเชิญให้ไล่ทุกแบบตรง ๆ
+      โดยไม่ต้องคิดอะไรเรื่องความโลภเลย เสาต้นที่ <code>i</code> มีวิธีเลือกระดับได้
+      <code>C(H, K)</code> แบบ คูณกันทุกต้นแล้วไม่เกินหนึ่งล้าน
+    </p>
+    <p>
+      ค่าของท่านี้ไม่ได้อยู่ที่คะแนน 25 คะแนน แต่อยู่ที่มันเป็น<strong>ตัวตรวจสอบ</strong>
+      เวลาเราคิดท่าโลภได้แล้วแต่ยังไม่แน่ใจว่ากฎเสมอถูกทางไหม การสุ่มอินพุตเล็ก ๆ มาเทียบกับตัวไล่ทุกแบบ
+      คือวิธีที่เร็วที่สุดในการรู้ว่าเราคิดผิด
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="sails_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      ผมสุ่มเรือเล็ก ๆ ที่มีเสาไม่เกินสี่ต้น สูงไม่เกินห้าช่อง จำนวน 300 ลำ มาเทียบสองโปรแกรมนี้
+      ตรงกันหมด ส่วนเวอร์ชันที่ใช้กฎเสมอผิดหลุดตั้งแต่ลำแรก ๆ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      เสามีได้ถึง {fmt(NMAX)} ต้น และแต่ละต้นต้องเติมใบได้ถึง {fmt(HMAX)} ใบ จะไล่เติมทีละระดับไม่ไหว
+      แต่เพราะเราพิสูจน์แล้วว่าเติมเป็น<strong>ช่วงติดกันสองช่วง</strong>เสมอ (ช่วงท้ายที่ค่าน้อยกว่า
+      กับหัวของบล็อกที่ค่าเท่ากัน) จึงใช้ต้นไม้เฟนวิกแบบบวกทั้งช่วงถามทีละจุดได้พอดี
+    </p>
+    <p>
+      การหาขอบซ้ายขอบขวาของบล็อกใช้การค้นแบบไบนารีบนอาเรย์ที่ไม่มีทางเพิ่มขึ้น ซึ่งเป็นคุณสมบัติที่
+      ท่าโลภรักษาไว้ให้เอง ถ้ากฎเสมอเขียนผิด นอกจากคำตอบจะผิดแล้ว การค้นแบบไบนารีก็จะเลิกมีความหมายไปด้วย
+      บักสองชั้นซ้อนกันแบบนี้หายากมากถ้าไม่มีตัวตรวจสอบ
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="sails.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม เรือ {fmt(NMAX)} ต้น เสาสูงสุ่มถึง {fmt(HMAX)} ใช้เวลา
+      <strong>124 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
+    </p>
+    <p>
+      เครื่องมือหลักของข้อนี้คือต้นไม้เฟนวิก ถ้ายังไม่คุ้น ไปอ่าน
+      <a href="../prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> ก่อนได้
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อราคาของกองหนึ่งเป็นฟังก์ชันนูน การกระจายให้เท่ากันที่สุดคือคำตอบเสมอ
+    ที่เหลือคือให้คนที่มีทางเลือกน้อยที่สุดได้เลือกก่อน และตอนเสมอกันให้หยิบฝั่งที่รักษาความเป็นระเบียบของอาเรย์ไว้
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Sails</i> บน programming.in.th ข้อ 2015
+      <a href="https://programming.in.th/tasks/2015" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2015
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>19th International Olympiad in Informatics</i> ที่เมืองซาเกร็บ ประเทศโครเอเชีย วันแข่งที่ 1
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

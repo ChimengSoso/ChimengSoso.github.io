@@ -1,0 +1,500 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'teleporters/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Pair = [number, number];
+
+/** วิเคราะห์ชุดเครื่องเคลื่อนย้าย คืนความยาวเส้นทางหลักกับขนาดของวงที่เหลือ */
+function analyse(ps: Pair[]): { base: number; cycles: number[] } {
+  const pts = ps.flat().sort((a, b) => a - b);
+  const idx = new Map<number, number>();
+  pts.forEach((p, i) => idx.set(p, i + 1));
+  const partner = new Map<number, number>();
+  for (const [a, b] of ps) {
+    partner.set(a, b);
+    partner.set(b, a);
+  }
+  const P = pts.length;
+  const nxt: number[] = new Array<number>(P + 1).fill(-1);
+  for (let j = 0; j < P; j++) nxt[j] = idx.get(partner.get(pts[j]) as number) as number;
+
+  const vis = new Array<boolean>(P + 1).fill(false);
+  let cur = 0;
+  let base = 0;
+  while (cur !== P) {
+    vis[cur] = true;
+    cur = nxt[cur];
+    base++;
+  }
+  vis[P] = true;
+  const cycles: number[] = [];
+  for (let j = 0; j < P; j++)
+    if (!vis[j]) {
+      let len = 0;
+      let u = j;
+      while (!vis[u]) {
+        vis[u] = true;
+        u = nxt[u];
+        len++;
+      }
+      cycles.push(len);
+    }
+  cycles.sort((a, b) => b - a);
+  return { base, cycles };
+}
+
+/** คะแนนสูงสุดตามท่าโลภ */
+function best(base: number, cycles: number[], m: number): number {
+  let ans = base;
+  let used = 0;
+  for (const c of cycles) {
+    if (used >= m) break;
+    ans += c + 2;
+    used++;
+  }
+  const r = m - used;
+  return ans + Math.floor(r / 2) * 4 + (r % 2);
+}
+
+const EX1: Pair[] = [
+  [10, 11],
+  [1, 4],
+  [2, 3],
+];
+const EX1M = 1;
+const a1 = analyse(EX1);
+const ans1 = best(a1.base, a1.cycles, EX1M);
+
+const EX2: Pair[] = [
+  [5, 7],
+  [6, 10],
+  [1999999, 2000000],
+];
+const EX2M = 3;
+const a2 = analyse(EX2);
+const ans2 = best(a2.base, a2.cycles, EX2M);
+
+/* ตารางแสดงว่าเครื่องแต่ละตัวถูกใช้ทำอะไร ในตัวอย่างที่สอง */
+type Spend = { i: number; act: string; gain: number; total: number };
+function spendTable(base: number, cycles: number[], m: number): Spend[] {
+  const rows: Spend[] = [];
+  let total = base;
+  let ci = 0;
+  let pend = false;
+  for (let i = 1; i <= m; i++) {
+    if (ci < cycles.length) {
+      const g = cycles[ci] + 2;
+      total += g;
+      rows.push({ i, act: `ดูดวงขนาด ${cycles[ci]} เข้ามาต่อ`, gain: g, total });
+      ci++;
+    } else if (!pend) {
+      total += 1;
+      rows.push({ i, act: 'ไม่มีวงเหลือแล้ว จึงต้องแตกวงขนาด 1 ออกมาก่อน', gain: 1, total });
+      pend = true;
+    } else {
+      total += 3;
+      rows.push({ i, act: 'ดูดวงขนาด 1 ที่เพิ่งแตกไว้กลับเข้ามา', gain: 3, total });
+      pend = false;
+    }
+  }
+  return rows;
+}
+const spend2 = spendTable(a2.base, a2.cycles, EX2M);
+
+const NMAX = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+// อ่านเลขเองทีละไบต์ อินพุตมีสองล้านตัวเลข scanf ช้าเกินไปสำหรับลิมิตหนึ่งวินาที
+static char ibuf[1<<25]; static size_t ipos=0, ilen=0;
+static inline int rd(){
+    while(ipos<ilen && (ibuf[ipos]<'0'||ibuf[ipos]>'9')) ipos++;
+    int v=0; while(ipos<ilen && ibuf[ipos]>='0' && ibuf[ipos]<='9') v=v*10+(ibuf[ipos++]-'0');
+    return v;
+}
+int main(){
+    ilen=fread(ibuf,1,sizeof(ibuf),stdin);
+    int n=rd(), m=rd();
+    vector<int> W(n),E(n); int hi=0;
+    for(int i=0;i<n;i++){ W[i]=rd(); E[i]=rd(); hi=max(hi,E[i]); }
+    const int LIM=hi+2;                            // ใช้แค่ถึงปลายที่ไกลสุด ตำแหน่งจุดจบไม่มีผลกับคำตอบ
+    vector<int> partnerAt(LIM,-1);                 // partnerAt[p] = ตำแหน่งปลายอีกข้าง
+    for(int i=0;i<n;i++){ partnerAt[W[i]]=E[i]; partnerAt[E[i]]=W[i]; }
+    // เรียงตำแหน่งปลายทั้งหมด แล้วให้เลข 1..2n  ช่วง I_j อยู่ทางตะวันออกของปลายที่ j (I_0 คือจากจุดเริ่ม)
+    vector<int> pts; pts.reserve(2*n);
+    for(int i=0;i<n;i++){ pts.push_back(W[i]); pts.push_back(E[i]); }
+    sort(pts.begin(),pts.end());
+    int P=(int)pts.size();
+    vector<int> id(LIM,0);
+    for(int i=0;i<P;i++) id[pts[i]]=i+1;           // ปลายตัวที่ i+1
+    // nxt[j] = ช่วงถัดไปหลังจากเดินจบช่วง j   (j = 0..P-1)
+    vector<int> nxt(P+1,-1);
+    for(int j=0;j<P;j++) nxt[j]=id[ partnerAt[ pts[j] ] ];
+    // เดินจาก I_0 ไปจนถึง I_P นับจำนวนช่วง
+    vector<char> vis(P+1,0);
+    long long base=0; int cur=0;
+    while(cur!=P){ vis[cur]=1; cur=nxt[cur]; base++; }
+    vis[P]=1;
+    // วงที่เหลือ
+    vector<long long> cyc;
+    for(int j=0;j<P;j++) if(!vis[j]){ long long len=0; int u=j; while(!vis[u]){ vis[u]=1; u=nxt[u]; len++; } cyc.push_back(len); }
+    sort(cyc.rbegin(),cyc.rend());
+    long long ans=base;                            // base = จำนวนครั้งที่ถูกย้ายก่อนเพิ่มเครื่อง
+    int used=0;
+    for(size_t i=0;i<cyc.size() && used<m; i++,used++) ans+=cyc[i]+2;   // ดูดวงเข้ามาต่อในเส้นทาง
+    long long r=m-used;                            // เครื่องที่เหลือเมื่อไม่มีวงให้ดูดแล้ว
+    ans += (r/2)*4 + (r%2)*1;                      // ต้องเสียหนึ่งเครื่องแตกวงก่อน อีกเครื่องค่อยดูดกลับ
+    printf("%lld\\n",ans);
+}`;
+const checkCode = `#include <bits/stdc++.h>
+using namespace std;
+int LIM;
+int simulate(vector<pair<int,int>>& ps){
+    static int par[400]; for(int i=0;i<=LIM;i++) par[i]=-1;
+    for(auto&[a,b]:ps){ par[a]=b; par[b]=a; }
+    int pos=0,sc=0;
+    while(true){
+        int nx=-1; for(int p=pos+1;p<=LIM;p++) if(par[p]>=0){ nx=p; break; }
+        if(nx<0) return sc;
+        pos=par[nx]; sc++; if(sc>3000) return -1;
+    }
+}
+int main(int argc,char**argv){
+    int n,m; scanf("%d %d %d",&n,&m,&LIM);
+    vector<pair<int,int>> base(n);
+    set<int> used;
+    for(auto&p:base){ scanf("%d %d",&p.first,&p.second); used.insert(p.first); used.insert(p.second); }
+    vector<int> freeP; for(int i=1;i<=LIM;i++) if(!used.count(i)) freeP.push_back(i);
+    int F=(int)freeP.size(), need=2*m, best=0;
+    vector<int> idx(need);
+    function<void(int,int)> choose=[&](int start,int k){
+        if(k==need){
+            vector<int> sel; for(int i=0;i<need;i++) sel.push_back(freeP[idx[i]]);
+            sort(sel.begin(),sel.end());
+            do{
+                vector<pair<int,int>> ps=base;
+                bool ok=true;
+                for(int i=0;i<m;i++){ int a=sel[2*i],b=sel[2*i+1]; if(a>b) swap(a,b); ps.push_back({a,b}); }
+                if(ok) best=max(best,simulate(ps));
+            } while(next_permutation(sel.begin(),sel.end()));
+            return;
+        }
+        for(int i=start;i<F;i++){ idx[k]=i; choose(i+1,k+1); }
+    };
+    if(m==0) best=simulate(base); else choose(0,0);
+    printf("%d\\n",best);
+}`;
+const coreSnippet = `long long ans = base;                    // คะแนนก่อนเพิ่มเครื่อง
+int used = 0;
+for (size_t i = 0; i < cyc.size() && used < m; i++, used++)
+    ans += cyc[i] + 2;                   // ดูดวงขนาด s เข้ามาต่อ ได้เพิ่ม s + 2
+
+long long r = m - used;                  // เครื่องที่เหลือ ตอนไม่มีวงให้ดูดแล้ว
+ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื่องหนึ่งแตกวงก่อน อีกเครื่องค่อยดูดกลับ`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เดินไปทางตะวันออกเสมอ แต่โดนโยนกลับได้</h2>
+  <p>
+    เราเดินอยู่บนเส้นตรงจากตะวันตกไปตะวันออก เริ่มที่ตำแหน่ง 0 และต้องไปให้ถึงปลายทางที่ตำแหน่ง 2,000,001
+    กฎเดียวคือ<strong>เดินไปทางตะวันออกเสมอ</strong>
+  </p>
+  <p>
+    บนเส้นนี้มี<strong>เครื่องเคลื่อนย้ายมวลสาร</strong> (teleporter) อยู่ <code>N</code> เครื่อง
+    เครื่องหนึ่งมีจุดปลายสองจุด พอเราเดินไปเหยียบจุดปลายข้างหนึ่ง เราจะถูกโยนไปโผล่ที่จุดปลายอีกข้างทันที
+    แล้วเดินต่อไปทางตะวันออกจากจุดที่โผล่ เราหลบจุดปลายที่ขวางอยู่ไม่ได้ และทุกครั้งที่ถูกโยน<strong>ได้หนึ่งคะแนน</strong>
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>teleporter</i> อ่านว่า <strong>"เทเลพอร์เตอร์"</strong> แปลว่า<strong>เครื่องย้ายตัวข้ามที่</strong>
+      ประกอบจาก <i>tele-</i> ที่แปลว่าไกล (ตัวเดียวกับใน <i>telephone</i> และ <i>television</i>) กับ
+      <i>portare</i> ในภาษาละตินที่แปลว่าขนหรือแบก
+    </p>
+  </div>
+  <p>
+    ก่อนออกเดินทาง เราวางเครื่องเพิ่มได้อีกไม่เกิน <code>M</code> เครื่อง จะวางจุดปลายไว้ที่ไหนก็ได้
+    (ตำแหน่งไม่ต้องเป็นจำนวนเต็มก็ได้) ขอแค่ไม่ซ้ำกับจุดปลายที่มีอยู่แล้ว งานของเราคือ<strong>ทำคะแนนให้ได้มากที่สุด</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>N</code> บรรทัดที่ 2 คือ <code>M</code> จากนั้น
+        <code>N</code> บรรทัด แต่ละบรรทัดคือตำแหน่งปลายด้านตะวันตกและด้านตะวันออกของเครื่องนั้น
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>N, M ≤ {fmt(NMAX)}</code> และทุกตำแหน่งอยู่ระหว่าง 1 ถึง 2,000,000
+        โดยไม่มีจุดปลายไหนซ้ำกัน เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> คะแนนมากที่สุดที่ทำได้</li>
+      <li><strong>ให้คะแนน:</strong> มี 30 คะแนนสำหรับชุดทดสอบที่ <code>N ≤ 500</code> และ <code>M ≤ 500</code></li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td>{EX1.length}<br />{EX1M}<br />{EX1.map((p) => <>{p[0]} {p[1]}<br /></>)}</td><td>{ans1}</td></tr>
+      <tr><td>{EX2.length}<br />{EX2M}<br />{EX2.map((p) => <>{p[0]} {p[1]}<br /></>)}</td><td>{ans2}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      จุดปลายทั้งหมด <code>2N</code> จุดตัดเส้นตรงออกเป็น<strong>ช่วง</strong> <code>2N + 1</code> ช่วง
+      พอเดินจบช่วงหนึ่ง เราจะไปโผล่ที่ต้นของช่วงใดช่วงหนึ่งเสมอ และช่วงปลายทางนั้นถูกกำหนดไว้แน่นอนแล้ว
+      ไม่ขึ้นกับว่าเรามาจากไหน
+    </p>
+    <p>
+      แปลว่าเรากำลังเดินอยู่บน<strong>ฟังก์ชันที่แต่ละช่วงชี้ไปช่วงเดียว</strong> ลองวาดลูกศรจากช่วงไปช่วงดู
+      แล้วถามว่ารูปที่ได้หน้าตาเป็นยังไง และ "ช่วงที่เราไม่เคยเหยียบเลย" ไปอยู่ตรงไหนของรูปนั้น
+    </p>
+  </div>
+
+  <h2>เฉลย · เส้นทางหลักหนึ่งเส้น กับวงที่ลอยอยู่เฉย ๆ</h2>
+  <Spoiler>
+    <p>
+      เรียงจุดปลายทั้ง <code>2N</code> จุดตามตำแหน่ง แล้วตั้งชื่อช่วงว่า <code>I₀</code> ถึง <code>I₂ₙ</code>
+      โดย <code>I₀</code> คือช่วงจากจุดเริ่มถึงจุดปลายตัวแรก และ <code>I₂ₙ</code> คือช่วงจากจุดปลายตัวสุดท้ายถึงเส้นชัย
+    </p>
+    <p>
+      เดินจบช่วง <code>Iⱼ</code> แปลว่าไปเหยียบจุดปลายตัวที่ <code>j+1</code> แล้วถูกโยนไปที่คู่ของมัน
+      จากนั้นเดินต่อในช่วงที่อยู่<strong>ทางตะวันออกของคู่นั้นทันที</strong> การจับคู่จุดปลายเป็นการสลับที่แบบหนึ่งต่อหนึ่ง
+      ลูกศรที่ได้จึงเป็น<strong>การสลับที่</strong>ของช่วง ซึ่งแตกออกเป็น<strong>เส้นทางเดียวจาก <code>I₀</code> ไป
+      <code>I₂ₙ</code> บวกกับวงปิดอีกจำนวนหนึ่ง</strong>
+    </p>
+    <p>
+      คะแนนก่อนเพิ่มเครื่องคือ<strong>จำนวนช่วงบนเส้นทางหลัก ลบหนึ่ง</strong> ส่วนวงปิดที่เหลือคือช่วงที่เราไม่มีวันไปถึง
+      เพราะไม่มีลูกศรจากเส้นทางหลักชี้เข้าไปเลย
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ทั้งสองตัวอย่าง · แยกช่วงออกเป็นเส้นทางกับวง</caption>
+        <thead>
+          <tr><th>ตัวอย่าง</th><th class="num">ช่วงบนเส้นทางหลัก</th><th class="num">คะแนนตั้งต้น</th><th>ขนาดของวงที่เหลือ</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ที่ 1</td>
+            <td class="num">{a1.base + 1}</td>
+            <td class="num">{a1.base}</td>
+            <td><code>{a1.cycles.join(', ')}</code></td>
+          </tr>
+          <tr>
+            <td>ที่ 2</td>
+            <td class="num">{a2.base + 1}</td>
+            <td class="num">{a2.base}</td>
+            <td><code>{a2.cycles.join(', ')}</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ตัวเลขทุกตัวมาจากการสร้างการสลับที่จริงแล้วเดินตามลูกศร ไม่ได้พิมพ์มือ
+        ตัวอย่างที่ 1 ยังไม่เพิ่มเครื่องเลยก็ได้ {a1.base} คะแนน แต่โจทย์ตอบ {ans1} เพราะเพิ่มได้อีกหนึ่งเครื่อง
+      </figcaption>
+    </figure>
+
+    <h3>เพิ่มเครื่องหนึ่งตัวแล้วเกิดอะไรขึ้น</h3>
+    <p>
+      วางจุดปลายใหม่สองจุด จุดหนึ่งอยู่ในช่วง <code>A</code> อีกจุดอยู่ในช่วง <code>B</code>
+      ช่วงทั้งสองถูกผ่าออกเป็นสองท่อน และลูกศรถูกต่อใหม่ให้ท่อนหน้าของ <code>A</code> พาไปท่อนหลังของ <code>B</code>
+      และท่อนหน้าของ <code>B</code> พาไปท่อนหลังของ <code>A</code>
+    </p>
+    <p>
+      กรณีที่คุ้มที่สุดคือวางจุดหนึ่งไว้บน<strong>เส้นทางหลัก</strong> อีกจุดไว้ใน<strong>วงที่ลอยอยู่</strong>
+      เมื่อนั้นวงทั้งวงจะถูกดูดเข้ามาต่อในเส้นทางหลัก เส้นทางได้ช่วงเพิ่ม 1 ช่อง (จากการผ่า <code>A</code>)
+      บวกกับ <code>s + 1</code> ช่อง (จากวงขนาด <code>s</code> ที่ถูกผ่าอีกที) รวมเป็น <code>s + 2</code> คะแนน
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        พอวงหมดแล้วยังเหลือเครื่องอยู่ อย่าเผลอคิดว่าเครื่องละ 2 คะแนน ถ้าวางจุดปลายทั้งสองไว้บนเส้นทางหลักทั้งคู่
+        เส้นทางจะ<strong>ขาดตรงกลาง</strong> ท่อนที่ขาดกลายเป็นวงใหม่ที่เข้าไม่ถึง ท่าที่ดีที่สุดคือยอมให้ขาดน้อยที่สุด
+        คือแตกวงขนาด 1 ออกมา ได้แค่ <strong>+1</strong> แล้วเครื่องถัดไปค่อยดูดวงขนาด 1 นั้นกลับเข้ามา ได้ <strong>+3</strong>
+      </p>
+      <p>
+        สรุปคือสองเครื่องได้ 4 คะแนน แต่เครื่องเดี่ยว ๆ ที่เหลือค้างได้แค่ 1 คะแนน
+        ตรงนี้คือจุดที่โค้ดผมพลาดรอบแรก แล้วตัวตรวจสอบจับได้
+      </p>
+    </div>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      และเพราะการดูดวงให้ <code>s + 2</code> ซึ่งอย่างน้อยคือ 3 ต่อหนึ่งเครื่อง ในขณะที่การแตกแล้วดูดกลับให้เฉลี่ย 2
+      ต่อหนึ่งเครื่อง จึงต้อง<strong>ดูดวงให้หมดก่อนเสมอ</strong> และดูดวงใหญ่ก่อนวงเล็ก
+    </p>
+  </Spoiler>
+
+  <h2>ตัวอย่างที่ 2 · เครื่องสามตัวถูกใช้ต่างกัน</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เริ่มที่ {a2.base} คะแนน แล้วใช้เครื่องทีละตัว</caption>
+        <thead>
+          <tr><th class="num">เครื่องที่</th><th>เอาไปทำอะไร</th><th class="num">ได้เพิ่ม</th><th class="num">รวม</th></tr>
+        </thead>
+        <tbody>
+          {spend2.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td>{r.act}</td>
+              <td class="num">{r.gain}</td>
+              <td class="num">{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สังเกตเครื่องที่ 2 ที่ได้แค่ 1 คะแนน มันดูเหมือนขาดทุน แต่มันคือค่าเปิดทางให้เครื่องที่ 3 ได้ 3 คะแนน
+        ถ้ามีเครื่องแค่สองตัว คำตอบจะเป็น {best(a2.base, a2.cycles, 2)} ไม่ใช่ {best(a2.base, a2.cycles, 3)}
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>ตัวตรวจสอบที่ทำให้รู้ว่าคิดผิด</h2>
+  <Spoiler>
+    <p>
+      รอบแรกผมเขียนว่าเครื่องที่เหลือได้ตัวละ 2 คะแนน ซึ่งฟังดูสมเหตุสมผลมาก และมัน<strong>ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด</strong>
+      สิ่งที่จับได้คือโปรแกรมที่<strong>ไล่วางเครื่องทุกความเป็นไปได้แล้วจำลองการเดินจริง</strong>
+    </p>
+    <p>
+      มันช้ามาก ใช้ได้แค่กับเครื่องไม่กี่ตัวและเส้นตรงสั้น ๆ แต่มันไม่เชื่อทฤษฎีอะไรของผมเลย
+      พอสุ่มเทียบ 200 ชุด มันชี้ทันทีว่าเคสที่มีวงเดียวแล้วเหลือเครื่องอีกตัว ผมตอบเกินจริงไปหนึ่ง
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดตัวตรวจสอบ (ไล่วางทุกแบบแล้วจำลอง)</summary>
+      <div class="expander-body">
+        <CodeBlock code={checkCode} lang="cpp" title="brute_tele.cpp" />
+      </div>
+    </details>
+    <p>
+      ข้อคิดที่อยากฝากไว้คือ <strong>การตอบตัวอย่างในโจทย์ถูกไม่ใช่หลักฐานอะไรเลย</strong>
+      โดยเฉพาะกับข้อที่คำตอบเป็นสูตรโลภสั้น ๆ เพราะตัวอย่างในโจทย์มักถูกออกแบบมาให้เห็นภาพ ไม่ได้ออกแบบมาให้จับบัก
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      อินพุตมีเลขได้ถึงสี่ล้านตัว การอ่านด้วย <code>scanf</code> ทีละตัวช้าเกินลิมิตหนึ่งวินาที
+      โค้ดนี้จึงอ่านทั้งไฟล์เข้ามาก้อนเดียวแล้วแยกเลขเอง เวลาที่วัดได้ลดจาก 744 มิลลิวินาทีเหลือ
+      <strong>258 มิลลิวินาที</strong>
+    </p>
+    <p>
+      ส่วนการแปลงตำแหน่งเป็นหมายเลขจุดปลาย ใช้อาเรย์ขนาดเท่าตำแหน่งที่ไกลที่สุด เพราะพิกัดไม่เกินสองล้าน
+      ตำแหน่งจุดจบจริง ๆ ที่โจทย์บอกว่าเป็น 2,000,001 ไม่มีผลกับคำตอบเลย มีผลแค่ว่าช่วงสุดท้ายชื่ออะไร
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="tele.cpp" />
+      </div>
+    </details>
+    <p>
+      โครงสร้าง "แต่ละปมชี้ไปปมเดียว" ที่ข้อนี้ใช้มีชื่อเรียกและมีท่าประจำของมัน อ่านได้ที่บทปูพื้นฐาน
+      <a href="../functional-graph/">กราฟที่ทุกปมมีทางออกทางเดียว</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อการเดินถูกบังคับให้ไปทางเดียว ช่วงระหว่างจุดปลายจะกลายเป็นการสลับที่ คำตอบตั้งต้นคือความยาวของวงที่มีจุดเริ่ม
+    และการเพิ่มเครื่องคือการดูดวงอื่นเข้ามาต่อ ยกเว้นตอนไม่มีวงเหลือ ที่เราต้องยอมจ่ายหนึ่งเครื่องแตกวงขึ้นมาเอง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Teleporters</i> บน programming.in.th ข้อ 2012
+      <a href="https://programming.in.th/tasks/2012" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2012
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 2
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

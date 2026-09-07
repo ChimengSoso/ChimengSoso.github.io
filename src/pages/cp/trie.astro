@@ -1,0 +1,405 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'trie/';
+
+/* ---------- ตัวเลขในหน้านี้งอกจากโมเดลข้างล่างนี้ ---------- */
+
+const WORDS = ['cat', 'car', 'card', 'dog', 'do'];
+
+/** คำนำหน้าทุกอันที่ไม่ใช่สตริงว่าง คือปมของไทร */
+function prefixes(ws: string[]): string[] {
+  const s = new Set<string>();
+  for (const w of ws) for (let i = 1; i <= w.length; i++) s.add(w.slice(0, i));
+  return [...s].sort();
+}
+const nodes = prefixes(WORDS);
+const totalChars = WORDS.reduce((a, w) => a + w.length, 0);
+
+const QUERY = 'card';
+const hits = WORDS.filter((w) => QUERY.startsWith(w));
+
+/* ตัวอย่างของไทรฐานสอง */
+const XORS = [3, 10, 5, 25, 2, 8];
+const BITS = 5;
+const bin = (v: number): string => v.toString(2).padStart(BITS, '0');
+let bestPair: [number, number] = [XORS[0], XORS[1]];
+let bestVal = 0;
+for (let i = 0; i < XORS.length; i++)
+  for (let j = i + 1; j < XORS.length; j++)
+    if ((XORS[i] ^ XORS[j]) > bestVal) {
+      bestVal = XORS[i] ^ XORS[j];
+      bestPair = [XORS[i], XORS[j]];
+    }
+
+const code1 = `// นับว่าในคลัง มีกี่คำที่เป็นส่วนหัวของสตริงคำถาม  (ตอบทุกคำถามในเวลารวมเชิงเส้น)
+#include <bits/stdc++.h>
+using namespace std;
+struct Node { int ch[26]; int words; Node() { memset(ch, -1, sizeof ch); words = 0; } };
+vector<Node> T;
+int newNode() { T.push_back(Node()); return (int)T.size() - 1; }
+
+int main() {
+    int n, q;
+    scanf("%d %d", &n, &q);
+    T.reserve(1 << 20); newNode();
+    for (int i = 0; i < n; i++) {
+        char buf[1005]; scanf("%s", buf);
+        int cur = 0;
+        for (char* p = buf; *p; p++) {
+            int k = *p - 'a';
+            if (T[cur].ch[k] < 0) T[cur].ch[k] = newNode();
+            cur = T[cur].ch[k];
+        }
+        T[cur].words++;                       // ปมนี้เป็นจุดจบของคำในคลังหนึ่งคำ
+    }
+    while (q--) {
+        char buf[1005]; scanf("%s", buf);
+        int cur = 0; long long ans = 0;
+        for (char* p = buf; *p && cur >= 0; p++) {
+            cur = T[cur].ch[*p - 'a'];
+            if (cur < 0) break;
+            ans += T[cur].words;              // ทุกปมที่เดินผ่านคือส่วนหัวหนึ่งอัน
+        }
+        printf("%lld\\n", ans);
+    }
+}`;
+const code2 = `// คู่ที่ให้ค่า XOR มากที่สุด  ใช้ไทรฐานสอง เดินจากบิตสูงลงบิตต่ำ
+#include <bits/stdc++.h>
+using namespace std;
+const int BITS = 30;
+struct Node { int ch[2]; Node() { ch[0] = ch[1] = -1; } };
+vector<Node> T;
+int newNode() { T.push_back(Node()); return (int)T.size() - 1; }
+
+void insert(int v) {
+    int cur = 0;
+    for (int b = BITS; b >= 0; b--) {
+        int k = (v >> b) & 1;
+        if (T[cur].ch[k] < 0) T[cur].ch[k] = newNode();
+        cur = T[cur].ch[k];
+    }
+}
+int bestAgainst(int v) {
+    int cur = 0, res = 0;
+    for (int b = BITS; b >= 0; b--) {
+        int k = (v >> b) & 1;
+        if (T[cur].ch[k ^ 1] >= 0) { res |= 1 << b; cur = T[cur].ch[k ^ 1]; }  // ได้บิตนี้เป็นหนึ่ง
+        else cur = T[cur].ch[k];                                               // จำใจเดินทางเดียวที่มี
+    }
+    return res;
+}
+int main() {
+    int n; scanf("%d", &n);
+    T.reserve(32 * n + 8); newNode();
+    vector<int> a(n);
+    for (auto& v : a) scanf("%d", &v);
+    int ans = 0;
+    insert(a[0]);
+    for (int i = 1; i < n; i++) { ans = max(ans, bestAgainst(a[i])); insert(a[i]); }
+    printf("%d\\n", ans);
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    เวลามีคำอยู่เป็นหมื่นเป็นแสนคำ แล้วต้องถามซ้ำ ๆ ว่า "คำนี้อยู่ในคลังไหม" หรือ
+    "มีกี่คำในคลังที่เป็นส่วนหัวของสตริงนี้" การไล่เทียบทีละคำจะเป็น <code>จำนวนคำ × ความยาว</code> ต่อหนึ่งคำถาม
+    ซึ่งช้าเกินไปทันทีที่คำถามเยอะ
+  </p>
+  <p>
+    <strong>ไทร</strong> (trie) แก้ปัญหานี้ด้วยการเอาคำทั้งหมดมาซ้อนกันเป็นต้นไม้ตาม<strong>ส่วนหัวที่ใช้ร่วมกัน</strong>
+    ค่าใช้จ่ายของคำถามหนึ่งคำถามจะเหลือแค่ความยาวของสตริงที่ถาม ไม่เกี่ยวกับว่าคลังใหญ่แค่ไหนเลย
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>trie</i> อ่านว่า <strong>"ไทร"</strong> ชื่อนี้ตัดมาจากกลางคำว่า re<i>trie</i>val ที่แปลว่า
+      <strong>การค้นคืน</strong> คนตั้งชื่อคือ Edward Fredkin (อ่านว่า "เอ็ดเวิร์ด เฟรดคิน" นักวิทยาการคอมพิวเตอร์)
+      เขาอยากให้อ่านว่า "ทรี" เหมือน <i>tree</i> เพราะมันคือต้นไม้ แต่คนใช้จริงกลับอ่าน "ไทร"
+      เพื่อไม่ให้ชนกับคำว่า tree เวลาพูดกัน
+    </p>
+  </div>
+
+  <h2>โครงสร้างที่ต้องเห็นในหัวก่อน</h2>
+  <p>
+    ปมรากคือสตริงว่าง ปมลูกของปม <code>p</code> คือ <code>p</code> ที่ต่อท้ายด้วยหนึ่งตัวอักษร
+    ดังนั้น<strong>ปมหนึ่งปมคือคำนำหน้าหนึ่งอัน</strong> และเส้นทางจากรากลงมาถึงปมคือการสะกดคำนำหน้านั้น
+    ปมที่เป็นจุดจบของคำจริง ๆ ในคลังจะติดธงไว้
+  </p>
+
+  <ZoomableDiagram caption={`คำที่ใช้ส่วนหัวร่วมกันจะใช้ปมร่วมกัน คำ ${WORDS.length} คำที่รวมกันยาว ${totalChars} ตัวอักษร จึงเหลือปมแค่ ${nodes.length} ปม และปมที่วงไว้คือจุดจบของคำจริง (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox="0 0 332 237" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพไทรของคำห้าคำคือ cat car card dog do ปมรากอยู่บนสุดแตกเป็นสองกิ่งคือ c กับ d กิ่ง c ไล่ลงเป็น ca แล้วแตกเป็น cat กับ car โดย car ยังไล่ต่อไปเป็น card กิ่ง d ไล่ลงเป็น do ซึ่งเป็นคำ แล้วไล่ต่อเป็น dog ซึ่งเป็นคำ">
+      {[
+        [190, 24, 106, 66], [106, 66, 106, 108], [106, 108, 60, 150], [106, 108, 152, 150],
+        [152, 150, 152, 192], [190, 24, 276, 66], [276, 66, 276, 108], [276, 108, 276, 150],
+      ].map((e) => (
+        <line x1={e[0]} y1={e[1] + 11} x2={e[2]} y2={e[3] - 11} stroke="#3a4260" stroke-width="1.5" />
+      ))}
+      {[
+        { p: [190, 24], t: '.', w: false },
+        { p: [106, 66], t: 'c', w: false },
+        { p: [106, 108], t: 'a', w: false },
+        { p: [60, 150], t: 't', w: true },
+        { p: [152, 150], t: 'r', w: true },
+        { p: [152, 192], t: 'd', w: true },
+        { p: [276, 66], t: 'd', w: false },
+        { p: [276, 108], t: 'o', w: true },
+        { p: [276, 150], t: 'g', w: true },
+      ].map((v) => (
+        <g>
+          <circle
+            cx={v.p[0]}
+            cy={v.p[1]}
+            r="11"
+            fill={v.w ? '#14301f' : '#1c2536'}
+            stroke={v.w ? '#4ade80' : '#2a3350'}
+            stroke-width={v.w ? '2' : '1.3'}
+          />
+          <text
+            x={v.p[0]}
+            y={v.p[1] + 4}
+            fill={v.w ? '#4ade80' : '#9aa7bd'}
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {v.t}
+          </text>
+        </g>
+      ))}
+      <text x="36" y="176" fill="#4ade80" font-size="11" text-anchor="middle">cat</text>
+      <text x="182" y="146" fill="#4ade80" font-size="11">car</text>
+      <text x="182" y="196" fill="#4ade80" font-size="11">card</text>
+      <text x="302" y="112" fill="#4ade80" font-size="11">do</text>
+      <text x="302" y="154" fill="#4ade80" font-size="11">dog</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>คำ {WORDS.length} คำ กลายเป็นไทรกี่ปม</caption>
+      <thead>
+        <tr><th>รายการ</th><th class="num">จำนวน</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ตัวอักษรรวมทุกคำ</td><td class="num">{totalChars}</td></tr>
+        <tr><td>ปมของไทร (ไม่นับราก)</td><td class="num">{nodes.length}</td></tr>
+        <tr><td>ปมที่ประหยัดไปได้เพราะใช้ส่วนหัวร่วมกัน</td><td class="num">{totalChars - nodes.length}</td></tr>
+      </tbody>
+    </table>
+    <figcaption>
+      จำนวนปมไม่มีวันเกินผลรวมความยาวของทุกคำ นี่คือเพดานหน่วยความจำที่ใช้ประเมินได้ตรง ๆ
+      ปมทั้งหมดคือ <code>{nodes.join(', ')}</code>
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ไทรที่เก็บลูกเป็นอาเรย์ 26 ช่องต่อปม กินหน่วยความจำ <code>จำนวนปม × 26 × 4</code> ไบต์
+      คำแสนคำ คำละยี่สิบตัวอักษร ถ้าไม่มีส่วนหัวซ้ำกันเลยจะเป็นสองล้านปม คูณแล้วได้ราว 208 เมกะไบต์
+      ซึ่งเกินลิมิตของโจทย์ส่วนใหญ่
+    </p>
+    <p>
+      ก่อนเลือกไทรทุกครั้ง ให้<strong>คูณเลขนี้ออกมาก่อน</strong> ถ้าเกิน ก็มีทางเลือกคือ
+      ใช้ <code>map</code> ต่อปม (ช้ากว่าแต่ประหยัด) หรือถ้าตัวอักษรมีน้อยชนิด (เช่นสองชนิด) ก็เก็บแค่สองช่อง
+    </p>
+  </div>
+
+  <h2>โจทย์ฝึกข้อที่ 1 · นับส่วนหัวที่อยู่ในคลัง</h2>
+  <p>
+    ให้คำในคลัง <code>n</code> คำ แล้วมีคำถาม <code>q</code> ข้อ แต่ละข้อให้สตริงมาหนึ่งตัว
+    ตอบว่ามี<strong>กี่คำในคลังที่เป็นส่วนหัว</strong>ของสตริงนั้น (คำในคลังซ้ำกันได้)
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>n</code> และ <code>q</code> ตามด้วยคำในคลัง <code>n</code> บรรทัด แล้วคำถาม <code>q</code> บรรทัด</li>
+      <li><strong>ขอบเขต:</strong> ผลรวมความยาวของทุกสตริงไม่เกินหนึ่งล้าน ตัวอักษรเป็น <code>a-z</code></li>
+      <li><strong>เอาต์พุต:</strong> คำตอบของแต่ละคำถาม บรรทัดละหนึ่งค่า</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{WORDS.length} 1<br />{WORDS.map((w) => <>{w}<br /></>)}{QUERY}</td>
+        <td>{hits.length}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คำในคลังที่เป็นส่วนหัวของ <code>{QUERY}</code> คือคำที่อยู่บน<strong>เส้นทางจากรากลงไปหา</strong>
+      <code>{QUERY}</code> พอดี แล้วเราจะเดินเส้นทางนั้นครั้งเดียวโดยเก็บอะไรระหว่างทางดี
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <p>
+      เดินจากรากไปตามตัวอักษรของคำถาม ทุกปมที่เดินผ่านคือส่วนหัวหนึ่งอัน ก็แค่บวกธง
+      "ปมนี้เป็นจุดจบของคำในคลังกี่คำ" สะสมไป ถ้าเดินไปเจอทางตัน แปลว่าส่วนหัวที่ยาวกว่านั้นไม่มีในคลังแน่ ๆ
+      หยุดได้เลย
+    </p>
+    <p>
+      ในตัวอย่าง คำในคลังที่เป็นส่วนหัวของ <code>{QUERY}</code> คือ <code>{hits.join(', ')}</code>
+      รวม {hits.length} คำ ส่วน <code>cat</code> ไม่นับ เพราะเส้นทางแยกออกไปคนละกิ่งตั้งแต่ตัวที่สาม
+    </p>
+    <CodeBlock code={code1} lang="cpp" title="prefix_count.cpp" />
+    <p>
+      สังเกตว่าต้นทุนต่อคำถามคือความยาวของคำถาม<strong>อย่างเดียว</strong> ไม่ว่าคลังจะมีล้านคำก็ตาม
+      นี่คือสิ่งที่ไทรซื้อมาให้
+    </p>
+    <p>ผมสุ่มคลังเล็ก ๆ 600 ชุดเทียบกับตัวไล่เทียบทีละคำ ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>โจทย์ฝึกข้อที่ 2 · คู่ที่ให้ค่า XOR มากที่สุด</h2>
+  <p>
+    ให้จำนวนเต็มไม่ติดลบ <code>n</code> ตัว หาคู่ที่ <code>a XOR b</code> มากที่สุด
+    (<code>XOR</code> อ่านว่า "เอ็กซ์ออร์" คือการเทียบทีละบิต ได้ 1 เมื่อสองบิตต่างกัน)
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้ดูไม่เกี่ยวกับสตริงเลย แต่ลองเขียนเลขทุกตัวเป็น<strong>สตริงฐานสองความยาวเท่ากัน</strong>ดู
+      แล้วถามว่าถ้าอยากให้บิตซ้ายสุดของผลลัพธ์เป็น 1 เราต้องหาคู่ที่มีบิตซ้ายสุดเป็นอะไร
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <p>
+      เขียนทุกเลขเป็นสตริงฐานสองแล้วยัดลงไทรที่มีลูกแค่สองช่องคือ 0 กับ 1 จากนั้นสำหรับเลขแต่ละตัว
+      ให้เดินลงไทรจากบิตสูงสุด โดย<strong>พยายามเลี้ยวไปทางที่บิตตรงข้ามกับตัวเองเสมอ</strong>
+      เพราะบิตที่ต่างกันให้ผล XOR เป็น 1
+    </p>
+    <p>
+      ที่ท่านี้ถูกต้องเพราะบิตซ้ายสุดมีน้ำหนักมากกว่าบิตที่เหลือรวมกันทั้งหมด ได้บิตซ้ายเป็น 1 หนึ่งบิต
+      คุ้มกว่าได้บิตขวาเป็น 1 ทุกบิต การเลือกแบบโลภทีละบิตจึงไม่มีทางพลาด
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่าง {XORS.length} ตัว เขียนเป็นฐานสอง {BITS} บิต</caption>
+        <thead>
+          <tr><th class="num">ค่า</th><th>ฐานสอง</th></tr>
+        </thead>
+        <tbody>
+          {XORS.map((v) => (
+            <tr><td class="num">{v}</td><td><code>{bin(v)}</code></td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คู่ที่ดีที่สุดคือ {bestPair[0]} กับ {bestPair[1]} ให้ค่า {bestVal}
+        (<code>{bin(bestPair[0])}</code> เทียบกับ <code>{bin(bestPair[1])}</code> ต่างกันที่บิตซ้ายสุด
+        ซึ่งเป็นสิ่งเดียวที่ท่าโลภมองหา)
+      </figcaption>
+    </figure>
+    <CodeBlock code={code2} lang="cpp" title="max_xor.cpp" />
+    <p>
+      โครงที่ใช้คือ<strong>ใส่ทีละตัว ถามทีละตัว</strong> คือถามด้วยตัวที่ <code>i</code> กับไทรที่มีแค่ตัวก่อนหน้า
+      ทำแบบนี้ทุกคู่จะถูกพิจารณาพอดีครั้งเดียว ไม่ต้องกันการจับคู่กับตัวเอง
+    </p>
+    <p>ผมสุ่มชุดตัวเลขเล็ก ๆ 1,500 ชุดเทียบกับตัวไล่ทุกคู่ ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
+  <ul>
+    <li>
+      <a href="../type-printer/">เครื่องพิมพ์โบราณ</a> ใช้ไทรเป็น<strong>แผนที่ของสถานะเครื่อง</strong>
+      ไม่ได้ใช้เพื่อค้นหา ทุกคำสั่งของเครื่องพิมพ์คือหนึ่งก้าวบนไทร
+    </li>
+  </ul>
+  <p>
+    ญาติสนิทของไทรที่ควรรู้ว่ามีอยู่ คือ<strong>แฮชนำหน้า</strong> ซึ่งตอบคำถามคนละแบบ
+    ไทรเก่งเรื่อง "ส่วนหัวร่วมกัน" ส่วนแฮชเก่งเรื่อง "ช่วงตรงกลางสองช่วงเหมือนกันไหม" อ่านได้ที่
+    <a href="../string-hashing/">แฮชสตริง</a>
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ไทรคือการเอาคำทั้งคลังมาซ้อนกันตามส่วนหัว ทำให้คำถามที่เกี่ยวกับส่วนหัวมีราคาเท่ากับความยาวของคำถาม
+    ไม่เกี่ยวกับขนาดของคลัง และเพราะปมหนึ่งปมคือคำนำหน้าหนึ่งอัน มันจึงใช้เป็นแผนที่ของสถานะได้ด้วย
+    ไม่ใช่แค่ที่เก็บคำ
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

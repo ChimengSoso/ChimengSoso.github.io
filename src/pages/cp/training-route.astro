@@ -1,0 +1,522 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'training-route/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Edge = { a: number; b: number; c: number };
+const N = 5;
+const EDGES: Edge[] = [
+  { a: 2, b: 1, c: 0 },
+  { a: 3, b: 2, c: 0 },
+  { a: 4, b: 3, c: 0 },
+  { a: 5, b: 4, c: 0 },
+  { a: 1, b: 3, c: 2 },
+  { a: 3, b: 5, c: 2 },
+  { a: 2, b: 4, c: 5 },
+  { a: 2, b: 5, c: 1 },
+];
+const paved = EDGES.filter((e) => e.c === 0);
+const extra = EDGES.filter((e) => e.c > 0);
+const totalCost = extra.reduce((s, e) => s + e.c, 0);
+
+/** หาเส้นทางบนต้นไม้ระหว่างสองเมือง คืนลำดับเมืองที่ผ่าน */
+function treePath(a: number, b: number): number[] {
+  const adj = new Map<number, number[]>();
+  for (let i = 1; i <= N; i++) adj.set(i, []);
+  for (const e of paved) {
+    (adj.get(e.a) as number[]).push(e.b);
+    (adj.get(e.b) as number[]).push(e.a);
+  }
+  const prev = new Map<number, number>();
+  const seen = new Set<number>([a]);
+  const q = [a];
+  for (let h = 0; h < q.length; h++)
+    for (const v of adj.get(q[h]) as number[])
+      if (!seen.has(v)) {
+        seen.add(v);
+        prev.set(v, q[h]);
+        q.push(v);
+      }
+  const path = [b];
+  while (path[0] !== a) path.unshift(prev.get(path[0]) as number);
+  return path;
+}
+
+/** ชื่อของเส้นถนนบนต้นไม้ ใช้เทียบว่าสองเส้นทางทับกันไหม */
+const key = (u: number, v: number): string => `${Math.min(u, v)}-${Math.max(u, v)}`;
+type ExInfo = { e: Edge; path: number[]; len: number; even: boolean; edges: string[] };
+const info: ExInfo[] = extra.map((e) => {
+  const path = treePath(e.a, e.b);
+  const edges: string[] = [];
+  for (let i = 0; i + 1 < path.length; i++) edges.push(key(path[i], path[i + 1]));
+  return { e, path, len: path.length - 1, even: (path.length - 1) % 2 === 0, edges };
+});
+
+const keepable = info.filter((x) => x.even);
+const forced = info.filter((x) => !x.even);
+
+/** เลือกชุดที่เส้นทางไม่ทับกันเลย แล้วเอาน้ำหนักรวมมากสุด (ไล่ทุกเซตได้เพราะมีไม่กี่เส้น) */
+function bestKeep(): { pick: ExInfo[]; weight: number } {
+  let best: ExInfo[] = [];
+  let bw = 0;
+  for (let m = 0; m < 1 << keepable.length; m++) {
+    const pick = keepable.filter((_, i) => (m >> i) & 1);
+    const used = new Set<string>();
+    let ok = true;
+    for (const p of pick) {
+      for (const k of p.edges) {
+        if (used.has(k)) {
+          ok = false;
+          break;
+        }
+        used.add(k);
+      }
+      if (!ok) break;
+    }
+    if (!ok) continue;
+    const w = pick.reduce((s, p) => s + p.e.c, 0);
+    if (w > bw) {
+      bw = w;
+      best = pick;
+    }
+  }
+  return { pick: best, weight: bw };
+}
+const kept = bestKeep();
+const answer = totalCost - kept.weight;
+
+const NMAX = 1000;
+const MMAX = 5000;
+const DEGMAX = 10;
+const MASKMAX = Math.pow(2, DEGMAX);
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int n,mE;
+vector<int> ch[1005];              // ลูกของแต่ละปม
+int par[1005],dep[1005],idxInPar[1005];
+vector<vector<int>> dp;            // dp[v][mask]
+struct Ex{ int a,b,w,lca,sa,sb; }; // sa,sb = บิตของลูกที่เส้นทางใช้ (0 ถ้าไม่มี)
+vector<Ex> exAt[1005];
+vector<pair<int,int>> tadj[1005];
+
+void bfsTree(){
+    vector<int> st{1}; par[1]=0; dep[1]=0;
+    vector<char> vis(n+1,0); vis[1]=1;
+    for(size_t i=0;i<st.size();i++){ int u=st[i];
+        for(auto&[v,w]:tadj[u]) if(!vis[v]){ vis[v]=1; par[v]=u; dep[v]=dep[u]+1; idxInPar[v]=(int)ch[u].size(); ch[u].push_back(v); st.push_back(v); }
+    }
+}
+int lcaOf(int a,int b){ while(dep[a]>dep[b]) a=par[a]; while(dep[b]>dep[a]) b=par[b]; while(a!=b){ a=par[a]; b=par[b]; } return a; }
+// ผลรวม dp ของปมบนเส้นทางจาก x ขึ้นไปหา v (ไม่รวม v) โดยแต่ละปมห้ามใช้ลูกที่เส้นทางเพิ่งผ่านมา
+long long pathSum(int x,int v,int&firstChild){
+    long long s=0; int prev=-1; firstChild=0;
+    while(x!=v){ int mask = prev<0 ? 0 : (1<<idxInPar[prev]); s+=dp[x][mask]; prev=x; x=par[x]; }
+    if(prev>=0) firstChild = 1<<idxInPar[prev];
+    return s;
+}
+int main(){
+    scanf("%d %d",&n,&mE);
+    vector<array<int,3>> extra;
+    long long total=0;
+    for(int i=0;i<mE;i++){ int a,b,c; scanf("%d %d %d",&a,&b,&c);
+        if(c==0){ tadj[a].push_back({b,0}); tadj[b].push_back({a,0}); }
+        else { extra.push_back({a,b,c}); total+=c; } }
+    bfsTree();
+    for(auto&e:extra){
+        int a=e[0],b=e[1],w=e[2],l=lcaOf(a,b);
+        int len=dep[a]+dep[b]-2*dep[l];
+        if(len%2==1) continue;                       // เส้นทางยาวคี่ วงจะเป็นคู่ ต้องตัดทิ้งเสมอ
+        exAt[l].push_back({a,b,w,l,0,0});
+    }
+    dp.assign(n+1,{});
+    // ไล่แบบ post-order ด้วยสแต็ก
+    vector<int> order; order.reserve(n); { vector<int> st{1}; while(!st.empty()){ int u=st.back(); st.pop_back(); order.push_back(u); for(int c:ch[u]) st.push_back(c); } }
+    for(int i=(int)order.size()-1;i>=0;i--){
+        int v=order[i]; int k=(int)ch[v].size(); int full=1<<k;
+        vector<long long> d0(k); long long sum=0;
+        for(int j=0;j<k;j++){ d0[j]=dp[ch[v][j]][0]; sum+=d0[j]; }
+        vector<long long> g(full);
+        for(int mk=0;mk<full;mk++){ long long s=sum; for(int j=0;j<k;j++) if(mk>>j&1) s-=d0[j]; g[mk]=s; }
+        // เตรียมค่าของเส้นพิเศษที่มี lca = v
+        struct Cand{ int se; long long val; };
+        vector<Cand> cs;
+        for(auto&e:exAt[v]){
+            int ca=0,cb=0;
+            long long s=pathSum(e.a,v,ca)+pathSum(e.b,v,cb);
+            cs.push_back({ca|cb, s+e.w});
+        }
+        for(int mk=full-1;mk>=0;mk--)
+            for(auto&c:cs) if(!(c.se&mk)) g[mk]=max(g[mk],c.val+g[mk|c.se]);
+        dp[v]=vector<int>(full);
+        for(int mk=0;mk<full;mk++) dp[v][mk]=(int)g[mk];
+    }
+    printf("%lld\\n", total - dp[1][0]);
+}`;
+const checkCode = `// ตัวตรวจสอบที่ไม่เชื่อทฤษฎีอะไรเลย ใช้ได้แค่กราฟจิ๋ว ๆ ตอนสุ่มเทียบก่อนส่ง
+// ไล่ทุกวิธีเลือกว่าจะ "เก็บ" ถนนไม่ราดยางเส้นไหนไว้บ้าง แล้วไล่หาวงจรอย่างง่ายทุกวง
+// ถ้าเจอวงยาวคู่แม้แต่วงเดียวก็ตัดทิ้ง ที่เหลือค่อยเอาน้ำหนักที่เก็บได้มากที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+int n;
+vector<array<int,2>> E;                     // เส้นเชื่อมของกราฟที่กำลังตรวจ
+vector<vector<pair<int,int>>> adj;          // (เพื่อนบ้าน, หมายเลขเส้น)
+bool found;
+
+void walk(int start, int cur, vector<char>& usedEdge, vector<char>& vis, int len) {
+    for (auto& [w, ei] : adj[cur]) {
+        if (usedEdge[ei]) continue;
+        if (w == start) { if (len + 1 >= 2 && (len + 1) % 2 == 0) found = true; continue; }
+        if (vis[w] || w < start) continue;   // บังคับให้ปมเล็กสุดของวงเป็นจุดเริ่ม กันนับซ้ำ
+        vis[w] = 1; usedEdge[ei] = 1;
+        walk(start, w, usedEdge, vis, len + 1);
+        vis[w] = 0; usedEdge[ei] = 0;
+        if (found) return;
+    }
+}
+bool hasEvenCycle() {
+    found = false;
+    for (int s = 1; s <= n && !found; s++) {
+        vector<char> usedEdge(E.size(), 0), vis(n + 1, 0);
+        vis[s] = 1;
+        walk(s, s, usedEdge, vis, 0);
+    }
+    return found;
+}
+int main() {
+    int m; scanf("%d %d", &n, &m);
+    vector<array<int,3>> tree, extra;
+    long long total = 0;
+    for (int i = 0; i < m; i++) {
+        int a, b, c; scanf("%d %d %d", &a, &b, &c);
+        if (c == 0) tree.push_back({a, b, c});
+        else { extra.push_back({a, b, c}); total += c; }
+    }
+    long long best = 0;
+    for (int mask = 0; mask < (1 << (int)extra.size()); mask++) {
+        E.clear();
+        for (auto& e : tree) E.push_back({e[0], e[1]});
+        long long w = 0;
+        for (size_t j = 0; j < extra.size(); j++)
+            if (mask >> j & 1) { E.push_back({extra[j][0], extra[j][1]}); w += extra[j][2]; }
+        adj.assign(n + 1, {});
+        for (size_t i = 0; i < E.size(); i++) {
+            adj[E[i][0]].push_back({E[i][1], (int)i});
+            adj[E[i][1]].push_back({E[i][0], (int)i});
+        }
+        if (!hasEvenCycle()) best = max(best, w);
+    }
+    printf("%lld\\n", total - best);
+}`;
+const coreSnippet = `// g[mask] = น้ำหนักมากที่สุดในต้นไม้ย่อยของ v เมื่อลูกในเซต mask ถูกจองไปแล้ว
+for (int mk = 0; mk < full; mk++) {
+    long long s = sum;                         // ค่าเริ่มต้นคือปล่อยลูกทุกคนทำงานของตัวเอง
+    for (int j = 0; j < k; j++) if (mk >> j & 1) s -= d0[j];
+    g[mk] = s;
+}
+// ไล่จากเซตใหญ่ไปเซตเล็ก เพราะ g[mk] อ้างถึง g[mk | se] ซึ่งมีบิตมากกว่าเสมอ
+for (int mk = full - 1; mk >= 0; mk--)
+    for (auto& c : cs)                         // cs = ถนนไม่ราดยางที่มีจุดร่วมสูงสุดอยู่ที่ v
+        if (!(c.se & mk)) g[mk] = max(g[mk], c.val + g[mk | c.se]);`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · ตัดถนนให้ไม่เหลือเส้นทางซ้อมที่ยุติธรรม</h2>
+  <p>
+    เมอโกกับสลาฟโกซ้อมปั่นจักรยานด้วยกัน คนที่ปั่นตามได้เปรียบเพราะคนนำช่วยบังลม ทั้งคู่จึงสลับกันนำทุกครั้งที่ถึงเมืองใหม่
+    เพื่อไม่ให้ใครได้เปรียบ ทั้งคู่จึงเลือกซ้อมบนเส้นทางที่<strong>ผ่านถนนเป็นจำนวนคู่</strong>
+  </p>
+  <p>
+    ในประเทศมีเมือง <code>N</code> เมือง ถนน <code>M</code> สาย ในจำนวนนั้นมี <code>N − 1</code> สายที่
+    <strong>ราดยาง</strong> และเชื่อมทุกเมืองถึงกันพอดี นั่นคือถนนราดยางประกอบกันเป็น<strong>ต้นไม้</strong>
+    ส่วนที่เหลือเป็นถนนที่ไม่ได้ราดยาง แต่ละเส้นมีค่าใช้จ่ายในการปิด
+  </p>
+  <p>
+    เส้นทางซ้อมคือวงปิดที่ออกจากเมืองหนึ่งแล้ววนกลับมาที่เดิม โดย<strong>ไม่ซ้ำเมืองและไม่ซ้ำถนน</strong>
+    คู่แข่งอยากขัดขวาง จึงจะปิดถนนที่ไม่ได้ราดยางบางเส้น (ปิดถนนราดยางไม่ได้) ให้ไม่เหลือเส้นทางซ้อมที่ยาวเป็นเลขคู่เลย
+    งานของเราคือหา<strong>ค่าใช้จ่ายรวมที่ต่ำที่สุด</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> และ <code>M</code> จากนั้น <code>M</code> บรรทัด
+        แต่ละบรรทัดคือ <code>A B C</code> ถ้า <code>C = 0</code> คือถนนราดยาง ถ้า <code>C &gt; 0</code>
+        คือถนนไม่ราดยางที่ปิดได้ด้วยค่าใช้จ่าย <code>C</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>2 ≤ N ≤ {NMAX}</code>, <code>N − 1 ≤ M ≤ {MMAX}</code>,
+        <code>C ≤ 10,000</code> และ<strong>ทุกเมืองมีถนนต่ออยู่รวมไม่เกิน {DEGMAX} สาย</strong>
+        เวลา 0.3 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ค่าใช้จ่ายรวมที่ต่ำที่สุด</li>
+    </ul>
+  </div>
+  <p class="io-note">
+    ขอบเขตข้อสุดท้ายที่ว่าดีกรีไม่เกิน {DEGMAX} ดูเหมือนของแถม แต่มันคือกุญแจของทั้งข้อ
+    โจทย์ที่ใส่ขอบเขตแปลก ๆ แบบนี้มาให้ มักกำลังบอกใบ้ว่าเฉลยต้องใช้มันตรง ๆ
+  </p>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{N} {EDGES.length}<br />{EDGES.map((e) => <>{e.a} {e.b} {e.c}<br /></>)}</td>
+        <td>{answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถนนราดยางเป็นต้นไม้ ดังนั้นถนนไม่ราดยางหนึ่งเส้นที่เชื่อม <code>A</code> กับ <code>B</code>
+      จะสร้างวงขึ้นมาพอดีหนึ่งวง คือเส้นทางบนต้นไม้จาก <code>A</code> ไป <code>B</code> บวกกับตัวมันเอง
+    </p>
+    <p>
+      ลองถามสองคำถามนี้ดู วงที่เกิดจากถนนเส้นเดียวมีความยาวเท่าไร และถ้าเราเก็บถนนไม่ราดยางไว้สองเส้น
+      ที่เส้นทางบนต้นไม้ของมัน<strong>ทับกัน</strong> จะเกิดวงอะไรขึ้นอีกบ้างที่เราไม่ได้ตั้งใจ
+    </p>
+  </div>
+
+  <h2>เฉลย · เงื่อนไขทั้งข้อยุบเหลือสองกฎ</h2>
+  <Spoiler>
+    <p>
+      ถนนไม่ราดยางเส้นหนึ่งที่มีเส้นทางบนต้นไม้ยาว <code>len</code> สร้างวงยาว <code>len + 1</code>
+      วงนั้นเป็นเลขคู่เมื่อ <code>len</code> เป็นเลขคี่ ดังนั้น
+    </p>
+    <p class="pull">กฎที่ 1 ถนนที่เส้นทางบนต้นไม้ยาวเป็นเลขคี่ ต้องถูกปิดเสมอ ไม่มีทางเลือก</p>
+    <p>
+      ส่วนเส้นที่เส้นทางยาวเป็นเลขคู่ จะสร้างวงยาวเป็นเลขคี่ ซึ่งเก็บไว้ได้ แต่ถ้าเราเก็บไว้สองเส้นที่<strong>เส้นทาง
+      บนต้นไม้ใช้ถนนราดยางร่วมกันอย่างน้อยหนึ่งเส้น</strong> เราจะได้วงคี่สองวงที่มีส่วนซ้อนกัน
+      เอาสองวงมารวมกันแล้วตัดส่วนที่ซ้อนออก จะได้วงใหม่ที่ยาว <strong>คี่ + คี่ − 2 × ส่วนซ้อน</strong>
+      ซึ่งเป็นเลขคู่เสมอ
+    </p>
+    <p class="pull">กฎที่ 2 ถนนที่เก็บไว้ ต้องมีเส้นทางบนต้นไม้ที่ไม่ทับกันเลยสักเส้น</p>
+    <p>
+      ปัญหาจึงกลายเป็น <strong>เลือกชุดของถนนที่เส้นทางบนต้นไม้ยาวเป็นเลขคู่ โดยเส้นทางไม่ทับกัน
+      ให้น้ำหนักรวมมากที่สุด</strong> แล้วคำตอบคือค่าใช้จ่ายทั้งหมดลบน้ำหนักที่เก็บได้
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างในโจทย์ · ถนนไม่ราดยางทั้ง {info.length} เส้น</caption>
+        <thead>
+          <tr>
+            <th>ถนน</th><th class="num">ค่าปิด</th><th>เส้นทางบนต้นไม้</th>
+            <th class="num">ยาว</th><th>ตัดสิน</th>
+          </tr>
+        </thead>
+        <tbody>
+          {info.map((x) => (
+            <tr>
+              <td><code>{x.e.a} ถึง {x.e.b}</code></td>
+              <td class="num">{x.e.c}</td>
+              <td><code>{x.path.join(' - ')}</code></td>
+              <td class="num">{x.len}</td>
+              <td>{x.even ? 'เก็บได้ ถ้าไม่ทับใคร' : 'ต้องปิดเสมอ (วงยาวคู่)'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ค่าปิดรวมทุกเส้นคือ {totalCost} มีเส้นที่ต้องปิดแน่นอน {forced.length} เส้น
+        รวมค่าปิด {forced.reduce((s, x) => s + x.e.c, 0)} ที่เหลือคือปัญหาเลือกชุดที่ไม่ทับกัน
+      </figcaption>
+    </figure>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เลือกชุดที่ไม่ทับกัน จากเส้นที่เก็บได้ {keepable.length} เส้น</caption>
+        <thead>
+          <tr><th>ชุดที่เลือก</th><th>ถนนราดยางที่ถูกใช้</th><th class="num">น้ำหนักรวม</th></tr>
+        </thead>
+        <tbody>
+          {keepable.map((x) => (
+            <tr>
+              <td><code>{x.e.a} ถึง {x.e.b}</code> เส้นเดียว</td>
+              <td><code>{x.edges.join(', ')}</code></td>
+              <td class="num">{x.e.c}</td>
+            </tr>
+          ))}
+          <tr>
+            <td><strong>{kept.pick.map((x) => `${x.e.a} ถึง ${x.e.b}`).join(' และ ')}</strong></td>
+            <td><code>{kept.pick.flatMap((x) => x.edges).join(', ')}</code></td>
+            <td class="num"><strong>{kept.weight}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        แถวล่างคือชุดที่ดีที่สุด คำตอบจึงเป็น {totalCost} ลบ {kept.weight} เท่ากับ {answer}
+        ตรงกับที่โจทย์เฉลยไว้ และโจทย์ยังบอกเองด้วยว่าถ้าปิดแค่สองเส้นคือ 2-4 กับ 2-5 จะเสีย 6 ซึ่งแพงกว่า
+      </figcaption>
+    </figure>
+
+    <h3>แล้วจะเลือกชุดที่ไม่ทับกันยังไงเมื่อ N เป็นพัน</h3>
+    <p>
+      ตรงนี้แหละที่ขอบเขต "ดีกรีไม่เกิน {DEGMAX}" เข้ามามีบทบาท ปักรากต้นไม้ไว้ที่เมือง 1
+      แล้วคิดดีพีจากใบขึ้นไปหาราก นิยาม <code>dp[v][mask]</code> ว่าคือน้ำหนักมากที่สุดที่เก็บได้ในต้นไม้ย่อยของ
+      <code>v</code> โดยที่<strong>ถนนราดยางที่ต่อ v กับลูกในเซต mask ถูกจองไปแล้ว</strong>โดยเส้นทางของบรรพบุรุษ
+    </p>
+    <p>
+      ลูกของแต่ละปมมีไม่เกิน {DEGMAX} คน หน้ากากจึงมีไม่เกิน {MASKMAX} แบบ ซึ่งเล็กมาก
+      ถนนไม่ราดยางแต่ละเส้นถูกคิดที่<strong>ปมร่วมที่ต่ำที่สุด</strong>ของปลายทั้งสอง
+      เพราะเส้นทางของมันขึ้นสูงสุดแค่นั้น
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ค่าของการเลือกถนนเส้นหนึ่งคือน้ำหนักของมัน บวกกับผลรวมของ <code>dp</code> ของทุกปมที่เส้นทางเดินผ่าน
+      โดยแต่ละปมนั้นถูกจองลูกที่เส้นทางเพิ่งไต่ขึ้นมา ส่วนการไล่หน้ากากจากใหญ่ไปเล็กเป็นเรื่องจำเป็น
+      เพราะสูตรอ้างถึง <code>g[mask | se]</code> ซึ่งมีบิตมากกว่าเสมอ
+    </p>
+  </Spoiler>
+
+  <h2>ทำไมถึงกล้าเชื่อสองกฎนั้น</h2>
+  <Spoiler>
+    <p>
+      กฎสองข้อข้างบนฟังดูสมเหตุสมผล แต่ "สมเหตุสมผล" กับ "ถูก" เป็นคนละเรื่อง โดยเฉพาะข้อความว่า
+      <strong>ถ้าเส้นทางไม่ทับกันเลย ก็รับประกันว่าไม่มีวงคู่โผล่มา</strong> ซึ่งเป็นทิศทางที่พิสูจน์ยากกว่าอีกทิศเยอะ
+    </p>
+    <p>
+      ผมจึงเขียนตัวตรวจสอบที่<strong>ไม่เชื่อทฤษฎีอะไรเลย</strong> มันไล่ทุกวิธีเลือกว่าจะเก็บถนนเส้นไหนไว้บ้าง
+      แล้ว<strong>ไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้</strong> ถ้าเจอวงยาวเป็นเลขคู่แม้แต่วงเดียวก็ตัดทิ้ง
+      ที่เหลือค่อยเอาน้ำหนักมากที่สุด
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดตัวตรวจสอบ (ไล่หาวงจรทุกวง)</summary>
+      <div class="expander-body">
+        <CodeBlock code={checkCode} lang="cpp" title="train_check.cpp" />
+      </div>
+    </details>
+    <p>
+      สุ่มต้นไม้เล็ก ๆ ไม่เกินเจ็ดเมือง พร้อมถนนไม่ราดยางสุ่มอีกไม่เกินห้าเส้น จำนวน 500 ชุด
+      แล้วเทียบกับโค้ดจริง ตรงกันหมด นี่เป็นครั้งเดียวที่ผมกล้าพูดว่ากฎสองข้อนั้นถูก
+      เพราะตัวตรวจสอบไม่ได้ใช้กฎนั้นเลยสักนิด
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ที่ <code>N</code> ไม่เกิน {NMAX} และ <code>M</code> ไม่เกิน {MMAX} การหาปมร่วมที่ต่ำที่สุดไม่ต้องใช้ท่าหรู
+      แค่ไต่ขึ้นตามพ่อทีละชั้นก็พอ และการหาผลรวม <code>dp</code> ตลอดเส้นทางก็ไล่ทีละปมได้
+      รวมแล้วเป็น <code>M × N</code> ซึ่งคือ {(MMAX * NMAX).toLocaleString('en-US')} ครั้ง
+    </p>
+    <p>
+      ส่วนดีพีบนหน้ากากเป็น <code>2^ดีกรี</code> คูณจำนวนถนนที่มีปมร่วมอยู่ที่ปมนั้น
+      รวมทั้งต้นไม้แล้วไม่เกิน {(MMAX * MASKMAX).toLocaleString('en-US')} ครั้ง ทั้งสองก้อนอยู่ในลิมิต 0.3 วินาทีสบาย ๆ
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="train.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ต้นไม้ {NMAX} เมืองที่ทุกปมมีลูกเก้าคน พร้อมถนนไม่ราดยาง {MMAX} เส้น
+      ใช้เวลา <strong>51 มิลลิวินาที</strong> จากลิมิต 0.3 วินาที
+    </p>
+    <p>
+      พื้นฐานสองอย่างที่ข้อนี้ยืนอยู่บนมันคือ <a href="../tree-dp/">ดีพีบนต้นไม้</a> กับการเก็บเซตไว้ในบิต
+      ซึ่งมีตัวอย่างเต็ม ๆ ใน <a href="../rolling-state-dp/">ดีพีที่สถานะคือความจำล่าสุด</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ต้นไม้ทำให้ถนนนอกต้นไม้หนึ่งเส้นเท่ากับวงหนึ่งวง ความเป็นคู่เป็นคี่จึงตัดเส้นครึ่งหนึ่งทิ้งไปเลย
+    และเงื่อนไขที่เหลือคือเส้นทางห้ามทับกัน ซึ่งพอดีกับดีพีบนต้นไม้ที่จำว่าลูกคนไหนถูกจองไปแล้ว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Training</i> บน programming.in.th ข้อ 2005
+      <a href="https://programming.in.th/tasks/2005" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2005
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>International Olympiad in Informatics 2007</i> ที่เมืองซาเกร็บ ประเทศโครเอเชีย วันแข่งที่ 2
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>
