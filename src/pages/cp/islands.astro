@@ -96,6 +96,137 @@ function components(): Comp[] {
 const comps = components();
 const answer = comps.reduce((a, c) => a + c.local, 0);
 
+/* ---------- มินิเกม เดินหาเส้นทางที่ยาวที่สุดเอง ----------
+   คำตอบของแต่ละกลุ่มมาจากการไล่ทุกเส้นทางอย่างง่ายจริง ๆ ตอนบิลด์
+   ไม่ได้มาจากสูตรของเฉลย เกมจึงเถียงกับเฉลยได้ถ้าเฉลยผิด
+   และผลรวมของชุดตัวอย่างถูกเทียบกับคำตอบของบทความ ถ้าไม่ตรงบิลด์จะพัง */
+type IslPuzzle = { id: string; label: string; tease: string; bridges: Bridge[] };
+
+type IslEdge = { a: number; b: number; len: number };
+
+function edgesOf(br: Bridge[]): IslEdge[] {
+  return br.map((b, i) => ({ a: i + 1, b: b.to, len: b.len }));
+}
+
+/** ความยาวที่ดีที่สุดของสะพานที่เชื่อมเกาะคู่นี้ หรือศูนย์ถ้าไม่มีสะพาน */
+function linkLen(edges: IslEdge[], u: number, v: number): number {
+  let best = 0;
+  for (const e of edges) {
+    if ((e.a === u && e.b === v) || (e.a === v && e.b === u)) best = Math.max(best, e.len);
+  }
+  return best;
+}
+
+/** กลุ่มของเกาะ แบ่งด้วยการเดินตามสะพานโดยไม่สนทิศ */
+function componentsOf(br: Bridge[]): number[] {
+  const n = br.length;
+  const comp = new Array<number>(n + 1).fill(0);
+  const adj = new Map<number, number[]>();
+  for (const e of edgesOf(br)) {
+    adj.set(e.a, [...(adj.get(e.a) ?? []), e.b]);
+    adj.set(e.b, [...(adj.get(e.b) ?? []), e.a]);
+  }
+  let c = 0;
+  for (let i = 1; i <= n; i++) {
+    if (comp[i] !== 0) continue;
+    c++;
+    const st = [i];
+    comp[i] = c;
+    while (st.length) {
+      const u = st.pop() as number;
+      for (const v of adj.get(u) ?? []) if (comp[v] === 0) { comp[v] = c; st.push(v); }
+    }
+  }
+  return comp;
+}
+
+/** เส้นทางอย่างง่ายที่ยาวที่สุดของแต่ละกลุ่ม ไล่ทุกเส้นทางจริง ใช้กับกราฟเล็กเท่านั้น */
+function bestPerComponent(br: Bridge[]): number[] {
+  const n = br.length;
+  const edges = edgesOf(br);
+  const comp = componentsOf(br);
+  const nc = Math.max(...comp.slice(1));
+  const best = new Array<number>(nc + 1).fill(0);
+  const seen = new Array<boolean>(n + 1).fill(false);
+  const walk = (u: number, acc: number): void => {
+    if (acc > best[comp[u]]) best[comp[u]] = acc;
+    for (let v = 1; v <= n; v++) {
+      if (seen[v]) continue;
+      const w = linkLen(edges, u, v);
+      if (w === 0) continue;
+      seen[v] = true;
+      walk(v, acc + w);
+      seen[v] = false;
+    }
+  };
+  for (let s = 1; s <= n; s++) {
+    seen[s] = true;
+    walk(s, 0);
+    seen[s] = false;
+  }
+  return best;
+}
+
+const ISL_PUZZLES: IslPuzzle[] = [
+  {
+    id: 'i1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'สี่เกาะกลุ่มเดียว พอให้ชินกับการเดินไม่ซ้ำเกาะ',
+    bridges: [
+      { to: 2, len: 3 },
+      { to: 3, len: 5 },
+      { to: 4, len: 2 },
+      { to: 2, len: 6 },
+    ],
+  },
+  { id: 'i2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'แผนที่เดียวกับที่บทความแกะให้ดู', bridges: EX },
+  {
+    id: 'i3',
+    label: 'ชุดที่ 3 · สองกลุ่ม',
+    tease: 'ชุดนี้แผนที่ขาดออกเป็นสองกลุ่ม ต้องหาให้ครบทั้งสองกลุ่ม',
+    bridges: [
+      { to: 2, len: 4 },
+      { to: 1, len: 7 },
+      { to: 4, len: 5 },
+      { to: 5, len: 2 },
+      { to: 3, len: 6 },
+    ],
+  },
+];
+
+type IslPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  edges: IslEdge[];
+  comp: number[];
+  best: number[];
+  total: number;
+};
+const islPuzzles: IslPuzzleData[] = ISL_PUZZLES.map((p) => {
+  const comp = componentsOf(p.bridges);
+  const best = bestPerComponent(p.bridges);
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    n: p.bridges.length,
+    edges: edgesOf(p.bridges),
+    comp,
+    best,
+    total: best.reduce((a, b) => a + b, 0),
+  };
+});
+{
+  // ชุดที่สองคือตัวอย่างของบทความ ผลรวมต้องเท่ากับคำตอบที่บทความประกาศไว้
+  const sample = islPuzzles[1];
+  if (sample.total !== answer) {
+    throw new Error(`มินิเกมของ islands: ไล่ทุกเส้นทางได้ ${sample.total} แต่บทความตอบ ${answer}`);
+  }
+}
+const islJson = JSON.stringify(islPuzzles);
+
 const NMAX = 1000000;
 const LMAX = 100000000;
 const fmt = (n: number): string => n.toLocaleString('en-US');
@@ -286,6 +417,37 @@ for (int j = 0; j < 2 * c; j++) {
       พอเห็นรูปแล้ว ลองแยกว่า "เส้นทางที่ยาวที่สุด" ในรูปแบบนั้นมีได้กี่ทรง
     </p>
   </div>
+
+  <h2>ลองเอง · เดินให้ไกลที่สุดของทุกกลุ่ม</h2>
+  <div class="cpgame islgame" data-islgame data-puzzles={islJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {islPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{islPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><table class="is-bridges" data-is-bridges></table></div>
+
+    <div class="cpg-controls" data-is-isles></div>
+
+    <p class="fg-sub">เส้นทางตอนนี้ <code data-is-path>ยังไม่ได้เริ่มเดิน</code> ยาว <b data-is-len>0</b></p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-is-clear>ล้างเส้นทาง</button>
+      <button type="button" class="cpg-btn main" data-is-claim>บันทึกเส้นทางนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเกาะเพื่อเริ่มเดิน แล้วกดเกาะถัดไปที่มีสะพานถึงกัน ห้ามเหยียบเกาะซ้ำ</p>
+    <p class="cpg-score" data-cpg-score>รวมที่บันทึกไว้ <b data-is-sum>0</b> จากคำตอบเต็ม <b data-is-total>0</b></p>
+    <p class="cpg-hint">คำตอบของโจทย์คือผลรวมของเส้นทางที่ยาวที่สุดของแต่ละกลุ่ม กลุ่มไหนที่ยังไม่ได้บันทึกก็ยังไม่ถูกนับ</p>
+  </div>
+  <p class="io-note">
+    ถ้าลองเดินหลายรอบแล้วจะเริ่มเห็นว่า เส้นทางที่ยาวที่สุดมีอยู่แค่สองทรง คือทรงที่ข้ามวง กับทรงที่จมอยู่ในกิ่งที่ห้อยลงมา
+  </p>
 
   <h2>เฉลย · ทุกกลุ่มคือวงหนึ่งวงที่มีต้นไม้ห้อยอยู่</h2>
   <Spoiler>
@@ -626,4 +788,204 @@ for (int j = 0; j < 2 * c; j++) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- แผงของมินิเกมเกาะกับสะพาน ---------- */
+  .is-bridges{border-collapse:collapse;font-size:0.85rem;}
+  .is-bridges th, .is-bridges td{
+    border:1px solid #2a3350;padding:0.24rem 0.7rem;text-align:center;color:#cdd6ea;
+  }
+  .is-bridges th{color:#9aa7bd;font-weight:600;white-space:nowrap;}
+  .is-isle{display:inline-flex;flex-direction:column;align-items:center;gap:0.1rem;line-height:1.2;}
+  .is-group{font-size:0.68rem;color:#7b8397;}
+  .is-isle.used{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .is-isle.used .is-group{color:#0b1220;}
+  .is-isle.reach{border-color:var(--dl-emerald);}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type IsEdge = { a: number; b: number; len: number };
+  type IsPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    n: number;
+    edges: IsEdge[];
+    comp: number[];
+    best: number[];
+    total: number;
+  };
+
+  function initIslandGame(): void {
+    const maybeUi = cpGameUi('[data-islgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as IsPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const islesEl = ui.root.querySelector<HTMLElement>('[data-is-isles]');
+    const pathEl = ui.root.querySelector<HTMLElement>('[data-is-path]');
+    const lenEl = ui.root.querySelector<HTMLElement>('[data-is-len]');
+    const sumEl = ui.root.querySelector<HTMLElement>('[data-is-sum]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-is-total]');
+    const bridgeEl = ui.root.querySelector<HTMLElement>('[data-is-bridges]');
+    if (!islesEl || !pathEl || !lenEl || !sumEl || !totalEl || !bridgeEl) return;
+    const isles: HTMLElement = islesEl;
+    const pathOut: HTMLElement = pathEl;
+    const lenOut: HTMLElement = lenEl;
+    const sumOut: HTMLElement = sumEl;
+    const totalOut: HTMLElement = totalEl;
+    const bridgeTable: HTMLElement = bridgeEl;
+
+    let pi = 0;
+    let path: number[] = [];
+    let claimed = new Map<number, number>();
+
+    const pz = (): IsPuzzle => puzzles[pi];
+
+    function linkLen(u: number, v: number): number {
+      let best = 0;
+      for (const e of pz().edges) {
+        if ((e.a === u && e.b === v) || (e.a === v && e.b === u)) best = Math.max(best, e.len);
+      }
+      return best;
+    }
+
+    function pathLen(): number {
+      let s = 0;
+      for (let i = 0; i + 1 < path.length; i++) s += linkLen(path[i], path[i + 1]);
+      return s;
+    }
+
+    function buildBoard(): void {
+      const p = pz();
+      isles.textContent = '';
+      for (let i = 1; i <= p.n; i++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn is-isle';
+        b.dataset.isle = String(i);
+        b.textContent = `เกาะ ${i}`;
+        const g = document.createElement('span');
+        g.className = 'is-group';
+        g.textContent = `กลุ่ม ${p.comp[i]}`;
+        b.appendChild(g);
+        isles.appendChild(b);
+      }
+      bridgeTable.textContent = '';
+      const head = document.createElement('tr');
+      for (const t of ['สะพาน', 'เชื่อม', 'ยาว']) {
+        const th = document.createElement('th');
+        th.textContent = t;
+        head.appendChild(th);
+      }
+      bridgeTable.appendChild(head);
+      p.edges.forEach((e, i) => {
+        const tr = document.createElement('tr');
+        for (const t of [`เส้นที่ ${i + 1}`, `${e.a} กับ ${e.b}`, String(e.len)]) {
+          const td = document.createElement('td');
+          td.textContent = t;
+          tr.appendChild(td);
+        }
+        bridgeTable.appendChild(tr);
+      });
+    }
+
+    function render(): void {
+      const p = pz();
+      const last = path.length ? path[path.length - 1] : 0;
+      for (const b of Array.from(isles.querySelectorAll<HTMLElement>('[data-isle]'))) {
+        const i = Number(b.dataset.isle);
+        b.classList.toggle('used', path.includes(i));
+        b.classList.toggle('reach', last !== 0 && !path.includes(i) && linkLen(last, i) > 0);
+      }
+      pathOut.textContent = path.length === 0 ? 'ยังไม่ได้เริ่มเดิน' : path.join(' - ');
+      lenOut.textContent = String(pathLen());
+      let sum = 0;
+      for (const v of claimed.values()) sum += v;
+      sumOut.textContent = String(sum);
+      totalOut.textContent = String(p.total);
+    }
+
+    function step(i: number): void {
+      if (path.length === 0) {
+        path = [i];
+        ui.setStatus(`เริ่มที่เกาะ ${i} แล้ว เดินต่อไปเกาะที่มีสะพานถึงกัน`);
+        render();
+        return;
+      }
+      if (path.includes(i)) {
+        ui.setStatus(`เกาะ ${i} เคยเหยียบไปแล้ว โจทย์ห้ามเดินซ้ำเกาะ`, 'bad');
+        return;
+      }
+      const last = path[path.length - 1];
+      const w = linkLen(last, i);
+      if (w === 0) {
+        ui.setStatus(`ไม่มีสะพานจากเกาะ ${last} ไปเกาะ ${i}`, 'bad');
+        return;
+      }
+      path.push(i);
+      ui.setStatus(`ข้ามสะพานยาว ${w} มาที่เกาะ ${i} รวมแล้ว ${pathLen()}`);
+      render();
+    }
+
+    function claim(): void {
+      const p = pz();
+      if (path.length < 2) {
+        ui.setStatus('เดินอย่างน้อยหนึ่งสะพานก่อนครับ', 'bad');
+        return;
+      }
+      const c = p.comp[path[0]];
+      const len = pathLen();
+      const prev = claimed.get(c) ?? 0;
+      if (len <= prev) {
+        ui.setStatus(`กลุ่ม ${c} เคยได้ ${prev} ไปแล้ว เส้นทางนี้ยาว ${len} จึงยังไม่ดีขึ้น`, 'bad');
+        return;
+      }
+      claimed.set(c, len);
+      const done = len === p.best[c];
+      ui.setStatus(
+        done
+          ? `กลุ่ม ${c} ได้ ${len} ซึ่งยาวที่สุดของกลุ่มนี้แล้ว`
+          : `กลุ่ม ${c} บันทึกไว้ที่ ${len} แต่ยังมีเส้นทางที่ยาวกว่านี้ในกลุ่มเดียวกัน`,
+        done ? 'good' : 'bad',
+      );
+      render();
+      let sum = 0;
+      for (const v of claimed.values()) sum += v;
+      if (sum === p.total) ui.setStatus(`ครบทุกกลุ่มแล้วครับ รวมได้ ${sum} ซึ่งคือคำตอบของแผนที่นี้`, 'good');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      path = [];
+      claimed = new Map<number, number>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildBoard();
+      ui.setStatus('กดเกาะเพื่อเริ่มเดิน แล้วกดเกาะถัดไปที่มีสะพานถึงกัน ห้ามเหยียบเกาะซ้ำ');
+      render();
+    }
+
+    isles.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-isle]');
+      if (!(b instanceof HTMLElement)) return;
+      step(Number(b.dataset.isle));
+    });
+
+    ui.onClick('data-is-clear', () => {
+      path = [];
+      ui.setStatus('ล้างเส้นทางแล้ว เริ่มเดินใหม่ได้');
+      render();
+    });
+    ui.onClick('data-is-claim', claim);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initIslandGame);
+</script>
