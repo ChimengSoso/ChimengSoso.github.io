@@ -258,6 +258,73 @@ int main() {
     printf("%lld\\n", ans);
     return 0;
 }`;
+/* ---------- มินิเกม ตอบผลรวมของช่วง โดยมีการแก้ค่าคั่นกลาง ----------
+   คำตอบของทุกคำถามคิดจากอาเรย์จริงตอนบิลด์ ด้วยการวนบวกตรง ๆ
+   ไม่ได้ใช้ผลรวมสะสมหรือต้นไม้เฟนวิกที่บทนี้กำลังจะสอน */
+type PsOp =
+  | { kind: 'ask'; l: number; r: number }
+  | { kind: 'set'; i: number; v: number };
+
+type PsPuzzle = { id: string; label: string; tease: string; arr: number[]; ops: PsOp[] };
+
+const PS_PUZZLES: PsPuzzle[] = [
+  {
+    id: 'p1',
+    label: 'ชุดที่ 1 · ไม่มีการแก้ค่า',
+    tease: 'ชุดนี้ถามอย่างเดียว ไม่มีการแก้ค่าเลย',
+    arr: [3, 1, 4, 1, 5, 9, 2, 6],
+    ops: [
+      { kind: 'ask', l: 2, r: 5 },
+      { kind: 'ask', l: 1, r: 8 },
+      { kind: 'ask', l: 6, r: 6 },
+    ],
+  },
+  {
+    id: 'p2',
+    label: 'ชุดที่ 2 · มีการแก้ค่า',
+    tease: 'ชุดนี้มีการแก้ค่าคั่นกลาง ลองสังเกตว่าของที่เตรียมไว้ยังใช้ได้ไหม',
+    arr: [2, 7, 1, 8, 2, 8],
+    ops: [
+      { kind: 'ask', l: 1, r: 3 },
+      { kind: 'set', i: 2, v: 0 },
+      { kind: 'ask', l: 1, r: 3 },
+      { kind: 'ask', l: 2, r: 6 },
+      { kind: 'set', i: 6, v: 10 },
+      { kind: 'ask', l: 4, r: 6 },
+    ],
+  },
+];
+
+type PsStep = { kind: string; text: string; answer: number; arr: number[] };
+type PsPuzzleData = { id: string; label: string; tease: string; arr: number[]; steps: PsStep[] };
+
+const psPuzzles: PsPuzzleData[] = PS_PUZZLES.map((p) => {
+  const cur = [...p.arr];
+  const steps: PsStep[] = [];
+  for (const op of p.ops) {
+    if (op.kind === 'set') {
+      cur[op.i - 1] = op.v;
+      steps.push({
+        kind: 'set',
+        text: `แก้ช่องที่ ${op.i} ให้เป็น ${op.v}`,
+        answer: -1,
+        arr: [...cur],
+      });
+    } else {
+      let s = 0;
+      for (let k = op.l - 1; k <= op.r - 1; k++) s += cur[k];
+      steps.push({
+        kind: 'ask',
+        text: `ผลรวมช่องที่ ${op.l} ถึง ${op.r}`,
+        answer: s,
+        arr: [...cur],
+      });
+    }
+  }
+  return { id: p.id, label: p.label, tease: p.tease, arr: p.arr, steps };
+});
+const psJson = JSON.stringify(psPuzzles);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -274,6 +341,37 @@ int main() {
   <p>
     บทนี้ไล่จากท่าที่ง่ายที่สุดไปหาท่าที่ยืดหยุ่นที่สุด แล้วจบด้วยคำถามที่สำคัญกว่าทั้งสองท่า
     คือ<strong>เมื่อไรควรใช้อันไหน</strong> เพราะท่าที่แรงกว่าไม่ได้แปลว่าท่าที่ควรหยิบ
+  </p>
+
+  <h2>ลองเอง · ตอบผลรวมของช่วงให้ทัน</h2>
+  <div class="cpgame psgame" data-psgame data-puzzles={psJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {psPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{psPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><div class="ps-strip" data-ps-strip></div></div>
+
+    <p class="fg-sub">คำถามตอนนี้ <b data-ps-task></b></p>
+
+    <div class="cpg-controls" data-ps-pad></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-ps-clear>ล้างคำตอบ</button>
+      <button type="button" class="cpg-btn main" data-ps-submit>ตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>อ่านคำถามแล้วพิมพ์ผลรวมของช่วงที่ถูกไฮไลต์</p>
+    <p class="cpg-score" data-cpg-score>พิมพ์ไว้ <b data-ps-typed>-</b> · ตอบถูกแล้ว <b data-ps-right>0</b> จาก <b data-ps-total>0</b> ข้อ</p>
+    <p class="cpg-hint">ในชุดที่มีการแก้ค่า สังเกตว่าหลังแก้หนึ่งครั้ง อะไรที่คำนวณไว้ล่วงหน้าต้องถูกทิ้งบ้าง</p>
+  </div>
+  <p class="io-note">
+    ถ้ารู้สึกว่าชุดแรกตอบง่ายกว่าชุดที่สองมาก นั่นแหละคือความต่างระหว่างข้อมูลที่นิ่งกับข้อมูลที่เปลี่ยนได้
   </p>
 
   <h2>ท่าที่หนึ่ง · ผลรวมสะสม</h2>
@@ -795,4 +893,159 @@ int main() {
     color:var(--dl-emerald-bright);
     letter-spacing:0.02em;
   }
+
+  /* ---------- แถบอาเรย์ของมินิเกมผลรวมช่วง ---------- */
+  .ps-strip{display:flex;gap:5px;width:max-content;}
+  .ps-cell{
+    min-width:2.4rem;padding:0.25rem 0.35rem;
+    display:flex;flex-direction:column;align-items:center;gap:0.1rem;
+    border:1px solid #2a3350;border-radius:6px;background:#101827;
+  }
+  .ps-cell small{font-size:0.65rem;color:#7b8397;}
+  .ps-cell b{font-family:var(--dl-mono,monospace);font-size:0.9rem;color:#cdd6ea;}
+  .ps-cell.in{background:#14351f;border-color:#2f9e5c;}
+  .ps-cell.in b{color:#4ade80;}
+  .ps-key{min-width:2.1rem;font-family:var(--dl-mono,monospace);}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type PsStep = { kind: string; text: string; answer: number; arr: number[] };
+  type PsPuzzle = { id: string; label: string; tease: string; arr: number[]; steps: PsStep[] };
+
+  function initPrefixGame(): void {
+    const maybeUi = cpGameUi('[data-psgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as PsPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripEl = ui.root.querySelector<HTMLElement>('[data-ps-strip]');
+    const taskEl = ui.root.querySelector<HTMLElement>('[data-ps-task]');
+    const padEl = ui.root.querySelector<HTMLElement>('[data-ps-pad]');
+    const typedEl = ui.root.querySelector<HTMLElement>('[data-ps-typed]');
+    const scoreEl = ui.root.querySelector<HTMLElement>('[data-ps-right]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-ps-total]');
+    if (!stripEl || !taskEl || !padEl || !typedEl || !scoreEl || !totalEl) return;
+    const strip: HTMLElement = stripEl;
+    const taskOut: HTMLElement = taskEl;
+    const pad: HTMLElement = padEl;
+    const typedOut: HTMLElement = typedEl;
+    const rightOut: HTMLElement = scoreEl;
+    const totalOut: HTMLElement = totalEl;
+
+    let pi = 0;
+    let si = 0;
+    let typed = '';
+    let right = 0;
+
+    const pz = (): PsPuzzle => puzzles[pi];
+    const step = (): PsStep | undefined => pz().steps[si];
+
+    function buildPad(): void {
+      pad.textContent = '';
+      for (const d of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn ps-key';
+        b.dataset.digit = d;
+        b.textContent = d;
+        pad.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      const st = step();
+      const arr = st ? st.arr : p.arr;
+      strip.textContent = '';
+      arr.forEach((v, i) => {
+        const cell = document.createElement('span');
+        cell.className = 'ps-cell';
+        const idx = document.createElement('small');
+        idx.textContent = String(i + 1);
+        const val = document.createElement('b');
+        val.textContent = String(v);
+        cell.append(idx, val);
+        if (st && st.kind === 'ask') {
+          const m = st.text.match(/(\d+) ถึง (\d+)/);
+          if (m && i + 1 >= Number(m[1]) && i + 1 <= Number(m[2])) cell.classList.add('in');
+        }
+        strip.appendChild(cell);
+      });
+      taskOut.textContent = st ? st.text : 'จบชุดนี้แล้ว';
+      typedOut.textContent = typed === '' ? '-' : typed;
+      rightOut.textContent = String(right);
+      totalOut.textContent = String(p.steps.filter((x) => x.kind === 'ask').length);
+    }
+
+    function advanceThroughSets(): void {
+      // ข้ามขั้นที่เป็นการแก้ค่าไปเอง เพราะไม่ต้องให้ผู้เล่นตอบ
+      while (step() !== undefined && (step() as PsStep).kind === 'set') {
+        ui.setStatus(`${(step() as PsStep).text} แล้ว ของที่เตรียมไว้ก่อนหน้านี้อาจใช้ไม่ได้อีก`, 'plain');
+        si++;
+      }
+    }
+
+    function submit(): void {
+      const st = step();
+      if (st === undefined) {
+        ui.setStatus('จบชุดนี้แล้วครับ', 'plain');
+        return;
+      }
+      if (typed === '') {
+        ui.setStatus('พิมพ์คำตอบก่อนครับ', 'bad');
+        return;
+      }
+      if (Number(typed) === st.answer) {
+        right++;
+        ui.setStatus(`ถูกต้อง ${st.text} เท่ากับ ${st.answer}`, 'good');
+      } else {
+        ui.setStatus(`ยังไม่ใช่ ${st.text} เท่ากับ ${st.answer}`, 'bad');
+      }
+      typed = '';
+      si++;
+      advanceThroughSets();
+      render();
+      if (step() === undefined) {
+        const p = pz();
+        const asks = p.steps.filter((x) => x.kind === 'ask').length;
+        ui.setStatus(`จบชุดนี้ ตอบถูก ${right} จาก ${asks} ข้อ`, right === asks ? 'good' : 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      si = 0;
+      typed = '';
+      right = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildPad();
+      advanceThroughSets();
+      ui.setStatus('อ่านคำถามแล้วพิมพ์ผลรวมของช่วงที่ถูกไฮไลต์');
+      render();
+    }
+
+    pad.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-digit]');
+      if (!(b instanceof HTMLElement)) return;
+      typed += b.dataset.digit ?? '';
+      render();
+    });
+
+    ui.onClick('data-ps-clear', () => {
+      typed = '';
+      render();
+    });
+    ui.onClick('data-ps-submit', submit);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initPrefixGame);
+</script>
