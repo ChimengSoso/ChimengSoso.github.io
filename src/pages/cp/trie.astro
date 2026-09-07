@@ -102,6 +102,68 @@ int main() {
     for (int i = 1; i < n; i++) { ans = max(ans, bestAgainst(a[i])); insert(a[i]); }
     printf("%d\\n", ans);
 }`;
+/* ---------- มินิเกม หาส่วนหัวที่สั้นที่สุดที่ชี้คำได้ตัวเดียว ----------
+   คำตอบของทุกชุดหาโดยไล่ทุกส่วนหัวของคำเป้าหมายตรง ๆ ตอนบิลด์ */
+type TgPuzzle = { id: string; label: string; tease: string; words: string[]; target: string };
+
+/** ความยาวของส่วนหัวที่สั้นที่สุดของ target ที่ไม่มีคำอื่นในคลังใช้ร่วม */
+function shortestUniquePrefix(words: string[], target: string): number {
+  for (let L = 1; L <= target.length; L++) {
+    const pre = target.slice(0, L);
+    if (words.filter((w) => w.startsWith(pre)).length === 1) return L;
+  }
+  // คำที่เป็นส่วนหัวของอีกคำ จะไม่มีส่วนหัวไหนชี้มันได้ตัวเดียวเลย
+  return -1;
+}
+
+const TG_PUZZLES: TgPuzzle[] = [
+  {
+    id: 't1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'คลังเล็ก ๆ ลองพิมพ์ทีละตัวแล้วดูว่าเหลือกี่คำ',
+    words: ['cat', 'car', 'dog'],
+    target: 'car',
+  },
+  {
+    id: 't2',
+    label: 'ชุดที่ 2 · หัวซ้ำยาว',
+    tease: 'ชุดนี้หลายคำใช้ส่วนหัวร่วมกันยาวมาก',
+    words: ['interest', 'interesting', 'internal', 'internet', 'interval'],
+    target: 'internet',
+  },
+  {
+    id: 't3',
+    label: 'ชุดที่ 3 · คำที่เป็นส่วนหัวของอีกคำ',
+    tease: 'ชุดนี้มีคำหนึ่งที่เป็นส่วนหัวของอีกคำพอดี ถ้าคิดว่าแยกไม่ได้ ก็กดปุ่มบอกได้',
+    words: ['do', 'dot', 'dots'],
+    target: 'do',
+  },
+];
+
+type TgPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  words: string[];
+  target: string;
+  best: number;
+  alphabet: string[];
+};
+const tgPuzzles: TgPuzzleData[] = TG_PUZZLES.map((p) => {
+  const letters = new Set<string>();
+  for (const w of p.words) for (const c of w) letters.add(c);
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    words: p.words,
+    target: p.target,
+    best: shortestUniquePrefix(p.words, p.target),
+    alphabet: [...letters].sort(),
+  };
+});
+const tgJson = JSON.stringify(tgPuzzles);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -210,6 +272,37 @@ int main() {
     </p>
   </div>
 
+  <h2>ลองเอง · พิมพ์ให้สั้นที่สุดที่ยังชี้คำเดียวได้</h2>
+  <div class="cpgame tgame" data-tgame data-puzzles={tgJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {tgPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{tgPuzzles[0].tease}</p>
+    <p class="fg-sub">อยากชี้ไปที่คำว่า <b data-tg-target>{tgPuzzles[0].target}</b></p>
+
+    <div class="cpg-scroll"><div class="tg-list" data-tg-list></div></div>
+
+    <div class="cpg-controls" data-tg-keys></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-tg-back>ลบตัวท้าย</button>
+      <button type="button" class="cpg-btn" data-tg-none>คำนี้แยกด้วยส่วนหัวไม่ได้</button>
+      <button type="button" class="cpg-btn main" data-tg-check>ตรวจส่วนหัวนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>พิมพ์ทีละตัวอักษร แล้วดูว่าคลังเหลือกี่คำที่ยังเข้าได้</p>
+    <p class="cpg-score" data-cpg-score>ส่วนหัวตอนนี้ <b data-tg-pre>(ยังไม่พิมพ์)</b> · ยังชี้ได้ <b data-tg-cnt>0</b> คำ</p>
+    <p class="cpg-hint">ราคาของการพิมพ์แต่ละตัวคือหนึ่งก้าวบนไทร ไม่ว่าคลังจะมีกี่คำ</p>
+  </div>
+  <p class="io-note">
+    สังเกตว่าจำนวนคำที่ยังเข้าได้ ลดลงเรื่อย ๆ ตามที่พิมพ์ ตัวเลขนั้นแหละคือของที่ควรเก็บไว้ที่ปมของไทร
+  </p>
+
   <h2>โจทย์ฝึกข้อที่ 1 · นับส่วนหัวที่อยู่ในคลัง</h2>
   <p>
     ให้คำในคลัง <code>n</code> คำ แล้วมีคำถาม <code>q</code> ข้อ แต่ละข้อให้สตริงมาหนึ่งตัว
@@ -243,6 +336,27 @@ int main() {
 
   <h2>เฉลยข้อที่ 1</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของท่านี้ · ขั้นที่คนข้ามแล้วตกทีหลัง</p>
+      <p>
+        ก่อนตัดสินใจใช้ไทร มีขั้นหนึ่งที่ต้องทำเสมอและคนข้ามกันบ่อยที่สุด คือ
+        <strong>คูณเลขหน่วยความจำออกมาดูก่อน</strong> ไทรไม่ได้แพงที่เวลา มันแพงที่หน่วยความจำ
+        และมันแพงแบบที่ไม่โผล่มาให้เห็นจนกว่าจะส่งข้อสอบแล้วโดนตีกลับ
+      </p>
+      <p>
+        ลองคิดกรณีที่แย่ที่สุดดู คำหนึ่งแสนคำ คำละยี่สิบตัวอักษร และไม่มีคำไหนใช้ส่วนหัวร่วมกันเลย
+        นั่นคือ <strong>สองล้านปม</strong> ถ้าแต่ละปมเก็บลูกเป็นอาเรย์ยาว 26 ช่อง ช่องละสี่ไบต์
+        ก็คือ 2,000,000 × 26 × 4 ได้ราว <strong>208 เมกะไบต์</strong> ซึ่งเกินลิมิตของโจทย์ส่วนใหญ่ไปแล้ว
+      </p>
+      <p>
+        รู้เลขนี้ก่อนมีประโยชน์ตรงที่มันบอกว่าต้องแก้ทางไหน จะลดขนาดตัวอักษรลง จะเปลี่ยนลูกจากอาเรย์เป็นแมป
+        แลกความเร็วกับที่ หรือจะเลิกใช้ไทรไปใช้การเรียงกับการค้นแบบไบนารีแทน ทั้งสามทางตัดสินใจได้ตั้งแต่ก่อนเขียนโค้ด
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ โครงสร้างที่เก็บ<strong>ปมต่อตัวอักษร</strong>ต้องประเมินที่ก่อนเสมอ
+        และประเมินด้วยการคูณจริง ไม่ใช่ด้วยความรู้สึกว่าหนึ่งแสนคำมันไม่เยอะ
+      </p>
+    </div>
     <p>
       เดินจากรากไปตามตัวอักษรของคำถาม ทุกปมที่เดินผ่านคือส่วนหัวหนึ่งอัน ก็แค่บวกธง
       "ปมนี้เป็นจุดจบของคำในคลังกี่คำ" สะสมไป ถ้าเดินไปเจอทางตัน แปลว่าส่วนหัวที่ยาวกว่านั้นไม่มีในคลังแน่ ๆ
@@ -402,4 +516,167 @@ int main() {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- คลังคำของมินิเกมไทร ---------- */
+  .tg-list{display:flex;flex-wrap:wrap;gap:5px;}
+  .tg-word{
+    padding:0.25rem 0.55rem;border-radius:6px;
+    font-family:var(--dl-mono,monospace);font-size:0.85rem;
+    border:1px solid #2a3350;background:#101827;color:#4a5468;
+  }
+  .tg-word.live{color:#cdd6ea;border-color:#3d5a80;background:#132235;}
+  .tg-word.target{border-color:#2f9e5c;}
+  .tg-word.live.target{background:#14351f;color:#4ade80;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TgPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    words: string[];
+    target: string;
+    best: number;
+    alphabet: string[];
+  };
+
+  function initTrieGame(): void {
+    const maybeUi = cpGameUi('[data-tgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const keysEl = ui.root.querySelector<HTMLElement>('[data-tg-keys]');
+    const listEl = ui.root.querySelector<HTMLElement>('[data-tg-list]');
+    const preEl = ui.root.querySelector<HTMLElement>('[data-tg-pre]');
+    const cntEl = ui.root.querySelector<HTMLElement>('[data-tg-cnt]');
+    const targetEl = ui.root.querySelector<HTMLElement>('[data-tg-target]');
+    if (!keysEl || !listEl || !preEl || !cntEl || !targetEl) return;
+    const keys: HTMLElement = keysEl;
+    const list: HTMLElement = listEl;
+    const preOut: HTMLElement = preEl;
+    const cntOut: HTMLElement = cntEl;
+    const targetOut: HTMLElement = targetEl;
+
+    let pi = 0;
+    let pre = '';
+
+    const pz = (): TgPuzzle => puzzles[pi];
+    const matches = (): string[] => pz().words.filter((w) => w.startsWith(pre));
+
+    function build(): void {
+      const p = pz();
+      keys.textContent = '';
+      for (const c of p.alphabet) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn tr-key';
+        b.dataset.letter = c;
+        b.textContent = c;
+        keys.appendChild(b);
+      }
+      list.textContent = '';
+      for (const w of p.words) {
+        const chip = document.createElement('span');
+        chip.className = 'tg-word';
+        chip.dataset.word = w;
+        chip.textContent = w;
+        list.appendChild(chip);
+      }
+      targetOut.textContent = p.target;
+    }
+
+    function render(): void {
+      const ms = matches();
+      for (const chip of Array.from(list.querySelectorAll<HTMLElement>('[data-word]'))) {
+        const w = chip.dataset.word ?? '';
+        chip.classList.toggle('live', ms.includes(w));
+        chip.classList.toggle('target', w === pz().target);
+      }
+      preOut.textContent = pre === '' ? '(ยังไม่พิมพ์)' : pre;
+      cntOut.textContent = String(ms.length);
+    }
+
+    function type(c: string): void {
+      const p = pz();
+      pre += c;
+      if (!p.target.startsWith(pre)) {
+        ui.setStatus(`"${pre}" ไม่ใช่ส่วนหัวของ ${p.target} แล้ว ลบกลับมาก่อน`, 'bad');
+      } else {
+        const n = matches().length;
+        ui.setStatus(
+          n === 1 ? `"${pre}" เหลือคำเดียวแล้ว ลองกดตรวจดู` : `"${pre}" ยังชี้ได้ ${n} คำ`,
+        );
+      }
+      render();
+    }
+
+    function back(): void {
+      if (pre === '') return;
+      pre = pre.slice(0, -1);
+      ui.setStatus('ลบแล้ว พิมพ์ใหม่ได้');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (!p.target.startsWith(pre) || pre === '') {
+        ui.setStatus(`ต้องเป็นส่วนหัวของ ${p.target} เท่านั้นครับ`, 'bad');
+        return;
+      }
+      const n = matches().length;
+      if (n > 1) {
+        ui.setStatus(`"${pre}" ยังชี้ได้ ${n} คำ ยังแยกไม่ออกว่าเป็นคำไหน`, 'bad');
+        return;
+      }
+      if (pre.length === p.best) {
+        ui.setStatus(`ใช่ครับ "${pre}" ยาว ${pre.length} ตัว ซึ่งสั้นที่สุดที่ยังชี้คำเดียวได้`, 'good');
+      } else {
+        ui.setStatus(`"${pre}" ชี้คำเดียวจริง แต่ยังตัดให้สั้นได้อีก คำตอบคือ ${p.best} ตัว`, 'bad');
+      }
+    }
+
+    function sayImpossible(): void {
+      const p = pz();
+      if (p.best === -1) {
+        ui.setStatus(
+          `ถูกต้องครับ "${p.target}" เป็นส่วนหัวของคำอื่นในคลังอยู่แล้ว จึงไม่มีส่วนหัวไหนชี้มันได้ตัวเดียว` +
+            ' นี่คือเหตุผลที่ไทรต้องมีธงบอกว่าปมไหนเป็นจุดจบของคำ',
+          'good',
+        );
+      } else {
+        ui.setStatus(`แยกได้ครับ ส่วนหัวยาว ${p.best} ตัวก็พอแล้ว ลองใหม่อีกที`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      pre = '';
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      build();
+      ui.setStatus('พิมพ์ทีละตัวอักษร แล้วดูว่าคลังเหลือกี่คำที่ยังเข้าได้');
+      render();
+    }
+
+    keys.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-letter]');
+      if (!(b instanceof HTMLElement)) return;
+      type(b.dataset.letter ?? '');
+    });
+
+    ui.onClick('data-tg-back', back);
+    ui.onClick('data-tg-none', sayImpossible);
+    ui.onClick('data-tg-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initTrieGame);
+</script>

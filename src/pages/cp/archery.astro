@@ -117,6 +117,60 @@ function answerOf(cs: Case): Answer {
 const ans1 = answerOf(EX1);
 const ans2 = answerOf(EX2);
 
+/* ---------- มินิเกม เลือกจุดยืนเริ่มต้นเอง ----------
+   ผลของทุกจุดเริ่มต้นมาจาก finalTarget ตัวเดียวกับที่เฉลยใช้
+   และถูกตรวจซ้ำกับการจำลองคนจริงตอนบิลด์ ถ้าสองอย่างไม่ตรงกัน บิลด์จะพัง */
+type ArPuzzle = { id: string; label: string; tease: string; cs: Case };
+const AR_PUZZLES: ArPuzzle[] = [
+  { id: 'a1', label: 'ชุดที่ 1 · ตัวอย่างแรก', tease: 'ตัวอย่างแรกของโจทย์ สี่เป้า แปดคน', cs: EX1 },
+  { id: 'a2', label: 'ชุดที่ 2 · ตัวอย่างที่สอง', tease: 'ตัวอย่างที่สอง ลองหาจุดยืนที่ดีที่สุดเอง', cs: EX2 },
+  {
+    id: 'a3',
+    label: 'ชุดที่ 3 · ยืนตรงไหนก็เท่ากัน',
+    tease: 'ชุดนี้ทุกจุดยืนพาไปจบที่เป้าเดียวกันหมด แล้วโจทย์ให้ตอบจุดไหน',
+    cs: { N: 4, R: 10, skills: [5, 2, 7, 1, 8, 3, 6, 4] },
+  },
+];
+
+type ArPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  r: number;
+  skills: number[];
+  finals: number[];
+  best: number;
+  start: number;
+  monotone: boolean;
+};
+const arPuzzles: ArPuzzleData[] = AR_PUZZLES.map((p) => {
+  const a = answerOf(p.cs);
+  // ตรวจกับการจำลองคนจริงทีละรอบ ให้แน่ใจว่าท่าย่อไม่ได้เพี้ยน
+  for (let k = 1; k <= p.cs.N; k++) {
+    const viaSim = simulateFull(p.cs, k, roundsNeeded(p.cs.N, p.cs.R));
+    if (viaSim !== a.finals[k - 1]) {
+      throw new Error(
+        `มินิเกมของ archery: ชุด ${p.id} จุดเริ่ม ${k} ท่าย่อได้ ${a.finals[k - 1]} แต่จำลองจริงได้ ${viaSim}`,
+      );
+    }
+  }
+  const monotone = a.finals.every((v, i) => i === 0 || a.finals[i - 1] <= v);
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    n: p.cs.N,
+    r: p.cs.R,
+    skills: p.cs.skills,
+    finals: a.finals,
+    best: a.best,
+    start: a.start,
+    monotone,
+  };
+});
+const arJson = JSON.stringify(arPuzzles);
+
 /** ตรวจว่าท่าย่อให้ผลเดียวกับการจำลองคนจริง ถ้าไม่ตรงจะโผล่ในตารางทันที */
 const crossCheck = [EX1, EX2].every((cs) =>
   Array.from({ length: cs.N }, (_, i) => i + 1).every(
@@ -644,12 +698,12 @@ int main() {
       <tr><th>Input</th><th>Output</th></tr>
     </thead>
     <tbody>
-      <tr><td>{EX1.N} {EX1.R}<br />{EX1.skills.join(' ')}</td><td>{ans1.start}</td></tr>
-      <tr><td>{EX2.N} {EX2.R}<br />{EX2.skills.join(' ')}</td><td>{ans2.start}</td></tr>
+      <tr><td>{EX1.N} {EX1.R}<br />{EX1.skills.map((k) => <>{k}<br /></>)}</td><td>{ans1.start}</td></tr>
+      <tr><td>{EX2.N} {EX2.R}<br />{EX2.skills.map((k) => <>{k}<br /></>)}</td><td>{ans2.start}</td></tr>
     </tbody>
   </table>
   <p class="io-note">
-    ตัวอย่างในโจทย์เขียนหมายเลขทักษะบรรทัดละคน ที่นี่ย่อมาไว้บรรทัดเดียว ตัวแรกคือเราเสมอ
+    หมายเลขทักษะเขียนบรรทัดละคน ตัวแรกคือเราเสมอ
   </p>
 
   <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
@@ -673,6 +727,33 @@ int main() {
       คนอีก <code>2N - 1</code> คนบนสนามยังต่างกันอยู่กี่แบบ?
     </p>
   </div>
+
+  <h2>ลองเอง · เลือกจุดยืนเริ่มต้นให้จบที่เป้าน้อยที่สุด</h2>
+  <div class="cpgame argame" data-argame data-puzzles={arJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {arPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{arPuzzles[0].tease}</p>
+    <p class="fg-sub" data-ar-info></p>
+
+    <div class="cpg-controls" data-ar-starts></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn main" data-ar-claim>จุดที่เลือกล่าสุดคือคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดจุดยืนเพื่อดูว่าซ้อมจนจบแล้วเราไปอยู่เป้าไหน แล้วเลือกจุดที่ดีที่สุด</p>
+    <p class="cpg-score" data-cpg-score>ลองไปแล้ว <b data-ar-tried>0</b> จุด · ดีที่สุดที่เจอคือเป้า <b data-ar-best>ยังไม่มี</b></p>
+    <p class="cpg-hint">เป้าหมายคือจบให้ได้เป้าที่เลขน้อยที่สุด ถ้ามีหลายจุดที่จบเท่ากัน โจทย์ขอจุดยืนที่เลขมากที่สุด</p>
+  </div>
+  <p class="io-note">
+    ลองไล่ให้ครบทุกจุดแล้วดูลำดับของผลลัพธ์ ถ้ามันขึ้นแล้วลง แปลว่าท่าที่อาศัยความเรียงอย่างการค้นแบบไบนารีใช้ไม่ได้
+  </p>
 
   <h2>เฉลย ตอนที่ 1 · โลกทั้งใบเหลือคนสองประเภท</h2>
   <Spoiler>
@@ -1332,4 +1413,140 @@ int main() {
     color:#cdd6ea;
   }
   table.rec th.num{text-align:right;}
+
+  /* ---------- ปุ่มจุดยืนของมินิเกมยิงธนู ---------- */
+  .ar-start{display:inline-flex;flex-direction:column;align-items:center;gap:0.1rem;line-height:1.25;}
+  .ar-res{font-size:0.7rem;color:#7b8397;}
+  .ar-start.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .ar-start.picked .ar-res{color:#0b1220;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type ArPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    n: number;
+    r: number;
+    skills: number[];
+    finals: number[];
+    best: number;
+    start: number;
+    monotone: boolean;
+  };
+
+  function initArcheryGame(): void {
+    const maybeUi = cpGameUi('[data-argame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as ArPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const startsEl = ui.root.querySelector<HTMLElement>('[data-ar-starts]');
+    const triedEl = ui.root.querySelector<HTMLElement>('[data-ar-tried]');
+    const bestEl = ui.root.querySelector<HTMLElement>('[data-ar-best]');
+    const infoEl = ui.root.querySelector<HTMLElement>('[data-ar-info]');
+    if (!startsEl || !triedEl || !bestEl || !infoEl) return;
+    const starts: HTMLElement = startsEl;
+    const triedOut: HTMLElement = triedEl;
+    const bestOut: HTMLElement = bestEl;
+    const infoOut: HTMLElement = infoEl;
+
+    let pi = 0;
+    let tried = new Map<number, number>();
+    let picked = 0;
+
+    const pz = (): ArPuzzle => puzzles[pi];
+
+    function buildStarts(): void {
+      const p = pz();
+      starts.textContent = '';
+      for (let k = 1; k <= p.n; k++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn ar-start';
+        b.dataset.k = String(k);
+        b.textContent = `ยืนเป้า ${k}`;
+        const res = document.createElement('span');
+        res.className = 'ar-res';
+        res.dataset.res = String(k);
+        res.textContent = 'ยังไม่ลอง';
+        b.appendChild(res);
+        starts.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const b of Array.from(starts.querySelectorAll<HTMLElement>('[data-k]'))) {
+        const k = Number(b.dataset.k);
+        b.classList.toggle('picked', k === picked);
+      }
+      for (const sp of Array.from(starts.querySelectorAll<HTMLElement>('[data-res]'))) {
+        const k = Number(sp.dataset.res);
+        const v = tried.get(k);
+        sp.textContent = v === undefined ? 'ยังไม่ลอง' : `จบที่เป้า ${v}`;
+      }
+      triedOut.textContent = String(tried.size);
+      let bestSeen = 0;
+      for (const v of tried.values()) bestSeen = bestSeen === 0 ? v : Math.min(bestSeen, v);
+      bestOut.textContent = bestSeen === 0 ? 'ยังไม่มี' : String(bestSeen);
+      infoOut.textContent = `${p.n} เป้า ยิงกัน ${p.r} รอบ`;
+    }
+
+    function tryStart(k: number): void {
+      const p = pz();
+      picked = k;
+      tried.set(k, p.finals[k - 1]);
+      ui.setStatus(`ยืนเป้า ${k} แล้วซ้อมครบ ${p.r} รอบ จะไปจบที่เป้า ${p.finals[k - 1]}`);
+      render();
+    }
+
+    function claim(): void {
+      const p = pz();
+      if (picked === 0) {
+        ui.setStatus('เลือกจุดยืนที่คิดว่าดีที่สุดก่อนครับ', 'bad');
+        return;
+      }
+      if (p.finals[picked - 1] === p.best) {
+        const note = p.monotone
+          ? ''
+          : ' และสังเกตไหมว่าผลของแต่ละจุดเริ่มต้นไม่ได้เรียงจากน้อยไปมาก การค้นแบบไบนารีจึงใช้กับข้อนี้ไม่ได้';
+        ui.setStatus(`ถูกครับ จบที่เป้า ${p.best} ซึ่งดีที่สุดแล้ว${note}`, 'good');
+      } else {
+        ui.setStatus(
+          `ยืนเป้า ${picked} จบที่เป้า ${p.finals[picked - 1]} แต่ยังมีจุดยืนที่จบได้ดีกว่านี้`,
+          'bad',
+        );
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      tried = new Map<number, number>();
+      picked = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildStarts();
+      ui.setStatus('กดจุดยืนเพื่อดูว่าซ้อมจนจบแล้วเราไปอยู่เป้าไหน แล้วเลือกจุดที่ดีที่สุด');
+      render();
+    }
+
+    starts.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-k]');
+      if (!(b instanceof HTMLElement)) return;
+      tryStart(Number(b.dataset.k));
+    });
+
+    ui.onClick('data-ar-claim', claim);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initArcheryGame);
+</script>

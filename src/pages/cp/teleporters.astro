@@ -79,6 +79,86 @@ const EX2M = 3;
 const a2 = analyse(EX2);
 const ans2 = best(a2.base, a2.cycles, EX2M);
 
+/* ---------- มินิเกม แจกเครื่องเคลื่อนย้าย M ตัวให้ได้แต้มมากที่สุด ----------
+   แต้มของทุกการกระทำมาจากฟังก์ชันเดียวกับที่บทความใช้ และแต้มที่ดีที่สุดของแต่ละชุด
+   ถูกตรวจซ้ำด้วยการไล่ทุกวิธีแจกตอนบิลด์ ถ้าท่าโลภกับการไล่ทุกวิธีไม่ตรงกัน บิลด์จะพัง */
+type TpPuzzle = { id: string; label: string; tease: string; pairs: Pair[]; m: number };
+
+/** ไล่ทุกวิธีแจกเครื่อง เพื่อยืนยันว่าท่าโลภได้แต้มสูงสุดจริง ใช้กับชุดเล็กในเกมเท่านั้น */
+function bestByBruteTp(base: number, cycles: number[], m: number): number {
+  let top = 0;
+  const walk = (i: number, left: number, score: number): void => {
+    if (i === cycles.length) {
+      top = Math.max(top, score + Math.floor(left / 2) * 4 + (left % 2));
+      return;
+    }
+    walk(i + 1, left, score);
+    if (left >= 1) walk(i + 1, left - 1, score + cycles[i] + 2);
+  };
+  walk(0, m, base);
+  return top;
+}
+
+const TP_PUZZLES: TpPuzzle[] = [
+  {
+    id: 't1',
+    label: 'ชุดที่ 1 · ตัวอย่างในโจทย์',
+    tease: 'ชุดแรกของโจทย์ มีเครื่องให้เพิ่มตัวเดียว',
+    pairs: EX1,
+    m: EX1M,
+  },
+  {
+    id: 't2',
+    label: 'ชุดที่ 2 · ตัวอย่างที่สอง',
+    tease: 'สามเครื่อง และมีวงให้เลือกต่อมากกว่าหนึ่งวง',
+    pairs: EX2,
+    m: EX2M,
+  },
+  {
+    id: 't3',
+    label: 'ชุดที่ 3 · เครื่องเหลือ',
+    tease: 'ชุดนี้มีเครื่องเหลือหลังต่อวงหมดแล้ว ลองดูว่าเครื่องที่เหลือควรใช้ยังไง',
+    pairs: [
+      [10, 11],
+      [1, 4],
+      [2, 3],
+      [20, 23],
+      [21, 22],
+    ],
+    m: 5,
+  },
+];
+
+type TpPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  m: number;
+  base: number;
+  cycles: number[];
+  best: number;
+};
+const tpPuzzles: TpPuzzleData[] = TP_PUZZLES.map((p) => {
+  const a = analyse(p.pairs);
+  const greedyBest = best(a.base, a.cycles, p.m);
+  const bruteBest = bestByBruteTp(a.base, a.cycles, p.m);
+  if (greedyBest !== bruteBest) {
+    throw new Error(
+      `มินิเกมของ teleporters: ชุด ${p.id} ท่าโลภได้ ${greedyBest} แต่การไล่ทุกวิธีได้ ${bruteBest}`,
+    );
+  }
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    m: p.m,
+    base: a.base,
+    cycles: a.cycles,
+    best: greedyBest,
+  };
+});
+const tpJson = JSON.stringify(tpPuzzles);
+
 /* ตารางแสดงว่าเครื่องแต่ละตัวถูกใช้ทำอะไร ในตัวอย่างที่สอง */
 type Spend = { i: number; act: string; gain: number; total: number };
 function spendTable(base: number, cycles: number[], m: number): Spend[] {
@@ -259,6 +339,40 @@ ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื
       แล้วถามว่ารูปที่ได้หน้าตาเป็นยังไง และ "ช่วงที่เราไม่เคยเหยียบเลย" ไปอยู่ตรงไหนของรูปนั้น
     </p>
   </div>
+
+  <h2>ลองเอง · แจกเครื่องที่เพิ่มได้ให้คุ้มที่สุด</h2>
+  <div class="cpgame tpgame" data-tpgame data-puzzles={tpJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {tpPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{tpPuzzles[0].tease}</p>
+
+    <p class="gg2-goal">
+      เส้นทางหลักตอนนี้ยาว <b data-tp-base>{tpPuzzles[0].base}</b> ก้าว และคุณเพิ่มเครื่องได้อีก
+      <b data-tp-m>{tpPuzzles[0].m}</b> ตัว
+    </p>
+
+    <div class="cpg-scroll">
+      <table class="tp-acts" data-tp-acts></table>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-tp-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-tp-check>ตรวจแต้ม</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด</p>
+    <p class="cpg-score" data-cpg-score>แต้มตอนนี้ <b data-tp-score>0</b> · เครื่องเหลือ <b data-tp-left>0</b> ตัว</p>
+    <p class="cpg-hint">ต่อวงที่ยาว c ใช้เครื่องหนึ่งตัวแล้วได้เพิ่ม c บวกสอง ส่วนการสร้างวงใหม่ใช้สองตัวได้เพิ่มสี่ และเครื่องเดี่ยว ๆ ได้เพิ่มหนึ่ง</p>
+  </div>
+  <p class="io-note">
+    ถ้ามีวงให้เลือกหลายวง ลองคิดก่อนว่าเรียงลำดับยังไงถึงจะคุ้มที่สุด แล้วเครื่องที่เหลือหลังต่อวงหมดแล้วควรทำอะไร
+  </p>
 
   <h2>เฉลย · เส้นทางหลักหนึ่งเส้น กับวงที่ลอยอยู่เฉย ๆ</h2>
   <Spoiler>
@@ -535,4 +649,197 @@ ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- ตารางการกระทำของมินิเกมเครื่องเคลื่อนย้าย ---------- */
+  .tp-acts{border-collapse:collapse;font-size:0.85rem;}
+  .tp-acts th, .tp-acts td{
+    border:1px solid #2a3350;padding:0.3rem 0.7rem;text-align:center;color:#cdd6ea;
+  }
+  .tp-acts th{color:#9aa7bd;font-weight:600;white-space:nowrap;}
+  .tp-acts tr.done td{background:#14351f;color:#4ade80;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TpPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    m: number;
+    base: number;
+    cycles: number[];
+    best: number;
+  };
+
+  function initTpGame(): void {
+    const maybeUi = cpGameUi('[data-tpgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TpPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const actsEl = ui.root.querySelector<HTMLElement>('[data-tp-acts]');
+    const scoreEl = ui.root.querySelector<HTMLElement>('[data-tp-score]');
+    const leftEl = ui.root.querySelector<HTMLElement>('[data-tp-left]');
+    const baseEl = ui.root.querySelector<HTMLElement>('[data-tp-base]');
+    const mEl = ui.root.querySelector<HTMLElement>('[data-tp-m]');
+    if (!actsEl || !scoreEl || !leftEl || !baseEl || !mEl) return;
+    const acts: HTMLElement = actsEl;
+    const scoreOut: HTMLElement = scoreEl;
+    const leftOut: HTMLElement = leftEl;
+    const baseOut: HTMLElement = baseEl;
+    const mOut: HTMLElement = mEl;
+
+    let pi = 0;
+    let used: boolean[] = [];
+    let pairs = 0;
+    let singles = 0;
+
+    const pz = (): TpPuzzle => puzzles[pi];
+    const spent = (): number => used.filter(Boolean).length + pairs * 2 + singles;
+    const left = (): number => pz().m - spent();
+    const score = (): number => {
+      const p = pz();
+      let s = p.base;
+      p.cycles.forEach((c, i) => {
+        if (used[i]) s += c + 2;
+      });
+      return s + pairs * 4 + singles;
+    };
+
+    function buildActs(): void {
+      const p = pz();
+      acts.textContent = '';
+      const head = document.createElement('tr');
+      for (const label of ['สิ่งที่ทำได้', 'ใช้เครื่อง', 'ได้เพิ่ม', '']) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        head.appendChild(th);
+      }
+      acts.appendChild(head);
+
+      p.cycles.forEach((c, i) => {
+        const tr = document.createElement('tr');
+        tr.dataset.cycle = String(i);
+        for (const text of [`ต่อวงยาว ${c} ก้าว`, '1', `${c + 2}`]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.appendChild(td);
+        }
+        const td = document.createElement('td');
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn';
+        b.dataset.act = 'cycle';
+        b.dataset.i = String(i);
+        b.textContent = 'ต่อวงนี้';
+        td.appendChild(b);
+        tr.appendChild(td);
+        acts.appendChild(tr);
+      });
+
+      const mk = (label: string, cost: string, gain: string, act: string, text: string): void => {
+        const tr = document.createElement('tr');
+        for (const t of [label, cost, gain]) {
+          const td = document.createElement('td');
+          td.textContent = t;
+          tr.appendChild(td);
+        }
+        const td = document.createElement('td');
+        const plus = document.createElement('button');
+        plus.type = 'button';
+        plus.className = 'cpg-btn';
+        plus.dataset.act = act;
+        plus.textContent = text;
+        td.appendChild(plus);
+        tr.appendChild(td);
+        acts.appendChild(tr);
+      };
+      mk('สร้างวงใหม่หนึ่งวง', '2', '4', 'pair', 'เพิ่มหนึ่งวง');
+      mk('วางเครื่องเดี่ยว ๆ', '1', '1', 'single', 'วางเดี่ยว');
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const tr of Array.from(acts.querySelectorAll<HTMLElement>('[data-cycle]'))) {
+        tr.classList.toggle('done', used[Number(tr.dataset.cycle)]);
+      }
+      for (const b of Array.from(acts.querySelectorAll<HTMLElement>('[data-act="cycle"]'))) {
+        const i = Number(b.dataset.i);
+        b.textContent = used[i] ? 'ถอนออก' : 'ต่อวงนี้';
+      }
+      scoreOut.textContent = String(score());
+      leftOut.textContent = String(left());
+      baseOut.textContent = String(p.base);
+      mOut.textContent = String(p.m);
+    }
+
+    function act(kind: string, i: number): void {
+      if (kind === 'cycle') {
+        if (used[i]) used[i] = false;
+        else if (left() >= 1) used[i] = true;
+        else {
+          ui.setStatus('เครื่องหมดแล้วครับ ถอนของเดิมออกก่อนถ้าอยากสลับ', 'bad');
+          return;
+        }
+      } else if (kind === 'pair') {
+        if (left() >= 2) pairs++;
+        else {
+          ui.setStatus('เหลือเครื่องไม่พอสำหรับวงใหม่ ซึ่งต้องใช้สองตัว', 'bad');
+          return;
+        }
+      } else if (kind === 'single') {
+        if (left() >= 1) singles++;
+        else {
+          ui.setStatus('เครื่องหมดแล้วครับ', 'bad');
+          return;
+        }
+      }
+      ui.setStatus('เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (left() > 0) {
+        ui.setStatus(`ยังเหลือเครื่องอีก ${left()} ตัว ใช้ให้หมดก่อนครับ เพราะเครื่องที่ไม่ได้ใช้ก็ไม่ได้แต้ม`, 'bad');
+        return;
+      }
+      const s = score();
+      if (s === p.best) {
+        ui.setStatus(`ดีที่สุดแล้วครับ ${s} ก้าว ไม่มีวิธีแจกไหนได้มากกว่านี้`, 'good');
+      } else {
+        ui.setStatus(`ได้ ${s} ก้าว ยังมีวิธีที่ได้ ${p.best} ก้าว ลองเทียบดูว่าวงยาวกับวงสั้นให้แต้มต่างกันแค่ไหน`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      used = new Array<boolean>(pz().cycles.length).fill(false);
+      pairs = 0;
+      singles = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildActs();
+      ui.setStatus('เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด');
+      render();
+    }
+
+    acts.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-act]');
+      if (!(b instanceof HTMLElement)) return;
+      act(b.dataset.act ?? '', Number(b.dataset.i ?? '0'));
+    });
+
+    ui.onClick('data-tp-reset', () => selectPuzzle(pi));
+    ui.onClick('data-tp-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initTpGame);
+</script>

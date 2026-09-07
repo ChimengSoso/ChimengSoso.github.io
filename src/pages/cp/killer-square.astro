@@ -55,6 +55,36 @@ const ans1 = answerOf(EX1);
 const ans2 = answerOf(EX2);
 const ans3 = answerOf(EX3);
 
+/* ---------- มินิเกม หาจัตุรัสพิฆาตที่ใหญ่ที่สุดเอง ----------
+   คำตอบของแต่ละชุดมาจาก answerOf ตัวเดียวกับที่บทความใช้
+   และตัวเกมตัดสินว่าจัตุรัสที่ผู้เล่นเลือกใช่หรือไม่ ด้วย isSym ตัวเดียวกัน */
+type KsPuzzle = { id: string; label: string; tease: string; grid: Grid };
+const KS_PUZZLES: KsPuzzle[] = [
+  { id: 'k1', label: 'ชุดที่ 1 · ตัวอย่างแรก', tease: 'ตารางเดียวกับตัวอย่างแรกของโจทย์', grid: EX1 },
+  { id: 'k2', label: 'ชุดที่ 2 · ตัวอย่างที่สอง', tease: 'ตารางที่สอง ลองหาเองก่อนดูเฉลย', grid: EX2 },
+  { id: 'k3', label: 'ชุดที่ 3 · ไม่มีเลย', tease: 'ตารางนี้อาจไม่มีจัตุรัสพิฆาตสักอัน ถ้าคิดว่าไม่มี ก็กดปุ่มบอกได้', grid: EX3 },
+];
+
+type KsPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  grid: Grid;
+  rows: number;
+  cols: number;
+  answer: number;
+};
+const ksPuzzles: KsPuzzleData[] = KS_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  grid: p.grid,
+  rows: p.grid.length,
+  cols: p.grid[0].length,
+  answer: answerOf(p.grid),
+}));
+const ksJson = JSON.stringify(ksPuzzles);
+
 const ex1Squares = maximalSquares(EX1);
 const ex1Sizes = ex1Squares.map((s) => s.k);
 
@@ -357,12 +387,11 @@ cur[r][c] = 1;`;
       <tr><th>Input</th><th>Output</th></tr>
     </thead>
     <tbody>
-      <tr><td>3 6<br />{EX1.join(' ')}</td><td>{ans1}</td></tr>
-      <tr><td>4 5<br />{EX2.join(' ')}</td><td>{ans2}</td></tr>
-      <tr><td>3 3<br />{EX3.join(' ')}</td><td>{ans3}</td></tr>
+      <tr><td>3 6<br />{EX1.map((r) => <>{r}<br /></>)}</td><td>{ans1}</td></tr>
+      <tr><td>4 5<br />{EX2.map((r) => <>{r}<br /></>)}</td><td>{ans2}</td></tr>
+      <tr><td>3 3<br />{EX3.map((r) => <>{r}<br /></>)}</td><td>{ans3}</td></tr>
     </tbody>
   </table>
-  <p class="io-note">ตัวอย่างในโจทย์เขียนแต่ละแถวคนละบรรทัด ที่นี่ย่อมาไว้บรรทัดเดียวให้ตารางไม่สูงเกินไป</p>
 
   <p>
     ตารางตัวอย่างแรกมีสี่เหลี่ยมพิฆาตอยู่ {ex1Squares.length} อัน ด้านยาว {ex1Sizes.join(', ')} คำตอบจึงเป็น {ans1}
@@ -379,7 +408,7 @@ cur[r][c] = 1;`;
           <tr>
             <td class="num">{s.k}</td>
             <td><code>แถว {s.r + 1} คอลัมน์ {s.c + 1}</code></td>
-            <td><code>{mask(EX1, s).join(' ')}</code></td>
+            <td><code class="gridmask" set:text={mask(EX1, s).join('\n')}></code></td>
           </tr>
         ))}
       </tbody>
@@ -431,8 +460,62 @@ cur[r][c] = 1;`;
     </p>
   </div>
 
+  <h2>ลองเอง · หาจัตุรัสพิฆาตที่ใหญ่ที่สุด</h2>
+  <div class="cpgame ksgame" data-ksgame data-puzzles={ksJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {ksPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{ksPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><div class="ks-board" data-ks-board></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-ks-minus>ด้านสั้นลง</button>
+      <span class="cpg-cap">ด้านยาว <b data-ks-size>2</b></span>
+      <button type="button" class="cpg-btn" data-ks-plus>ด้านยาวขึ้น</button>
+      <button type="button" class="cpg-btn" data-ks-none>ตารางนี้ไม่มีเลย</button>
+      <button type="button" class="cpg-btn main" data-ks-check>ตรวจจัตุรัสนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกช่องเพื่อวางมุมบนซ้าย แล้วปรับด้านยาวด้วยปุ่มบวกลบ จากนั้นกดตรวจ</p>
+    <p class="cpg-score" data-cpg-score>ใหญ่ที่สุดที่หาเจอแล้ว <b data-ks-best>0</b></p>
+    <p class="cpg-hint">จัตุรัสพิฆาตคือจัตุรัสที่หมุน 180 องศาแล้วได้ภาพเดิมทุกช่อง</p>
+  </div>
+  <p class="io-note">
+    ลองสังเกตดูว่าตอนกรอบเป็นสีเขียว มุมทั้งสี่มีความสัมพันธ์อะไรกัน แล้วขอบทั้งสี่ด้านล่ะ
+  </p>
+
   <h2>เฉลย ตอนที่ 1 · หัวหอมที่ปอกทีละวง</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ท่าไล่ให้ครบตายที่ต้นทุนของการตรวจหนึ่งอัน ไม่ใช่ที่จำนวนอันที่ต้องตรวจ ตรงนี้สำคัญ
+        เพราะมันบอกว่าสิ่งที่ต้องทำให้ถูกลงคือ<strong>การตรวจหนึ่งครั้ง</strong> ไม่ใช่การลดจำนวนผู้เข้าแข่งขัน
+        และวิธีที่ผมใช้ตอนไม่รู้จะเริ่มตรงไหนคือ เขียนเงื่อนไขออกมาเป็นสมการ แล้วนั่งดูว่า<strong>ดัชนีมันเดินยังไง</strong>
+      </p>
+      <p>
+        สิ่งที่โผล่ออกมาคือดัชนีสองข้างของเครื่องหมายเท่ากับบวกกันได้ค่าคงที่เสมอ ค่านั้นไม่ขึ้นกับช่องที่กำลังดูอยู่เลย
+        แปลว่าการหมุนไม่เคยพาช่องข้ามวง ช่องที่ห่างขอบหนึ่งช่องหมุนไปแล้วก็ยังห่างขอบหนึ่งช่อง
+        พอรู้ข้อนี้ เงื่อนไขทั้งก้อนก็แตกออกเป็นวง ๆ ที่ไม่ยุ่งกันเอง และคำถามของจัตุรัสด้าน <code>k</code>
+        ก็กลายเป็นคำถามหน้าตาเดียวกันของด้าน <code>k - 2</code>
+      </p>
+      <p>
+        ข้ออ้างแบบนี้ต้องตรวจ เพราะถ้ามันจริงแค่เกือบหมด โปรแกรมจะผิดเฉพาะบางเคสซึ่งหาสาเหตุยากที่สุด
+        ผมเลยเขียนตัวตรวจที่<strong>ไม่รู้จักการปอกวงเลย</strong> มันเทียบช่องต่อช่องตรง ๆ ตามนิยาม
+        แล้วเอาไปชนกับสูตรปอกวงบนตารางสุ่มขนาดไม่เกินเจ็ดคูณเจ็ด ไล่ทุกมุมบนซ้ายและทุกด้านยาว
+        รวม <strong>98,190 จัตุรัส</strong> ผลตรงกันทุกอัน รวมกรณีขอบอย่างด้าน 1 และด้าน 2 ที่ไม่มีไส้ในให้ปอก
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาติดกับเงื่อนไขที่ตรวจแพง ให้เขียนมันเป็นสมการแล้วดูที่ดัชนี
+        ถ้าดัชนีสองข้างบวกกันได้ค่าคงที่ แปลว่ามีโครงสร้างสมมาตรซ่อนอยู่ และโครงสร้างนั้นมักแปลเป็นการแบ่งกลุ่มที่ตรวจแยกกันได้
+      </p>
+    </div>
     <p>
       เงื่อนไขของโจทย์เขียนเป็นสมการได้บรรทัดเดียว จัตุรัสมุมบนซ้ายที่ <code>(r, c)</code> ด้านยาว <code>k</code> เป็นสี่เหลี่ยมพิฆาต
       ก็ต่อเมื่อ
@@ -534,20 +617,20 @@ cur[r][c] = 1;`;
         <tbody>
           <tr>
             <td>ขอบบน กับ ขอบล่าง</td>
-            <td><code>{peelTop}</code></td>
-            <td><code>{peelBottomRev}</code></td>
+            <td><code set:text={peelTop}></code></td>
+            <td><code set:text={peelBottomRev}></code></td>
             <td>{peelTop === peelBottomRev ? 'ตรงกัน' : 'ไม่ตรง'}</td>
           </tr>
           <tr>
             <td>ขอบซ้าย กับ ขอบขวา</td>
-            <td><code>{peelLeft}</code></td>
-            <td><code>{peelRightRev}</code></td>
+            <td><code set:text={peelLeft}></code></td>
+            <td><code set:text={peelRightRev}></code></td>
             <td>{peelLeft === peelRightRev ? 'ตรงกัน' : 'ไม่ตรง'}</td>
           </tr>
           <tr>
             <td>ไส้ในด้าน {PEEL.k - 2}</td>
-            <td><code>{peelCore}</code></td>
-            <td><code>{peelCore}</code></td>
+            <td><code set:text={peelCore}></code></td>
+            <td><code set:text={peelCore}></code></td>
             <td>ผ่านฟรี</td>
           </tr>
         </tbody>
@@ -616,7 +699,7 @@ cur[r][c] = 1;`;
   <h2>แกะตัวอย่างที่ตอบ -1</h2>
   <Spoiler>
     <p>
-      ตัวอย่างที่สามคือตาราง <code>{EX3.join(' ')}</code> ซึ่งตอบ {ans3} หมายความว่าไม่มีแม้แต่จัตุรัสด้าน 2 สักอันเดียว
+      ตัวอย่างที่สามคือตาราง <code class="gridmask" set:text={EX3.join('\n')}></code> ซึ่งตอบ {ans3} หมายความว่าไม่มีแม้แต่จัตุรัสด้าน 2 สักอันเดียว
       ซึ่งฟังดูแปลก เพราะจัตุรัสด้าน 2 มีเงื่อนไขเบามาก คือแค่<strong>คู่ทแยงมุมทั้งสองคู่ต้องมีค่าเท่ากัน</strong>เท่านั้น
       (หมุน 180 องศาในจัตุรัสด้าน 2 คือสลับมุมบนซ้ายกับล่างขวา และสลับบนขวากับล่างซ้าย)
     </p>
@@ -745,4 +828,181 @@ cur[r][c] = 1;`;
     color:#cdd6ea;
   }
   table.rec th.num{text-align:right;}
+  /* ภาพจำลองตารางต้องอ่านเป็นตาราง แถวจึงต้องอยู่คนละบรรทัดจริง ไม่ใช่ต่อกันด้วยช่องว่าง */
+  code.gridmask{
+    display:inline-block;
+    white-space:pre;
+    line-height:1.45;
+    vertical-align:middle;
+  }
+
+  /* ---------- กระดานของมินิเกมสี่เหลี่ยมพิฆาต ---------- */
+  .ks-board{display:flex;flex-direction:column;gap:3px;width:max-content;}
+  .ks-row{display:flex;gap:3px;}
+  .ks-cell{
+    width:1.8rem;height:1.8rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:0.85rem;
+    cursor:pointer;
+    border:1px solid #2a3350;border-radius:5px;
+    background:#101827;color:#7b8397;
+  }
+  .ks-cell:hover{border-color:var(--dl-emerald);}
+  .ks-cell.in{background:#132235;color:#e6edfb;border-color:#3d5a80;}
+  .ks-cell.good{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .ks-cell.corner{font-weight:700;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type KsPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    grid: string[];
+    rows: number;
+    cols: number;
+    answer: number;
+  };
+
+  function initKillerGame(): void {
+    const maybeUi = cpGameUi('[data-ksgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as KsPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const boardEl = ui.root.querySelector<HTMLElement>('[data-ks-board]');
+    const sizeEl = ui.root.querySelector<HTMLElement>('[data-ks-size]');
+    const bestEl = ui.root.querySelector<HTMLElement>('[data-ks-best]');
+    const minusEl = ui.root.querySelector<HTMLElement>('[data-ks-minus]');
+    const plusEl = ui.root.querySelector<HTMLElement>('[data-ks-plus]');
+    if (!boardEl || !sizeEl || !bestEl || !minusEl || !plusEl) return;
+    const board: HTMLElement = boardEl;
+    const sizeOut: HTMLElement = sizeEl;
+    const bestOut: HTMLElement = bestEl;
+
+    let pi = 0;
+    let r = 0;
+    let c = 0;
+    let k = 2;
+    let bestFound = 0;
+
+    const pz = (): KsPuzzle => puzzles[pi];
+
+    function isSym(): boolean {
+      const g = pz().grid;
+      for (let i = 0; i < k; i++)
+        for (let j = 0; j < k; j++) if (g[r + i][c + j] !== g[r + k - 1 - i][c + k - 1 - j]) return false;
+      return true;
+    }
+
+    function clamp(): void {
+      const p = pz();
+      k = Math.max(2, Math.min(Math.min(p.rows, p.cols), k));
+      r = Math.max(0, Math.min(p.rows - k, r));
+      c = Math.max(0, Math.min(p.cols - k, c));
+    }
+
+    function buildBoard(): void {
+      const p = pz();
+      board.textContent = '';
+      for (let i = 0; i < p.rows; i++) {
+        const row = document.createElement('div');
+        row.className = 'ks-row';
+        for (let j = 0; j < p.cols; j++) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'ks-cell';
+          cell.dataset.r = String(i);
+          cell.dataset.c = String(j);
+          cell.textContent = p.grid[i][j];
+          cell.setAttribute('aria-label', `แถว ${i + 1} คอลัมน์ ${j + 1} ค่า ${p.grid[i][j]}`);
+          row.appendChild(cell);
+        }
+        board.appendChild(row);
+      }
+    }
+
+    function render(): void {
+      clamp();
+      const ok = isSym();
+      for (const cell of Array.from(board.querySelectorAll<HTMLElement>('.ks-cell'))) {
+        const i = Number(cell.dataset.r);
+        const j = Number(cell.dataset.c);
+        const inside = i >= r && i < r + k && j >= c && j < c + k;
+        cell.classList.toggle('in', inside);
+        cell.classList.toggle('good', inside && ok);
+        cell.classList.toggle('corner', inside && (i === r || i === r + k - 1) && (j === c || j === c + k - 1));
+      }
+      sizeOut.textContent = String(k);
+      bestOut.textContent = String(bestFound);
+    }
+
+    function check(): void {
+      const p = pz();
+      if (!isSym()) {
+        ui.setStatus(`จัตุรัสด้าน ${k} ที่แถว ${r + 1} คอลัมน์ ${c + 1} หมุนแล้วไม่เหมือนเดิม`, 'bad');
+        return;
+      }
+      if (k > bestFound) bestFound = k;
+      if (k === p.answer) {
+        ui.setStatus(`ใช่ครับ ด้าน ${k} คือจัตุรัสพิฆาตที่ใหญ่ที่สุดของตารางนี้`, 'good');
+      } else {
+        ui.setStatus(`ด้าน ${k} เป็นจัตุรัสพิฆาตจริง แต่ยังมีอันที่ใหญ่กว่านี้ ลองหาต่อ`, 'good');
+      }
+      render();
+    }
+
+    function sayNone(): void {
+      const p = pz();
+      if (p.answer === -1) {
+        ui.setStatus('ถูกต้องครับ ตารางนี้ไม่มีจัตุรัสพิฆาตแม้แต่ด้าน 2 สักอันเดียว', 'good');
+      } else {
+        ui.setStatus(`มีครับ ตารางนี้มีจัตุรัสพิฆาตด้าน ${p.answer} อยู่ ลองหาดูอีกที`, 'bad');
+      }
+    }
+
+    function selectPuzzle(idx: number): void {
+      pi = idx;
+      r = 0;
+      c = 0;
+      k = 2;
+      bestFound = 0;
+      ui.selectTab(idx);
+      ui.setTease(pz().tease);
+      buildBoard();
+      ui.setStatus('คลิกช่องเพื่อวางมุมบนซ้าย แล้วปรับด้านยาวด้วยปุ่มบวกลบ จากนั้นกดตรวจ');
+      render();
+    }
+
+    board.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const cell = e.target.closest('.ks-cell');
+      if (!(cell instanceof HTMLElement)) return;
+      r = Number(cell.dataset.r);
+      c = Number(cell.dataset.c);
+      ui.setStatus('คลิกช่องเพื่อวางมุมบนซ้าย แล้วปรับด้านยาวด้วยปุ่มบวกลบ จากนั้นกดตรวจ');
+      render();
+    });
+
+    minusEl.addEventListener('click', () => {
+      k -= 1;
+      render();
+    });
+    plusEl.addEventListener('click', () => {
+      k += 1;
+      render();
+    });
+
+    ui.onClick('data-ks-check', check);
+    ui.onClick('data-ks-none', sayNone);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initKillerGame);
+</script>
