@@ -235,6 +235,47 @@ int main() {
     printf("%lld\\n", s);
     return 0;
 }`;
+/* ---------- มินิเกม เลือกของโดยห้ามติดกันสามชิ้น ----------
+   คะแนนที่ดีที่สุดหาโดยไล่ทุกวิธีเลือกจริง ๆ ตอนบิลด์
+   ไม่ได้ใช้ตารางสถานะที่บทนี้กำลังจะสอน */
+type RsPuzzle = { id: string; label: string; tease: string; vals: number[] };
+
+/** คะแนนมากที่สุด โดยห้ามเลือกของสามชิ้นที่ติดกัน ไล่ทุกวิธี */
+function bestPickBrute(vals: number[]): number {
+  const n = vals.length;
+  let best = 0;
+  for (let mask = 0; mask < 1 << n; mask++) {
+    let ok = true;
+    for (let i = 0; i + 2 < n; i++) {
+      if ((mask >> i & 1) && (mask >> (i + 1) & 1) && (mask >> (i + 2) & 1)) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    let s = 0;
+    for (let i = 0; i < n; i++) if (mask >> i & 1) s += vals[i];
+    best = Math.max(best, s);
+  }
+  return best;
+}
+
+const RS_PUZZLES: RsPuzzle[] = [
+  { id: 'r1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'ของสี่ชิ้น พอให้เห็นกติกาว่าห้ามติดกันสามชิ้น', vals: [5, 9, 4, 7] },
+  { id: 'r2', label: 'ชุดที่ 2 · ตัวใหญ่เรียงกัน', tease: 'ชุดนี้ของแพงสามชิ้นวางติดกันพอดี ต้องยอมทิ้งชิ้นไหนสักชิ้น', vals: [8, 9, 7, 1, 6, 2] },
+  { id: 'r3', label: 'ชุดที่ 3 · ยาวขึ้น', tease: 'ชุดนี้ยาวพอที่การเดาสุ่มจะเริ่มพลาด', vals: [3, 8, 8, 2, 9, 9, 1, 7, 6, 2] },
+];
+
+type RsPuzzleData = { id: string; label: string; tease: string; vals: number[]; best: number };
+const rsPuzzles: RsPuzzleData[] = RS_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  vals: p.vals,
+  best: bestPickBrute(p.vals),
+}));
+const rsJson = JSON.stringify(rsPuzzles);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -264,6 +305,34 @@ int main() {
       โดยไม่มีทางรู้ตัวเลย
     </p>
   </div>
+
+  <h2>ลองเอง · เลือกของให้ได้แต้มมากที่สุด</h2>
+  <div class="cpgame rsgame" data-rsgame data-puzzles={rsJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {rsPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{rsPuzzles[0].tease}</p>
+    <p class="fg-sub">กติกาข้อเดียว ห้ามเลือกของสามชิ้นที่ติดกัน</p>
+
+    <div class="cpg-scroll"><div class="rs-strip" data-rs-strip></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-rs-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-rs-check>ตรวจแต้ม</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเลือกของที่จะเก็บ ห้ามเลือกสามชิ้นที่ติดกัน</p>
+    <p class="cpg-score" data-cpg-score>แต้มตอนนี้ <b data-rs-score>0</b> · เลือกติดกันยาวสุด <b data-rs-run>0</b> ชิ้น</p>
+    <p class="cpg-hint">ตัวเลขทุกตัวเป็นบวก ดังนั้นการไม่เลือกเลยไม่เคยเป็นทางที่ดี</p>
+  </div>
+  <p class="io-note">
+    ตอนตัดสินใจของชิ้นถัดไป ลองสังเกตว่าคุณต้องมองย้อนกลับไปกี่ชิ้น แล้วนั่นแหละคือขนาดของสิ่งที่ต้องจำ
+  </p>
 
   <h2>ทางออก · จดสภาพลงไปในสถานะด้วย</h2>
   <p>
@@ -718,4 +787,135 @@ int main() {
     color:var(--dl-emerald-bright);
     letter-spacing:0.02em;
   }
+
+  /* ---------- แถบของของมินิเกมเลือกของ ---------- */
+  .rs-strip{display:flex;gap:5px;width:max-content;}
+  .rs-cell{
+    min-width:2.3rem;height:2.3rem;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:0.9rem;
+    border:1px solid #2a3350;border-radius:6px;
+    background:#101827;color:#cdd6ea;
+  }
+  .rs-cell:hover{border-color:var(--dl-emerald);}
+  .rs-cell.on{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .rs-cell.bad{background:#351717;color:#f0a6a6;border-color:#8a3b3b;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type RsPuzzle = { id: string; label: string; tease: string; vals: number[]; best: number };
+
+  function initRollGame(): void {
+    const maybeUi = cpGameUi('[data-rsgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as RsPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripEl = ui.root.querySelector<HTMLElement>('[data-rs-strip]');
+    const scoreEl = ui.root.querySelector<HTMLElement>('[data-rs-score]');
+    const runEl = ui.root.querySelector<HTMLElement>('[data-rs-run]');
+    if (!stripEl || !scoreEl || !runEl) return;
+    const strip: HTMLElement = stripEl;
+    const scoreOut: HTMLElement = scoreEl;
+    const runOut: HTMLElement = runEl;
+
+    let pi = 0;
+    let taken: boolean[] = [];
+
+    const pz = (): RsPuzzle => puzzles[pi];
+    const score = (): number => pz().vals.reduce((t, v, i) => (taken[i] ? t + v : t), 0);
+
+    /** ช่วงที่เลือกติดกันยาวที่สุดตอนนี้ */
+    function longestRun(): number {
+      let best = 0;
+      let cur = 0;
+      for (const t of taken) {
+        cur = t ? cur + 1 : 0;
+        best = Math.max(best, cur);
+      }
+      return best;
+    }
+
+    function buildStrip(): void {
+      const p = pz();
+      strip.textContent = '';
+      p.vals.forEach((v, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rs-cell';
+        b.dataset.i = String(i);
+        b.textContent = String(v);
+        b.setAttribute('aria-pressed', 'false');
+        strip.appendChild(b);
+      });
+    }
+
+    function render(): void {
+      const bad = longestRun() >= 3;
+      for (const b of Array.from(strip.querySelectorAll<HTMLElement>('.rs-cell'))) {
+        const i = Number(b.dataset.i);
+        b.classList.toggle('on', taken[i]);
+        b.setAttribute('aria-pressed', taken[i] ? 'true' : 'false');
+      }
+      // ทำเครื่องหมายช่วงที่ผิดกติกา ให้เห็นว่าผิดตรงไหน
+      for (let i = 0; i + 2 < taken.length; i++) {
+        const trio = taken[i] && taken[i + 1] && taken[i + 2];
+        for (const k of [i, i + 1, i + 2]) {
+          const cell = strip.children[k];
+          if (cell instanceof HTMLElement && trio) cell.classList.add('bad');
+        }
+      }
+      if (!bad) {
+        for (const b of Array.from(strip.querySelectorAll<HTMLElement>('.rs-cell'))) b.classList.remove('bad');
+      }
+      scoreOut.textContent = String(score());
+      runOut.textContent = String(longestRun());
+    }
+
+    function check(): void {
+      const p = pz();
+      if (longestRun() >= 3) {
+        ui.setStatus('ยังผิดกติกาอยู่ มีของสามชิ้นติดกันที่ถูกเลือกพร้อมกัน', 'bad');
+        return;
+      }
+      const s = score();
+      if (s === p.best) {
+        ui.setStatus(`ได้ ${s} แต้ม ซึ่งมากที่สุดเท่าที่กติกานี้ยอมให้แล้ว`, 'good');
+      } else {
+        ui.setStatus(`ได้ ${s} แต้ม ยังมีวิธีเลือกที่ได้ ${p.best} แต้ม`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      taken = pz().vals.map(() => false);
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildStrip();
+      ui.setStatus('กดเลือกของที่จะเก็บ ห้ามเลือกสามชิ้นที่ติดกัน');
+      render();
+    }
+
+    strip.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('.rs-cell');
+      if (!(b instanceof HTMLElement)) return;
+      const i = Number(b.dataset.i);
+      taken[i] = !taken[i];
+      ui.setStatus('กดเลือกของที่จะเก็บ ห้ามเลือกสามชิ้นที่ติดกัน');
+      render();
+    });
+
+    ui.onClick('data-rs-reset', () => selectPuzzle(pi));
+    ui.onClick('data-rs-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initRollGame);
+</script>

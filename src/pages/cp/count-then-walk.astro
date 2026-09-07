@@ -111,6 +111,58 @@ int main() {
     }
     printf("%llu\\n", rank_);
 }`;
+/* ---------- มินิเกม เดินหาสตริงอันดับที่ R ----------
+   รายการสตริงที่ถูกกติกาสร้างครบตอนบิลด์ อันดับที่เกมใช้ตัดสินจึงมาจากรายการจริง
+   ไม่ได้มาจากสูตรนับที่บทนี้กำลังจะสอน */
+type CwPuzzle = { id: string; label: string; tease: string; n: number; r: number };
+
+/** สตริงฐานสองยาว n ที่ไม่มีเลขหนึ่งติดกัน เรียงตามพจนานุกรม */
+function noAdjacentOnes(n: number): string[] {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === n) {
+      out.push(cur);
+      return;
+    }
+    rec(cur + '0');
+    if (cur[cur.length - 1] !== '1') rec(cur + '1');
+  };
+  rec('');
+  return out;
+}
+
+const CW_PUZZLES: CwPuzzle[] = [
+  { id: 'c1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'ยาวสี่หลัก ลองไล่ดูก่อนว่ามีกี่แบบ', n: 4, r: 5 },
+  { id: 'c2', label: 'ชุดที่ 2 · กลางตาราง', tease: 'ยาวหกหลัก อันดับอยู่กลาง ๆ เดาสุ่มเริ่มไม่ไหว', n: 6, r: 12 },
+  { id: 'c3', label: 'ชุดที่ 3 · ตัวสุดท้าย', tease: 'ชุดนี้ขออันดับสุดท้ายพอดี ลองดูว่ามันหน้าตาเป็นยังไง', n: 7, r: noAdjacentOnes(7).length },
+];
+
+type CwPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  r: number;
+  total: number;
+  answer: string;
+};
+const cwPuzzles: CwPuzzleData[] = CW_PUZZLES.map((p) => {
+  const list = noAdjacentOnes(p.n);
+  if (p.r < 1 || p.r > list.length) {
+    throw new Error(`มินิเกมของ count-then-walk: ชุด ${p.id} ขออันดับ ${p.r} แต่มีแค่ ${list.length} แบบ`);
+  }
+  return {
+    id: p.id,
+    label: p.label,
+    tease: p.tease,
+    n: p.n,
+    r: p.r,
+    total: list.length,
+    answer: list[p.r - 1],
+  };
+});
+const cwJson = JSON.stringify(cwPuzzles);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -167,6 +219,39 @@ int main() {
       สองล้านล้านล้าน ก็ต้องบวกแบบมีเพดาน ไม่งั้นตัวเลขจะพลิกเป็นลบแล้วการเทียบทุกครั้งหลังจากนั้นก็มั่วหมด
     </p>
   </div>
+
+  <h2>ลองเอง · เดินไปหาสตริงอันดับที่ขอ</h2>
+  <div class="cpgame cwgame" data-cwgame data-puzzles={cwJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {cwPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{cwPuzzles[0].tease}</p>
+    <p class="fg-sub">
+      ขอสตริงยาว <b data-cw-n>{cwPuzzles[0].n}</b> หลักที่ไม่มีเลขหนึ่งติดกัน อันดับที่
+      <b data-cw-r>{cwPuzzles[0].r}</b> จากทั้งหมด <b data-cw-total>{cwPuzzles[0].total}</b> แบบ
+    </p>
+
+    <div class="cpg-scroll"><div class="cw-strip" data-cw-strip></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-cw-zero>วาง 0</button>
+      <button type="button" class="cpg-btn" data-cw-one>วาง 1</button>
+      <button type="button" class="cpg-btn" data-cw-undo>ถอนหลักล่าสุด</button>
+      <button type="button" class="cpg-btn main" data-cw-check>ตรวจอันดับ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>วางทีละหลัก ห้ามให้เลขหนึ่งอยู่ติดกัน</p>
+    <p class="cpg-score" data-cpg-score>ตอนนี้ได้ <b data-cw-cur>ยังว่าง</b></p>
+    <p class="cpg-hint">เรียงตามพจนานุกรม เลขศูนย์มาก่อนเลขหนึ่ง</p>
+  </div>
+  <p class="io-note">
+    ตอนเลือกหลักแรก ถ้ารู้ว่าการวางศูนย์ไว้หน้าจะเหลือกี่แบบ คุณจะตัดสินใจได้ทันทีโดยไม่ต้องลองทีละแบบ
+  </p>
 
   <h2>โจทย์ฝึกข้อที่ 1 · สตริงฐานสองที่ไม่มีเลขหนึ่งติดกัน ตัวที่ R</h2>
   <p>
@@ -387,4 +472,141 @@ int main() {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- แถบหลักของมินิเกมนับแล้วเดิน ---------- */
+  .cw-strip{display:flex;gap:5px;width:max-content;}
+  .cw-cell{
+    width:2rem;height:2.3rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--dl-mono,monospace);font-size:1rem;
+    border:1px solid #2a3350;border-radius:6px;
+    background:#101827;color:#7b8397;
+  }
+  .cw-cell.zero{color:#9ecbff;border-color:#3d5a80;}
+  .cw-cell.one{color:#4ade80;border-color:#2f9e5c;background:#14351f;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type CwPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    n: number;
+    r: number;
+    total: number;
+    answer: string;
+  };
+
+  function initCountWalkGame(): void {
+    const maybeUi = cpGameUi('[data-cwgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as CwPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripEl = ui.root.querySelector<HTMLElement>('[data-cw-strip]');
+    const curEl = ui.root.querySelector<HTMLElement>('[data-cw-cur]');
+    const nEl = ui.root.querySelector<HTMLElement>('[data-cw-n]');
+    const rEl = ui.root.querySelector<HTMLElement>('[data-cw-r]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-cw-total]');
+    if (!stripEl || !curEl || !nEl || !rEl || !totalEl) return;
+    const strip: HTMLElement = stripEl;
+    const curOut: HTMLElement = curEl;
+    const nOut: HTMLElement = nEl;
+    const rOut: HTMLElement = rEl;
+    const totalOut: HTMLElement = totalEl;
+
+    let pi = 0;
+    let cur = '';
+
+    const pz = (): CwPuzzle => puzzles[pi];
+
+    function buildStrip(): void {
+      const p = pz();
+      strip.textContent = '';
+      for (let i = 0; i < p.n; i++) {
+        const cell = document.createElement('span');
+        cell.className = 'cw-cell';
+        cell.dataset.i = String(i);
+        cell.textContent = '.';
+        strip.appendChild(cell);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const cell of Array.from(strip.querySelectorAll<HTMLElement>('.cw-cell'))) {
+        const i = Number(cell.dataset.i);
+        const has = i < cur.length;
+        cell.textContent = has ? cur[i] : '.';
+        cell.classList.toggle('one', has && cur[i] === '1');
+        cell.classList.toggle('zero', has && cur[i] === '0');
+      }
+      curOut.textContent = cur === '' ? 'ยังว่าง' : cur;
+      nOut.textContent = String(p.n);
+      rOut.textContent = String(p.r);
+      totalOut.textContent = String(p.total);
+    }
+
+    function put(c: string): void {
+      const p = pz();
+      if (cur.length >= p.n) {
+        ui.setStatus(`ครบ ${p.n} หลักแล้ว กดตรวจได้เลย`);
+        return;
+      }
+      if (c === '1' && cur[cur.length - 1] === '1') {
+        ui.setStatus('วางเลขหนึ่งติดกันไม่ได้ครับ', 'bad');
+        return;
+      }
+      cur += c;
+      ui.setStatus('วางทีละหลัก ห้ามให้เลขหนึ่งอยู่ติดกัน');
+      render();
+    }
+
+    function undo(): void {
+      if (cur.length === 0) return;
+      cur = cur.slice(0, -1);
+      ui.setStatus('ถอนหลักล่าสุดแล้ว');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (cur.length !== p.n) {
+        ui.setStatus(`ยังไม่ครบ ต้องได้ ${p.n} หลัก ตอนนี้ ${cur.length} หลัก`, 'bad');
+        return;
+      }
+      if (cur === p.answer) {
+        ui.setStatus(`ถูกต้องครับ ${cur} คือสตริงอันดับที่ ${p.r}`, 'good');
+        return;
+      }
+      ui.setStatus(
+        `${cur} ถูกกติกาจริง แต่มัน${cur < p.answer ? 'มาก่อน' : 'มาหลัง'}อันดับที่ ${p.r}`,
+        'bad',
+      );
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      cur = '';
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildStrip();
+      ui.setStatus('วางทีละหลัก ห้ามให้เลขหนึ่งอยู่ติดกัน');
+      render();
+    }
+
+    ui.onClick('data-cw-zero', () => put('0'));
+    ui.onClick('data-cw-one', () => put('1'));
+    ui.onClick('data-cw-undo', undo);
+    ui.onClick('data-cw-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initCountWalkGame);
+</script>
