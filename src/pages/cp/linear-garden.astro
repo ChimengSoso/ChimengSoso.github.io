@@ -1,0 +1,512 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'linear-garden/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** สวนสมดุลคือสวนที่ทุกช่วงติดกัน มีจำนวนบัวกับกกต่างกันไม่เกินสอง */
+function balanced(s: string): boolean {
+  let sum = 0;
+  let lo = 0;
+  let hi = 0;
+  for (const c of s) {
+    sum += c === 'L' ? 1 : -1;
+    lo = Math.min(lo, sum);
+    hi = Math.max(hi, sum);
+    if (hi - lo > 2) return false;
+  }
+  return true;
+}
+
+function allBalanced(n: number): string[] {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === n) {
+      if (balanced(cur)) out.push(cur);
+      return;
+    }
+    rec(cur + 'L');
+    rec(cur + 'P');
+  };
+  rec('');
+  return out;
+}
+
+const DEMO_N = 5;
+const demo = allBalanced(DEMO_N);
+const DEMO_TARGET = 'PLPPL';
+const demoRank = demo.indexOf(DEMO_TARGET) + 1;
+
+/* จำนวนสวนสมดุลของแต่ละความยาว เอาไว้ให้เห็นว่ามันโตแบบไหน */
+const counts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => ({ n, c: allBalanced(n).length }));
+
+/* ---------- สถานะหกแบบ ---------- */
+
+type State = { a: number; b: number };
+const STATES: State[] = [];
+for (let b = 0; b <= 2; b++) for (let a = 0; a <= b; a++) STATES.push({ a, b });
+const sid = (a: number, b: number): number => STATES.findIndex((s) => s.a === a && s.b === b);
+
+/** เดินสถานะหนึ่งก้าว c = 'L' คือบวกหนึ่ง, 'P' คือลบหนึ่ง คืน -1 เมื่อหลุดเงื่อนไข */
+function step(i: number, c: string): number {
+  const { a, b } = STATES[i];
+  if (c === 'L') {
+    const na = a + 1;
+    const nb = Math.max(b, na);
+    return nb > 2 ? -1 : sid(na, nb);
+  }
+  const na = a - 1;
+  if (na < 0) return b + 1 > 2 ? -1 : sid(0, b + 1);
+  return sid(na, b);
+}
+
+const transitions = STATES.map((s, i) => ({
+  i,
+  s,
+  toL: step(i, 'L'),
+  toP: step(i, 'P'),
+}));
+
+/** ไล่ตามสตริงตัวอย่าง เก็บว่าแต่ละตำแหน่งบวกอะไรเข้าไปในอันดับบ้าง */
+function suffixCounts(n: number): number[][] {
+  const g: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(STATES.length).fill(0));
+  for (let t = 0; t < STATES.length; t++) g[n][t] = 1;
+  for (let i = n - 1; i >= 0; i--)
+    for (let t = 0; t < STATES.length; t++) {
+      let v = 0;
+      for (const c of ['L', 'P']) {
+        const nx = step(t, c);
+        if (nx >= 0) v += g[i + 1][nx];
+      }
+      g[i][t] = v;
+    }
+  return g;
+}
+
+type RankRow = { i: number; ch: string; state: State; add: number; running: number };
+function rankTrace(s: string): RankRow[] {
+  const n = s.length;
+  const g = suffixCounts(n);
+  const rows: RankRow[] = [];
+  let cur = sid(0, 0);
+  let running = 1;
+  for (let i = 0; i < n; i++) {
+    let add = 0;
+    if (s[i] === 'P') {
+      const nx = step(cur, 'L');
+      if (nx >= 0) add = g[i + 1][nx];
+    }
+    running += add;
+    rows.push({ i: i + 1, ch: s[i], state: STATES[cur], add, running });
+    cur = step(cur, s[i]);
+  }
+  return rows;
+}
+const demoTrace = rankTrace(DEMO_TARGET);
+const totalDemo = suffixCounts(DEMO_N)[0][sid(0, 0)];
+
+const NMAX = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+// state = (a,b): a = S - minS, b = maxS - minS, 0<=a<=b<=2  -> 6 states
+static int SID[3][3]; static int SA[6],SB[6],NS;
+static inline int stepState(int s,int c){ // c=0 -> 'L'(+1), c=1 -> 'P'(-1); -1 = invalid
+    int a=SA[s],b=SB[s];
+    if(c==0){ int na=a+1,nb=b; if(na>nb) nb=na; if(nb>2) return -1; return SID[na][nb]; }
+    int na=a-1,nb=b; if(na<0){ na=0; nb=b+1; } if(nb>2) return -1; return SID[na][nb];
+}
+int main(){
+    long long N,M; if(scanf("%lld %lld",&N,&M)!=2) return 0;
+    static char buf[1000006]; scanf("%s",buf); string s=buf;
+    NS=0; for(int b=0;b<=2;b++) for(int a=0;a<=b;a++){ SID[a][b]=NS; SA[NS]=a; SB[NS]=b; NS++; }
+    int n=(int)N;
+    vector<array<long long,6>> g(n+1);
+    for(int t=0;t<6;t++) g[n][t]=1%M;
+    for(int i=n-1;i>=0;i--) for(int t=0;t<6;t++){
+        long long v=0;
+        for(int c=0;c<2;c++){ int nx=stepState(t,c); if(nx>=0) v+=g[i+1][nx]; }
+        g[i][t]=v%M;
+    }
+    long long rank_=1%M; int cur=SID[0][0];
+    for(int i=0;i<n;i++){
+        if(s[i]=='P'){ int nx=stepState(cur,0); if(nx>=0) rank_=(rank_+g[i+1][nx])%M; }
+        cur=stepState(cur,s[i]=='L'?0:1);
+        if(cur<0){ printf("-1\\n"); return 0; }
+    }
+    printf("%lld\\n",rank_%M);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย N ไม่เกิน 40 (40 คะแนน)
+// ยังไม่ต้องมองออกว่าสถานะบีบเหลือหกแบบ แค่จำสถานะดิบ ๆ ไว้ใน map ก็พอ
+// เพราะเงื่อนไขสมดุลบังคับให้ค่ามากสุดลบค่าน้อยสุดไม่เกินสอง สถานะที่ไปถึงได้จึงมีไม่กี่อัน
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int N; ll MOD;
+map<array<int,4>, ll> memo;                         // (ตำแหน่ง, ผลรวมสะสม, ค่าน้อยสุด, ค่ามากสุด)
+
+ll ways(int i, int s, int mn, int mx) {
+    if (mx - mn > 2) return 0;
+    if (i == N) return 1;
+    array<int,4> key{i, s, mn, mx};
+    auto it = memo.find(key);
+    if (it != memo.end()) return it->second;
+    ll v = 0;
+    for (int d = 1; d >= -1; d -= 2) {               // +1 คือปลูกบัว, -1 คือปลูกกก
+        int ns = s + d;
+        v += ways(i + 1, ns, min(mn, ns), max(mx, ns));
+    }
+    return memo[key] = v;
+}
+
+int main() {
+    scanf("%d %lld", &N, &MOD);
+    char buf[64]; scanf("%s", buf); string g = buf;
+    ll rank_ = 1;
+    int s = 0, mn = 0, mx = 0;
+    for (int i = 0; i < N; i++) {
+        if (g[i] == 'P') {                           // ต้นบัวมาก่อนต้นกกตามพจนานุกรม
+            int ns = s + 1;
+            rank_ += ways(i + 1, ns, min(mn, ns), max(mx, ns));
+        }
+        s += (g[i] == 'L' ? 1 : -1);
+        mn = min(mn, s); mx = max(mx, s);
+    }
+    printf("%lld\\n", rank_ % MOD);
+}`;
+const coreSnippet = `// สถานะคือ (a, b) โดย a = ผลรวมสะสม ลบ ค่าน้อยสุดที่เคยเจอ
+//                    b = ค่ามากสุดที่เคยเจอ ลบ ค่าน้อยสุดที่เคยเจอ
+// เงื่อนไขสมดุลคือ b <= 2 เสมอ จึงมีสถานะที่ใช้ได้แค่หกแบบ
+static inline int stepState(int s, int c) {
+    int a = SA[s], b = SB[s];
+    if (c == 0) {                        // ปลูกต้นบัว ผลรวมสะสมบวกหนึ่ง
+        int na = a + 1, nb = b;
+        if (na > nb) nb = na;            // ดันเพดานขึ้น
+        if (nb > 2) return -1;           // ช่วงกว้างเกินสอง สวนนี้ไม่สมดุลแล้ว
+        return SID[na][nb];
+    }
+    int na = a - 1, nb = b;              // ปลูกต้นกก ผลรวมสะสมลบหนึ่ง
+    if (na < 0) { na = 0; nb = b + 1; }  // พื้นต่ำลง ระยะห่างจากพื้นถึงเพดานจึงกว้างขึ้น
+    if (nb > 2) return -1;
+    return SID[na][nb];
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · สวนที่ต้องสมดุลทุกช่วง</h2>
+  <p>
+    กษัตริย์รามเสสที่สองสั่งปลูกสวนเป็นแนวยาวจากพระราชวังลุกซอร์ไปวิหารคาร์นัก มีต้นไม้ <code>N</code> ต้นเรียงกัน
+    ปลูกได้แค่สองชนิดคือ<strong>ต้นบัว</strong> แทนด้วย <code>L</code> และ<strong>ต้นกก</strong> แทนด้วย <code>P</code>
+  </p>
+  <p>
+    สวนจะเรียกว่า <strong>สมดุล</strong> เมื่อ<strong>ทุกช่วงติดกัน</strong>ของสวน มีจำนวนบัวกับจำนวนกกต่างกัน
+    <strong>ไม่เกินสองต้น</strong> ย้ำว่าทุกช่วง ไม่ใช่แค่ทั้งสวน
+  </p>
+  <p>
+    เอาสวนสมดุลทุกแบบของความยาวหนึ่ง ๆ มาเรียงตามพจนานุกรม (<code>L</code> มาก่อน <code>P</code>)
+    แล้วให้เลข 1, 2, 3 ไปเรื่อย ๆ งานของเราคือรับสวนสมดุลมาหนึ่งแบบ แล้วตอบว่ามันเป็นแบบที่เท่าไร
+    โดยตอบเป็นเศษเหลือจากการหารด้วย <code>M</code>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>N</code> บรรทัดที่ 2 คือ <code>M</code> บรรทัดที่ 3 คือสตริงยาว <code>N</code> ตัวที่เป็นสวนสมดุล</li>
+      <li><strong>ขอบเขต:</strong> <code>1 ≤ N ≤ {fmt(NMAX)}</code>, <code>7 ≤ M ≤ 10,000,000</code> เวลา 1.5 วินาที หน่วยความจำ 64 เมกะไบต์</li>
+      <li><strong>เอาต์พุต:</strong> หมายเลขของสวนนั้น หารเอาเศษด้วย <code>M</code></li>
+      <li><strong>ให้คะแนน:</strong> มี 40 คะแนนสำหรับชุดทดสอบที่ <code>N</code> ไม่เกิน 40</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td>{DEMO_N}<br />7<br />{DEMO_TARGET}</td><td>{demoRank % 7}</td></tr>
+      <tr><td>12<br />10000<br />LPLLPLPPLPLL</td><td>39</td></tr>
+    </tbody>
+  </table>
+  <Spoiler linked>
+    <p class="io-note">
+      ความยาว {DEMO_N} มีสวนสมดุลทั้งหมด {demo.length} แบบ เรียงตามพจนานุกรมได้
+      <code>{demo.join(', ')}</code> ตัว <code>{DEMO_TARGET}</code> อยู่อันดับที่ {demoRank}
+      และ {demoRank} หารเอาเศษด้วย 7 ได้ {demoRank % 7}
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      "ทุกช่วงติดกัน" ฟังดูเหมือนต้องตรวจ <code>N²</code> ช่วง แต่ลองแทนบัวด้วย <code>+1</code> กกด้วย <code>−1</code>
+      แล้วเขียน<strong>ผลรวมสะสม</strong>ออกมาดู จำนวนบัวลบจำนวนกกของช่วง <code>(i, j]</code> ก็คือผลต่างของผลรวมสะสมสองจุด
+    </p>
+    <p>
+      แล้วเงื่อนไขที่ว่าทุกช่วงต่างกันไม่เกินสอง จะกลายเป็นเงื่อนไขอะไรที่พูดถึงผลรวมสะสม<strong>ทั้งเส้น</strong>ทีเดียว
+    </p>
+  </div>
+
+  <h2>เฉลย · เงื่อนไขทั้งข้อยุบเหลือรางกว้างสองหน่วย</h2>
+  <Spoiler>
+    <p>
+      ให้ <code>S[k]</code> คือผลรวมสะสมของ <code>k</code> ต้นแรก จำนวนบัวลบจำนวนกกในช่วง
+      <code>(i, j]</code> ก็คือ <code>S[j] − S[i]</code> ตรง ๆ เงื่อนไขว่าทุกช่วงต้องต่างกันไม่เกินสอง
+      จึงแปลว่า <code>|S[j] − S[i]| ≤ 2</code> สำหรับทุกคู่ ซึ่งพูดสั้น ๆ ได้ว่า
+    </p>
+    <p class="pull">ค่ามากที่สุดของผลรวมสะสม ลบค่าน้อยที่สุด ต้องไม่เกินสอง</p>
+    <p>
+      พูดอีกแบบคือ เส้นผลรวมสะสมต้องเดินอยู่ใน<strong>รางกว้างสองหน่วย</strong>ตลอดทั้งเส้น
+      เงื่อนไขที่มองแวบแรกเหมือนต้องตรวจทุกช่วง กลายเป็นเงื่อนไขเดียวที่ตรวจได้ระหว่างเดิน
+    </p>
+    <p>
+      ทีนี้ตอนเราเดินจากซ้ายไปขวา ข้อมูลที่ต้องจำมีแค่สองอย่างคือ<strong>ตอนนี้อยู่สูงจากพื้นรางเท่าไร</strong>
+      กับ<strong>รางกว้างเท่าไรแล้ว</strong> ตำแหน่งจริงของผลรวมสะสมไม่สำคัญเลย เพราะเงื่อนไขสนใจแต่ระยะสัมพัทธ์
+      ตั้ง <code>a</code> เป็นผลรวมสะสมลบค่าน้อยสุดที่เคยเจอ และ <code>b</code> เป็นค่ามากสุดลบค่าน้อยสุด
+      จะได้ <code>0 ≤ a ≤ b ≤ 2</code> ซึ่งมีแค่ {STATES.length} แบบ
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตารางสถานะทั้ง {STATES.length} แบบ</caption>
+        <thead>
+          <tr>
+            <th>สถานะ (a, b)</th><th>ความหมาย</th>
+            <th>ปลูกบัว ไปไหน</th><th>ปลูกกก ไปไหน</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transitions.map((t) => (
+            <tr>
+              <td><code>({t.s.a}, {t.s.b})</code></td>
+              <td>สูงจากพื้นราง {t.s.a} รางกว้าง {t.s.b}</td>
+              <td>
+                {t.toL < 0 ? (
+                  <span class="dim">ตัน</span>
+                ) : (
+                  <code>({STATES[t.toL].a}, {STATES[t.toL].b})</code>
+                )}
+              </td>
+              <td>
+                {t.toP < 0 ? (
+                  <span class="dim">ตัน</span>
+                ) : (
+                  <code>({STATES[t.toP].a}, {STATES[t.toP].b})</code>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คำว่าตันแปลว่าเดินแล้วรางกว้างเกินสอง สวนแบบนั้นไม่สมดุลจึงไม่นับ
+        ตารางนี้สร้างจากฟังก์ชันเดินสถานะจริง ไม่ได้กรอกมือ
+      </figcaption>
+    </figure>
+
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <h3>จากการนับไปสู่การหาอันดับ</h3>
+    <p>
+      พอนับได้แล้ว การหาอันดับก็เป็นท่ามาตรฐาน คำนวณ <code>g[i][t]</code> ไว้ก่อนว่า
+      ถ้ายืนที่ตำแหน่ง <code>i</code> ด้วยสถานะ <code>t</code> จะเติมส่วนที่เหลือได้กี่แบบ
+      คิดถอยหลังจากท้ายมาหน้าในเวลาเชิงเส้น
+    </p>
+    <p>
+      แล้วเดินตามสตริงที่โจทย์ให้มา ทุกตำแหน่งที่โจทย์เลือก <code>P</code> แปลว่าสวนทุกแบบที่เลือก
+      <code>L</code> ตรงนี้ (โดยที่ข้างหน้าเหมือนกันทุกตัว) อยู่<strong>ก่อนหน้า</strong>สวนของเรา
+      ก็บวกจำนวนนั้นเข้าไปในอันดับ พอเดินจบก็บวกหนึ่งเพราะอันดับเริ่มที่หนึ่ง
+    </p>
+  </Spoiler>
+
+  <h2>ไล่หาอันดับของตัวอย่างทีละต้น</h2>
+  <Spoiler>
+    <p>
+      ความยาว {DEMO_N} มีสวนสมดุล {totalDemo} แบบ ตรงกับที่ไล่นับตรง ๆ ได้ {demo.length} แบบพอดี
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>หาอันดับของ <code>{DEMO_TARGET}</code></caption>
+        <thead>
+          <tr>
+            <th class="num">ต้นที่</th><th>โจทย์ปลูก</th><th>สถานะก่อนปลูก</th>
+            <th class="num">ถ้าปลูกบัวแทน จะมีกี่แบบ</th><th class="num">อันดับสะสม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {demoTrace.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td><code>{r.ch}</code></td>
+              <td><code>({r.state.a}, {r.state.b})</code></td>
+              <td class="num">{r.ch === 'P' ? r.add : ''}</td>
+              <td class="num">{r.running}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        แถวที่โจทย์ปลูกบัวไม่บวกอะไรเลย เพราะบัวเป็นตัวเล็กสุดอยู่แล้ว ไม่มีสวนไหนมาก่อนได้
+        อันดับสุดท้ายคือ {demoRank} ตรงกับที่ไล่เรียงตรง ๆ
+      </figcaption>
+    </figure>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>จำนวนสวนสมดุลของแต่ละความยาว</caption>
+        <thead>
+          <tr>{counts.map((c) => <th class="num">{c.n}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr>{counts.map((c) => <td class="num">{c.c}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>
+        แถวบนคือความยาว แถวล่างคือจำนวนสวนสมดุล มันโตแบบเลขชี้กำลัง ตรงนี้คือเหตุผลที่ข้อนี้ห้ามไล่นับ
+        และเป็นเหตุผลที่โจทย์ต้องให้หารเอาเศษ ไม่งั้นคำตอบเก็บในตัวแปรไหนก็ไม่พอ
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ไม่ต้องบีบสถานะก็ได้ 40 คะแนน</h2>
+  <Spoiler>
+    <p>
+      ชุดทดสอบย่อยให้ <code>N</code> ไม่เกิน 40 ซึ่งแปลว่าเราไม่ต้องมองออกว่าสถานะยุบเหลือ {STATES.length} แบบ
+      แค่จำสถานะดิบ ๆ ทั้งชุดคือ (ตำแหน่ง, ผลรวมสะสม, ค่าน้อยสุดที่เคยเจอ, ค่ามากสุดที่เคยเจอ)
+      ใส่ไว้ใน <code>map</code> ก็พอ
+    </p>
+    <p>
+      ที่มันรอดได้เพราะเงื่อนไขสมดุลตัดสถานะทิ้งเองอยู่แล้ว สถานะที่ไปถึงได้จริงมีไม่มาก
+      ท่านี้ตรงกับวิธีที่คนส่วนใหญ่คิดออกก่อน และมันก็เป็น<strong>ตัวตรวจสอบชั้นดี</strong>
+      สำหรับเวอร์ชันบีบสถานะที่เขียนทีหลัง ผมสุ่มสวนสมดุลเล็ก ๆ 300 ชุดมาเทียบสองโปรแกรม ตรงกันหมด
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="garden_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      บทเรียนคือ ลำดับการคิดที่ปลอดภัยคือเขียนเวอร์ชันจำสถานะดิบให้ถูกก่อน แล้วค่อยถามว่า
+      "ในสถานะทั้งหมดนี้ มีข้อมูลส่วนไหนที่ไม่เคยถูกใช้จริง" คำตอบตรงนั้นคือทางบีบ
+      ที่นี่คำตอบคือตำแหน่งสัมบูรณ์ของผลรวมสะสมไม่เคยถูกใช้ ใช้แต่ระยะสัมพัทธ์
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ตาราง <code>g</code> มีขนาด <code>(N + 1) × {STATES.length}</code> ซึ่งที่ <code>N</code> เต็มขอบเขตคือ
+      {fmt((NMAX + 1) * STATES.length)} ช่อง เก็บเป็น <code>long long</code> ก็ราว
+      {(((NMAX + 1) * STATES.length * 8) / 1024 / 1024).toFixed(0)} เมกะไบต์ ยังอยู่ในลิมิต 64 เมกะไบต์
+      ถ้าอยากประหยัดกว่านี้เก็บเป็น <code>int</code> ได้ เพราะทุกค่าถูกหารเอาเศษด้วย <code>M</code> ที่ไม่เกินสิบล้านอยู่แล้ว
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="garden.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม สวนยาว {fmt(NMAX)} ต้นที่สุ่มให้สมดุล ใช้เวลา <strong>88 มิลลิวินาที</strong>
+      จากลิมิต 1.5 วินาที
+    </p>
+    <p>
+      ท่านับก่อนแล้วค่อยเดินหาอันดับนี้ใช้ซ้ำได้กับโจทย์อีกหลายข้อ อ่านแบบเต็ม ๆ ได้ที่บทปูพื้นฐาน
+      <a href="../count-then-walk/">นับก่อน แล้วค่อยเดินไปหาตัวที่ต้องการ</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เงื่อนไขที่พูดถึงทุกช่วงติดกัน มักแปลเป็นเงื่อนไขบนผลรวมสะสมได้ และพอแปลแล้วสิ่งที่ต้องจำก็เหลือแค่
+    ระยะสัมพัทธ์ ไม่ใช่ตำแหน่งจริง ที่นี่มันยุบเหลือ {STATES.length} สถานะ ซึ่งเล็กพอจะเดินผ่านสวนล้านต้นได้ในรอบเดียว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Linear Garden</i> บน programming.in.th ข้อ 2011
+      <a href="https://programming.in.th/tasks/2011" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2011
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 2
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

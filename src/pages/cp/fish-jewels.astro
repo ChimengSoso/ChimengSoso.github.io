@@ -1,0 +1,536 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'fish-jewels/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Fish = { len: number; type: number };
+const FISH: Fish[] = [
+  { len: 2, type: 2 },
+  { len: 5, type: 1 },
+  { len: 8, type: 3 },
+  { len: 4, type: 1 },
+  { len: 2, type: 3 },
+];
+const K = 3;
+const MODULUS = 7;
+
+/** ไล่ทุกชุดที่เป็นไปได้แบบซื่อ ๆ ใช้ได้เพราะตัวอย่างเล็กมาก */
+function allCombos(): string[] {
+  const set = new Set<string>();
+  for (let t = 1; t <= K; t++) {
+    const mine = FISH.filter((f) => f.type === t);
+    if (mine.length === 0) continue;
+    const B = Math.max(...mine.map((f) => f.len));
+    const m = new Array<number>(K + 1).fill(0);
+    for (const f of FISH) if (2 * f.len <= B) m[f.type]++;
+    const hi = Array.from({ length: K }, (_, i) => m[i + 1] + (i + 1 === t ? 1 : 0));
+    const rec = (i: number, cur: number[]): void => {
+      if (i === K) {
+        if (cur[t - 1] >= 1) set.add(cur.join(','));
+        return;
+      }
+      for (let v = 0; v <= hi[i]; v++) rec(i + 1, [...cur, v]);
+    };
+    rec(0, []);
+  }
+  return [...set];
+}
+const combos = allCombos();
+const rawAnswer = combos.length;
+const answer = rawAnswer % MODULUS;
+
+/** เขียนชุดหนึ่งชุดเป็นข้อความแบบที่โจทย์ใช้ เช่น [1,2,3,3] */
+const show = (c: string): string => {
+  const v = c.split(',').map(Number);
+  const out: number[] = [];
+  v.forEach((n, i) => {
+    for (let j = 0; j < n; j++) out.push(i + 1);
+  });
+  return `[${out.join(',')}]`;
+};
+const comboList = combos
+  .map(show)
+  .sort((a, b) => (a.length === b.length ? a.localeCompare(b) : a.length - b.length));
+
+/* ---------- สูตรที่ใช้จริง ---------- */
+
+type Row = {
+  pos: number;
+  type: number;
+  B: number;
+  m: number[];
+  own: number;
+  A: number;
+  x: number;
+  J: number;
+  caseB: number;
+  caseA: number;
+};
+function derive(): Row[] {
+  const byType: number[][] = Array.from({ length: K + 1 }, () => []);
+  for (const f of FISH) byType[f.type].push(f.len);
+  for (let t = 1; t <= K; t++) byType[t].sort((a, b) => a - b);
+  const ord = Array.from({ length: K }, (_, i) => i + 1).sort(
+    (a, b) => byType[a][byType[a].length - 1] - byType[b][byType[b].length - 1],
+  );
+  const Bs = ord.map((t) => byType[t][byType[t].length - 1]);
+  const sorted = [...FISH].sort((a, b) => a.len - b.len);
+  const posOf = new Map<number, number>();
+  ord.forEach((t, i) => posOf.set(t, i));
+
+  const m = new Array<number>(K).fill(0);
+  let ptr = 0;
+  const rows: Row[] = [];
+  for (let i = 0; i < K; i++) {
+    while (ptr < sorted.length && 2 * sorted[ptr].len <= Bs[i]) {
+      m[posOf.get(sorted[ptr].type) as number]++;
+      ptr++;
+    }
+    const own = m[i];
+    let left = 1;
+    for (let j = 0; j < i; j++) left *= m[j] + 1;
+    const mine = byType[ord[i]];
+    const x = mine.find((v) => 2 * v > Bs[i]) as number;
+    let J = Bs.findIndex((b) => b >= 2 * x);
+    if (J < i + 1) J = i + 1;
+    let mid = 1;
+    for (let j = i + 1; j < J; j++) mid *= m[j] + 1;
+    rows.push({
+      pos: i,
+      type: ord[i],
+      B: Bs[i],
+      m: [...m],
+      own,
+      A: own + 1,
+      x,
+      J,
+      caseB: own * left,
+      caseA: left * mid,
+    });
+  }
+  return rows;
+}
+const rows = derive();
+const formulaTotal = rows.reduce((s, r) => s + r.caseA + r.caseB, 0);
+
+const FMAX = 500000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int SZ; ll MOD; vector<ll> seg;                 // เซกเมนต์ทรีเก็บ "ผลคูณ" เพราะ M ไม่ใช่จำนวนเฉพาะ จึงหารกลับไม่ได้
+void build(int k){ SZ=1; while(SZ<k) SZ<<=1; seg.assign(2*SZ,1%MOD); }
+void setv(int p,ll v){ p+=SZ; seg[p]=v%MOD; for(p>>=1;p;p>>=1) seg[p]=seg[2*p]*seg[2*p+1]%MOD; }
+ll prod(int l,int r){ if(l>r) return 1%MOD; ll a=1%MOD,b=1%MOD; for(l+=SZ,r+=SZ+1;l<r;l>>=1,r>>=1){ if(l&1) a=a*seg[l++]%MOD; if(r&1) b=seg[--r]*b%MOD; } return a*b%MOD; }
+int main(){
+    int F,K; if(scanf("%d %d %lld",&F,&K,&MOD)!=3) return 0;
+    vector<int> L(F),T(F);
+    vector<vector<int>> byType(K+1);
+    for(int i=0;i<F;i++){ scanf("%d %d",&L[i],&T[i]); byType[T[i]].push_back(L[i]); }
+    for(int t=1;t<=K;t++) sort(byType[t].begin(),byType[t].end());
+    vector<int> ord; ord.reserve(K);
+    for(int t=1;t<=K;t++) ord.push_back(t);
+    sort(ord.begin(),ord.end(),[&](int a,int b){ return byType[a].back()<byType[b].back(); });
+    vector<int> posOf(K+1); vector<ll> B(K);
+    for(int i=0;i<K;i++){ posOf[ord[i]]=i; B[i]=byType[ord[i]].back(); }
+
+    vector<pair<int,int>> fish(F);               // (ความยาว, ชนิด) เรียงตามความยาว
+    for(int i=0;i<F;i++) fish[i]={L[i],T[i]};
+    sort(fish.begin(),fish.end());
+
+    build(K);
+    vector<ll> m(K,0);                           // m[p] = จำนวนปลาชนิด ord[p] ที่อยู่ในคำนำหน้าปัจจุบัน
+    int ptr=0; ll ans=0;
+    for(int i=0;i<K;i++){
+        while(ptr<F && 2LL*fish[ptr].first<=B[i]){ int p=posOf[fish[ptr].second]; m[p]++; setv(p,(m[p]+1)%MOD); ptr++; }
+        ll own=m[i];
+        ll left=prod(0,i-1);
+        ans=(ans+own%MOD*left)%MOD;              // กรณี (ข) นับชนิดตัวเองไม่เต็มเพดาน
+        // กรณี (ก) นับชนิดตัวเองเต็มเพดาน  ต้องหา J = ชนิดแรกที่คำนำหน้ากลืนปลาตัว X เข้าไปได้
+        const vector<int>& v=byType[ord[i]];
+        ll bt=B[i];
+        int xi=(int)(lower_bound(v.begin(),v.end(),bt/2+1)-v.begin());   // ตัวแรกที่ 2L > bt
+        ll need=2LL*v[xi];
+        int J=(int)(lower_bound(B.begin(),B.end(),need)-B.begin());
+        if(J<i+1) J=i+1;
+        ans=(ans+left*prod(i+1,J-1))%MOD;
+    }
+    printf("%lld\\n",ans%MOD);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย K ไม่เกิน 7,000 (70 คะแนน)
+// สูตรเดียวกับเฉลยเต็ม ต่างแค่ไม่ยกเซกเมนต์ทรีมาใช้ คูณไล่เอาตรง ๆ เป็น O(K^2)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main() {
+    int F, K; ll MOD;
+    scanf("%d %d %lld", &F, &K, &MOD);
+    vector<int> L(F), T(F);
+    vector<vector<int>> byType(K + 1);
+    for (int i = 0; i < F; i++) { scanf("%d %d", &L[i], &T[i]); byType[T[i]].push_back(L[i]); }
+    for (int t = 1; t <= K; t++) sort(byType[t].begin(), byType[t].end());
+
+    vector<int> ord(K); for (int t = 1; t <= K; t++) ord[t - 1] = t;
+    sort(ord.begin(), ord.end(), [&](int a, int b) { return byType[a].back() < byType[b].back(); });
+    vector<int> posOf(K + 1); vector<ll> B(K);
+    for (int i = 0; i < K; i++) { posOf[ord[i]] = i; B[i] = byType[ord[i]].back(); }
+
+    vector<pair<int,int>> fish(F);
+    for (int i = 0; i < F; i++) fish[i] = {L[i], T[i]};
+    sort(fish.begin(), fish.end());
+
+    vector<ll> m(K, 0), val(K, 1 % MOD);        // val[p] = m[p] + 1 คือจำนวนทางเลือกของชนิดนั้น
+    int ptr = 0; ll ans = 0;
+    for (int i = 0; i < K; i++) {
+        while (ptr < F && 2LL * fish[ptr].first <= B[i]) {
+            int p = posOf[fish[ptr].second]; m[p]++; val[p] = (m[p] + 1) % MOD; ptr++;
+        }
+        ll left = 1 % MOD;
+        for (int j = 0; j < i; j++) left = left * val[j] % MOD;     // คูณไล่แทนการถามเซกเมนต์ทรี
+        ans = (ans + m[i] % MOD * left) % MOD;
+
+        const vector<int>& v = byType[ord[i]];
+        int xi = (int)(lower_bound(v.begin(), v.end(), B[i] / 2 + 1) - v.begin());
+        int J = (int)(lower_bound(B.begin(), B.end(), 2LL * v[xi]) - B.begin());
+        if (J < i + 1) J = i + 1;
+        ll mid = 1 % MOD;
+        for (int j = i + 1; j < J; j++) mid = mid * val[j] % MOD;
+        ans = (ans + left * mid) % MOD;
+    }
+    printf("%lld\\n", ans % MOD);
+}`;
+const coreSnippet = `ll own = m[i];                     // จำนวนปลาชนิดนี้ที่ตัวโตสุดของชนิดนี้กินได้
+ll left = prod(0, i - 1);          // ผลคูณของ (จำนวน + 1) ของชนิดที่มาก่อนหน้า
+
+// กรณี (ข) ชนิดตัวเองไม่เต็มเพดาน  ชนิดที่มาทีหลังต้องเป็นศูนย์ทั้งหมด
+ans = (ans + own % MOD * left) % MOD;
+
+// กรณี (ก) ชนิดตัวเองเต็มเพดาน  ชนิดที่มาทีหลังยังใส่ได้จนกว่าจะถึงตัวที่กลืน x ได้
+int J = first_index_after_i_whose_prefix_swallows(x);
+ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · จับปลาหนึ่งตัว ได้อัญมณีในท้องมันทั้งหมด</h2>
+  <p>
+    ในทะเลสาบมีปลา <code>F</code> ตัว แต่ละตัวกลืนอัญมณีไว้หนึ่งชิ้น อัญมณีมี <code>K</code> ประเภท
+    ปลาหลายตัวกินประเภทเดียวกันได้ ปลาตัวหนึ่งกินปลาอีกตัวได้ก็ต่อเมื่อมัน<strong>ยาวอย่างน้อยสองเท่า</strong>
+    ของตัวที่ถูกกิน และเมื่อกินแล้ว อัญมณีในท้องตัวเล็กจะย้ายมาอยู่ในท้องตัวใหญ่ ส่วนความยาวไม่เปลี่ยน
+  </p>
+  <p>
+    เราจับปลาได้หนึ่งตัวและได้อัญมณีในท้องมันทั้งหมด คำถามคือ<strong>ชุดของอัญมณีที่เป็นไปได้มีกี่แบบ</strong>
+    โดยชุดนับจากจำนวนของแต่ละประเภท ไม่สนใจลำดับ และอัญมณีประเภทเดียวกันถือว่าเหมือนกันหมด
+    ตอบเป็นเศษเหลือจากการหารด้วย <code>M</code>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>F</code> บรรทัดที่ 2 คือ <code>K</code> บรรทัดที่ 3 คือ
+        <code>M</code> จากนั้น <code>F</code> บรรทัด แต่ละบรรทัดคือความยาวปลาและประเภทอัญมณีที่มันกิน
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>F ≤ {fmt(FMAX)}</code>, <code>K ≤ F</code>, <code>2 ≤ M ≤ 30,000</code>,
+        ความยาวปลาไม่เกินหนึ่งพันล้าน และรับประกันว่าอัญมณีมีครบทั้ง <code>K</code> ประเภท
+        เวลา 3 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนชุดที่ต่างกัน หารเอาเศษด้วย <code>M</code></li>
+      <li>
+        <strong>ให้คะแนน:</strong> มี 70 คะแนนสำหรับชุดทดสอบที่ <code>K</code> ไม่เกิน 7,000
+        และในนั้นมี 25 คะแนนที่ <code>K</code> ไม่เกิน 20
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{FISH.length}<br />{K}<br />{MODULUS}<br />{FISH.map((f) => <>{f.len} {f.type}<br /></>)}</td>
+        <td>{answer}</td>
+      </tr>
+    </tbody>
+  </table>
+  <Spoiler linked>
+    <p class="io-note">
+      ชุดที่เป็นไปได้มี {rawAnswer} แบบ คือ <code>{comboList.join(' ')}</code> และ {rawAnswer} หารเอาเศษด้วย
+      {MODULUS} ได้ {answer} ตรงกับรายการที่โจทย์ยกมาให้ดูทั้งหมด
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถามก่อนว่า ถ้าเราตั้งใจจะจับปลาตัว <code>X</code> อัญมณีที่ลงไปอยู่ในท้องมันได้มีของใครบ้าง
+      ปลาที่ <code>X</code> กินตรง ๆ ต้องสั้นไม่เกินครึ่งหนึ่งของ <code>X</code> แล้วปลาที่ถูกกินโดยปลาที่ถูก
+      <code>X</code> กินอีกทีล่ะ มันสั้นกว่านั้นอีก
+    </p>
+    <p>
+      พอตอบข้อนั้นได้ ปัญหาจะกลายเป็นการนับชุดตัวเลข ซึ่งง่ายมาก ปัญหาที่เหลือมีข้อเดียวคือ
+      <strong>ชุดเดียวกันเกิดได้จากปลาหลายตัว</strong> แล้วเราจะนับมันครั้งเดียวได้ยังไง
+    </p>
+  </div>
+
+  <h2>เฉลย · ตัวจับผูกกับชนิด ไม่ใช่กับตัวปลา</h2>
+  <Spoiler>
+    <h3>ขั้นที่ 1 กำหนดว่าปลาตัวหนึ่งจับมาแล้วได้อะไรบ้าง</h3>
+    <p>
+      ปลา <code>X</code> ยาว <code>Lx</code> กินปลาที่ยาวไม่เกิน <code>Lx / 2</code> ได้ตรง ๆ
+      ส่วนอัญมณีที่มาทางอ้อม ต้องผ่านปลากลางทางที่ยาวไม่เกิน <code>Lx / 2</code> อยู่แล้ว
+      และปลาที่ตัวกลางกินได้ก็ยาวไม่เกิน <code>Lx / 4</code> ซึ่งก็ยังอยู่ในกลุ่มเดิม
+    </p>
+    <p class="pull">จับปลา X แล้วได้อัญมณีของตัวมันเอง บวกกับชุดย่อยใด ๆ ของปลาที่ยาวไม่เกินครึ่งหนึ่งของมัน</p>
+    <p>
+      ที่สำคัญคือ<strong>ชุดย่อยใด ๆ</strong> จริง ๆ ไม่มีข้อจำกัดเพิ่ม เพราะ <code>X</code>
+      จะกินตัวไหนในกลุ่มนั้นก็ได้ ทีละตัวตามใจ
+    </p>
+
+    <h3>ขั้นที่ 2 ตัวจับที่ดีที่สุดของแต่ละชนิด</h3>
+    <p>
+      ถ้าปลาชนิด <code>t</code> ตัวหนึ่งใช้เป็นตัวจับได้ ปลาชนิด <code>t</code> ที่<strong>ตัวใหญ่ที่สุด</strong>
+      ก็ใช้ได้เสมอ เพราะมันกินได้ทุกอย่างที่ตัวเล็กกว่ากินได้ ดังนั้นแทนที่จะคิดทีละตัวปลา
+      ให้คิดทีละ<strong>ชนิด</strong> โดยใช้ตัวใหญ่ที่สุดของชนิดนั้นเป็นตัวแทน
+    </p>
+    <p>
+      เรียงชนิดตามความยาวของตัวแทนจากน้อยไปมาก จะได้คุณสมบัติที่สวยมากคือ<strong>กลุ่มที่กินได้ของชนิดหลัง
+      ครอบกลุ่มของชนิดก่อนไว้เสมอ</strong>
+    </p>
+
+    <h3>ขั้นที่ 3 กันการนับซ้ำ</h3>
+    <p>
+      ชุดหนึ่งชุดอาจสร้างได้จากหลายชนิด ผมจึงกำหนดว่า<strong>ให้นับชุดนั้นที่ชนิดซึ่งอยู่หลังสุดในลำดับ</strong>
+      แล้วถามว่าเงื่อนไขอะไรทำให้ชนิดที่มาทีหลังใช้ไม่ได้
+    </p>
+    <p>
+      เพราะกลุ่มของชนิดหลังครอบชนิดก่อนไว้ เพดานของทุกประเภทจึงไม่ลดลง มีข้อเดียวที่ลด คือ
+      <strong>ประเภทของตัวจับเอง</strong> ซึ่งตอนเป็นตัวจับจะได้เพดานบวกหนึ่งพิเศษ แต่พอไม่ได้เป็นตัวจับก็หายไป
+      ดังนั้นชนิดหลังใช้ไม่ได้ ก็ต่อเมื่อ
+    </p>
+    <ul>
+      <li>ชุดนั้นไม่มีอัญมณีของชนิดหลังเลย หรือ</li>
+      <li>ชุดนั้นใช้อัญมณีของชนิดปัจจุบัน<strong>เต็มเพดาน</strong> ซึ่งชนิดหลังให้ไม่ได้</li>
+    </ul>
+    <p>การนับจึงแตกเป็นสองกรณีที่ไม่ทับกัน</p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>สองกรณีของชนิดที่อยู่ตำแหน่ง i</caption>
+        <thead>
+          <tr><th>กรณี</th><th>จำนวนอัญมณีชนิดตัวเอง</th><th>ชนิดที่มาทีหลัง</th><th>จำนวนชุด</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>(ข) ไม่เต็มเพดาน</td>
+            <td>1 ถึง m ของตัวเอง</td>
+            <td>ต้องเป็นศูนย์ทั้งหมด</td>
+            <td><code>m ของตัวเอง × ผลคูณของชนิดก่อนหน้า</code></td>
+          </tr>
+          <tr>
+            <td>(ก) เต็มเพดาน</td>
+            <td>m ของตัวเอง บวกหนึ่ง</td>
+            <td>ใส่ได้จนถึงชนิดที่กลืนปลาตัว x ได้</td>
+            <td><code>ผลคูณของชนิดก่อนหน้า × ผลคูณช่วง (i, J)</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ปลาตัว <code>x</code> คือปลาชนิดตัวเองที่<strong>เล็กที่สุดที่ตัวแทนของชนิดตัวเองยังกินไม่ได้</strong>
+        และ <code>J</code> คือชนิดแรกที่อยู่หลัง <code>i</code> ซึ่งกลืน <code>x</code> เข้าไปได้
+        ชนิดตั้งแต่ <code>J</code> เป็นต้นไปจึงมองเห็นอัญมณีชนิดตัวเองครบเพดาน และแย่งสิทธิ์การนับไปได้
+      </figcaption>
+    </figure>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+  </Spoiler>
+
+  <h2>แกะตัวอย่างในโจทย์ทีละชนิด</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เรียงชนิดตามตัวแทนจากเล็กไปใหญ่</caption>
+        <thead>
+          <tr>
+            <th class="num">ลำดับ</th><th class="num">ชนิด</th><th class="num">ตัวแทนยาว</th>
+            <th>กินได้กี่ตัวต่อชนิด</th><th class="num">เพดานชนิดตัวเอง</th>
+            <th class="num">x</th><th class="num">J</th>
+            <th class="num">กรณี (ข)</th><th class="num">กรณี (ก)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr>
+              <td class="num">{r.pos + 1}</td>
+              <td class="num">{r.type}</td>
+              <td class="num">{r.B}</td>
+              <td><code>{r.m.join(' ')}</code></td>
+              <td class="num">{r.A}</td>
+              <td class="num">{r.x}</td>
+              <td class="num">{r.J + 1}</td>
+              <td class="num">{r.caseB}</td>
+              <td class="num">{r.caseA}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์ "กินได้กี่ตัวต่อชนิด" อ่านตามลำดับที่เรียงไว้ ไม่ใช่ตามหมายเลขชนิดเดิม
+        รวมสองคอลัมน์สุดท้ายได้ {formulaTotal} ซึ่งตรงกับการไล่นับตรง ๆ ที่ได้ {rawAnswer} แบบ
+        และ {formulaTotal} หารเอาเศษด้วย {MODULUS} ได้ {answer}
+      </figcaption>
+    </figure>
+    <p>
+      สังเกตแถวแรก ชนิด {rows[0].type} มีตัวแทนยาวแค่ {rows[0].B} จึงกินอะไรไม่ได้เลย เพดานของตัวเองคือ 1
+      กรณี (ข) จึงเป็นศูนย์ และกรณี (ก) ให้ชุดเดียวคือ <code>[{rows[0].type}]</code>
+    </p>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ไม่ต้องใช้โครงสร้างข้อมูลอะไรเลยก็ได้ 70 คะแนน</h2>
+  <Spoiler>
+    <p>
+      สูตรข้างบนต้องการ<strong>ผลคูณของช่วง</strong> ซึ่งเปลี่ยนไปเรื่อย ๆ ระหว่างที่เราไล่ชนิด
+      ปัญหาคือ <code>M</code> ไม่ใช่จำนวนเฉพาะ เราจึง<strong>หารกลับไม่ได้</strong>
+      จะเก็บผลคูณสะสมไว้ตัวเดียวแล้วหารออกก็ไม่ได้
+    </p>
+    <p>
+      แต่ถ้า <code>K</code> ไม่เกิน 7,000 ก็ไม่ต้องใช้อะไรเลย คูณไล่ตรง ๆ ทุกรอบ เป็น
+      <code>K²</code> ซึ่งคือ {fmt(7000 * 7000)} ครั้ง ผ่านสบายในสามวินาที ได้ 70 คะแนน
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="fish_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      พอ <code>K</code> ขึ้นไปถึงห้าแสน ค่อยยกเซกเมนต์ทรีที่เก็บ<strong>ผลคูณ</strong>มาใช้
+      มันตอบผลคูณของช่วงได้โดยไม่ต้องหาร ซึ่งเป็นเหตุผลที่ต้องใช้เซกเมนต์ทรีแทนต้นไม้เฟนวิกในข้อนี้
+      เฟนวิกตอบได้แต่ผลสะสมจากต้นถึงจุดหนึ่ง จะหาช่วงกลางต้องหักลบ ซึ่งกับการคูณคือการหาร
+    </p>
+    <p>
+      ผมสุ่มทะเลสาบเล็ก ๆ ที่มีปลาไม่เกินเจ็ดตัวและอัญมณีไม่เกินสี่ประเภท จำนวน 4,000 ชุด
+      แล้วเทียบสามอย่างคือ โค้ดเต็ม โค้ดชุดทดสอบย่อย และตัวไล่นับชุดทุกชุดแบบซื่อ ๆ ตรงกันหมด
+      ตัวไล่นับตรง ๆ นี่แหละที่ทำให้กล้าเชื่อเรื่องการกันนับซ้ำ เพราะมันใช้ <code>set</code> เก็บชุด
+      ซึ่งกันซ้ำให้เองโดยไม่ต้องมีทฤษฎีอะไรเลย
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      โครงของโค้ดคือ เรียงปลาตามความยาว เรียงชนิดตามตัวแทน แล้วเดินตัวชี้ไปข้างหน้าอย่างเดียว
+      ทุกครั้งที่ปลาตัวหนึ่งเข้ามาอยู่ในกลุ่มที่กินได้ ก็อัปเดตช่องของชนิดนั้นในเซกเมนต์ทรีหนึ่งครั้ง
+      ปลาแต่ละตัวเข้ากลุ่มครั้งเดียวตลอดโปรแกรม รวมแล้วจึงเป็น <code>F log K</code>
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="fish.cpp" />
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ปลา {fmt(FMAX)} ตัว อัญมณี 200,000 ประเภท ใช้เวลา
+      <strong>464 มิลลิวินาที</strong> จากลิมิตสามวินาที
+    </p>
+    <p>
+      เซกเมนต์ทรีแบบที่ข้อนี้ใช้ รวมถึงเวอร์ชันที่มีการอัปเดตทั้งช่วง อยู่ในบทปูพื้นฐาน
+      <a href="../segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อชุดคำตอบเกิดได้จากหลายทาง อย่าพยายามหักลบทีหลัง ให้ตั้งกฎว่าชุดนั้นเป็นของใครตั้งแต่แรก
+    ที่นี่คือให้เป็นของชนิดที่อยู่หลังสุดที่สร้างมันได้ แล้วเงื่อนไขที่เหลือก็ยุบเป็นผลคูณของช่วงสองก้อน
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Fish</i> บน programming.in.th ข้อ 2010
+      <a href="https://programming.in.th/tasks/2010" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2010
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 1
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

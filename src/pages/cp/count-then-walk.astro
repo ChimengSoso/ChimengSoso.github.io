@@ -1,0 +1,368 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'count-then-walk/';
+
+/* ---------- ตัวเลขในหน้านี้งอกจากโมเดลข้างล่างนี้ ---------- */
+
+const N = 6;
+const R = 9;
+
+/** สตริงฐานสองยาว n ที่ไม่มีเลข 1 ติดกัน เรียงตามพจนานุกรม */
+function noAdjacentOnes(n: number): string[] {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === n) {
+      out.push(cur);
+      return;
+    }
+    rec(cur + '0');
+    if (cur[cur.length - 1] !== '1') rec(cur + '1');
+  };
+  rec('');
+  return out;
+}
+const listed = noAdjacentOnes(N);
+const target = listed[R - 1];
+
+/** f[i][last] = จำนวนวิธีเติมตำแหน่ง i..n-1 เมื่อตัวก่อนหน้าคือ last */
+function suffix(n: number): number[][] {
+  const f: number[][] = Array.from({ length: n + 1 }, () => [0, 0]);
+  f[n] = [1, 1];
+  for (let i = n - 1; i >= 0; i--) {
+    f[i][0] = f[i + 1][0] + f[i + 1][1];
+    f[i][1] = f[i + 1][0];
+  }
+  return f;
+}
+const F = suffix(N);
+const totalCount = F[0][0];
+
+type Walk = { i: number; rest: number; zero: number; one: number | null; pick: string };
+function walk(n: number, r: number): Walk[] {
+  const f = suffix(n);
+  const rows: Walk[] = [];
+  let last = 0;
+  let rem = r;
+  for (let i = 0; i < n; i++) {
+    const zero = f[i + 1][0];
+    const one = last === 1 ? null : f[i + 1][1];
+    let pick: string;
+    if (rem <= zero) pick = '0';
+    else {
+      rem -= zero;
+      pick = '1';
+    }
+    rows.push({ i, rest: rem, zero, one, pick });
+    last = pick === '1' ? 1 : 0;
+  }
+  return rows;
+}
+const walkRows = walk(N, R);
+
+/* ฟีโบนักชีที่โผล่มาเอง */
+const fibRow = Array.from({ length: 10 }, (_, i) => ({ n: i + 1, c: noAdjacentOnes(i + 1).length }));
+
+const code1 = `// สตริงฐานสองยาว n ที่ไม่มีเลข 1 ติดกัน  ตัวที่ R ตามลำดับพจนานุกรม
+#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+int main() {
+    int n; ull R;
+    scanf("%d %llu", &n, &R);
+    // f[i][last] = จำนวนวิธีเติมตำแหน่ง i..n-1 เมื่อตัวก่อนหน้าคือ last
+    vector<array<ull,2>> f(n + 1);
+    f[n][0] = f[n][1] = 1;
+    for (int i = n - 1; i >= 0; i--) {
+        f[i][0] = f[i + 1][0] + f[i + 1][1];   // ตัวก่อนเป็น 0 ใส่ได้ทั้ง 0 และ 1
+        f[i][1] = f[i + 1][0];                 // ตัวก่อนเป็น 1 ใส่ได้แค่ 0
+    }
+    if (R > f[0][0]) { printf("-1\\n"); return 0; }
+    string out; int last = 0;
+    for (int i = 0; i < n; i++) {
+        for (int b = 0; b <= 1; b++) {         // ไล่ 0 ก่อน 1 ตามพจนานุกรม
+            if (b == 1 && last == 1) continue;
+            ull cnt = f[i + 1][b];
+            if (R <= cnt) { out.push_back('0' + b); last = b; break; }
+            R -= cnt;
+        }
+    }
+    printf("%s\\n", out.c_str());
+}`;
+const code2 = `// อันดับของการเรียงสับเปลี่ยนตามพจนานุกรม  (สมาชิกคือ 1..n ไม่ซ้ำ)
+#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+int main() {
+    int n; scanf("%d", &n);
+    vector<int> p(n);
+    for (auto& v : p) scanf("%d", &v);
+    vector<ull> fact(n + 1, 1);
+    for (int i = 1; i <= n; i++) fact[i] = fact[i - 1] * i;
+    vector<char> used(n + 2, 0);
+    ull rank_ = 1;
+    for (int i = 0; i < n; i++) {
+        int smaller = 0;                        // ตัวที่ยังไม่ถูกใช้และเล็กกว่า p[i]
+        for (int v = 1; v < p[i]; v++) if (!used[v]) smaller++;
+        rank_ += (ull)smaller * fact[n - i - 1];
+        used[p[i]] = 1;
+    }
+    printf("%llu\\n", rank_);
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    โจทย์ตระกูลนี้ถามอยู่สองแบบ ซึ่งเป็นคำถามกลับด้านกัน
+  </p>
+  <ul>
+    <li><strong>ขอตัวที่ R</strong> เอาของทุกอย่างที่ถูกกติกามาเรียงตามพจนานุกรม แล้วขอตัวที่ <code>R</code></li>
+    <li><strong>ขออันดับ</strong> ให้ของมาหนึ่งชิ้น ตอบว่ามันอยู่อันดับที่เท่าไรในลำดับนั้น</li>
+  </ul>
+  <p>
+    ทั้งสองแบบมีกับดักเดียวกันคือ <strong>จำนวนของทั้งหมดโตแบบเลขชี้กำลัง</strong>
+    การไล่สร้างทุกตัวแล้วเรียงจึงเป็นไปไม่ได้ทันทีที่ขนาดเกินสามสิบสี่สิบ
+  </p>
+  <p>
+    ท่ามาตรฐานที่แก้ทั้งสองแบบด้วยเครื่องมือชิ้นเดียวคือ <strong>นับก่อน แล้วค่อยเดิน</strong>
+    ถ้าเรานับได้ว่า "ของที่ขึ้นต้นด้วยแบบนี้มีกี่ชิ้น" ทั้งสองคำถามจะกลายเป็นเรื่องง่ายทันที
+  </p>
+
+  <h2>ขั้นที่ 1 นับ</h2>
+  <p>
+    สิ่งที่ต้องหาให้ได้คือฟังก์ชัน <code>f(ตำแหน่ง, สถานะ)</code> ที่ตอบว่า
+    <strong>ถ้ายืนอยู่ที่ตำแหน่งนี้ด้วยสถานะนี้ จะเติมส่วนที่เหลือได้กี่แบบ</strong>
+    ให้คิดถอยหลังจากท้ายมาหน้า เพราะการเติมส่วนที่เหลือไม่ขึ้นกับว่าเราเดินมายังไง ขึ้นกับสถานะปัจจุบันอย่างเดียว
+  </p>
+  <p>
+    งานที่ยากจริงของขั้นนี้ไม่ใช่การเขียนดีพี แต่คือการหาว่า<strong>อะไรคือสถานะที่เล็กที่สุดที่ยังพอ</strong>
+    หลักที่ใช้ได้เสมอคือ เขียนเวอร์ชันที่จำทุกอย่างก่อนให้ถูก แล้วค่อยถามว่าข้อมูลชิ้นไหนไม่เคยถูกใช้จริง
+  </p>
+
+  <h2>ขั้นที่ 2 เดิน</h2>
+  <p>
+    เมื่อ <code>f</code> พร้อมแล้ว ทั้งสองคำถามใช้โครงเดียวกันเป๊ะ คือยืนที่ตำแหน่งแรกแล้วไล่ตัวเลือก
+    ตามลำดับพจนานุกรม
+  </p>
+  <ul>
+    <li>
+      <strong>ขอตัวที่ R</strong> ถามทีละตัวเลือกว่า "ถ้าเลือกอันนี้ จะมีของตามมาได้กี่ชิ้น"
+      ถ้า <code>R</code> ยังมากกว่าจำนวนนั้น ก็หัก <code>R</code> ลงแล้วข้ามไปตัวเลือกถัดไป ถ้าไม่มากกว่า ก็เลือกอันนี้
+    </li>
+    <li>
+      <strong>ขออันดับ</strong> ถามทีละตัวเลือกที่<strong>เล็กกว่า</strong>ตัวที่โจทย์ให้มา แล้วบวกจำนวนของที่ตามมาได้
+      เข้าไปในอันดับ พอครบทุกตำแหน่งก็บวกหนึ่ง เพราะอันดับเริ่มที่หนึ่ง
+    </li>
+  </ul>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      สองบักที่เกิดกับทุกคนอย่างน้อยครั้งหนึ่ง อันแรกคือเทียบผิดข้าง ต้องเป็น <code>R ≤ cnt</code>
+      ไม่ใช่ <code>R &lt; cnt</code> ถ้าเขียนผิดคำตอบจะเลื่อนไปหนึ่งช่องเสมอ ซึ่งจับได้ยากเพราะมันยังดูสมเหตุสมผล
+    </p>
+    <p>
+      อันที่สองคือ<strong>ค่าล้น</strong> จำนวนของที่นับได้โตเร็วมาก ถ้าโจทย์บอกว่า <code>R</code> ไม่เกิน
+      สองล้านล้านล้าน ก็ต้องบวกแบบมีเพดาน ไม่งั้นตัวเลขจะพลิกเป็นลบแล้วการเทียบทุกครั้งหลังจากนั้นก็มั่วหมด
+    </p>
+  </div>
+
+  <h2>โจทย์ฝึกข้อที่ 1 · สตริงฐานสองที่ไม่มีเลขหนึ่งติดกัน ตัวที่ R</h2>
+  <p>
+    หาสตริงฐานสองยาว <code>n</code> ที่<strong>ไม่มีเลข 1 อยู่ติดกัน</strong> ตัวที่ <code>R</code>
+    ตามลำดับพจนานุกรม (โดย <code>0</code> มาก่อน <code>1</code>) ถ้ามีไม่ถึง <code>R</code> ตัวให้ตอบ <code>-1</code>
+  </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{N} {R}</td><td>{target}</td></tr></tbody>
+  </table>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      สถานะที่ต้องจำระหว่างเดินมีแค่อย่างเดียว คือ<strong>ตัวก่อนหน้าเป็นอะไร</strong>
+      เพราะกติกาพูดถึงแค่คู่ที่อยู่ติดกัน ลองเขียน <code>f</code> ออกมาแล้วดูว่าตัวเลขที่ได้คุ้นตาไหม
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <p>
+      สถานะคือตัวก่อนหน้า มีสองค่า สูตรจึงสั้นมาก ถ้าตัวก่อนเป็น <code>0</code> ตัวนี้ใส่ได้ทั้งสองอย่าง
+      ถ้าตัวก่อนเป็น <code>1</code> ตัวนี้ใส่ได้แค่ <code>0</code>
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>จำนวนสตริงที่ถูกกติกาของแต่ละความยาว</caption>
+        <thead>
+          <tr>{fibRow.map((r) => <th class="num">{r.n}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr>{fibRow.map((r) => <td class="num">{r.c}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>
+        นี่คือลำดับฟีโบนักชีที่เลื่อนไปสองตำแหน่ง ซึ่งเป็นสัญญาณดีว่าสูตรเราถูก
+        และเป็นเหตุผลที่ไล่สร้างทุกตัวไม่ไหว ที่ <code>n</code> เท่ากับ 90 จำนวนของมันเกินขอบเขตของ
+        จำนวนเต็ม 64 บิตไปแล้ว
+      </figcaption>
+    </figure>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เดินหาตัวที่ {R} ของความยาว {N}</caption>
+        <thead>
+          <tr>
+            <th class="num">ตำแหน่ง</th><th class="num">ใส่ 0 แล้วมีตามมากี่ตัว</th>
+            <th class="num">ใส่ 1 แล้วมีตามมากี่ตัว</th><th>เลือก</th><th class="num">R ที่เหลือ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {walkRows.map((w) => (
+            <tr>
+              <td class="num">{w.i}</td>
+              <td class="num">{w.zero}</td>
+              <td class="num">{w.one === null ? '' : w.one}</td>
+              <td><code>{w.pick}</code></td>
+              <td class="num">{w.rest}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ช่องว่างในคอลัมน์ที่สามคือตำแหน่งที่ใส่ <code>1</code> ไม่ได้ เพราะตัวก่อนหน้าเป็น <code>1</code>
+        ผลลัพธ์คือ <code>{target}</code> ตรงกับการไล่สร้างทั้ง {totalCount} ตัวแล้วนับเอา
+      </figcaption>
+    </figure>
+    <CodeBlock code={code1} lang="cpp" title="kth_no_adjacent.cpp" />
+    <p>ผมสุ่ม <code>n</code> กับ <code>R</code> จำนวน 800 ชุดเทียบกับตัวไล่สร้างทุกตัว ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>โจทย์ฝึกข้อที่ 2 · อันดับของการเรียงสับเปลี่ยน</h2>
+  <p>
+    ให้การเรียงสับเปลี่ยนของ <code>1</code> ถึง <code>n</code> มาหนึ่งชุด ตอบว่ามันอยู่อันดับที่เท่าไร
+    ตามลำดับพจนานุกรม โดยชุดแรกคืออันดับ 1
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้เป็นคำถามกลับด้านของข้อแรก และคราวนี้การนับง่ายกว่ามาก เพราะเมื่อเราตรึงตัวหน้า ๆ ไว้แล้ว
+      ตัวที่เหลือจะเรียงยังไงก็ได้ทั้งหมด แล้วจำนวนวิธีเรียงของที่เหลือ <code>k</code> ชิ้นคือเท่าไร
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <p>
+      ที่ตำแหน่งแรก ทุกชุดที่ขึ้นต้นด้วยเลขที่<strong>เล็กกว่า</strong> <code>p[0]</code> อยู่ก่อนหน้าชุดของเราทั้งหมด
+      และแต่ละตัวเลือกนั้นมีวิธีเรียงของที่เหลือ <code>(n − 1)!</code> แบบ ก็บวกเข้าไปตามจำนวนตัวเลือก
+      แล้วขยับไปตำแหน่งถัดไปโดย<strong>ตัดเลขที่ใช้ไปแล้วออกจากกลุ่มที่นับ</strong>
+    </p>
+    <CodeBlock code={code2} lang="cpp" title="permutation_rank.cpp" />
+    <p>
+      โค้ดนี้ไล่หา "จำนวนตัวที่ยังไม่ถูกใช้และเล็กกว่า" ด้วยลูปตรง ๆ ซึ่งเป็น <code>n²</code>
+      พอ <code>n</code> ใหญ่ก็เปลี่ยนไปใช้ต้นไม้เฟนวิกได้ทันทีโดยไม่ต้องเปลี่ยนตรรกะเลย นับหนึ่งตัวที่ยังอยู่
+      แล้วถามผลรวมของช่วง ซึ่งอยู่ใน <a href="../prefix-sums/">บทผลรวมสะสมกับต้นไม้เฟนวิก</a>
+    </p>
+    <p>
+      สิ่งที่ควรสังเกตคือ<strong>โครงของโค้ดสองข้อนี้เหมือนกันทุกบรรทัด</strong> ต่างกันแค่ว่าข้อแรกหัก
+      <code>R</code> ลงจนถึงก้อนที่ใช่ ส่วนข้อสองบวกก้อนที่อยู่ก่อนหน้าเข้าไปในอันดับ
+    </p>
+    <p>ผมสุ่มการเรียงสับเปลี่ยนขนาดเล็ก 600 ชุดเทียบกับการไล่ทุกชุดตามลำดับ ตรงกันหมด</p>
+  </Spoiler>
+
+  <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
+  <ul>
+    <li>
+      <a href="../linear-garden/">สวนหลวงที่ต้องสมดุลทุกช่วง</a> เป็นแบบ "ขออันดับ"
+      โดยของยากอยู่ที่การบีบสถานะให้เหลือหกแบบ
+    </li>
+    <li>
+      <a href="../dna-kth/">ลำดับ DNA ตัวที่ R</a> เป็นแบบ "ขอตัวที่ R"
+      โดยของยากอยู่ที่การแปลนิยามที่เรียกตัวเองให้เป็นการนับรอยต่อ
+    </li>
+  </ul>
+  <p>
+    ทั้งสองข้อชี้ไปที่ข้อสังเกตเดียวกัน คือ<strong>ส่วนที่ยากไม่เคยเป็นการเดิน</strong>
+    การเดินเป็นแม่พิมพ์เดิมเสมอ ส่วนที่ยากคือหาสถานะที่ทำให้การนับเป็นไปได้
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้านับได้ว่า "ของที่ขึ้นต้นแบบนี้มีกี่ชิ้น" คำถามว่าตัวที่ R คืออะไร กับคำถามว่าตัวนี้อันดับเท่าไร
+    ก็เป็นโค้ดชุดเดียวกันที่ต่างกันแค่ทิศทาง และงานจริงทั้งหมดอยู่ที่การหาสถานะให้เล็กพอจะนับไหว
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

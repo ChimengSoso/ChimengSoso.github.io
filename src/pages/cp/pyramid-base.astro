@@ -1,0 +1,501 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'pyramid-base/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Obstacle = { x1: number; y1: number; x2: number; y2: number; c: number };
+type Case = { M: number; N: number; B: number; obs: Obstacle[] };
+
+const EX1: Case = {
+  M: 6,
+  N: 9,
+  B: 42,
+  obs: [
+    { x1: 4, y1: 1, x2: 6, y2: 3, c: 12 },
+    { x1: 3, y1: 6, x2: 5, y2: 6, c: 9 },
+    { x1: 1, y1: 3, x2: 3, y2: 8, c: 24 },
+    { x1: 3, y1: 8, x2: 6, y2: 9, c: 21 },
+    { x1: 5, y1: 1, x2: 6, y2: 2, c: 20 },
+  ],
+};
+const EX2: Case = {
+  M: 13,
+  N: 5,
+  B: 0,
+  obs: [
+    { x1: 8, y1: 4, x2: 10, y2: 4, c: 1 },
+    { x1: 4, y1: 3, x2: 4, y2: 4, c: 1 },
+    { x1: 10, y1: 2, x2: 12, y2: 2, c: 2 },
+    { x1: 8, y1: 2, x2: 8, y2: 4, c: 3 },
+    { x1: 2, y1: 4, x2: 6, y2: 4, c: 5 },
+    { x1: 10, y1: 3, x2: 10, y2: 4, c: 8 },
+    { x1: 12, y1: 3, x2: 12, y2: 4, c: 13 },
+    { x1: 2, y1: 2, x2: 4, y2: 2, c: 21 },
+  ],
+};
+
+/** ค่าใช้จ่ายของจัตุรัสด้าน s ที่มุมล่างซ้ายอยู่ที่ (x, y) */
+const costAt = (cs: Case, s: number, x: number, y: number): number =>
+  cs.obs.reduce(
+    (t, o) => (x <= o.x2 && x + s - 1 >= o.x1 && y <= o.y2 && y + s - 1 >= o.y1 ? t + o.c : t),
+    0,
+  );
+
+/** ค่าใช้จ่ายต่ำสุดของจัตุรัสด้าน s ทุกตำแหน่ง คืน null ถ้าวางไม่ได้เลย */
+function cheapest(cs: Case, s: number): { cost: number; x: number; y: number } | null {
+  if (cs.M - s + 1 < 1 || cs.N - s + 1 < 1) return null;
+  let best: { cost: number; x: number; y: number } | null = null;
+  for (let x = 1; x <= cs.M - s + 1; x++)
+    for (let y = 1; y <= cs.N - s + 1; y++) {
+      const c = costAt(cs, s, x, y);
+      if (best === null || c < best.cost) best = { cost: c, x, y };
+    }
+  return best;
+}
+
+function answerOf(cs: Case): number {
+  let best = 0;
+  for (let s = 1; s <= Math.min(cs.M, cs.N); s++) {
+    const r = cheapest(cs, s);
+    if (r !== null && r.cost <= cs.B) best = s;
+  }
+  return best;
+}
+const ans1 = answerOf(EX1);
+const ans2 = answerOf(EX2);
+
+/** ตารางที่แสดงว่าค่าใช้จ่ายต่ำสุดเพิ่มขึ้นตาม s ซึ่งเป็นเหตุผลที่ค้นหาแบบไบนารีได้ */
+const ladder = Array.from({ length: Math.min(EX1.M, EX1.N) }, (_, i) => i + 1).map((s) => {
+  const r = cheapest(EX1, s);
+  return { s, cost: r === null ? null : r.cost, pos: r === null ? '' : `(${r.x}, ${r.y})` };
+});
+
+const PMAX = 400000;
+const GRIDMAX = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int P; ll M,N,B;
+vector<ll> X1,Y1,X2,Y2,C;
+vector<int> byX1,byX2,byY1,byY2;
+int SZ; vector<ll> mn,lz;
+const ll INF=(ll)4e18;
+void build(int k){
+    SZ=1; while(SZ<k) SZ<<=1;
+    mn.assign(2*SZ,0); lz.assign(2*SZ,0);
+    for(int i=k;i<SZ;i++) mn[SZ+i]=INF;             // ใบส่วนเกินต้องเป็นอนันต์ ไม่ใช่ศูนย์
+    for(int i=SZ-1;i>=1;i--) mn[i]=min(mn[2*i],mn[2*i+1]);
+}
+// บวกทั้งช่วงแบบไล่จากใบขึ้นราก ไม่ใช้การเรียกซ้ำ เพราะรอบนี้ถูกเรียกหลายสิบล้านครั้ง
+void add(int l,int r,ll v){
+    int L=l+SZ, R=r+SZ+1, l0=L, r0=R-1;
+    while(L<R){
+        if(L&1){ mn[L]+=v; lz[L]+=v; L++; }
+        if(R&1){ --R; mn[R]+=v; lz[R]+=v; }
+        L>>=1; R>>=1;
+    }
+    for(int i=l0>>1;i>=1;i>>=1) mn[i]=min(mn[2*i],mn[2*i+1])+lz[i];
+    for(int i=r0>>1;i>=1;i>>=1) mn[i]=min(mn[2*i],mn[2*i+1])+lz[i];
+}
+vector<ll> cand; vector<int> klOf,krOf;
+vector<ll> evX; vector<int> evI; vector<char> evAdd;
+bool ok(ll s){
+    if(M-s+1<1||N-s+1<1) return false;
+    const ll YH=N-s+1, XH=M-s+1;
+    // ผู้สมัครแกน y  รวมสองสายที่เรียงอยู่แล้ว จึงไม่ต้องเรียงใหม่ทุกรอบ
+    cand.clear(); cand.push_back(1);
+    { size_t a=0,b=0; ll va,vb;
+      auto nextA=[&](){ while(a<(size_t)P){ int i=byY1[a]; ll lo=max(1LL,Y1[i]-s+1), hi=min(YH,Y2[i]); a++; if(lo<=hi){ va=lo; return true; } } return false; };
+      auto nextB=[&](){ while(b<(size_t)P){ int i=byY2[b]; ll lo=max(1LL,Y1[i]-s+1), hi=min(YH,Y2[i]); b++; if(lo<=hi&&hi+1<=YH){ vb=hi+1; return true; } } return false; };
+      bool ha=nextA(), hb=nextB();
+      while(ha||hb){ ll v; if(!hb||(ha&&va<=vb)){ v=va; ha=nextA(); } else { v=vb; hb=nextB(); }
+        if(cand.back()!=v) cand.push_back(v); } }
+    int K=(int)cand.size(); build(K);
+    // ดัชนีขอบล่าง/ขอบบนของแต่ละก้อน หาแบบสองตัวชี้ เพราะทั้งสองสายเรียงมาแล้ว
+    { size_t p=0; for(int t=0;t<P;t++){ int i=byY1[t]; ll lo=max(1LL,Y1[i]-s+1), hi=min(YH,Y2[i]); if(lo>hi){ klOf[i]=-1; continue; }
+        while(p+1<cand.size()&&cand[p+1]<=lo) p++; while(cand[p]>lo&&p>0) p--; klOf[i]=(int)p; } }
+    { size_t p=0; for(int t=0;t<P;t++){ int i=byY2[t]; ll lo=max(1LL,Y1[i]-s+1), hi=min(YH,Y2[i]); if(lo>hi){ krOf[i]=-1; continue; }
+        while(p+1<cand.size()&&cand[p+1]<=hi) p++; krOf[i]=(int)p; } }
+    // เหตุการณ์แกน x  สองสายเรียงอยู่แล้วเช่นกัน จึงแค่ผสาน
+    evX.clear(); evI.clear(); evAdd.clear();
+    { size_t a=0,b=0;
+      auto valA=[&](size_t t){ int i=byX1[t]; return max(1LL,X1[i]-s+1); };
+      auto valB=[&](size_t t){ int i=byX2[t]; return min(XH,X2[i])+1; };
+      auto usable=[&](int i){ ll xl=max(1LL,X1[i]-s+1), xr=min(XH,X2[i]); return klOf[i]>=0 && xl<=xr; };
+      while(a<(size_t)P||b<(size_t)P){
+        bool takeA;
+        if(a>=(size_t)P) takeA=false; else if(b>=(size_t)P) takeA=true; else takeA = valA(a)<=valB(b);
+        if(takeA){ int i=byX1[a]; if(usable(i)){ evX.push_back(valA(a)); evI.push_back(i); evAdd.push_back(1);} a++; }
+        else { int i=byX2[b]; ll v=valB(b); if(usable(i)&&v<=XH){ evX.push_back(v); evI.push_back(i); evAdd.push_back(0);} b++; }
+      } }
+    size_t e=0; ll cur=1;
+    while(cur<=XH){
+        while(e<evX.size()&&evX[e]<=cur){ int i=evI[e]; add(klOf[i],krOf[i], evAdd[e]?C[i]:-C[i]); e++; }
+        if(mn[1]<=B) return true;
+        cur = (e<evX.size()) ? evX[e] : XH+1;
+    }
+    return false;
+}
+int main(){
+    if(scanf("%lld %lld",&M,&N)!=2) return 0;
+    scanf("%lld",&B); scanf("%d",&P);
+    X1.resize(P);Y1.resize(P);X2.resize(P);Y2.resize(P);C.resize(P);
+    klOf.assign(P,-1); krOf.assign(P,-1);
+    for(int i=0;i<P;i++) scanf("%lld %lld %lld %lld %lld",&X1[i],&Y1[i],&X2[i],&Y2[i],&C[i]);
+    byX1.resize(P);byX2.resize(P);byY1.resize(P);byY2.resize(P);
+    for(int i=0;i<P;i++) byX1[i]=byX2[i]=byY1[i]=byY2[i]=i;
+    sort(byX1.begin(),byX1.end(),[](int a,int b){return X1[a]<X1[b];});
+    sort(byX2.begin(),byX2.end(),[](int a,int b){return X2[a]<X2[b];});
+    sort(byY1.begin(),byY1.end(),[](int a,int b){return Y1[a]<Y1[b];});
+    sort(byY2.begin(),byY2.end(),[](int a,int b){return Y2[a]<Y2[b];});
+    ll lo=0,hi=min(M,N);
+    while(lo<hi){ ll md=(lo+hi+1)/2; if(ok(md)) lo=md; else hi=md-1; }
+    printf("%lld\\n",lo);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อยชุดแรก งบเป็นศูนย์ และสิ่งกีดขวางไม่เกิน 1,000 ก้อน (35 คะแนน)
+// งบเป็นศูนย์แปลว่าห้ามชนก้อนไหนเลย คำถามจึงเหลือแค่ "มีที่ว่างขนาดนี้ไหม"
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int P; ll M, N;
+vector<ll> x1_, y1_, x2_, y2_;
+
+bool ok(ll s) {
+    if (M - s + 1 < 1 || N - s + 1 < 1) return false;
+    const ll XH = M - s + 1, YH = N - s + 1;
+    // มุมล่างซ้ายที่น่าลองมีแค่ 1 กับขอบซ้ายของแต่ละก้อนที่เลื่อนมา s-1 ช่อง
+    vector<ll> xs{1};
+    for (int i = 0; i < P; i++) { ll v = x2_[i] + 1; if (v <= XH) xs.push_back(v); }
+    sort(xs.begin(), xs.end()); xs.erase(unique(xs.begin(), xs.end()), xs.end());
+
+    vector<pair<ll,ll>> bad;
+    for (ll x : xs) {
+        bad.clear();
+        for (int i = 0; i < P; i++) {
+            if (x + s - 1 < x1_[i] || x > x2_[i]) continue;          // ก้อนนี้ไม่ขวางที่คอลัมน์นี้
+            ll lo = max(1LL, y1_[i] - s + 1), hi = min(YH, y2_[i]);
+            if (lo <= hi) bad.push_back({lo, hi});
+        }
+        sort(bad.begin(), bad.end());
+        ll cur = 1;                                                  // ไล่หาช่องว่างแรกที่ไม่มีใครทับ
+        for (auto& [lo, hi] : bad) {
+            if (lo > cur) break;
+            cur = max(cur, hi + 1);
+        }
+        if (cur <= YH) return true;
+    }
+    return false;
+}
+
+int main() {
+    ll B;
+    scanf("%lld %lld %lld %d", &M, &N, &B, &P);
+    x1_.resize(P); y1_.resize(P); x2_.resize(P); y2_.resize(P);
+    for (int i = 0; i < P; i++) { ll c; scanf("%lld %lld %lld %lld %lld", &x1_[i], &y1_[i], &x2_[i], &y2_[i], &c); }
+    ll lo = 0, hi = min(M, N);
+    while (lo < hi) { ll md = (lo + hi + 1) / 2; if (ok(md)) lo = md; else hi = md - 1; }
+    printf("%lld\\n", lo);
+}`;
+const coreSnippet = `// s ใหญ่ขึ้น ค่าใช้จ่ายก็ไม่มีทางถูกลง เพราะจัตุรัสเล็กที่ซ้อนอยู่ข้างในย่อมชนก้อนไม่มากกว่า
+// เงื่อนไข "มีที่วางได้" จึงเป็นจริงเรียงติดกันแล้วเท็จตลอด ค้นหาแบบไบนารีได้
+ll lo = 0, hi = min(M, N);
+while (lo < hi) {
+    ll md = (lo + hi + 1) / 2;
+    if (ok(md)) lo = md; else hi = md - 1;
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · หาที่วางฐานปิรามิดให้ใหญ่ที่สุดในงบที่มี</h2>
+  <p>
+    พื้นที่สำรวจเป็นตารางขนาด <code>M × N</code> ช่อง ฐานปิรามิดต้องเป็น<strong>จัตุรัส</strong>ที่ด้านขนานกับเส้นตาราง
+    บนพื้นที่มีสิ่งกีดขวาง <code>P</code> ก้อน แต่ละก้อนเป็นสี่เหลี่ยมในตาราง (ทับซ้อนกันได้)
+    การทำลายก้อนที่ <code>i</code> เสียค่าใช้จ่าย <code>C</code> และต้องทำลาย<strong>ทั้งก้อน</strong>
+    จะทุบแค่ส่วนที่ขวางไม่ได้
+  </p>
+  <p>
+    เรามีงบ <code>B</code> งานคือหา<strong>ด้านที่ยาวที่สุด</strong>ของฐานปิรามิดที่วางได้
+    โดยค่าทำลายสิ่งกีดขวางที่ทับพื้นที่ฐานรวมแล้วไม่เกินงบ ถ้าวางไม่ได้เลยให้ตอบ 0
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>M</code> และ <code>N</code> บรรทัดที่ 2 คือ <code>B</code>
+        บรรทัดที่ 3 คือ <code>P</code> จากนั้น <code>P</code> บรรทัด แต่ละบรรทัดคือพิกัดมุมล่างซ้าย มุมบนขวา
+        และค่าทำลายของก้อนนั้น
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>M, N ≤ {fmt(GRIDMAX)}</code>, <code>C ≤ 7,000</code>
+        เวลา 5 วินาที หน่วยความจำ 256 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ความยาวด้านของฐานที่ยาวที่สุด หรือ 0</li>
+      <li>
+        <strong>ให้คะแนน:</strong> แบ่งเป็นสามชุด ชุดแรก 35 คะแนน <code>B = 0</code> และ <code>P ≤ 1,000</code>
+        ชุดที่สอง 35 คะแนน <code>B ≤ 2,000,000,000</code> และ <code>P ≤ 30,000</code>
+        ชุดที่สาม 30 คะแนน <code>B = 0</code> และ <code>P ≤ {fmt(PMAX)}</code>
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {EX1.M} {EX1.N}<br />{EX1.B}<br />{EX1.obs.length}<br />
+          {EX1.obs.map((o) => <>{o.x1} {o.y1} {o.x2} {o.y2} {o.c}<br /></>)}
+        </td>
+        <td>{ans1}</td>
+      </tr>
+      <tr>
+        <td>
+          {EX2.M} {EX2.N}<br />{EX2.B}<br />{EX2.obs.length}<br />
+          {EX2.obs.map((o) => <>{o.x1} {o.y1} {o.x2} {o.y2} {o.c}<br /></>)}
+        </td>
+        <td>{ans2}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ตารางใหญ่ได้ถึงล้านคูณล้าน แปลว่าเราจะไม่มีวันแตะทุกช่องได้ แต่สิ่งกีดขวางมีแค่ไม่กี่แสนก้อน
+      ข้อมูลจริงที่มีอยู่จึงน้อยกว่าตารางมหาศาล
+    </p>
+    <p>
+      ลองถามว่า ถ้ารู้ว่าจัตุรัสด้าน <code>s</code> วางได้ แล้วจัตุรัสด้าน <code>s − 1</code> วางได้ไหม
+      และถ้าเราคิดกลับด้าน มองว่า<strong>มุมล่างซ้าย</strong>ของจัตุรัสวางได้ที่ไหนบ้าง
+      สิ่งกีดขวางหนึ่งก้อนจะห้ามมุมล่างซ้ายไว้ที่บริเวณรูปอะไร
+    </p>
+  </div>
+
+  <h2>เฉลย · ค้นหาคำตอบแบบไบนารี แล้วกวาดเส้นหาจุดที่ถูกที่สุด</h2>
+  <Spoiler>
+    <h3>ขั้นที่ 1 ทำไมค้นหาแบบไบนารีได้</h3>
+    <p>
+      ถ้าจัตุรัสด้าน <code>s</code> วางได้ในงบ ให้มองจัตุรัสด้าน <code>s − 1</code> ที่ซ้อนอยู่ข้างในมัน
+      สิ่งกีดขวางที่ชนตัวเล็กย่อมชนตัวใหญ่ด้วย ค่าใช้จ่ายจึงไม่มีทางมากกว่า แปลว่า
+      <strong>เงื่อนไข "วางได้" เป็นจริงเรียงติดกันแล้วเท็จตลอด</strong> ซึ่งพอดีกับการค้นหาแบบไบนารี
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="โครงชั้นนอก" />
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างที่ 1 · ค่าใช้จ่ายต่ำสุดของแต่ละขนาด (งบ {EX1.B})</caption>
+        <thead>
+          <tr><th class="num">ด้านยาว</th><th class="num">ค่าใช้จ่ายต่ำสุด</th><th>มุมล่างซ้ายที่ถูกที่สุด</th><th>อยู่ในงบไหม</th></tr>
+        </thead>
+        <tbody>
+          {ladder.map((r) => (
+            <tr>
+              <td class="num">{r.s}</td>
+              <td class="num">{r.cost === null ? '' : r.cost}</td>
+              <td>{r.cost === null ? <span class="dim">วางไม่ได้</span> : <code>{r.pos}</code>}</td>
+              <td>{r.cost !== null && r.cost <= EX1.B ? 'ได้' : 'ไม่ได้'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์ค่าใช้จ่ายไม่มีทางลดลงเมื่อด้านยาวขึ้น คำตอบจึงเป็น {ans1} คือขนาดสุดท้ายที่ยังอยู่ในงบ
+        ตัวเลขทุกตัวคำนวณจากการไล่ทุกตำแหน่งจริง
+      </figcaption>
+    </figure>
+
+    <h3>ขั้นที่ 2 พลิกจากพื้นที่ฐานไปเป็นมุมล่างซ้าย</h3>
+    <p>
+      ตรึง <code>s</code> ไว้แล้วถามว่ามุมล่างซ้ายวางตรงไหนได้บ้าง จัตุรัสที่มุมอยู่ที่ <code>(x, y)</code>
+      ชนก้อนที่ <code>i</code> ก็ต่อเมื่อช่วงของมันเหลื่อมกับช่วงของก้อนทั้งสองแกน ซึ่งเขียนออกมาได้ว่า
+    </p>
+    <p><code>x ต้องอยู่ระหว่าง X1 − s + 1 ถึง X2 และ y ต้องอยู่ระหว่าง Y1 − s + 1 ถึง Y2</code></p>
+    <p>
+      นั่นคือก้อนหนึ่งก้อนกลายเป็น<strong>สี่เหลี่ยมที่บวกค่าใช้จ่ายลงบนระนาบของมุมล่างซ้าย</strong>
+      คำถามเดิมที่ว่า "มีที่วางถูก ๆ ไหม" จึงกลายเป็น <strong>ผลรวมของสี่เหลี่ยมที่ทับกันอยู่ มีจุดไหนที่ต่ำสุดไม่เกินงบ</strong>
+    </p>
+
+    <h3>ขั้นที่ 3 กวาดเส้นตามแกน x</h3>
+    <p>
+      ปัญหาแบบนี้คือปัญหากวาดเส้นมาตรฐาน กวาด <code>x</code> จากซ้ายไปขวา แต่ละก้อนมีเหตุการณ์สองอัน
+      คือ<strong>บวก</strong>ตอนเข้าและ<strong>ลบ</strong>ตอนออก ส่วนแกน <code>y</code> ใช้เซกเมนต์ทรีที่
+      <strong>บวกทั้งช่วง และถามค่าน้อยสุดของทั้งอาเรย์</strong> พอถึงตำแหน่ง <code>x</code> ไหนก็ถามค่าน้อยสุดหนึ่งครั้ง
+      ถ้าไม่เกินงบก็แปลว่าขนาดนี้วางได้
+    </p>
+    <p>
+      พิกัดใหญ่ถึงล้าน จึงต้อง<strong>บีบพิกัด</strong>แกน <code>y</code> ให้เหลือเฉพาะจุดที่ค่าเปลี่ยนจริง
+      ซึ่งมีไม่เกิน <code>2P</code> จุด และเช่นเดียวกัน ตำแหน่ง <code>x</code> ที่ต้องถามก็มีแค่จุดที่มีเหตุการณ์เกิด
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        เซกเมนต์ทรีที่ถามค่าน้อยสุดของ<strong>ทั้งอาเรย์</strong> มีกับดักที่ผมตกไปแล้วรอบหนึ่ง
+        ใบส่วนเกินที่ถูกเติมมาเพื่อให้ขนาดเป็นกำลังสอง ถ้าปล่อยค่าไว้ที่ศูนย์ คำตอบของ
+        <code>mn[1]</code> จะเป็นศูนย์ตลอดกาล และโปรแกรมจะตอบว่าวางได้ทุกขนาด
+        ต้องตั้งใบส่วนเกินเป็นอนันต์ตั้งแต่ตอนสร้าง
+      </p>
+      <p>
+        อาการของบักนี้คือ ตอบตัวอย่างในโจทย์<strong>ถูกทั้งสองชุด</strong> แต่พอสุ่มเทียบกับตัวไล่ทุกตำแหน่ง
+        มันตอบเกินจริงทันที
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: ชุดแรก 35 คะแนน ไม่ต้องใช้เซกเมนต์ทรีเลย</h2>
+  <Spoiler>
+    <p>
+      ชุดทดสอบชุดแรกให้ <code>B = 0</code> ซึ่งแปลว่า<strong>ห้ามชนก้อนไหนเลย</strong>
+      คำถามเลยง่ายลงมาก จาก "หาจุดที่ผลรวมต่ำสุด" เหลือแค่ "มีจุดไหนที่ไม่มีใครทับ"
+    </p>
+    <p>
+      พอเป็นแบบนี้ ก็ไม่ต้องใช้โครงสร้างข้อมูลอะไรเลย สำหรับแต่ละตำแหน่ง <code>x</code> ที่น่าลอง
+      ก็เก็บ<strong>ช่วงของ y ที่ถูกห้าม</strong>ของก้อนที่ยังคาบเกี่ยวอยู่ เรียงตาม <code>y</code>
+      แล้วไล่หาช่องว่างแรกที่ไม่มีใครทับ ถ้าเจอก็แปลว่าขนาดนี้วางได้
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อยชุดแรก</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="pyramid_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      ต้นทุนคือ <code>P²</code> ต่อหนึ่งขนาด คูณจำนวนรอบของการค้นหาแบบไบนารี ที่ <code>P</code> พันก้อนก็ไหวสบาย
+      แต่พอชุดที่สามให้ <code>P</code> ถึงสี่แสน มันตายทันที และชุดที่สองที่มีงบจริงก็ใช้ท่านี้ไม่ได้ตั้งแต่แรก
+      เพราะการหา "จุดที่ผลรวมต่ำสุด" ไม่ใช่การหาช่องว่าง
+    </p>
+    <p>
+      บทเรียนที่ผมชอบจากข้อนี้คือ ชุดทดสอบย่อยสามชุดของมันไม่ได้ต่างกันแค่ขนาด แต่ต่างกันที่
+      <strong>รูปของคำถาม</strong> ชุด <code>B = 0</code> ถามหาช่องว่าง ส่วนชุดที่มีงบถามหาค่าต่ำสุด
+      ซึ่งเป็นคำถามที่แพงกว่า และโค้ดที่ตอบคำถามแพงกว่าได้ ก็ตอบคำถามถูกกว่าได้ฟรีในตัว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      เวอร์ชันแรกที่ผมเขียนใช้เวลา 8.1 วินาที ซึ่งเกินลิมิต 5 วินาที ตัวการคือการ<strong>เรียงข้อมูลใหม่ทุกรอบ</strong>
+      ของการค้นหาแบบไบนารี ทั้งเรียงพิกัดที่บีบแล้วและเรียงเหตุการณ์ รวมยี่สิบรอบก็เป็นการเรียงยี่สิบครั้ง
+    </p>
+    <p>
+      ทางแก้คือเรียงดัชนีไว้ล่วงหน้าครั้งเดียวสี่ชุด (ตาม <code>X1</code>, <code>X2</code>, <code>Y1</code>,
+      <code>Y2</code>) เพราะค่าที่ต้องใช้ในแต่ละรอบเป็นฟังก์ชันไม่ลดของค่าเหล่านั้น
+      ลำดับจึงไม่เปลี่ยน แค่ผสานสองสายที่เรียงมาแล้วก็พอ เหลือ 6.6 วินาที
+    </p>
+    <p>
+      ที่เหลืออีกก้อนคือเซกเมนต์ทรีแบบเรียกซ้ำ ซึ่งถูกเรียกหลายสิบล้านครั้ง เปลี่ยนเป็นแบบไล่จากใบขึ้นราก
+      แล้วจบที่ <strong>3.8 วินาที</strong> ผ่านลิมิต
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="pyramid.cpp" />
+      </div>
+    </details>
+    <p>
+      ผมสุ่มตารางเล็ก ๆ ไม่เกินเก้าคูณเก้า พร้อมก้อนไม่เกินหกก้อนและงบสุ่ม จำนวน 1,500 ชุด
+      แล้วเทียบกับตัวไล่ทุกขนาดทุกตำแหน่ง ตรงกันหมด เวอร์ชันที่ลืมตั้งใบส่วนเกินเป็นอนันต์ตกตั้งแต่ชุดต้น ๆ
+    </p>
+    <p>
+      เครื่องมือของข้อนี้อยู่ในบทปูพื้นฐาน <a href="../segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อตารางใหญ่เกินจะแตะทุกช่อง ให้กลับด้านคำถามไปถามที่มุมของสิ่งที่เราวาง แล้วสิ่งกีดขวางแต่ละก้อน
+    จะกลายเป็นสี่เหลี่ยมบวกค่าหนึ่งผืน ซึ่งกวาดเส้นกับเซกเมนต์ทรีจัดการได้ทั้งหมด
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Pyramid Base</i> บน programming.in.th ข้อ 2013
+      <a href="https://programming.in.th/tasks/2013" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2013
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 2
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>
