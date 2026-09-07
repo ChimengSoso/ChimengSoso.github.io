@@ -109,6 +109,88 @@ const sampleLevels = toyLevels(SAMPLE);
 const sampleDeep = Math.max(...sampleLevels);
 const sampleShallow = Math.min(...sampleLevels);
 const sampleAnswer = sampleSolved.ok ? sampleSolved.cost : -1;
+
+/* ---------- มินิเกม สลับแกนเอง ----------
+   จำนวนครั้งที่น้อยที่สุดมาจาก solve ตัวเดียวกับที่บทความใช้
+   และถูกตรวจซ้ำด้วยการไล่ทุกวิธีสลับตอนบิลด์ ถ้าไม่ตรงกันบิลด์จะพัง */
+type MobPuzzle = { id: string; label: string; tease: string; rods: Rod[] };
+
+/** ชั้นของของเล่นเมื่อกำหนดว่าแกนไหนถูกสลับบ้าง */
+function toyLevelsWith(t: Rod[], flipped: Set<number>): number[] {
+  const out: number[] = [];
+  const go = (v: number, dv: number): void => {
+    const rod = rodOf(t, v);
+    const pair = flipped.has(v) ? [rod.r, rod.l] : [rod.l, rod.r];
+    for (const c of pair) {
+      if (c === -1) out.push(dv + 1);
+      else go(c, dv + 1);
+    }
+  };
+  go(1, 0);
+  return out;
+}
+
+const deepFirst = (levels: number[]): boolean => levels.every((v, i) => i === 0 || levels[i - 1] >= v);
+
+/** ไล่ทุกวิธีสลับ คืนจำนวนครั้งที่น้อยที่สุด หรือ -1 ถ้าไม่มีทางทำได้ */
+function bestSwapsByBrute(t: Rod[]): number {
+  const n = t.length;
+  if (n > 16) return -2;
+  let best = -1;
+  for (let mask = 0; mask < 1 << n; mask++) {
+    const flipped = new Set<number>();
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) flipped.add(i + 1);
+    if (!deepFirst(toyLevelsWith(t, flipped))) continue;
+    const c = flipped.size;
+    if (best === -1 || c < best) best = c;
+  }
+  return best;
+}
+
+const MOB_PUZZLES: MobPuzzle[] = [
+  {
+    id: 'm1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'สามแกน พอให้เห็นว่าการสลับทำอะไรกับลำดับ',
+    rods: [
+      { l: 2, r: -1 },
+      { l: -1, r: -1 },
+    ],
+  },
+  { id: 'm2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'โมบายเดียวกับที่บทความแกะให้ดู', rods: SAMPLE },
+  {
+    id: 'm3',
+    label: 'ชุดที่ 3 · ทำไม่ได้',
+    tease: 'ชุดนี้ลองสลับดูให้เต็มที่ ถ้าคิดว่าไม่มีทางจัดให้ผ่านได้ ก็กดปุ่มบอกได้',
+    rods: [
+      { l: 2, r: 4 },
+      { l: 3, r: -1 },
+      { l: -1, r: -1 },
+      { l: 5, r: -1 },
+      { l: -1, r: -1 },
+    ],
+  },
+];
+
+type MobPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  rods: Rod[];
+  best: number;
+};
+const mobPuzzles: MobPuzzleData[] = MOB_PUZZLES.map((p) => {
+  const brute = bestSwapsByBrute(p.rods);
+  const viaSolve = solve(p.rods);
+  const fromSolve = viaSolve.ok ? viaSolve.cost : -1;
+  if (brute !== fromSolve) {
+    throw new Error(
+      `มินิเกมของ mobiles: ชุด ${p.id} เฉลยได้ ${fromSolve} แต่การไล่ทุกวิธีได้ ${brute}`,
+    );
+  }
+  return { id: p.id, label: p.label, tease: p.tease, rods: p.rods, best: brute };
+});
+const mobJson = JSON.stringify(mobPuzzles);
 const sampleToys = sampleLevels.length;
 const sampleOrientations = 2 ** SAMPLE.length;
 
@@ -424,6 +506,37 @@ shape[v] = (a == 0 && b == 0) ? 0 : (a == 2 && b == 2) ? 2 : 1;`;
       หรือจริง ๆ แล้วมีข้อมูลแค่ไม่กี่แบบที่เพียงพอ แล้วถ้ามีแค่ไม่กี่แบบ มันมีกี่แบบกันแน่?
     </p>
   </div>
+
+  <h2>ลองเอง · สลับแกนให้ไอค์ยอมรับ</h2>
+  <div class="cpgame mobgame" data-mobgame data-puzzles={mobJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {mobPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{mobPuzzles[0].tease}</p>
+
+    <p class="fg-sub">ชั้นของของเล่น อ่านจากซ้ายไปขวา</p>
+    <div class="cpg-scroll"><div class="mb-levels" data-mb-levels></div></div>
+
+    <div class="cpg-controls" data-mb-rods></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-mb-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn" data-mb-none>ชุดนี้ทำไม่ได้</button>
+      <button type="button" class="cpg-btn main" data-mb-check>ตรวจ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดสลับแกนเพื่อพลิกกิ่งซ้ายขวา เป้าหมายคือชั้นของของเล่นต้องลึกก่อนตื้น</p>
+    <p class="cpg-score" data-cpg-score>สลับไปแล้ว <b data-mb-swaps>0</b> ครั้ง</p>
+    <p class="cpg-hint">การสลับไม่เปลี่ยนชั้นของของเล่นชิ้นไหนเลย มันเปลี่ยนแค่ลำดับซ้ายขวา</p>
+  </div>
+  <p class="io-note">
+    ถ้าลองแล้วรู้สึกว่าบางชุดยังไงก็ไม่ผ่าน ให้ดูที่ชุดของชั้นก่อน มันบอกได้ตั้งแต่ยังไม่สลับเลยว่ามีทางหรือไม่มี
+  </p>
 
   <h2>เฉลย ตอนที่ 1 · กิ่งหนึ่งกิ่งมีหน้าตาได้แค่สามแบบ</h2>
   <Spoiler>
@@ -769,4 +882,149 @@ shape[v] = (a == 0 && b == 0) ? 0 : (a == 2 && b == 2) ? 2 : 1;`;
     color:#cdd6ea;
   }
   table.rec th.num{text-align:right;}
+
+  /* ---------- แถบชั้นของมินิเกมโมบาย ---------- */
+  .mb-levels{display:flex;gap:5px;width:max-content;}
+  .mb-chip{
+    min-width:1.8rem;padding:0.3rem 0.4rem;
+    text-align:center;border-radius:6px;
+    font-family:var(--dl-mono,monospace);font-size:0.9rem;
+    border:1px solid #2a3350;background:#101827;color:#cdd6ea;
+  }
+  .mb-chip.bad{border-color:#8a3b3b;background:#351717;color:#f0a6a6;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type MbRod = { l: number; r: number };
+  type MbPuzzle = { id: string; label: string; tease: string; rods: MbRod[]; best: number };
+
+  function initMobileGame(): void {
+    const maybeUi = cpGameUi('[data-mobgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as MbPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const rodsEl = ui.root.querySelector<HTMLElement>('[data-mb-rods]');
+    const lvlEl = ui.root.querySelector<HTMLElement>('[data-mb-levels]');
+    const swapsEl = ui.root.querySelector<HTMLElement>('[data-mb-swaps]');
+    if (!rodsEl || !lvlEl || !swapsEl) return;
+    const rodsBar: HTMLElement = rodsEl;
+    const levelsOut: HTMLElement = lvlEl;
+    const swapsOut: HTMLElement = swapsEl;
+
+    let pi = 0;
+    let flipped = new Set<number>();
+
+    const pz = (): MbPuzzle => puzzles[pi];
+
+    function levels(): number[] {
+      const p = pz();
+      const out: number[] = [];
+      const go = (v: number, dv: number): void => {
+        const rod = p.rods[v - 1];
+        const pair = flipped.has(v) ? [rod.r, rod.l] : [rod.l, rod.r];
+        for (const c of pair) {
+          if (c === -1) out.push(dv + 1);
+          else go(c, dv + 1);
+        }
+      };
+      go(1, 0);
+      return out;
+    }
+
+    const deepFirst = (a: number[]): boolean => a.every((v, i) => i === 0 || a[i - 1] >= v);
+
+    function buildRods(): void {
+      const p = pz();
+      rodsBar.textContent = '';
+      p.rods.forEach((_, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn';
+        b.dataset.rod = String(i + 1);
+        b.textContent = `สลับแกน ${i + 1}`;
+        rodsBar.appendChild(b);
+      });
+    }
+
+    function render(): void {
+      const lv = levels();
+      for (const b of Array.from(rodsBar.querySelectorAll<HTMLElement>('[data-rod]'))) {
+        b.classList.toggle('picked', flipped.has(Number(b.dataset.rod)));
+      }
+      levelsOut.textContent = '';
+      lv.forEach((v, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'mb-chip';
+        chip.textContent = String(v);
+        if (i > 0 && lv[i - 1] < v) chip.classList.add('bad');
+        levelsOut.appendChild(chip);
+      });
+      swapsOut.textContent = String(flipped.size);
+    }
+
+    function check(): void {
+      const p = pz();
+      const lv = levels();
+      if (!deepFirst(lv)) {
+        ui.setStatus('ยังไม่ผ่าน ชั้นของของเล่นต้องอ่านจากซ้ายไปขวาแล้วไม่เพิ่มขึ้นเลย', 'bad');
+        return;
+      }
+      if (p.best === -1) {
+        ui.setStatus('แปลกแล้ว ชุดนี้ควรจัดไม่ได้ ถ้าเจอแบบนี้แปลว่ามีบั๊ก', 'bad');
+        return;
+      }
+      if (flipped.size === p.best) {
+        ui.setStatus(`ผ่านด้วยการสลับ ${flipped.size} ครั้ง ซึ่งน้อยที่สุดแล้ว`, 'good');
+      } else {
+        ui.setStatus(
+          `ผ่านแล้ว แต่สลับไป ${flipped.size} ครั้ง ยังมีทางที่ใช้แค่ ${p.best} ครั้ง`,
+          'bad',
+        );
+      }
+    }
+
+    function sayImpossible(): void {
+      const p = pz();
+      if (p.best === -1) {
+        ui.setStatus('ถูกต้องครับ ชุดนี้ไม่มีทางจัดให้ผ่านได้ ไม่ว่าจะสลับยังไง', 'good');
+      } else {
+        ui.setStatus(`ชุดนี้จัดได้ครับ มีวิธีที่สลับแค่ ${p.best} ครั้ง ลองใหม่อีกที`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      flipped = new Set<number>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildRods();
+      ui.setStatus('กดสลับแกนเพื่อพลิกกิ่งซ้ายขวา เป้าหมายคือชั้นของของเล่นต้องลึกก่อนตื้น');
+      render();
+    }
+
+    rodsBar.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-rod]');
+      if (!(b instanceof HTMLElement)) return;
+      const id = Number(b.dataset.rod);
+      if (flipped.has(id)) flipped.delete(id);
+      else flipped.add(id);
+      ui.setStatus('กดสลับแกนเพื่อพลิกกิ่งซ้ายขวา เป้าหมายคือชั้นของของเล่นต้องลึกก่อนตื้น');
+      render();
+    });
+
+    ui.onClick('data-mb-check', check);
+    ui.onClick('data-mb-none', sayImpossible);
+    ui.onClick('data-mb-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initMobileGame);
+</script>
