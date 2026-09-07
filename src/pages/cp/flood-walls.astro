@@ -82,6 +82,134 @@ const wallInfo: WallInfo[] = WALLS.map(([a, b], k) => {
 const survivors = wallInfo.filter((w) => w.alive);
 const maxHour = Math.max(...wallInfo.map((w) => Math.max(w.d1, w.d2)));
 
+/* ---------- มินิเกม ทายว่ากำแพงไหนรอด ----------
+   ตัวคิดข้างล่างเป็นเวอร์ชันทั่วไปของการท่วมบนตารางที่บทความใช้อยู่แล้ว
+   และถูกตรวจว่าให้ผลตรงกับ wallInfo ของผังตัวอย่างเป๊ะ ๆ ตอนบิลด์ */
+type FwLayout = { id: string; label: string; tease: string; pts: Pt[]; walls: [number, number][] };
+
+type FwWall = { id: number; a: number; b: number; alive: boolean };
+
+function floodAnalyse(pts: Pt[], walls: [number, number][]): FwWall[] {
+  const sh = 1;
+  const g = Math.max(...pts.flatMap((p) => [p.x, p.y])) + sh + 2;
+  const id2 = (i: number, j: number): number => i * g + j;
+  const bh = new Array<boolean>(g * g).fill(false);
+  const bv = new Array<boolean>(g * g).fill(false);
+  for (const [a, b] of walls) {
+    const p = pts[a - 1];
+    const q = pts[b - 1];
+    if (p.y === q.y) {
+      const y = p.y + sh;
+      for (let i = Math.min(p.x, q.x) + sh; i < Math.max(p.x, q.x) + sh; i++) bh[id2(i, y)] = true;
+    } else {
+      const x = p.x + sh;
+      for (let j = Math.min(p.y, q.y) + sh; j < Math.max(p.y, q.y) + sh; j++) bv[id2(x, j)] = true;
+    }
+  }
+  const inf = Number.MAX_SAFE_INTEGER;
+  const d = new Array<number>(g * g).fill(inf);
+  const dq: number[] = [id2(0, 0)];
+  d[id2(0, 0)] = 0;
+  let head = 0;
+  const push = (v: number, base: number, cost: number): void => {
+    if (base + cost < d[v]) {
+      d[v] = base + cost;
+      if (cost === 0) dq.splice(head, 0, v);
+      else dq.push(v);
+    }
+  };
+  while (head < dq.length) {
+    const u = dq[head++];
+    const i = Math.floor(u / g);
+    const j = u % g;
+    const base = d[u];
+    if (j + 1 < g) push(id2(i, j + 1), base, bh[id2(i, j + 1)] ? 1 : 0);
+    if (j - 1 >= 0) push(id2(i, j - 1), base, bh[id2(i, j)] ? 1 : 0);
+    if (i + 1 < g) push(id2(i + 1, j), base, bv[id2(i + 1, j)] ? 1 : 0);
+    if (i - 1 >= 0) push(id2(i - 1, j), base, bv[id2(i, j)] ? 1 : 0);
+  }
+  return walls.map(([a, b], k) => {
+    const p = pts[a - 1];
+    const q = pts[b - 1];
+    let d1: number;
+    let d2: number;
+    if (p.y === q.y) {
+      const y = p.y + sh;
+      const x = Math.min(p.x, q.x) + sh;
+      d1 = d[id2(x, y - 1)];
+      d2 = d[id2(x, y)];
+    } else {
+      const x = p.x + sh;
+      const y = Math.min(p.y, q.y) + sh;
+      d1 = d[id2(x - 1, y)];
+      d2 = d[id2(x, y)];
+    }
+    return { id: k + 1, a, b, alive: d1 === d2 };
+  });
+}
+
+const FW_LAYOUTS: FwLayout[] = [
+  {
+    id: 'w1',
+    label: 'ชุดที่ 1 · ผังเล็ก',
+    tease: 'ผังนี้มีห้องปิดหนึ่งห้อง กับกำแพงเดี่ยว ๆ ที่ไม่ได้ล้อมอะไรเลย',
+    pts: [
+      { x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 },
+      { x: 6, y: 2 }, { x: 9, y: 2 },
+    ],
+    walls: [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+      [5, 6],
+    ],
+  },
+  { id: 'w2', label: 'ชุดที่ 2 · ผังในโจทย์', tease: 'ผังเดียวกับที่บทความใช้ทั้งบท', pts: PTS, walls: WALLS },
+  {
+    id: 'w3',
+    label: 'ชุดที่ 3 · ห้องซ้อนห้อง',
+    tease: 'ชุดนี้มีห้องเล็กอยู่ในห้องใหญ่ และมีกำแพงเดี่ยวอยู่นอกห้องด้วย',
+    pts: [
+      { x: 1, y: 1 }, { x: 6, y: 1 }, { x: 6, y: 6 }, { x: 1, y: 6 },
+      { x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 },
+      { x: 8, y: 3 }, { x: 11, y: 3 },
+    ],
+    walls: [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+      [5, 6],
+      [6, 7],
+      [7, 8],
+      [8, 5],
+      [9, 10],
+    ],
+  },
+];
+
+type FwPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  walls: FwWall[];
+  aliveCount: number;
+};
+const fwPuzzles: FwPuzzleData[] = FW_LAYOUTS.map((l) => {
+  const w = floodAnalyse(l.pts, l.walls);
+  return { id: l.id, label: l.label, tease: l.tease, walls: w, aliveCount: w.filter((x) => x.alive).length };
+});
+{
+  // ชุดที่สองคือผังของบทความ ผลต้องตรงกับ wallInfo ที่บทความคำนวณไว้แล้วทุกเส้น
+  const mine = fwPuzzles[1].walls.map((w) => w.alive).join(',');
+  const theirs = wallInfo.map((w) => w.alive).join(',');
+  if (mine !== theirs) {
+    throw new Error('มินิเกมของ flood-walls: ผลของเกมไม่ตรงกับ wallInfo ของบทความ');
+  }
+}
+const fwJson = JSON.stringify(fwPuzzles);
+
 const NMAX = 100000;
 const COORDSUB = 500;
 const fmt = (n: number): string => n.toLocaleString('en-US');
@@ -293,6 +421,33 @@ for (int e = 0; e < w; e++) {
       ถ้าเราหาได้ว่าแต่ละบริเวณ<strong>น้ำถึงเมื่อชั่วโมงที่เท่าไร</strong> คำถามทั้งข้อจะเหลืออะไร
     </p>
   </div>
+
+  <h2>ลองเอง · ทายว่ากำแพงเส้นไหนจะรอด</h2>
+  <div class="cpgame fwgame" data-fwgame data-puzzles={fwJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {fwPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{fwPuzzles[0].tease}</p>
+
+    <div class="cpg-controls" data-fw-list></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-fw-clear>ล้างที่เลือก</button>
+      <button type="button" class="cpg-btn main" data-fw-check>ตรวจคำทาย</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง</p>
+    <p class="cpg-score" data-cpg-score>เลือกไว้ <b data-fw-picked>0</b> เส้น จากทั้งหมด <b data-fw-total>0</b> เส้น</p>
+    <p class="cpg-hint">น้ำเริ่มจากทะเลรอบนอก และทะลุกำแพงได้ชั่วโมงละหนึ่งชั้น</p>
+  </div>
+  <p class="io-note">
+    ถ้าทายพลาดบ่อย ลองเปลี่ยนคำถามในหัวจาก "กำแพงนี้แข็งแรงไหม" เป็น "น้ำสองข้างของกำแพงนี้มาถึงพร้อมกันหรือเปล่า"
+  </p>
 
   <h2>เฉลย · กำแพงรอดก็ต่อเมื่อสองข้างเปียกพร้อมกัน</h2>
   <Spoiler>
@@ -574,4 +729,112 @@ for (int e = 0; e < w; e++) {
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- ปุ่มกำแพงของมินิเกมน้ำท่วม ---------- */
+  .fw-wall.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .fw-wall.right{outline:2px solid #2f9e5c;outline-offset:2px;}
+  .fw-wall.wrong{outline:2px solid #8a3b3b;outline-offset:2px;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type FwWall = { id: number; a: number; b: number; alive: boolean };
+  type FwPuzzle = { id: string; label: string; tease: string; walls: FwWall[]; aliveCount: number };
+
+  function initFloodGame(): void {
+    const maybeUi = cpGameUi('[data-fwgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as FwPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const listEl = ui.root.querySelector<HTMLElement>('[data-fw-list]');
+    const pickedEl = ui.root.querySelector<HTMLElement>('[data-fw-picked]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-fw-total]');
+    if (!listEl || !pickedEl || !totalEl) return;
+    const list: HTMLElement = listEl;
+    const pickedOut: HTMLElement = pickedEl;
+    const totalOut: HTMLElement = totalEl;
+
+    let pi = 0;
+    let guess = new Set<number>();
+    let revealed = false;
+
+    const pz = (): FwPuzzle => puzzles[pi];
+
+    function buildList(): void {
+      const p = pz();
+      list.textContent = '';
+      for (const w of p.walls) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cpg-btn fw-wall';
+        b.dataset.wall = String(w.id);
+        b.textContent = `กำแพง ${w.id} (${w.a} ถึง ${w.b})`;
+        list.appendChild(b);
+      }
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const b of Array.from(list.querySelectorAll<HTMLElement>('[data-wall]'))) {
+        const id = Number(b.dataset.wall);
+        const w = p.walls.find((x) => x.id === id);
+        b.classList.toggle('picked', guess.has(id));
+        b.classList.toggle('right', revealed && w !== undefined && guess.has(id) === w.alive);
+        b.classList.toggle('wrong', revealed && w !== undefined && guess.has(id) !== w.alive);
+      }
+      pickedOut.textContent = String(guess.size);
+      totalOut.textContent = String(p.walls.length);
+    }
+
+    function check(): void {
+      const p = pz();
+      let right = 0;
+      for (const w of p.walls) if (guess.has(w.id) === w.alive) right++;
+      revealed = true;
+      render();
+      if (right === p.walls.length) {
+        ui.setStatus(`ถูกทั้ง ${p.walls.length} เส้นครับ กำแพงที่รอดมี ${p.aliveCount} เส้น`, 'good');
+      } else {
+        ui.setStatus(
+          `ถูก ${right} จาก ${p.walls.length} เส้น เส้นที่ทายพลาดถูกทำเป็นสีแดงไว้แล้ว ลองดูว่าน้ำสองข้างของมันมาถึงพร้อมกันไหม`,
+          'bad',
+        );
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      guess = new Set<number>();
+      revealed = false;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildList();
+      ui.setStatus('กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง');
+      render();
+    }
+
+    list.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-wall]');
+      if (!(b instanceof HTMLElement)) return;
+      const id = Number(b.dataset.wall);
+      if (guess.has(id)) guess.delete(id);
+      else guess.add(id);
+      revealed = false;
+      ui.setStatus('กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง');
+      render();
+    });
+
+    ui.onClick('data-fw-clear', () => selectPuzzle(pi));
+    ui.onClick('data-fw-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initFloodGame);
+</script>

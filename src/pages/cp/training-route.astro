@@ -89,6 +89,119 @@ function bestKeep(): { pick: ExInfo[]; weight: number } {
 const kept = bestKeep();
 const answer = totalCost - kept.weight;
 
+/* ---------- มินิเกม เลือกเองว่าจะปิดถนนเส้นไหน ----------
+   ตัวตัดสินของเกมไม่ได้ใช้กฎสองข้อของเฉลยเลย มันไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้
+   แล้วดูว่ามีวงยาวเป็นเลขคู่ไหม เหมือนตัวตรวจสอบที่บทความใช้
+   ส่วนค่าใช้จ่ายที่ถูกที่สุดหาโดยไล่ทุกวิธีเลือกตอนบิลด์ */
+type TrPuzzle = { id: string; label: string; tease: string; n: number; edges: Edge[] };
+
+/** มีวงจรอย่างง่ายที่ยาวเป็นเลขคู่ในกราฟนี้ไหม ไล่ทุกวงจริง ๆ */
+function hasEvenCycle(n: number, es: Edge[]): boolean {
+  const adj = new Map<number, number[]>();
+  for (let i = 1; i <= n; i++) adj.set(i, []);
+  for (const e of es) {
+    (adj.get(e.a) as number[]).push(e.b);
+    (adj.get(e.b) as number[]).push(e.a);
+  }
+  let found = false;
+  const seen = new Set<number>();
+  const walk = (start: number, u: number, parentEdge: number, depth: number): void => {
+    if (found) return;
+    for (let i = 0; i < es.length; i++) {
+      if (i === parentEdge) continue;
+      const e = es[i];
+      const v = e.a === u ? e.b : e.b === u ? e.a : 0;
+      if (v === 0) continue;
+      if (v === start && depth + 1 >= 3 && (depth + 1) % 2 === 0) {
+        found = true;
+        return;
+      }
+      if (v < start || seen.has(v)) continue;
+      seen.add(v);
+      walk(start, v, i, depth + 1);
+      seen.delete(v);
+      if (found) return;
+    }
+  };
+  for (let s = 1; s <= n && !found; s++) {
+    seen.clear();
+    seen.add(s);
+    walk(s, s, -1, 0);
+  }
+  return found;
+}
+
+/** ค่าใช้จ่ายที่น้อยที่สุด โดยไล่ทุกวิธีว่าจะปิดถนนไม่ราดยางเส้นไหนบ้าง */
+function cheapestClose(n: number, es: Edge[]): number {
+  const pv = es.filter((e) => e.c === 0);
+  const ex = es.filter((e) => e.c > 0);
+  let best = Number.POSITIVE_INFINITY;
+  for (let mask = 0; mask < 1 << ex.length; mask++) {
+    const kept: Edge[] = [...pv];
+    let cost = 0;
+    for (let i = 0; i < ex.length; i++) {
+      if (mask & (1 << i)) kept.push(ex[i]);
+      else cost += ex[i].c;
+    }
+    if (cost >= best) continue;
+    if (!hasEvenCycle(n, kept)) best = cost;
+  }
+  return best;
+}
+
+const TR_PUZZLES: TrPuzzle[] = [
+  { id: 'r1', label: 'ชุดที่ 1 · ตัวอย่างในโจทย์', tease: 'ห้าเมืองเดียวกับที่บทความใช้', n: N, edges: EDGES },
+  {
+    id: 'r2',
+    label: 'ชุดที่ 2 · ปิดน้อยที่สุด',
+    tease: 'ชุดนี้มีถนนไม่ราดยางสองเส้นที่ตีกันเอง ลองดูว่าจำเป็นต้องปิดทั้งคู่ไหม',
+    n: 4,
+    edges: [
+      { a: 1, b: 2, c: 0 },
+      { a: 2, b: 3, c: 0 },
+      { a: 3, b: 4, c: 0 },
+      { a: 1, b: 4, c: 7 },
+      { a: 1, b: 3, c: 3 },
+    ],
+  },
+  {
+    id: 'r3',
+    label: 'ชุดที่ 3 · ไม่ต้องปิดเลย',
+    tease: 'ชุดนี้อาจไม่ต้องปิดถนนสักเส้น ลองตรวจดูก่อนรีบปิด',
+    n: 4,
+    edges: [
+      { a: 1, b: 2, c: 0 },
+      { a: 2, b: 3, c: 0 },
+      { a: 3, b: 4, c: 0 },
+      { a: 1, b: 3, c: 4 },
+    ],
+  },
+];
+
+type TrPuzzleData = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  edges: Edge[];
+  best: number;
+};
+const trPuzzles: TrPuzzleData[] = TR_PUZZLES.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  n: p.n,
+  edges: p.edges,
+  best: cheapestClose(p.n, p.edges),
+}));
+{
+  // ชุดแรกคือตัวอย่างของบทความ ค่าใช้จ่ายต้องตรงกับคำตอบที่บทความประกาศไว้
+  if (trPuzzles[0].best !== answer) {
+    throw new Error(`มินิเกมของ training-route: ไล่ทุกวิธีได้ ${trPuzzles[0].best} แต่บทความตอบ ${answer}`);
+  }
+}
+const trJson = JSON.stringify(trPuzzles);
+
 const NMAX = 1000;
 const MMAX = 5000;
 const DEGMAX = 10;
@@ -283,6 +396,33 @@ for (int mk = full - 1; mk >= 0; mk--)
       ที่เส้นทางบนต้นไม้ของมัน<strong>ทับกัน</strong> จะเกิดวงอะไรขึ้นอีกบ้างที่เราไม่ได้ตั้งใจ
     </p>
   </div>
+
+  <h2>ลองเอง · ปิดถนนให้ถูกที่สุด</h2>
+  <div class="cpgame trgame" data-trgame data-puzzles={trJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {trPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{trPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll"><table class="tr-list" data-tr-list></table></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-tr-reset>เปิดคืนทุกเส้น</button>
+      <button type="button" class="cpg-btn main" data-tr-check>ตรวจว่าเหลือเส้นทางซ้อมไหม</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดปิดถนนที่ไม่ราดยางได้ตามใจ แล้วกดตรวจว่าเหลือเส้นทางซ้อมที่ยุติธรรมไหม</p>
+    <p class="cpg-score" data-cpg-score>จ่ายไปแล้ว <b data-tr-paid>0</b> · ถูกที่สุดคือ <b data-tr-best>0</b></p>
+    <p class="cpg-hint">เส้นทางซ้อมที่ยุติธรรมคือวงจรที่เดินแล้วกลับมาที่เดิม โดยผ่านถนนเป็นจำนวนคู่</p>
+  </div>
+  <p class="io-note">
+    ตัวตรวจของเกมนี้ไม่ได้ใช้กฎย่อของเฉลยเลย มันไล่หาวงจรทุกวงจริง ๆ ถ้าเดาแล้วผิด แปลว่ากฎในหัวยังไม่ตรงกับของจริง
+  </p>
 
   <h2>เฉลย · เงื่อนไขทั้งข้อยุบเหลือสองกฎ</h2>
   <Spoiler>
@@ -540,4 +680,163 @@ for (int mk = full - 1; mk >= 0; mk--)
   table.rec th.num{text-align:right;}
 
   .dim{color:#7b8397;}
+
+  /* ---------- ตารางถนนของมินิเกมปิดถนน ---------- */
+  .tr-list{border-collapse:collapse;font-size:0.85rem;}
+  .tr-list th, .tr-list td{
+    border:1px solid #2a3350;padding:0.26rem 0.7rem;text-align:center;color:#cdd6ea;
+  }
+  .tr-list th{color:#9aa7bd;font-weight:600;white-space:nowrap;}
+  .tr-list tr.closed td{background:#241a1a;color:#f0a6a6;text-decoration:line-through;}
 </style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TrEdge = { a: number; b: number; c: number };
+  type TrPuzzle = { id: string; label: string; tease: string; n: number; edges: TrEdge[]; best: number };
+
+  function initTrainGame(): void {
+    const maybeUi = cpGameUi('[data-trgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TrPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const listEl = ui.root.querySelector<HTMLElement>('[data-tr-list]');
+    const paidEl = ui.root.querySelector<HTMLElement>('[data-tr-paid]');
+    const bestEl = ui.root.querySelector<HTMLElement>('[data-tr-best]');
+    if (!listEl || !paidEl || !bestEl) return;
+    const list: HTMLElement = listEl;
+    const paidOut: HTMLElement = paidEl;
+    const bestOut: HTMLElement = bestEl;
+
+    let pi = 0;
+    let closed = new Set<number>();
+
+    const pz = (): TrPuzzle => puzzles[pi];
+
+    /** ตัวตัดสินไม่ใช้กฎของเฉลย มันไล่หาวงจรอย่างง่ายทุกวงแล้วดูความยาว */
+    function hasEvenCycle(es: TrEdge[]): boolean {
+      const n = pz().n;
+      let found = false;
+      const seen = new Set<number>();
+      const walk = (start: number, u: number, parentEdge: number, depth: number): void => {
+        if (found) return;
+        for (let i = 0; i < es.length; i++) {
+          if (i === parentEdge) continue;
+          const e = es[i];
+          const v = e.a === u ? e.b : e.b === u ? e.a : 0;
+          if (v === 0) continue;
+          if (v === start && depth + 1 >= 3 && (depth + 1) % 2 === 0) {
+            found = true;
+            return;
+          }
+          if (v < start || seen.has(v)) continue;
+          seen.add(v);
+          walk(start, v, i, depth + 1);
+          seen.delete(v);
+          if (found) return;
+        }
+      };
+      for (let s = 1; s <= n && !found; s++) {
+        seen.clear();
+        seen.add(s);
+        walk(s, s, -1, 0);
+      }
+      return found;
+    }
+
+    const keptEdges = (): TrEdge[] => pz().edges.filter((_, i) => !closed.has(i));
+    const paid = (): number =>
+      pz().edges.reduce((t, e, i) => (closed.has(i) ? t + e.c : t), 0);
+
+    function buildList(): void {
+      const p = pz();
+      list.textContent = '';
+      const head = document.createElement('tr');
+      for (const t of ['ถนน', 'เชื่อม', 'ค่าปิด', '']) {
+        const th = document.createElement('th');
+        th.textContent = t;
+        head.appendChild(th);
+      }
+      list.appendChild(head);
+      p.edges.forEach((e, i) => {
+        const tr = document.createElement('tr');
+        tr.dataset.edge = String(i);
+        const kind = e.c === 0 ? 'ราดยาง' : 'ไม่ราดยาง';
+        for (const t of [`เส้นที่ ${i + 1} (${kind})`, `${e.a} กับ ${e.b}`, e.c === 0 ? 'ปิดไม่ได้' : String(e.c)]) {
+          const td = document.createElement('td');
+          td.textContent = t;
+          tr.appendChild(td);
+        }
+        const td = document.createElement('td');
+        if (e.c > 0) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cpg-btn';
+          b.dataset.close = String(i);
+          b.textContent = 'ปิดเส้นนี้';
+          td.appendChild(b);
+        }
+        tr.appendChild(td);
+        list.appendChild(tr);
+      });
+    }
+
+    function render(): void {
+      for (const tr of Array.from(list.querySelectorAll<HTMLElement>('[data-edge]'))) {
+        tr.classList.toggle('closed', closed.has(Number(tr.dataset.edge)));
+      }
+      for (const b of Array.from(list.querySelectorAll<HTMLElement>('[data-close]'))) {
+        b.textContent = closed.has(Number(b.dataset.close)) ? 'เปิดคืน' : 'ปิดเส้นนี้';
+      }
+      paidOut.textContent = String(paid());
+      bestOut.textContent = String(pz().best);
+    }
+
+    function check(): void {
+      const p = pz();
+      if (hasEvenCycle(keptEdges())) {
+        ui.setStatus('ยังมีเส้นทางซ้อมที่ยุติธรรมเหลืออยู่ คือยังมีวงจรที่ยาวเป็นเลขคู่', 'bad');
+        return;
+      }
+      const cost = paid();
+      if (cost === p.best) {
+        ui.setStatus(`ไม่เหลือวงคู่แล้ว และจ่ายไป ${cost} ซึ่งถูกที่สุดเท่าที่เป็นไปได้`, 'good');
+      } else {
+        ui.setStatus(`ไม่เหลือวงคู่แล้ว แต่จ่ายไป ${cost} ยังมีวิธีที่จ่ายแค่ ${p.best}`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      closed = new Set<number>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      buildList();
+      ui.setStatus('กดปิดถนนที่ไม่ราดยางได้ตามใจ แล้วกดตรวจว่าเหลือเส้นทางซ้อมที่ยุติธรรมไหม');
+      render();
+    }
+
+    list.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const b = e.target.closest('[data-close]');
+      if (!(b instanceof HTMLElement)) return;
+      const i = Number(b.dataset.close);
+      if (closed.has(i)) closed.delete(i);
+      else closed.add(i);
+      ui.setStatus('กดปิดถนนที่ไม่ราดยางได้ตามใจ แล้วกดตรวจว่าเหลือเส้นทางซ้อมที่ยุติธรรมไหม');
+      render();
+    });
+
+    ui.onClick('data-tr-reset', () => selectPuzzle(pi));
+    ui.onClick('data-tr-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initTrainGame);
+</script>
