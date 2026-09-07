@@ -1,0 +1,651 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'tree-dp/';
+
+/* ---------- โมเดลกลาง ทุกตัวเลขและทุกภาพในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** ต้นไม้ตัวอย่าง เขียนเป็นรายการเส้นเชื่อม โหนด 1 เป็นราก */
+const EDGES: [number, number][] = [
+  [1, 2],
+  [1, 3],
+  [1, 4],
+  [2, 5],
+  [2, 6],
+  [3, 7],
+  [4, 8],
+  [4, 9],
+  [7, 10],
+  [7, 11],
+  [9, 12],
+];
+const N = EDGES.length + 1;
+
+const ADJ: number[][] = Array.from({ length: N + 1 }, () => [] as number[]);
+for (const [u, v] of EDGES) {
+  ADJ[u].push(v);
+  ADJ[v].push(u);
+}
+
+/** เดินด้วยสแต็กของตัวเอง คืนลำดับที่พ่ออยู่ก่อนลูกเสมอ พร้อมพ่อของทุกโหนด */
+function walk(root: number): { order: number[]; par: number[] } {
+  const par = new Array<number>(N + 1).fill(0);
+  const seen = new Array<boolean>(N + 1).fill(false);
+  const order: number[] = [];
+  const st = [root];
+  seen[root] = true;
+  while (st.length) {
+    const v = st.pop() as number;
+    order.push(v);
+    for (const u of ADJ[v])
+      if (!seen[u]) {
+        seen[u] = true;
+        par[u] = v;
+        st.push(u);
+      }
+  }
+  return { order, par };
+}
+const { order: ORDER, par: PAR } = walk(1);
+
+/** ขนาดกิ่ง คิดจากท้ายลำดับกลับมาหาหัว */
+function subtreeSizes(): number[] {
+  const sz = new Array<number>(N + 1).fill(1);
+  sz[0] = 0;
+  for (let i = ORDER.length - 1; i >= 1; i--) sz[PAR[ORDER[i]]] += sz[ORDER[i]];
+  return sz;
+}
+const SZ = subtreeSizes();
+
+const childrenOf = (v: number): number[] => ADJ[v].filter((u) => u !== PAR[v]);
+const depthOf = (v: number): number => (v === 1 ? 0 : depthOf(PAR[v]) + 1);
+
+/** ตารางเดินย้อนลำดับ ทีละโหนด */
+const sizeSteps = (() => {
+  const sz = new Array<number>(N + 1).fill(1);
+  const rows: { v: number; kids: number[]; result: number }[] = [];
+  for (let i = ORDER.length - 1; i >= 0; i--) {
+    const v = ORDER[i];
+    const kids = childrenOf(v);
+    rows.push({ v, kids, result: sz[v] });
+    if (i >= 1) sz[PAR[v]] += sz[v];
+  }
+  // คิดค่าจริงอีกรอบให้ตรงกับผลสุดท้าย
+  return rows.map((r) => ({ ...r, result: SZ[r.v] }));
+})();
+
+/* ---------- ต้นทุนของสแต็ก ---------- */
+
+const DEEP_N = 100000;
+const FRAME_BYTES = 64;
+const STACK_MB = 8;
+const usedMB = (DEEP_N * FRAME_BYTES) / (1024 * 1024);
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+/* ---------- ตัวช่วยวาดต้นไม้ ---------- */
+
+const SLOT = 74;
+const ROW = 62;
+const PAD_X = 30;
+const TOP = 34;
+
+type Draw = {
+  edges: { x1: number; y1: number; x2: number; y2: number }[];
+  nodes: { v: number; x: number; y: number }[];
+  width: number;
+  height: number;
+};
+
+function layout(): Draw {
+  const pos = new Map<number, { x: number; y: number }>();
+  let slot = 0;
+  const place = (v: number, d: number): number => {
+    const kids = childrenOf(v);
+    let x: number;
+    if (kids.length === 0) {
+      x = PAD_X + slot * SLOT + SLOT / 2;
+      slot++;
+    } else {
+      const xs = kids.map((u) => place(u, d + 1));
+      x = (xs[0] + xs[xs.length - 1]) / 2;
+    }
+    pos.set(v, { x, y: TOP + d * ROW });
+    return x;
+  };
+  place(1, 0);
+  const R_NODE = 15;
+  const edges = EDGES.map(([u, v]) => {
+    const a = pos.get(u) as { x: number; y: number };
+    const b = pos.get(v) as { x: number; y: number };
+    // หดปลายเส้นเข้ามาเท่ารัศมีวงกลม เส้นจะได้ไม่พาดทับหมายเลขโหนด
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const ux = (b.x - a.x) / len;
+    const uy = (b.y - a.y) / len;
+    return {
+      x1: a.x + ux * R_NODE,
+      y1: a.y + uy * R_NODE,
+      x2: b.x - ux * R_NODE,
+      y2: b.y - uy * R_NODE,
+    };
+  });
+  const nodes = [...pos.entries()].map(([v, p]) => ({ v, x: p.x, y: p.y }));
+  const maxY = Math.max(...nodes.map((p) => p.y));
+  // เผื่อที่ว่างมุมล่างขวาให้ปุ่มขยายของ ZoomableDiagram
+  return { edges, nodes, width: PAD_X * 2 + slot * SLOT, height: maxY + 62 };
+}
+const DRAW = layout();
+
+/* ---------- สูตร ---------- */
+
+const texSize = texCode(
+  `${mc.fn('sz')}[v] ${mc.op('=')} ${mc.num('1')} ${mc.op('+')} \\sum_{u \\,\\in\\, ${mc.fn('child')}(v)} ${mc.fn('sz')}[u]`,
+);
+const texMis = texCode(
+  `\\begin{aligned}
+${mc.fn('take')}[v] &${mc.op('=')} ${mc.fn('w')}[v] ${mc.op('+')} \\sum_{u} ${mc.fn('skip')}[u] \\\\[4pt]
+${mc.fn('skip')}[v] &${mc.op('=')} \\sum_{u} ${mc.max}\\big(${mc.fn('take')}[u],\\; ${mc.fn('skip')}[u]\\big)
+\\end{aligned}`,
+);
+
+/* ---------- โค้ด ---------- */
+
+const walkCode = `// เดินต้นไม้ด้วยสแต็กที่ประกาศเอง ไม่มีการเรียกซ้ำเลยสักบรรทัด
+vector<int> par(n + 1, 0), order;
+order.reserve(n);
+vector<char> seen(n + 1, 0);
+
+vector<int> st{1};
+seen[1] = 1;
+while (!st.empty()) {
+    int v = st.back();
+    st.pop_back();
+    order.push_back(v);                 // พ่อถูกใส่ก่อนลูกเสมอ
+    for (int u : adj[v])
+        if (!seen[u]) { seen[u] = 1; par[u] = v; st.push_back(u); }
+}
+
+// อ่าน order ย้อนกลับ จะได้ลูกก่อนพ่อ ซึ่งคือลำดับที่ DP บนต้นไม้ต้องการ
+for (int i = n - 1; i >= 0; i--) {
+    int v = order[i];
+    // ตรงนี้ลูกทุกตัวของ v คิดเสร็จแล้วแน่นอน
+}`;
+
+const q1Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        scanf("%d %d", &u, &v);
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    vector<int> par(n + 1, 0), order;
+    order.reserve(n);
+    vector<char> seen(n + 1, 0);
+    vector<int> st{1};
+    seen[1] = 1;
+    while (!st.empty()) {
+        int v = st.back(); st.pop_back();
+        order.push_back(v);
+        for (int u : adj[v])
+            if (!seen[u]) { seen[u] = 1; par[u] = v; st.push_back(u); }
+    }
+
+    vector<int> sz(n + 1, 1);
+    // เริ่มที่ i = n-1 แล้วหยุดที่ 1 เพราะรากไม่มีพ่อให้บวกขึ้นไป
+    for (int i = n - 1; i >= 1; i--) sz[par[order[i]]] += sz[order[i]];
+
+    for (int i = 1; i <= n; i++) printf("%d%c", sz[i], i == n ? '\\n' : ' ');
+    return 0;
+}`;
+
+const q2Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        scanf("%d %d", &u, &v);
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    vector<int> par(n + 1, 0), order;
+    order.reserve(n);
+    vector<char> seen(n + 1, 0);
+    vector<int> st{1};
+    seen[1] = 1;
+    while (!st.empty()) {
+        int v = st.back(); st.pop_back();
+        order.push_back(v);
+        for (int u : adj[v])
+            if (!seen[u]) { seen[u] = 1; par[u] = v; st.push_back(u); }
+    }
+
+    vector<int> down(n + 1, 0);       // ทางที่ยาวที่สุดจาก v ลงไปหาใบในกิ่งของตัวเอง
+    int ans = 0;
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        int b1 = 0, b2 = 0;           // สองกิ่งที่ยาวที่สุดของ v
+        for (int u : adj[v]) {
+            if (u == par[v]) continue;
+            int d = down[u] + 1;
+            if (d > b1) { b2 = b1; b1 = d; }
+            else if (d > b2) b2 = d;
+        }
+        down[v] = b1;
+        ans = max(ans, b1 + b2);      // ทางที่หักมุมที่ v พอดี
+    }
+    printf("%d\\n", ans);
+    return 0;
+}`;
+
+const q3Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    scanf("%d", &n);
+    vector<long long> w(n + 1);
+    for (int i = 1; i <= n; i++) scanf("%lld", &w[i]);
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int u, v;
+        scanf("%d %d", &u, &v);
+        adj[u].push_back(v);
+        adj[v].push_back(u);
+    }
+
+    vector<int> par(n + 1, 0), order;
+    order.reserve(n);
+    vector<char> seen(n + 1, 0);
+    vector<int> st{1};
+    seen[1] = 1;
+    while (!st.empty()) {
+        int v = st.back(); st.pop_back();
+        order.push_back(v);
+        for (int u : adj[v])
+            if (!seen[u]) { seen[u] = 1; par[u] = v; st.push_back(u); }
+    }
+
+    vector<long long> take(n + 1, 0), skip(n + 1, 0);
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        take[v] += w[v];
+        for (int u : adj[v]) {
+            if (u == par[v]) continue;
+            take[v] += skip[u];                  // เลือก v แล้ว ลูกทุกตัวห้ามถูกเลือก
+            skip[v] += max(take[u], skip[u]);    // ไม่เลือก v ลูกจะเลือกหรือไม่ก็ได้
+        }
+    }
+    printf("%lld\\n", max(take[1], skip[1]));
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>อาการ · ตัดสินใจที่โหนดนี้ไม่ได้ ถ้ายังไม่รู้ว่าข้างล่างเป็นยังไง</h2>
+  <p>
+    โจทย์บนต้นไม้ส่วนใหญ่มีหน้าตาเหมือนกันหมด คือคำถามที่ถามถึงโหนดหนึ่งโหนดจะตอบไม่ได้เลย
+    จนกว่าจะรู้คำตอบของ<strong>ทุกกิ่งที่ห้อยอยู่ใต้มัน</strong> เช่นกิ่งนี้มีกี่โหนด กิ่งนี้ทางลงยาวสุดเท่าไร
+    หรืออย่างข้อ <a href="/cp/mobiles/">โมบาย</a> ที่ถามว่ากิ่งนี้เป็นทรงไหน
+  </p>
+  <p>
+    ท่ามาตรฐานที่ทุกคนเขียนคือ<strong>ฟังก์ชันที่เรียกตัวเอง</strong> ลงไปหาลูกก่อน ลูกตอบกลับมาแล้วค่อยรวมคำตอบ
+    ถูกต้องและอ่านง่ายที่สุด และตกในสนามแข่งบ่อยกว่าที่คิด ด้วยเหตุผลที่ไม่เกี่ยวกับความถูกต้องเลย
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">กับดักที่ทำให้โค้ดถูกแต่ตกรอบ</p>
+    <p>
+      ต้นไม้ที่มี <code>{fmt(DEEP_N)}</code> โหนดไม่ได้แปลว่ามันเตี้ย อินพุตที่โหนดทุกตัวมีลูกตัวเดียว
+      เรียงกันเป็นโซ่ยาว {fmt(DEEP_N)} ชั้น เป็นต้นไม้ที่ถูกกติกาทุกประการ การเรียกซ้ำจะซ้อนกัน {fmt(DEEP_N)} ชั้น
+      และเฟรมของฟังก์ชันหนึ่งชั้นกินหน่วยความจำราว {FRAME_BYTES} ไบต์ขึ้นไป รวมแล้วราว
+      <strong>{usedMB.toFixed(1)} เมกะไบต์</strong> ขณะที่สแต็กที่ระบบตัดสินมักตั้งไว้ให้อยู่ที่ราว {STACK_MB} เมกะไบต์
+      หรือน้อยกว่านั้น ผลคือโปรแกรมตายกลางทางโดยไม่มีข้อความบอกอะไรเลย
+    </p>
+  </div>
+
+  <p>
+    บทนี้จึงว่าด้วยสองเรื่องที่มาคู่กันเสมอ หนึ่งคือ<strong>รูปแบบการคิดของ DP บนต้นไม้</strong>
+    และสองคือ<strong>วิธีเดินต้นไม้โดยไม่เรียกซ้ำ</strong> ซึ่งไม่ได้ยากกว่ากันเลย แต่ปลอดภัยกว่ามาก
+  </p>
+
+  <h2>กุญแจ · ลำดับที่ลูกเสร็จก่อนพ่อ</h2>
+  <p>
+    สิ่งเดียวที่การเรียกซ้ำให้เรา คือการรับประกันว่า<strong>ตอนที่เราคิดค่าของโหนด <code>v</code> ลูกของมันคิดเสร็จหมดแล้ว</strong>
+    ถ้าเราหาลำดับแบบนั้นมาได้ด้วยวิธีอื่น ก็ไม่ต้องเรียกซ้ำอีกต่อไป
+  </p>
+  <p>
+    วิธีหาง่ายกว่าที่คิด เดินต้นไม้ด้วย<strong>สแต็กที่ประกาศเอง</strong> แล้วจดว่าเราหยิบโหนดไหนออกมาก่อนหลัง
+    ลำดับที่ได้มีคุณสมบัติว่า<strong>พ่ออยู่ก่อนลูกเสมอ</strong> เพราะลูกจะถูกใส่เข้าสแต็กก็ต่อเมื่อพ่อถูกหยิบออกมาแล้ว
+    ดังนั้น<strong>อ่านลำดับนั้นย้อนกลับ จะได้ลูกก่อนพ่อ</strong> ซึ่งคือสิ่งที่ DP ต้องการพอดี
+  </p>
+  <CodeBlock code={walkCode} lang="cpp" title="โครงที่ใช้ซ้ำได้ทุกข้อ" />
+
+  <ZoomableDiagram caption={`ต้นไม้ตัวอย่าง ${N} โหนด วงสีทองคือใบ ซึ่งเป็นโหนดที่ตอบคำถามของตัวเองได้ทันทีโดยไม่ต้องรอใคร ส่วนวงสีเขียวต้องรอกิ่งที่ห้อยอยู่ใต้มันครบทุกกิ่งก่อน (วาดประกอบโดยผู้เขียน)`}>
+    <svg
+      viewBox={`0 0 ${DRAW.width} ${DRAW.height}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="แผนภาพต้นไม้สิบสองโหนด รากอยู่บนสุดและแตกกิ่งลงไปสามกิ่ง แต่ละโหนดเป็นวงกลมที่มีหมายเลขอยู่ข้างใน โหนดที่เป็นใบวาดด้วยวงสีทอง โหนดที่มีลูกวาดด้วยวงสีเขียว"
+    >
+      {DRAW.edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#3d4763" stroke-width="1.6" />
+      ))}
+      {DRAW.nodes.map((p) => (
+        <g>
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r="15"
+            fill={childrenOf(p.v).length === 0 ? '#2a2010' : '#101827'}
+            stroke={childrenOf(p.v).length === 0 ? '#e0b400' : '#2f9e5c'}
+            stroke-width="1.8"
+          />
+          <text
+            x={p.x}
+            y={p.y + 5}
+            fill={childrenOf(p.v).length === 0 ? '#e0b400' : '#4ade80'}
+            font-size="13"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {p.v}
+          </text>
+        </g>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ลำดับที่ได้จากสแต็ก · ต้นไม้ {N} โหนด</caption>
+      <thead>
+        <tr>
+          <th>อ่านทางไหน</th>
+          {ORDER.map((_, i) => <th class="num">{i}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>order (พ่อก่อนลูก)</td>
+          {ORDER.map((v) => <td class="num">{v}</td>)}
+        </tr>
+        <tr>
+          <td>ชั้นของโหนดนั้น</td>
+          {ORDER.map((v) => <td class="num">{depthOf(v)}</td>)}
+        </tr>
+        <tr>
+          <td>อ่านย้อน (ลูกก่อนพ่อ)</td>
+          {[...ORDER].reverse().map((v) => <td class="num">{v}</td>)}
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      แถวชั้นไม่ได้เรียงจากน้อยไปมาก เพราะสแต็กพาเราดิ่งลงไปสุดกิ่งหนึ่งก่อนแล้วค่อยย้อนกลับ
+      แต่สิ่งที่รับประกันได้คือ<strong>พ่อโผล่ก่อนลูกเสมอ</strong> ซึ่งเป็นคุณสมบัติเดียวที่เราต้องการ
+      ไม่ได้ต้องการให้มันเรียงตามชั้น
+    </figcaption>
+  </figure>
+
+  <h2>ตัวอย่างแรก · ขนาดของกิ่ง</h2>
+  <p>
+    ค่าที่ง่ายที่สุดบนต้นไม้คือขนาดของกิ่ง นิยามคือตัวมันเองหนึ่ง บวกขนาดของกิ่งลูกทุกตัว
+  </p>
+  <div set:html={texSize} />
+  <p>
+    เขียนเป็นโค้ดแล้วสั้นจนน่าตกใจ เพราะแทนที่จะวนหาลูกของแต่ละโหนด เรา<strong>ให้ลูกเป็นคนบวกขึ้นไปหาพ่อ</strong>
+    ระหว่างที่ไล่ลำดับย้อนกลับ ทุกโหนดจึงถูกแตะแค่ครั้งเดียว
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ไล่ลำดับย้อนกลับ ทีละโหนด</caption>
+      <thead>
+        <tr><th class="num">ลำดับที่</th><th class="num">โหนด</th><th>ลูกของมัน</th><th class="num">ขนาดกิ่ง</th></tr>
+      </thead>
+      <tbody>
+        {sizeSteps.map((r, k) => (
+          <tr>
+            <td class="num">{k + 1}</td>
+            <td class="num">{r.v}</td>
+            <td>{r.kids.length ? r.kids.join(', ') : 'ไม่มี (เป็นใบ)'}</td>
+            <td class="num">{r.result}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ทุกแถวที่มีลูก ลูกของมันโผล่ในแถวก่อนหน้าไปแล้วทั้งหมด นั่นคือคำรับประกันที่การเรียกซ้ำเคยให้เรา
+      และตอนนี้เราได้มันมาจากลำดับแทน โดยไม่ต้องเสียสแต็กเลยสักไบต์
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คิดก่อนอ่านต่อ</p>
+    <p>
+      ขนาดกิ่งเป็นค่าที่รวมกันได้ตรง ๆ ลูกทุกตัวส่งค่าเดียวขึ้นมาแล้วจบ แต่โจทย์ส่วนใหญ่ไม่ใจดีขนาดนั้น
+      ลองนึกถึงโจทย์ที่การตัดสินใจที่โหนดแม่<strong>ขึ้นกับว่าลูกตัดสินใจยังไง</strong> เช่นถ้าเลือกโหนดนี้แล้วห้ามเลือกลูก
+      ค่าเดียวที่ลูกส่งขึ้นมาจะพอไหม หรือมันต้องส่งขึ้นมากี่ค่า?
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้ตอบคนละคำถาม ข้อแรกถามว่า "โครงที่ให้ไปเขียนจริงหน้าตายังไง" ข้อสองถามว่า
+    "ถ้าคำตอบไม่ได้อยู่ที่ราก แต่ซ่อนอยู่กลางต้นไม้" ข้อสามถามว่า "ถ้าลูกต้องส่งขึ้นมามากกว่าหนึ่งค่า"
+    ลองคิดเองก่อนแล้วค่อยแตะดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · ขนาดของทุกกิ่ง</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ต้นไม้ <code>n ≤ 200 000</code> โหนด รากคือโหนด 1 ตามด้วยเส้นเชื่อม <code>n − 1</code> เส้น
+      ให้พิมพ์ขนาดของกิ่งที่ห้อยอยู่ใต้ทุกโหนด (นับตัวมันเองด้วย) เรียงตามหมายเลขโหนด
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ลอกโครงข้างบนมาแล้วเติมบรรทัดเดียว แต่ระวังขอบของลูปให้ดี ว่ามันควรหยุดที่ดัชนีเท่าไร
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ลูปต้องหยุดที่ดัชนี 1 ไม่ใช่ 0 เพราะโหนดที่ดัชนี 0 ของลำดับคือราก ซึ่งไม่มีพ่อให้บวกขึ้นไป
+      ถ้าปล่อยให้วนถึง 0 มันจะไปบวกใส่ <code>sz[0]</code> ซึ่งเป็นช่องที่ไม่มีความหมาย โปรแกรมไม่พัง
+      แต่เป็นสัญญาณว่าเราไม่ได้คิดขอบให้จบ
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · ขนาดกิ่ง" />
+    <p>
+      สุ่มเทียบกับตัวที่เขียนแบบเรียกซ้ำ 300 เทส โดยตัวสร้างเทสสุ่มปนกันระหว่างต้นไม้ทรงกระจายกับ<strong>โซ่ยาว</strong>
+      เพื่อให้แน่ใจว่าเจอเคสที่ทำให้ตัวเรียกซ้ำลำบาก ตรงกันทั้งหมด
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · ทางที่ยาวที่สุดในต้นไม้</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ต้นไม้ <code>n ≤ 200 000</code> โหนด หาว่าทางเดินที่ยาวที่สุดระหว่างสองโหนดใด ๆ ผ่านเส้นเชื่อมกี่เส้น
+      ค่านี้เรียกว่า<strong>เส้นผ่านศูนย์กลาง</strong>ของต้นไม้ (diameter)
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ทางที่ยาวที่สุดไม่จำเป็นต้องผ่านราก แต่ไม่ว่ามันจะอยู่ตรงไหน มันต้องมี<strong>โหนดที่สูงที่สุดบนทางนั้น</strong>
+      อยู่หนึ่งโหนดเสมอ แล้วทางนั้นหน้าตาเป็นยังไงเมื่อมองจากโหนดตัวนั้น
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      เมื่อมองจากโหนดที่สูงที่สุดบนทาง ทางนั้นคือ<strong>การดิ่งลงสองกิ่งคนละข้าง</strong>แล้วมาบรรจบกันที่โหนดนี้
+      (หรือดิ่งลงกิ่งเดียว ถ้าโหนดนี้เป็นปลายทางเอง) ดังนั้นสำหรับทุกโหนด ให้เก็บความยาวของ<strong>สองกิ่งที่ลึกที่สุด</strong>
+      ของมัน แล้วบวกกัน คำตอบคือค่ามากที่สุดที่เจอตลอดทาง
+    </p>
+    <p>
+      ค่าที่ลูกส่งขึ้นมาคือ <code>down[u]</code> ความลึกของทางที่ยาวที่สุดจาก <code>u</code> ลงไปหาใบ
+      พ่อรับมาบวกหนึ่ง แล้วเก็บไว้สองอันดับแรก เพราะการมาบรรจบกันต้องใช้กิ่ง<strong>คนละกิ่ง</strong>
+      จะหยิบกิ่งที่ลึกที่สุดมาสองรอบไม่ได้ ทั้งข้อเป็น <strong>O(n)</strong>
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · สองกิ่งที่ลึกที่สุด" />
+    <p>
+      สุ่มเทียบกับตัวที่ทำ BFS จากทุกโหนดแล้วเอาระยะไกลสุด 300 เทส ตรงกันทั้งหมด รวมกรณีต้นไม้โหนดเดียว
+      ซึ่งคำตอบคือ 0
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · เลือกโหนดที่ห้ามติดกัน</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ต้นไม้ <code>n ≤ 200 000</code> โหนด แต่ละโหนดมีน้ำหนัก <code>w[i]</code> ซึ่ง<strong>ติดลบได้</strong>
+      เลือกกลุ่มโหนดที่ไม่มีสองตัวไหนเชื่อมกันด้วยเส้นเดียว ให้ผลรวมน้ำหนักมากที่สุด เลือกกลุ่มว่างก็ได้
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      กลับไปที่คำถามในกล่อง "คิดก่อนอ่านต่อ" ข้างบน ถ้าลูกส่งค่าเดียวขึ้นมาว่า "กิ่งฉันได้มากที่สุดเท่านี้"
+      พ่อจะเอาไปใช้ไม่ได้ เพราะพ่อต้องรู้ด้วยว่าค่านั้นได้มาจากการที่ลูก<strong>ถูกเลือก</strong>หรือเปล่า
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ลูกต้องส่งขึ้นมา<strong>สองค่า</strong> คือ <code>take[u]</code> ค่าดีที่สุดของกิ่งนั้นเมื่อ <code>u</code> ถูกเลือก
+      และ <code>skip[u]</code> ค่าดีที่สุดเมื่อ <code>u</code> ไม่ถูกเลือก แล้วพ่อเลือกใช้ตัวไหนก็ตามสถานการณ์ของตัวเอง
+    </p>
+    <div set:html={texMis} />
+    <p>
+      บรรทัดบนอ่านว่า ถ้าเลือก <code>v</code> ก็ได้น้ำหนักของมันมา แต่ลูกทุกตัวถูกห้ามไปด้วย จึงใช้ได้แต่ <code>skip</code>
+      บรรทัดล่างอ่านว่า ถ้าไม่เลือก <code>v</code> ลูกแต่ละตัวเป็นอิสระ จะเลือกหรือไม่เลือกก็ได้ หยิบตัวที่มากกว่ามา
+      คำตอบสุดท้ายคือค่าที่มากกว่าระหว่างสองตัวที่ราก
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · สองสถานะต่อหนึ่งโหนด" />
+    <p>
+      สุ่มเทียบกับตัวที่ลองทุกกลุ่มย่อยด้วยบิตมาสก์ 300 เทส โดยจงใจให้น้ำหนักมีทั้งบวกและลบ ตรงกันทั้งหมด
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        น้ำหนักติดลบคือจุดที่โค้ดหลายเวอร์ชันพัง เพราะการตั้งค่าเริ่มต้นของ <code>take</code> ไว้ที่ 0
+        แล้วบวกน้ำหนักเข้าไปตรง ๆ ทำให้โหนดที่น้ำหนักติดลบยัง "ถูกเลือก" อยู่ในตาราง ที่มันยังตอบถูกเพราะ
+        <code>skip</code> จะชนะมันเองในบรรทัดที่หยิบตัวมากกว่า แต่ถ้าเผลอเขียนว่า <code>take[v] = max(w[v], 0) + ...</code>
+        เพื่อ "กันค่าติดลบ" เมื่อไร คำตอบจะผิดทันที เพราะมันปนสองความหมายเข้าด้วยกัน
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    สิ่งเดียวที่ DP บนต้นไม้ต้องการคือลำดับที่<strong>ลูกเสร็จก่อนพ่อ</strong> ซึ่งได้มาจากการเดินด้วยสแต็กแล้วอ่านย้อนกลับ
+    ไม่ต้องพึ่งสแต็กของระบบเลย ส่วนคำถามที่ต้องตอบก่อนเขียนสูตรทุกครั้งคือ<strong>ลูกต้องส่งขึ้นมากี่ค่า</strong>
+    ถ้าการตัดสินใจของพ่อไปจำกัดลูก ค่าเดียวไม่เคยพอ
+  </p>
+  <p>
+    ข้อที่ใช้ของในบทนี้ตรง ๆ คือ <a href="/cp/mobiles/">โมบาย</a> ซึ่งค่าที่กิ่งส่งขึ้นมาไม่ใช่ตัวเลข
+    แต่เป็นป้ายบอกทรงของกิ่งสามแบบ และเป็นข้อที่โซ่ยาวหนึ่งแสนชั้นเป็นอินพุตที่ถูกกติกา
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ (1rem) และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem 0 0.5rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+</style>

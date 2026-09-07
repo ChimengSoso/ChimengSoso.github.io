@@ -1,0 +1,348 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'sliding-window/';
+
+/* ---------- ตัวเลขในหน้านี้งอกจากโมเดลข้างล่างนี้ ---------- */
+
+const DEMO = [3, 1, 4, 1, 5, 9, 2, 6];
+const S = 10;
+
+/** เดินสองตัวชี้บนตัวอย่าง เก็บทุกก้าวไว้ทำตาราง */
+type Step = { r: number; l: number; sum: number; len: number; best: number; shrunk: number };
+function trace(a: number[], limit: number): Step[] {
+  const out: Step[] = [];
+  let sum = 0;
+  let l = 0;
+  let best = 0;
+  for (let r = 0; r < a.length; r++) {
+    sum += a[r];
+    let shrunk = 0;
+    while (sum > limit) {
+      sum -= a[l++];
+      shrunk++;
+    }
+    best = Math.max(best, r - l + 1);
+    out.push({ r, l, sum, len: r - l + 1, best, shrunk });
+  }
+  return out;
+}
+const steps = trace(DEMO, S);
+const answer = steps[steps.length - 1].best;
+const totalShrinks = steps.reduce((s, x) => s + x.shrunk, 0);
+
+/** ต้นทุนของสองแนวคิด เมื่อ n เป็นล้าน */
+const NBIG = 1000000;
+const costRows = [
+  { name: 'ไล่ทุกช่วง', per: 'ทุกคู่ของขอบซ้ายขวา', total: (NBIG * (NBIG + 1)) / 2 },
+  { name: 'สองตัวชี้', per: 'ขอบซ้ายกับขอบขวาเดินหน้าอย่างละรอบ', total: 2 * NBIG },
+];
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const code1 = `// ช่วงติดกันที่ยาวที่สุดซึ่งผลรวมไม่เกิน S  (ทุกตัวเป็นจำนวนเต็มบวก)
+#include <bits/stdc++.h>
+using namespace std;
+int main() {
+    int n; long long S;
+    scanf("%d %lld", &n, &S);
+    vector<long long> a(n);
+    for (auto& v : a) scanf("%lld", &v);
+    long long sum = 0; int best = 0, l = 0;
+    for (int r = 0; r < n; r++) {
+        sum += a[r];
+        while (sum > S) sum -= a[l++];       // ขอบซ้ายเดินหน้าอย่างเดียว ไม่มีวันถอย
+        best = max(best, r - l + 1);
+    }
+    printf("%d\\n", best);
+}`;
+const code2 = `// ช่วงติดกันที่สั้นที่สุดซึ่งมีค่าครบทั้ง K ชนิด  (ค่าในอาเรย์อยู่ระหว่าง 1 ถึง K)
+#include <bits/stdc++.h>
+using namespace std;
+int main() {
+    int n, K;
+    scanf("%d %d", &n, &K);
+    vector<int> a(n);
+    for (auto& v : a) scanf("%d", &v);
+    vector<int> cnt(K + 1, 0);
+    int have = 0, best = INT_MAX, l = 0;
+    for (int r = 0; r < n; r++) {
+        if (cnt[a[r]]++ == 0) have++;        // ชนิดนี้เพิ่งโผล่ครั้งแรกในหน้าต่าง
+        while (have == K) {                  // ครบแล้ว หดขอบซ้ายให้สั้นที่สุดเท่าที่ยังครบ
+            best = min(best, r - l + 1);
+            if (--cnt[a[l++]] == 0) have--;
+        }
+    }
+    printf("%d\\n", best == INT_MAX ? -1 : best);
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    โจทย์จำนวนมากถามถึง<strong>ช่วงติดกัน</strong>ของอาเรย์หรือสตริง เช่น ช่วงที่ยาวที่สุดที่ผลรวมไม่เกินเท่านี้
+    ช่วงที่สั้นที่สุดที่มีของครบทุกชนิด หรือช่วงยาวคงที่ที่มีของตรงตามที่กำหนด
+  </p>
+  <p>
+    ท่าแรกที่ทุกคนคิดออกคือไล่ทุกคู่ของขอบซ้ายขอบขวา ซึ่งเป็น <code>n²</code> ช่วง แค่ <code>n</code> เป็นหมื่นก็เริ่มไม่ไหว
+    ส่วนบทนี้จะให้ท่าที่เดินขอบซ้ายกับขอบขวาไป<strong>ข้างหน้าอย่างเดียว คนละรอบ</strong>
+    ซึ่งได้คำตอบเดียวกันในเวลาเชิงเส้น
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>อาเรย์ยาว {fmt(NBIG)} · นับเป็นจำนวนครั้งที่แตะข้อมูล</caption>
+      <thead>
+        <tr><th>แนวคิด</th><th>แตะอะไรบ้าง</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {costRows.map((r) => (
+          <tr><td>{r.name}</td><td>{r.per}</td><td class="num">{fmt(r.total)}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ต่างกันประมาณ {fmt(Math.round(costRows[0].total / costRows[1].total))} เท่า และที่สำคัญกว่านั้นคือ
+      แนวคิดที่สองไม่ได้แค่เร็วกว่า มันเขียนสั้นกว่าด้วย
+    </figcaption>
+  </figure>
+
+  <h2>กติกาข้อเดียวที่ทำให้ท่านี้ใช้ได้</h2>
+  <p>
+    หน้าต่างเลื่อนใช้ได้เมื่อ<strong>การขยายขอบขวาทำให้เงื่อนไขแย่ลงเสมอ และการหดขอบซ้ายทำให้ดีขึ้นเสมอ</strong>
+    เรียกคุณสมบัตินี้ว่าความ<strong>เอกโทน</strong> (monotone)
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>monotone</i> อ่านว่า <strong>"โมโนโทน"</strong> แปลว่า<strong>ไปทางเดียว</strong>
+      มาจากคำกรีก <i>monos</i> ที่แปลว่าหนึ่งเดียว กับ <i>tonos</i> ที่แปลว่าเสียงหรือระดับ
+      รวมกันแล้วหมายถึงของที่ไม่เคยเปลี่ยนทิศ มีแต่เพิ่มขึ้นตลอดหรือลดลงตลอด
+      คำเดียวกันนี้ในภาษาพูดแปลว่าพูดเสียงเดียวราบเรียบ ก็มาจากรากเดียวกัน
+    </p>
+  </div>
+  <p>
+    ตัวอย่างที่ใช้ได้ ผลรวมของจำนวนเต็ม<strong>บวก</strong> ยิ่งขยายยิ่งมาก จำนวนชนิดที่ต่างกันในช่วง
+    ยิ่งขยายยิ่งไม่ลด ส่วนตัวอย่างที่<strong>ใช้ไม่ได้</strong>คือผลรวมของอาเรย์ที่มีเลขติดลบปนอยู่
+    เพราะขยายแล้วผลรวมอาจน้อยลง ขอบซ้ายที่เคยต้องเลื่อนอาจต้องถอยกลับ ซึ่งทำลายเหตุผลทั้งหมด
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ก่อนเขียนสองตัวชี้ ให้ถามตัวเองหนึ่งคำถามเสมอ <strong>ถ้าขอบขวาขยับไปหนึ่งช่อง ขอบซ้ายมีทางถอยกลับได้ไหม</strong>
+      ถ้าตอบว่าได้ ท่านี้ผิดตั้งแต่แรก และมันจะผิดแบบเงียบ ๆ คือตอบตัวอย่างในโจทย์ถูกแต่ตกในเทสจริง
+    </p>
+  </div>
+
+  <h2>รูปมาตรฐาน</h2>
+  <p>โครงของหน้าต่างเลื่อนมีแค่สองแบบ และแทบทุกโจทย์เข้าแบบใดแบบหนึ่ง</p>
+  <ul>
+    <li>
+      <strong>ยาวที่สุดที่ยัง "ผ่าน"</strong> ขยายขวาไปเรื่อย ๆ เมื่อไรที่หลุดเงื่อนไข ก็หดซ้ายจนกลับมาผ่าน
+      แล้วบันทึกความยาว
+    </li>
+    <li>
+      <strong>สั้นที่สุดที่ "ผ่าน" แล้ว</strong> ขยายขวาไปเรื่อย ๆ เมื่อไรที่ผ่านเงื่อนไข ก็หดซ้ายเท่าที่ยังผ่านอยู่
+      แล้วบันทึกความยาวระหว่างหด
+    </li>
+  </ul>
+  <p>
+    ทั้งสองแบบมีจุดร่วมเดียวกันคือ <code>l</code> กับ <code>r</code> ไม่เคยถอยหลัง แต่ละตัวจึงเดินได้มากที่สุด
+    <code>n</code> ก้าว รวมเป็น <code>2n</code> ก้าวตลอดโปรแกรม ไม่ว่าลูปข้างในจะดูน่ากลัวแค่ไหน
+  </p>
+
+  <h2>โจทย์ฝึกข้อที่ 1 · ช่วงที่ยาวที่สุดที่ผลรวมไม่เกิน S</h2>
+  <p>
+    ให้อาเรย์ของจำนวนเต็ม<strong>บวก</strong>ยาว <code>n</code> กับเลข <code>S</code>
+    หาความยาวของช่วงติดกันที่ยาวที่สุดซึ่งผลรวมไม่เกิน <code>S</code>
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>n</code> และ <code>S</code> บรรทัดที่สองคือสมาชิก <code>n</code> ตัว</li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ {fmt(NBIG)}</code> สมาชิกทุกตัวเป็นจำนวนเต็มบวก</li>
+      <li><strong>เอาต์พุต:</strong> ความยาวของช่วงที่ยาวที่สุด (ถ้าไม่มีเลยให้ตอบ 0)</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{DEMO.length} {S}<br />{DEMO.join(' ')}</td><td>{answer}</td></tr></tbody>
+  </table>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      สมมติเรารู้แล้วว่าขอบขวาอยู่ที่ <code>r</code> และขอบซ้ายที่เล็กที่สุดที่ยังผ่านคือ <code>l</code>
+      พอขอบขวาขยับไปเป็น <code>r + 1</code> ผลรวมมีแต่เพิ่ม แล้วขอบซ้ายที่ถูกต้องของรอบใหม่
+      จะอยู่ทางซ้ายของ <code>l</code> ได้ไหม
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <p>
+      ตอบไม่ได้ครับ เพราะถ้า <code>[l, r]</code> ผลรวมเกินไปแล้ว การเพิ่ม <code>a[r+1]</code> ซึ่งเป็นบวก
+      ยิ่งทำให้เกินหนัก ขอบซ้ายของรอบใหม่จึงอยู่ที่ <code>l</code> หรือขวากว่าเสมอ นั่นแปลว่า
+      <strong>ไม่ต้องรีเซ็ต <code>l</code> กลับไปที่ศูนย์ทุกรอบ</strong>
+    </p>
+    <CodeBlock code={code1} lang="cpp" title="sliding_sum.cpp" />
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ไล่ทุกก้าวบนตัวอย่าง (S = {S})</caption>
+        <thead>
+          <tr>
+            <th class="num">ขอบขวา</th><th class="num">ค่าที่เข้ามา</th><th class="num">หดซ้ายกี่ครั้ง</th>
+            <th class="num">ขอบซ้าย</th><th class="num">ผลรวม</th><th class="num">ยาว</th><th class="num">ดีที่สุด</th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map((s) => (
+            <tr>
+              <td class="num">{s.r}</td>
+              <td class="num">{DEMO[s.r]}</td>
+              <td class="num">{s.shrunk}</td>
+              <td class="num">{s.l}</td>
+              <td class="num">{s.sum}</td>
+              <td class="num">{s.len}</td>
+              <td class="num">{s.best}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์หดซ้ายรวมกันตลอดตารางได้ {totalShrinks} ครั้ง ซึ่งไม่เกินความยาวอาเรย์คือ {DEMO.length}
+        นี่คือหลักฐานว่าลูปข้างในไม่ได้ทำให้ต้นทุนกลายเป็นกำลังสอง
+      </figcaption>
+    </figure>
+    <p>
+      ผมสุ่มอาเรย์เล็ก ๆ 1,500 ชุดเทียบกับตัวไล่ทุกช่วงแบบซื่อ ๆ ตรงกันหมด
+    </p>
+  </Spoiler>
+
+  <h2>โจทย์ฝึกข้อที่ 2 · ช่วงที่สั้นที่สุดที่มีครบทุกชนิด</h2>
+  <p>
+    ให้อาเรย์ยาว <code>n</code> ที่สมาชิกเป็นเลข 1 ถึง <code>K</code> หาความยาวของช่วงติดกันที่สั้นที่สุด
+    ซึ่งมีเลขครบทั้ง <code>K</code> ชนิด ถ้าไม่มีให้ตอบ <code>-1</code>
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้เป็นรูปที่สอง คือ<strong>สั้นที่สุดที่ผ่านแล้ว</strong> ต่างจากข้อแรกตรงจังหวะที่บันทึกคำตอบ
+      ลองคิดว่าควรบันทึกตอนไหน ตอนเพิ่งครบ หรือตอนหดจนเกือบไม่ครบ
+    </p>
+    <p>
+      และการเช็กว่า "ครบทุกชนิดหรือยัง" ไม่ควรกวาดตารางนับทั้งใบทุกก้าว ควรเก็บอะไรไว้แทน
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <p>
+      บันทึกตอน<strong>หด</strong>ครับ เพราะทันทีที่ครบ เรายังไม่รู้ว่าหดได้อีกแค่ไหน
+      จึงหดไปเรื่อย ๆ พร้อมบันทึกความยาวทุกครั้ง จนกว่าจะขาดชนิดใดชนิดหนึ่ง แล้วค่อยขยายขวาต่อ
+    </p>
+    <p>
+      ส่วนการเช็กความครบ ใช้ท่าเดียวกับที่ <a href="../anagram-window/">โจทย์กลิฟมายัน</a> ใช้
+      คือเก็บตัวนับเพิ่มอีกตัวว่า<strong>ตอนนี้มีกี่ชนิดที่โผล่แล้ว</strong> แล้วอัปเดตมันเฉพาะตอนที่ค่าในช่องข้ามศูนย์
+    </p>
+    <CodeBlock code={code2} lang="cpp" title="shortest_cover.cpp" />
+    <p>
+      สังเกตว่าเงื่อนไขในลูปข้างในคือ <code>while (have == K)</code> ไม่ใช่ <code>if</code>
+      ถ้าเขียนเป็น <code>if</code> โปรแกรมจะหดได้แค่ครั้งเดียวต่อการขยับขอบขวาหนึ่งครั้ง
+      ซึ่งไม่พอที่จะหาช่วงที่สั้นที่สุดจริง ๆ และมันตอบตัวอย่างง่าย ๆ ถูกได้สบายมาก
+    </p>
+    <p>
+      ผมสุ่มอาเรย์เล็ก ๆ 1,500 ชุดเทียบกับตัวไล่ทุกช่วง ตรงกันหมด
+    </p>
+  </Spoiler>
+
+  <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
+  <ul>
+    <li>
+      <a href="../anagram-window/">นับคำที่เขียนสลับที่ได้</a> ใช้หน้าต่างยาวคงที่ พร้อมตัวนับชนิดที่พอดี
+    </li>
+    <li>
+      <a href="../islands/">เส้นทางที่ยาวที่สุดบนเกาะ</a> ใช้หน้าต่างเลื่อนบนวงที่คลี่เป็นสองรอบ
+      พร้อม<strong>คิวสองหัว</strong>เพื่อเก็บค่ามากสุดในหน้าต่าง ซึ่งเป็นญาติสนิทของบทนี้
+    </li>
+  </ul>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้าขยายขอบขวาแล้วขอบซ้ายไม่มีทางถอยกลับ ก็ไม่ต้องเริ่มนับใหม่ทุกรอบ ปล่อยให้ตัวชี้ทั้งสองเดินหน้าอย่างเดียว
+    แล้วต้นทุนทั้งโปรแกรมจะเป็นสองรอบของอาเรย์ ไม่ว่าลูปซ้อนกันจะดูน่ากลัวแค่ไหน
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>

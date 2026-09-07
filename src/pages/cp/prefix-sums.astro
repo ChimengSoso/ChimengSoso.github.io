@@ -1,0 +1,775 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'prefix-sums/';
+
+/* ---------- โมเดลกลาง ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ไม่มีที่ไหนพิมพ์มือ ---------- */
+
+const A = [3, 1, 4, 1, 5, 9, 2, 6];
+const N = A.length;
+
+/** ผลรวมสะสม pre[i] = a[1] + ... + a[i] โดย pre[0] = 0 */
+const PRE = A.reduce<number[]>((acc, v) => [...acc, acc[acc.length - 1] + v], [0]);
+
+const rangeSum = (l: number, r: number): number => PRE[r] - PRE[l - 1];
+
+/** บิตต่ำสุดที่ยังเป็น 1 ของ i ตัวเลขนี้คือ "ความยาวช่วงที่ช่อง i ดูแล" */
+const lowbit = (i: number): number => i & -i;
+
+/** ช่วงที่ช่อง i ของต้นไม้ดูแล คือ (i - lowbit(i), i] */
+const covers = (i: number): [number, number] => [i - lowbit(i) + 1, i];
+
+/** สร้างต้นไม้จากอาเรย์ ตรงตามที่โค้ดทำจริง */
+function buildTree(a: number[]): number[] {
+  const n = a.length;
+  const t = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i++) for (let j = i; j <= n; j += lowbit(j)) t[j] += a[i - 1];
+  return t;
+}
+const TREE = buildTree(A);
+
+/** ช่องที่ต้องบวกกัน เวลาถามผลรวมตั้งแต่ต้นถึง i */
+function queryPath(i: number): number[] {
+  const out: number[] = [];
+  for (let k = i; k > 0; k -= lowbit(k)) out.push(k);
+  return out;
+}
+/** ช่องที่ต้องแก้ตาม เวลาแก้ค่าที่ตำแหน่ง i */
+function updatePath(i: number, n: number): number[] {
+  const out: number[] = [];
+  for (let k = i; k <= n; k += lowbit(k)) out.push(k);
+  return out;
+}
+
+const Q_AT = 7;
+const Q_PATH = queryPath(Q_AT);
+const U_AT = 3;
+const U_PATH = updatePath(U_AT, N);
+
+/** แถวของตาราง "ช่องไหนดูแลช่วงไหน" */
+const coverRows = Array.from({ length: N }, (_, k) => {
+  const i = k + 1;
+  const [l, r] = covers(i);
+  return {
+    i,
+    bin: i.toString(2).padStart(4, '0'),
+    low: lowbit(i),
+    l,
+    r,
+    len: r - l + 1,
+    val: TREE[i],
+    sum: rangeSum(l, r),
+  };
+});
+
+/* ---------- ต้นทุนของสามท่า คิดหน่วยเดียวกันคือ "จำนวนครั้งที่แตะช่องข้อมูล" ---------- */
+
+const BIG_N = 200000;
+const BIG_Q = 200000;
+const LOGN = Math.ceil(Math.log2(BIG_N));
+
+/** สมมติว่าคำถามครึ่งหนึ่งเป็นการถามผลรวม อีกครึ่งเป็นการแก้ค่า */
+const HALF = BIG_Q / 2;
+const costRows = [
+  {
+    name: 'ไล่บวกทีละช่องตอนถูกถาม',
+    build: '0',
+    ask: 'ยาวช่วง สูงสุด n',
+    edit: '1',
+    total: HALF * BIG_N + HALF * 1,
+  },
+  {
+    name: 'ผลรวมสะสม',
+    build: 'n',
+    ask: '2',
+    edit: 'สร้างใหม่ทั้งแถว n',
+    total: BIG_N + HALF * 2 + HALF * BIG_N,
+  },
+  {
+    name: 'ต้นไม้เฟนวิก',
+    build: `n log n`,
+    ask: `2 log n`,
+    edit: `log n`,
+    total: BIG_N * LOGN + HALF * 2 * LOGN + HALF * LOGN,
+  },
+];
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+function human(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} พันล้าน`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} ล้าน`;
+  return fmt(n);
+}
+
+/* ---------- ตัวช่วยวาดบันได ---------- */
+
+const CELL = 46;
+const PAD_L = 62;
+const ROW_H = 25;
+const TOP_Y = 40;
+const DGM_W = PAD_L + N * CELL + 24;
+const DGM_H = TOP_Y + N * ROW_H + 44;
+
+const cellX = (pos: number): number => PAD_L + (pos - 1) * CELL;
+
+/* ---------- สูตร ---------- */
+
+const texPre = texCode(
+  `${mc.fn('sum')}(l, r) ${mc.op('=')} ${mc.fn('pre')}[r] ${mc.op('-')} ${mc.fn('pre')}[l ${mc.op('-')} ${mc.num('1')}]`,
+);
+const texCover = texCode(
+  `${mc.fn('t')}[i] ${mc.op('=')} \\sum_{j \\,=\\, i \\,-\\, ${mc.fn('low')}(i) \\,+\\, ${mc.num('1')}}^{i} ${mc.fn('a')}[j] \\qquad ${mc.fn('low')}(i) ${mc.op('=')} i \\;\\&\\; {-i}`,
+);
+const texPre2d = texCode(
+  `${mc.fn('sum')} ${mc.op('=')} ${mc.fn('s')}[r_2][c_2] ${mc.op('-')} ${mc.fn('s')}[r_1 ${mc.op('-')} ${mc.num('1')}][c_2] ${mc.op('-')} ${mc.fn('s')}[r_2][c_1 ${mc.op('-')} ${mc.num('1')}] ${mc.op('+')} ${mc.fn('s')}[r_1 ${mc.op('-')} ${mc.num('1')}][c_1 ${mc.op('-')} ${mc.num('1')}]`,
+);
+
+/* ---------- โค้ด ---------- */
+
+const preCode = `// ผลรวมสะสม สร้างครั้งเดียวแล้วตอบทุกช่วงในเวลาคงที่
+// pre[0] = 0 เสมอ เพื่อให้ช่วงที่เริ่มที่ 1 ไม่ต้องเขียนเงื่อนไขพิเศษ
+vector<long long> pre(n + 1, 0);
+for (int i = 1; i <= n; i++) pre[i] = pre[i - 1] + a[i];
+
+long long sum = pre[r] - pre[l - 1];   // ผลรวมของ a[l..r]`;
+
+const bitCode = `#include <bits/stdc++.h>
+using namespace std;
+
+// ต้นไม้เฟนวิก ดัชนีเริ่มที่ 1 เสมอ เพราะสูตร i & -i ใช้กับ 0 ไม่ได้ (วนไม่รู้จบ)
+struct BIT {
+    int n;
+    vector<long long> t;
+    BIT(int n_) : n(n_), t(n_ + 1, 0) {}
+
+    // บวก v เข้าไปที่ตำแหน่ง i แล้วไล่ขึ้นไปแก้ทุกช่องที่ครอบ i อยู่
+    void add(int i, long long v) {
+        for (; i <= n; i += i & -i) t[i] += v;
+    }
+
+    // ผลรวมตั้งแต่ตำแหน่ง 1 ถึง i โดยไล่ตัดทีละก้อนจากขวาเข้าซ้าย
+    long long pre(int i) {
+        long long s = 0;
+        for (; i > 0; i -= i & -i) s += t[i];
+        return s;
+    }
+
+    long long range(int l, int r) { return pre(r) - pre(l - 1); }
+};
+
+int main() {
+    int n, q;
+    scanf("%d %d", &n, &q);
+    BIT b(n);
+    vector<long long> a(n + 1, 0);
+    for (int i = 1; i <= n; i++) { scanf("%lld", &a[i]); b.add(i, a[i]); }
+
+    while (q--) {
+        int op;
+        scanf("%d", &op);
+        if (op == 1) {                     // แก้ค่าที่ตำแหน่ง i ให้เป็น v
+            int i; long long v;
+            scanf("%d %lld", &i, &v);
+            b.add(i, v - a[i]);            // ส่ง "ส่วนต่าง" เข้าไป ไม่ใช่ค่าใหม่
+            a[i] = v;
+        } else {                           // ถามผลรวมของช่วง [l, r]
+            int l, r;
+            scanf("%d %d", &l, &r);
+            printf("%lld\\n", b.range(l, r));
+        }
+    }
+    return 0;
+}`;
+
+const q1Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int R, C, q;
+    scanf("%d %d %d", &R, &C, &q);
+
+    // s[i][j] = ผลรวมของสี่เหลี่ยมตั้งแต่มุมซ้ายบน (1,1) ถึง (i,j)
+    vector<vector<long long>> s(R + 1, vector<long long>(C + 1, 0));
+    for (int i = 1; i <= R; i++)
+        for (int j = 1; j <= C; j++) {
+            long long v;
+            scanf("%lld", &v);
+            // แถวบนกับคอลัมน์ซ้ายทับกันตรงมุมซ้ายบน จึงต้องบวกคืนหนึ่งครั้ง
+            s[i][j] = v + s[i - 1][j] + s[i][j - 1] - s[i - 1][j - 1];
+        }
+
+    while (q--) {
+        int r1, c1, r2, c2;
+        scanf("%d %d %d %d", &r1, &c1, &r2, &c2);
+        printf("%lld\\n", s[r2][c2] - s[r1 - 1][c2] - s[r2][c1 - 1] + s[r1 - 1][c1 - 1]);
+    }
+    return 0;
+}`;
+
+const q2Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int n;
+vector<int> t;
+void add(int i) { for (; i <= n; i += i & -i) t[i]++; }
+int pre(int i) { int s = 0; for (; i > 0; i -= i & -i) s += t[i]; return s; }
+
+int main() {
+    scanf("%d", &n);
+    vector<int> a(n);
+    for (auto& x : a) scanf("%d", &x);
+
+    // ค่าอาจใหญ่หรือติดลบ ย่อให้เป็นอันดับ 1..n ก่อน ต้นไม้จะได้มีขนาดเท่า n
+    vector<int> v = a;
+    sort(v.begin(), v.end());
+    v.erase(unique(v.begin(), v.end()), v.end());
+
+    t.assign(n + 1, 0);
+    long long ans = 0;
+    for (int i = n - 1; i >= 0; i--) {          // เดินจากขวาไปซ้าย
+        int r = lower_bound(v.begin(), v.end(), a[i]) - v.begin() + 1;
+        ans += pre(r - 1);                      // ของที่อยู่ขวาแล้วเล็กกว่า a[i]
+        add(r);
+    }
+    printf("%lld\\n", ans);
+    return 0;
+}`;
+
+const q3Code = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n; long long D;
+    scanf("%d %lld", &n, &D);
+    vector<long long> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+
+    sort(a.begin(), a.end());
+    long long ans = 0;
+    int l = 0;
+    for (int r = 0; r < n; r++) {
+        while (a[r] - a[l] > D) l++;   // ตัวชี้ซ้ายเดินหน้าอย่างเดียว ไม่เคยถอย
+        ans += r - l;                  // ทุกตัวใน [l, r-1] จับคู่กับ r ได้
+    }
+    printf("%lld\\n", ans);
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>อาการ · คำถามเดียวกันที่ถูกถามสองแสนครั้ง</h2>
+  <p>
+    โจทย์ชุดหนึ่งที่โผล่บ่อยมากหน้าตาเป็นแบบนี้ ให้อาเรย์ยาว <code>n</code> ตัว แล้วมีคำถามตามมาอีก <code>q</code> ข้อ
+    แต่ละข้อถามว่า "ผลรวมของช่องที่ <code>l</code> ถึงช่องที่ <code>r</code> เป็นเท่าไร" ตอบให้ครบทุกข้อ
+  </p>
+  <p>
+    ท่าแรกที่ทุกคนเขียนคือวนบวกไปตามช่วงที่เขาถาม ซึ่งถูกต้องร้อยเปอร์เซ็นต์และ<strong>ตกทุกครั้ง</strong>
+    เมื่อ <code>n</code> กับ <code>q</code> โตขึ้นไปถึงระดับสองแสน เพราะคำถามข้อเดียวที่ถามช่วงยาวทั้งแถวก็กินสองแสนครั้งแล้ว
+    ถามสองแสนข้อคือสี่หมื่นล้านครั้ง
+  </p>
+  <p>
+    บทนี้ไล่จากท่าที่ง่ายที่สุดไปหาท่าที่ยืดหยุ่นที่สุด แล้วจบด้วยคำถามที่สำคัญกว่าทั้งสองท่า
+    คือ<strong>เมื่อไรควรใช้อันไหน</strong> เพราะท่าที่แรงกว่าไม่ได้แปลว่าท่าที่ควรหยิบ
+  </p>
+
+  <h2>ท่าที่หนึ่ง · ผลรวมสะสม</h2>
+  <p>
+    แทนที่จะตอบคำถามตอนถูกถาม ให้ทำการบ้านไว้ก่อนหนึ่งรอบ สร้างอาเรย์ใหม่ชื่อ <code>pre</code> ที่
+    <code>pre[i]</code> เก็บ<strong>ผลรวมตั้งแต่ช่องแรกจนถึงช่องที่ <code>i</code></strong> เรียกมันว่า
+    ผลรวมสะสม (prefix sum) คำว่า <i>prefix</i> อ่านว่า "พรีฟิกซ์" แปลว่าส่วนที่นำหน้า เป็นคำเดียวกับคำนำหน้าคำในภาษาอังกฤษ
+    ที่นี่หมายถึงท่อนที่เริ่มจากหัวแถวเสมอ
+  </p>
+  <p>
+    พอมีตารางนี้แล้ว ผลรวมของช่วงใด ๆ ก็หักลบกันออกมาได้ในการคำนวณครั้งเดียว
+  </p>
+  <div set:html={texPre} />
+  <p>
+    เอาอาเรย์ตัวอย่าง <code>{A.join(' ')}</code> มาไล่ให้เห็นชัด ๆ
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ผลรวมสะสมของ {A.join(' ')}</caption>
+      <thead>
+        <tr>
+          <th>i</th>
+          {Array.from({ length: N + 1 }, (_, i) => <th class="num">{i}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>a[i]</td>
+          <td class="num">·</td>
+          {A.map((v) => <td class="num">{v}</td>)}
+        </tr>
+        <tr>
+          <td>pre[i]</td>
+          {PRE.map((v) => <td class="num">{v}</td>)}
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ช่อง <code>pre[0]</code> ที่เป็น 0 ไม่ใช่ของประดับ มันคือสิ่งที่ทำให้ช่วงที่เริ่มต้นที่ช่อง 1 ไม่ต้องเขียนเงื่อนไขพิเศษ
+      เช่นผลรวมช่วง 1 ถึง 4 คือ <code>{PRE[4]} − {PRE[0]} = {rangeSum(1, 4)}</code> ใช้สูตรเดียวกับทุกช่วง
+    </figcaption>
+  </figure>
+
+  <p>
+    ท่านี้จบเร็วและเขียนสั้นมาก ปัญหาเดียวของมันโผล่ตอนโจทย์เติมประโยคเดียวเข้ามาว่า
+    "<strong>ระหว่างทางมีการแก้ค่าในช่องด้วย</strong>" เพราะการแก้ค่าช่องที่ 3 ทำให้ <code>pre[3]</code> จนถึง
+    <code>pre[n]</code> ผิดหมดทุกช่อง ต้องสร้างใหม่ทั้งแถว
+  </p>
+  <CodeBlock code={preCode} lang="cpp" title="ผลรวมสะสม" />
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ต้นทุนของแต่ละท่า · นับเป็นจำนวนครั้งที่แตะช่องข้อมูล</caption>
+      <thead>
+        <tr>
+          <th>ท่า</th>
+          <th class="num">สร้างตอนต้น</th>
+          <th class="num">ถามหนึ่งครั้ง</th>
+          <th class="num">แก้ค่าหนึ่งครั้ง</th>
+          <th class="num">รวม</th>
+        </tr>
+      </thead>
+      <tbody>
+        {costRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td class="num">{r.build}</td>
+            <td class="num">{r.ask}</td>
+            <td class="num">{r.edit}</td>
+            <td class="num">{human(r.total)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      คิดที่ <code>n = {fmt(BIG_N)}</code> และ <code>q = {fmt(BIG_Q)}</code> โดยสมมติว่าครึ่งหนึ่งของคำถามเป็นการถามผลรวม
+      อีกครึ่งเป็นการแก้ค่า ทั้งสามแถวนับหน่วยเดียวกัน ถ้าโจทย์<strong>ไม่มี</strong>การแก้ค่าเลย แถวกลางคือ {human(BIG_N + BIG_Q * 2)} ครั้ง
+      ซึ่งชนะแถวล่างขาดลอย
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">คิดก่อนอ่านต่อ</p>
+    <p>
+      ผลรวมสะสมเร็วเพราะมันเก็บ<strong>ก้อนเดียวที่ใหญ่ที่สุด</strong> คือตั้งแต่หัวแถวถึงตำแหน่งนั้น
+      ซึ่งทำให้แก้ค่าทีเดียวพังยาว ส่วนอาเรย์ดิบเก็บทีละช่อง แก้ง่ายแต่ถามช้า
+      ถ้าอยากได้ทั้งสองอย่าง เราน่าจะต้องเก็บก้อนที่<strong>ใหญ่กำลังดี</strong> คำถามคือใหญ่แค่ไหนถึงเรียกว่ากำลังดี
+      และแต่ละช่องควรดูแลช่วงไหน?
+    </p>
+  </div>
+
+  <h2>ท่าที่สอง · ต้นไม้เฟนวิก</h2>
+  <p>
+    โครงสร้างที่ตอบคำถามข้างบนชื่อ <strong>ต้นไม้เฟนวิก</strong> (Fenwick tree) อ่านว่า "เฟนวิก" ตั้งตามชื่อ
+    Peter Fenwick นักวิทยาศาสตร์คอมพิวเตอร์ชาวนิวซีแลนด์ที่เขียนถึงมันในปี 1994 อีกชื่อที่เจอบ่อยพอกันคือ
+    Binary Indexed Tree (ย่อว่า BIT) แปลตรงตัวว่าต้นไม้ที่ใช้เลขฐานสองเป็นดัชนี ซึ่งเป็นชื่อที่บอกกลไกได้ตรงกว่า
+  </p>
+  <p>
+    กติกามีข้อเดียว <strong>ช่องที่ <code>i</code> ของต้นไม้ดูแลช่วงที่ยาวเท่ากับบิตต่ำสุดที่ยังเป็น 1 ของ <code>i</code></strong>
+    และช่วงนั้นจบลงที่ <code>i</code> พอดี เขียนบิตต่ำสุดนั้นเป็นสูตรได้ว่า <code>i & -i</code>
+  </p>
+  <div set:html={texCover} />
+  <p>
+    เหตุผลที่ <code>i & -i</code> ให้บิตต่ำสุดออกมา อยู่ที่วิธีที่คอมพิวเตอร์เก็บเลขติดลบ ค่า <code>-i</code>
+    คือการกลับบิตทุกตัวของ <code>i</code> แล้วบวกหนึ่ง ผลคือบิตทางซ้ายของบิตต่ำสุดกลับด้านกันหมด และบิตต่ำสุดเองยังตรงกัน
+    การ <code>and</code> กันจึงเหลือรอดแค่บิตเดียวนั้น
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ช่องไหนดูแลช่วงไหน · อาเรย์ {A.join(' ')}</caption>
+      <thead>
+        <tr>
+          <th class="num">i</th>
+          <th class="num">i ฐานสอง</th>
+          <th class="num">i & -i</th>
+          <th>ช่วงที่ดูแล</th>
+          <th class="num">t[i]</th>
+        </tr>
+      </thead>
+      <tbody>
+        {coverRows.map((r) => (
+          <tr>
+            <td class="num">{r.i}</td>
+            <td class="num">{r.bin}</td>
+            <td class="num">{r.low}</td>
+            <td><code>a[{r.l}..{r.r}]</code> ยาว {r.len}</td>
+            <td class="num">{r.val}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      คอลัมน์ขวาสุดคือค่าที่เก็บจริงในต้นไม้ ลองสุ่มเช็กสักช่อง <code>t[{coverRows[5].i}]</code> ควรเท่ากับ
+      <code>a[{coverRows[5].l}] + a[{coverRows[5].r}]</code> คือ <code>{A[coverRows[5].l - 1]} + {A[coverRows[5].r - 1]} = {coverRows[5].val}</code>
+    </figcaption>
+  </figure>
+
+  <ZoomableDiagram caption="ช่องเลขคี่ดูแลตัวเองตัวเดียว ช่องที่หารสองลงตัวดูแลกว้างขึ้นเรื่อย ๆ จนช่องที่เป็นกำลังของสองดูแลตั้งแต่หัวแถว ความยาวที่ไม่เท่ากันนี่แหละที่ทำให้ทุกช่วงประกอบขึ้นจากไม่กี่ก้อน (วาดประกอบโดยผู้เขียน)">
+    <svg
+      viewBox={`0 0 ${DGM_W} ${DGM_H}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="แผนภาพบันได แต่ละแถวคือหนึ่งช่องของต้นไม้เฟนวิก แถบสีทอดยาวคลุมช่วงที่ช่องนั้นดูแล ช่องเลขคี่มีแถบยาวหนึ่งหน่วย ช่องที่สี่มีแถบยาวสี่หน่วย ช่องที่แปดมีแถบยาวแปดหน่วยคลุมทั้งแถว"
+    >
+      {Array.from({ length: N }, (_, k) => (
+        <text
+          x={cellX(k + 1) + CELL / 2}
+          y={26}
+          fill="#7b8397"
+          font-size="11"
+          text-anchor="middle"
+          font-family="monospace"
+        >
+          {k + 1}
+        </text>
+      ))}
+      {coverRows.map((r, k) => (
+        <g>
+          <text x={54} y={TOP_Y + k * ROW_H + 15} fill="#9aa7bd" font-size="11" text-anchor="end" font-family="monospace">
+            t[{r.i}]
+          </text>
+          <rect
+            x={cellX(r.l) + 3}
+            y={TOP_Y + k * ROW_H + 3}
+            width={r.len * CELL - 6}
+            height={ROW_H - 7}
+            rx="5"
+            fill={r.len === 1 ? '#1c2536' : '#2a2010'}
+            stroke={r.len === 1 ? '#3d4763' : '#e0b400'}
+            stroke-width="1.4"
+          />
+          <text
+            x={cellX(r.l) + (r.len * CELL) / 2}
+            y={TOP_Y + k * ROW_H + 15}
+            fill={r.len === 1 ? '#9aa7bd' : '#e0b400'}
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {r.val}
+          </text>
+        </g>
+      ))}
+      <text x={54} y={TOP_Y + N * ROW_H + 20} fill="#7b8397" font-size="11" text-anchor="end">
+        ตำแหน่ง
+      </text>
+      {A.map((v, k) => (
+        <text
+          x={cellX(k + 1) + CELL / 2}
+          y={TOP_Y + N * ROW_H + 20}
+          fill="#7b8397"
+          font-size="11"
+          text-anchor="middle"
+          font-family="monospace"
+        >
+          {v}
+        </text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <h3>ถามผลรวม · ตัดทีละก้อนจากขวาเข้าซ้าย</h3>
+  <p>
+    อยากได้ผลรวมตั้งแต่ต้นถึงตำแหน่ง {Q_AT} ก็เริ่มที่ช่อง <code>t[{Q_AT}]</code> ซึ่งดูแลช่วงท้ายสุดมาก้อนหนึ่ง
+    แล้วกระโดดถอยไปยังช่องที่ดูแลก้อนถัดไป การกระโดดคือ <code>i -= i & -i</code> ตรง ๆ ทำซ้ำจนถึงศูนย์
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ถามผลรวม 1 ถึง {Q_AT}</caption>
+      <thead>
+        <tr><th class="num">ช่องที่แวะ</th><th>ก้อนที่ได้</th><th class="num">ค่า</th><th class="num">สะสม</th></tr>
+      </thead>
+      <tbody>
+        {Q_PATH.map((i, k) => {
+          const [l, r] = covers(i);
+          return (
+            <tr>
+              <td class="num">t[{i}]</td>
+              <td><code>a[{l}..{r}]</code></td>
+              <td class="num">{TREE[i]}</td>
+              <td class="num">{Q_PATH.slice(0, k + 1).reduce((s, j) => s + TREE[j], 0)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    <figcaption>
+      สามก้อนนี้ต่อกันพอดีเป็นช่วง <code>a[1..{Q_AT}]</code> ไม่ทับกันและไม่มีรู ผลรวมที่ได้คือ {PRE[Q_AT]}
+      ตรงกับ <code>pre[{Q_AT}]</code> ในตารางแรก ที่มันแวะแค่ {Q_PATH.length} ช่องเพราะเลข {Q_AT} เขียนฐานสองได้
+      <code>{Q_AT.toString(2)}</code> ซึ่งมีเลขหนึ่งอยู่ {Q_AT.toString(2).split('').filter((c) => c === '1').length} ตัว
+      และการกระโดดหนึ่งครั้งลบเลขหนึ่งออกไปหนึ่งตัวเสมอ
+    </figcaption>
+  </figure>
+
+  <h3>แก้ค่า · ไล่ขึ้นไปหาทุกช่องที่ครอบเราอยู่</h3>
+  <p>
+    ถ้าค่าที่ตำแหน่ง {U_AT} เปลี่ยนไป ช่องของต้นไม้ที่ต้องแก้ตามคือทุกช่องที่<strong>ช่วงของมันคลุมตำแหน่ง {U_AT} อยู่</strong>
+    ซึ่งหาได้ด้วยการกระโดดไปทางตรงข้ามคือ <code>i += i & -i</code>
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>แก้ค่าที่ตำแหน่ง {U_AT}</caption>
+      <thead>
+        <tr><th class="num">ช่องที่ต้องแก้</th><th>ช่วงที่มันดูแล</th><th>คลุมตำแหน่ง {U_AT} ไหม</th></tr>
+      </thead>
+      <tbody>
+        {U_PATH.map((i) => {
+          const [l, r] = covers(i);
+          return (
+            <tr>
+              <td class="num">t[{i}]</td>
+              <td><code>a[{l}..{r}]</code></td>
+              <td>{l <= U_AT && U_AT <= r ? 'คลุม' : 'ไม่คลุม'}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    <figcaption>
+      ช่องอื่นที่เหลือทั้งหมดไม่มีตำแหน่ง {U_AT} อยู่ในช่วงของมัน จึงไม่ต้องแตะเลย จาก {N} ช่องเหลือแก้แค่ {U_PATH.length} ช่อง
+      และพอ <code>n</code> เป็นสองแสน ตัวเลขนี้ก็ยังไม่เกิน {LOGN}
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      สองข้อที่ทำให้โค้ดเงียบ ๆ ผิด ข้อแรก <strong>ดัชนีต้องเริ่มที่ 1</strong> เพราะ <code>0 & -0</code> เป็นศูนย์
+      ลูป <code>i += i & -i</code> จึงไม่ขยับและวนไม่รู้จบ ข้อสอง ฟังก์ชัน <code>add</code> รับ<strong>ส่วนต่าง</strong>
+      ไม่ใช่ค่าใหม่ ถ้าโจทย์บอกว่า "เปลี่ยนช่อง <code>i</code> ให้เป็น <code>v</code>" ต้องส่ง <code>v - a[i]</code> เข้าไป
+      แล้วอย่าลืมอัปเดต <code>a[i]</code> เก็บไว้เองด้วย
+    </p>
+  </div>
+
+  <h2>เขียนเป็นโค้ด</h2>
+  <p>
+    ทั้งโครงสร้างยาวไม่ถึงยี่สิบบรรทัด และสองลูปในนั้นต่างกันแค่เครื่องหมายบวกกับลบเท่านั้น
+  </p>
+  <CodeBlock code={bitCode} lang="cpp" title="fenwick.cpp" />
+  <p>
+    ผมสุ่มเทียบกับตัวไล่บวกทีละช่องแบบซื่อ ๆ 400 เทส แต่ละเทสสุ่มทั้งการถามและการแก้ค่าสลับกันไปมา
+    รวมทั้งกรณี <code>n = 1</code> และค่าติดลบ ตรงกันทั้งหมด
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้ตอบคนละคำถาม ข้อแรกถามว่า "ท่าผลรวมสะสมขยายไปสองมิติยังไง" ข้อสองถามว่า "เอาต้นไม้ไปนับอย่างอื่นที่ไม่ใช่ผลรวมได้ไหม"
+    ข้อสามถามว่า "โจทย์ที่ดูเหมือนต้องใช้ต้นไม้ จำเป็นต้องใช้จริงหรือเปล่า" ลองคิดเองก่อนแล้วค่อยแตะดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · ผลรวมของสี่เหลี่ยม</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ตารางตัวเลขขนาด <code>R</code> คูณ <code>C</code> และคำถาม <code>q</code> ข้อ แต่ละข้อให้มุมซ้ายบน
+      <code>(r₁, c₁)</code> กับมุมขวาล่าง <code>(r₂, c₂)</code> แล้วถามผลรวมของทุกช่องในสี่เหลี่ยมนั้น
+      ไม่มีการแก้ค่าระหว่างทาง โดย <code>R, C ≤ 1 000</code> และ <code>q ≤ 200 000</code>
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ในหนึ่งมิติ เราเก็บ "ตั้งแต่หัวแถวถึงตรงนี้" ในสองมิติก็เก็บ "ตั้งแต่มุมซ้ายบนถึงตรงนี้"
+      ที่เหลือคือวาดสี่เหลี่ยมสี่รูปทับกันบนกระดาษแล้วดูว่าตรงไหนถูกลบเกินไป
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      ให้ <code>s[i][j]</code> เป็นผลรวมของสี่เหลี่ยมตั้งแต่ <code>(1,1)</code> ถึง <code>(i,j)</code>
+      เวลาตอบคำถาม เราเอาก้อนใหญ่มาลบก้อนบนกับก้อนซ้ายออก แต่<strong>มุมซ้ายบนถูกลบไปสองครั้ง</strong>
+      จึงต้องบวกคืนหนึ่งครั้ง
+    </p>
+    <div set:html={texPre2d} />
+    <p>
+      ตอนสร้างตารางก็ใช้เหตุผลเดียวกันเป๊ะ แค่กลับทิศ คือบวกก้อนบนกับก้อนซ้ายแล้วลบส่วนที่ทับกันออก
+      ทั้งข้อจึงเป็น <strong>O(RC + q)</strong>
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · ผลรวมสะสมสองมิติ" />
+    <p>
+      ผมสุ่มเทียบกับตัวไล่บวกทีละช่อง 400 เทส โดยจงใจให้มีทั้งช่วงที่ชิดขอบและช่วงที่กว้างช่องเดียว ตรงกันหมด
+      ท่านี้คือกระดูกสันหลังของข้อ <a href="/cp/hearing-pairs/">คู่ที่ได้ยินกัน</a> ในส่วนที่เป็นกระดานสามมิติ
+      ซึ่งขยายเป็นแปดพจน์แทนที่จะเป็นสี่
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · นับคู่ที่สลับที่กันอยู่</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้อาเรย์ยาว <code>n ≤ 200 000</code> นับว่ามีคู่ <code>(i, j)</code> กี่คู่ที่ <code>i &lt; j</code>
+      แต่ <code>a[i] &gt; a[j]</code> ค่าในอาเรย์เป็นจำนวนเต็มอะไรก็ได้ ซ้ำกันได้
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ต้นไม้เฟนวิกไม่ได้ผูกกับคำว่า "ผลรวม" มันบวกอะไรก็ได้ ลองใส่เลข 1 ลงไปที่ตำแหน่งของ<strong>ค่า</strong>แทนที่จะเป็น
+      ตำแหน่งในอาเรย์ แล้วถามว่าตอนนี้มีของที่ค่าน้อยกว่า <code>a[i]</code> อยู่กี่ตัว
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      เดินจาก<strong>ขวาไปซ้าย</strong> พอถึงตำแหน่ง <code>i</code> ทุกตัวที่ใส่ลงต้นไม้ไปแล้วคือตัวที่อยู่ทางขวาของมัน
+      คำถามว่ามีกี่ตัวที่เล็กกว่า <code>a[i]</code> จึงเป็นการถามผลรวมตั้งแต่ต้นถึงอันดับของ <code>a[i]</code> ลบหนึ่ง
+      ซึ่งคือ <code>pre</code> ตรง ๆ แล้วค่อยใส่ตัวเองลงไป ทั้งข้อเป็น <strong>O(n log n)</strong>
+    </p>
+    <p>
+      ค่าในอาเรย์อาจเป็นล้านหรือติดลบ ต้นไม้จึงสร้างตามค่าตรง ๆ ไม่ได้ ต้อง<strong>ย่อค่าให้เป็นอันดับ</strong>
+      (coordinate compression) ก่อน คือเรียงค่าทั้งหมด ตัดตัวซ้ำออก แล้วแทนแต่ละค่าด้วยลำดับที่ของมัน
+      ต้นไม้จะได้มีขนาดเท่ากับ <code>n</code> พอดี
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · นับด้วยต้นไม้" />
+    <p>
+      สุ่มเทียบกับตัวไล่ทุกคู่ 400 เทส โดยจงใจให้ค่าซ้ำกันเยอะ (สุ่มจากช่วงแคบ ๆ) เพื่อกดดันจุดที่คนพลาดบ่อยที่สุด
+      คือการเผลอนับคู่ที่ค่า<strong>เท่ากัน</strong>เข้าไปด้วย ตรงกันทั้งหมด
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · คู่ที่ค่าต่างกันไม่เกิน D</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้อาเรย์ยาว <code>n ≤ 200 000</code> กับเลข <code>D</code> นับว่ามีคู่กี่คู่ที่ค่าต่างกันไม่เกิน <code>D</code>
+      ตำแหน่งในอาเรย์ไม่มีความหมาย สนใจแค่ค่า
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ข้อนี้ใส่ต้นไม้เฟนวิกลงไปแล้วจบได้จริง แต่ก่อนจะเขียน ลองถามหนึ่งคำถามก่อน
+      ตำแหน่งในอาเรย์ไม่มีความหมายเลย แปลว่าเราทำอะไรกับลำดับของมันก็ได้ แล้วถ้าเรียงมันเสียก่อน
+      คำว่า "ต่างกันไม่เกิน D" จะกลายเป็นอะไร?
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      พอเรียงแล้ว คู่ที่ค่าต่างกันไม่เกิน <code>D</code> กลายเป็น<strong>คู่ที่อยู่ในหน้าต่างเดียวกัน</strong>
+      คือสำหรับตัวขวาสุดที่ตำแหน่ง <code>r</code> ตัวที่จับคู่กับมันได้คือทุกตัวตั้งแต่ <code>l</code> ถึง <code>r - 1</code>
+      โดย <code>l</code> คือตัวแรกที่ <code>a[r] - a[l] ≤ D</code> และเมื่อ <code>r</code> เดินไปทางขวา
+      ค่า <code>l</code> ก็<strong>ไม่มีทางถอยกลับ</strong> เพราะอาเรย์เรียงแล้ว
+    </p>
+    <p>
+      ตัวชี้สองตัวที่เดินหน้าอย่างเดียวจึงกวาดจบในรอบเดียว งานทั้งหมดคือการเรียงหนึ่งครั้ง เป็น <strong>O(n log n)</strong>
+      เท่ากับท่าต้นไม้ แต่โค้ดสั้นกว่าครึ่ง ไม่ต้องย่อค่า ไม่ต้องระวังดัชนีเริ่มที่หนึ่ง และไม่มีอะไรให้พลาด
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · เรียงแล้วเดินสองตัวชี้" />
+    <div class="callout callout-warn">
+      <p class="callout-label">บทเรียนที่แพงที่สุดของบทนี้</p>
+      <p>
+        ต้นไม้เฟนวิกจำเป็นก็ต่อเมื่อ<strong>ข้อมูลเปลี่ยนระหว่างทาง</strong> หรือ<strong>ลำดับที่ถูกถามมีความหมาย</strong>
+        เท่านั้น โจทย์ที่ตอบได้ทีเดียวหลังเรียงเสร็จ ไม่ต้องใช้มัน การหยิบเครื่องมือที่แรงกว่ามาใช้ไม่ได้ทำให้ผิด
+        แต่มันเพิ่มที่ให้พลาดโดยไม่ได้อะไรกลับมา
+      </p>
+      <p>
+        สุ่มเทียบกับตัวไล่ทุกคู่ 400 เทส รวมกรณี <code>D = 0</code> (นับเฉพาะคู่ที่ค่าเท่ากันเป๊ะ)
+        และกรณีที่ทุกตัวเท่ากันหมด ซึ่งเป็นกรณีที่คำตอบโตเร็วที่สุดและ <code>int</code> ล้นถ้าไม่ระวัง ตรงกันทั้งหมด
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้าโจทย์<strong>ไม่แก้ค่า</strong>ระหว่างทาง ผลรวมสะสมจบงานได้เร็วที่สุดและสั้นที่สุด ถ้ามันแก้ค่า
+    ให้เก็บก้อนที่ยาวเท่ากับบิตต่ำสุดของดัชนี แล้วทั้งการถามและการแก้จะเหลือไม่เกิน <code>log n</code> ก้าวเท่ากัน
+    และก่อนหยิบต้นไม้ทุกครั้ง ให้ถามก่อนหนึ่งคำถามว่าเรียงข้อมูลแล้วปัญหาหายไปเลยหรือเปล่า
+  </p>
+  <p>
+    ข้อที่ใช้ของในบทนี้เต็ม ๆ คือ <a href="/cp/hearing-pairs/">คู่ที่ได้ยินกัน</a> ซึ่งเอาทั้งสามท่ามารวมกัน
+    คือผลรวมสะสมสำหรับกระดานที่ไม่เปลี่ยน ต้นไม้เฟนวิกสำหรับตอนกวาดเส้น และการเรียงเพื่อทำให้เงื่อนไขสองแกนแยกกันได้
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ (1rem) และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem 0 0.5rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+</style>

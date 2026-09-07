@@ -1,0 +1,733 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'string-hashing/';
+
+/* ---------- โมเดลกลาง ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ไม่มีที่ไหนพิมพ์มือ ---------- */
+
+const S = 'abcab';
+const B = 31n;
+/** a เป็น 1, b เป็น 2, ... เพื่อไม่ให้ตัวแรกของสตริงเป็นศูนย์ */
+const codeOf = (ch: string): bigint => BigInt(ch.charCodeAt(0) - 96);
+
+/** แฮชนำหน้าแบบไม่มีมอดุลัส เพื่อให้ตัวเลขในตารางตรวจด้วยมือได้ */
+const H: bigint[] = [0n];
+for (const ch of S) H.push(H[H.length - 1] * B + codeOf(ch));
+
+const POW: bigint[] = [1n];
+for (let i = 1; i <= S.length; i++) POW.push(POW[i - 1] * B);
+
+/** ค่าแฮชของช่วง s[l .. l+len-1] (l นับจากศูนย์) */
+const cut = (l: number, len: number): bigint => H[l + len] - H[l] * POW[len];
+
+/** ทุกสตริงย่อยความยาว 2 พร้อมค่าแฮชของมัน */
+const DEMO_LEN = 2;
+const demoWindows = Array.from({ length: S.length - DEMO_LEN + 1 }, (_, l) => ({
+  l,
+  text: S.slice(l, l + DEMO_LEN),
+  val: cut(l, DEMO_LEN),
+}));
+/** คู่ที่แฮชตรงกัน จะได้เล่าว่ามันจับคู่ซ้ำเจอจริง */
+const demoMatch = demoWindows.find((w, i) => demoWindows.slice(0, i).some((u) => u.val === w.val));
+const demoMatchFirst = demoMatch ? demoWindows.find((u) => u.val === demoMatch.val) : undefined;
+
+/** ตัวอย่างการตัดช่วงกลางสตริง เอาไว้ตรวจด้วยมือ */
+const CUT_L = 1;
+const CUT_LEN = 3;
+const CUT_TEXT = S.slice(CUT_L, CUT_L + CUT_LEN);
+const CUT_VAL = cut(CUT_L, CUT_LEN);
+/** เทียบกับการกางพหุนามตรง ๆ ว่าได้เลขเดียวกัน */
+const CUT_EXPAND = [...CUT_TEXT].map((ch, k) => ({
+  ch,
+  code: codeOf(ch),
+  pw: POW[CUT_LEN - 1 - k],
+  term: codeOf(ch) * POW[CUT_LEN - 1 - k],
+}));
+const CUT_EXPAND_SUM = CUT_EXPAND.reduce((s, t) => s + t.term, 0n);
+
+/* ---------- ต้นทุน คิดหน่วยเดียวกันคือ "จำนวนครั้งที่เทียบตัวอักษร" ---------- */
+
+const BIG_N = 200000;
+const BIG_Q = 200000;
+const naiveCompare = BIG_Q * BIG_N;
+const hashCompare = BIG_N + BIG_Q;
+
+/* ---------- ความน่าจะเป็นที่จะพลาด ---------- */
+
+const MOD = 2n ** 61n - 1n;
+const PAIRS = 10n ** 10n;
+/** ขอบบนของโอกาสที่จะมีสักคู่หนึ่งชนกันทั้งที่ข้อความต่างกัน */
+const failNum = Number(PAIRS) / Number(MOD);
+
+const fmt = (n: number | bigint): string => n.toLocaleString('en-US');
+function human(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} พันล้าน`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} ล้าน`;
+  return fmt(n);
+}
+
+/* ---------- ตัวช่วยวาดภาพ "เลื่อนแล้วลบ" ---------- */
+
+const CW = 54;
+const DX = 78;
+const DGM_W = DX + S.length * CW + 120;
+const DGM_H = 214;
+const rowY = (k: number): number => 46 + k * 52;
+
+type DrawCell = { ch: string; kind: 'prefix' | 'target' | 'zero' };
+const rowFull: DrawCell[] = [...S].map((ch, i) => ({
+  ch,
+  kind: i < CUT_L ? 'prefix' : i < CUT_L + CUT_LEN ? 'target' : 'zero',
+}));
+const rowShift: DrawCell[] = [...S].map((ch, i) => ({
+  ch: i < CUT_L ? ch : '0',
+  kind: i < CUT_L ? 'prefix' : 'zero',
+}));
+const rowDiff: DrawCell[] = [...S].map((ch, i) => ({
+  ch: i >= CUT_L && i < CUT_L + CUT_LEN ? ch : '0',
+  kind: i >= CUT_L && i < CUT_L + CUT_LEN ? 'target' : 'zero',
+}));
+const fillOf = (k: DrawCell['kind']): string => (k === 'target' ? '#2a2010' : k === 'prefix' ? '#1c2536' : '#101827');
+const strokeOf = (k: DrawCell['kind']): string => (k === 'target' ? '#e0b400' : k === 'prefix' ? '#3d4763' : '#232c42');
+const inkOf = (k: DrawCell['kind']): string => (k === 'target' ? '#e0b400' : k === 'prefix' ? '#cdd6ea' : '#5c6784');
+
+/* ---------- สูตร ---------- */
+
+const texPoly = texCode(
+  `${mc.fn('h')}[i] ${mc.op('=')} ${mc.fn('h')}[i ${mc.op('-')} ${mc.num('1')}] \\cdot ${mc.fn('B')} ${mc.op('+')} ${mc.fn('s')}[i]`,
+);
+const texCut = texCode(
+  `${mc.fn('cut')}(l, len) ${mc.op('=')} ${mc.fn('h')}[l ${mc.op('+')} len] ${mc.op('-')} ${mc.fn('h')}[l] \\cdot ${mc.fn('B')}^{\\,len}`,
+);
+const texRev = texCode(
+  `${mc.fn('rev')}(l, len) ${mc.op('=')} ${mc.fn('cut_R')}(n ${mc.op('-')} l ${mc.op('-')} len,\\; len)`,
+);
+
+/* ---------- โค้ด ---------- */
+
+const hashCode = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+
+// มอดุลัส 2^61 - 1 เป็นจำนวนเฉพาะ และคูณกันแล้ว "พับ" ด้วยการเลื่อนบิตได้ ไม่ต้องหารจริง
+const ull MOD = (1ULL << 61) - 1;
+static inline ull add(ull a, ull b) { a += b; if (a >= MOD) a -= MOD; return a; }
+static inline ull sub(ull a, ull b) { return add(a, MOD - b); }
+static inline ull mul(ull a, ull b) {
+    __uint128_t c = (__uint128_t)a * b;
+    return add((ull)(c & MOD), (ull)(c >> 61));   // ส่วนบน 3 บิต บวกกลับเข้าส่วนล่าง 61 บิต
+}
+
+int n;
+ull B;
+vector<ull> h, pw;
+
+void build(const string& s) {
+    n = s.size();
+    h.assign(n + 1, 0);
+    pw.assign(n + 1, 1);
+    for (int i = 0; i < n; i++) {
+        h[i + 1] = add(mul(h[i], B), (ull)(s[i]));
+        pw[i + 1] = mul(pw[i], B);
+    }
+}
+
+// ค่าแฮชของ s[l .. l+len-1] โดย l นับจากศูนย์
+ull cut(int l, int len) { return sub(h[l + len], mul(h[l], pw[len])); }
+
+int main() {
+    string s;
+    int q;
+    cin >> s >> q;
+
+    // ฐานสุ่มใหม่ทุกครั้งที่รัน คนแต่งอินพุตมาชนแฮชไม่ได้ถ้าไม่รู้ว่าฐานคืออะไร
+    mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+    B = rng() % (MOD - 300) + 256;
+    build(s);
+
+    while (q--) {
+        int l1, l2, len;
+        cin >> l1 >> l2 >> len;                   // ถามว่าสองช่วงนี้เหมือนกันไหม
+        cout << (cut(l1, len) == cut(l2, len) ? "YES" : "NO") << '\\n';
+    }
+    return 0;
+}`;
+
+const q1Code = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+const ull MOD = (1ULL << 61) - 1;
+static inline ull add(ull a, ull b) { a += b; if (a >= MOD) a -= MOD; return a; }
+static inline ull sub(ull a, ull b) { return add(a, MOD - b); }
+static inline ull mul(ull a, ull b) {
+    __uint128_t c = (__uint128_t)a * b;
+    return add((ull)(c & MOD), (ull)(c >> 61));
+}
+
+int main() {
+    int k;
+    string s;
+    cin >> k >> s;
+    int n = s.size();
+    if (k > n) { cout << 0 << '\\n'; return 0; }
+
+    mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+    ull B = rng() % (MOD - 300) + 256;
+    vector<ull> h(n + 1, 0), pw(n + 1, 1);
+    for (int i = 0; i < n; i++) {
+        h[i + 1] = add(mul(h[i], B), (ull)(s[i]));
+        pw[i + 1] = mul(pw[i], B);
+    }
+    auto cut = [&](int l, int len) { return sub(h[l + len], mul(h[l], pw[len])); };
+
+    unordered_set<ull> seen;
+    seen.reserve(n * 2);
+    for (int i = 0; i + k <= n; i++) seen.insert(cut(i, k));
+    cout << seen.size() << '\\n';
+    return 0;
+}`;
+
+const q2Code = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+const ull MOD = (1ULL << 61) - 1;
+static inline ull add(ull a, ull b) { a += b; if (a >= MOD) a -= MOD; return a; }
+static inline ull sub(ull a, ull b) { return add(a, MOD - b); }
+static inline ull mul(ull a, ull b) {
+    __uint128_t c = (__uint128_t)a * b;
+    return add((ull)(c & MOD), (ull)(c >> 61));
+}
+
+int n;
+vector<ull> pw;
+static inline ull cut(const vector<ull>& h, int l, int len) {
+    return sub(h[l + len], mul(h[l], pw[len]));
+}
+
+int main() {
+    string s;
+    int q;
+    cin >> s >> q;
+    n = s.size();
+
+    mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+    ull B = rng() % (MOD - 300) + 256;
+
+    string r = s;
+    reverse(r.begin(), r.end());
+    vector<ull> hf(n + 1, 0), hb(n + 1, 0);
+    pw.assign(n + 1, 1);
+    for (int i = 0; i < n; i++) {
+        hf[i + 1] = add(mul(hf[i], B), (ull)s[i]);
+        hb[i + 1] = add(mul(hb[i], B), (ull)r[i]);
+        pw[i + 1] = mul(pw[i], B);
+    }
+
+    while (q--) {
+        int l, rr;
+        cin >> l >> rr;
+        l--; rr--;                                  // โจทย์นับจาก 1 โค้ดนับจาก 0
+        int len = rr - l + 1;
+        // ช่วง [l, rr] เมื่ออ่านกลับด้าน ไปอยู่ที่ [n-1-rr, n-1-l] ของสตริงที่กลับแล้ว
+        bool ok = cut(hf, l, len) == cut(hb, n - 1 - rr, len);
+        cout << (ok ? "YES" : "NO") << '\\n';
+    }
+    return 0;
+}`;
+
+const q3Code = `#include <bits/stdc++.h>
+using namespace std;
+typedef unsigned long long ull;
+const ull MOD = (1ULL << 61) - 1;
+static inline ull add(ull a, ull b) { a += b; if (a >= MOD) a -= MOD; return a; }
+static inline ull sub(ull a, ull b) { return add(a, MOD - b); }
+static inline ull mul(ull a, ull b) {
+    __uint128_t c = (__uint128_t)a * b;
+    return add((ull)(c & MOD), (ull)(c >> 61));
+}
+
+int n;
+vector<ull> h, pw;
+static inline ull cut(int l, int len) { return sub(h[l + len], mul(h[l], pw[len])); }
+
+// มีสตริงย่อยความยาว len ที่โผล่ซ้ำไหม
+bool has(int len) {
+    if (len == 0) return true;
+    unordered_set<ull> seen;
+    seen.reserve(n * 2);
+    for (int i = 0; i + len <= n; i++)
+        if (!seen.insert(cut(i, len)).second) return true;
+    return false;
+}
+
+int main() {
+    string s;
+    cin >> s;
+    n = s.size();
+
+    mt19937_64 rng(chrono::steady_clock::now().time_since_epoch().count());
+    ull B = rng() % (MOD - 300) + 256;
+    h.assign(n + 1, 0);
+    pw.assign(n + 1, 1);
+    for (int i = 0; i < n; i++) {
+        h[i + 1] = add(mul(h[i], B), (ull)s[i]);
+        pw[i + 1] = mul(pw[i], B);
+    }
+
+    // ยาวขึ้นแล้วหายากขึ้นเสมอ คำตอบจึงแบ่งครึ่งค้นได้
+    int lo = 0, hi = max(n - 1, 0);
+    while (lo < hi) {
+        int mid = (lo + hi + 1) / 2;
+        if (has(mid)) lo = mid; else hi = mid - 1;
+    }
+    cout << lo << '\\n';
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>อาการ · คำถามที่ตอบครั้งเดียวก็แพงแล้ว</h2>
+  <p>
+    คำถามที่ดูไม่มีพิษภัยเลยคือ "ข้อความช่วงนี้กับช่วงนั้น เหมือนกันไหม" เขียนตอบได้บรรทัดเดียวด้วยการวนเทียบทีละตัวอักษร
+    และมันก็เร็วพอในชีวิตจริง จนกระทั่งโจทย์บอกว่าจะถามแบบนี้สองแสนครั้งบนข้อความยาวสองแสนตัว
+  </p>
+  <p>
+    การเทียบหนึ่งครั้งกินเวลาเท่าความยาวช่วง คำถามที่ถามช่วงยาวทั้งเส้นจึงกิน {fmt(BIG_N)} ครั้ง และถาม {fmt(BIG_Q)} ข้อ
+    คือ <strong>{human(naiveCompare)}</strong> ครั้ง ปัญหาไม่ได้อยู่ที่เราเขียนโค้ดไม่ดี ปัญหาคือ<strong>เราจ่ายค่าความยาวช่วงซ้ำทุกครั้งที่ถูกถาม</strong>
+    ทั้งที่ข้อความไม่เคยเปลี่ยน
+  </p>
+  <p>
+    บทนี้ว่าด้วยวิธีจ่ายค่านั้นครั้งเดียวตอนต้น แล้วตอบทุกคำถามที่เหลือด้วยการลบเลขครั้งเดียว
+    พร้อมกับส่วนที่คนข้ามบ่อยที่สุดคือ<strong>มันผิดได้ และผิดบ่อยแค่ไหน</strong>
+  </p>
+
+  <h2>แนวคิด · มองข้อความเป็นตัวเลขฐานหนึ่ง</h2>
+  <p>
+    เลข <code>4913</code> ในฐานสิบคือ <code>4×1000 + 9×100 + 1×10 + 3</code> เราอ่านมันเป็นตัวเลขก้อนเดียวได้
+    ทั้งที่มันเป็นลำดับของหลักสี่หลัก ข้อความก็ทำแบบเดียวกันได้ เลือกเลขฐานมาสักตัวเรียกว่า <code>B</code>
+    แล้วมองตัวอักษรแต่ละตัวเป็นหลักหนึ่งหลัก
+  </p>
+  <p>
+    ค่าที่ได้เรียกว่า<strong>แฮช</strong> (hash) อ่านว่า "แฮช" แปลตรงตัวว่าสับให้ละเอียด เป็นคำเดียวกับที่ใช้เรียกอาหาร
+    จำพวกเนื้อสับ ความหมายในทางคอมพิวเตอร์คือการยุบข้อมูลก้อนใหญ่ให้เหลือตัวเลขก้อนเดียวที่ใช้แทนมันได้
+    ส่วนวิธีที่ใช้ในบทนี้เรียกเต็ม ๆ ว่า polynomial hashing เพราะสูตรของมันคือ<strong>พหุนาม</strong>ตัวหนึ่ง
+    ที่มีตัวอักษรเป็นสัมประสิทธิ์
+  </p>
+  <p>
+    เก็บค่าสะสมไว้ล่วงหน้าแบบเดียวกับ<a href="/cp/prefix-sums/">ผลรวมสะสม</a>ในบทก่อน โดย <code>h[i]</code>
+    คือค่าของข้อความตั้งแต่ตัวแรกถึงตัวที่ <code>i</code>
+  </p>
+  <div set:html={texPoly} />
+  <p>
+    เอาข้อความ <code>{S}</code> มาไล่ให้เห็นจริง โดยให้ <code>a</code> เป็น 1, <code>b</code> เป็น 2, <code>c</code> เป็น 3
+    และใช้ <code>B = {B}</code> ตารางนี้ยังไม่มีมอดุลัส ตัวเลขจึงตรวจด้วยมือได้
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>แฮชนำหน้าของ {S}</caption>
+      <thead>
+        <tr>
+          <th class="num">i</th>
+          <th>ตัวอักษร</th>
+          <th>คิดยังไง</th>
+          <th class="num">h[i]</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="num">0</td>
+          <td>·</td>
+          <td>ค่าตั้งต้น</td>
+          <td class="num">{H[0].toString()}</td>
+        </tr>
+        {[...S].map((ch, k) => (
+          <tr>
+            <td class="num">{k + 1}</td>
+            <td><code>{ch}</code></td>
+            <td><code>{H[k].toString()} × {B.toString()} + {codeOf(ch).toString()}</code></td>
+            <td class="num">{H[k + 1].toString()}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ตัวอักษรแปลงเป็น 1, 2, 3 แทนที่จะเป็น 0, 1, 2 ด้วยเหตุผลเดียว ถ้า <code>a</code> เป็นศูนย์
+      ข้อความ <code>a</code>, <code>aa</code>, <code>aaa</code> จะได้ค่าเท่ากันหมดคือศูนย์
+    </figcaption>
+  </figure>
+
+  <h2>ตัดช่วงกลาง · เลื่อนแล้วลบ</h2>
+  <p>
+    ค่าของช่วงที่ไม่ได้เริ่มจากหัวข้อความ หาได้ด้วยการเอาก้อนใหญ่มาลบส่วนนำหน้าออก แต่ต่างจากผลรวมสะสมตรงที่
+    <strong>ลบตรง ๆ ไม่ได้</strong> เพราะส่วนนำหน้าในก้อนใหญ่ถูกคูณด้วยฐานไปแล้วหลายรอบ ต้องเลื่อนมันให้ตรงหลักกันก่อน
+  </p>
+  <div set:html={texCut} />
+
+  <ZoomableDiagram caption={`ก้อนใหญ่มีส่วนนำหน้าลอยอยู่ที่หลักสูง คูณส่วนนำหน้าด้วย B ยกกำลังความยาวช่วง เพื่อดันมันไปยืนตรงหลักเดียวกัน แล้วลบออก เหลือเฉพาะช่วงที่ต้องการ (วาดประกอบโดยผู้เขียน)`}>
+    <svg
+      viewBox={`0 0 ${DGM_W} ${DGM_H}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="แผนภาพสามแถว แถวบนคือแฮชของข้อความทั้งเส้น แถวกลางคือแฮชของส่วนนำหน้าที่ถูกเลื่อนไปทางซ้ายจนช่องท้ายกลายเป็นศูนย์ แถวล่างคือผลลบซึ่งเหลือเฉพาะตัวอักษรของช่วงที่ต้องการ"
+    >
+      {[
+        { cells: rowFull, label: `h[${CUT_L + CUT_LEN}]`, note: H[CUT_L + CUT_LEN].toString() },
+        { cells: rowShift, label: `h[${CUT_L}] × B^${CUT_LEN}`, note: (H[CUT_L] * POW[CUT_LEN]).toString() },
+        { cells: rowDiff, label: 'ผลลบ', note: CUT_VAL.toString() },
+      ].map((row, k) => (
+        <g>
+          <text x={DX - 10} y={rowY(k) + 21} fill="#9aa7bd" font-size="11" text-anchor="end" font-family="monospace">
+            {row.label}
+          </text>
+          {row.cells.map((c, i) => (
+            <g>
+              <rect
+                x={DX + i * CW}
+                y={rowY(k)}
+                width={CW - 6}
+                height="32"
+                rx="6"
+                fill={fillOf(c.kind)}
+                stroke={strokeOf(c.kind)}
+                stroke-width="1.4"
+              />
+              <text
+                x={DX + i * CW + (CW - 6) / 2}
+                y={rowY(k) + 21}
+                fill={inkOf(c.kind)}
+                font-size="13"
+                text-anchor="middle"
+                font-family="monospace"
+              >
+                {c.ch}
+              </text>
+            </g>
+          ))}
+          <text
+            x={DX + S.length * CW + 8}
+            y={rowY(k) + 21}
+            fill={k === 2 ? '#e0b400' : '#7b8397'}
+            font-size="11"
+            font-family="monospace"
+          >
+            = {row.note}
+          </text>
+        </g>
+      ))}
+      <text x={DX - 10} y={rowY(1) + 46} fill="#7b8397" font-size="11" text-anchor="end">
+        ลบกัน
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ตรวจด้วยมือได้เลยว่าเลข {CUT_VAL.toString()} ที่ได้ คือค่าของ <code>{CUT_TEXT}</code> จริง ๆ ถ้ากางพหุนามออกมาตรง ๆ
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>กางค่าของ {CUT_TEXT} ออกทีละหลัก</caption>
+      <thead>
+        <tr><th>ตัวอักษร</th><th class="num">ค่า</th><th class="num">หลัก</th><th class="num">ผลคูณ</th></tr>
+      </thead>
+      <tbody>
+        {CUT_EXPAND.map((t) => (
+          <tr>
+            <td><code>{t.ch}</code></td>
+            <td class="num">{t.code.toString()}</td>
+            <td class="num">{t.pw.toString()}</td>
+            <td class="num">{t.term.toString()}</td>
+          </tr>
+        ))}
+        <tr>
+          <td><strong>รวม</strong></td>
+          <td class="num">·</td>
+          <td class="num">·</td>
+          <td class="num">{CUT_EXPAND_SUM.toString()}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ตรงกับผลลบในภาพข้างบนพอดี นี่คือเหตุผลที่การเทียบสองช่วงกลายเป็นการเทียบเลขสองตัว
+      {demoMatch && demoMatchFirst
+        ? ` และในข้อความสั้น ๆ นี้ก็มีของซ้ำให้เห็นแล้ว ช่วง ${demoMatchFirst.text} ที่ตำแหน่ง ${demoMatchFirst.l} กับที่ตำแหน่ง ${demoMatch.l} ได้ค่าเท่ากันคือ ${demoMatch.val.toString()}`
+        : ''}
+    </figcaption>
+  </figure>
+
+  <h2>สามอย่างที่ต้องเลือกให้ถูก</h2>
+  <h3>หนึ่ง มอดุลัส</h3>
+  <p>
+    ตัวเลขในตารางข้างบนโตเร็วมาก ข้อความยาวสองแสนตัวจะได้เลขที่ยาวเป็นแสนหลัก เก็บใน <code>long long</code> ไม่ได้แน่
+    ทางแก้คือคิดทุกอย่างในโลกของ<strong>เศษเหลือจากการหาร</strong>ด้วยจำนวนเฉพาะตัวหนึ่ง
+  </p>
+  <p>
+    ค่าที่ผมใช้ประจำคือ <code>2^61 − 1</code> ซึ่งเป็นจำนวนเฉพาะ และมีคุณสมบัติที่ทำให้การคูณเร็วเป็นพิเศษ
+    คือผลคูณ 122 บิตพับกลับเข้ามาได้ด้วยการเลื่อนบิตกับบวก ไม่ต้องเรียกคำสั่งหารจริงเลย
+    ส่วนมอดุลัสยอดนิยมอย่าง <code>10^9 + 7</code> ก็ใช้ได้ แต่เล็กกว่ามาก จนต้องทำสองชุดคู่กัน (double hashing)
+    ถึงจะปลอดภัยพอ ๆ กัน
+  </p>
+
+  <h3>สอง ฐานต้องสุ่ม</h3>
+  <p>
+    ถ้าโค้ดของคุณใช้ฐานตายตัว เช่น 31 หรือ 131 ทุกครั้ง คนที่รู้ว่าคุณใช้เลขนี้สามารถ<strong>แต่งข้อความ</strong>
+    ที่จงใจให้แฮชชนกันได้ ในการแข่งที่ผู้เข้าแข่งขันส่งเทสเข้ามาแฮ็กกันได้ นี่คือช่องโหว่จริงที่ถูกใช้บ่อย
+    การสุ่มฐานใหม่ทุกครั้งที่โปรแกรมเริ่มทำงานปิดช่องนี้ไปเลย เพราะไม่มีใครแต่งข้อความมาชนฐานที่ยังไม่เกิดได้
+  </p>
+
+  <h3>สาม ยอมรับว่ามันผิดได้</h3>
+  <p>
+    แฮชยุบข้อความยาว ๆ ให้เหลือเลขก้อนเดียว ข้อความที่ต่างกันจึงมีทางได้เลขเดียวกัน เรียกว่า<strong>การชนกัน</strong>
+    (collision) เราไม่ได้กำจัดมัน เราแค่ทำให้โอกาสเกิดเล็กจนไม่ต้องสนใจ
+  </p>
+  <p>
+    คิดคร่าว ๆ ได้ว่าถ้าโปรแกรมเทียบข้อความที่ต่างกันทั้งหมด <code>k</code> คู่ โอกาสที่จะมีสักคู่หนึ่งชนกัน
+    ไม่เกิน <code>k</code> หารด้วยมอดุลัส ที่ <code>k</code> เท่ากับหนึ่งหมื่นล้านคู่ ซึ่งมากกว่าที่โจทย์ไหนจะทำได้จริง
+    ตัวเลขที่ได้คือประมาณ <strong>{failNum.toExponential(1)}</strong> หรือราวหนึ่งในสองร้อยล้าน
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>เทียบสองท่า · นับเป็นจำนวนครั้งที่แตะตัวอักษร</caption>
+      <thead>
+        <tr><th>ท่า</th><th>เตรียมตอนต้น</th><th>เทียบหนึ่งครั้ง</th><th class="num">รวม</th><th>ตอบถูกเสมอไหม</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>วนเทียบทีละตัวอักษร</td>
+          <td>ไม่ต้องเตรียม</td>
+          <td>ยาวช่วง สูงสุด n</td>
+          <td class="num">{human(naiveCompare)}</td>
+          <td>ถูกเสมอ</td>
+        </tr>
+        <tr>
+          <td>แฮชนำหน้า</td>
+          <td>n</td>
+          <td>คงที่</td>
+          <td class="num">{human(hashCompare)}</td>
+          <td>ผิดได้ราว {failNum.toExponential(1)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      คิดที่ <code>n = {fmt(BIG_N)}</code> และคำถาม {fmt(BIG_Q)} ข้อ แถวล่างเร็วกว่าหนึ่งแสนเท่า
+      โดยจ่ายด้วยความถูกต้องที่ไม่ใช่ร้อยเปอร์เซ็นต์ ซึ่งเป็นการแลกที่คุ้มเกือบทุกครั้ง แต่ต้องรู้ตัวว่ากำลังแลกอยู่
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      จุดที่พลาดบ่อยที่สุดคือ<strong>ช่วงกลับด้าน</strong> ถ้าช่วงที่สนใจในข้อความปกติคือ <code>[l, r]</code>
+      ช่วงเดียวกันในข้อความที่กลับด้านแล้วอยู่ที่ <code>[n − 1 − r, n − 1 − l]</code> ไม่ใช่ <code>[l, r]</code>
+      เขียนผิดตรงนี้แล้วโปรแกรมยังรันปกติและตอบถูกบ้างผิดบ้าง ซึ่งเป็นบักที่หาเจอยากที่สุดถ้าไม่มีตัวสุ่มเทียบ
+    </p>
+    <div set:html={texRev} />
+  </div>
+
+  <h2>เขียนเป็นโค้ด</h2>
+  <CodeBlock code={hashCode} lang="cpp" title="hashing.cpp" />
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้ตอบคนละคำถาม ข้อแรกถามว่า "เอาแฮชไปทำอย่างอื่นนอกจากเทียบสองช่วงได้ไหม" ข้อสองถามว่า
+    "ถ้าต้องเทียบกับตัวเองที่กลับด้าน ต้องทำยังไง" ข้อสามถามว่า "แฮชไปรวมกับการค้นหาแบบทวิภาคได้ยังไง"
+    ลองคิดเองก่อนแล้วค่อยแตะดูเฉลยครับ
+  </p>
+
+  <h3>ฝึกข้อ 1 ★☆☆☆☆ · นับหน้าต่างที่ไม่ซ้ำกัน</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ข้อความยาว <code>n ≤ 200 000</code> กับเลข <code>k</code> ถามว่าข้อความย่อยความยาว <code>k</code> ที่ตัดจากมัน
+      มีทั้งหมดกี่แบบที่ไม่ซ้ำกัน เช่น <code>{S}</code> กับ <code>k = {DEMO_LEN}</code> ตัดได้ {demoWindows.length} ชิ้น
+      แต่มี {new Set(demoWindows.map((w) => w.text)).size} แบบ
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ถ้าเก็บข้อความย่อยเป็นสตริงลงเซ็ต ทุกครั้งที่ใส่ต้องคัดลอกตัวอักษร <code>k</code> ตัว
+      รวมแล้วยังเป็น <code>n × k</code> อยู่ดี แล้วถ้าเก็บอย่างอื่นที่ไม่ใช่ตัวสตริงล่ะ
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      เก็บ<strong>ค่าแฮช</strong>ลงเซ็ตแทนที่จะเก็บตัวสตริง ตัวเลขหนึ่งก้อนใส่เซ็ตได้ในเวลาคงที่
+      ทั้งข้อจึงเหลือ <strong>O(n)</strong> โดยไม่ต้องแตะตัวอักษรซ้ำเลยหลังสร้างตารางแฮชเสร็จ
+    </p>
+    <CodeBlock code={q1Code} lang="cpp" title="ฝึกข้อ 1 · แฮชลงเซ็ต" />
+    <p>
+      สุ่มเทียบกับตัวที่เก็บสตริงจริงลง <code>set</code> 400 เทส โดยจงใจใช้ตัวอักษรแค่สองแบบเพื่อบังคับให้มีของซ้ำเยอะ
+      และมีทั้งกรณีที่ <code>k</code> ใหญ่กว่าความยาวข้อความ ตรงกันทั้งหมด
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 ★★☆☆☆ · ช่วงนี้อ่านกลับแล้วเหมือนเดิมไหม</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ข้อความยาว <code>n</code> กับคำถาม <code>q</code> ข้อ แต่ละข้อให้ <code>l</code> กับ <code>r</code>
+      ถามว่าช่วงนั้นเป็นพาลินโดรม (อ่านหน้าไปหลังกับหลังมาหน้าได้เหมือนกัน) หรือเปล่า ทั้ง <code>n</code> และ
+      <code>q</code> ใหญ่ได้ถึงสองแสน
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      "อ่านกลับแล้วเหมือนเดิม" แปลว่าช่วงนี้เท่ากับช่วงนี้ที่กลับด้าน ซึ่งเป็นการเทียบสองอย่าง
+      แต่เรามีตารางแฮชของข้อความต้นฉบับอยู่ชุดเดียว
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      สร้างตารางแฮช<strong>สองชุด</strong> ชุดหนึ่งของข้อความปกติ อีกชุดของข้อความที่กลับด้านไว้ตั้งแต่แรก
+      แล้วเทียบช่วง <code>[l, r]</code> ของชุดแรกกับช่วงที่สะท้อนตำแหน่งกันของชุดที่สอง ตอบได้ในเวลาคงที่ต่อคำถาม
+    </p>
+    <CodeBlock code={q2Code} lang="cpp" title="ฝึกข้อ 2 · สองตารางสวนทางกัน" />
+    <p>
+      สุ่มเทียบกับตัวที่กลับสตริงจริงแล้วเทียบตรง ๆ 400 เทส โดยจงใจให้ <code>a</code> ออกบ่อยกว่าตัวอื่น
+      เพื่อบังคับให้มีพาลินโดรมโผล่ถี่ ๆ ตรงกันทั้งหมด
+    </p>
+    <p>
+      ท่านี้คือครึ่งหนึ่งของข้อ <a href="/cp/killer-square/">สี่เหลี่ยมพิฆาต</a> ตรง ๆ ต่างกันแค่ที่นั่นเทียบ
+      แถวบนกับแถวล่างของจัตุรัส แทนที่จะเทียบช่วงกับตัวมันเอง
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 ★★★☆☆ · ท่อนที่ยาวที่สุดที่โผล่ซ้ำ</h3>
+  <div class="callout callout-note">
+    <p class="callout-label">โจทย์กำหนด</p>
+    <p>
+      ให้ข้อความยาว <code>n ≤ 200 000</code> หาความยาวของข้อความย่อยที่<strong>ยาวที่สุด</strong>
+      ซึ่งปรากฏในข้อความอย่างน้อยสองครั้ง สองครั้งนั้นซ้อนทับกันได้ ถ้าไม่มีเลยให้ตอบ 0
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำใบ้</p>
+    <p>
+      ฝึกข้อ 1 ตอบได้แล้วว่า "ความยาว <code>k</code> มีของซ้ำไหม" ในเวลา <code>O(n)</code>
+      ทีนี้ลองถามว่า ถ้าความยาว 10 มีของซ้ำ แล้วความยาว 9 จะมีของซ้ำด้วยหรือเปล่า
+    </p>
+  </div>
+  <Spoiler>
+    <p>
+      มีแน่นอน เพราะข้อความย่อยยาว 10 ที่โผล่สองครั้ง ย่อมมีท่อนหน้ายาว 9 ของมันโผล่สองครั้งตามไปด้วย
+      แปลว่าคำตอบของคำถาม "ความยาว <code>k</code> มีของซ้ำไหม" เป็นจริงเรื่อยมาจนถึงจุดหนึ่งแล้วเป็นเท็จตลอด
+      ซึ่งคือรูปที่<strong>ค้นหาแบบทวิภาคได้</strong>
+    </p>
+    <p>
+      แบ่งครึ่งหาความยาวที่ยาวที่สุดที่ยังตอบว่ามี แต่ละครั้งเรียกฟังก์ชันตรวจที่ทำงาน <code>O(n)</code>
+      ทั้งข้อจึงเป็น <strong>O(n log n)</strong>
+    </p>
+    <CodeBlock code={q3Code} lang="cpp" title="ฝึกข้อ 3 · แบ่งครึ่งค้นความยาว" />
+    <p>
+      สุ่มเทียบกับตัวที่ไล่ทุกความยาวและเก็บสตริงจริงลง <code>set</code> 500 เทส ตรงกันทั้งหมด
+      รวมกรณีข้อความยาวตัวเดียวซึ่งต้องตอบ 0 และกรณีที่ทุกตัวอักษรเหมือนกันหมดซึ่งคำตอบคือ <code>n − 1</code>
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง</p>
+      <p>
+        การแบ่งครึ่งแบบ "หาค่ามากที่สุดที่ยังจริง" ต้องใช้ <code>mid = (lo + hi + 1) / 2</code> ไม่ใช่
+        <code>(lo + hi) / 2</code> ไม่งั้นตอนที่ <code>hi</code> เท่ากับ <code>lo + 1</code> ค่า <code>mid</code>
+        จะเท่ากับ <code>lo</code> แล้ววนไม่รู้จบ
+      </p>
+    </div>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    มองข้อความเป็นตัวเลขฐาน <code>B</code> แล้วเก็บค่าสะสมไว้ล่วงหน้า การเทียบสองช่วงจะกลายเป็นการลบเลขสองครั้ง
+    โดยมีสามอย่างที่ต้องไม่ลืม มอดุลัสต้องใหญ่ ฐานต้องสุ่ม และช่วงกลับด้านอยู่ที่ <code>n − 1 − r</code> ไม่ใช่ที่เดิม
+  </p>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ (1rem) และเกาะกลุ่มใต้หัวข้อแม่ */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem 0 0.5rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+</style>

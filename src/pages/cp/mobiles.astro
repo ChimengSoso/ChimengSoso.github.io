@@ -1,0 +1,749 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'mobiles/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขและทุกภาพในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** แกนหนึ่งอัน ปลายซ้ายและปลายขวาเป็นเลขแกนลูก หรือ -1 ถ้าเป็นของเล่น */
+type Rod = { l: number; r: number };
+
+/** โมบายตัวอย่างในโจทย์ แกนหมายเลข 1 คือแกนบนสุด */
+const SAMPLE: Rod[] = [
+  { l: 2, r: 3 },
+  { l: -1, r: 4 },
+  { l: 5, r: 6 },
+  { l: -1, r: -1 },
+  { l: -1, r: -1 },
+  { l: -1, r: -1 },
+];
+
+const rodOf = (t: Rod[], id: number): Rod => t[id - 1];
+
+/** ความลึกของทุกแกน (แกน 1 อยู่ชั้น 0) */
+function depths(t: Rod[]): Map<number, number> {
+  const d = new Map<number, number>([[1, 0]]);
+  const st = [1];
+  while (st.length) {
+    const v = st.pop() as number;
+    const dv = d.get(v) as number;
+    for (const c of [rodOf(t, v).l, rodOf(t, v).r]) if (c !== -1) { d.set(c, dv + 1); st.push(c); }
+  }
+  return d;
+}
+
+/** ชั้นของของเล่นทุกชิ้น เรียงจากซ้ายไปขวาตามที่มันแขวนอยู่จริง */
+function toyLevels(t: Rod[]): number[] {
+  const out: number[] = [];
+  const go = (v: number, dv: number): void => {
+    for (const c of [rodOf(t, v).l, rodOf(t, v).r]) {
+      if (c === -1) out.push(dv + 1);
+      else go(c, dv + 1);
+    }
+  };
+  go(1, 0);
+  return out;
+}
+
+/** 0 = เต็มลึก (ของเล่นทุกชิ้นอยู่ชั้น D), 1 = ครึ่ง, 2 = เต็มตื้น (ทุกชิ้นอยู่ชั้น D-1) */
+type Shape = 0 | 1 | 2;
+const SHAPE_NAME: Record<Shape, string> = { 0: 'เต็มลึก', 1: 'ครึ่ง', 2: 'เต็มตื้น' };
+
+type Solved = { ok: boolean; cost: number; shape: Shape; swapped: Set<number>; steps: Step[] };
+type Step = { id: number; left: string; right: string; swap: boolean; shape: string };
+
+/** คิดจากล่างขึ้นบน คืนจำนวนครั้งสลับที่น้อยที่สุด และรายการแกนที่ต้องสลับ */
+function solve(t: Rod[]): Solved {
+  const dep = depths(t);
+  const levels = toyLevels(t);
+  const D = Math.max(...levels);
+  const swapped = new Set<number>();
+  const steps: Step[] = [];
+  let cost = 0;
+  let bad = false;
+
+  const shapeOfChild = (c: number, childDepth: number): Shape | null => {
+    if (c !== -1) return go(c);
+    if (childDepth === D) return 0;
+    if (childDepth === D - 1) return 2;
+    return null;
+  };
+
+  const memo = new Map<number, Shape>();
+  function go(v: number): Shape {
+    const cached = memo.get(v);
+    if (cached !== undefined) return cached;
+    const dv = dep.get(v) as number;
+    const a = shapeOfChild(rodOf(t, v).l, dv + 1);
+    const b = shapeOfChild(rodOf(t, v).r, dv + 1);
+    let res: Shape = 1;
+    if (a === null || b === null || bad) bad = true;
+    else if (a === 1 && b === 1) bad = true;
+    else {
+      let swap = false;
+      let x = a;
+      let y = b;
+      if (x > y) { swap = true; cost++; swapped.add(v); [x, y] = [y, x]; }
+      res = x === 0 && y === 0 ? 0 : x === 2 && y === 2 ? 2 : 1;
+      steps.push({
+        id: v,
+        left: SHAPE_NAME[a],
+        right: SHAPE_NAME[b],
+        swap,
+        shape: SHAPE_NAME[res],
+      });
+    }
+    memo.set(v, res);
+    return res;
+  }
+
+  const top = go(1);
+  return { ok: !bad, cost, shape: top, swapped, steps };
+}
+
+const sampleSolved = solve(SAMPLE);
+const sampleLevels = toyLevels(SAMPLE);
+const sampleDeep = Math.max(...sampleLevels);
+const sampleShallow = Math.min(...sampleLevels);
+const sampleAnswer = sampleSolved.ok ? sampleSolved.cost : -1;
+const sampleToys = sampleLevels.length;
+const sampleOrientations = 2 ** SAMPLE.length;
+
+/** สร้างโมบายใหม่โดยสลับปลายของแกนตามชุดที่กำหนด */
+function applySwaps(t: Rod[], sw: Set<number>): Rod[] {
+  return t.map((rod, i) => (sw.has(i + 1) ? { l: rod.r, r: rod.l } : rod));
+}
+const SAMPLE_FIXED = applySwaps(SAMPLE, sampleSolved.swapped);
+const fixedLevels = toyLevels(SAMPLE_FIXED);
+
+/* ---------- ตัวช่วยวาดโมบาย ---------- */
+
+const SLOT = 58;
+const ROW = 46;
+const PAD_X = 26;
+const TOP = 30;
+
+type Draw = {
+  rods: { x1: number; x2: number; y: number; id: number }[];
+  wires: { x: number; y1: number; y2: number }[];
+  toys: { x: number; y: number; level: number }[];
+  width: number;
+  height: number;
+};
+
+/** วางตำแหน่งทุกอย่าง ของเล่นได้ช่องเรียงจากซ้ายไปขวา แกนอยู่กึ่งกลางของลูกสองข้าง */
+function layout(t: Rod[]): Draw {
+  const rods: Draw['rods'] = [];
+  const wires: Draw['wires'] = [];
+  const toys: Draw['toys'] = [];
+  let slot = 0;
+
+  const go = (v: number, dv: number): number => {
+    const y = TOP + dv * ROW;
+    const xs: number[] = [];
+    for (const c of [rodOf(t, v).l, rodOf(t, v).r]) {
+      if (c === -1) {
+        const x = PAD_X + slot * SLOT + SLOT / 2;
+        slot++;
+        toys.push({ x, y: y + ROW - 12, level: dv + 1 });
+        wires.push({ x, y1: y, y2: y + ROW - 22 });
+        xs.push(x);
+      } else {
+        const x = go(c, dv + 1);
+        wires.push({ x, y1: y, y2: y + ROW });
+        xs.push(x);
+      }
+    }
+    rods.push({ x1: xs[0], x2: xs[1], y, id: v });
+    return (xs[0] + xs[1]) / 2;
+  };
+
+  const rootX = go(1, 0);
+  wires.push({ x: rootX, y1: TOP - 18, y2: TOP });
+  const maxDepth = Math.max(...toys.map((p) => p.y));
+  // เผื่อที่ว่างมุมล่างขวาไว้ให้ปุ่ม "ขยาย" ของ ZoomableDiagram ไม่ทับของเล่นชิ้นขวาสุด
+  return { rods, wires, toys, width: PAD_X * 2 + slot * SLOT, height: maxDepth + 44 };
+}
+
+const drawBefore = layout(SAMPLE);
+const drawAfter = layout(SAMPLE_FIXED);
+
+/* ---------- ตารางการรวมสองข้าง ---------- */
+
+const shapes: Shape[] = [0, 1, 2];
+const comboRows = shapes.flatMap((a) =>
+  shapes.map((b) => {
+    const impossible = a === 1 && b === 1;
+    const swap = !impossible && a > b;
+    const x = swap ? b : a;
+    const y = swap ? a : b;
+    const res = impossible ? '-' : x === 0 && y === 0 ? SHAPE_NAME[0] : x === 2 && y === 2 ? SHAPE_NAME[2] : SHAPE_NAME[1];
+    return { a: SHAPE_NAME[a], b: SHAPE_NAME[b], swap, res, impossible };
+  }),
+);
+const swapCount = comboRows.filter((r) => r.swap).length;
+const deadCount = comboRows.filter((r) => r.impossible).length;
+
+/* ---------- ตัวอย่างที่ทำไม่ได้ ---------- */
+
+/** โมบายที่ชั้นของเล่นถูกต้องหมด แต่ของลึกถูกแบ่งไปคนละข้างของแกนบนสุด */
+const DEAD: Rod[] = [
+  { l: 2, r: 3 },
+  { l: -1, r: 4 },
+  { l: -1, r: 5 },
+  { l: -1, r: -1 },
+  { l: -1, r: -1 },
+];
+const deadLevels = toyLevels(DEAD);
+const deadSolved = solve(DEAD);
+const drawDead = layout(DEAD);
+
+/* ---------- โค้ด ---------- */
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+int n;
+int L[100005], R[100005], dep[100005];
+int shape[100005];      // 0 = เต็มลึก, 1 = ครึ่ง, 2 = เต็มตื้น
+
+int main() {
+    scanf("%d", &n);
+    for (int i = 1; i <= n; i++) scanf("%d %d", &L[i], &R[i]);
+
+    // เดินหาความลึกด้วยสแต็กของตัวเอง ไม่ใช้การเรียกซ้ำ เพราะโมบายอาจลึกถึงแสนชั้น
+    vector<int> order;
+    order.reserve(n);
+    {
+        vector<int> st{1};
+        dep[1] = 0;
+        while (!st.empty()) {
+            int v = st.back(); st.pop_back();
+            order.push_back(v);
+            if (L[v] != -1) { dep[L[v]] = dep[v] + 1; st.push_back(L[v]); }
+            if (R[v] != -1) { dep[R[v]] = dep[v] + 1; st.push_back(R[v]); }
+        }
+    }
+
+    // ชั้นของของเล่นเปลี่ยนไม่ได้ ถ้ามันห่างกันเกินหนึ่งชั้นก็จบตั้งแต่ยังไม่เริ่ม
+    int deep = 0, shallow = INT_MAX;
+    for (int i = 1; i <= n; i++)
+        if (L[i] == -1 || R[i] == -1) {
+            deep = max(deep, dep[i] + 1);
+            shallow = min(shallow, dep[i] + 1);
+        }
+    if (deep - shallow > 1) { puts("-1"); return 0; }
+
+    // order เป็นลำดับที่พ่ออยู่ก่อนลูกเสมอ อ่านย้อนกลับจึงได้ลูกก่อนพ่อ
+    long long cost = 0;
+    bool bad = false;
+    for (int idx = (int)order.size() - 1; idx >= 0 && !bad; idx--) {
+        int v = order[idx];
+        int a = (L[v] == -1) ? (dep[v] + 1 == deep ? 0 : 2) : shape[L[v]];
+        int b = (R[v] == -1) ? (dep[v] + 1 == deep ? 0 : 2) : shape[R[v]];
+
+        if (a == 1 && b == 1) { bad = true; break; }   // ครึ่งสองอันประกบกันไม่ได้
+        if (a > b) { cost++; swap(a, b); }             // ลำดับที่ถูกคือ เต็มลึก ครึ่ง เต็มตื้น
+        shape[v] = (a == 0 && b == 0) ? 0 : (a == 2 && b == 2) ? 2 : 1;
+    }
+
+    if (bad) puts("-1");
+    else printf("%lld\\n", cost);
+    return 0;
+}`;
+
+const bruteCode = `# ตัวตรวจสอบแบบซื่อ ๆ ลองสลับทุกแบบด้วยบิตมาสก์ ใช้ได้แค่ n ราว ๆ 10
+# เอาไว้สุ่มเทียบกับโค้ดจริงก่อนส่ง ไม่ใช่โค้ดที่ส่งเข้าระบบตัดสิน
+import sys
+sys.setrecursionlimit(10000)
+
+d = sys.stdin.read().split()
+n = int(d[0])
+L = [0] * (n + 1)
+R = [0] * (n + 1)
+for i in range(1, n + 1):
+    L[i] = int(d[2 * i - 1])
+    R[i] = int(d[2 * i])
+
+best = None
+for mask in range(1 << n):
+    l, r = L[:], R[:]
+    for i in range(1, n + 1):
+        if mask >> (i - 1) & 1:
+            l[i], r[i] = r[i], l[i]
+
+    seq = []
+    def go(v, dp):
+        for c in (l[v], r[v]):
+            if c == -1: seq.append(dp + 1)
+            else: go(c, dp + 1)
+    go(1, 0)
+
+    D = max(seq)
+    if min(seq) < D - 1: continue                                  # ชั้นห่างกันเกินหนึ่ง
+    if any(seq[i] < seq[i + 1] for i in range(len(seq) - 1)): continue  # ของลึกต้องอยู่ซ้ายเสมอ
+    c = bin(mask).count('1')
+    if best is None or c < best: best = c
+
+print(-1 if best is None else best)`;
+
+const coreLine = `if (a == 1 && b == 1) { bad = true; break; }   // ครึ่งสองอันประกบกันไม่ได้
+if (a > b) { cost++; swap(a, b); }             // ลำดับที่ถูกคือ เต็มลึก ครึ่ง เต็มตื้น
+shape[v] = (a == 0 && b == 0) ? 0 : (a == 2 && b == 2) ? 2 : 1;`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · โมบายที่ไอค์ยอมรับได้</h2>
+  <p>
+    คุณต้องซื้อของขวัญให้ลูกของพี่ชายชื่อไอค์ ปัญหาคือไอค์มีรสนิยมเฉพาะตัวมาก เขาชอบเฉพาะของที่<strong>เรียงลำดับได้</strong>
+    และของที่คุณไปเจอในร้านคือ<strong>โมบาย</strong> (mobile) งานประดับที่แขวนห้อยลงมาจากเพดานคล้ายปลาตะเพียนแขวนของไทย
+  </p>
+  <p>
+    โมบายหนึ่งชุดประกอบด้วย<strong>แกน</strong>แนวนอนหลายอัน ปลายทั้งสองข้างของแต่ละแกนมีเส้นลวดห้อยลงมา
+    ปลายเส้นลวดอาจเป็นแกนอันถัดไป หรือเป็น<strong>ของเล่น</strong>หนึ่งชิ้นก็ได้ พูดในภาษาโครงสร้างข้อมูลคือมันเป็น
+    ต้นไม้ทวิภาค (binary tree) ที่แกนคือโหนดภายใน และของเล่นคือใบ
+  </p>
+  <p>
+    ไอค์จะพอใจก็ต่อเมื่อโมบายเข้าเงื่อนไขสองข้อพร้อมกัน หนึ่ง <strong>ของเล่นทุกชิ้นต้องอยู่ในชั้นที่ต่างกันไม่เกินหนึ่งชั้น</strong>
+    (ชั้นของของเล่นคือจำนวนแกนที่ต้องไต่ลงมาจากเพดานกว่าจะถึงมัน) และสอง สำหรับของเล่นที่อยู่ต่างชั้นกัน
+    <strong>ชิ้นที่อยู่ชั้นลึกกว่าต้องอยู่ทางซ้ายของชิ้นที่อยู่ชั้นตื้นกว่าเสมอ</strong>
+  </p>
+  <p>
+    สิ่งเดียวที่คุณทำได้คือ<strong>สลับปลายซ้ายกับปลายขวาของแกนอันใดก็ได้</strong> ปลดของที่ห้อยอยู่ทั้งสองข้างออกแล้วสลับกันติดกลับเข้าไป
+    การสลับหนึ่งครั้งไม่ได้ยุ่งกับลำดับของแกนหรือของเล่นที่อยู่ต่ำลงไปจากจุดนั้น มันแค่พลิกกิ่งทั้งกิ่งไปอยู่อีกฝั่ง
+    คำถามคือ<strong>ต้องสลับอย่างน้อยกี่ครั้ง</strong>โมบายถึงจะเข้าตาไอค์
+  </p>
+
+  <ZoomableDiagram caption={`โมบายที่โจทย์ให้มา ของเล่นเจ็ดชิ้นอยู่ชั้น ${sampleShallow} กับชั้น ${sampleDeep} ซึ่งห่างกันหนึ่งชั้นพอดี แต่ชิ้นที่ชั้น ${sampleShallow} ดันอยู่ซ้ายสุด ผิดเงื่อนไขข้อสอง (วาดประกอบโดยผู้เขียน)`}>
+    <svg
+      viewBox={`0 0 ${drawBefore.width} ${drawBefore.height}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="แผนภาพโมบายที่โจทย์ให้มา แขวนลงมาจากเพดาน แกนหกอันเป็นเส้นแนวนอน ของเล่นเจ็ดชิ้นเป็นวงกลมที่ปลายเส้นลวด มีตัวเลขกำกับชั้นของของเล่นแต่ละชิ้น ชิ้นซ้ายสุดอยู่ชั้นตื้นกว่าชิ้นอื่น"
+    >
+      {drawBefore.wires.map((w) => (
+        <line x1={w.x} y1={w.y1} x2={w.x} y2={w.y2} stroke="#3d4763" stroke-width="1.4" />
+      ))}
+      {drawBefore.rods.map((r) => (
+        <g>
+          <line x1={r.x1} y1={r.y} x2={r.x2} y2={r.y} stroke="#7f8db0" stroke-width="2.6" stroke-linecap="round" />
+          <text x={(r.x1 + r.x2) / 2 + 12} y={r.y - 6} fill="#9aa7bd" font-size="11" font-family="monospace">
+            {r.id}
+          </text>
+        </g>
+      ))}
+      {drawBefore.toys.map((p) => (
+        <g>
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r="12"
+            fill={p.level === sampleDeep ? '#1c2536' : '#3a2a12'}
+            stroke={p.level === sampleDeep ? '#2f9e5c' : '#e0b400'}
+            stroke-width="1.8"
+          />
+          <text
+            x={p.x}
+            y={p.y + 4}
+            fill={p.level === sampleDeep ? '#4ade80' : '#e0b400'}
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {p.level}
+          </text>
+        </g>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>n</code> จำนวนแกน จากนั้นอีก <code>n</code> บรรทัด บรรทัดที่ <code>i</code>
+        มีเลขสองตัวคือ <code>l</code> และ <code>r</code> บอกว่าปลายซ้ายและปลายขวาของแกน <code>i</code> ห้อยอะไรอยู่
+        ค่า <code>-1</code> แปลว่าเป็นของเล่น ค่าอื่นคือหมายเลขแกน
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 ≤ n ≤ 100 000</code> แกนที่อยู่ใต้แกน <code>i</code> มีหมายเลขมากกว่า <code>i</code> เสมอ
+        และแกน <code>1</code> คือแกนบนสุด เวลา 1 วินาที หน่วยความจำ 32 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> จำนวนครั้งที่น้อยที่สุดในการสลับปลายแกน ถ้าทำให้ไอค์พอใจไม่ได้เลยให้ตอบ <code>-1</code>
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead>
+      <tr><th>Input</th><th>Output</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          {SAMPLE.length}
+          {SAMPLE.map((r) => (
+            <>
+              <br />
+              {r.l} {r.r}
+            </>
+          ))}
+        </td>
+        <td>{sampleAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    แกนแต่ละอันสลับหรือไม่สลับก็ได้ โมบายที่มี {SAMPLE.length} แกนจึงมีหน้าตาที่เป็นไปได้ {sampleOrientations} แบบ
+    ซึ่งไล่ดูให้ครบได้สบาย แต่พอ <code>n</code> เป็นหนึ่งแสน จำนวนแบบคือสองยกกำลังหนึ่งแสน ไล่ไม่ไหวแม้แต่จะเขียนเลขนั้นลงกระดาษ
+  </p>
+  <p>
+    จุดที่ปลดล็อกข้อนี้อยู่ในบรรทัดที่อ่านผ่านตาไปง่ายที่สุดของโจทย์ การสลับปลายแกน<strong>ไม่เปลี่ยนชั้นของของเล่นชิ้นใดเลย</strong>
+    เพราะกิ่งทั้งกิ่งย้ายไปอีกฝั่งของแกนเดิม ระยะจากเพดานลงมาถึงของเล่นแต่ละชิ้นจึงเท่าเดิมเป๊ะ สิ่งที่เปลี่ยนได้มีอย่างเดียว
+    คือ<strong>ลำดับซ้ายขวา</strong>
+  </p>
+  <p>
+    ในตัวอย่างของโจทย์ ชั้นของของเล่นทั้ง {sampleToys} ชิ้นอ่านจากซ้ายไปขวาคือ <code>{sampleLevels.join(' ')}</code>
+    ไม่ว่าจะสลับกี่ครั้ง ตัวเลขชุดนี้จะยังเป็นชุดเดิมเสมอ เปลี่ยนได้แค่ลำดับที่มันเรียงกันเท่านั้น
+    เงื่อนไขข้อแรกของไอค์จึงตัดสินได้ทันทีตั้งแต่ยังไม่สลับอะไรเลย ถ้าชั้นลึกสุดกับชั้นตื้นสุดห่างกันเกินหนึ่ง
+    ตอบ <code>-1</code> ได้เลย
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ลองมองกิ่งหนึ่งกิ่ง (แกนหนึ่งอันกับทุกอย่างที่ห้อยอยู่ใต้มัน) แล้วถามว่า ถ้าเราจะตัดสินใจว่าแกน<strong>ที่อยู่เหนือมัน</strong>
+      ต้องสลับหรือเปล่า เราจำเป็นต้องรู้อะไรเกี่ยวกับกิ่งนี้บ้าง รู้ว่ามันมีของเล่นกี่ชิ้นไหม รู้หน้าตาข้างในทั้งหมดไหม
+      หรือจริง ๆ แล้วมีข้อมูลแค่ไม่กี่แบบที่เพียงพอ แล้วถ้ามีแค่ไม่กี่แบบ มันมีกี่แบบกันแน่?
+    </p>
+  </div>
+
+  <h2>เฉลย ตอนที่ 1 · กิ่งหนึ่งกิ่งมีหน้าตาได้แค่สามแบบ</h2>
+  <Spoiler>
+    <p>
+      ตั้งชื่อชั้นลึกที่สุดของของเล่นทั้งโมบายว่า <code>D</code> จากตอนที่แล้วเรารู้แล้วว่าถ้าจะมีคำตอบ ของเล่นทุกชิ้นต้องอยู่ที่ชั้น
+      <code>D</code> หรือชั้น <code>D - 1</code> เท่านั้น ทีนี้กิ่งที่ผ่านเงื่อนไขของไอค์แล้ว มีหน้าตาได้แค่สามแบบ
+    </p>
+    <ul>
+      <li><strong>เต็มลึก</strong> ของเล่นในกิ่งนี้อยู่ชั้น <code>D</code> ทุกชิ้น มันเป็นกิ่งที่แน่นเต็มถึงชั้นล่างสุด</li>
+      <li><strong>เต็มตื้น</strong> ของเล่นในกิ่งนี้อยู่ชั้น <code>D - 1</code> ทุกชิ้น มันเป็นกิ่งที่จบก่อนหนึ่งชั้น</li>
+      <li><strong>ครึ่ง</strong> ในกิ่งนี้มีทั้งของชั้น <code>D</code> และชั้น <code>D - 1</code> ปนกัน โดยของลึกอยู่ซ้ายของของตื้นเรียบร้อยแล้ว</li>
+    </ul>
+    <p>
+      ที่มันมีแค่สามแบบเพราะมีแค่สองชั้นให้เลือก กิ่งหนึ่งจะมีของชั้นลึกอย่างเดียว ชั้นตื้นอย่างเดียว หรือมีทั้งสอง
+      ไม่มีทางเลือกที่สี่ และของเล่นหนึ่งชิ้นก็นับเป็นกิ่งเล็กที่สุด ถ้ามันอยู่ชั้น <code>D</code> มันคือเต็มลึก
+      ถ้าอยู่ชั้น <code>D - 1</code> มันคือเต็มตื้น
+    </p>
+    <p>
+      ประเด็นสำคัญคือ<strong>เรารู้แค่ป้ายสามแบบนี้ก็พอ</strong> ไม่ต้องรู้เลยว่าข้างในกิ่งมีแกนกี่อันหรือหน้าตายังไง
+      เพราะสิ่งเดียวที่แกนด้านบนต้องตัดสินใจคือ "เอากิ่งไหนไว้ซ้าย" ซึ่งขึ้นกับป้ายเท่านั้น
+    </p>
+    <p>
+      แล้วเงื่อนไข "ของลึกอยู่ทางซ้าย" ก็แปลเป็นลำดับของป้ายได้ตรง ๆ เต็มลึกต้องอยู่ซ้ายสุด เต็มตื้นต้องอยู่ขวาสุด
+      ส่วนครึ่งอยู่ตรงกลาง เขียนเป็นลำดับได้ว่า <strong>เต็มลึก ก่อน ครึ่ง ก่อน เต็มตื้น</strong>
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · เก้าคู่ที่เป็นไปได้ ไม่มีอะไรให้เลือกเลย</h2>
+  <Spoiler>
+    <p>
+      แกนหนึ่งอันเห็นป้ายของกิ่งซ้ายกับกิ่งขวา รวมเป็นเก้าคู่ ไล่ให้ครบแล้วจะเห็นว่าแทบทุกคู่<strong>บังคับคำตอบมาให้แล้ว</strong>
+      ไม่ใช่ปัญหาที่ต้องเลือก
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>แกนหนึ่งอัน · ป้ายของกิ่งซ้ายกับกิ่งขวา</caption>
+        <thead>
+          <tr><th>กิ่งซ้าย</th><th>กิ่งขวา</th><th>ต้องสลับ</th><th>ป้ายของแกนนี้</th></tr>
+        </thead>
+        <tbody>
+          {comboRows.map((r) => (
+            <tr>
+              <td>{r.a}</td>
+              <td>{r.b}</td>
+              <td>{r.impossible ? 'ทำไม่ได้' : r.swap ? 'สลับ 1 ครั้ง' : 'ไม่ต้อง'}</td>
+              <td>{r.impossible ? 'ตอบ -1' : r.res}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        {swapCount} คู่ที่ต้องสลับคือคู่ที่ป้ายเรียงผิดลำดับ สลับแล้วมันเรียงถูกทันที ส่วน {deadCount} คู่ที่ทำไม่ได้คือครึ่งประกบครึ่ง
+        เพราะไม่ว่าจะสลับหรือไม่ ก็จะมีของชั้นตื้นของกิ่งซ้ายไปยืนอยู่ซ้ายของของชั้นลึกของกิ่งขวาเสมอ
+      </figcaption>
+    </figure>
+    <p>
+      อ่านตารางนี้ทีเดียวได้กฎสามข้อ ข้อแรก ถ้าทั้งสองข้างเป็นครึ่ง จบเลย ตอบ <code>-1</code> ข้อสอง ถ้าป้ายเรียงผิดลำดับ
+      ก็สลับหนึ่งครั้ง ไม่มีทางเลือกอื่น ข้อสาม ป้ายของแกนนี้คือเต็มลึกเมื่อลูกเป็นเต็มลึกทั้งคู่ เต็มตื้นเมื่อลูกเป็นเต็มตื้นทั้งคู่
+      นอกนั้นเป็นครึ่ง
+    </p>
+    <p>
+      เพราะทุกช่องในตารางบังคับมาให้หมด <strong>จึงไม่มีการเลือกที่ผิดพลาดได้เลย</strong> จำนวนครั้งที่สลับจึงไม่ใช่ค่าที่ต้องไปหา
+      ค่าที่น้อยที่สุด มันเป็นค่าเดียวที่เป็นไปได้ นับไปตามทางแล้วได้เท่าไรก็คือคำตอบ
+    </p>
+    <p>
+      เดินตารางนี้จากล่างขึ้นบนกับตัวอย่างในโจทย์ ได้ผลตามนี้ (ชั้นลึกที่สุดของตัวอย่างคือ <code>D = {sampleDeep}</code>)
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างในโจทย์ · เดินจากแกนล่างสุดขึ้นมา</caption>
+        <thead>
+          <tr><th>แกน</th><th>กิ่งซ้าย</th><th>กิ่งขวา</th><th>ทำอะไร</th><th>ป้ายที่ได้</th></tr>
+        </thead>
+        <tbody>
+          {sampleSolved.steps.map((s) => (
+            <tr>
+              <td><code>{s.id}</code></td>
+              <td>{s.left}</td>
+              <td>{s.right}</td>
+              <td>{s.swap ? 'สลับ' : 'ปล่อยไว้'}</td>
+              <td>{s.shape}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สลับสองครั้งคือที่แกน {[...sampleSolved.swapped].sort((p, q) => p - q).join(' และแกน ')} ตรงกับคำตอบ {sampleAnswer} ของโจทย์
+      </figcaption>
+    </figure>
+
+    <ZoomableDiagram caption={`โมบายเดิมหลังสลับ ${sampleAnswer} ครั้ง ชั้นของของเล่นอ่านจากซ้ายไปขวาเป็น ${fixedLevels.join(' ')} คือลึกก่อนตื้น ตรงตามที่ไอค์ต้องการ (วาดประกอบโดยผู้เขียน)`}>
+      <svg
+        viewBox={`0 0 ${drawAfter.width} ${drawAfter.height}`}
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-label="แผนภาพโมบายชุดเดียวกันหลังสลับสองครั้ง ของเล่นชั้นลึกทั้งหกชิ้นย้ายไปอยู่ทางซ้าย และของเล่นชั้นตื้นชิ้นเดียวไปอยู่ขวาสุด"
+      >
+        {drawAfter.wires.map((w) => (
+          <line x1={w.x} y1={w.y1} x2={w.x} y2={w.y2} stroke="#3d4763" stroke-width="1.4" />
+        ))}
+        {drawAfter.rods.map((r) => (
+          <g>
+            <line x1={r.x1} y1={r.y} x2={r.x2} y2={r.y} stroke="#7f8db0" stroke-width="2.6" stroke-linecap="round" />
+            <text x={(r.x1 + r.x2) / 2 + 12} y={r.y - 6} fill="#9aa7bd" font-size="11" font-family="monospace">
+              {r.id}
+            </text>
+          </g>
+        ))}
+        {drawAfter.toys.map((p) => (
+          <g>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r="12"
+              fill={p.level === sampleDeep ? '#1c2536' : '#3a2a12'}
+              stroke={p.level === sampleDeep ? '#2f9e5c' : '#e0b400'}
+              stroke-width="1.8"
+            />
+            <text
+              x={p.x}
+              y={p.y + 4}
+              fill={p.level === sampleDeep ? '#4ade80' : '#e0b400'}
+              font-size="11"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {p.level}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>โมบายที่ชั้นถูกหมด แต่ยังตอบ -1</h2>
+  <Spoiler>
+    <p>
+      เงื่อนไข "ครึ่งประกบครึ่ง" ในตารางไม่ใช่ของประดับ มันเกิดขึ้นจริงได้ และเกิดกับโมบายที่ผ่านการตรวจชั้นตั้งแต่ต้นมาแล้วด้วย
+      ตัวอย่างข้างล่างมีของเล่น {deadLevels.length} ชิ้น ชั้นของมันคือ <code>{deadLevels.join(' ')}</code> ซึ่งอยู่แค่สองชั้นติดกัน
+      ผ่านเงื่อนไขข้อแรกสบาย ๆ
+    </p>
+    <ZoomableDiagram caption="ของชั้นลึกถูกแบ่งไปอยู่คนละข้างของแกนบนสุด แกนบนสุดจึงเห็นครึ่งประกบครึ่ง และไม่มีการสลับชุดไหนแก้ได้ (วาดประกอบโดยผู้เขียน)">
+      <svg
+        viewBox={`0 0 ${drawDead.width} ${drawDead.height}`}
+        xmlns="http://www.w3.org/2000/svg"
+        role="img"
+        aria-label="แผนภาพโมบายที่แกนบนสุดมีกิ่งซ้ายและกิ่งขวาเป็นแบบครึ่งทั้งคู่ แต่ละกิ่งมีของเล่นชั้นตื้นหนึ่งชิ้นและของเล่นชั้นลึกสองชิ้น"
+      >
+        {drawDead.wires.map((w) => (
+          <line x1={w.x} y1={w.y1} x2={w.x} y2={w.y2} stroke="#3d4763" stroke-width="1.4" />
+        ))}
+        {drawDead.rods.map((r) => (
+          <g>
+            <line x1={r.x1} y1={r.y} x2={r.x2} y2={r.y} stroke="#7f8db0" stroke-width="2.6" stroke-linecap="round" />
+            <text x={(r.x1 + r.x2) / 2 + 12} y={r.y - 6} fill="#9aa7bd" font-size="11" font-family="monospace">
+              {r.id}
+            </text>
+          </g>
+        ))}
+        {drawDead.toys.map((p) => (
+          <g>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r="12"
+              fill={p.level === Math.max(...deadLevels) ? '#1c2536' : '#3a2a12'}
+              stroke={p.level === Math.max(...deadLevels) ? '#2f9e5c' : '#e0b400'}
+              stroke-width="1.8"
+            />
+            <text
+              x={p.x}
+              y={p.y + 4}
+              fill={p.level === Math.max(...deadLevels) ? '#4ade80' : '#e0b400'}
+              font-size="11"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {p.level}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      กิ่งซ้ายของแกน 1 เป็นครึ่ง กิ่งขวาก็เป็นครึ่ง สลับยังไงก็ยังมีของชั้นตื้นของกิ่งหนึ่งไปยืนคั่นหน้าของชั้นลึกของอีกกิ่งอยู่ดี
+      โปรแกรมจึงตอบ <code>{deadSolved.ok ? deadSolved.cost : -1}</code> ทั้งที่ตรวจชั้นตอนต้นผ่านฉลุย นี่คือเหตุผลที่การเช็กชั้น
+      อย่างเดียวไม่พอ ต้องเดินตารางจนถึงแกนบนสุดจริง ๆ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ทั้งข้อคือสามบรรทัดนี้ วนบนทุกแกนจากล่างขึ้นบน อ่านป้ายของลูกสองข้าง แล้วทำตามตาราง
+    </p>
+    <CodeBlock code={coreLine} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      กับดักที่ทำให้โค้ดถูกแต่ตกรอบคือ<strong>ความลึกของการเรียกซ้ำ</strong> โจทย์ไม่ได้รับประกันว่าโมบายจะสมดุล
+      อินพุตที่แกนแต่ละอันมีแกนลูกข้างเดียวยาวติดกันหนึ่งแสนอันเป็นอินพุตที่ถูกกติกาทุกประการ ถ้าเขียนเป็นฟังก์ชันเรียกตัวเอง
+      สแต็กจะล้นก่อนได้คำตอบ ที่นี่จึงเดินด้วยสแต็กที่ประกาศเอง แล้วเก็บลำดับที่พ่ออยู่ก่อนลูกไว้ใน <code>order</code>
+      พออ่านย้อนกลับก็ได้ลูกก่อนพ่อพอดี
+    </p>
+    <p>
+      อีกจุดที่ต้องอ่านให้ครบคือ <code>-1</code> มีสองที่มา ที่แรกคือชั้นของของเล่นห่างกันเกินหนึ่งชั้น ซึ่งตรวจได้ก่อนเริ่มเลย
+      ที่สองคือครึ่งประกบครึ่งระหว่างทาง ซึ่งรู้ตอนเดินไปแล้วเท่านั้น โค้ดที่ตรวจแค่ที่แรกจะผ่านตัวอย่างในโจทย์
+      แล้วไปตกกับเทสที่ซ่อนไว้
+    </p>
+
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="mobiles.cpp" />
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ก่อนเชื่อโค้ดข้างบน ผมสุ่มโมบายที่มีแกนไม่เกิน 9 อัน สี่ร้อยชุด แล้วเทียบกับตัวลองสลับทุกแบบข้างล่างนี้
+          ซึ่งเช็กตรงตามนิยามในโจทย์เป๊ะ ๆ คือเก็บชั้นของของเล่นเรียงจากซ้ายไปขวา แล้วดูว่ามันไม่เพิ่มขึ้นและอยู่ในสองชั้นติดกัน
+          ตรงกันทั้งสี่ร้อยชุด
+        </p>
+        <CodeBlock code={bruteCode} lang="python" title="brute.py" />
+      </div>
+    </details>
+
+    <p>
+      งานทั้งหมดคือเดินต้นไม้สองรอบ รอบแรกหาความลึก รอบที่สองไล่ป้าย จึงเป็น <strong>O(n)</strong>
+      เวลาที่วัดได้บนเครื่องผมกับโมบายหนึ่งแสนแกนคือ <strong>60 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
+      โดยกรณีที่ผมกลัวที่สุด (โซ่ยาวหนึ่งแสนแกน) จบเร็วที่สุดเพราะตรวจชั้นแล้วตอบ <code>-1</code> ตั้งแต่ต้น
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    การสลับปลายแกนเปลี่ยนลำดับได้แต่เปลี่ยนชั้นไม่ได้ กิ่งหนึ่งกิ่งจึงยุบเหลือป้ายสามแบบคือเต็มลึก ครึ่ง เต็มตื้น
+    แล้วทุกแกนแค่จัดป้ายของลูกสองข้างให้เรียงตามลำดับนั้น ซึ่งเป็นการตัดสินใจที่ไม่มีทางเลือกให้พลาดเลยสักแกนเดียว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Mobiles</i> บน programming.in.th ข้อ 2000
+      <a href="https://programming.in.th/tasks/2000" target="_blank" rel="noopener noreferrer">programming.in.th/tasks/2000</a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>Asia-Pacific Informatics Olympiad 2007</i>
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+</style>

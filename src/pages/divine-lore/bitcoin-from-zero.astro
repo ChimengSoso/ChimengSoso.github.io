@@ -2,8 +2,8 @@
 import { createHash } from 'node:crypto';
 import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
-import CodeBlock from '../../components/CodeBlock.astro';
 import ExplainNumber from '../../components/ExplainNumber.astro';
+import PhotoSlides from '../../components/PhotoSlides.astro';
 
 /** แฮชทุกตัวในหน้านี้คำนวณตอน build จากของจริง ไม่ได้พิมพ์มือ */
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -222,8 +222,13 @@ const BROWSER_HPS = 95_871;
 const SECONDS_PER_YEAR = 365.25 * 24 * 3600;
 const soloYears = hashesPerBlock / BROWSER_HPS / SECONDS_PER_YEAR;
 
-/* ---------- สัดส่วนรายได้นักขุด อ่านจากบล็อกจริง 144 บล็อกล่าสุด ---------- */
+/* ---------- สัดส่วนรายได้นักขุด อ่านจากบล็อกจริง 144 บล็อกล่าสุด ----------
+   หน้าต่างเดียวนี้เป็นฐานของสามตัวเลขในบทความ คือธุรกรรมเฉลี่ยต่อบล็อก
+   ธุรกรรมต่อวินาที และสัดส่วนค่าธรรมเนียม อ่านครั้งเดียวพร้อมกันในวันเผยแพร่
+   ถ้าอ่านใหม่รอบหน้าต้องเปลี่ยนทั้งสี่ค่าพร้อมกัน รวมทั้งวันที่ด้วย */
 const REWARD_WINDOW_BLOCKS = 144;
+/** วันที่อ่านหน้าต่าง 144 บล็อกนี้ คนละวันกับ SNAPSHOT_DATE ของค่าที่อ่านจากเว็บภายนอก */
+const REWARD_WINDOW_DATE = '30 สิงหาคม 2026';
 const REWARD_TOTAL_SAT = 45_183_631_738;
 const REWARD_FEE_SAT = 183_631_738;
 const REWARD_TX_COUNT = 766_786;
@@ -264,163 +269,8 @@ const headerBytes = headerFields.reduce((s, f) => s + f.bytes, 0);
 
 /** การปรับความยาก: เป้าหมายคือสองสัปดาห์ต่อ 2016 ช่วง แต่โค้ดวัดจริงแค่ 2015 ช่วง */
 const RETARGET_INTERVAL = (14 * 24 * 60) / BLOCK_MINUTES;
-const realSpacingMin = (RETARGET_INTERVAL * BLOCK_MINUTES) / (RETARGET_INTERVAL - 1);
 
-/** โครงสร้างซอร์สโค้ดของ Bitcoin v0.1.0 นับบรรทัดจากไฟล์จริงในชุดที่ปล่อยเมื่อ 9 ม.ค. 2009 */
-interface SourceGroup {
-  files: string;
-  lines: number;
-  job: string;
-}
-const v01Source: SourceGroup[] = [
-  { files: 'ui.cpp, uibase.cpp และเฮดเดอร์', lines: 6171, job: 'หน้าต่างโปรแกรมบนวินโดวส์ ปุ่ม ช่องกรอก รายการธุรกรรม' },
-  { files: 'main.cpp, main.h', lines: 3977, job: 'กติกาทั้งหมด บล็อก ธุรกรรม การขุด การเลือกสายที่ยาวกว่า' },
-  { files: 'serialize.h, uint256.h, bignum.h, base58.h', lines: 2600, job: 'เครื่องมือพื้นฐาน เลข 256 บิต การแปลงเป็นไบต์ การเข้ารหัสที่อยู่' },
-  { files: 'net.cpp, net.h', lines: 1876, job: 'ต่อซ็อกเก็ตกับเพื่อนบ้าน ส่งและรับข้อความ' },
-  { files: 'script.cpp, script.h', lines: 1724, job: 'ภาษาสคริปต์ที่ใช้ล็อกและปลดล็อกเงินแต่ละก้อน' },
-  { files: 'db.cpp, db.h', lines: 1024, job: 'เก็บสมุดลงดิสก์ด้วย Berkeley DB' },
-  { files: 'util.cpp, util.h', lines: 772, job: 'ล็อก เวลา เธรด ฟังก์ชันจิปาถะ' },
-  { files: 'sha.cpp, sha.h', lines: 731, job: 'ตัว SHA-256 ที่ปรับให้ขุดได้เร็วขึ้น' },
-  { files: 'market.cpp, market.h', lines: 446, job: 'หน้าตลาดซื้อขายที่ทำค้างไว้ ไม่เคยเปิดใช้' },
-  { files: 'irc.cpp, irc.h', lines: 272, job: 'หาเพื่อนบ้านครั้งแรกด้วยการเข้าห้องแชต IRC' },
-  { files: 'key.h, headers.h', lines: 227, job: 'กุญแจคู่ผ่าน OpenSSL และการรวมเฮดเดอร์' },
-];
-const v01Total = v01Source.reduce((s, g) => s + g.lines, 0);
-const v01Ui = v01Source[0];
-const v01Main = v01Source[1];
 
-const CODE_HEADER = String.raw`class CBlock
-{
-public:
-    // header
-    int nVersion;
-    uint256 hashPrevBlock;
-    uint256 hashMerkleRoot;
-    unsigned int nTime;
-    unsigned int nBits;
-    unsigned int nNonce;
-
-    // network and disk
-    vector<CTransaction> vtx;`;
-
-const CODE_MINER = String.raw`uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
-uint256 hash;
-loop
-{
-    BlockSHA256(&tmp.block, nBlocks0, &tmp.hash1);
-    BlockSHA256(&tmp.hash1, nBlocks1, &hash);
-
-    if (hash <= hashTarget)
-    {
-        pblock->nNonce = tmp.block.nNonce;
-        assert(hash == pblock->GetHash());
-        // เจอแล้ว ประกาศบล็อกออกไป
-        break;
-    }
-
-    if ((++tmp.block.nNonce & 0x3ffff) == 0)
-    {
-        // ทุก ๆ 262144 รอบ แวะเช็คว่ามีใครเจอบล็อกก่อนเราหรือยัง
-    }
-}`;
-
-const CODE_SUBSIDY = String.raw`int64 CBlock::GetBlockValue(int64 nFees) const
-{
-    int64 nSubsidy = 50 * COIN;
-
-    // Subsidy is cut in half every 4 years
-    nSubsidy >>= (nBestHeight / 210000);
-
-    return nSubsidy + nFees;
-}`;
-
-const CODE_RETARGET = String.raw`unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast)
-{
-    const unsigned int nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-    const unsigned int nTargetSpacing = 10 * 60;
-    const unsigned int nInterval = nTargetTimespan / nTargetSpacing;
-
-    // Only change once per interval
-    if ((pindexLast->nHeight+1) % nInterval != 0)
-        return pindexLast->nBits;
-
-    // Go back by what we want to be 14 days worth of blocks
-    const CBlockIndex* pindexFirst = pindexLast;
-    for (int i = 0; pindexFirst && i < nInterval-1; i++)
-        pindexFirst = pindexFirst->pprev;
-
-    // Limit adjustment step
-    unsigned int nActualTimespan = pindexLast->nTime - pindexFirst->nTime;
-    if (nActualTimespan < nTargetTimespan/4)
-        nActualTimespan = nTargetTimespan/4;
-    if (nActualTimespan > nTargetTimespan*4)
-        nActualTimespan = nTargetTimespan*4;
-
-    // Retarget
-    CBigNum bnNew;
-    bnNew.SetCompact(pindexLast->nBits);
-    bnNew *= nActualTimespan;
-    bnNew /= nTargetTimespan;`;
-
-const CODE_GENESIS = String.raw`char* pszTimestamp = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
-CTransaction txNew;
-txNew.vin.resize(1);
-txNew.vout.resize(1);
-txNew.vin[0].scriptSig     = CScript() << 486604799 << CBigNum(4) << vector<unsigned char>(...);
-txNew.vout[0].nValue       = 50 * COIN;
-txNew.vout[0].scriptPubKey = CScript() << CBigNum("0x5F1DF16B2B704C8A...") << OP_CHECKSIG;
-CBlock block;
-block.vtx.push_back(txNew);
-block.hashPrevBlock = 0;
-block.hashMerkleRoot = block.BuildMerkleTree();
-block.nVersion = 1;
-block.nTime    = 1231006505;
-block.nBits    = 0x1d00ffff;
-block.nNonce   = 2083236893;
-
-assert(block.GetHash() == hashGenesisBlock);`;
-
-const CODE_IRC = String.raw`Send(hSocket, strprintf("NICK %s\r", strMyName.c_str()).c_str());
-Send(hSocket, "JOIN #bitcoin\r");
-Send(hSocket, "WHO #bitcoin\r");`;
-
-const CODE_TOY = String.raw`import { createHash } from 'node:crypto';
-
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-
-interface Block { height: number; data: string; prev: string; time: number; nonce: number }
-
-// ชั้นที่ 1 หัวบล็อกหกช่อง แล้วแฮชสองรอบเหมือนของจริง
-const headerOf = (b: Block) => [b.height, b.prev, b.data, b.time, b.nonce].join('|');
-const hashOf = (b: Block) => sha256(sha256(headerOf(b)));
-
-const DIFFICULTY = 4;
-const target = '0'.repeat(DIFFICULTY);
-const ZERO = '0'.repeat(64);
-
-// ชั้นที่ 2 เดานอนซ์จนกว่าแฮชจะเข้าเงื่อนไข
-function mine(height: number, data: string, prev: string): Block {
-  const b: Block = { height, data, prev, time: 1231006505 + height * 600, nonce: 0 };
-  while (!hashOf(b).startsWith(target)) b.nonce += 1;
-  return b;
-}
-
-// ชั้นที่ 3 รางวัลหารครึ่งทุก 210000 บล็อก คิดเป็นซาโตชิ
-function subsidy(height: number): number {
-  return Math.floor(50e8 / 2 ** Math.floor(height / 210000));
-}
-
-// ชั้นที่ 5 บล็อกกำเนิดชี้ไปที่ศูนย์ เพราะไม่มีบล็อกก่อนหน้า
-const chain: Block[] = [mine(0, 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks', ZERO)];
-for (let i = 1; i < 4; i += 1) chain.push(mine(i, 'block ' + i, hashOf(chain[i - 1])));
-
-// ตรวจทั้งโซ่แบบเดียวกับที่โหนดทำ
-const valid = chain.every((b, i) =>
-  hashOf(b).startsWith(target) && b.prev === (i === 0 ? ZERO : hashOf(chain[i - 1])));
-
-console.log('valid:', valid);
-chain.forEach((b) => console.log(b.height, 'nonce', b.nonce, hashOf(b).slice(0, 16)));
-console.log(subsidy(0) / 1e8, subsidy(840000) / 1e8, subsidy(6930000));`;
 
 /** ขนาดของช่องนอนซ์ บทความพูดเป็นไบต์ให้ตรงกับภาพหัวบล็อก */
 const NONCE_BYTES = 4;
@@ -459,6 +309,18 @@ const MB_PER_GB = 1024;
     ภาพนั้นพูดเป็นอัตราส่วนแทนตัวเลข GB เพราะตัวเลข GB เป็นของหัวข้อสมุดบวมแค่ไหนซึ่งอยู่ข้างล่าง */
 const fullVsHeadersRatio = (CHAIN_MB * 1e6) / (TIP_HEIGHT * headerBytes);
 const chainGb = CHAIN_MB / MB_PER_GB;
+
+/** ตัวเลขที่ตัวติดตั้ง Bitcoin Core ประเมินไว้ในหน้าเลือกโฟลเดอร์ ณ วันที่แคปภาพ
+    เก็บไว้เป็นค่าคงที่เพราะมันขัดกับตัวเลขขนาดสมุดในบทความ และต้องอธิบายความต่าง */
+/** วันที่แคปภาพหน้าจอชุด Bitcoin Core ถ่ายคนละวันกับชุด check-* จึงแยกค่าไว้ */
+const NODE_SHOT_DATE = '4 กันยายน 2026';
+/** ภาพชุดซิงก์ถ่ายคร่อมสองวัน ตั้งแต่เปิดโปรแกรมรอบแรกจนไล่สมุดจบ */
+const NODE_SYNC_DATES = '4 ถึง 5 กันยายน 2026';
+/** วันที่ถ่ายภาพหน้าจอตอนไล่สมุดจบ */
+const NODE_SHOT_DATE_DONE = '5 กันยายน 2026';
+const CORE_ESTIMATE_GB = 856;
+/** ตัวเลขที่หน้าดาวน์โหลดของ bitcoincore.org เขียนกำกับไว้ ณ วันที่แคปภาพ */
+const CORE_SITE_GB = 600;
 const chainGrowthGb = (CHAIN_MB - CHAIN_MB_YEAR_AGO) / MB_PER_GB;
 
 /** เพดานที่กติกากำหนด BIP-141 จำกัดน้ำหนักบล็อกไว้ที่ 4,000,000 หน่วย
@@ -579,6 +441,25 @@ const dsSteps: DsStep[] = [
   },
 ];
 
+/** ภาพรวมทั้งระบบสำหรับหัวข้อเปิดบท เจ็ดจังหวะ ไม่มีศัพท์เทคนิคสักคำ
+    ตั้งใจให้ดูจบได้โดยไม่ต้องอ่านอะไรเลย ตัวหนังสือใต้ภาพเป็นแค่คำกำกับ ไม่ใช่คำอธิบาย */
+interface OverviewStep {
+  station: number;
+  title: string;
+  say: string;
+  scene: 'write' | 'sign' | 'shout' | 'check' | 'race' | 'pay' | 'done';
+}
+const overviewSteps: OverviewStep[] = [
+  { station: 0, scene: 'write', title: 'คุณเขียนใบสั่ง', say: 'อยากโอนให้ใคร เท่าไร เขียนลงไปหนึ่งใบ' },
+  { station: 0, scene: 'sign', title: 'คุณเซ็นกำกับ', say: 'เซ็นด้วยของที่มีคุณคนเดียว คนอื่นดูออกว่าจริง แต่ปลอมตามไม่ได้' },
+  { station: 1, scene: 'shout', title: 'ประกาศออกไป', say: 'ไม่ได้ส่งให้ธนาคาร แต่ตะโกนให้ทุกเครื่องที่ถือสมุดได้ยิน' },
+  { station: 1, scene: 'check', title: 'ทุกเครื่องตรวจเอง', say: 'ใครตรวจแล้วไม่ผ่านก็ทิ้งทันที และไม่ส่งต่อให้ใคร' },
+  { station: 2, scene: 'race', title: 'แข่งกันว่าใครได้เขียน', say: 'สิทธิ์เขียนหน้าใหม่ต้องแข่งกัน และแข่งด้วยไฟฟ้าที่เผาไปจริง' },
+  { station: 3, scene: 'pay', title: 'คนชนะได้เงินตอบแทน', say: 'เขาจึงยอมเผาไฟต่อไปเรื่อย ๆ โดยไม่มีใครต้องสั่ง' },
+  { station: 4, scene: 'done', title: 'ทุกคนเห็นตรงกัน', say: 'หน้าใหม่ต่อท้ายสมุดของทุกคนพร้อมกัน เงินถึงปลายทาง และย้อนไม่ได้' },
+];
+const overviewStations = ['คุณ', 'ทุกเครื่อง', 'การแข่ง', 'คนชนะ', 'ปลายทาง'];
+
 /** เส้นทางของธุรกรรมหนึ่งใบ ใช้กับตัวเดินเรื่องท้ายหมวดกลไก สร้างตอน build สคริปต์แค่เรนเดอร์ */
 interface JourneyStep {
   station: number;
@@ -586,7 +467,7 @@ interface JourneyStep {
   say: string;
   /** ชนิดของฉากที่ตัวเดินเรื่องจะวาดในจังหวะนั้น สคริปต์แปลค่านี้เป็นภาพ
       มีไว้เพื่อให้ทุกจังหวะเล่าด้วยภาพ ไม่ใช่เปลี่ยนแต่ตัวหนังสือ */
-  scene: 'slip' | 'sign' | 'send' | 'spread' | 'wait' | 'pick' | 'chain' | 'deep';
+  scene: 'slip' | 'sign' | 'send' | 'spread' | 'wait' | 'pick' | 'chain' | 'pay' | 'deep';
 }
 const journey: JourneyStep[] = [
   { station: 0, scene: 'slip', title: 'กระเป๋าเขียนใบสั่ง', say: 'กระเป๋าไล่ดูก้อนเงินที่กุญแจของคุณปลดล็อกได้ แล้วเขียนใบสั่งว่าจะย้ายกี่เหรียญไปที่อยู่ไหน พร้อมก้อนเงินทอนที่กลับมาหาคุณ' },
@@ -596,6 +477,7 @@ const journey: JourneyStep[] = [
   { station: 3, scene: 'wait', title: 'นั่งรอในห้องรอ', say: 'ธุรกรรมไปนั่งรอในห้องรอของแต่ละโหนด รอให้นักขุดสักคนหยิบเข้าบล็อก โปรแกรมของนักขุดเรียงตามค่าธรรมเนียมต่อขนาด ใบที่จ่ายสูงกว่าจึงมักถูกหยิบก่อน' },
   { station: 4, scene: 'pick', title: 'ถูกหยิบเข้าบล็อก', say: 'นักขุดรวบธุรกรรมเป็นบล็อก คำนวณรากเมอร์เคิล ใส่ลงหัวบล็อกพร้อมแฮชของบล็อกก่อนหน้า แล้วเริ่มหมุนนอนซ์' },
   { station: 5, scene: 'chain', title: 'มีคนเจอเลข', say: 'นักขุดที่เจอก่อนประกาศบล็อกออกไป โหนดอื่นแฮชตรวจครั้งเดียวก็รู้ว่าจริง ธุรกรรมของคุณได้รับการยืนยันครั้งที่หนึ่ง' },
+  { station: 5, scene: 'pay', title: 'นักขุดเก็บเงิน', say: 'ใบแรกสุดของบล็อกไม่ใช่ธุรกรรมของใคร แต่เป็นใบที่นักขุดเขียนจ่ายให้ตัวเอง รวมเหรียญใหม่ที่เพิ่งเกิดกับค่าธรรมเนียมของทุกใบในบล็อกเข้าด้วยกัน นี่คือเหตุผลที่เขายอมเผาไฟไปทั้งรอบ' },
   { station: 5, scene: 'deep', title: 'ถูกฝังลึกขึ้นเรื่อย ๆ', say: 'ทุกสิบนาทีมีบล็อกใหม่ต่อทับ งานที่คนอยากย้อนธุรกรรมของคุณต้องขุดแซงก็เพิ่มขึ้น พอครบหกบล็อก ร้านค้าส่วนใหญ่ถือว่าจบ' },
 ];
 const journeyStations = ['กระเป๋าคุณ', 'โหนดแรก', 'ทั้งเครือข่าย', 'ห้องรอ', 'บล็อก', 'สมุดถาวร'];
@@ -642,7 +524,8 @@ const EX = {
     <p>รวมกันได้ ${fmt(mintedBtc)} เหรียญ หรือ ${fmt(mintedPct, 1)}% ของเพดาน</p>`,
   fourYears: `<p>${fmt(HALVING_INTERVAL)} บล็อก คูณ ${BLOCK_MINUTES} นาทีต่อบล็อก เท่ากับ ${fmt(HALVING_INTERVAL * BLOCK_MINUTES)} นาที</p>
     <p>หารเป็นปีได้ราว ${((HALVING_INTERVAL * BLOCK_MINUTES) / (365.25 * 24 * 60)).toFixed(2)} ปี ซึ่งเป็นที่มาของคำว่าทุกสี่ปี</p>`,
-  feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
+  feeShare: `<p>อ่านจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} บล็อกล่าสุด เมื่อ ${REWARD_WINDOW_DATE} ซึ่งเป็นหน้าต่างเดียวกับที่ใช้นับธุรกรรมเฉลี่ยต่อบล็อกในหัวข้อผ่าบล็อก</p>
+    <p>รายได้รวมของนักขุด ${fmt(REWARD_TOTAL_SAT / SAT_PER_BTC, 2)} เหรียญ ในจำนวนนั้นเป็นค่าธรรมเนียม ${fmt(REWARD_FEE_SAT / SAT_PER_BTC, 2)} เหรียญ</p>
     <p>คิดเป็น ${feeSharePct.toFixed(2)}% ที่เหลือคือรางวัลบล็อก</p>`,
   nonceSweeps: `<p>ต้องเดาเฉลี่ย ${fmt(hashesPerBlock / 1e21, 1)} เซกซ์ทิลเลียนครั้งต่อบล็อก</p>
     <p>หารด้วยความจุของช่องนอนซ์ ${fmt(nonceSpace)} ค่า ได้ราว ${fmt(nonceSweeps / 1e9)} พันล้านรอบ</p>`,
@@ -659,11 +542,20 @@ const EX = {
   chainSize: `<p>กราฟ Blockchain Size รายงานเป็นเมกะไบต์ ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
     <p>หารด้วย ${MB_PER_GB} ได้ ${fmt(chainGb)} GB</p>
     ${SHOT('check-chain-size', 'ภาพหน้าจอกราฟ Blockchain Size ของ blockchain.com เส้นสีน้ำเงินคือขนาดสมุดหน่วยเมกะไบต์ อ่านจากแกนซ้าย ค่าล่าสุดอยู่ราวเจ็ดแสนหกหมื่นห้าพันเมกะไบต์', 'blockchain.com', 'blockchain.com/explorer/charts/blocks-size')}`,
+  coreEstimate: `<p>ตัวเลขสามตัวนี้วัดคนละอย่าง จึงไม่เท่ากันและไม่มีตัวไหนผิด</p>
+    <p><b>${fmt(chainGb)} GB</b> ที่บทความใช้ คือขนาดของตัวบล็อกล้วน ๆ ตามกราฟ Blockchain Size ของ blockchain.com</p>
+    <p><b>${CORE_ESTIMATE_GB} GB</b> ที่ตัวติดตั้งเตือน คือของทั้งหมดที่ต้องลงดิสก์จริง คือบล็อกบวกดัชนีที่โปรแกรมสร้างเองระหว่างตรวจ บวกไฟล์ย้อนสถานะ และเผื่อที่ไว้ให้โตต่อ</p>
+    <p><b>${CORE_SITE_GB} GB</b> ที่หน้าดาวน์โหลดเขียน เป็นตัวเลขกลม ๆ ที่เขียนไว้นานแล้วและอัปเดตช้ากว่าของจริง</p>
+    <p>ถ้าเปิดโหมดพรูน ทั้งสามตัวเลขนี้ไม่เกี่ยวเลย เพราะที่ที่ใช้จริงจะเหลือไม่กี่ร้อยเมกะไบต์</p>`,
   chainGrowth: `<p>ค่าเมื่อ ${CHAIN_YEAR_AGO_LABEL} คือ ${fmt(CHAIN_MB_YEAR_AGO)} MB ค่าล่าสุดคือ ${fmt(CHAIN_MB)} MB</p>
     <p>ต่างกัน ${fmt(CHAIN_MB - CHAIN_MB_YEAR_AGO)} MB หรือราว ${fmt(chainGrowthGb)} GB ในหนึ่งปี</p>`,
   maxGrowth: `<p>กติกาจำกัดน้ำหนักบล็อกไว้ที่ 4,000,000 หน่วย ซึ่งแปลว่าบล็อกโตได้ไม่เกินราว ${MAX_BLOCK_MB} MB แม้ในกรณีที่ยัดเต็มที่สุด</p>
     <p>หนึ่งปีมีราว ${fmt(blocksPerYear)} บล็อก คูณกันแล้วหารเป็นกิกะไบต์ ได้เพดานราว ${fmt(maxGrowthGb)} GB ต่อปี</p>`,
-  txPerSecond: `<p>บล็อกจริงในช่วงนี้บรรจุธุรกรรมเฉลี่ย ${fmt(txPerBlock)} ใบต่อบล็อก</p>
+  txPerBlock: `<p>นับจากบล็อกจริง ${REWARD_WINDOW_BLOCKS} ก้อนติดกัน ซึ่งกินเวลาราวหนึ่งวันพอดี เพราะบล็อกออกทุก ${BLOCK_MINUTES} นาที</p>
+    <p>รวมธุรกรรมได้ ${fmt(REWARD_TX_COUNT)} ใบ หารด้วย ${REWARD_WINDOW_BLOCKS} ได้ราว ${fmt(txPerBlock)} ใบต่อบล็อก อ่านไว้เมื่อ ${REWARD_WINDOW_DATE}</p>
+    <p><b>เช็คเองยังไง</b> เปิด <a href="https://www.blockchain.com/explorer/charts/n-transactions-per-block" target="_blank" rel="noopener noreferrer">กราฟ Average Transactions Per Block ของ blockchain.com</a> ซึ่งนิยามของมันคือค่าเฉลี่ยของหนึ่งวันล่าสุด เท่ากับหน้าต่างเดียวกันกับที่ผมใช้</p>
+    <p>ตัวเลขที่คุณเห็นวันนี้จะไม่เท่ากับในบทความ เพราะมันขึ้นลงทุกวันตามคนใช้งาน ช่วงที่ผมอ่านอยู่ราวสี่พันถึงห้าพันกว่าใบ สิ่งที่ควรตรงกันคือระดับของเลข ไม่ใช่ตัวเลขเป๊ะ ๆ</p>`,
+  txPerSecond: `<p>ใช้เลขธุรกรรมเฉลี่ยต่อบล็อกจากหัวข้อผ่าบล็อก คือ ${fmt(txPerBlock)} ใบ</p>
     <p>หนึ่งบล็อกกินเวลาราว ${BLOCK_MINUTES} นาที คือ ${BLOCK_MINUTES * 60} วินาที หารกันได้ราว ${txPerSecond.toFixed(1)} ใบต่อวินาที</p>`,
   tipHeight:
     HOWTO_CHECK('ในตาราง Recent Blocks แถวบนสุด', 'Height', 'https://mempool.space/mining', 'mempool.space') +
@@ -679,12 +571,123 @@ const EX = {
     SHOT('check-price', `ภาพหน้าจอหน้าเหรียญบิตคอยน์ของ CoinGecko แสดงราคา ${fmt(PRICE_USD)} ดอลลาร์`, 'CoinGecko', 'coingecko.com/en/coins/bitcoin'),
 };
 
+/** ภาพหน้าจอชุด Bitcoin Core เก็บไว้ที่เดียวให้อ่านเป็นชุด และให้ตัวเลขในแคปชัน
+    ตรงกับที่เห็นในภาพจริง ทุกใบถ่ายจากเครื่องเดียวกันในวันเดียวกัน */
+const SHOT_DOWNLOAD = [
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-1-download.webp',
+    alt: 'ภาพหน้าจอหน้าดาวน์โหลดของ bitcoincore.org แสดงเวอร์ชันล่าสุด 31.1 ปุ่มดาวน์โหลดสำหรับวินโดวส์ และรายการระบบปฏิบัติการอื่นให้เลือก',
+    caption:
+      'หน้าดาวน์โหลดจริง มีให้เลือกทุกระบบปฏิบัติการ และมีลิงก์ SHA256 ไว้ให้ตรวจว่าไฟล์ที่โหลดมาไม่ถูกใครสับเปลี่ยนกลางทาง',
+    width: 1400,
+    height: 776,
+  },
+];
+const SHOT_DATADIR = [
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-2-datadir.webp',
+    alt: 'ภาพหน้าจอหน้าต้อนรับของ Bitcoin Core ให้เลือกโฟลเดอร์เก็บข้อมูล พร้อมช่องติ๊กด้านล่างสำหรับจำกัดการจัดเก็บบล็อกเชน',
+    caption:
+      'หน้าแรกที่เจอตอนเปิดโปรแกรม ช่องติ๊กบรรทัดล่างสุดคือโหมดพรูนที่จะเล่าต่อข้างล่าง ติ๊กตรงนี้ครั้งเดียวจบ',
+    width: 668,
+    height: 496,
+  },
+];
+/** สามภาพนี้ถ่ายจากรอบซิงก์รอบเดียวกัน ห่างกันไม่กี่นาที
+    ค่าทุกตัวในแคปชันอ่านมาจากหน้าจอในภาพตรง ๆ ไม่ได้คำนวณเพิ่ม */
+const SHOT_SYNC = [
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-1.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 931939 ก้อน เวลาบล็อกล่าสุด 7 มกราคม 2010 ความก้าวหน้า 0.00 เปอร์เซ็นต์ อัตราต่อชั่วโมง 0.02 เปอร์เซ็นต์ เวลาที่เหลือ 28 สัปดาห์ และแถบล่างบอกว่าตามหลัง 16 ปี 34 สัปดาห์',
+    caption:
+      'เพิ่งเริ่ม สมุดเดินอยู่แถวเดือนมกราคม 2010 ทำได้ <b>0.02% ต่อชั่วโมง</b> โปรแกรมจึงเดาว่าจะเสร็จใน <b>28 สัปดาห์</b>',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-2.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 788996 ก้อน เวลาบล็อกล่าสุด 21 เมษายน 2012 ความก้าวหน้า 0.20 เปอร์เซ็นต์ อัตราต่อชั่วโมง 1.41 เปอร์เซ็นต์ เวลาที่เหลือ 2 วัน และแถบล่างบอกว่าตามหลัง 14 ปี 19 สัปดาห์',
+    caption:
+      'ผ่านไปไม่กี่นาที สมุดเดินถึงเดือนเมษายน 2012 อัตราขึ้นมาเป็น <b>1.41% ต่อชั่วโมง</b> คำเดาเหลือ <b>2 วัน</b>',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-3.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 771508 ก้อน เวลาบล็อกล่าสุด 15 สิงหาคม 2012 ความก้าวหน้า 0.43 เปอร์เซ็นต์ อัตราต่อชั่วโมง 2.94 เปอร์เซ็นต์ เวลาที่เหลือ 33 ชั่วโมง และแถบล่างบอกว่าตามหลัง 14 ปี 2 สัปดาห์',
+    caption:
+      'อีกไม่นานต่อมา ถึงเดือนสิงหาคม 2012 อัตราเป็น <b>2.94% ต่อชั่วโมง</b> คำเดาเหลือ <b>33 ชั่วโมง</b>',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-4.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 632950 ก้อน เวลาบล็อกล่าสุด 2 ธันวาคม 2014 ความก้าวหน้า 3.77 เปอร์เซ็นต์ อัตราต่อชั่วโมง 10.31 เปอร์เซ็นต์ เวลาที่เหลือ 9 ชั่วโมง และแถบล่างบอกว่าตามหลัง 11 ปี 39 สัปดาห์',
+    caption:
+      'ถึงเดือนธันวาคม 2014 อัตราขึ้นไปถึง <b>10.31% ต่อชั่วโมง</b> คำเดาเหลือ <b>9 ชั่วโมง</b> และแถบความก้าวหน้าเริ่มขยับให้เห็นแล้ว',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-5.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 600204 ก้อน เวลาบล็อกล่าสุด 14 กรกฎาคม 2015 ความก้าวหน้า 5.42 เปอร์เซ็นต์ อัตราต่อชั่วโมง 10.25 เปอร์เซ็นต์ เวลาที่เหลือ 9 ชั่วโมง และแถบล่างบอกว่าตามหลัง 11 ปี 7 สัปดาห์',
+    caption:
+      'ถึงกลางปี 2015 อัตราแทบไม่ขยับจากใบก่อน <b>10.25% ต่อชั่วโมง</b> คำเดาจึงค้างอยู่ที่ <b>9 ชั่วโมง</b> เท่าเดิม',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-6.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 509694 ก้อน เวลาบล็อกล่าสุด 5 มีนาคม 2017 ความก้าวหน้า 14.38 เปอร์เซ็นต์ อัตราต่อชั่วโมง 12.51 เปอร์เซ็นต์ เวลาที่เหลือ 6 ชั่วโมง และแถบล่างบอกว่าตามหลัง 9 ปี 26 สัปดาห์',
+    caption:
+      'ถึงต้นปี 2017 อัตราอยู่ที่ <b>12.51% ต่อชั่วโมง</b> คำเดาเหลือ <b>6 ชั่วโมง</b> คราวนี้ลดลงเพราะงานที่เหลือน้อยลงจริง ไม่ใช่เพราะเดาใหม่',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-7.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 420514 ก้อน เวลาบล็อกล่าสุด 9 ตุลาคม 2018 ความก้าวหน้า 24.73 เปอร์เซ็นต์ อัตราต่อชั่วโมง 11.71 เปอร์เซ็นต์ เวลาที่เหลือ 6 ชั่วโมง และแถบล่างบอกว่าตามหลัง 7 ปี 47 สัปดาห์',
+    caption:
+      'ถึงปลายปี 2018 ความก้าวหน้าขึ้นมาเป็น <b>24.73%</b> อัตรายังอยู่ราวเดิม คำเดาจึงยังเป็น <b>6 ชั่วโมง</b> เท่าใบก่อน',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-8.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 286096 ก้อน เวลาบล็อกล่าสุด 16 เมษายน 2021 ความก้าวหน้า 45.16 เปอร์เซ็นต์ อัตราต่อชั่วโมง 8.92 เปอร์เซ็นต์ เวลาที่เหลือ 6 ชั่วโมง และแถบล่างบอกว่าตามหลัง 5 ปี 20 สัปดาห์',
+    caption:
+      'ถึงกลางปี 2021 เดินมาได้ <b>45.16%</b> แล้ว อัตราเริ่มถอยลงเป็น <b>8.92%</b> เพราะบล็อกยุคนี้หนักกว่าเดิม คำเดาจึงยังค้างที่ <b>6 ชั่วโมง</b> เป็นใบที่สาม',
+    width: 856,
+    height: 542,
+  },
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-3-sync-9.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core ระหว่างไล่โหลดสมุด บล็อกที่เหลือ 42335 ก้อน เวลาบล็อกล่าสุด 12 พฤศจิกายน 2025 ความก้าวหน้า 90.35 เปอร์เซ็นต์ อัตราต่อชั่วโมง 12.00 เปอร์เซ็นต์ เวลาที่เหลือ 48 นาที และแถบล่างบอกว่าตามหลัง 42 สัปดาห์',
+    caption:
+      'ใบสุดท้าย เหลือบล็อกอีก <b>42,335</b> ก้อน ความก้าวหน้า <b>90.35%</b> อัตรา <b>12.00%</b> ต่อชั่วโมง คราวนี้คำเดาลงมาเป็น <b>48 นาที</b> เป็นครั้งแรกที่ช่องนี้บอกอะไรที่เอาไปวางแผนได้',
+    width: 856,
+    height: 543,
+  },
+];
+
+/** หน้าจอหลังไล่สมุดจบ ใช้เป็นภาพเดี่ยว ไม่ได้อยู่ในชุดสไลด์ของช่องเวลาที่เหลือ */
+const SHOT_DONE = [
+  {
+    src: '/divine-lore/bitcoin-from-zero/node-4-done.webp',
+    alt: 'ภาพหน้าจอ Bitcoin Core หลังไล่โหลดสมุดเสร็จ ไม่มีกล่องเตือนและไม่มีแถบบอกว่าตามหลังอีกแล้ว กลางหน้าต่างขึ้นข้อความว่ายังไม่ได้เปิดกระเป๋าไว้ พร้อมปุ่มสร้างกระเป๋าใหม่',
+    caption:
+      'หน้าตาตอนไล่จบ กล่องเตือนสีเหลืองหายไป แถบ "ตามหลัง" ที่ขอบล่างหายไปด้วย เหลือแค่หน้าต่างเปล่ากับคำถามว่าจะเปิดกระเป๋าไหม',
+    width: 856,
+    height: 543,
+  },
+];
+
 const TITLE = 'บิตคอยน์ตั้งแต่ศูนย์: เงินที่ไม่มีใครเป็นเจ้าของทำงานยังไง';
 const DESC =
   'เห็นข่าวบิตคอยน์มาสิบกว่าปีแต่ไม่เคยเข้าใจว่ามันคืออะไรจริง ๆ บทนี้เริ่มจากศูนย์ ปูปัญหาใช้เงินซ้ำสองรอบ แกะแฮชด้วยมือ ต่อเป็นบล็อกเชน ขุดจริงให้ดูว่าเลขศูนย์ข้างหน้ามาจากไหน ไล่ถึงกุญแจ กระเป๋า ที่อยู่ ประวัติ 18 ปีตั้งแต่ whitepaper ถึงพิซซ่า 10,000 เหรียญและ Mt.Gox แล้วปิดด้วยมุมเงิน ราคามาจากไหน ความผันผวน ETF ต้นทุนไฟ และภาษีคริปโตไทยปี 2026';
 ---
 
-<DivineLoreLayout title={`${TITLE} | บันทึกศาสตร์แห่งเทพ`} description={DESC}>
+<DivineLoreLayout title={`${TITLE} | บันทึกศาสตร์แห่งเทพ`} description={DESC} toc>
   <nav class="dl-nav">
     <a href="../">
       <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
@@ -698,6 +701,55 @@ const DESC =
     เห็นคำว่าบิตคอยน์มาสิบกว่าปี แต่พอมีคนถามว่ามันทำงานยังไง ก็ยังตอบไม่ได้สักที
     บทนี้เริ่มจากศูนย์ ไม่ต้องรู้อะไรมาก่อนเลยสักอย่าง
   </p>
+
+  <h2>ภาพหยาบ ๆ ก่อน แล้วค่อยแกะทีละชิ้น</h2>
+
+  <p>
+    บทนี้ยาว และจะพาคุณแกะของทีละชิ้น ก่อนเริ่มผมขอโชว์ภาพกว้างให้ดูก่อนหนึ่งรอบ
+    จะได้รู้ตลอดทางว่ากำลังประกอบอะไรอยู่ กดเล่นดูเฉย ๆ ก็พอ ยังไม่ต้องเข้าใจอะไรทั้งนั้น
+  </p>
+
+  <div class="lab" data-overview data-steps={JSON.stringify(overviewSteps)} data-stations={JSON.stringify(overviewStations)}>
+    <p class="lab-title">เงินหนึ่งก้อนเดินทางยังไง</p>
+    <div class="jn-stage"></div>
+    <div class="jn-scene"></div>
+    <p class="jn-title"></p>
+    <p class="lab-note jn-say"></p>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn lab-btn-ghost jn-prev" aria-label="ย้อนกลับหนึ่งจังหวะ">ย้อน</button>
+      <button type="button" class="lab-btn jn-play">เล่นอัตโนมัติ</button>
+      <button type="button" class="lab-btn lab-btn-ghost jn-next" aria-label="ไปข้างหน้าหนึ่งจังหวะ">ถัดไป</button>
+      <span class="jn-count"></span>
+    </div>
+    <input type="range" class="jn-range" min="0" value="0" aria-label="เลือกจังหวะ" />
+  </div>
+
+  <p>
+    ที่เหลือทั้งบทคือการแกะว่าแต่ละจังหวะในนี้ทำงานยังไง ทำไมตรวจแล้วโกงไม่ได้
+    ทำไมไฟฟ้าถึงเอามาใช้แข่งได้ และทำไมสมุดที่ทุกคนถือคนละเล่มถึงลงเอยเหมือนกันหมดโดยไม่มีใครสั่ง
+    เริ่มจากคำว่าสมุดที่ว่านี้คืออะไรก่อน
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ถ้าคุณถือเหรียญอยู่แล้ว</p>
+    <p>
+      บทนี้ตอบว่ามันทำงานยังไง ไม่ได้ตอบว่าราคาจะไปทางไหนหรือควรซื้อเพิ่มไหม
+      บอกไว้ตั้งแต่ตรงนี้จะได้ไม่ต้องรอจนจบ
+    </p>
+    <p>
+      แต่มีคำถามอีกชุดที่คนถืออยู่แล้วมักตอบไม่ได้ คือสิ่งที่ถืออยู่ตอนนี้คืออะไรกันแน่
+      ตรวจเองได้ไหมว่ามันมีอยู่จริง และถ้าที่ที่ฝากไว้ล้มขึ้นมาจะเหลืออะไร
+      ชุดนี้ตอบได้ด้วยกลไกล้วน ๆ และบทนี้ตอบให้ครบ
+      ถ้าอยากลัดไปดูก่อน ไปที่ <a href="#wallet">กระเป๋าและกุญแจ</a>
+      กับ <a href="#custody">ตารางสามวิธีถือ</a> ได้เลย แล้วค่อยย้อนกลับมาอ่านว่าทำไมมันถึงเป็นแบบนั้น
+    </p>
+  </div>
+
+  <h2 class="part-head" id="part-1">
+    <span class="part-kicker">ภาค 1 จาก 7</span>
+    <span class="part-name">ปัญหาที่มีมาก่อนบิตคอยน์</span>
+    <span class="part-say">ก่อนจะเข้าใจว่ามันแก้อะไร ต้องเห็นก่อนว่าเงินทุกวันนี้ฝากความเชื่อไว้กับใคร และถ้าเอาคนนั้นออกไปจะพังตรงไหน</span>
+  </h2>
 
   <h2>เงินในแอปธนาคารคือรายการหนึ่งในสมุดบัญชี</h2>
 
@@ -910,6 +962,12 @@ const DESC =
       คำถามที่ต้องตอบให้ได้คือ จะทำให้การเสนอหน้าใหม่ในสมุดมีต้นทุนที่ปลอมไม่ได้ยังไง
     </p>
   </div>
+
+  <h2 class="part-head" id="part-2">
+    <span class="part-kicker">ภาค 2 จาก 7</span>
+    <span class="part-name">เครื่องมือสามชิ้นที่ทำให้ไม่ต้องเชื่อใจใคร</span>
+    <span class="part-say">แฮช คู่กุญแจ และการร้อยหน้ากระดาษเข้าด้วยกัน สามชิ้นนี้คือของทั้งหมดที่ต้องรู้จักก่อนไปดูการขุด</span>
+  </h2>
 
   <h2>แฮช: เครื่องบดที่ย้อนกลับไม่ได้</h2>
 
@@ -1299,6 +1357,51 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: บล็อกเชน</p>
+    <p>
+      โซ่ของบล็อกที่คุณเพิ่งเห็นในภาพนี้ มีชื่อเรียกที่คุณน่าจะเคยได้ยินมาก่อนอ่านบทความนี้ด้วยซ้ำ
+      คือ <strong>บล็อกเชน (blockchain)</strong> อ่านว่า "บล็อกเชน" มาจาก <i>block</i> ที่แปลว่าก้อน
+      รวมกับ <i>chain</i> ที่แปลว่าโซ่ ตรงตัวเลยว่าโซ่ของก้อน
+    </p>
+    <p>
+      คำนี้ถูกเอาไปใช้ในข่าวจนฟังดูเป็นเทคโนโลยีลึกลับ ทั้งที่ของจริงคือสิ่งที่อยู่ตรงหน้าคุณตอนนี้
+      ก้อนข้อมูลที่เรียงต่อกัน โดยแต่ละก้อนจดแฮชของก้อนก่อนหน้าเอาไว้ เท่านั้นเอง
+      ต่อจากนี้ผมจะยังเรียกว่าโซ่หรือสมุดตามเดิม เพราะเห็นภาพง่ายกว่า
+    </p>
+  </div>
+
+  <p>
+    ถ้าทุกหน้าต้องจดแฮชของหน้าก่อนหน้า แล้วหน้าแรกสุดของสมุดจดอะไร
+  </p>
+
+  <p>
+    มันจดเลขศูนย์ล้วน ๆ ลงในช่องนั้น
+    <strong>หน้าแรกจึงเป็นหน้าเดียวในสมุดทั้งเล่มที่ทำตามกติกาของตัวเองไม่ได้</strong>
+    ไม่ใช่เพราะใครยกเว้นให้ แต่เพราะตอนที่มันเกิด มันยังไม่มีอะไรให้ชี้ถึง
+    ทางออกคือเขียนหน้านี้ค้างไว้ในโค้ดของโปรแกรมตรง ๆ ทุกเครื่องในโลกจึงไม่ได้รับมันมาจากใคร
+    แต่สร้างขึ้นมาเองเหมือนกันเป๊ะตอนเปิดโปรแกรมครั้งแรก
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: บล็อกกำเนิด</p>
+    <p>
+      หน้าแรกนี้เรียกกันว่า <strong>บล็อกกำเนิด (genesis block)</strong> คำว่า <i>genesis</i>
+      อ่านว่า "เจเนซิส" แปลว่าการเริ่มต้นหรือการถือกำเนิด เป็นชื่อเดียวกับหนังสือเล่มแรกของคัมภีร์ไบเบิล
+      ที่ภาษาไทยเรียกว่าปฐมกาล ซึ่งเล่าเรื่องการสร้างโลก
+    </p>
+  </div>
+
+  <p>
+    และในหน้านั้นมีข้อความภาษาอังกฤษบรรทัดหนึ่งสลักเอาไว้ด้วย
+    เป็นพาดหัวข่าวหน้าหนึ่งของหนังสือพิมพ์ The Times ฉบับวันที่ 3 มกราคม 2009
+    เรื่องรัฐมนตรีคลังอังกฤษที่กำลังจะอุ้มธนาคารเป็นรอบที่สอง
+    ที่ทำให้การสลักตรงนั้นมีน้ำหนักคือสิ่งที่คุณเพิ่งเห็นในภาพข้างบนนี้เอง
+    แก้หน้าไหนก็พังทั้งแถวที่เหลือ ข้อความบรรทัดนั้นจึงเป็นข้อความที่ลบไม่ได้อีกเลย
+    ตราบใดที่ยังมีคนรันโปรแกรมนี้อยู่ ทำไมถึงเลือกพาดหัวข่าวนี้ และมันถูกเขียนค้างไว้ในโค้ดยังไง
+    เก็บไว้เล่าในหัวข้อประวัติท้ายบท
+  </p>
+
   <p>
     ห้าบล็อกข้างล่างนี้ต่อกันจริงตามกติกาที่เพิ่งเล่า ลองแก้ข้อความในบล็อกไหนก็ได้
     แล้วดูว่าเกิดอะไรขึ้นกับบล็อกที่อยู่ทางขวาของมัน
@@ -1348,7 +1451,9 @@ const DESC =
   <p>
     ก่อนอื่นต้องผ่าบล็อกให้เห็นข้างในก่อน บล็อกหนึ่งก้อนแบ่งเป็น <strong>ส่วนหัว</strong> ที่มีขนาดคงที่
     {headerBytes} ไบต์เสมอ กับ <strong>ตัวบล็อก</strong> ที่เก็บธุรกรรมทั้งกอง
-    ซึ่งช่วงนี้เฉลี่ยราว {fmt(txPerBlock)} ใบต่อบล็อก
+    ซึ่งช่วงนี้เฉลี่ยราว
+    <ExplainNumber value={`${fmt(txPerBlock)} ใบ`} title="เลขนี้มาจากไหน และเช็คเองยังไง" html={EX.txPerBlock} />
+    ต่อบล็อก
   </p>
 
   <ZoomableDiagram
@@ -1402,6 +1507,22 @@ const DESC =
     <strong>ต้นไม้เมอร์เคิล (Merkle tree)</strong> อ่านว่า "เมอร์เคิลทรี" ตั้งตามชื่อ Ralph Merkle
     อ่านว่า "ราล์ฟ เมอร์เคิล" นักวิทยาการรหัสลับที่จดสิทธิบัตรวิธีนี้ไว้ตั้งแต่ปี 1979
   </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ทำไมเรียกต้นไม้ และทำไมรากอยู่ข้างบน</p>
+    <p>
+      เรียกว่าต้นไม้เพราะรูปร่างมันแตกออกเป็นกิ่งจากจุดเดียว
+      ของที่แตกต่อไม่ได้แล้วเรียกว่า <strong>ใบ (leaf)</strong> อ่านว่า "ลีฟ" ซึ่งที่นี่คือธุรกรรมแต่ละใบ
+      ส่วนจุดเดียวที่ทุกอย่างมารวมกันเรียกว่า <strong>ราก (root)</strong> อ่านว่า "รูท"
+    </p>
+    <p>
+      ที่ชวนงงคือคนในวงการคอมพิวเตอร์วาดต้นไม้กลับหัวกับต้นไม้จริง คือเอารากไว้บนสุดและใบไว้ล่างสุด
+      เหตุผลไม่ได้ลึกลับอะไร เพราะเวลาเขียนโปรแกรมเดินโครงสร้างนี้ เรามักเริ่มจากรากแล้วไล่ลงไปหาใบ
+      วาดแบบนี้จึงอ่านจากบนลงล่างได้ตามธรรมชาติ ธรรมเนียมนี้ติดมาจนกลายเป็นมาตรฐาน
+      ภาพข้างล่างก็วาดตามธรรมเนียมนั้น เพียงแต่ทิศที่เลขวิ่งจริงสวนทางกับสายตา
+      คือมันวิ่งจากใบล่างสุดขึ้นไปรวมกันที่รากบนสุด
+    </p>
+  </div>
 
   <p>
     วิธีสร้างง่ายมาก แฮชธุรกรรมทีละใบ แล้วจับผลลัพธ์มาเข้าคู่กันแฮชอีกรอบ จำนวนจะเหลือครึ่งหนึ่ง
@@ -1504,6 +1625,29 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
+  <p>
+    ภาพเมื่อกี้เป็นต้นไม้ที่สร้างเสร็จแล้ว แต่ของจริงมันไม่ได้โผล่มาพร้อมกันทั้งต้น
+    มันเกิดทีละชั้นจากล่างขึ้นบน กดไล่ดูทีละจังหวะได้ข้างล่างนี้ว่าชั้นไหนเกิดตอนไหน
+    และแต่ละจังหวะจับคู่ตัวไหนกับตัวไหน
+  </p>
+
+  <div class="lab" data-merkle-build data-leaves={JSON.stringify(merkleLeafLabels)}>
+    <p class="lab-title">ก่อร่างต้นไม้ทีละชั้น</p>
+    <div class="mb-head">
+      <span class="mb-head-field"><b>ช่องรากเมอร์เคิลในส่วนหัว</b><code class="mb-head-root">ยังว่าง</code></span>
+    </div>
+    <div class="mk-tree mb-tree"></div>
+    <p class="mb-title"></p>
+    <p class="lab-note mb-say"></p>
+    <div class="lab-actions">
+      <button type="button" class="lab-btn lab-btn-ghost mb-prev" aria-label="ย้อนกลับหนึ่งจังหวะ">ย้อน</button>
+      <button type="button" class="lab-btn mb-play">เล่นอัตโนมัติ</button>
+      <button type="button" class="lab-btn lab-btn-ghost mb-next" aria-label="ไปข้างหน้าหนึ่งจังหวะ">ถัดไป</button>
+      <span class="mb-count"></span>
+    </div>
+    <input type="range" class="mb-range" min="0" value="0" aria-label="เลือกจังหวะ" />
+  </div>
+
   <div class="callout callout-note">
     <p class="callout-label">นี่ไม่ใช่การเข้ารหัส</p>
     <p>
@@ -1520,12 +1664,74 @@ const DESC =
     สิ่งเดียวที่ถูกเก็บคือรากตัวเดียวในส่วนหัว
   </p>
 
+  <h3 id="merkle-when">ใครคำนวณราก ตอนไหน และพอบล็อกใหม่มาถึงแล้วไงต่อ</h3>
+
+  <p>
+    รากไม่ได้ถูกคำนวณครั้งเดียวแล้วส่งต่อกันไปเป็นทอด ๆ มันถูกคำนวณสองจังหวะโดยคนละฝ่าย
+    และจังหวะที่สองคือจังหวะที่ตอบว่าบล็อกก้อนนั้นจะถูกรับไว้หรือถูกทิ้ง
+  </p>
+
+  <ZoomableDiagram
+    caption="ฝ่ายที่สร้างบล็อกคำนวณรากแล้วประกาศออกมา ส่วนเครื่องที่รับไม่เคยเชื่อเลขที่ติดมา มันคำนวณใหม่เองจากธุรกรรมที่ได้มาแล้วเทียบ ตรงกันคือรับ ไม่ตรงคือทิ้งทั้งก้อน"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 286" role="img" aria-label="แผนภาพสองจังหวะของรากเมอร์เคิล คอลัมน์ซ้ายคือตอนสร้างบล็อก ฝ่ายที่สร้างเลือกธุรกรรมและเรียงลำดับ คำนวณรากขึ้นไปจากใบ แล้วใส่รากลงในช่องของส่วนหัว คอลัมน์ขวาคือตอนบล็อกมาถึงเครื่องเรา เครื่องได้ส่วนหัวพร้อมธุรกรรมทั้งกอง คำนวณรากใหม่เองจากธุรกรรมที่ได้มา แล้วเทียบกับเลขในส่วนหัว ตรงกันคือรับไว้ ไม่ตรงคือทิ้งทั้งก้อน" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="mkw-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+
+      <text x="145" y="22" text-anchor="middle" font-size="12" fill="#e0b400">จังหวะที่ 1 ตอนสร้างบล็อก</text>
+      <text x="415" y="22" text-anchor="middle" font-size="12" fill="#4ade80">จังหวะที่ 2 ตอนบล็อกมาถึงเครื่องเรา</text>
+
+      <rect x="20" y="40" width="250" height="42" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="145" y="58" text-anchor="middle" font-size="11" fill="#e7ecf6">เลือกธุรกรรมเข้าบล็อก</text>
+      <text x="145" y="74" text-anchor="middle" font-size="11" fill="#9aa7bd">แล้วเรียงลำดับไว้ในตัวบล็อก</text>
+
+      <rect x="290" y="40" width="250" height="42" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="415" y="58" text-anchor="middle" font-size="11" fill="#e7ecf6">ได้ส่วนหัวมาพร้อมธุรกรรมทั้งกอง</text>
+      <text x="415" y="74" text-anchor="middle" font-size="11" fill="#9aa7bd">เลขในส่วนหัวยังไม่ถูกเชื่อ</text>
+
+      <line x1="145" y1="82" x2="145" y2="108" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#mkw-ar)"/>
+      <line x1="415" y1="82" x2="415" y2="108" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#mkw-ar)"/>
+
+      <rect x="20" y="114" width="250" height="42" rx="8" fill="#141a29" stroke="#e0b400"/>
+      <text x="145" y="132" text-anchor="middle" font-size="11" fill="#e0b400">คำนวณรากจากใบขึ้นไปทีละชั้น</text>
+      <text x="145" y="148" text-anchor="middle" font-size="11" fill="#9aa7bd">ตามที่เพิ่งกดไล่ดูข้างบน</text>
+
+      <rect x="290" y="114" width="250" height="42" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="415" y="132" text-anchor="middle" font-size="11" fill="#4ade80">คำนวณรากใหม่เองด้วยวิธีเดียวกัน</text>
+      <text x="415" y="148" text-anchor="middle" font-size="11" fill="#9aa7bd">จากธุรกรรมที่เพิ่งได้มา</text>
+
+      <line x1="145" y1="156" x2="145" y2="182" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#mkw-ar)"/>
+      <line x1="415" y1="156" x2="415" y2="182" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#mkw-ar)"/>
+
+      <rect x="20" y="188" width="250" height="42" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="145" y="206" text-anchor="middle" font-size="11" fill="#e7ecf6">ใส่รากลงในช่องของส่วนหัว</text>
+      <text x="145" y="222" text-anchor="middle" font-size="11" fill="#9aa7bd">ส่วนหัวก้อนนี้จึงถูกปิด</text>
+
+      <rect x="290" y="188" width="250" height="42" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="415" y="206" text-anchor="middle" font-size="11" fill="#4ade80">เทียบกับเลขที่ติดมาในส่วนหัว</text>
+      <text x="415" y="222" text-anchor="middle" font-size="11" fill="#9aa7bd">ไม่ตรงคือทิ้งทั้งก้อน</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    คำว่า "ถูกนับว่าเป็นรากของบล็อกนี้" จึงเกิดที่คอลัมน์ขวา ไม่ใช่คอลัมน์ซ้าย
+    ฝ่ายที่สร้างบล็อกแค่ประกาศเลขออกมาหนึ่งตัว ใครจะประกาศอะไรก็ได้
+    แต่เลขนั้นมีความหมายก็ต่อเมื่อเครื่องอื่นคำนวณเองแล้วได้ตัวเดียวกัน
+    <strong>ทุกเครื่องที่ถือสมุดครบทำขั้นตอนนี้กับบล็อกใหม่ทุกก้อน ก้อนละครั้ง</strong>
+    ตอนคุณนั่งดูหน้าจอไล่โหลดสมุดที่จะเล่าข้างล่าง เครื่องคุณก็ทำแบบนี้ย้อนหลังไปทีละก้อนจนครบทั้งเล่ม
+  </p>
+
   <h3>เครื่องที่มีแค่ส่วนหัวจึงต้องขอ</h3>
 
   <p>
     ข้อเมื่อกี้อธิบายทุกอย่างที่เหลือ เครื่องที่ถือธุรกรรมครบสร้างต้นไม้เองได้ทั้งต้น
     ส่วนเครื่องที่ถือแค่ส่วนหัวไม่มีธุรกรรมให้คำนวณ มันจึงต้องขอแฮชจากคนที่มีของครบ
     แต่ไม่ได้ขอทั้งต้น ขอแค่ <strong>แฮชพี่น้องชั้นละหนึ่งตัวตามทางเดินขึ้นไปหาราก</strong>
+    คำว่าพี่น้องในที่นี้คือกล่องอีกใบที่ถูกจับคู่แฮชอยู่กับเราในชั้นนั้น
+    เพราะจะขยับขึ้นไปอีกชั้นได้ ต้องมีของครบทั้งคู่เสมอ
   </p>
 
   <p>
@@ -1538,8 +1744,7 @@ const DESC =
 
   <p>
     จุดสำคัญอยู่ตรงที่<strong>ไม่ต้องเชื่อคนที่ส่งแฮชมาให้เลยแม้แต่นิดเดียว</strong>
-    ถ้าเขาส่งของปลอมมา ตัวเลขจะไม่ลงตัวและรากจะไม่ตรง เครื่องเล็กรู้ได้เองทันที
-    สิทธิ์ที่จะไม่ต้องเชื่อใครจึงยังอยู่ครบ ทั้งที่เก็บข้อมูลแค่เศษเสี้ยว
+    ถ้าเขาส่งของปลอมมา ตัวเลขจะไม่ลงตัวและรากจะไม่ตรง เครื่องที่เก็บข้อมูลแค่เศษเสี้ยวจึงตอบคำถามนี้เองได้
   </p>
 
   <p>
@@ -1555,7 +1760,7 @@ const DESC =
         <span class="mk-head-field"><b>รากเมอร์เคิล</b><code class="mk-head-root">-</code></span>
         <span class="mk-head-field"><b>แฮชของบล็อก</b><code class="mk-head-block">-</code></span>
       </div>
-      <p class="mk-head-note">ส่วนหัวยังมีช่องอื่นอีก ตรงนี้ขอโชว์แค่สองช่องที่เกี่ยวกับต้นไม้ก่อน ที่เหลือเล่าในหัวข้อถัดไป</p>
+      <p class="mk-head-note">สองช่องนี้คนละจังหวะกัน รากถูกคำนวณจากธุรกรรมก่อน แล้วส่วนหัวถึงถูกแฮชทั้งอันเป็นแฮชของบล็อก ส่วนหัวยังมีช่องอื่นอีก ที่เหลือเล่าในหัวข้อถัดไป</p>
     </div>
     <div class="mk-tree"></div>
     <p class="mk-legend"></p>
@@ -1567,10 +1772,47 @@ const DESC =
     </div>
   </div>
 
+  <h3 id="merkle-limits">แล้วอะไรที่วิธีนี้ยังตอบไม่ได้</h3>
+
   <p>
-    หัวข้อนี้จบชิ้นแรกของการจัดลำดับ คือทำให้สิ่งที่จดไปแล้วแก้ย้อนหลังไม่ได้
+    ของชิ้นนี้ทรงพลังจนน่าเผลอคิดว่ามันแทนการถือสมุดทั้งเล่มได้เลย ซึ่งไม่ใช่
+    สิ่งที่หลักฐานหนึ่งชุดพิสูจน์ได้มีอยู่ข้อเดียวเป๊ะ ๆ คือใบที่คุณถามถึงอยู่ในบล็อกที่มีรากตัวนั้นจริง
+    นอกเหนือจากนั้นยังเป็นช่องว่างอยู่
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>อีกฝ่ายเงียบได้</strong> เครื่องเล็กได้หลักฐานเฉพาะใบที่มันถามถึง
+        ถ้ามีใบที่เกี่ยวกับเงินของคุณอยู่ในบล็อกแต่เขาเลือกไม่บอก มันไม่มีทางรู้เลย
+        เพราะไม่มีตัวบล็อกให้เปิดไล่ดูเอง การจับโกหกทำได้ แต่การจับการนิ่งเงียบทำไม่ได้
+      </li>
+      <li>
+        <strong>ไม่ได้ตรวจกติกาข้ออื่นเลย</strong> รากที่ตรงกันบอกแค่ว่าใบนี้อยู่ในกองนั้น
+        ไม่ได้บอกว่าลายเซ็นของใบอื่นในบล็อกถูกไหม หรือมีใครใช้เงินก้อนเดิมซ้ำหรือเปล่า
+        เครื่องเล็กเชื่อว่าเครื่องที่ถือสมุดครบตรวจให้แล้ว
+      </li>
+      <li>
+        <strong>ส่วนหัวที่ตัวเองถืออยู่ จะรู้ได้ยังไงว่าเป็นของจริง</strong> ทั้งหมดข้างบนตั้งอยู่บนสมมติฐานว่า
+        ส่วนหัวในมือคือของจริง ซึ่งตอนนี้ยังไม่มีอะไรรับประกัน คำตอบอยู่ในหัวข้อถัดไปพอดี
+      </li>
+    </ul>
+  </div>
+
+  <p>
+    เครื่องเล็กซื้อความสะดวกมาด้วยการยอมพึ่งคนอื่นอยู่บ้าง ต่างจากการถือสมุดทั้งเล่มที่ตรวจได้เองทุกข้อ
+    นี่คือเหตุผลข้อใหญ่ที่สุดที่คนยอมเปิด<a href="#run-node">โหนดของตัวเอง</a>
+  </p>
+
+  <p>
     ส่วนคำถามว่าใครได้เขียนหน้าถัดไป ยังไม่ถูกตอบ นั่นคือหัวข้อต่อไป
   </p>
+
+  <h2 class="part-head" id="part-3">
+    <span class="part-kicker">ภาค 3 จาก 7</span>
+    <span class="part-name">ใครได้เขียนหน้าถัดไป และทำไมทุกคนลงเอยเหมือนกัน</span>
+    <span class="part-say">หัวใจของบทอยู่ตรงนี้ การขุดคืออะไรจริง ๆ เลขศูนย์ข้างหน้ามาจากไหน และถ้าเกิดสองสายพร้อมกันใครชนะ</span>
+  </h2>
 
   <h2>การขุด: การเดาเลขที่ต้องจ่ายด้วยไฟจริง</h2>
 
@@ -2474,6 +2716,21 @@ const DESC =
     <strong>สายที่ยาวกว่าจึงชนะ</strong> ไม่ใช่เพราะกติกาสนใจความยาว แต่เพราะกรณีนี้ความยาวกับงานสะสมตรงกันพอดี
   </p>
 
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ฉันทามติ</p>
+    <p>
+      สิ่งที่เพิ่งเกิดขึ้นตรงนี้ คือทั้งโลกลงเอยเห็นตรงกันว่าสายไหนคือของจริง โดยไม่มีการโหวต
+      ไม่มีที่ประชุม และไม่มีใครประกาศผล เรื่องนี้มีชื่อเรียกในวงการว่า
+      <strong>ฉันทามติ (consensus)</strong> อ่านว่า "คอนเซนซัส" แปลว่าการที่ทุกคนลงเอยเห็นพ้องกัน
+      รากศัพท์มาจากภาษาละติน <i>consentire</i> ที่แปลว่ารู้สึกไปในทางเดียวกัน
+    </p>
+    <p>
+      ที่แปลกกว่าการเห็นพ้องแบบที่เราคุ้นคือ ไม่มีใครต้องคุยกับใครเลย
+      แต่ละเครื่องแค่เดินตามกฎข้อเดียวกันว่า <strong>ให้เชื่อสายที่งานสะสมหนักที่สุด</strong>
+      แล้วผลก็ออกมาตรงกันเอง กฎข้อนี้คือกติกาฉันทามติของบิตคอยน์ทั้งหมด
+    </p>
+  </div>
+
   <p>
     สามจังหวะข้างล่างนี้คือสิ่งที่เกิดขึ้นตามลำดับ ตั้งแต่ตอนที่สองสายยังเสมอกัน จนถึงตอนที่สายหนึ่งทิ้งห่าง
   </p>
@@ -2738,6 +2995,12 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
+  <h2 class="part-head" id="part-4">
+    <span class="part-kicker">ภาค 4 จาก 7</span>
+    <span class="part-name">ตกลงเหรียญคืออะไร และเงินเดินยังไง</span>
+    <span class="part-say">กลไกครบแล้ว คราวนี้ตอบคำถามที่ค้างมาตั้งแต่ต้นบท แล้วดูว่าเหรียญ กระเป๋า และค่าธรรมเนียมทำงานยังไง</span>
+  </h2>
+
   <h2>ตกลงบิตคอยน์คืออะไร</h2>
 
   <p>
@@ -2764,10 +3027,90 @@ const DESC =
     สิ่งที่เรียกว่าเหรียญคือรายการในสมุด และการเป็นเจ้าของคือการถือกุญแจที่ปลดล็อกรายการนั้นได้ เท่านั้นเอง
   </p>
 
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: คริปโตเคอร์เรนซี</p>
+    <p>
+      ของสามชิ้นข้างบนรวมกันคือสิ่งที่คนเรียกว่า
+      <strong>คริปโตเคอร์เรนซี (cryptocurrency)</strong> อ่านว่า "คริปโทเคอร์เรนซี"
+      มาจาก <i>crypto</i> ที่ย่อมาจาก <i>cryptography</i> คือวิชาการเข้ารหัส รากกรีก <i>kryptos</i>
+      แปลว่าซ่อนเร้น รวมกับ <i>currency</i> ที่แปลว่าสกุลเงิน แปลตรงตัวว่าเงินที่ค้ำด้วยวิชาเข้ารหัส
+    </p>
+    <p>
+      ชื่อนี้ชี้ไปที่ของสองชิ้นที่คุณผ่านตามาแล้ว คือแฮชที่ทำให้อดีตแก้ไม่ได้
+      กับคู่กุญแจที่ทำให้เซ็นได้โดยไม่ต้องบอกกุญแจใคร ไม่ได้แปลว่าเงินลับหรือเงินที่ตามไม่ได้
+      ซึ่งเป็นคนละเรื่องกันและจะเล่าในหัวข้อว่าด้วยการไม่ระบุชื่อ
+    </p>
+  </div>
+
   <p>
     ตั้งแต่นี้ไปผมจะใช้คำว่าเหรียญตามที่คนทั่วไปพูดกัน แต่ให้จำภาพนี้ไว้ข้างหลังเสมอ
     เพราะมันคือสิ่งที่ทำให้หัวข้อกระเป๋าและหัวข้อก้อนเงินข้างล่างเข้าใจง่ายขึ้นมาก
   </p>
+
+  <h2>ถ้ามันเป็นแค่โปรแกรม ทำไมถึงไม่มีใครแก้กติกา</h2>
+
+  <p>
+    ข้อสามที่เพิ่งบอกไปว่าบิตคอยน์คือโปรแกรมที่ใครก็โหลดไปรันได้ ฟังดูเหมือนช่องโหว่ใหญ่มาก
+    เพราะโปรแกรมมันก็แค่ไฟล์ ใครอยากแก้ก็แก้ได้ โค้ดของบิตคอยน์เป็น
+    <strong>โอเพนซอร์ส (open source)</strong> อ่านว่า "โอเพนซอร์ส" แปลว่าเปิดต้นทางให้ดู
+    คือเปิดให้ใครก็ได้อ่าน ก๊อป และแก้ ไม่ต้องขออนุญาตใครสักคน
+  </p>
+
+  <p>
+    แล้วถ้าผมแก้บรรทัดที่เขียนว่าเหรียญมีได้ 21 ล้าน ให้เป็น 210 ล้านล่ะ กดคอมไพล์ รันขึ้นมา
+    มันก็รันได้จริง ๆ ครับ ไม่มีใครห้ามผมได้เลย และไม่ใช่แค่สมมติด้วย
+    มีคนทำมาแล้วจริงในปี 2017 ตอนที่กลุ่มหนึ่งอยากขยายบล็อก
+    ซึ่งก็คือฟอร์กที่ตั้งใจตามที่เล่าไว้ในหัวข้อทางแยก
+  </p>
+
+  <p>
+    สิ่งที่แก้โค้ดแล้วได้มาคือเครือข่ายใหม่ที่มีผมอยู่คนเดียว ผมมีเหรียญ 210 ล้านจริง
+    ในสมุดที่ไม่มีใครบนโลกถืออีกเล่ม เอาไปซื้ออะไรไม่ได้สักอย่าง เพราะไม่มีใครยอมรับสมุดเล่มนั้น
+    <strong>สิ่งที่แก้ไม่ได้ด้วยการแก้โค้ด คือการทำให้คนอื่นเอาโค้ดของคุณไปรัน</strong>
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ทฤษฎีเกม</p>
+    <p>
+      คำถามที่ว่าทำไมคนถึงเลือกไม่ย้าย ทั้งที่ย้ายได้ เป็นคำถามของวิชาที่ชื่อ
+      <strong>ทฤษฎีเกม (game theory)</strong> อ่านว่า "เกม เธียวรี" คือวิชาที่ศึกษาว่า
+      เมื่อผลของการตัดสินใจของคุณขึ้นอยู่กับว่าคนอื่นตัดสินใจยังไงด้วย แต่ละฝ่ายจะเลือกทางไหน
+    </p>
+    <p>
+      คำว่าเกมในที่นี้ไม่ได้แปลว่าของเล่น มันแปลว่าสถานการณ์ที่มีผู้เล่นหลายฝ่าย
+      แต่ละฝ่ายมีทางเลือก และคะแนนของแต่ละฝ่ายขึ้นกับทางที่คนอื่นเลือกด้วย
+      บิตคอยน์ทั้งระบบวางอยู่บนเกมแบบนี้เกมเดียว
+    </p>
+  </div>
+
+  <p>
+    ลองไล่ดูว่าแต่ละฝ่ายได้อะไรจากการย้ายไปสมุดเล่มใหม่ คนถือเหรียญย้ายไปแล้วถือของที่ไม่มีคนรับซื้อ
+    นักขุดย้ายไปแล้วได้เหรียญที่ขายไม่ออก ทั้งที่ค่าไฟยังต้องจ่ายเป็นเงินจริง
+    ส่วนร้านค้าย้ายไปแล้วรับเงินจากลูกค้าที่ไม่มีอยู่
+  </p>
+
+  <p>
+    ทุกฝ่ายจึงเจอคำตอบเดียวกันว่าอยู่ที่เดิมคุ้มกว่า ไม่ใช่เพราะกติกาเดิมดีที่สุดในเชิงเทคนิค
+    แต่เพราะการย้ายจะคุ้มก็ต่อเมื่อคนอื่นย้ายพร้อมกัน ซึ่งไม่มีใครกล้าเดินก่อน
+    กฎของบิตคอยน์จึงไม่ได้อยู่ในไฟล์โค้ด <strong>มันอยู่ที่ว่าคนส่วนใหญ่เลือกจะรันไฟล์ไหน</strong>
+    และตราบใดที่ยังไม่มีใครเปลี่ยนใจพร้อมกัน กติกาก็แก้ไม่ได้ทั้งที่โค้ดเปิดอยู่ตรงนั้น
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">อ่านด้วยวิจารณญาณ</p>
+    <p>
+      ส่วนที่ตามมาต่อจากนี้เป็นความเห็นของผม ไม่ใช่ข้อเท็จจริงที่พิสูจน์ได้
+      มีคนมองว่าบิตคอยน์เกิดขึ้นได้ครั้งเดียว เพราะตอนที่มันเริ่ม มันไม่มีค่าอะไรเลย
+      คนขุดกันเล่น ๆ ไม่มีใครต้องแย่งชิง กว่าจะมีคนคิดจะยึด มันก็ใหญ่เกินยึดไปแล้ว
+      ส่วนเหรียญที่เกิดทีหลังทุกตัวเกิดในโลกที่ทุกคนรู้แล้วว่าของแบบนี้มีค่า
+      จุดตั้งต้นจึงไม่มีวันเหมือนกันอีก
+    </p>
+    <p>
+      ผมคิดว่ามุมนี้น่าสนใจ แต่มันเป็นการมองย้อนหลังแล้วเล่าให้ฟังดูมีเหตุผล
+      ไม่มีใครพิสูจน์ได้ว่าถ้าย้อนเวลากลับไปแล้วเริ่มใหม่ ผลจะออกมาเหมือนเดิมหรือไม่เหมือน
+      อ่านไว้เป็นมุมมองก็พอ อย่าเอาไปใช้ตัดสินใจเรื่องเงิน
+    </p>
+  </div>
 
   <h2>เหรียญมาจากไหน และทำไมถึงหยุดที่ 21 ล้าน</h2>
 
@@ -2892,7 +3235,7 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
-  <h2>กระเป๋า กุญแจ และคำสิบสองคำที่ห้ามหาย</h2>
+  <h2 id="wallet">กระเป๋า กุญแจ และคำสิบสองคำที่ห้ามหาย</h2>
 
   <p>
     เริ่มด้วยคำถามที่คนถามกันมากที่สุดเวลาเพิ่งเริ่มถือเลย <strong>ทำมือถือหาย เงินหายไหม</strong>
@@ -3084,7 +3427,156 @@ const DESC =
     </p>
   </details>
 
-  <h2>ค่าธรรมเนียม และห้องรอที่ชื่อเมมพูล</h2>
+  <h2 id="onramp">เอาเงินบาทเข้าไปเป็นเหรียญได้ยังไง แล้วเก็บยังไง</h2>
+
+  <p>
+    กติกาไม่มีข้อไหนพูดถึงเงินบาท ดอลลาร์ หรือบัญชีธนาคารเลยสักข้อ สมุดเล่มนี้ไม่มีประตูที่ต่อกับธนาคาร
+    ทางเข้าจึงมีทางเดียว คือ<strong>ต้องมีคนที่ถือเหรียญอยู่แล้วยอมขายให้คุณ</strong>
+    คุณโอนเงินบาทให้เขา เขาย้ายเหรียญในสมุดมาที่ที่อยู่ของคุณ จบ
+    ที่เหลือเป็นแค่วิธีทำให้การจับคู่คนสองคนนี้สะดวกขึ้น
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์: ตลาดซื้อขายสินทรัพย์ดิจิทัล</p>
+    <p>
+      ที่ที่รับหน้าที่จับคู่คนซื้อกับคนขายเรียกว่า
+      <strong>ตลาดซื้อขายสินทรัพย์ดิจิทัล (exchange)</strong> อ่านว่า "เอ็กซ์เชนจ์"
+      แปลตรงตัวว่าที่แลกเปลี่ยน คำเดียวกับที่ใช้เรียกตลาดหุ้น
+      หน้าที่ของมันคือถือคำสั่งซื้อกับคำสั่งขายไว้แล้วจับคู่ให้ ไม่ได้เป็นคนสร้างเหรียญขึ้นมาเอง
+      ในไทยต้องมีใบอนุญาตและต้องยืนยันตัวตนผู้ใช้ ซึ่งคือจุดเชื่อมชื่อจริงเข้ากับที่อยู่ในสมุดที่หัวข้อการไม่ระบุชื่อพูดถึง
+    </p>
+  </div>
+
+  <p>
+    จุดที่คนเข้าใจผิดกันมากที่สุดอยู่ตรงนี้ <strong>ตอนที่คุณกดซื้อ ยังไม่มีอะไรเกิดขึ้นในสมุดเลย</strong>
+    เงินบาทของคุณเข้าบัญชีธนาคารของบริษัท แล้วบริษัทก็แก้ตัวเลขในฐานข้อมูลของตัวเองว่าคุณมีเหรียญเท่านั้นเท่านี้
+    เป็นการจดในสมุดของบริษัท ไม่ใช่สมุดที่ทั้งโลกถือร่วมกัน
+    สิ่งที่ทำให้มันลงสมุดจริงคือตอนคุณกดถอนออกมาที่ที่อยู่ของตัวเอง
+    ตอนนั้นแหละที่ธุรกรรมจริงถูกสร้าง ประกาศ และรอนักขุดหยิบ ตามที่เล่ามาทั้งบท
+  </p>
+
+  <ZoomableDiagram
+    caption="สองขั้นนี้อยู่คนละโลกกัน ขั้นแรกทั้งหมดเกิดในฐานข้อมูลของบริษัท ถ้าหยุดแค่นั้น สิ่งที่คุณถืออยู่คือคำสัญญาของบริษัท ต่อเมื่อกดถอนออกมาเท่านั้น เหรียญถึงจะกลายเป็นของที่ผูกกับกุญแจของคุณเอง"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 300" role="img" aria-label="แผนภาพสองขั้นของการซื้อเหรียญ ขั้นแรกอยู่ในโลกของบริษัท คือโอนเงินบาทเข้าบริษัท บริษัทแก้ตัวเลขในฐานข้อมูลของตัวเอง ยังไม่มีอะไรลงสมุด ขั้นที่สองคือกดถอนออกมาที่ที่อยู่ของตัวเอง ซึ่งเป็นธุรกรรมจริงที่ลงสมุดและกุญแจย้ายมาอยู่กับผู้ใช้" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <defs>
+        <marker id="onr-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+
+      <rect x="16" y="14" width="270" height="196" rx="10" fill="#12161f" stroke="#5b6478" stroke-dasharray="5 4"/>
+      <text x="151" y="36" text-anchor="middle" font-size="12" fill="#9aa7bd">ขั้นที่ 1 ในโลกของบริษัท</text>
+
+      <rect x="40" y="50" width="222" height="38" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="151" y="74" text-anchor="middle" font-size="11" fill="#e7ecf6">โอนเงินบาทเข้าบัญชีบริษัท</text>
+
+      <line x1="151" y1="88" x2="151" y2="110" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#onr-ar)"/>
+
+      <rect x="40" y="116" width="222" height="38" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="151" y="140" text-anchor="middle" font-size="11" fill="#e7ecf6">บริษัทแก้ตัวเลขในฐานข้อมูลตัวเอง</text>
+
+      <line x1="151" y1="154" x2="151" y2="176" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#onr-ar)"/>
+
+      <rect x="40" y="182" width="222" height="20" rx="6" fill="#1f1418" stroke="#d64545"/>
+      <text x="151" y="196" text-anchor="middle" font-size="10" fill="#f08b8b">ยังไม่มีอะไรลงสมุดเลยสักบรรทัด</text>
+
+      <rect x="306" y="14" width="238" height="196" rx="10" fill="#0f1a14" stroke="#2f9e5c" stroke-dasharray="5 4"/>
+      <text x="425" y="36" text-anchor="middle" font-size="12" fill="#4ade80">ขั้นที่ 2 ในสมุดจริง</text>
+
+      <rect x="326" y="50" width="198" height="38" rx="8" fill="#141a29" stroke="#2a3350"/>
+      <text x="425" y="74" text-anchor="middle" font-size="11" fill="#e7ecf6">กดถอนไปที่อยู่ของคุณเอง</text>
+
+      <line x1="425" y1="88" x2="425" y2="110" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#onr-ar)"/>
+
+      <rect x="326" y="116" width="198" height="38" rx="8" fill="#141a29" stroke="#4ade80"/>
+      <text x="425" y="140" text-anchor="middle" font-size="11" fill="#4ade80">ธุรกรรมจริงถูกประกาศและถูกขุด</text>
+
+      <line x1="425" y1="154" x2="425" y2="176" stroke="#9aa7bd" stroke-width="1.5" marker-end="url(#onr-ar)"/>
+
+      <rect x="326" y="182" width="198" height="20" rx="6" fill="#10231a" stroke="#2f9e5c"/>
+      <text x="425" y="196" text-anchor="middle" font-size="10" fill="#4ade80">กุญแจย้ายมาอยู่กับคุณ</text>
+
+      <text x="280" y="240" text-anchor="middle" font-size="11" fill="#9aa7bd">คนจำนวนมากหยุดอยู่แค่กล่องซ้าย แล้วเข้าใจว่าตัวเองถือเหรียญแล้ว</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    หยุดอยู่ที่กล่องซ้ายก็ใช้ได้ตามปกติทุกวัน ยอดขึ้นเท่ากัน กราฟเดินเหมือนกัน
+    ความต่างจะโผล่ก็ต่อเมื่อบริษัทมีปัญหา ซึ่งเทียบไว้ให้แล้วใน <a href="#custody">ตารางสามวิธีถือ</a>
+  </p>
+
+  <h3 id="storage">แล้วเก็บกุญแจไว้ที่ไหนดี</h3>
+
+  <p>
+    ถ้าถอนออกมาแล้ว คำถามถัดไปคือกุญแจกับชุดคำกู้คืนจะอยู่ที่ไหน
+    คนในวงการแบ่งตามข้อเดียวคือกุญแจเคยแตะอินเทอร์เน็ตหรือเปล่า
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>กระเป๋าร้อน (hot wallet)</strong> คือแอปบนมือถือหรือคอมที่ต่อเน็ตอยู่
+        สะดวกที่สุด ใช้จ่ายง่ายที่สุด และเสี่ยงที่สุดเพราะกุญแจอยู่บนเครื่องที่มีโอกาสติดมัลแวร์
+        เหมาะกับจำนวนที่คุณยอมเสียได้ถ้าเครื่องโดนเจาะ
+      </li>
+      <li>
+        <strong>กระเป๋าเย็น (cold wallet)</strong> คือกุญแจที่ไม่เคยอยู่บนเครื่องที่ต่อเน็ต
+        ท่าที่คนใช้กันมากที่สุดคือ <strong>ฮาร์ดแวร์วอลเล็ต</strong> ซึ่งเป็นอุปกรณ์เล็ก ๆ
+        ที่เก็บกุญแจไว้ข้างในและเซ็นใบสั่งจ่ายให้ในตัวมันเอง โดยไม่ปล่อยกุญแจออกมาข้างนอกเลย
+        คุณเสียบมันกับคอมที่ติดไวรัสได้โดยกุญแจยังไม่รั่ว เพราะสิ่งที่วิ่งออกมาคือลายเซ็น ไม่ใช่กุญแจ
+      </li>
+      <li>
+        <strong>ไม่เก็บเอง</strong> คือปล่อยไว้ที่บริษัท ซึ่งคือกล่องซ้ายในภาพเมื่อกี้
+        สะดวกที่สุดและไม่ต้องรับผิดชอบอะไรเลย แลกกับการที่สิ่งที่คุณถือคือคำสัญญา
+      </li>
+    </ul>
+  </div>
+
+  <p>
+    ไม่ว่าเลือกทางไหน ของที่ต้องรอดคือชุดคำกู้คืน ไม่ใช่ตัวเครื่อง
+    ฮาร์ดแวร์วอลเล็ตพังหรือหายก็ซื้อเครื่องใหม่แล้วพิมพ์คำเดิมเข้าไป ได้ทุกอย่างกลับมา
+    คนที่เสียเงินจริงจึงมักไม่ใช่คนที่ทำเครื่องหาย แต่เป็นคนที่ทำชุดคำกู้คืนหาย หรือเอาไปให้คนอื่น
+  </p>
+
+  <h3 id="mistakes">สองอย่างที่ไม่มีใครกู้ให้ได้</h3>
+
+  <p>
+    ความที่แก้ย้อนหลังไม่ได้เป็นคุณสมบัติที่ดีมากตอนมีคนพยายามโกงคุณ
+    และเป็นคุณสมบัติเดียวกันเป๊ะตอนที่คนพลาดเอง
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง: ส่งผิดที่ ไม่มีปุ่มยกเลิก</p>
+    <p>
+      ข่าวดีคือที่อยู่ทุกอันมีตัวตรวจทานฝังอยู่ในตัวมันเอง
+      พิมพ์ตกหรือสลับตัวอักษรไปหนึ่งตัว กระเป๋าจะขึ้นว่าที่อยู่ไม่ถูกต้องแล้วไม่ยอมส่งให้ตั้งแต่แรก
+      พลาดแบบพิมพ์ผิดเฉย ๆ จึงแทบไม่ทำให้เงินหาย
+    </p>
+    <p>
+      ที่อันตรายจริงคือ<strong>ที่อยู่ที่ถูกต้องทุกตัวอักษร แต่ไม่ใช่ที่ที่คุณตั้งใจจะส่งไป</strong>
+      กรณีที่เจอบ่อยที่สุดคือมัลแวร์ที่คอยเฝ้าคลิปบอร์ด พอคุณก๊อปที่อยู่ปลายทาง
+      มันสลับเป็นที่อยู่ของคนร้ายซึ่งหน้าตาคล้ายกันตอนคุณกดวาง
+      เมื่อธุรกรรมถูกขุดแล้ว ไม่มีใครบนโลกย้อนให้ได้
+      ท่าที่คนใช้กันคือไล่ดูตัวอักษรต้นกับท้ายหลังกดวางทุกครั้ง และถ้าเป็นก้อนใหญ่ ให้ส่งจำนวนน้อย ๆ ไปทดสอบก่อนหนึ่งรอบ
+    </p>
+  </div>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง: การหลอกลวงที่เจอซ้ำ ๆ</p>
+    <p>
+      กติกาข้อเดียวที่กันได้เกือบทั้งหมดคือ <strong>ชุดคำกู้คืนไม่เคยต้องถูกพิมพ์ที่ไหนนอกจากตอนกู้กระเป๋าของตัวเอง</strong>
+      ไม่มีเว็บไหน แอปไหน หรือฝ่ายซัพพอร์ตของใครที่ต้องใช้มัน ใครขอคือมิจฉาชีพร้อยเปอร์เซ็นต์ ไม่มีข้อยกเว้น
+    </p>
+    <p>
+      ท่าที่เหลือเป็นการหลอกให้คุณกดส่งเอง เพราะคนร้ายขโมยจากสมุดตรง ๆ ไม่ได้
+      ที่เจอบ่อยคือให้โอนไปก่อนแล้วจะคืนให้เป็นสองเท่า เว็บลงทุนที่การันตีผลตอบแทน
+      แอปกระเป๋าปลอมที่โหลดจากลิงก์ที่คนส่งมาให้ และคนที่ทักมาสอนลงทุนแล้วค่อย ๆ ให้โอนเพิ่ม
+      ทุกท่าลงเอยที่การให้คุณเป็นคนกดส่ง เพราะนั่นเป็นทางเดียวที่เหรียญจะขยับได้
+    </p>
+  </div>
+
+  <h2 id="fees">ค่าธรรมเนียม และห้องรอที่ชื่อเมมพูล</h2>
 
   <p>
     ธุรกรรมที่ประกาศออกไปแล้วแต่ยังไม่เข้าบล็อก จะไปนั่งรออยู่ในห้องรอที่แต่ละโหนดถือไว้เอง
@@ -3206,6 +3698,12 @@ const DESC =
     ข้อนี้ทำให้สายหลักไม่เหมาะกับการซื้อกาแฟในชีวิตประจำวัน มีความพยายามแก้ด้วยชั้นที่สร้างทับข้างบน
     อย่าง Lightning Network ซึ่งยาวพอที่จะเป็นอีกบทหนึ่ง
   </p>
+
+  <h2 class="part-head" id="part-5">
+    <span class="part-kicker">ภาค 5 จาก 7</span>
+    <span class="part-name">ลองถือสมุดเอง</span>
+    <span class="part-say">ส่วนที่ลงมือทำตามได้จริงและไม่เสียเงิน สมุดใหญ่แค่ไหน คอมบ้าน ๆ ไหวไหม และเปิดโหนดของตัวเองยังไง</span>
+  </h2>
 
   <h2>สมุดที่ทุกคนถือ มันบวมแค่ไหน</h2>
 
@@ -3451,6 +3949,170 @@ const DESC =
     </svg>
   </ZoomableDiagram>
 
+  <h2 id="run-node">อยากถือสมุดเองบ้าง ต้องทำยังไง</h2>
+
+  <p>
+    ทั้งบทพูดถึงโหนดมาตลอดว่ามันคือเครื่องที่ถือสมุดและตรวจทุกอย่างเอง
+    ของแบบนี้ฟังดูเหมือนต้องเป็นบริษัท แต่จริง ๆ คือโปรแกรมตัวหนึ่งที่ลงในคอมที่บ้านได้
+    ไม่เสียเงิน ไม่ต้องขออนุญาตใคร และไม่ต้องบอกใครว่าคุณเปิด
+  </p>
+
+  <p>
+    โปรแกรมที่คนส่วนใหญ่ใช้ชื่อ <strong>Bitcoin Core</strong> อ่านว่า "บิตคอยน์ คอร์"
+    คำว่า <i>core</i> แปลว่าแกน คือชุดโค้ดสายหลักที่สืบทอดมาจากโปรแกรมตัวแรกที่ซาโตชิปล่อยออกมา
+    โหลดได้ที่ <a href="https://bitcoincore.org/en/download/" target="_blank" rel="noopener noreferrer">bitcoincore.org</a>
+    และเปิดโค้ดให้อ่านทุกบรรทัดที่ <a href="https://github.com/bitcoin/bitcoin" target="_blank" rel="noopener noreferrer">github.com/bitcoin/bitcoin</a>
+  </p>
+
+  <PhotoSlides slides={SHOT_DOWNLOAD} credit={`ภาพหน้าจอ bitcoincore.org/en/download เมื่อ ${NODE_SHOT_DATE}`} />
+
+  <p>
+    พอเปิดโปรแกรมครั้งแรก มันจะถามก่อนว่าจะเก็บข้อมูลไว้โฟลเดอร์ไหน
+    และบอกตรงนั้นเลยว่าจะต้องโหลดของราว
+    <ExplainNumber value={`${CORE_ESTIMATE_GB} GB`} title="ทำไมไม่ตรงกับตัวเลขขนาดสมุดในบทความ" html={EX.coreEstimate} />
+    ลงเครื่อง ซึ่งเป็นคนละตัวเลขกับขนาดสมุดที่บทความใช้ก่อนหน้านี้ กดตรงช่องล่างสุดของหน้านี้แหละ
+    ถ้าไม่อยากเสียที่ขนาดนั้น
+  </p>
+
+  <PhotoSlides slides={SHOT_DATADIR} credit={`ภาพหน้าจอ Bitcoin Core 31.1 บนวินโดวส์ เมื่อ ${NODE_SHOT_DATE}`} />
+
+  <p>
+    ขั้นตอนสั้นกว่าที่คิดมาก ติดตั้งเสร็จแล้วกดเปิด มันจะเริ่มไล่โหลดสมุดจากบล็อกแรกสุด
+    แล้วตรวจทุกบล็อกด้วยตัวเองตามกติกาที่คุณเพิ่งอ่านมาทั้งบท คือเช็คลายเซ็นทุกใบ
+    เช็คว่าเงินทุกก้อนยังไม่ถูกใช้ เช็คว่าแฮชต่อกันถูก และเช็คว่างานที่จ่ายไปถึงเป้าจริง
+    ส่วนที่กินเวลาคือรอบนี้รอบเดียว หลังจากนั้นมันแค่รับบล็อกใหม่ทุกสิบนาที
+  </p>
+
+  <p>
+    ตรงนี้แหละคือของที่แลกมากับเวลาที่เสียไป ช่องว่างสามข้อของเครื่องเล็กที่เล่าไว้ใน
+    <a href="#merkle-limits">ท้ายหัวข้อรากเมอร์เคิล</a> ปิดหมดทุกข้อเมื่อคุณถือสมุดครบเอง
+    ไม่มีใครเงียบใส่คุณได้เพราะคุณเปิดดูเองทุกใบ ไม่ต้องเชื่อว่าใครตรวจกติกาให้แล้วเพราะคุณตรวจเอง
+  </p>
+
+  <p>
+    ระหว่างนั้นหน้าจอจะขึ้นช่อง "เวลาที่เหลือโดยคาดการณ์" ให้ดู
+    และมันคือช่องที่ผมอยากให้คุณอย่าเพิ่งเชื่อ เก้าภาพข้างล่างนี้ถ่ายจากรอบซิงก์รอบเดียวกัน
+    กดลูกศรดูทีละใบแล้วดูที่บรรทัดล่างสุด
+  </p>
+
+  <PhotoSlides slides={SHOT_SYNC} credit={`ภาพหน้าจอ Bitcoin Core 31.1 บนวินโดวส์ เมื่อ ${NODE_SYNC_DATES}`} />
+
+  <p>
+    จาก 28 สัปดาห์ เหลือ 2 วัน เหลือ 33 ชั่วโมง แล้วเหลือ 9 ชั่วโมง
+    ตัวเลขนี้ไม่ได้เพี้ยน โปรแกรมแค่เอาอัตราที่ทำได้ล่าสุดไปคูณกับงานที่เหลือตรง ๆ
+    พอดูอีกช่องหนึ่งจะเห็นว่าอัตรานั่นแหละที่กำลังวิ่งขึ้น
+    จาก 0.02% ต่อชั่วโมง เป็น 1.41% เป็น 2.94% แล้วพุ่งไปถึง 10.31%
+  </p>
+
+  <p>
+    ที่น่าดูคือห้าใบท้าย พออัตราขึ้นมานิ่งอยู่ราวสิบเปอร์เซ็นต์ต่อชั่วโมง คำเดาก็หยุดถล่ม
+    ค้างที่ 9 ชั่วโมงอยู่สองรอบ แล้วลงมาค้างที่ 6 ชั่วโมงอีกสามรอบ
+    ทั้งที่ระหว่างนั้นความก้าวหน้าเดินจาก 3.77% ขึ้นไปถึง 45.16%
+    ช่องนี้จึงไม่ได้โกหก มันแค่เชื่อถือได้ก็ต่อเมื่ออัตราหยุดเปลี่ยนแล้วเท่านั้น
+  </p>
+
+  <p>
+    ใบสุดท้ายคือจังหวะที่เงื่อนไขนั้นเป็นจริงพอดี อัตรานิ่งอยู่ที่ 12.00% ต่อชั่วโมง
+    งานที่เหลือลดลงเหลือ 42,335 ก้อนจากเกือบล้านก้อน คำเดาจึงหดลงมาเป็น 48 นาที
+    ซึ่งเป็นครั้งแรกที่มันกลายเป็นตัวเลขที่เอาไปวางแผนได้ ตัวเลขเดียวกันนี้ถ้าไปอ่านตอนใบแรกจะไร้ความหมายสิ้นเชิง
+  </p>
+
+  <p>
+    ส่วนเหตุผลที่อัตราวิ่งขึ้นแบบนั้นอยู่ที่ตัวสมุดเอง ช่วงปีแรก ๆ บล็อกแทบว่างเปล่า หลายก้อนมีธุรกรรมใบเดียวคือใบที่นักขุดจ่ายให้ตัวเอง
+    เครื่องจึงกวาดผ่านไปเป็นแสนก้อนโดยแทบไม่ได้ตรวจลายเซ็นอะไรเลย
+    แต่ช่องความก้าวหน้าไม่ได้นับเป็นจำนวนก้อน มันนับตามปริมาณธุรกรรม
+    ตอนอยู่ในดงบล็อกว่าง เข็มจึงแทบไม่ขยับทั้งที่เดินเร็วมาก พอเริ่มโผล่พ้นยุคนั้น เข็มถึงวิ่งตาม
+  </p>
+
+  <p>
+    พอไล่จบ หน้าจอจะเปลี่ยนไปเลย กล่องเตือนสีเหลืองที่บอกว่ายอดในกระเป๋าอาจยังไม่ถูกต้องหายไป
+    แถบที่ขอบล่างซึ่งคอยบอกว่าตามหลังอยู่กี่สัปดาห์ก็หายไปด้วย
+    เครื่องของคุณถือสมุดครบทั้งเล่มและตรวจมาเองทุกก้อนแล้ว
+  </p>
+
+  <PhotoSlides slides={SHOT_DONE} credit={`ภาพหน้าจอ Bitcoin Core 31.1 บนวินโดวส์ เมื่อ ${NODE_SHOT_DATE_DONE}`} />
+
+  <p>
+    สิ่งที่มันถามต่อคือจะเปิดกระเป๋าไหม ซึ่งเป็นคนละเรื่องกับการถือสมุด
+    โหนดที่เพิ่งไล่จบทำหน้าที่ของมันได้เต็มที่อยู่แล้วโดยไม่ต้องมีกระเป๋าสักใบ
+    ส่วนกุญแจกับชุดคำกู้คืนที่จะโผล่มาถ้ากดสร้าง คือของเดียวกับที่เล่าไว้ใน
+    <a href="#wallet">หัวข้อกระเป๋า</a>
+  </p>
+
+  <p>
+    ที่ต้องรู้อีกข้อคือ <strong>โหมดพรูนที่จะเล่าข้างล่างไม่ได้ทำให้รอบนี้เร็วขึ้นเลย</strong>
+    มันประหยัดที่เก็บ ไม่ได้ประหยัดเวลา เพราะยังไงก็ต้องโหลดและตรวจทุกก้อนเหมือนเดิม
+    แค่ตรวจเสร็จแล้วค่อยลบทิ้ง ส่วนตัวที่ทำให้เร็วขึ้นจริงคือความเร็วดิสก์กับซีพียู
+    เพราะงานหลักคือการตรวจลายเซ็น ไม่ใช่การโหลดไฟล์
+  </p>
+
+  <details class="expander">
+    <summary>ถ้าปิดคอมกลางคันตอนยังซิงก์ไม่เสร็จ งานที่ไล่มาหายไหม</summary>
+    <div class="expander-body">
+
+  <p>
+    ไม่หายครับ เหตุผลเดียวกับที่เล่าไว้ในหัวข้อไฟดับทั้งโลกข้างบน คือโปรแกรมเขียนลงดิสก์จริงตลอดทาง
+    ที่ต่างกันคือรอบนี้เป็นเรื่องของเครื่องคุณเอง ซึ่งมีรายละเอียดที่ควรรู้ก่อนกดปิด
+  </p>
+
+  <p>
+    <strong>ปิดแบบปกติ</strong> คือสั่งจากเมนูไฟล์หรือกดกากบาทที่มุมหน้าต่าง
+    มันจะเขียนของที่ค้างอยู่ในหน่วยความจำลงดิสก์ให้เรียบร้อยก่อนแล้วค่อยดับ
+    ระหว่างนั้นจะขึ้นหน้าต่างบอกว่ากำลังปิดอยู่ บางทีกินเวลาเป็นนาที ปล่อยให้มันทำงานจนหน้าต่างหายไปเอง
+    เปิดใหม่คราวหน้ามันเดินต่อจากจุดเดิมทันที
+  </p>
+
+  <p>
+    <strong>ไฟดับหรือสั่งฆ่าโปรเซส</strong> แฟ้มบล็อกที่โหลดมาแล้วยังอยู่ครบ เพราะมันเขียนแบบต่อท้ายไปเรื่อย ๆ
+    ของที่เสี่ยงคือดัชนีสรุปเงินคงเหลือที่ยังค้างอยู่ในหน่วยความจำ ณ วินาทีที่ดับ
+    เปิดใหม่โปรแกรมจะรู้เองว่าคราวก่อนปิดไม่เรียบร้อย แล้วย้อนไปตั้งต้นจากจุดที่บันทึกไว้ล่าสุด
+    สิ่งที่เสียคือช่วงตั้งแต่บันทึกรอบล่าสุดถึงตอนดับเท่านั้น ไม่ได้กลับไปเริ่มที่ศูนย์
+  </p>
+
+  <p>
+    <strong>กรณีที่แย่กว่านั้นแต่ยังไม่ถึงกับต้องโหลดใหม่</strong> ถ้าดัชนีนั้นพังจริง
+    เปิดโปรแกรมมาจะมีหน้าต่างถามว่าจะสร้างฐานข้อมูลใหม่ไหม กดตกลงแล้วมันสร้างใหม่จากแฟ้มบล็อกที่อยู่ในเครื่อง
+    ไม่ได้โหลดใหม่จากเน็ต แต่ต้องไล่ตรวจใหม่ทั้งหมด ซึ่งกินเวลาพอ ๆ กับที่เพิ่งไล่มา
+    ส่วนกรณีที่ต้องโหลดใหม่จริงคือแฟ้มบล็อกเสียหายไปด้วย ซึ่งเจอไม่บ่อย
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง: ปุ่มปิดเครื่องของวินโดวส์</p>
+    <p>
+      การสั่งปิดเครื่องจะบอกให้ทุกโปรแกรมปิดตัว แต่ให้เวลาจำกัด ถ้า Bitcoin Core ปิดไม่ทัน
+      มันจะโดนฆ่าทิ้ง ซึ่งกลายเป็นกรณีที่สองข้างบน ปลอดภัยกว่าคือปิด Bitcoin Core เองก่อน
+      รอจนหน้าต่างหายไปจริง แล้วค่อยสั่งปิดเครื่อง
+    </p>
+  </div>
+    </div>
+  </details>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เคล็ดลับ: ถ้าฮาร์ดดิสก์ไม่พอ</p>
+    <p>
+      สมุดทั้งเล่มตอนนี้หนักราว {fmt(chainGb)} กิกะไบต์และโตขึ้นทุกปี ถ้าไม่อยากเสียที่ขนาดนั้น
+      เปิดโหมดที่เรียกว่า <strong>พรูน (prune)</strong> อ่านว่า "พรูน" แปลว่าตัดแต่งกิ่ง
+      โปรแกรมจะยังโหลดและตรวจทุกบล็อกตั้งแต่ก้อนแรกเหมือนเดิมทุกอย่าง
+      แต่พอตรวจเสร็จก็ทิ้งบล็อกเก่าที่ไม่ต้องใช้แล้ว เหลือเก็บไว้แค่ไม่กี่ร้อยเมกะไบต์
+    </p>
+    <p>
+      คุณยังตรวจเองได้เต็มร้อยเหมือนเดิม สิ่งที่เสียไปคือคุณแจกสมุดเก่าให้คนอื่นโหลดไม่ได้
+      และย้อนดูธุรกรรมเก่า ๆ ในเครื่องตัวเองไม่ได้
+    </p>
+  </div>
+
+  <p>
+    เรื่องที่ต้องบอกให้ชัดคือ <strong>การเปิดโหนดไม่ใช่การขุด และไม่ได้เงินสักบาท</strong>
+    เครื่องของคุณไม่ได้เดาเลขแข่งกับใคร มันแค่ตรวจกับเก็บ สิ่งที่คุณได้กลับมามีอย่างเดียว
+    คือคุณเลิกต้องเชื่อคำบอกเล่าของใครทั้งสิ้น กระเป๋าที่ต่อกับโหนดตัวเองจะถามยอดจากสมุดของคุณเอง
+    แทนที่จะถามจากเซิร์ฟเวอร์ของบริษัทไหน
+  </p>
+
+  <p>
+    และมันคือจุดที่หัวข้อที่แล้วพูดถึงพอดี ตอนที่บอกว่ากติกาอยู่ที่คนส่วนใหญ่เลือกจะรันไฟล์ไหน
+    เครื่องที่เปิดอยู่ตอนนี้ก็คือหนึ่งเสียงในนั้น
+  </p>
+
   <h2>ประกอบร่าง: เกิดอะไรขึ้นตอนคุณกดปุ่มส่ง</h2>
 
   <p>
@@ -3478,6 +4140,47 @@ const DESC =
     สิ่งที่ตัดสินว่าธุรกรรมของคุณผ่านหรือไม่ผ่านมีสองอย่าง คือลายเซ็นถูกต้องไหม
     และค่าธรรมเนียมที่คุณให้คุ้มพอให้นักขุดหยิบไหม
   </p>
+
+  <p>
+    และถ้าถอยออกมามองทั้งวง จะเห็นว่าไม่มีใครในภาพนี้ทำเพราะถูกสั่งเลยสักคน
+    ทุกฝ่ายทำเพราะมันคุ้มกับตัวเอง แล้วบังเอิญว่าทางที่คุ้มกับตัวเองของแต่ละฝ่าย
+    ดันเป็นทางเดียวกับที่ทำให้ระบบทั้งระบบยังเดินอยู่ได้พอดี
+  </p>
+
+  <ZoomableDiagram
+    caption="ไม่มีใครในภาพนี้เสียสละ ทุกฝ่ายเลือกทางที่ตัวเองได้ประโยชน์ที่สุด แล้วทางนั้นบังเอิญประกอบกันเป็นระบบที่โกงไม่ได้"
+  >
+    <svg class="btc-dgm" viewBox="0 0 560 208" role="img" aria-label="แผนภาพสามคอลัมน์บอกว่าแต่ละฝ่ายได้อะไร คอลัมน์ซ้ายคือผู้ส่งได้โอนโดยไม่ต้องขอใคร ไม่มีใครย้อนให้ได้ และจ่ายแค่ค่าธรรมเนียม คอลัมน์กลางคือนักขุดได้เหรียญใหม่ ได้ค่าธรรมเนียม และถ้าโกงจะเสียค่าไฟฟรี คอลัมน์ขวาคือคนถือโหนดตรวจเองได้ทุกบรรทัด ไม่ต้องเชื่อใคร และปฏิเสธบล็อกที่ผิดกติกาได้ ข้างล่างมีข้อความว่าไม่มีใครทำเพราะถูกสั่ง ทุกฝ่ายทำเพราะมันคุ้มกับตัวเอง" xmlns="http://www.w3.org/2000/svg" font-family="Sarabun, sans-serif">
+      <rect x="14" y="14" width="168" height="150" rx="10" fill="#141a29" stroke="#4ade80"/>
+      <text x="98" y="42" text-anchor="middle" font-size="12" fill="#4ade80">คนส่งเงิน</text>
+      <text x="98" y="76" text-anchor="middle" font-size="10" fill="#e7ecf6">โอนได้โดยไม่ต้องขอใคร</text>
+      <text x="98" y="100" text-anchor="middle" font-size="10" fill="#e7ecf6">ไม่มีใครย้อนให้ได้</text>
+      <text x="98" y="124" text-anchor="middle" font-size="10" fill="#e7ecf6">จ่ายแค่ค่าธรรมเนียม</text>
+      <text x="98" y="150" text-anchor="middle" font-size="10" fill="#9aa7bd">จึงยอมใช้ต่อ</text>
+
+      <rect x="196" y="14" width="168" height="150" rx="10" fill="#241f0d" stroke="#e0b400"/>
+      <text x="280" y="42" text-anchor="middle" font-size="12" fill="#e0b400">นักขุด</text>
+      <text x="280" y="76" text-anchor="middle" font-size="10" fill="#e7ecf6">ได้เหรียญใหม่</text>
+      <text x="280" y="100" text-anchor="middle" font-size="10" fill="#e7ecf6">ได้ค่าธรรมเนียม</text>
+      <text x="280" y="124" text-anchor="middle" font-size="10" fill="#e7ecf6">โกงแล้วเสียค่าไฟฟรี</text>
+      <text x="280" y="150" text-anchor="middle" font-size="10" fill="#9aa7bd">จึงยอมทำตามกติกา</text>
+
+      <rect x="378" y="14" width="168" height="150" rx="10" fill="#111c2e" stroke="#4d72a9"/>
+      <text x="462" y="42" text-anchor="middle" font-size="12" fill="#7ea6dd">คนถือโหนด</text>
+      <text x="462" y="76" text-anchor="middle" font-size="10" fill="#e7ecf6">ตรวจเองได้ทุกบรรทัด</text>
+      <text x="462" y="100" text-anchor="middle" font-size="10" fill="#e7ecf6">ไม่ต้องเชื่อใครเลย</text>
+      <text x="462" y="124" text-anchor="middle" font-size="10" fill="#e7ecf6">บล็อกผิดกติกาถูกปฏิเสธ</text>
+      <text x="462" y="150" text-anchor="middle" font-size="10" fill="#9aa7bd">จึงยอมเปิดเครื่องทิ้งไว้</text>
+
+      <text x="280" y="192" text-anchor="middle" font-size="11" fill="#4ade80">ไม่มีใครทำเพราะถูกสั่ง ทุกฝ่ายทำเพราะมันคุ้มกับตัวเอง</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2 class="part-head" id="part-6">
+    <span class="part-kicker">ภาค 6 จาก 7</span>
+    <span class="part-name">ที่มา ประวัติ และโค้ดจริง</span>
+    <span class="part-say">ย้อนดูว่าของชิ้นนี้เดินทางมายังไงตลอดสิบแปดปี และโค้ดชุดแรกที่ทุกอย่างเริ่มจากมันอยู่ตรงไหน</span>
+  </h2>
 
   <h2>แล้วปี 2140 ที่เหรียญหมด นักขุดจะอยู่ด้วยอะไร</h2>
 
@@ -3588,7 +4291,7 @@ const DESC =
   <h2>สิบแปดปีของบิตคอยน์</h2>
 
   <ol class="tl">
-    <li class="tl-good"><b>2008</b><span>เอกสารต้นฉบับเก้าหน้าถูกโพสต์ลงเมลลิงลิสต์</span></li>
+    <li class="tl-good"><b>2008</b><span>เอกสารต้นฉบับเก้าหน้าชื่อ Bitcoin: A Peer-to-Peer Electronic Cash System ถูกโพสต์ลงเมลลิงลิสต์</span></li>
     <li class="tl-good"><b>2009</b><span>บล็อกกำเนิดถูกขุด เครือข่ายเริ่มเดินด้วยเครื่องเดียวในโลก</span></li>
     <li class="tl-gold"><b>2010</b><span>พิซซ่าสองถาดแลก 10,000 เหรียญ ราคาเกิดขึ้นเป็นครั้งแรก</span></li>
     <li><b>2011</b><span>ผู้สร้างถอยออกจากโครงการแล้วหายไปเงียบ ๆ</span></li>
@@ -3605,9 +4308,10 @@ const DESC =
 
   <p>
     สามจุดในไทม์ไลน์นั้นควรเล่ายาวกว่าบรรทัดเดียว จุดแรกคือบล็อกกำเนิดเมื่อวันที่ 3 มกราคม 2009
-    ในนั้นมีข้อความฝังอยู่บรรทัดหนึ่ง เป็นพาดหัวข่าวหน้าหนึ่งของหนังสือพิมพ์ The Times ฉบับวันนั้น
-    เรื่องรัฐมนตรีคลังอังกฤษที่กำลังจะอุ้มธนาคารรอบสอง ข้อความนั้นทำหน้าที่สองอย่างพร้อมกัน
-    คือเป็นหลักฐานว่าบล็อกนี้ถูกสร้างหลังวันนั้น ไม่ได้แอบขุดล่วงหน้า และเป็นคำแถลงจุดยืนว่าเขากำลังสร้างอะไรอยู่
+    กับพาดหัว The Times ที่สลักอยู่ในนั้น ซึ่งค้างคำถามไว้ตั้งแต่หัวข้อร้อยหน้ากระดาษว่าทำไมต้องเป็นข่าวชิ้นนี้
+    คำตอบคือข้อความนั้นทำหน้าที่สองอย่างพร้อมกัน เป็นหลักฐานว่าบล็อกนี้ถูกสร้างหลังวันนั้น
+    ไม่ได้แอบขุดล่วงหน้า เพราะไม่มีใครรู้พาดหัวของวันพรุ่งนี้ได้
+    และเป็นคำแถลงจุดยืนว่าเขากำลังสร้างอะไรอยู่ ในวันที่ข่าวหน้าหนึ่งคือรัฐบาลกำลังจะอุ้มธนาคารเป็นรอบที่สอง
   </p>
 
   <p>
@@ -3653,286 +4357,31 @@ const DESC =
 
   <hr class="divider-solid" />
 
-  <h2>เปิดฝาดูโค้ดชิ้นแรก</h2>
+<h2 id="source">โค้ดชิ้นแรกอยู่ตรงไหน</h2>
 
   <p>
-    ทุกอย่างที่เล่ามาทั้งบทเป็นกติกา และกติกาพวกนั้นมีตัวตนจริงในรูปของโค้ดที่รันได้
-    ที่สนุกคือชุดแรกสุดยังอยู่ครบและอ่านได้ทั้งหมด บทนี้เหลืออีกนิดเดียวแล้ว
-    ผมเลยอยากพาเปิดฝาดูว่ากติกาแต่ละข้อหน้าตาเป็นยังไงในโค้ดจริง
-    แล้วค่อย ๆ ต่อขึ้นมาทีละชั้นเหมือนที่เราต่อความเข้าใจกันมา
-  </p>
-
-  <p>
+    กติกาทุกข้อที่เล่ามาทั้งบทมีตัวตนจริงในรูปของโค้ดที่รันได้ และชุดแรกสุดยังอยู่ครบ
     ชุดที่ปล่อยเมื่อวันที่ 9 มกราคม 2009 ชื่อ Bitcoin v0.1 เป็นภาษา C++ รันบนวินโดวส์อย่างเดียว
-    ทั้งโปรเจกต์มี {fmt(v01Total)} บรรทัด ซึ่งน้อยกว่าที่คนส่วนใหญ่คาดไว้มาก
-    แต่สิ่งที่ผมคิดว่าน่าสนใจกว่าตัวเลขรวม คือสัดส่วนว่าบรรทัดพวกนั้นไปกองอยู่ตรงไหน
-  </p>
-
-  <figure class="tbl">
-    <table class="amo wide">
-      <caption>ซอร์สโค้ด Bitcoin v0.1 แบ่งตามงาน</caption>
-      <thead>
-        <tr>
-          <th>ไฟล์</th>
-          <th>บรรทัด</th>
-          <th>ทำอะไร</th>
-        </tr>
-      </thead>
-      <tbody>
-        {v01Source.map((g) => (
-          <tr>
-            <td>{g.files}</td>
-            <td class="hot">{fmt(g.lines)}</td>
-            <td>{g.job}</td>
-          </tr>
-        ))}
-        <tr class="tie">
-          <td>รวม</td>
-          <td class="cool">{fmt(v01Total)}</td>
-          <td>ทั้งโปรเจกต์</td>
-        </tr>
-      </tbody>
-    </table>
-    <figcaption>
-      นับจากไฟล์ต้นฉบับจริง ไฟล์ที่ยาวที่สุดในโปรเจกต์ไม่ใช่ตัวกติกา แต่เป็นหน้าต่างโปรแกรม
-      ที่กินไป {fmt(v01Ui.lines)} บรรทัด มากกว่าไฟล์กติกาทั้งหมดรวมกันที่ {fmt(v01Main.lines)} บรรทัด
-    </figcaption>
-  </figure>
-
-  <p>
-    สัดส่วนนี้เล่าอะไรบางอย่าง คนที่เขียนโปรแกรมนี้ไม่ได้ตั้งใจปล่อยเปเปอร์แล้วรอให้คนอื่นทำต่อ
-    เขานั่งประกอบปุ่มกับช่องกรอกเพื่อให้คนธรรมดาเปิดใช้ได้ตั้งแต่วันแรก
-    ในกองนั้นยังมีไฟล์ <code>market.cpp</code> ที่เป็นหน้าตลาดซื้อขายทำค้างไว้ {fmt(v01Source[8].lines)} บรรทัด และไม่เคยถูกเปิดใช้เลย
+    ทั้งโปรเจกต์มีหมื่นเก้าพันกว่าบรรทัด และเกินหนึ่งในสามของมันเป็นหน้าต่างโปรแกรม ไม่ใช่กติกา
   </p>
 
   <p>
-    ที่เหลือคือการไล่โค้ดจริงทีละชั้น ซึ่งอ่านหรือไม่อ่านก็ไม่กระทบเนื้อหาส่วนอื่นของบทนี้
-    ผมพับเก็บไว้เป็นชั้น ๆ ใครสนใจชั้นไหนกดดูชั้นนั้นได้เลย
+    การเปิดฝาดูโค้ดผมแยกไปไว้อีกหน้าหนึ่ง เพราะเป็นคนละอารมณ์กับบทนี้
+    บทนี้อธิบายกติกาโดยไม่ต้องเปิดโค้ดสักบรรทัด ส่วนหน้านั้นเอาสิ่งที่คุณเข้าใจแล้วไปทาบกับโค้ดจริงทีละชั้น
+    ตั้งแต่หัวบล็อกหกช่อง กติกาการออกเหรียญ การปรับความยาก ไปจนถึงการหาเพื่อนบ้านครั้งแรกด้วยห้องแชต IRC
+    และโค้ดหน้าเดียวที่ย่อทุกอย่างให้รันเองได้
+    อ่านได้ที่ <a href="../bitcoin-v01-source/">เปิดฝาดูโค้ดชิ้นแรกของบิตคอยน์</a>
   </p>
-
-  <details class="expander">
-    <summary>ชั้นที่ 1 · หัวบล็อกหกช่อง</summary>
-    <div class="expander-body">
-
-  <p>
-    ตอนที่เล่าเรื่องต้นไม้เมอร์เคิลผมบอกไว้ว่าหัวบล็อกมีขนาดคงที่ 80 ไบต์ ตัวเลขนั้นมาจากตรงนี้
-  </p>
-
-  <CodeBlock code={CODE_HEADER} lang="cpp" title="main.h · หัวบล็อกทั้งใบมีแค่หกช่อง" />
-
-  <p>
-    ไล่ดูทีละช่องแล้วจะเจอทุกอย่างที่อ่านมาทั้งบท <code>hashPrevBlock</code> คือตราที่ปั๊มคาบหน้ากระดาษ
-    <code>hashMerkleRoot</code> คือแฮชเดียวที่สรุปธุรกรรมทั้งบล็อก <code>nBits</code> คือความยากของรอบนั้น
-    และ <code>nNonce</code> คือช่องว่างที่นักขุดเติมเลขเดาลงไป
-  </p>
-
-  <p>
-    รวมกันได้ 4 บวก 32 บวก 32 บวก 4 บวก 4 บวก 4 เท่ากับ 80 ไบต์พอดี ไม่ว่าบล็อกนั้นจะมีธุรกรรมห้าพันรายการหรือรายการเดียว
-    ส่วน <code>vtx</code> ที่อยู่ข้างล่างคือรายการธุรกรรมจริง ซึ่งอยู่นอกหัวบล็อกและไม่ถูกแฮชตอนขุด
-  </p>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>ชั้นที่ 2 · วงจรการขุด</summary>
-    <div class="expander-body">
-
-  <p>
-    ภาพวงจรการขุดที่วาดไว้ก่อนหน้านี้ ในโค้ดจริงคือลูปนี้
-  </p>
-
-  <CodeBlock code={CODE_MINER} lang="cpp" title="main.cpp · หัวใจของ BitcoinMiner (ตัดส่วนพิมพ์ล็อกออก)" />
-
-  <p>
-    ตรงนี้มีเรื่องที่ผมเล่าไม่ครบไว้ตอนต้นบท และจุดนี้เป็นจังหวะที่ควรเฉลย
-    เงื่อนไขจริงไม่ใช่การนับว่าขึ้นต้นด้วยศูนย์กี่ตัว แต่คือ <code>hash &lt;= hashTarget</code>
-    คือเอาแฮชมามองเป็นเลขจำนวนเต็มขนาด 256 บิต แล้วถามว่ามันน้อยกว่าเป้าหมายหรือเปล่า
-  </p>
-
-  <p>
-    สองอย่างนี้ให้ผลใกล้เคียงกัน เพราะเลขที่จะน้อยพอก็ต้องขึ้นต้นด้วยศูนย์อยู่ดี
-    แต่แบบเป้าหมายปรับได้ละเอียดกว่ามาก การนับศูนย์ขยับได้ทีละสิบหกเท่า
-    ส่วนการเลื่อนเป้าหมายขยับได้ทีละนิด ซึ่งจำเป็นสำหรับการรักษาจังหวะสิบนาทีให้แม่น
-  </p>
-
-  <p>
-    อีกบรรทัดที่น่าสังเกตคือ <code>BlockSHA256</code> ถูกเรียกสองครั้งซ้อน แฮชของบล็อกในบิตคอยน์คือการแฮชสองรอบเสมอ
-    รอบแรกแฮชหัวบล็อก รอบสองแฮชผลลัพธ์ของรอบแรกอีกที
-  </p>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>ชั้นที่ 3 · รางวัลกับฮาล์ฟวิง</summary>
-    <div class="expander-body">
-
-  <p>
-    ตารางการออกเหรียญยาว 33 ยุคที่อยู่ข้างบน กับเพดาน {fmt(totalBtc, 4)} เหรียญที่คนถกกันทั้งโลก ทั้งหมดมาจากฟังก์ชันนี้
-  </p>
-
-  <CodeBlock code={CODE_SUBSIDY} lang="cpp" title="main.cpp · กติกาการออกเหรียญทั้งหมด" />
-
-  <p>
-    บรรทัดที่ทำงานจริงมีบรรทัดเดียวคือ <code>nSubsidy &gt;&gt;= (nBestHeight / 210000)</code>
-    เครื่องหมาย <code>&gt;&gt;=</code> คือการเลื่อนบิตไปทางขวา ซึ่งมีค่าเท่ากับการหารด้วยสองแบบปัดลง
-    อยู่ในยุคที่ 5 ก็เลื่อนไป 4 ครั้ง เท่ากับหารสองสี่หน จาก 50 เหลือ {fmt(currentRewardBtc, 3)} เหรียญ
-  </p>
-
-  <p>
-    และเพราะ <code>nSubsidy</code> เป็นจำนวนเต็มหน่วยซาโตชิ พอเลื่อนไปมากพอมันจะกลายเป็นศูนย์เอง
-    เพดาน 21 ล้านจึงไม่ได้ถูกเขียนไว้ที่ไหนในไฟล์นี้เลย มันเป็นผลลัพธ์ของการเลื่อนบิตบรรทัดนี้ล้วน ๆ
-    ตรงกับที่คำนวณให้ดูในตารางก่อนหน้า
-  </p>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>ชั้นที่ 4 · การปรับความยาก และบั๊กที่ยังอยู่ถึงวันนี้</summary>
-    <div class="expander-body">
-
-  <CodeBlock code={CODE_RETARGET} lang="cpp" title="main.cpp · ปรับความยากทุกสองสัปดาห์ (ตัดท้ายออก)" />
-
-  <p>
-    <code>nInterval</code> คำนวณจากสองสัปดาห์หารด้วยสิบนาที ได้ 2,016 ซึ่งเป็นที่มาของเลขที่ผมอ้างไว้ตอนพูดเรื่องกำลังขุด
-    ส่วนการหนีบไว้ที่หนึ่งในสี่และสี่เท่าคือกันไม่ให้ความยากกระโดดเกินสี่เท่าในรอบเดียว
-    แม้กำลังขุดจะหายไปทันทีทั้งโลกก็ตาม
-  </p>
-
-  <div class="callout callout-note">
-    <p class="callout-label">บั๊กเล็ก ๆ ที่แก้ไม่ได้แล้ว</p>
-    <p>
-      ลองอ่านบรรทัด <code>for (int i = 0; pindexFirst &amp;&amp; i &lt; nInterval-1; i++)</code> ดี ๆ
-      มันเดินถอยหลังไป {fmt(RETARGET_INTERVAL - 1)} บล็อก ซึ่งกินช่วงเวลาแค่ {fmt(RETARGET_INTERVAL - 1)} ช่วง
-      แล้วเอาเวลาที่วัดได้ไปเทียบกับเป้าหมายสองสัปดาห์ที่ตั้งไว้สำหรับ {fmt(RETARGET_INTERVAL)} ช่วง
-      ผลคือบิตคอยน์เล็งจังหวะเฉลี่ยไว้ที่ราว {realSpacingMin.toFixed(3)} นาทีต่อบล็อก แทนที่จะเป็น {BLOCK_MINUTES} นาทีเป๊ะ
-      คลาดไปราว {(((realSpacingMin - BLOCK_MINUTES) / BLOCK_MINUTES) * 100).toFixed(2)}% ซึ่งเล็กจนไม่มีใครเดือดร้อน
-      แต่แก้ไม่ได้แล้วเพราะการแก้จะเปลี่ยนกติกา
-      และทำให้โหนดที่ไม่ได้อัปเดตแยกสายออกไปทันที บั๊กบรรทัดนี้จึงยังรันอยู่ในทุกโหนดทั่วโลกจนถึงวันนี้
-    </p>
-  </div>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>ชั้นที่ 5 · บล็อกกำเนิดที่พิมพ์ค้างไว้ในโค้ด</summary>
-    <div class="expander-body">
-
-  <p>
-    บล็อกแรกมีปัญหาไก่กับไข่ คือทุกบล็อกต้องชี้ไปที่บล็อกก่อนหน้า แล้วบล็อกแรกจะชี้ไปไหน
-    ทางแก้คือเขียนมันค้างไว้ในโค้ดตรง ๆ ทุกโหนดในโลกจึงสร้างบล็อกแรกที่เหมือนกันเป๊ะขึ้นมาเองตอนเปิดโปรแกรมครั้งแรก
-  </p>
-
-  <CodeBlock code={CODE_GENESIS} lang="cpp" title="main.cpp · บล็อกกำเนิด (ย่อค่าที่ยาวมากเป็นจุดไข่ปลา)" />
-
-  <p>
-    บรรทัดบนสุดคือพาดหัวหนังสือพิมพ์ที่เล่าไปในหัวข้อประวัติ ในโค้ดมันถูกยัดเข้าไปใน <code>scriptSig</code>
-    ซึ่งเป็นช่องที่ปกติใช้ใส่ลายเซ็นของคนจ่าย บล็อกแรกไม่มีคนจ่าย ช่องนั้นเลยว่าง แล้วเขาใช้มันฝากข้อความแทน
-  </p>
-
-  <p>
-    <code>block.hashPrevBlock = 0</code> คือคำตอบของปัญหาไก่กับไข่ ส่วน <code>nTime = 1231006505</code>
-    คือเวลานับเป็นวินาที ซึ่งแปลงออกมาได้เป็นวันที่ 3 มกราคม 2009 เวลา 18:15:05 ตามเวลามาตรฐานสากล
-    และ <code>nNonce = 2083236893</code> คือเลขที่เขาต้องนั่งเดาจนเจอเหมือนนักขุดคนอื่นทุกประการ ไม่มีทางลัดให้ตัวเอง
-  </p>
-
-  <div class="callout callout-tip">
-    <p class="callout-label">เหรียญ 50 เหรียญแรกที่ไม่มีใครใช้ได้</p>
-    <p>
-      รางวัล 50 เหรียญของบล็อกกำเนิดใช้จ่ายไม่ได้เลย เพราะวิธีที่โค้ดชุดนี้เขียนบล็อกกำเนิดลงฐานข้อมูล
-      ทำให้ธุรกรรมใบนั้นไม่ถูกบันทึกเข้าไปในดัชนีธุรกรรมเหมือนบล็อกอื่น โหนดทุกตัวจึงมองไม่เห็นเงินก้อนนั้น
-      ถึงจะมีกุญแจก็ใช้ไม่ได้ และตลอดสิบเจ็ดปีที่ผ่านมามีคนโอนบิตคอยน์เข้าไปที่อยู่นั้นเรื่อย ๆ
-      เป็นเหมือนการวางดอกไม้ ซึ่งทุกเหรียญที่โอนเข้าไปก็หายไปตลอดกาลเหมือนกัน
-    </p>
-  </div>
-    </div>
-  </details>
-
-  <details class="expander">
-    <summary>ชั้นที่ 6 · แล้วโหนดแรกหาเพื่อนเจอได้ยังไง</summary>
-    <div class="expander-body">
-
-  <p>
-    เหลือคำถามข้อสุดท้าย โปรแกรมที่เพิ่งเปิดครั้งแรกในเครื่องคุณ ยังไม่รู้จักใครในโลกเลย
-    แล้วมันไปหาโหนดตัวอื่นเจอได้ยังไง ในเมื่อไม่มีเซิร์ฟเวอร์กลางให้ถาม
-  </p>
-
-  <p>
-    คำตอบของชุดแรกนั้นง่ายจนน่ารัก มันเข้าห้องแชต
-  </p>
-
-  <CodeBlock code={CODE_IRC} lang="cpp" title="irc.cpp · วิธีหาเพื่อนบ้านครั้งแรกของบิตคอยน์" />
-
-  <p>
-    โปรแกรมต่อเข้าเซิร์ฟเวอร์ IRC ซึ่งเป็นระบบห้องแชตยุคเก่า แล้วเข้าไปในห้องชื่อ <code>#bitcoin</code>
-    จากนั้นสั่ง <code>WHO</code> เพื่อขอรายชื่อคนในห้อง โหนดแต่ละตัวตั้งชื่อเล่นของตัวเองเป็นเลขที่อยู่ไอพีที่เข้ารหัสไว้
-    คนที่อยู่ในห้องเดียวกันก็คือโหนดตัวอื่น อ่านชื่อเล่นแล้วต่อหากันได้เลย
-  </p>
-
-  <p>
-    วิธีนี้ถูกเลิกใช้ไปนานแล้วเพราะพึ่งพาเซิร์ฟเวอร์แชตที่ใครก็ปิดได้ ทุกวันนี้โหนดใหม่ถามที่อยู่จากรายชื่อ
-    ที่ฝังไว้ในโปรแกรมและจากระบบชื่อโดเมนแทน แต่ผมชอบชั้นนี้ที่สุดในทั้งโปรเจกต์
-    เพราะมันเป็นหลักฐานว่าของที่กลายเป็นเรื่องใหญ่ระดับโลก ตอนเริ่มมันคือของที่คนคนเดียวประกอบให้พอใช้งานได้ก่อน
-  </p>
-    </div>
-  </details>
-
-  <h3>แล้ว deploy ยังไง</h3>
-
-  <p>
-    คำว่า deploy ในความหมายที่เราคุ้นกัน คือเอาโค้ดขึ้นเซิร์ฟเวอร์ ต่อฐานข้อมูล เปิดโดเมน
-    กับบิตคอยน์ไม่มีขั้นตอนพวกนั้นเลยสักข้อ เพราะไม่มีเซิร์ฟเวอร์ให้ขึ้น
-  </p>
-
-  <div class="card">
-    <ul>
-      <li>
-        <strong>3 ม.ค. 2009</strong> เขารันโปรแกรมในเครื่องตัวเอง โปรแกรมสร้างบล็อกกำเนิดจากค่าที่พิมพ์ค้างไว้
-        แล้วเริ่มขุดบล็อกถัดไปโดยมีโหนดอยู่ในโลกตัวเดียว
-      </li>
-      <li>
-        <strong>9 ม.ค. 2009</strong> เขาโพสต์ลิงก์ไฟล์ติดตั้งสำหรับวินโดวส์พร้อมซอร์สโค้ดทั้งชุดลงเมลลิงลิสต์
-        การเผยแพร่คือการส่งอีเมลหนึ่งฉบับให้คนกลุ่มเล็ก ๆ ที่สนใจวิชารหัสลับ
-      </li>
-      <li>
-        <strong>วันเดียวกัน</strong> Hal Finney อ่านว่า "แฮล ฟินนีย์" นักวิทยาการรหัสลับที่อยู่ในลิสต์นั้น
-        โหลดไปรัน กลายเป็นโหนดตัวที่สองของโลก ตรงนี้เองที่เครือข่ายเริ่มเป็นเครือข่ายจริง
-      </li>
-      <li>
-        <strong>12 ม.ค. 2009</strong> มีธุรกรรมระหว่างคนสองคนเป็นครั้งแรกในบล็อกที่ 170
-        เป็นการโอน 10 บิตคอยน์จาก Satoshi ไปหา Hal Finney
-      </li>
-    </ul>
-  </div>
-
-  <p>
-    ไม่มีสวิตช์ให้เปิดระบบ ไม่มีวันเปิดตัวอย่างเป็นทางการ ระบบเริ่มทำงานตั้งแต่เครื่องแรกเริ่มรัน
-    และมันโตขึ้นทีละเครื่องตามจำนวนคนที่ตัดสินใจกดรันโปรแกรมนั้น จากหนึ่ง เป็นสอง
-    จนวันนี้กลายเป็นเครือข่ายที่มีกำลังขุด {HASHRATE_EHS} เอกซะแฮชต่อวินาที
-  </p>
-
-  <details class="expander">
-    <summary>ของแถม · ทั้งหกชั้นย่อเหลือโค้ดหน้าเดียวที่รันได้จริง</summary>
-    <div class="expander-body">
-      <p>
-        ผมย่อกติกาหลักทั้งหมดที่ผ่านมาให้เหลือโค้ดชุดเดียวที่รันได้ด้วย Node.js
-        ไม่มีเครือข่าย ไม่มีลายเซ็น เหลือแค่หัวบล็อก การแฮชสองรอบ การเดานอนซ์ กติกาฮาล์ฟวิง และการตรวจทั้งโซ่
-        เซฟเป็นไฟล์แล้วสั่งรันได้เลย ใช้เวลาไม่ถึงวินาที
-      </p>
-      <CodeBlock code={CODE_TOY} lang="ts" title="mini-chain.ts · หกชั้นในหน้าเดียว" />
-      <p>
-        ผลที่ได้คือ <code>valid: true</code> ตามด้วยบล็อกสี่ก้อนพร้อมนอนซ์ที่หามาได้ และบรรทัดสุดท้ายพิมพ์ 50 แล้ว 3.125 แล้ว 0
-        ซึ่งคือรางวัลที่ความสูงบล็อก 0 ที่ความสูง 840,000 และที่ความสูง 6,930,000 อันสุดท้ายคือจุดที่การเลื่อนบิตทำให้รางวัลกลายเป็นศูนย์
-        ตรงกับยุคสุดท้ายในตารางการออกเหรียญพอดี
-      </p>
-      <p>
-        ถ้าอยากลองของสนุก ลองแก้ <code>DIFFICULTY</code> จาก 4 เป็น 6 แล้วจับเวลาดู
-        กับลองแก้ข้อความในบล็อกแรกหลังจากขุดครบแล้ว จะเห็นว่า <code>valid</code> กลายเป็น false ทันที
-        เหมือนกับที่กดแก้ในของเล่นชิ้นที่สองข้างบน
-      </p>
-    </div>
-  </details>
 
   <hr class="divider" />
+
+  <hr class="divider" />
+
+  <h2 class="part-head" id="part-7">
+    <span class="part-kicker">ภาค 7 จาก 7</span>
+    <span class="part-name">มุมเงิน ราคา และภาษี</span>
+    <span class="part-say">ส่วนที่คนตามข่าวสงสัยที่สุด ราคามาจากไหน ผันผวนแค่ไหน ถือเองหรือถือผ่านกองทุน และเสียภาษียังไงในไทย</span>
+  </h2>
 
   <h2>ราคามาจากไหน</h2>
 
@@ -3994,7 +4443,7 @@ const DESC =
     </figcaption>
   </figure>
 
-  <h2>ความผันผวนที่ตัวเลขไม่โกหก</h2>
+  <h2 id="volatility">ความผันผวนที่ตัวเลขไม่โกหก</h2>
 
   <p>
     เรื่องที่คนเล่าถึงบิตคอยน์บ่อยที่สุดคือรอบที่ราคาขึ้น แต่รอบที่ราคาลงก็เกิดขึ้นทุกรอบเช่นกัน และลงแรงมาก
@@ -4067,7 +4516,7 @@ const DESC =
     โดยที่จำนวนธุรกรรมต่อวันเท่าเดิม การคิดว่าไฟกี่หน่วยต่อหนึ่งธุรกรรมจึงเป็นตัวเลขที่ทำให้เข้าใจผิดได้ง่าย
   </p>
 
-  <h2>ถือเอง หรือถือผ่าน ETF</h2>
+  <h2 id="custody">ถือเอง หรือถือผ่าน ETF</h2>
 
   <p>
     หลังปี 2024 คนที่อยากมีบิตคอยน์ในพอร์ตมีทางเลือกที่ต่างกันในเชิงโครงสร้าง ไม่ใช่แค่ต่างกันที่ความสะดวก
@@ -4107,7 +4556,21 @@ const DESC =
     </figcaption>
   </figure>
 
-  <h2>ภาษีคริปโตในไทย ณ ปี 2026</h2>
+  <h2 id="tax">ภาษีคริปโตในไทย ณ ปี 2026</h2>
+
+  <p>
+    ก่อนเรื่องภาษีต้องตอบคำถามที่มาก่อนหน้านั้นเสียก่อน คือมันถือได้ไหมตามกฎหมายไทย
+    คำตอบคือ <strong>ถือและซื้อขายได้ ไม่ผิดกฎหมาย</strong> ประเทศไทยมีกฎหมายกำกับเรื่องนี้มาตั้งแต่ปี 2018
+    คือพระราชกำหนดการประกอบธุรกิจสินทรัพย์ดิจิทัล ซึ่งกำกับที่ตัวผู้ให้บริการเป็นหลัก
+    ไม่ได้ห้ามคนทั่วไปถือครอง
+  </p>
+
+  <p>
+    สิ่งที่ต้องแยกให้ออกคือ <strong>มันไม่ใช่เงินที่ชำระหนี้ได้ตามกฎหมาย</strong>
+    ร้านค้าไม่มีหน้าที่ต้องรับ และตั้งแต่ต้นปี 2022 หน่วยงานกำกับก็ออกเกณฑ์ห้ามผู้ประกอบธุรกิจสินทรัพย์ดิจิทัล
+    ให้บริการที่ส่งเสริมการเอาคริปโทไปใช้จ่ายค่าสินค้าและบริการ โดยให้เหตุผลเรื่องความผันผวนกับเสถียรภาพของระบบการเงิน
+    เกณฑ์นี้เล็งไปที่ผู้ให้บริการ ไม่ได้เล็งไปที่คนถือ
+  </p>
 
   <p>
     ฝั่งกฎหมายไทยมีความเคลื่อนไหวที่สำคัญในปี 2025 คือมีการออก
@@ -4135,6 +4598,47 @@ const DESC =
     เรื่องภาษีเป็นส่วนที่เปลี่ยนบ่อยที่สุดในบทความนี้ และรายละเอียดในทางปฏิบัติขึ้นกับกรณีของแต่ละคน
     สิ่งที่ผมทำได้คือชี้ตัวบทและวันที่ประกาศให้ ส่วนก่อนยื่นจริงควรตรวจกับประกาศฉบับล่าสุดของกรมสรรพากร
     หรือปรึกษาผู้ทำบัญชี เพราะข้อความในหน้านี้ตรวจสอบไว้ ณ วันที่ {SNAPSHOT_DATE}
+  </p>
+
+  <h2 id="holder-check">สิ่งที่คนถืออยู่แล้วตรวจเองได้จากบทนี้</h2>
+
+  <p>
+    ทั้งหมดข้างล่างนี้ผ่านตาคุณมาแล้วระหว่างทาง ตรงนี้แค่รวมไว้ที่เดียวสำหรับคนที่มีเหรียญอยู่จริง
+    ทุกข้อเป็นเรื่องที่ตรวจได้ด้วยตัวเอง ไม่มีข้อไหนเป็นคำแนะนำว่าควรซื้อหรือควรขาย
+  </p>
+
+  <div class="card">
+    <ul>
+      <li>
+        <strong>กุญแจอยู่กับใคร</strong> ถ้าคุณไม่มีชุดคำกู้คืน สิ่งที่ถืออยู่คือสิทธิ์เรียกร้องต่อบริษัท
+        ไม่ใช่เหรียญ ความต่างข้อนี้ไม่มีผลอะไรเลยจนถึงวันที่บริษัทมีปัญหา
+        ดูที่ <a href="#wallet">หัวข้อกระเป๋า</a> และ <a href="#custody">ตารางสามวิธีถือ</a>
+      </li>
+      <li>
+        <strong>เหรียญที่ว่ามีอยู่จริงไหม</strong> ถ้าเก็บกุญแจเอง คุณเปิดสมุดดูยอดของที่อยู่ตัวเองได้ตรง ๆ
+        โดยไม่ต้องเชื่อหน้าจอของใคร และถ้าอยากตรวจโดยไม่ต้องเชื่อเว็บของใครด้วย ก็เปิดโหนดเองได้
+        ดูที่ <a href="#run-node">หัวข้อเปิดโหนด</a>
+      </li>
+      <li>
+        <strong>ตอนจะย้ายจริง ค่าอะไรบ้าง</strong> ค่าธรรมเนียมไม่ได้คิดตามจำนวนเงินที่โอน
+        แต่คิดตามขนาดของธุรกรรมและความหนาแน่นของห้องรอในตอนนั้น
+        ดูที่ <a href="#fees">หัวข้อค่าธรรมเนียม</a>
+      </li>
+      <li>
+        <strong>ความผันผวนที่เจอมา ไม่ใช่เรื่องบังเอิญ</strong> มันมีตัวเลขกำกับและเคยเกิดซ้ำหลายรอบ
+        ดูที่ <a href="#volatility">หัวข้อความผันผวน</a>
+      </li>
+      <li>
+        <strong>ตอนขาย เงื่อนไขภาษีผูกกับที่ที่คุณขาย</strong> ไม่ได้ผูกกับตัวเหรียญ
+        ดูที่ <a href="#tax">หัวข้อภาษี</a>
+      </li>
+    </ul>
+  </div>
+
+  <p>
+    ข้อที่คนถืออยู่แล้วมักประหลาดใจที่สุดคือข้อแรก เพราะมันเป็นข้อเดียวที่ไม่ส่งเสียงอะไรเลยตอนปกติ
+    ยอดในแอปขึ้นเท่าเดิม กราฟเดินเหมือนกัน และมันจะต่างก็ต่อเมื่อสายเกินจะย้ายแล้ว
+    ตัวอย่างของวันแบบนั้นอยู่ในไทม์ไลน์ข้างบน ทั้ง Mt.Gox และ FTX
   </p>
 
   <hr class="divider-solid" />
@@ -4226,10 +4730,10 @@ const DESC =
       และภายหลังพบคืนราว 200,000 เหรียญ (<a href="https://www.npr.org/sections/thetwo-way/2014/02/28/283863219/mtgox-files-for-bankruptcy-nearly-500m-of-bitcoins-lost" target="_blank" rel="noopener noreferrer">NPR</a>)
     </li>
     <li>
-      โค้ดทุกชิ้นในหัวข้อ "เปิดฝาดูโค้ดชิ้นแรก" ยกมาจากซอร์สโค้ด Bitcoin v0.1 ที่เผยแพร่เมื่อ 9 มกราคม 2009
+      ซอร์สโค้ด Bitcoin v0.1 ที่เผยแพร่เมื่อ 9 มกราคม 2009
       (สำเนาที่เก็บไว้บน <a href="https://github.com/Fiach-Dubh/bitcoin-0.1.0" target="_blank" rel="noopener noreferrer">GitHub</a>)
-      จำนวนบรรทัดในตารางผมนับเองจากไฟล์จริงในชุดนั้น และตัดคอมเมนต์ที่เป็นล็อกดีบักออกจากโค้ดที่ยกมาบางชิ้น
-      โดยกำกับไว้ที่หัวกรอบแล้ว ส่วน <code>mini-chain.ts</code> ผมเขียนเองและรันจริงด้วย Node.js ก่อนใส่ลงบทความ
+      ที่มาของจำนวนบรรทัดที่อ้างถึงในหัวข้อโค้ดชิ้นแรก ซึ่งผมนับเองจากไฟล์จริงในชุดนั้น
+      โค้ดที่ยกมาทีละชิ้นอยู่ในหน้า <a href="../bitcoin-v01-source/">เปิดฝาดูโค้ดชิ้นแรกของบิตคอยน์</a>
     </li>
     <li>
       ลำดับการเผยแพร่: Hal Finney โหลดโปรแกรมชุดแรกไปรันในวันที่ปล่อย และธุรกรรมระหว่างคนสองคนครั้งแรก
@@ -4275,6 +4779,7 @@ const DESC =
 </DivineLoreLayout>
 
 <style>
+
   /* ทยอยโชว์เนื้อหาตามการเลื่อนหน้า
      เนื้อหาถูกตัดด้วยความสูงของกล่องครอบ ไม่ใช่ซ่อนทีละชิ้น
      ความสูงของหน้าจึงโตตามการอ่าน แถบเลื่อนไม่ประกาศความยาวทั้งบทตั้งแต่วินาทีแรก
@@ -4743,6 +5248,24 @@ const DESC =
     height:0.5rem;
     background:var(--dl-border);
   }
+  /* ตัวไล่ก่อร่างต้นไม้ ใช้กล่องชุดเดียวกับแล็บพิสูจน์ เพิ่มแค่สองสถานะ */
+  .mk-tree :global(.mk-node.is-fresh){border-color:var(--dl-emerald-bright);background:#10231a;}
+  .mk-tree :global(.mk-node.is-fresh .mk-hash){color:#7de3a6;}
+  .mk-tree :global(.mk-node.is-src){border-color:#6f8fd0;background:#131b2e;}
+  .mk-tree :global(.mk-node.is-src .mk-hash){color:#9db4e0;}
+  .mb-head{
+    border:1px solid var(--dl-gold);
+    border-radius:8px;
+    background:#181302;
+    padding:0.5rem 0.6rem;
+    margin-bottom:0.5rem;
+  }
+  .mb-head-field{display:flex;gap:0.4rem;align-items:baseline;font-size:0.72rem;color:var(--dl-muted);}
+  .mb-head-field code{font-family:"JetBrains Mono", monospace;font-size:0.68rem;color:var(--dl-muted);}
+  .mb-head-field code.is-set{color:var(--dl-gold);}
+  .mb-title{font-size:0.82rem;color:var(--dl-ink);font-weight:600;margin:0.4rem 0 0.2rem;}
+  .mb-count{font-size:0.72rem;color:var(--dl-muted);}
+  .mb-range{width:100%;margin-top:0.5rem;accent-color:var(--dl-emerald);}
   .mk-legend{
     display:flex;
     flex-wrap:wrap;
@@ -5244,6 +5767,152 @@ const DESC =
   interface MerkleNode {
     hash: string;
     label: string;
+  }
+
+  /** ไล่ก่อร่างต้นไม้ทีละชั้น เพื่อตอบว่าแฮชคู่ไหนเกิดตอนไหน
+      ใช้กล่องหน้าตาเดียวกับแล็บพิสูจน์ แต่คนละหน้าที่ ตัวนี้เล่าลำดับเวลา ตัวนั้นเล่าการพิสูจน์ */
+  function initMerkleBuild(root: HTMLElement): void {
+    const host = root.querySelector<HTMLElement>('.mb-tree');
+    const headRoot = root.querySelector<HTMLElement>('.mb-head-root');
+    const titleEl = root.querySelector<HTMLElement>('.mb-title');
+    const sayEl = root.querySelector<HTMLElement>('.mb-say');
+    const prev = root.querySelector<HTMLButtonElement>('.mb-prev');
+    const next = root.querySelector<HTMLButtonElement>('.mb-next');
+    const play = root.querySelector<HTMLButtonElement>('.mb-play');
+    const range = root.querySelector<HTMLInputElement>('.mb-range');
+    const count = root.querySelector<HTMLElement>('.mb-count');
+    const raw: unknown = JSON.parse(root.dataset.leaves ?? '[]');
+    if (!host || !headRoot || !titleEl || !sayEl || !prev || !next || !play || !range || !count) return;
+    if (!Array.isArray(raw)) return;
+    const base = raw.filter((x): x is string => typeof x === 'string');
+    if (base.length < 2) return;
+
+    let levels: MerkleNode[][] = [];
+    let at = 0;
+    let timer = 0;
+
+    /** จังหวะสุดท้ายคือการใส่รากลงส่วนหัว จึงมีจังหวะมากกว่าจำนวนชั้นอยู่หนึ่ง */
+    const lastStep = (): number => levels.length;
+    const headStep = (): boolean => at === lastStep();
+    /** ชั้นบนสุดที่ถูกสร้างแล้ว ณ จังหวะนี้ จังหวะใส่ส่วนหัวไม่ได้สร้างชั้นใหม่ */
+    const builtTo = (): number => Math.min(at, levels.length - 1);
+
+    const pairText = (n: number): string => {
+      const out: string[] = [];
+      for (let i = 0; i < n; i += 2) out.push('(' + (i + 1) + ', ' + (i + 2) + ')');
+      return out.join(' ');
+    };
+
+    const render = (): void => {
+      const top = builtTo();
+      host.innerHTML = '';
+      for (let lv = top; lv >= 0; lv -= 1) {
+        const row = document.createElement('div');
+        row.className = 'mk-row';
+        if (lv > 0) row.dataset.children = String(levels[lv - 1].length);
+        levels[lv].forEach((node, i) => {
+          const cell = document.createElement('div');
+          const classes = ['mk-node'];
+          if (lv === levels.length - 1) classes.push('mk-root');
+          if (!headStep() && lv === top && top > 0) classes.push('is-fresh');
+          if (!headStep() && lv === top - 1) classes.push('is-src');
+          cell.className = classes.join(' ');
+          cell.innerHTML =
+            '<span class="mk-name">' + (lv === levels.length - 1 ? 'ราก' : lv === 0 ? 'ใบ ' + (i + 1) : 'แฮชคู่') + '</span>' +
+            '<span class="mk-hash">' + node.hash.slice(0, 8) + '</span>';
+          row.appendChild(cell);
+        });
+        host.appendChild(row);
+      }
+
+      const rootHash = levels[levels.length - 1][0].hash;
+      headRoot.textContent = headStep() ? rootHash.slice(0, 12) : 'ยังว่าง';
+      headRoot.classList.toggle('is-set', headStep());
+
+      if (at === 0) {
+        titleEl.textContent = 'ตั้งต้น แฮชธุรกรรมทีละใบ';
+        sayEl.textContent =
+          'ธุรกรรม ' + levels[0].length + ' ใบ เรียงตามลำดับที่มันอยู่ในตัวบล็อก แฮชทีละใบได้ ' +
+          levels[0].length + ' ตัว ยังไม่มีการจับคู่อะไรทั้งนั้น ชั้นนี้คือใบของต้นไม้';
+      } else if (headStep()) {
+        titleEl.textContent = 'ใส่รากลงในส่วนหัว';
+        sayEl.textContent =
+          'รากถูกก๊อปลงช่องของมันในส่วนหัว ตั้งแต่วินาทีนี้ ธุรกรรมทั้ง ' + levels[0].length +
+          ' ใบและลำดับของมันถูกผูกไว้กับส่วนหัวก้อนนี้แล้ว แตะอะไรก็ตามในกอง รากที่คำนวณใหม่จะไม่ตรงกับเลขนี้ทันที';
+      } else {
+        const from = levels[at - 1].length;
+        const to = levels[at].length;
+        titleEl.textContent = 'ชั้นที่ ' + at + ' จับคู่แล้วแฮชอีกรอบ';
+        sayEl.textContent =
+          at === 1
+            ? 'เอาแฮชของใบที่อยู่ติดกันมาต่อกันแล้วแฮชอีกรอบ คู่คือ ' + pairText(from) +
+              ' จาก ' + from + ' ตัวจึงเหลือ ' + to + ' ตัว'
+            : 'เอา ' + from + ' ตัวที่เพิ่งได้มาจับคู่กันด้วยวิธีเดิม คู่คือ ' + pairText(from) +
+              ' นับจากซ้าย เหลือ ' + to + (to === 1 ? ' ตัว นั่นคือราก' : ' ตัว');
+      }
+
+      count.textContent = 'จังหวะ ' + (at + 1) + ' / ' + (lastStep() + 1);
+      range.value = String(at);
+      prev.disabled = at === 0;
+      next.disabled = at === lastStep();
+    };
+
+    const stop = (): void => {
+      if (timer) window.clearInterval(timer);
+      timer = 0;
+      play.textContent = 'เล่นอัตโนมัติ';
+    };
+
+    prev.addEventListener('click', () => {
+      stop();
+      at = Math.max(0, at - 1);
+      render();
+    });
+    next.addEventListener('click', () => {
+      stop();
+      at = Math.min(lastStep(), at + 1);
+      render();
+    });
+    range.addEventListener('input', () => {
+      stop();
+      at = Number(range.value);
+      render();
+    });
+    play.addEventListener('click', () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      play.textContent = 'หยุด';
+      timer = window.setInterval(() => {
+        if (at >= lastStep()) {
+          stop();
+          return;
+        }
+        at += 1;
+        render();
+      }, 1500);
+    });
+
+    void (async (): Promise<void> => {
+      const out: MerkleNode[][] = [];
+      const leaves: MerkleNode[] = [];
+      for (let i = 0; i < base.length; i += 1) {
+        leaves.push({ hash: await sha256(base[i]), label: 'ใบ ' + (i + 1) });
+      }
+      out.push(leaves);
+      while (out[out.length - 1].length > 1) {
+        const prevLv = out[out.length - 1];
+        const nextLv: MerkleNode[] = [];
+        for (let i = 0; i < prevLv.length; i += 2) {
+          nextLv.push({ hash: await sha256(prevLv[i].hash + prevLv[i + 1].hash), label: 'แฮชคู่' });
+        }
+        out.push(nextLv);
+      }
+      levels = out;
+      range.max = String(lastStep());
+      render();
+    })();
   }
 
   function initMerkleLab(root: HTMLElement): void {
@@ -5796,6 +6465,14 @@ const DESC =
     scene: string;
   }
 
+  /** ชนิดเดียวกับ OverviewStep ในเฟรนต์แมตเตอร์ ประกาศซ้ำเพราะ <script> มองไม่เห็นชนิดของเฟรนต์แมตเตอร์ */
+  interface OverviewStep {
+    station: number;
+    title: string;
+    say: string;
+    scene: string;
+  }
+
   /** วาดฉากของแต่ละจังหวะในตัวเดินเรื่องประกอบร่าง
       รางจุดด้านบนบอกแค่ว่าอยู่ตรงไหนของเส้นทาง ส่วนฉากนี้คือคนเล่าเรื่องจริง
       แยกออกมาเป็นฟังก์ชันเดียวเพื่อให้ทุกฉากใช้กรอบและขนาดตัวอักษรชุดเดียวกัน */
@@ -5916,6 +6593,18 @@ const DESC =
         label(338, 94, 'ใบของคุณอยู่ในนี้', '#e0b400', 10) +
         '<text x="412" y="76" font-size="10" fill="#4ade80">ยืนยันครั้งที่ 1</text>' +
         '<text x="412" y="94" font-size="10" fill="#9aa7bd">ทั้งโลกตรวจเองแล้ว</text>';
+    } else if (kind === 'pay') {
+      body =
+        head('ใบแรกของบล็อก คือใบที่นักขุดจ่ายให้ตัวเอง') +
+        box(16, 38, 214, 96, '#e0b400', '#241f0d') +
+        label(123, 62, 'ใบแรกของบล็อก', '#e0b400', 11) +
+        label(123, 86, 'เหรียญใหม่ที่เพิ่งเกิด', '#e7ecf6', 10) +
+        label(123, 106, 'บวกค่าธรรมเนียมของทุกใบ', '#e7ecf6', 10) +
+        label(123, 126, 'รวมเป็นรายได้ก้อนเดียว', '#9aa7bd', 10) +
+        arrow(236, 86, 286, 86, '#4ade80', false) +
+        box(292, 50, 180, 72, '#4ade80', '#141a29') +
+        label(382, 78, 'ที่อยู่ของนักขุด', '#4ade80', 11) +
+        label(382, 102, 'ค่าจ้างของคนที่เผาไฟ', '#9aa7bd', 10);
     } else {
       body =
         head('ทุกสิบนาทีมีก้อนใหม่ต่อทับ งานที่ต้องขุดแซงพอกขึ้น') +
@@ -5950,6 +6639,239 @@ const DESC =
       body +
       '</svg>'
     );
+  }
+
+  /** ฉากของตัวเดินเรื่องภาพรวม วาดจากกริดหาร 4 ลงตัว เส้นบาง 1 ถึง 2 px
+      หนึ่งจังหวะเน้นของอย่างเดียว สีทองคือของที่กำลังพูดถึง ที่เหลือเป็นสีเงียบ */
+  function overviewScene(kind: string): string {
+    const W = 600;
+    const H = 132;
+    const INK = '#e7ecf6';
+    const MUTE = '#9aa7bd';
+    const GOLD = '#e0b400';
+    const GREEN = '#4ade80';
+    const RED = '#d64545';
+    const LINE = '#2a3350';
+
+    const head = (t: string): string =>
+      '<text x="16" y="20" font-size="11" fill="' + MUTE + '">' + t + '</text>';
+    const box = (x: number, y: number, w: number, h: number, stroke: string, fill: string): string =>
+      '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="' + fill +
+      '" stroke="' + stroke + '"/>';
+    const label = (x: number, y: number, t: string, c: string, size: number): string =>
+      '<text x="' + x + '" y="' + y + '" text-anchor="middle" font-size="' + size + '" fill="' + c + '">' + t + '</text>';
+    const dot = (x: number, y: number, r: number, stroke: string, fill: string): string =>
+      '<circle cx="' + x + '" cy="' + y + '" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="2"/>';
+    const link = (x1: number, y1: number, x2: number, y2: number, c: string): string =>
+      '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + c + '" stroke-width="1"/>';
+    const slip = (x: number, y: number, stroke: string): string =>
+      box(x, y, 176, 64, stroke, '#241f0d') +
+      label(x + 88, y + 26, 'ใบสั่งจ่าย', stroke, 12) +
+      label(x + 88, y + 48, 'ให้ B  0.02', INK, 11);
+
+    let body: string;
+    if (kind === 'write') {
+      body =
+        head('เขียนใบสั่งหนึ่งใบ ระบุปลายทางกับจำนวน') +
+        slip(16, 40, GOLD) +
+        '<text x="216" y="76" font-size="11" fill="' + MUTE + '">ตอนนี้มันยังเป็นแค่กระดาษ</text>';
+    } else if (kind === 'sign') {
+      body =
+        head('เซ็นกำกับ ใบนี้จึงผูกกับคุณคนเดียว') +
+        slip(16, 40, GOLD) +
+        link(200, 72, 232, 72, LINE) +
+        box(240, 40, 152, 64, GREEN, '#141a29') +
+        label(316, 68, 'เซ็นแล้ว', GREEN, 12) +
+        label(316, 90, 'ปลอมตามไม่ได้', MUTE, 11);
+    } else if (kind === 'shout') {
+      body =
+        head('ประกาศให้เครื่องที่ถืออยู่ได้ยิน ไม่ผ่านตัวกลางไหน') +
+        dot(48, 72, 20, GOLD, '#241f0d') +
+        label(48, 76, 'คุณ', GOLD, 11) +
+        [232, 320, 408, 496]
+          .map((x, i) => link(68, 72, x - 16, 40 + i * 16, LINE) + dot(x, 40 + i * 16, 12, LINE, '#141a29'))
+          .join('') +
+        '<text x="160" y="112" font-size="11" fill="' + MUTE + '">ใบเดียวกันไปถึงทุกเครื่อง</text>';
+    } else if (kind === 'check') {
+      body =
+        head('แต่ละเครื่องตรวจเอง ไม่ต้องรอใครอนุมัติ') +
+        [80, 192, 304, 416, 528]
+          .map((x, i) => {
+            const bad = i === 3;
+            const c = bad ? RED : GREEN;
+            return dot(x, 60, 20, c, '#141a29') + label(x, 65, bad ? 'ผิด' : 'ผ่าน', c, 11);
+          })
+          .join('') +
+        '<text x="300" y="108" text-anchor="middle" font-size="11" fill="' + MUTE + '">' +
+        'เครื่องที่ตรวจไม่ผ่านทิ้งทันที และไม่ส่งต่อ</text>';
+    } else if (kind === 'race') {
+      body =
+        head('แข่งกันว่าใครได้เขียนหน้าใหม่ ต้นทุนคือไฟฟ้าจริง') +
+        [0, 1, 2]
+          .map((i) => {
+            const y = 32 + i * 26;
+            const win = i === 1;
+            const w = [96, 232, 152][i];
+            return (
+              '<text x="16" y="' + (y + 15) + '" font-size="11" fill="' + (win ? GOLD : MUTE) + '">' +
+              'เครื่องที่ ' + (i + 1) + '</text>' +
+              '<rect x="96" y="' + y + '" width="' + w + '" height="20" rx="4" fill="' +
+              (win ? GOLD : '#38415c') + '"/>' +
+              (win
+                ? '<text x="' + (96 + w + 12) + '" y="' + (y + 15) + '" font-size="11" fill="' + GOLD +
+                  '">เจอก่อน ได้เขียน</text>'
+                : '')
+            );
+          })
+          .join('') +
+        '<text x="16" y="126" font-size="11" fill="' + MUTE + '">แท่งยาวคือไฟที่เผาไปแล้ว ใครโชคดีก่อนก็ชนะ</text>';
+    } else if (kind === 'pay') {
+      body =
+        head('คนที่ได้เขียน ได้เงินติดมือกลับไปด้วย') +
+        box(16, 40, 176, 64, GOLD, '#241f0d') +
+        label(104, 68, 'คนที่ชนะรอบนี้', GOLD, 12) +
+        label(104, 90, 'เขียนหน้าใหม่ให้ทุกคน', MUTE, 11) +
+        link(200, 72, 232, 72, LINE) +
+        box(240, 40, 176, 64, GREEN, '#141a29') +
+        label(328, 68, 'ได้เงินตอบแทน', GREEN, 12) +
+        label(328, 90, 'จึงทำต่อโดยไม่มีใครสั่ง', MUTE, 11);
+    } else {
+      body =
+        head('หน้าใหม่ต่อท้ายสมุดของทุกคนพร้อมกัน') +
+        [16, 128, 240, 352].map((x, i) =>
+          box(x, 44, 96, 52, i === 3 ? GOLD : LINE, i === 3 ? '#241f0d' : '#141a29') +
+          label(x + 48, 74, i === 3 ? 'หน้าใหม่' : 'หน้าเก่า', i === 3 ? GOLD : MUTE, 11) +
+          (i < 3 ? link(x + 96, 70, x + 128, 70, LINE) : ''),
+        ).join('') +
+        link(448, 70, 480, 70, LINE) +
+        dot(516, 70, 20, GREEN, '#141a29') +
+        label(516, 74, 'B', GREEN, 12) +
+        '<text x="16" y="120" font-size="11" fill="' + GREEN + '">เงินถึงปลายทาง และไม่มีใครย้อนได้อีก</text>';
+    }
+
+    return (
+      '<svg class="btc-dgm jn-scene-svg" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" ' +
+      'role="img" aria-label="ภาพประกอบจังหวะนี้ของภาพรวม" font-family="Sarabun, sans-serif">' +
+      body +
+      '</svg>'
+    );
+  }
+
+  /** ตัวเดินเรื่องภาพรวมหัวข้อเปิดบท ใช้มาร์กอัปและ CSS ชุดเดียวกับตัวเดินเรื่องท้ายหมวดกลไก */
+  function initOverview(root: HTMLElement): void {
+    const stage = root.querySelector<HTMLElement>('.jn-stage');
+    const sceneEl = root.querySelector<HTMLElement>('.jn-scene');
+    const titleEl = root.querySelector<HTMLElement>('.jn-title');
+    const sayEl = root.querySelector<HTMLElement>('.jn-say');
+    const prev = root.querySelector<HTMLButtonElement>('.jn-prev');
+    const next = root.querySelector<HTMLButtonElement>('.jn-next');
+    const play = root.querySelector<HTMLButtonElement>('.jn-play');
+    const range = root.querySelector<HTMLInputElement>('.jn-range');
+    const count = root.querySelector<HTMLElement>('.jn-count');
+    if (!stage || !sceneEl || !titleEl || !sayEl || !prev || !next || !play || !range || !count) return;
+
+    const rawSteps: unknown = JSON.parse(root.dataset.steps ?? '[]');
+    const rawStations: unknown = JSON.parse(root.dataset.stations ?? '[]');
+    if (!Array.isArray(rawSteps) || !Array.isArray(rawStations)) return;
+    const steps = rawSteps.filter(
+      (x): x is OverviewStep =>
+        typeof x === 'object' && x !== null && 'station' in x && 'title' in x && 'say' in x && 'scene' in x,
+    );
+    const stations = rawStations.filter((x): x is string => typeof x === 'string');
+    if (steps.length === 0 || stations.length === 0) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const W = 600;
+    const H = 118;
+    const gap = W / stations.length;
+    const cx = (i: number): number => gap / 2 + i * gap;
+
+    stage.innerHTML =
+      '<svg class="btc-dgm jn-svg" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" ' +
+      'role="img" aria-label="แถบบอกว่าตอนนี้เรื่องเดินมาถึงช่วงไหน จากคุณ ไปทุกเครื่อง ไปการแข่ง ไปคนชนะ จบที่ปลายทาง" ' +
+      'font-family="Sarabun, sans-serif">' +
+      '<line x1="' + cx(0) + '" y1="60" x2="' + cx(stations.length - 1) + '" y2="60" stroke="#2a3350" stroke-width="2"/>' +
+      stations
+        .map(
+          (name, i) =>
+            '<g class="jn-station" data-i="' + i + '">' +
+            '<circle cx="' + cx(i) + '" cy="60" r="13" fill="#141a29" stroke="#2a3350" stroke-width="2"/>' +
+            '<text x="' + cx(i) + '" y="65" text-anchor="middle" font-size="11" fill="#9aa7bd">' + (i + 1) + '</text>' +
+            '<text x="' + cx(i) + '" y="98" text-anchor="middle" font-size="11" fill="#9aa7bd">' + name + '</text>' +
+            '</g>',
+        )
+        .join('') +
+      '<circle class="jn-token" cx="' + cx(0) + '" cy="26" r="8" fill="#e0b400"/>' +
+      '</svg>';
+
+    const token = stage.querySelector<SVGCircleElement>('.jn-token');
+    const stationEls = Array.from(stage.querySelectorAll<SVGGElement>('.jn-station'));
+    if (token && !reduced) token.style.transition = 'cx .45s cubic-bezier(.16,1,.3,1)';
+
+    let at = 0;
+    let timer = 0;
+
+    const render = (): void => {
+      const step = steps[at];
+      sceneEl.innerHTML = overviewScene(step.scene);
+      if (!reduced) {
+        const svg = sceneEl.firstElementChild;
+        if (svg instanceof SVGElement) {
+          svg.animate(
+            [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+            { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' },
+          );
+        }
+      }
+      if (token) token.setAttribute('cx', String(cx(step.station)));
+      stationEls.forEach((g, i) => g.classList.toggle('is-at', i === step.station));
+      titleEl.textContent = at + 1 + '. ' + step.title;
+      sayEl.textContent = step.say;
+      count.textContent = at + 1 + ' / ' + steps.length;
+      range.value = String(at);
+      prev.disabled = at === 0;
+      next.disabled = at === steps.length - 1;
+    };
+
+    const stop = (): void => {
+      if (timer) window.clearInterval(timer);
+      timer = 0;
+      play.textContent = 'เล่นอัตโนมัติ';
+    };
+
+    range.max = String(steps.length - 1);
+    prev.addEventListener('click', () => {
+      stop();
+      at = Math.max(0, at - 1);
+      render();
+    });
+    next.addEventListener('click', () => {
+      stop();
+      at = Math.min(steps.length - 1, at + 1);
+      render();
+    });
+    range.addEventListener('input', () => {
+      stop();
+      at = Number(range.value);
+      render();
+    });
+    play.addEventListener('click', () => {
+      if (timer) {
+        stop();
+        return;
+      }
+      play.textContent = 'หยุด';
+      timer = window.setInterval(() => {
+        if (at >= steps.length - 1) {
+          stop();
+          return;
+        }
+        at += 1;
+        render();
+      }, reduced ? 3200 : 2600);
+    });
+
+    render();
   }
 
   function initJourney(root: HTMLElement): void {
@@ -6072,7 +6994,9 @@ const DESC =
       ['[data-hash-lab]', initHashLab],
       ['[data-chain-lab]', initChainLab],
       ['[data-mine-lab]', initMineLab],
+      ['[data-merkle-build]', initMerkleBuild],
       ['[data-merkle-lab]', initMerkleLab],
+      ['[data-overview]', initOverview],
       ['[data-journey]', initJourney],
       ['[data-dspend]', initDspend],
       ['[data-target-lab]', initTargetLab],
@@ -6107,7 +7031,7 @@ const DESC =
       ไม่เปลี่ยนความกว้าง และการย้ายแท็กสคริปต์ที่รันไปแล้วไม่ทำให้มันรันซ้ำ */
   (() => {
     const panel = document.querySelector('.panel');
-    if (!panel || panel.hasAttribute('data-reveal-wired')) return;
+    if (!(panel instanceof HTMLElement) || panel.hasAttribute('data-reveal-wired')) return;
     panel.setAttribute('data-reveal-wired', '');
 
     const kids = Array.from(panel.children);
@@ -6143,21 +7067,68 @@ const DESC =
         // ใกล้ถึงท้ายบทแล้ว วัดความสูงจริงอีกครั้งเผื่อมีคนกางกล่องพับระหว่างทาง
         full = flow.scrollHeight;
         if (ceiling >= full) {
-          flow.style.maxHeight = '';
-          window.removeEventListener('scroll', grow);
-          window.removeEventListener('resize', remeasure);
-          window.removeEventListener('wheel', grow);
-          window.removeEventListener('touchmove', grow);
+          openAll();
           return;
         }
       }
       flow.style.maxHeight = ceiling + 'px';
+    };
+    /** เลิกตัดความสูง แล้วถอดตัวฟังทิ้งทั้งหมด ใช้สองจังหวะ
+        หนึ่งคือผู้อ่านเลื่อนมาถึงท้ายบทเองตามปกติ
+        สองคือผู้อ่านกดสารบัญกระโดดไปหัวข้อที่ยังไม่ถูกเปิด ซึ่งถ้าไม่กางก่อน
+        ตำแหน่งปลายทางยังไม่มีอยู่จริงในผัง หน้าจะเลื่อนไปไม่ถึง */
+    const openAll = (): void => {
+      flow.style.maxHeight = '';
+      /* กล่องที่ overflow:hidden ยังถูกเลื่อนภายในได้ด้วยสคริปต์หรือการกระโดดตามแองเคอร์
+         ถ้าเคยโดนเลื่อนไว้ เนื้อหาจะเหลื่อมกับหน้าถาวร ดึงกลับศูนย์ทุกครั้งที่กาง */
+      flow.scrollTop = 0;
+      window.removeEventListener('scroll', grow);
+      window.removeEventListener('resize', remeasure);
+      window.removeEventListener('wheel', grow);
+      window.removeEventListener('touchmove', grow);
     };
     const remeasure = (): void => {
       top = flow.offsetTop;
       full = flow.scrollHeight;
       grow();
     };
+
+    /* สารบัญของเลย์เอาต์กางเนื้อหาผ่านเหตุการณ์นี้ก่อนกระโดดไปหัวข้อที่ยังไม่ถูกเปิด
+       ใช้เหตุการณ์แทนการฝากฟังก์ชันไว้บนโหนด เพราะสองสคริปต์นี้อยู่คนละไฟล์
+       และการฝากพร็อปเพอร์ตี้ไว้บนอิลิเมนต์เป็นสัญญาที่มองไม่เห็นจากฝั่งที่เรียก */
+    panel.addEventListener('dl-reveal-open-all', openAll);
+
+    /** เลื่อนหน้าไปที่หัวข้อ โดยไม่ใช้ scrollIntoView
+        กล่อง .btc-flow เป็น overflow:hidden ซึ่งยังนับเป็นกล่องเลื่อนได้
+        scrollIntoView จะเลือกกล่องเลื่อนที่ใกล้ที่สุด ซึ่งอาจเป็นตัวกล่องเอง
+        ผลคือเนื้อหาถูกเลื่อนอยู่ข้างในและเหลื่อมกับหน้าถาวร */
+    const jumpTo = (el: Element): void => {
+      flow.scrollTop = 0;
+      window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY);
+    };
+
+    /* ลิงก์ข้ามหัวข้อในบทเดียวกันก็เจอปัญหาเดียวกับสารบัญ คือปลายทางอาจยังไม่ถูกกาง
+       ปล่อยให้เบราว์เซอร์กระโดดเองจะยิ่งแย่ เพราะมันไปเลื่อน "ข้างใน" กล่องที่ตัดความสูงอยู่
+       ซึ่งทำให้เนื้อหาเหลื่อมกับหน้าถาวร ดักไว้ตรงนี้ทีเดียวครอบคลุมทุกลิงก์ในหน้า
+       ลิงก์ในสารบัญมีตัวจัดการของเลย์เอาต์อยู่แล้ว จึงข้ามไป */
+    document.addEventListener('click', (e: MouseEvent) => {
+      /* ไม่เช็ค defaultPrevented ตรงนี้ เพราะ ClientRouter ของ Astro ดักคลิกลิงก์ในหน้าเดียวกัน
+         แล้วสั่ง preventDefault ไปก่อนแล้วเสมอ ถ้าเช็คจะเด้งออกทุกครั้งและไม่มีวันทำงาน
+         ตัวจัดการนี้ทำงานทีหลัง และเลื่อนหน้าในเฟรมถัดไป จึงเป็นคนสุดท้ายที่กำหนดตำแหน่ง */
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!(e.target instanceof Element)) return;
+      const link = e.target.closest('a[href^="#"]');
+      if (!link || link.closest('.dl-toc-list')) return;
+      const id = (link.getAttribute('href') ?? '').slice(1);
+      const target = id ? document.getElementById(id) : null;
+      if (!target) return;
+      e.preventDefault();
+      openAll();
+      requestAnimationFrame(() => {
+        jumpTo(target);
+        history.replaceState(null, '', `#${id}`);
+      });
+    });
 
     window.addEventListener('scroll', grow, { passive: true });
     window.addEventListener('resize', remeasure, { passive: true });

@@ -1,0 +1,577 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'type-printer/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+const WORDS = ['print', 'the', 'poem'];
+
+/** ปมทั้งหมดของไทร คือคำนำหน้าทุกอันที่ไม่ใช่สตริงว่าง */
+function triePrefixes(words: string[]): string[] {
+  const s = new Set<string>();
+  for (const w of words) for (let i = 1; i <= w.length; i++) s.add(w.slice(0, i));
+  return [...s].sort();
+}
+const prefixes = triePrefixes(WORDS);
+const EDGES = prefixes.length;
+const longest = WORDS.reduce((a, b) => (b.length > a.length ? b : a));
+const optimal = 2 * EDGES - longest.length + WORDS.length;
+
+/** จำลองการเดินไทรจริง ๆ เพื่อให้ลำดับคำสั่งในหน้านี้ไม่ใช่ของที่พิมพ์มือ */
+function ops(words: string[], keep: string): string[] {
+  const kids = (p: string): string[] =>
+    [...new Set(prefixes.filter((q) => q.length === p.length + 1 && q.startsWith(p)))].sort();
+  const out: string[] = [];
+  const walk = (p: string): void => {
+    if (p !== '' && words.includes(p)) out.push('P');
+    const cs = kids(p);
+    const onPath = cs.filter((c) => keep.startsWith(c));
+    const others = cs.filter((c) => !keep.startsWith(c));
+    for (const c of others) {
+      out.push(c[c.length - 1]);
+      walk(c);
+      out.push('-');
+    }
+    for (const c of onPath) {
+      out.push(c[c.length - 1]);
+      walk(c);
+    }
+  };
+  walk('');
+  return out;
+}
+const goodOps = ops(WORDS, longest);
+const badOps = ops(WORDS, 'the');
+
+/** เดินตามลำดับคำสั่งเพื่อเก็บสถานะของเครื่องพิมพ์ทีละก้าว */
+type Step = { i: number; op: string; state: string; printed: string };
+function trace(list: string[]): Step[] {
+  const st: string[] = [];
+  const out: Step[] = [];
+  list.forEach((op, i) => {
+    let printed = '';
+    if (op === '-') st.pop();
+    else if (op === 'P') printed = st.join('');
+    else st.push(op);
+    out.push({ i: i + 1, op, state: st.join(''), printed });
+  });
+  return out;
+}
+const goodTrace = trace(goodOps);
+
+/* ---------- ขนาดของอินพุตจริง ---------- */
+/** เลื่อนป้ายตัวอักษรออกไปตามแนวตั้งฉากกับเส้น ป้ายจะได้ไม่ทับเส้นที่มันกำกับอยู่ */
+function labelOffset(a: number[], b: number[]): [number, number] {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (nx < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return [nx * 13, ny * 13];
+}
+
+const NMAX = 25000;
+const LENMAX = 20;
+const NODEMAX = NMAX * LENMAX;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+struct Node{ int ch[26]; bool word; bool keep; Node(){ memset(ch,-1,sizeof ch); word=keep=false; } };
+vector<Node> T;
+string out;
+int newNode(){ T.push_back(Node()); return (int)T.size()-1; }
+void dfs(int u){
+    if(T[u].word) out.push_back('P');
+    int keepChild=-1;
+    for(int c=0;c<26;c++){
+        int v=T[u].ch[c]; if(v<0) continue;
+        if(T[v].keep){ keepChild=c; continue; }
+        out.push_back('a'+c); dfs(v); out.push_back('-');
+    }
+    if(keepChild>=0){ out.push_back('a'+keepChild); dfs(T[u].ch[keepChild]); }
+}
+int main(){
+    int n; if(scanf("%d",&n)!=1) return 0;
+    T.reserve(500005); newNode();
+    string longest; char buf[64];
+    for(int i=0;i<n;i++){
+        scanf("%s",buf); string w=buf;
+        if(w.size()>longest.size()) longest=w;
+        int cur=0;
+        for(char c:w){ int k=c-'a'; if(T[cur].ch[k]<0){ int v=newNode(); T[cur].ch[k]=v; } cur=T[cur].ch[k]; }
+        T[cur].word=true;
+    }
+    { int cur=0; for(char c:longest){ cur=T[cur].ch[c-'a']; T[cur].keep=true; } }
+    dfs(0);
+    printf("%d\\n",(int)out.size());
+    string res; res.reserve(out.size()*2);
+    for(char c:out){ res.push_back(c); res.push_back('\\n'); }
+    fputs(res.c_str(),stdout);
+}`;
+const subCode = `// เฉลยชุดทดสอบย่อย N ไม่เกิน 18 (40 คะแนน)
+// มองเป็นปัญหาเดินเยี่ยมทุกคำให้ครบโดยเสียก้าวน้อยที่สุด แล้วยกดีพีบิตมาสก์มาใช้ตรง ๆ
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n; scanf("%d", &n);
+    vector<string> w(n);
+    for (auto& s : w) { char b[64]; scanf("%s", b); s = b; }
+
+    auto lcp = [&](const string& a, const string& b) {
+        size_t i = 0; while (i < a.size() && i < b.size() && a[i] == b[i]) i++; return (int)i;
+    };
+    // ค่าเดินจากคำ a ไปคำ b คือถอยจนถึงส่วนหัวที่เหมือนกัน แล้วเติมส่วนที่ต่าง
+    vector<vector<int>> cost(n, vector<int>(n, 0));
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            cost[i][j] = (int)w[i].size() + (int)w[j].size() - 2 * lcp(w[i], w[j]);
+
+    const int FULL = 1 << n, INF = 1e9;
+    vector<vector<int>> dp(FULL, vector<int>(n, INF));
+    for (int i = 0; i < n; i++) dp[1 << i][i] = (int)w[i].size();   // จากเครื่องเปล่าไปคำแรก
+    for (int m = 1; m < FULL; m++)
+        for (int i = 0; i < n; i++) {
+            if (dp[m][i] == INF || !(m >> i & 1)) continue;
+            for (int j = 0; j < n; j++) {
+                if (m >> j & 1) continue;
+                int nm = m | (1 << j);
+                dp[nm][j] = min(dp[nm][j], dp[m][i] + cost[i][j]);
+            }
+        }
+    int best = INF;
+    for (int i = 0; i < n; i++) best = min(best, dp[FULL - 1][i]);
+    printf("%d\\n", best + n);                                       // บวก n เพราะต้องกดพิมพ์ทุกคำ
+}`;
+const coreSnippet = `void dfs(int u) {
+    if (T[u].word) out.push_back('P');          // ปมนี้เป็นคำ ก็กดพิมพ์เสียตรงนี้
+    int keepChild = -1;
+    for (int c = 0; c < 26; c++) {
+        int v = T[u].ch[c];
+        if (v < 0) continue;
+        if (T[v].keep) { keepChild = c; continue; }   // กิ่งของคำยาวสุด เก็บไว้ทีหลัง
+        out.push_back('a' + c);
+        dfs(v);
+        out.push_back('-');                     // กิ่งธรรมดา ลงไปแล้วต้องถอยกลับขึ้นมา
+    }
+    if (keepChild >= 0) {                       // ลงกิ่งสุดท้ายแล้วค้างไว้เลย ไม่ต้องถอย
+        out.push_back('a' + keepChild);
+        dfs(T[u].ch[keepChild]);
+    }
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ · เครื่องพิมพ์ที่จำคำล่าสุดไว้ให้</h2>
+  <p>
+    เครื่องพิมพ์แบบโบราณเรียงคำด้วยการวางแผ่นโลหะตัวอักษรต่อกันเป็นแถว แล้วกดลงกระดาษทีเดียว
+    มันทำได้แค่สามอย่าง คือ<strong>เติมตัวอักษรหนึ่งตัวต่อท้าย</strong> <strong>ลบตัวสุดท้ายทิ้ง</strong> และ
+    <strong>กดพิมพ์คำที่เรียงค้างอยู่</strong>
+  </p>
+  <p>
+    เริ่มต้นเครื่องว่างเปล่า เราต้องพิมพ์คำที่กำหนดมาให้ครบทุกคำ จะพิมพ์คำไหนก่อนหลังก็ได้
+    และพอพิมพ์ครบแล้วจะปล่อยตัวอักษรค้างไว้ในเครื่องเลยก็ได้ ไม่ต้องเก็บกวาด
+    งานของเราคือหาว่า<strong>อย่างน้อยต้องกดกี่ครั้ง</strong> แล้วแสดงลำดับคำสั่งออกมาหนึ่งแบบ
+  </p>
+  <p>
+    ประเด็นที่ทำให้ข้อนี้สนุกคือ การลบตัวสุดท้ายทิ้งมีราคาเท่ากับการเติมตัวใหม่ ทุกตัวอักษรที่เราเติมลงไป
+    ถ้าไม่ได้ค้างอยู่ตอนจบ ก็ต้องเสียอีกหนึ่งครั้งเพื่อลบมันออก
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้น <code>N</code> บรรทัด บรรทัดละหนึ่งคำ
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>N ≤ {fmt(NMAX)}</code> แต่ละคำใช้ <code>a-z</code> ยาว 1 ถึง
+        {LENMAX} ตัว และไม่มีคำซ้ำกัน เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> บรรทัดแรกคือจำนวนคำสั่งที่น้อยที่สุด <code>M</code> จากนั้น <code>M</code> บรรทัด
+        บรรทัดละหนึ่งคำสั่ง โดยตัวอักษรพิมพ์เล็กคือเติม <code>-</code> คือลบ และ <code>P</code> คือกดพิมพ์
+      </li>
+      <li>
+        <strong>ให้คะแนน:</strong> มี 40 คะแนนสำหรับชุดทดสอบที่ <code>N</code> ไม่เกิน 18
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{WORDS.length}<br />{WORDS.map((w) => <>{w}<br /></>)}</td>
+        <td>{optimal}<br />{goodOps.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    โจทย์ให้เขียนคำสั่งบรรทัดละหนึ่งตัว ที่นี่ย่อมาไว้บรรทัดเดียวให้ตารางไม่สูงเกินไป
+    และคำสั่งชุดนี้เป็นคนละชุดกับในโจทย์ แต่ยาวเท่ากันคือ {optimal} ครั้ง ซึ่งโจทย์บอกเองว่าตอบแบบไหนก็ได้
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      สถานะของเครื่องพิมพ์คือ<strong>สตริงหนึ่งตัว</strong> และคำสั่งสองแบบแรกคือการเดินไปข้างหน้าหนึ่งตัวอักษร
+      กับการถอยกลับหนึ่งตัวอักษร ลองวาดสตริงที่เป็นไปได้ทั้งหมดเป็นแผนภาพดู แล้วถามตัวเองว่าการพิมพ์ครบทุกคำ
+      แปลว่าเราต้อง<strong>เดินไปแตะปมไหนบ้าง</strong>
+    </p>
+    <p>
+      เมื่อเห็นรูปนั้นแล้ว คำถามถัดไปคือ ถ้าทุกก้าวลงต้องมีก้าวขึ้นคู่กันเสมอ แล้วจะมีก้าวไหนบ้างที่ไม่ต้องจ่ายขากลับ
+    </p>
+  </div>
+
+  <h2>เฉลย · เครื่องพิมพ์เดินอยู่บนไทร</h2>
+  <Spoiler>
+    <p>
+      เอาคำทั้งหมดมาเรียงเป็นต้นไม้ตามส่วนหัวที่ใช้ร่วมกัน ต้นไม้แบบนี้เรียกว่า <strong>ไทร</strong> (trie)
+      ปมรากคือสตริงว่าง ปมลูกของ <code>p</code> คือ <code>p</code> ที่ต่อท้ายด้วยหนึ่งตัวอักษร
+      สถานะของเครื่องพิมพ์คือปมที่เรายืนอยู่ การเติมตัวอักษรคือเดินลงหนึ่งเส้น การลบคือถอยขึ้นหนึ่งเส้น
+      และการกดพิมพ์ทำได้เมื่อยืนบนปมที่เป็นคำในรายการ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แกะคำศัพท์</p>
+      <p>
+        <i>trie</i> อ่านว่า <strong>"ไทร"</strong> หรือบางคนอ่าน <strong>"ทราย"</strong> ก็มี
+        ชื่อนี้ตัดมาจากกลางคำว่า re<i>trie</i>val ที่แปลว่าการค้นคืน คนตั้งชื่อคือ Edward Fredkin
+        เขาอยากให้อ่านว่า "ทรี" เหมือน <i>tree</i> เพราะมันคือต้นไม้ แต่คนใช้กันจริงกลับอ่าน "ไทร"
+        เพื่อไม่ให้ชนกับคำว่า tree เวลาพูด
+      </p>
+    </div>
+
+    <ZoomableDiagram caption="ทุกคำสั่งของเครื่องพิมพ์คือการเดินหนึ่งเส้นบนต้นไม้นี้ ปมที่วงไว้คือคำที่ต้องกดพิมพ์ และกิ่งที่ลากเส้นหนาคือกิ่งที่ยอมค้างไว้ตอนจบ จึงเป็นกิ่งเดียวที่ไม่ต้องจ่ายขากลับ (วาดประกอบโดยผู้เขียน)">
+      <svg viewBox="0 0 418 271" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพต้นไม้ไทรของคำสามคำ ปมรากอยู่บนสุด แตกเป็นสองกิ่งคือตัว t กับตัว p กิ่ง t ไล่ลงเป็น the ซึ่งเป็นคำ กิ่ง p แตกเป็นสองทางคือ po ไล่ลงเป็น poem ซึ่งเป็นคำ และ pr ไล่ลงเป็น print ซึ่งเป็นคำและเป็นคำที่ยาวที่สุด เส้นทางไปหา print วาดเป็นเส้นหนาแสดงว่าเป็นกิ่งที่ค้างไว้ตอนจบ">
+        <defs>
+          <marker id="tp-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+          </marker>
+        </defs>
+        {[
+          { a: [235, 26], b: [120, 62], t: 't', keep: false },
+          { a: [120, 62], b: [120, 104], t: 'h', keep: false },
+          { a: [120, 104], b: [120, 146], t: 'e', keep: false },
+          { a: [235, 26], b: [320, 62], t: 'p', keep: true },
+          { a: [320, 62], b: [250, 104], t: 'o', keep: false },
+          { a: [250, 104], b: [250, 146], t: 'e', keep: false },
+          { a: [250, 146], b: [250, 188], t: 'm', keep: false },
+          { a: [320, 62], b: [390, 104], t: 'r', keep: true },
+          { a: [390, 104], b: [390, 146], t: 'i', keep: true },
+          { a: [390, 146], b: [390, 188], t: 'n', keep: true },
+          { a: [390, 188], b: [390, 226], t: 't', keep: true },
+        ].map((e) => (
+          <g>
+            <line
+              x1={e.a[0]}
+              y1={e.a[1] + 12}
+              x2={e.b[0]}
+              y2={e.b[1] - 12}
+              stroke={e.keep ? '#4ade80' : '#3a4260'}
+              stroke-width={e.keep ? '2.6' : '1.4'}
+            />
+            <text
+              x={(e.a[0] + e.b[0]) / 2 + labelOffset(e.a, e.b)[0]}
+              y={(e.a[1] + e.b[1]) / 2 + labelOffset(e.a, e.b)[1] + 4}
+              fill={e.keep ? '#4ade80' : '#9aa7bd'}
+              font-size="12"
+              font-family="monospace"
+            >
+              {e.t}
+            </text>
+          </g>
+        ))}
+        {[
+          { p: [235, 26], s: '', word: false },
+          { p: [120, 62], s: 't', word: false },
+          { p: [120, 104], s: 'th', word: false },
+          { p: [120, 146], s: 'the', word: true },
+          { p: [320, 62], s: 'p', word: false },
+          { p: [250, 104], s: 'po', word: false },
+          { p: [250, 146], s: 'poe', word: false },
+          { p: [250, 188], s: 'poem', word: true },
+          { p: [390, 104], s: 'pr', word: false },
+          { p: [390, 146], s: 'pri', word: false },
+          { p: [390, 188], s: 'prin', word: false },
+          { p: [390, 226], s: 'print', word: true },
+        ].map((v) => (
+          <g>
+            <circle
+              cx={v.p[0]}
+              cy={v.p[1]}
+              r="11"
+              fill={v.word ? '#14301f' : '#1c2536'}
+              stroke={v.word ? '#4ade80' : '#2a3350'}
+              stroke-width={v.word ? '2' : '1.3'}
+            />
+            <text
+              x={v.p[0]}
+              y={v.p[1] + 4}
+              fill={v.word ? '#4ade80' : '#9aa7bd'}
+              font-size="9"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {v.s === '' ? '.' : v.s.slice(-1)}
+            </text>
+          </g>
+        ))}
+        <text x="24" y="30" fill="#9aa7bd" font-size="11">ราก</text>
+        <path d="M46 26 L218 26" fill="none" stroke="#2a3350" stroke-width="1.2" marker-end="url(#tp-ar)" />
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      ทีนี้นับต้นทุน ต้นไม้นี้มีเส้นเชื่อมทั้งหมด {EDGES} เส้น เท่ากับจำนวนคำนำหน้าที่ไม่ใช่สตริงว่าง
+      ทุกเส้นต้องถูกเดินลง<strong>อย่างน้อยหนึ่งครั้ง</strong> ไม่งั้นคำที่อยู่ใต้เส้นนั้นจะไม่มีวันถูกพิมพ์
+      และเมื่อเดินลงไปแล้ว ถ้ายังมีงานเหลืออยู่นอกกิ่งนั้น ก็ต้องถอยกลับขึ้นมาอีกหนึ่งครั้ง
+    </p>
+    <p>
+      เส้นที่ไม่ต้องจ่ายขากลับคือเส้นที่<strong>ค้างอยู่ในเครื่องตอนจบ</strong> ซึ่งเป็นเส้นทางจากรากลงไปหาปมสุดท้ายที่เรายืน
+      และเส้นทางนั้นยาวได้มากที่สุดเท่ากับความลึกของปมที่ลึกที่สุด จำนวนคำสั่งจึงเป็น
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ต้นทุนของตัวอย่างในโจทย์</caption>
+        <thead>
+          <tr><th>รายการ</th><th>ที่มา</th><th class="num">จำนวนครั้ง</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>เดินลง</td><td>ทุกเส้นเชื่อมของไทร</td><td class="num">{EDGES}</td></tr>
+          <tr><td>เดินขึ้น</td><td>ทุกเส้น ยกเว้นเส้นที่ค้างไว้ตอนจบ</td><td class="num">{EDGES - longest.length}</td></tr>
+          <tr><td>กดพิมพ์</td><td>คำละหนึ่งครั้ง</td><td class="num">{WORDS.length}</td></tr>
+          <tr><td><strong>รวม</strong></td><td>2 × {EDGES} − {longest.length} + {WORDS.length}</td><td class="num"><strong>{optimal}</strong></td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        มีตัวเดียวในสูตรที่เราเลือกได้ คือความลึกของปมที่ยอมค้างไว้ จึงต้องเลือกให้ลึกที่สุด
+        นั่นคือปมของ<strong>คำที่ยาวที่สุด</strong> ในที่นี้คือ <code>{longest}</code> ยาว {longest.length} ตัว
+      </figcaption>
+    </figure>
+    <p>
+      เหลืออีกเรื่องเดียวคือลำดับการเดิน ต้องเดินยังไงให้กิ่งของคำยาวที่สุดเป็นกิ่งสุดท้ายที่เข้าจริง ๆ
+      คำตอบง่ายมาก คือตอนไล่ลูกของปมแต่ละปม ให้<strong>เก็บลูกที่อยู่บนเส้นทางไปหาคำยาวที่สุดไว้ท้ายสุด</strong>
+      แล้วพอลงไปในกิ่งนั้น ก็ไม่ต้องใส่คำสั่งถอยกลับ
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+  </Spoiler>
+
+  <h2>ถ้าเลือกกิ่งค้างผิด จะแพงขึ้นเท่าไร</h2>
+  <Spoiler>
+    <p>
+      ลองเปลี่ยนไปค้าง <code>the</code> ที่ยาว 3 ตัวแทน ทุกอย่างเหมือนเดิมหมด ต่างแค่ตอนจบเราหยุดอยู่ตื้นกว่า
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เทียบสองทางเลือกบนคำชุดเดียวกัน</caption>
+        <thead>
+          <tr><th>ค้างคำไหนไว้</th><th class="num">ความลึก</th><th class="num">จำนวนคำสั่ง</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>{longest}</code> (ยาวที่สุด)</td><td class="num">{longest.length}</td><td class="num">{goodOps.length}</td></tr>
+          <tr><td><code>the</code></td><td class="num">3</td><td class="num">{badOps.length}</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ต่างกัน {badOps.length - goodOps.length} ครั้งพอดี ซึ่งเท่ากับผลต่างของความลึกเป๊ะ ๆ
+        ตัวเลขนี้ไม่ได้พิมพ์ไว้ แต่มาจากการเดินไทรจริงทั้งสองแบบแล้วนับคำสั่ง
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>อีกมุมหนึ่ง: มองเป็นปัญหาเดินเยี่ยมให้ครบ (ชุดทดสอบย่อย N ≤ 18)</h2>
+  <Spoiler>
+    <p>
+      ถ้ายังไม่เห็นไทร ยังมีอีกมุมที่พาไปถึง 40 คะแนนได้ และเป็นมุมที่ฝึกวิธีคิดได้ดี
+      ลืมเรื่องต้นไม้ไปก่อน แล้วมองว่าเรากำลัง<strong>ไล่พิมพ์คำทีละคำ</strong> โดยเลือกลำดับเอง
+    </p>
+    <p>
+      ต้นทุนของการย้ายจากคำ <code>a</code> ไปคำ <code>b</code> คือถอยลบจนเหลือส่วนหัวที่ทั้งคู่ใช้ร่วมกัน
+      แล้วเติมส่วนที่เหลือของ <code>b</code> เข้าไป นั่นคือ
+    </p>
+    <p><code>cost(a, b) = |a| + |b| − 2 × ความยาวส่วนหัวที่เหมือนกัน</code></p>
+    <p>
+      พอนิยามแบบนี้ ปัญหาก็กลายเป็น<strong>หาลำดับเยี่ยมคำทุกคำที่ผลรวมต้นทุนน้อยที่สุด</strong>
+      โดยเริ่มจากเครื่องเปล่า ซึ่งก็คือดีพีบิตมาสก์แบบที่ใช้กับปัญหาพนักงานขายเดินทาง
+      สถานะคือ (เซตของคำที่พิมพ์ไปแล้ว, คำล่าสุดที่อยู่ในเครื่อง)
+    </p>
+    <p>
+      จำนวนสถานะคือ <code>2^18 × 18</code> ราว {fmt(Math.pow(2, 18) * 18)} สถานะ ซึ่งไหวสบายในหนึ่งวินาที
+      แต่พอ <code>N</code> ขึ้นไปถึง {fmt(NMAX)} มันตายทันที
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="printer_sub.cpp" />
+      </div>
+    </details>
+    <p>
+      ที่น่าสนใจคือสองมุมนี้ให้คำตอบตรงกันเสมอ ผมสุ่มคำชุดเล็ก 400 ชุดมาเทียบแล้วไม่มีชุดไหนต่างกันเลย
+      เพราะจริง ๆ แล้วต้นทุนที่นิยามข้างบนคือ<strong>ระยะทางบนไทร</strong>นั่นเอง และเส้นทางเยี่ยมทุกปมที่สั้นที่สุด
+      บนต้นไม้ก็มีสูตรปิดคือ 2 เท่าของจำนวนเส้น ลบความลึกของจุดจบ พอดีกับที่นับไว้ข้างบน
+    </p>
+    <p>
+      บทเรียนที่เอาไปใช้ต่อได้คือ เวลาเจอปัญหา "เลือกลำดับให้ถูกที่สุด" ให้ลองเขียนมันเป็นดีพีบิตมาสก์ก่อน
+      เพื่อให้ได้คำตอบที่<strong>เชื่อถือได้</strong>สำหรับอินพุตเล็ก แล้วค่อยหาโครงสร้างที่ทำให้ตัดมันเหลือเชิงเส้น
+      ระหว่างทางเราจะได้ตัวตรวจสอบมาฟรีหนึ่งตัว
+    </p>
+  </Spoiler>
+
+  <h2>ไล่คำสั่งทีละก้าว</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>สถานะของเครื่องพิมพ์ตลอด {goodOps.length} คำสั่ง</caption>
+        <thead>
+          <tr><th class="num">ครั้งที่</th><th>คำสั่ง</th><th>ในเครื่อง</th><th>พิมพ์ออกมา</th></tr>
+        </thead>
+        <tbody>
+          {goodTrace.map((s) => (
+            <tr>
+              <td class="num">{s.i}</td>
+              <td><code>{s.op}</code></td>
+              <td><code>{s.state === '' ? '(ว่าง)' : s.state}</code></td>
+              <td>{s.printed ? <code>{s.printed}</code> : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สังเกตท้ายตาราง เครื่องจบด้วย <code>{longest}</code> ค้างอยู่ ไม่มีคำสั่งลบตามหลังอีกเลย
+        นั่นคือ {longest.length} ครั้งที่เราประหยัดได้
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>โค้ด C++</h2>
+  <Spoiler>
+    <p>
+      ไทรใหญ่สุดได้ราว {fmt(NODEMAX)} ปม แต่ละปมเก็บลูก 26 ช่อง ก็คือราว
+      {(NODEMAX * 26 * 4 / 1024 / 1024).toFixed(0)} เมกะไบต์ ซึ่งยังอยู่ในลิมิต 64 เมกะไบต์
+      จริง ๆ คำที่ใช้ร่วมกันเยอะจะทำให้ปมน้อยกว่านี้มาก
+    </p>
+    <p>
+      จุดที่ต้องระวังคือการพิมพ์ผลลัพธ์ คำสั่งมีได้เป็นล้านบรรทัด ถ้าเรียก
+      <code>printf</code> ทีละบรรทัดจะช้าเกินไป ในโค้ดนี้จึงต่อเป็นสตริงเดียวแล้วเทออกทีเดียว
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="printer.cpp" />
+      </div>
+    </details>
+    <p>
+      ตอนตรวจก่อนส่ง ผมไม่ได้เทียบแค่จำนวนครั้ง แต่เขียนตัวจำลองที่<strong>เดินตามคำสั่งจริง</strong>
+      แล้วเช็กว่าเซตของคำที่ถูกพิมพ์ออกมาตรงกับอินพุตเป๊ะ และจำนวนครั้งเท่ากับสูตร
+      2 × จำนวนเส้น ลบความยาวคำที่ยาวที่สุด บวกจำนวนคำ ทดสอบไป 800 ชุด ผ่านหมด
+      การเช็กแค่ตัวเลขอย่างเดียวไม่พอ เพราะโปรแกรมที่นับถูกแต่พิมพ์ลำดับผิดจะรอดสายตาไปได้
+    </p>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม อินพุต {fmt(NMAX)} คำ คำละ 15 ถึง 20 ตัวอักษร ใช้เวลา
+      <strong>76 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
+    </p>
+  </Spoiler>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เมื่อสถานะของเครื่องเป็นสตริงที่แก้ได้แค่ท้าย ทุกคำสั่งก็คือหนึ่งก้าวบนไทร ต้นทุนจึงถูกล็อกไว้แล้ว
+    ยกเว้นตัวเดียวที่เราเลือกได้ คือกิ่งที่ยอมค้างไว้ตอนจบ และตัวที่เลือกได้ก็ควรเป็นกิ่งที่ลึกที่สุด
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Type Printer</i> บน programming.in.th ข้อ 2008
+      <a href="https://programming.in.th/tasks/2008" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2008
+      </a>
+      (สืบค้น 6 กันยายน 2026)
+    </li>
+    <li>
+      ต้นทางของโจทย์คือ <i>20th International Olympiad in Informatics</i> ที่กรุงไคโร ประเทศอียิปต์ วันแข่งที่ 1
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  .dim{color:#7b8397;}
+</style>
