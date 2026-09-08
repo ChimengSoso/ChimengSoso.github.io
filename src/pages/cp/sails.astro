@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
@@ -39,6 +40,41 @@ function greedy(masts: Mast[]): GreedyStep[] {
 }
 const steps = greedy(MASTS);
 const answer = steps[steps.length - 1].cost;
+
+/* ---------- สเต็ปของเครื่องเดินทีละขั้น ----------
+   หนึ่งขั้นคือใส่ใบเรือของเสาหนึ่งต้น ทุกค่าที่ขั้นนั้นแสดงมาจาก greedy() ตัวเดียวกับที่หน้านี้ใช้
+   คำอธิบายก็ประกอบจากค่าจริงของขั้นนั้น จึงไม่มีทางเล่าไม่ตรงกับตัวเลขที่เห็น */
+interface SailStep {
+  i: number;
+  h: number;
+  k: number;
+  picked: number[];
+  after: number[];
+  cost: number;
+  gain: number;
+  note: string;
+}
+const sailSteps: SailStep[] = steps.map((st, idx) => {
+  const before = idx === 0 ? new Array<number>(MAXH).fill(0) : steps[idx - 1].after;
+  const gain = st.cost - (idx === 0 ? 0 : steps[idx - 1].cost);
+  const lowest = Math.min(...before.slice(0, st.mast.h));
+  return {
+    i: st.i,
+    h: st.mast.h,
+    k: st.mast.k,
+    picked: st.picked,
+    after: [...st.after],
+    cost: st.cost,
+    gain,
+    note:
+      `เสาต้นที่ <b>${st.i}</b> สูง <b>${st.mast.h}</b> ต้องใส่ใบ <b>${st.mast.k}</b> ใบ ` +
+      `ระดับที่มันเอื้อมถึงคือ 1 ถึง <b>${st.mast.h}</b> และตอนนี้ระดับที่ว่างที่สุดในนั้นมีอยู่ <b>${lowest}</b> ใบ ` +
+      `จึงหย่อนลงระดับ <b>${st.picked.join(', ')}</b> ` +
+      (gain === 0
+        ? 'รอบนี้ไม่มีใบไหนไปเจอเพื่อนร่วมระดับ จึงยังไม่เสียแต้มเพิ่ม'
+        : `ทำให้เกิดคู่ใหม่ เสียแต้มเพิ่ม <em>${gain}</em> รวมเป็น <em>${st.cost}</em>`),
+  };
+});
 
 /* ---------- ภาพผลลัพธ์ของท่าโลภ ----------
    จำนวนใบเรือของแต่ละระดับมาจาก steps ตัวสุดท้าย คือสภาพหลังวางครบทุกเสา
@@ -498,32 +534,33 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
 
   <h2>ไล่ท่าโลภทีละเสาบนตัวอย่าง</h2>
   <Spoiler>
-    <figure class="tbl">
-      <table class="rec">
-        <caption>เรียงเสาจากเตี้ยไปสูง แล้วใส่ใบทีละต้น</caption>
+    <CpStepPlayer hook="sailsim" steps={sailSteps} label="กดถัดไปเพื่อใส่ใบของเสาต้นถัดไป หรือกดเล่นให้มันเดินเอง">
+      <table class="rec sailtbl">
+        <caption>จำนวนใบเรือของแต่ละระดับ หลังใส่เสาต้นที่กำลังดูอยู่</caption>
         <thead>
           <tr>
-            <th class="num">ลำดับ</th><th>เสา (สูง, ใบ)</th><th>ใส่ที่ระดับ</th>
-            <th>จำนวนใบต่อระดับ</th><th class="num">ค่ารวม</th>
+            <th><span>ระดับ</span></th>
+            {Array.from({ length: MAXH }, (_, i) => i + 1).map((lv) => (
+              <th class="num">{lv}</th>
+            ))}
+            <th class="num">ค่ารวม</th>
           </tr>
         </thead>
         <tbody>
-          {steps.map((s) => (
-            <tr>
-              <td class="num">{s.i}</td>
-              <td><code>({s.mast.h}, {s.mast.k})</code></td>
-              <td><code>{s.picked.join(', ')}</code></td>
-              <td><code>{s.after.join(' ')}</code></td>
-              <td class="num">{s.cost}</td>
-            </tr>
-          ))}
+          <tr>
+            <td><span>จำนวนใบ</span></td>
+            {Array.from({ length: MAXH }, (_, i) => i).map((i) => (
+              <td class="num cnt" data-lv={i}>·</td>
+            ))}
+            <td class="num total">0</td>
+          </tr>
         </tbody>
       </table>
-      <figcaption>
-        คอลัมน์จำนวนใบต่อระดับอ่านจากระดับ 1 ไป {MAXH} สังเกตว่ามันไม่เคยเพิ่มขึ้นตามระดับเลยสักแถว
-        นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
-      </figcaption>
-    </figure>
+    </CpStepPlayer>
+    <p class="io-note">
+      สังเกตแถวจำนวนใบตอนกดไล่ดู มันไม่เคยเพิ่มขึ้นตามระดับเลยสักขั้น
+      คือระดับล่างมีใบมากกว่าหรือเท่ากับระดับบนตลอด นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
+    </p>
   </Spoiler>
 
   <h2>อีกมุมหนึ่ง: ไล่ทุกวิธีจัด (ชุดทดสอบย่อย 25 คะแนน)</h2>
@@ -701,6 +738,28 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
   .sg-pen.hot{color:#f0a6a6;}
   @media (prefers-reduced-motion: reduce){
     .sg-cell{transition:none;}
+  }
+
+  /* กระดานของเครื่องเดิน คอลัมน์ต้องกว้างคงที่ เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง
+     และต้องชนะกฎ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์ */
+  .dpsim table.sailtbl{width:auto;table-layout:fixed;margin:0;}
+  table.sailtbl caption{border-radius:0;}
+  /* เซลล์แรกเป็นข้อความไทย ซึ่ง max-content คือทั้งวลีบรรทัดเดียว
+     td เอาทริค width:0 ไปใช้ตรง ๆ ไม่ได้ ต้องใส่ span ข้างในแล้วทำที่ span */
+  table.sailtbl th:first-child, table.sailtbl td:first-child{width:5.5rem;}
+  table.sailtbl th:first-child span, table.sailtbl td:first-child span{display:block;width:0;min-width:100%;}
+  table.sailtbl th.num, table.sailtbl td.num{width:3.2rem;}
+  table.sailtbl td.cnt{
+    text-align:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#7b8397;
+    transition:background-color .15s ease, color .15s ease;
+  }
+  .dpsim table.sailtbl td.num.cnt.is-touched{background:rgba(74,222,128,0.16);color:#d7ffe4;font-weight:700;}
+  .dpsim table.sailtbl td.num.cnt.is-filled{color:#cdd6ea;}
+  .dpsim table.sailtbl td.num.total{color:var(--dl-gold);font-weight:700;}
+  @media (prefers-reduced-motion: reduce){
+    table.sailtbl td.cnt{transition:none;}
   }
 </style>
 
@@ -888,4 +947,61 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
   }
 
   document.addEventListener('astro:page-load', initSailGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  interface SailStepClient {
+    i: number;
+    h: number;
+    k: number;
+    picked: number[];
+    after: number[];
+    cost: number;
+    gain: number;
+    note: string;
+  }
+
+  /** ตรวจว่าค่าที่อ่านมาจาก data-steps ครบตามที่กระดานต้องใช้ */
+  function isSailStep(v: unknown): v is SailStepClient {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return (
+      typeof o.i === 'number' &&
+      typeof o.h === 'number' &&
+      typeof o.k === 'number' &&
+      Array.isArray(o.picked) &&
+      Array.isArray(o.after) &&
+      typeof o.cost === 'number' &&
+      typeof o.gain === 'number' &&
+      typeof o.note === 'string'
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<SailStepClient>('[data-sailsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isSailStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const cells = Array.from(ctx.parts.root.querySelectorAll<HTMLTableCellElement>('td.cnt'));
+        cells.forEach((td, lv) => {
+          const n = st.after[lv] ?? 0;
+          td.className = 'num cnt';
+          td.textContent = n === 0 ? '·' : String(n);
+          if (n > 0) td.classList.add('is-filled');
+          // ระดับที่เพิ่งรับใบของเสาต้นนี้ ต้องเห็นชัดว่าขั้นนี้ทำอะไร
+          if (st.picked.indexOf(lv + 1) !== -1) {
+            td.classList.add('is-touched');
+            ctx.keepInView(td);
+          }
+        });
+        const total = ctx.parts.root.querySelector<HTMLElement>('td.total');
+        if (total) total.textContent = String(st.cost);
+      },
+    });
+  });
 </script>

@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -76,6 +77,36 @@ const sizeSteps = (() => {
   }
   // คิดค่าจริงอีกรอบให้ตรงกับผลสุดท้าย
   return rows.map((r) => ({ ...r, result: SZ[r.v] }));
+})();
+
+/* ---------- สเต็ปของเครื่องเดินบนต้นไม้ ----------
+   หนึ่งขั้นคือหนึ่งโหนดในลำดับย้อนกลับ ค่าที่รู้แล้วสะสมไปเรื่อย
+   ทุกอย่างมาจาก sizeSteps และ SZ ตัวเดียวกับที่หน้านี้ใช้ ไม่มีเลขพิมพ์มือ */
+interface TreeStep {
+  v: number;
+  kids: number[];
+  size: number;
+  /** ค่าของทุกโหนด ดัชนีคือหมายเลขโหนด ศูนย์คือยังไม่ถึงคิว */
+  vals: number[];
+  note: string;
+}
+const treeSteps: TreeStep[] = (() => {
+  const vals = new Array<number>(N + 1).fill(0);
+  return sizeSteps.map((r) => {
+    vals[r.v] = r.result;
+    const kidPart = r.kids.length
+      ? `ลูกของมันคือ <b>${r.kids.join(', ')}</b> ซึ่งตอบไปแล้วทุกตัว รวมขนาดได้ ` +
+        `<b>${r.kids.map((k) => SZ[k]).join(' + ')}</b> = <b>${r.kids.reduce((t, k) => t + SZ[k], 0)}</b> ` +
+        `บวกตัวมันเองอีกหนึ่ง จึงได้ <em>${r.result}</em>`
+      : 'มันเป็นใบ ไม่มีลูกให้รอ จึงตอบได้ทันทีว่าขนาดกิ่งคือ <em>1</em>';
+    return {
+      v: r.v,
+      kids: [...r.kids],
+      size: r.result,
+      vals: [...vals],
+      note: `ถึงคิวโหนด <b>${r.v}</b> ${kidPart}`,
+    };
+  });
 })();
 
 /* ---------- ต้นทุนของสแต็ก ---------- */
@@ -502,28 +533,34 @@ const tdJson = JSON.stringify(tdPuzzles);
     ระหว่างที่ไล่ลำดับย้อนกลับ ทุกโหนดจึงถูกแตะแค่ครั้งเดียว
   </p>
 
-  <figure class="tbl">
-    <table class="rec">
-      <caption>ไล่ลำดับย้อนกลับ ทีละโหนด</caption>
-      <thead>
-        <tr><th class="num">ลำดับที่</th><th class="num">โหนด</th><th>ลูกของมัน</th><th class="num">ขนาดกิ่ง</th></tr>
-      </thead>
-      <tbody>
-        {sizeSteps.map((r, k) => (
-          <tr>
-            <td class="num">{k + 1}</td>
-            <td class="num">{r.v}</td>
-            <td>{r.kids.length ? r.kids.join(', ') : 'ไม่มี (เป็นใบ)'}</td>
-            <td class="num">{r.result}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>
-      ทุกแถวที่มีลูก ลูกของมันโผล่ในแถวก่อนหน้าไปแล้วทั้งหมด นั่นคือคำรับประกันที่การเรียกซ้ำเคยให้เรา
-      และตอนนี้เราได้มันมาจากลำดับแทน โดยไม่ต้องเสียสแต็กเลยสักไบต์
-    </figcaption>
-  </figure>
+  <CpStepPlayer hook="treesim" steps={treeSteps} label="กดถัดไปเพื่อไล่โหนดตามลำดับย้อนกลับ ตัวเลขในวงคือขนาดกิ่งที่ตอบได้แล้ว">
+    <svg
+      class="treeboard"
+      viewBox={`0 0 ${DRAW.width} ${DRAW.height}`}
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="ต้นไม้เดียวกันกับภาพข้างบน แต่ตัวเลขในแต่ละวงจะปรากฏขึ้นตามลำดับที่เครื่องเดินไปถึง"
+    >
+      {DRAW.edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#3d4763" stroke-width="1.6" />
+      ))}
+      {DRAW.nodes.map((p) => (
+        <g class="tnode" data-v={p.v}>
+          <circle cx={p.x} cy={p.y} r="16" fill="#101827" stroke="#2a3350" stroke-width="1.6" />
+          <text x={p.x} y={p.y + 5} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace" fill="#5b6478">
+            ·
+          </text>
+          <text x={p.x} y={p.y - 22} font-size="10.5" text-anchor="middle" font-family="monospace" fill="#7b8397">
+            {p.v}
+          </text>
+        </g>
+      ))}
+    </svg>
+  </CpStepPlayer>
+  <p class="io-note">
+    ทุกครั้งที่ถึงคิวโหนดที่มีลูก ลูกของมันมีตัวเลขอยู่แล้วทุกตัว
+    นั่นคือคำรับประกันที่การเรียกซ้ำเคยให้เรา และตอนนี้เราได้มันมาจากลำดับแทน โดยไม่ต้องเสียสแต็กเลยสักไบต์
+  </p>
 
   <div class="callout callout-tip">
     <p class="callout-label">คิดก่อนอ่านต่อ</p>
@@ -775,6 +812,14 @@ const tdJson = JSON.stringify(tdPuzzles);
   .td-node.inside{background:#132235;border-color:#3d5a80;color:#9ecbff;}
   .td-node.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
   .td-node.done{box-shadow:0 0 0 2px #2f9e5c;}
+
+  /* กระดานต้นไม้ของเครื่องเดิน สีของวงเปลี่ยนตามสถานะที่สคริปต์ตั้งให้
+     ต้องใช้ :global เพราะวงถูกแก้ด้วย JS ไม่ใช่ธาตุที่เทมเพลตนี้ระบายสีไว้ */
+  .dpsim svg.treeboard{display:block;margin:0 auto;max-width:100%;height:auto;}
+  .dpsim svg.treeboard :global(g.tnode circle){transition:fill .15s ease, stroke .15s ease;}
+  @media (prefers-reduced-motion: reduce){
+    .dpsim svg.treeboard :global(g.tnode circle){transition:none;}
+  }
 </style>
 
 <script>
@@ -943,4 +988,64 @@ const tdJson = JSON.stringify(tdPuzzles);
   }
 
   document.addEventListener('astro:page-load', initTreeGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  interface TreeStepClient {
+    v: number;
+    kids: number[];
+    size: number;
+    vals: number[];
+    note: string;
+  }
+
+  function isTreeStep(x: unknown): x is TreeStepClient {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.v === 'number' &&
+      Array.isArray(o.kids) &&
+      typeof o.size === 'number' &&
+      Array.isArray(o.vals) &&
+      typeof o.note === 'string'
+    );
+  }
+
+  /* สีของวงตามสถานะ: โหนดที่กำลังคิด ลูกที่เพิ่งถูกบวกเข้ามา
+     โหนดที่ตอบแล้ว และโหนดที่ยังไม่ถึงคิว */
+  const INK = {
+    now: { fill: '#12291c', stroke: '#4ade80', text: '#d7ffe4' },
+    kid: { fill: '#2e2510', stroke: '#e0b400', text: '#ffe58a' },
+    done: { fill: '#101827', stroke: '#2f9e5c', text: '#cdd6ea' },
+    idle: { fill: '#101827', stroke: '#2a3350', text: '#5b6478' },
+  };
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<TreeStepClient>('[data-treesim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isTreeStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        ctx.parts.root.querySelectorAll<SVGGElement>('g.tnode').forEach((g) => {
+          const v = Number(g.dataset.v);
+          const circle = g.querySelector('circle');
+          const label = g.querySelector('text');
+          if (!circle || !label) return;
+          const val = st.vals[v] ?? 0;
+          const known = val > 0;
+          label.textContent = known ? String(val) : '·';
+          const kind = v === st.v ? 'now' : st.kids.indexOf(v) !== -1 ? 'kid' : known ? 'done' : 'idle';
+          const ink = INK[kind];
+          circle.setAttribute('fill', ink.fill);
+          circle.setAttribute('stroke', ink.stroke);
+          circle.setAttribute('stroke-width', kind === 'now' ? '2.6' : kind === 'kid' ? '2.2' : '1.6');
+          label.setAttribute('fill', ink.text);
+        });
+      },
+    });
+  });
 </script>
