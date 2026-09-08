@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -38,6 +39,24 @@ function greedy(masts: Mast[]): GreedyStep[] {
 }
 const steps = greedy(MASTS);
 const answer = steps[steps.length - 1].cost;
+
+/* ---------- ภาพผลลัพธ์ของท่าโลภ ----------
+   จำนวนใบเรือของแต่ละระดับมาจาก steps ตัวสุดท้าย คือสภาพหลังวางครบทุกเสา
+   แต้มที่เสียของแต่ละระดับคิดด้วย c(c-1)/2 สูตรเดียวกับ cost() ที่หน้านี้ใช้ */
+const finalCnt = steps[steps.length - 1].after;
+const pairCost = (c: number): number => (c * (c - 1)) / 2;
+const maxCnt = Math.max(...finalCnt, 1);
+const SQ = 26;
+const SQGAP = 5;
+const ROW_H = 34;
+const LEFT = 86;
+const sqX = (j: number): number => LEFT + j * (SQ + SQGAP);
+const rowY = (level: number): number => 44 + (MAXH - level) * ROW_H;
+const COSTX = sqX(maxCnt) + 16;
+const sailsVB = `0 0 ${COSTX + 69} ${rowY(1) + ROW_H + 59}`;
+/** เสาที่เตี้ยที่สุดกับสูงที่สุด ใช้บอกว่าระดับล่างถูกทุกเสาแย่งกัน */
+const sortedMasts = [...MASTS].sort((a, b) => a.h - b.h);
+
 
 /* ---------- มินิเกม วางใบเรือเอง ----------
    ชุดโจทย์เลือกมาให้กดดันคนละจุด และคำตอบที่ดีที่สุดของทุกชุด
@@ -305,6 +324,50 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
       การเลือกระดับล่างกับระดับบนต่างกันไหม
     </p>
   </div>
+
+  <ZoomableDiagram caption={`สภาพหลังท่าโลภวางใบเรือครบทุกเสาในตัวอย่าง เสาทั้ง ${MASTS.length} ต้นสูง ${sortedMasts.map((m) => m.h).join(', ')} และต้องการใบเรือ ${sortedMasts.map((m) => m.k).join(', ')} ใบตามลำดับที่ท่าโลภไล่ คือจากเสาเตี้ยไปเสาสูง ช่องในแต่ละแถวคือใบเรือที่ระดับนั้นรับไป ตัวเลขขวามือคือแต้มที่เสียของระดับนั้น ซึ่งคิดจากจำนวนคู่ของใบเรือที่อยู่ระดับเดียวกัน รวมทั้งภาพได้ ${answer} แต้ม สังเกตว่าระดับล่างรับไปมากกว่าเพราะทุกเสาเอื้อมถึง ส่วนระดับบนมีแต่เสาสูงที่เอื้อมถึง (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={sailsVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางแนวนอน ${MAXH} แถว แถวบนสุดคือระดับ ${MAXH} ไล่ลงมาถึงระดับ 1 จำนวนใบเรือของแต่ละระดับจากล่างขึ้นบนคือ ${finalCnt.join(' ')} และแต้มที่เสียของแต่ละระดับคือ ${finalCnt.map((c) => pairCost(c)).join(' ')} รวมได้ ${answer}`}>
+      <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ระดับ</text>
+      <text x={sqX(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ใบเรือที่ระดับนี้รับไป</text>
+      <text x={COSTX} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">แต้มที่เสีย</text>
+      {finalCnt.map((cnt, k) => {
+        const level = k + 1;
+        const y = rowY(level);
+        return (
+          <>
+            <text x="16" y={y + 18} fill="#cdd6ea" font-size="13" text-anchor="start" font-family="monospace">
+              {level}
+            </text>
+            {Array.from({ length: maxCnt }, (_, j) => j).map((j) => (
+              <rect
+                x={sqX(j)}
+                y={y}
+                width={SQ}
+                height={SQ}
+                rx="5"
+                fill={j < cnt ? '#12291c' : '#111726'}
+                stroke={j < cnt ? '#4ade80' : '#232c42'}
+                stroke-width={j < cnt ? '1.8' : '1.2'}
+              />
+            ))}
+            <text
+              x={COSTX}
+              y={y + 18}
+              fill={pairCost(cnt) > 0 ? '#e0b400' : '#7b8397'}
+              font-size="13"
+              text-anchor="start"
+              font-family="monospace"
+            >
+              {cnt} ใบ · {pairCost(cnt)}
+            </text>
+          </>
+        );
+      })}
+      <text x={COSTX} y={rowY(1) + ROW_H + 22} fill="#4ade80" font-size="13" text-anchor="start" font-weight="700" font-family="monospace">
+        รวม {answer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · วางใบเรือให้เสียแต้มน้อยที่สุด</h2>
   <div class="cpgame sailgame" data-sailgame data-puzzles={gameJson}>
