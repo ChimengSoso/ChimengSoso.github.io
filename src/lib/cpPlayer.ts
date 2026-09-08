@@ -19,9 +19,12 @@ export interface CpPlayerParts {
   scroll: HTMLElement | null;
 }
 
-export interface CpDrawContext {
+export interface CpDrawContext<T> {
   at: number;
   total: number;
+  /** ก้าวก่อนหน้า ใช้ตอนที่การวาดต้องรู้ว่าอะไรเพิ่งเปลี่ยน เช่นเน้นช่องที่ขยับ
+   *  เป็น null ตอนอยู่ก้าวแรก */
+  prev: T | null;
   parts: CpPlayerParts;
   /** เลื่อนกล่องให้ช่องที่กำลังทำงานอยู่ในสายตา โดยไม่ลาก scroll ของหน้า */
   keepInView: (el: Element | null) => void;
@@ -32,11 +35,17 @@ export interface CpPlayerOptions<T> {
    *  รับเป็น unknown[] เพื่อไม่ต้องใช้ any ที่ไหนเลย */
   narrow: (raw: unknown[]) => T[] | null;
   /** วาดกระดานของขั้นที่ระบุ ตัวคุมจัดการ say/แถบเลื่อน/ตัวนับให้แล้ว */
-  draw: (step: T, ctx: CpDrawContext) => void;
+  draw: (step: T, ctx: CpDrawContext<T>) => void;
   /** ระยะห่างระหว่างขั้นตอนเล่นอัตโนมัติ หน่วยมิลลิวินาที */
   playMs?: number;
   /** ชื่อฟิลด์ใน T ที่เก็บคำอธิบายเป็น HTML ถ้ามี ตัวคุมจะเติมให้เอง */
   sayFrom?: (step: T) => string | undefined;
+  /** คำที่ใช้เรียกหนึ่งก้าว ค่าปกติคือ "ขั้น" หน้าที่นับเป็นตาเดินให้ส่ง "ตา" มา
+   *  เพราะคำที่ตรงกับสิ่งที่นับอยู่ อ่านง่ายกว่าคำกลางที่ใช้ได้ทุกที่ */
+  countWord?: string;
+  /** นับเริ่มจากศูนย์ไหม หน้าที่ก้าวแรกคือ "สภาพก่อนเริ่ม" ควรเป็นศูนย์
+   *  ค่าปกติคือเริ่มจากหนึ่ง ซึ่งอ่านว่าก้าวที่หนึ่งจากทั้งหมดเท่านี้ */
+  zeroBased?: boolean;
 }
 
 const DEFAULT_PLAY_MS = 900;
@@ -91,9 +100,12 @@ function wireOne<T>(root: HTMLElement, opts: CpPlayerOptions<T>): void {
     const step = steps[at];
     const text = opts.sayFrom ? opts.sayFrom(step) : undefined;
     if (text !== undefined) say.innerHTML = text;
-    opts.draw(step, { at, total: steps.length, parts, keepInView });
+    opts.draw(step, { at, total: steps.length, prev: at > 0 ? steps[at - 1] : null, parts, keepInView });
     range.value = String(at);
-    count.textContent = `ขั้น ${at + 1} / ${steps.length}`;
+    const word = opts.countWord ?? 'ขั้น';
+    count.textContent = opts.zeroBased
+      ? `${word} ${at} / ${steps.length - 1}`
+      : `${word} ${at + 1} / ${steps.length}`;
     for (const b of btns) {
       const act = b.dataset.act;
       if (act === 'prev' || act === 'first') b.disabled = at === 0;

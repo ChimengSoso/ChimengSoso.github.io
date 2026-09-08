@@ -1123,9 +1123,10 @@ const CDQ_N = 200000;
 
 <script>
   // ตัวเล่นสองตัวชี้ของกระดานหนึ่งมิติ ขั้นถูกสร้างไว้ตอน build
-  type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
+  // ตัวคุมปุ่มและแถบเลื่อนอยู่ที่ src/lib/cpPlayer.ts หน้านี้ส่งมาแค่วิธีวาดกระดาน
+  import { initCpPlayers } from '../../lib/cpPlayer';
 
-  const PLAY_MS = 1300;
+  type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
 
   function isStep(v: unknown): v is SweepStep {
     if (typeof v !== 'object' || v === null) return false;
@@ -1133,93 +1134,33 @@ const CDQ_N = 200000;
     return typeof o.i === 'number' && typeof o.j === 'number' && typeof o.note === 'string';
   }
 
-  function initSweep(root: HTMLElement) {
-    if (root.dataset.wired === '1') return;
-    root.dataset.wired = '1';
-
-    const parsed: unknown = JSON.parse(root.dataset.steps ?? '[]');
-    const steps: SweepStep[] = Array.isArray(parsed) ? parsed.filter(isStep) : [];
-    if (steps.length === 0) return;
-
-    const marks = Array.from(root.querySelectorAll<HTMLTableCellElement>('td.mark'));
-    const totalCell = root.querySelector<HTMLElement>('td.total');
-    const say = root.querySelector<HTMLElement>('.dps-say');
-    const range = root.querySelector<HTMLInputElement>('.dps-range');
-    const count = root.querySelector<HTMLElement>('.dps-count');
-    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
-    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
-    if (!totalCell || !say || !range || !count || !playBtn) return;
-
-    range.max = String(steps.length - 1);
-    let at = 0;
-    let timer: number | null = null;
-
-    const render = () => {
-      const st = steps[at];
-      marks.forEach((td, k) => {
-        td.className = 'num mark';
-        td.textContent = '·';
-        if (k === st.i) {
-          td.classList.add('is-i');
-          td.textContent = 'i';
-        } else if (k >= st.j && k < st.i) {
-          td.classList.add('is-win');
-          td.textContent = '+';
-        }
-        if (k === st.j && k !== st.i) td.classList.add('is-j');
-      });
-      totalCell.textContent = String(st.total);
-      say.innerHTML = st.note;
-      range.value = String(at);
-      count.textContent = `ขั้น ${at + 1} / ${steps.length}`;
-      for (const b of btns) {
-        const act = b.dataset.act;
-        if (act === 'prev' || act === 'first') b.disabled = at === 0;
-        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
-      }
-    };
-
-    const stop = () => {
-      if (timer !== null) window.clearInterval(timer);
-      timer = null;
-      playBtn.textContent = 'เล่น';
-    };
-    const go = (to: number) => {
-      at = Math.max(0, Math.min(steps.length - 1, to));
-      if (at === steps.length - 1) stop();
-      render();
-    };
-
-    for (const b of btns) {
-      b.addEventListener('click', () => {
-        const act = b.dataset.act;
-        if (act === 'play') {
-          if (timer !== null) { stop(); return; }
-          if (at === steps.length - 1) at = 0;
-          playBtn.textContent = 'หยุด';
-          timer = window.setInterval(() => go(at + 1), PLAY_MS);
-          go(at + 1);
-          return;
-        }
-        stop();
-        if (act === 'first') go(0);
-        else if (act === 'prev') go(at - 1);
-        else if (act === 'next') go(at + 1);
-        else if (act === 'last') go(steps.length - 1);
-      });
-    }
-    range.addEventListener('input', () => { stop(); go(Number(range.value)); });
-    root.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') { stop(); go(at + 1); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft') { stop(); go(at - 1); e.preventDefault(); }
-    });
-
-    document.addEventListener('astro:before-swap', stop, { once: true });
-    render();
-  }
-
   document.addEventListener('astro:page-load', () => {
-    document.querySelectorAll<HTMLElement>('[data-sweepsim]').forEach(initSweep);
+    initCpPlayers<SweepStep>('[data-sweepsim]', {
+      playMs: 1300,
+      narrow: (raw) => {
+        const ok = raw.filter(isStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const marks = Array.from(ctx.parts.root.querySelectorAll<HTMLTableCellElement>('td.mark'));
+        marks.forEach((td, k) => {
+          td.className = 'num mark';
+          td.textContent = '\u00b7';
+          if (k === st.i) {
+            td.classList.add('is-i');
+            td.textContent = 'i';
+          } else if (k >= st.j && k < st.i) {
+            td.classList.add('is-win');
+            td.textContent = '+';
+          }
+          if (k === st.j && k !== st.i) td.classList.add('is-j');
+        });
+        const totalCell = ctx.parts.root.querySelector<HTMLElement>('td.total');
+        if (totalCell) totalCell.textContent = String(st.total);
+        ctx.keepInView(marks[st.i] ?? null);
+      },
+    });
   });
 </script>
 

@@ -1113,10 +1113,11 @@ const gameSets = [
 
 <script>
   // ตัวเล่นตารางสถานะ ขั้นตอนถูกสร้างไว้ตอน build แล้วส่งมาทาง data-steps
+  // ตัวคุมปุ่มและแถบเลื่อนอยู่ที่ src/lib/cpPlayer.ts หน้านี้ส่งมาแค่วิธีวาดตาราง
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
   type Cell = { m1: string; m2: string; val: string; path: boolean; top: boolean };
   type SimStep = { title: string; html: string; cells: Cell[] };
-
-  const PLAY_MS = 1600;
 
   function isCell(v: unknown): v is Cell {
     if (typeof v !== 'object' || v === null) return false;
@@ -1130,110 +1131,34 @@ const gameSets = [
     return typeof o.title === 'string' && typeof o.html === 'string' && Array.isArray(o.cells) && o.cells.every(isCell);
   }
 
-  function initMineSim(root: HTMLElement) {
-    if (root.dataset.wired === '1') return;
-    root.dataset.wired = '1';
-
-    const parsed: unknown = JSON.parse(root.dataset.steps ?? '[]');
-    const steps: SimStep[] = Array.isArray(parsed) ? parsed.filter(isSimStep) : [];
-    if (steps.length === 0) return;
-
-    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
-    const cap = root.querySelector<HTMLElement>('.sim-cap');
-    const say = root.querySelector<HTMLElement>('.dps-say');
-    const range = root.querySelector<HTMLInputElement>('.dps-range');
-    const count = root.querySelector<HTMLElement>('.dps-count');
-    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
-    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
-    if (!say || !range || !count || !playBtn || !cap) return;
-
-    range.max = String(steps.length - 1);
-    let at = 0;
-    let timer: number | null = null;
-
-    const render = () => {
-      const st = steps[at];
-      rows.forEach((tr, i) => {
-        const c = st.cells[i];
-        const tds = tr.querySelectorAll<HTMLTableCellElement>('td');
-        const t1 = tds[0].querySelector('span');
-        const t2 = tds[1].querySelector('span');
-        if (t1) t1.textContent = c ? c.m1 : '·';
-        if (t2) t2.textContent = c ? c.m2 : '·';
-        tds[2].textContent = c ? c.val : '·';
-        tr.className = '';
-        if (!c || c.val === '·') tr.classList.add('is-empty');
-        else if (c.path) tr.classList.add('is-path');
-        else if (c.top) tr.classList.add('is-top');
-      });
-      cap.textContent = `STATE TABLE · ${st.title}`;
-      say.innerHTML = st.html;
-      range.value = String(at);
-      count.textContent = `ขั้น ${at} / ${steps.length - 1}`;
-      for (const b of btns) {
-        const act = b.dataset.act;
-        if (act === 'prev' || act === 'first') b.disabled = at === 0;
-        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
-      }
-    };
-
-    const stop = () => {
-      if (timer !== null) window.clearInterval(timer);
-      timer = null;
-      playBtn.textContent = 'เล่น';
-    };
-
-    const go = (to: number) => {
-      at = Math.max(0, Math.min(steps.length - 1, to));
-      if (at === steps.length - 1) stop();
-      render();
-    };
-
-    for (const b of btns) {
-      b.addEventListener('click', () => {
-        const act = b.dataset.act;
-        if (act === 'play') {
-          if (timer !== null) {
-            stop();
-            return;
-          }
-          if (at === steps.length - 1) at = 0;
-          playBtn.textContent = 'หยุด';
-          timer = window.setInterval(() => go(at + 1), PLAY_MS);
-          go(at + 1);
-          return;
-        }
-        stop();
-        if (act === 'first') go(0);
-        else if (act === 'prev') go(at - 1);
-        else if (act === 'next') go(at + 1);
-        else if (act === 'last') go(steps.length - 1);
-      });
-    }
-
-    range.addEventListener('input', () => {
-      stop();
-      go(Number(range.value));
-    });
-
-    root.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') {
-        stop();
-        go(at + 1);
-        e.preventDefault();
-      } else if (e.key === 'ArrowLeft') {
-        stop();
-        go(at - 1);
-        e.preventDefault();
-      }
-    });
-
-    document.addEventListener('astro:before-swap', stop, { once: true });
-    render();
-  }
-
   document.addEventListener('astro:page-load', () => {
-    document.querySelectorAll<HTMLElement>('[data-minesim]').forEach(initMineSim);
+    initCpPlayers<SimStep>('[data-minesim]', {
+      playMs: 1600,
+      zeroBased: true,
+      narrow: (raw) => {
+        const ok = raw.filter(isSimStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.html,
+      draw: (st, ctx) => {
+        const rows = Array.from(ctx.parts.root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+        rows.forEach((tr, i) => {
+          const c = st.cells[i];
+          const tds = tr.querySelectorAll<HTMLTableCellElement>('td');
+          const t1 = tds[0].querySelector('span');
+          const t2 = tds[1].querySelector('span');
+          if (t1) t1.textContent = c ? c.m1 : '·';
+          if (t2) t2.textContent = c ? c.m2 : '·';
+          tds[2].textContent = c ? c.val : '·';
+          tr.className = '';
+          if (!c || c.val === '·') tr.classList.add('is-empty');
+          else if (c.path) tr.classList.add('is-path');
+          else if (c.top) tr.classList.add('is-top');
+        });
+        const cap = ctx.parts.root.querySelector<HTMLElement>('.sim-cap');
+        if (cap) cap.textContent = `STATE TABLE · ${st.title}`;
+      },
+    });
   });
 </script>
 
