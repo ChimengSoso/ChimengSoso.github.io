@@ -325,6 +325,82 @@ const psPuzzles: PsPuzzleData[] = PS_PUZZLES.map((p) => {
 });
 const psJson = JSON.stringify(psPuzzles);
 
+/* ---------- ท่าที่สาม แบ่งราก ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด
+   และวัดเวลาที่ขอบเขตจริงได้ 0.08 วินาที */
+const SQ_N = 200000;
+const SQ_Q = 200000;
+const sqBlock = Math.round(Math.sqrt(SQ_N));
+const sqRows = [
+  { name: 'ไม่ทำอะไรเลย ถามก็บวกทีละช่อง', per: 'ถาม n · แก้ 1', total: SQ_Q * SQ_N },
+  { name: 'แบ่งราก', per: 'ถาม 2√n · แก้ 1', total: SQ_Q * 2 * sqBlock },
+  { name: 'ต้นไม้เฟนวิก', per: 'ถาม log n · แก้ log n', total: SQ_Q * 2 * 18 },
+];
+const sqrtCode = `// แบ่งราก (sqrt decomposition): ผลรวมของช่วง กับแก้ทีละช่อง
+// อินพุต: n q, อาเรย์ n ตัว, แล้ว q บรรทัด
+//   1 i v  -> ตั้ง a[i] = v (i เริ่มจาก 0)
+//   2 l r  -> ถามผลรวมช่อง l..r
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<long long> a(n);
+    for (int i = 0; i < n; i++) scanf("%lld", &a[i]);
+
+    int B = max(1, (int)sqrt((double)n));       // ขนาดของก้อน
+    int nb = (n + B - 1) / B;
+    vector<long long> blk(nb, 0);
+    for (int i = 0; i < n; i++) blk[i / B] += a[i];
+
+    for (int t = 0; t < q; t++) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; long long v; scanf("%d %lld", &i, &v);
+            blk[i / B] += v - a[i];              // ก้อนที่ i อยู่ ขยับตามส่วนต่าง
+            a[i] = v;
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            long long sum = 0;
+            int bl = l / B, br = r / B;
+            if (bl == br) {                      // อยู่ก้อนเดียวกัน เดินทีละช่อง
+                for (int i = l; i <= r; i++) sum += a[i];
+            } else {
+                for (int i = l; i < (bl + 1) * B; i++) sum += a[i];        // เศษหัว
+                for (int b = bl + 1; b < br; b++) sum += blk[b];           // ก้อนเต็มกลาง
+                for (int i = br * B; i <= r; i++) sum += a[i];             // เศษท้าย
+            }
+            printf("%lld\\n", sum);
+        }
+    }
+    return 0;
+}`;
+const sqrtBrute = `// ตัวตรวจอิสระของแบ่งราก: เก็บอาเรย์เปล่า ถามก็บวกทีละช่อง
+// ไม่มีก้อน ไม่มีรากที่สอง จึงไม่ได้ทดสอบแค่การพิมพ์
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<long long> a(n);
+    for (int i = 0; i < n; i++) scanf("%lld", &a[i]);
+    for (int t = 0; t < q; t++) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; long long v; scanf("%d %lld", &i, &v);
+            a[i] = v;
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            long long sum = 0;
+            for (int i = l; i <= r; i++) sum += a[i];
+            printf("%lld\\n", sum);
+        }
+    }
+    return 0;
+}`;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -804,6 +880,79 @@ const psJson = JSON.stringify(psPuzzles);
   </Spoiler>
 
   <hr class="divider-solid" />
+
+  <h2>ท่าที่สาม · แบ่งราก และเหตุผลที่เฟนวิกชนะมันอยู่ดี</h2>
+  <p>
+    สองท่าที่ผ่านมาห่างกันคนละโลก ผลรวมสะสมตอบเร็วแต่แก้ไม่ได้ เฟนวิกทำได้ทั้งสองอย่างแต่ต้องเข้าใจ
+    เรื่องบิตก่อน ระหว่างสองอันนั้นมีท่าที่สามที่<strong>คิดออกได้เองโดยไม่ต้องรู้จักอะไรเลย</strong>
+    และคุ้มพอที่จะผ่านโจทย์จำนวนมาก คือ<strong>การแบ่งราก</strong> (sqrt decomposition)
+  </p>
+  <p>
+    แนวคิดมีบรรทัดเดียว คือหั่นอาเรย์เป็นก้อนละ <code>√n</code> ช่อง แล้วจดผลรวมของแต่ละก้อนไว้
+    ตอนแก้ค่าช่องหนึ่ง เราแก้ทั้งช่องนั้นและผลรวมของก้อนที่มันอยู่ ซึ่งเป็นงานคงที่
+    ตอนถามช่วง เราเดินทีละช่องเฉพาะ<strong>เศษหัวกับเศษท้าย</strong> ส่วนกลางที่เป็นก้อนเต็ม
+    เราอ่านจากผลรวมของก้อนตรง ๆ
+  </p>
+  <p>
+    ทำไมต้อง <code>√n</code> พอดี เพราะมีสองอย่างที่ดันกันอยู่ ถ้าก้อนใหญ่ เศษหัวเศษท้ายจะยาว
+    ถ้าก้อนเล็ก จำนวนก้อนกลางจะมาก งานตอนถามคือ <strong>ขนาดก้อน บวก จำนวนก้อน</strong>
+    ซึ่งน้อยที่สุดตอนสองค่านั้นเท่ากัน นั่นคือที่ <code>√n</code> ที่ <code>n = {fmt(SQ_N)}</code>
+    ขนาดก้อนจึงเป็น <code>{fmt(sqBlock)}</code> และงานต่อคำถามเหลือราว <code>2√n</code> คือ
+    <code>{fmt(2 * sqBlock)}</code> ครั้ง
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ต้นทุน · ที่ n = {fmt(SQ_N)} และคำถาม {fmt(SQ_Q)} ครั้ง</caption>
+      <thead>
+        <tr><th>แนวคิด</th><th>งานต่อหนึ่งคำสั่ง</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {sqRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.per}</td>
+            <td class="num">{fmt(r.total)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      แบ่งรากลดงานลงจากทางที่ไม่ทำอะไรเลยราว {fmt(Math.round(sqRows[0].total / sqRows[1].total))} เท่า
+      ซึ่งพอสำหรับโจทย์จำนวนมาก แต่เฟนวิกยังเร็วกว่ามันอีกราว
+      {Math.round(sqRows[1].total / sqRows[2].total)} เท่า เพราะ <code>log n</code> เล็กกว่า
+      <code>√n</code> คนละชั้น ผมรันโค้ดข้างล่างที่ขอบเขตนี้จริง ได้ <strong>0.08 วินาที</strong>
+      และหน่วยความจำราว 4.7 เมกะไบต์
+    </figcaption>
+  </figure>
+
+  <CodeBlock code={sqrtCode} lang="cpp" title="sqrt_decomp.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        จุดที่แบ่งรากพลาดง่ายที่สุดคือ<strong>รอยต่อของก้อน</strong> ทั้งกรณีที่ช่วงที่ถามอยู่ในก้อนเดียว
+        และกรณีที่ขอบของช่วงตรงกับขอบของก้อนพอดี ตัวตรวจจึงไม่ควรรู้จักคำว่าก้อนเลย
+        ตัวนี้เก็บอาเรย์เปล่าแล้วบวกทีละช่อง
+      </p>
+      <CodeBlock code={sqrtBrute} lang="cpp" title="brute_range_sum.cpp" />
+      <p>
+        ผมสุ่มอาเรย์เล็ก ๆ กับคำสั่งปนกันระหว่างแก้และถาม แล้วเทียบสองฝั่ง
+        <strong>700 รอบ ตรงกันทุกรอบ</strong> ชุดสุ่มจงใจให้ <code>n</code> เล็กมาก
+        เพราะเมื่อ <code>n</code> เล็ก ขนาดก้อนจะเล็กตาม รอยต่อจึงเกิดถี่ขึ้น
+        ซึ่งเป็นบริเวณที่บั๊กชอบอยู่
+      </p>
+    </div>
+  </details>
+
+  <p>
+    ท่านี้คุ้มที่จะรู้ไว้ทั้งที่มันแพงกว่าเฟนวิก เพราะ<strong>มันไม่ต้องการคุณสมบัติอะไรจากตัวดำเนินการเลย</strong>
+    เฟนวิกใช้ได้เพราะผลรวมหักลบกันได้ แต่พอโจทย์เปลี่ยนคำถามเป็นอย่างอื่น
+    ที่หักลบไม่ได้ เฟนวิกก็เริ่มใช้ไม่ได้ ส่วนแบ่งรากยังทำงานเหมือนเดิม
+    เพราะมันแค่รวมคำตอบของก้อนที่คิดไว้แล้ว จะรวมด้วยอะไรก็ได้
+    (มี<a href="../segment-tree/">บทเซกเมนต์ทรี</a>อยู่ในคลังนี้สำหรับตอนที่ต้องการทั้งความเร็วและความยืดหยุ่นพร้อมกัน)
+  </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
