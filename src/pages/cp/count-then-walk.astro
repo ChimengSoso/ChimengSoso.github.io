@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -39,6 +40,20 @@ function suffix(n: number): number[][] {
 }
 const F = suffix(N);
 const totalCount = F[0][0];
+
+/* ---------- ภาพบันได ทุกช่องมาจาก walk() ตัวเดียวกับตารางในบทนี้ ----------
+   แต่ละขั้นบันไดคือหนึ่งตำแหน่ง ซ้ายคือกิ่ง 0 ขวาคือกิ่ง 1
+   กิ่งที่ถูกข้ามจะแสดงขนาดของมันไว้ เพราะขนาดนั้นคือจำนวนที่อันดับถูกหักออก */
+const STEP_X = 116;
+const STEP_Y = 56;
+const BW2 = 52;
+const BH2 = 34;
+const stepX = (i: number): number => 26 + i * STEP_X;
+const stepY = (i: number): number => 34 + i * STEP_Y;
+/** อันดับที่เหลือ "ก่อน" ตัดสินใจของแต่ละขั้น ใช้เล่าว่าเทียบกับอะไร */
+const remBefore = (i: number): number => (i === 0 ? R : walkRows[i - 1].rest);
+const ctwVB = `0 0 ${stepX(N - 1) + BW2 + 162} ${stepY(N - 1) + BH2 + 68}`;
+
 
 type Walk = { i: number; rest: number; zero: number; one: number | null; pick: string };
 function walk(n: number, r: number): Walk[] {
@@ -204,6 +219,45 @@ const cwJson = JSON.stringify(cwPuzzles);
       สองล้านล้านล้าน ก็ต้องบวกแบบมีเพดาน ไม่งั้นตัวเลขจะพลิกเป็นลบแล้วการเทียบทุกครั้งหลังจากนั้นก็มั่วหมด
     </p>
   </div>
+
+  <ZoomableDiagram caption={`การเดินหาสตริงอันดับที่ ${R} ของความยาว ${N} ทีละตำแหน่ง ที่แต่ละขั้นเราถามคำถามเดียวคือ กิ่งที่เริ่มด้วย 0 มีสมาชิกกี่ตัว ถ้าอันดับที่เหลือยังไม่เกินจำนวนนั้น คำตอบอยู่ในกิ่งนั้น จึงเลือก 0 แล้วอันดับไม่เปลี่ยน ถ้าเกิน ก็ข้ามกิ่งนั้นทั้งกิ่ง เลือก 1 แล้วหักขนาดของกิ่งที่ข้ามออกจากอันดับ เดินครบ ${N} ตำแหน่งได้คำตอบ ${target} จากทั้งหมด ${totalCount} ตัว โดยไม่เคยสร้างสตริงตัวไหนขึ้นมาเลย (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={ctwVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`บันได ${N} ขั้น ขั้นที่ i คือการตัดสินใจตำแหน่งที่ i โดยมีอันดับที่เหลือกำกับไว้ ${walkRows.map((w, i) => `ขั้นที่ ${i + 1} อันดับที่เหลือ ${remBefore(i)} กิ่งศูนย์มี ${w.zero} ตัว เลือก ${w.pick}`).join(' ')} สุดท้ายได้สตริง ${target}`}>
+      {walkRows.map((w, i) => (
+        <>
+          {i > 0 && (
+            <line
+              x1={stepX(i - 1) + BW2 / 2}
+              y1={stepY(i - 1) + BH2}
+              x2={stepX(i) + BW2 / 2}
+              y2={stepY(i)}
+              stroke="#4ade80"
+              stroke-width="1.8"
+            />
+          )}
+          <rect x={stepX(i)} y={stepY(i)} width={BW2} height={BH2} rx="7" fill="#12291c" stroke="#4ade80" stroke-width="2" />
+          <text x={stepX(i) + BW2 / 2} y={stepY(i) + 23} fill="#d7ffe4" font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+            {w.pick}
+          </text>
+          <text x={stepX(i) + BW2 + 12} y={stepY(i) + 15} fill="#cdd6ea" font-size="11.5" text-anchor="start" font-family="monospace">
+            อันดับเหลือ {remBefore(i)} · กิ่ง 0 มี {w.zero}
+          </text>
+          <text
+            x={stepX(i) + BW2 + 12}
+            y={stepY(i) + 30}
+            fill={w.pick === '1' ? '#e0b400' : '#7b8397'}
+            font-size="11.5"
+            text-anchor="start"
+            font-family="monospace"
+          >
+            {w.pick === '1' ? `ข้ามกิ่ง 0 ทั้งกิ่ง หัก ${w.zero} เหลือ ${w.rest}` : 'คำตอบอยู่ในกิ่ง 0 ไม่ต้องหัก'}
+          </text>
+        </>
+      ))}
+      <text x={stepX(0)} y={stepY(N - 1) + BH2 + 30} fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700" font-family="monospace">
+        ได้คำตอบ {target}
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · เดินไปหาสตริงอันดับที่ขอ</h2>
   <div class="cpgame cwgame" data-cwgame data-puzzles={cwJson}>
