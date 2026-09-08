@@ -235,6 +235,32 @@ function steadyRoles(cs: Case, k: number): { circulators: number[]; frozen: numb
   return { circulators: all.filter((a) => moved.has(a)), frozen: all.filter((a) => !moved.has(a)) };
 }
 
+/** สภาพกระดานจริงหลังเข้าสภาวะคงตัว คืนว่าใครอยู่เป้าไหน และคนคนนั้นวนหรือนิ่ง
+ *  ต่างจาก steadyRoles() ที่บอกแค่ว่าใครวน ตัวนี้ต้องรู้ตำแหน่งเพื่อวาดภาพได้ */
+interface SteadySeat {
+  target: number;
+  rank: number;
+  moving: boolean;
+}
+function steadyBoard(cs: Case, k: number): SteadySeat[] {
+  const line = lineFor(cs, k);
+  let t: number[][] = [];
+  for (let i = 1; i <= cs.N; i++) t.push([line[2 * i - 2], line[2 * i - 1]]);
+  for (let q = 0; q < 2 * cs.N; q++) t = stepBoard(cs.N, t);
+  const roles = steadyRoles(cs, k);
+  const seats: SteadySeat[] = [];
+  t.forEach((pair, i) => {
+    for (const rank of [...pair].sort((a, b) => a - b)) {
+      seats.push({ target: i + 1, rank, moving: roles.circulators.indexOf(rank) !== -1 });
+    }
+  });
+  return seats;
+}
+const steady1 = steadyBoard(EX1, 1);
+/** ลำดับที่จอดถาวรที่เป้า 1 ต้องเป็นลำดับ 1 ตามข้ออ้างของหัวข้อนี้ */
+const parkedRank = Math.min(...steady1.filter((x) => x.target === 1).map((x) => x.rank));
+const steadyClaim = parkedRank === 1;
+
 const roles1 = steadyRoles(EX1, 1);
 const roles2 = steadyRoles(EX2, 3);
 /** ข้ออ้างที่ต้องตรวจ: คนที่หมุนคือลำดับ 2 ถึง N+1 พอดี ทั้งสองตัวอย่าง */
@@ -273,6 +299,32 @@ const timingFull = [
   { name: 'เราอ่อนที่สุด คนแข็งกองท้ายแถว', ms: 334 },
   { name: 'เราลำดับ 2 คนเก่งสุดอยู่ท้ายแถว', ms: 336 },
 ];
+
+/* ---------- พิกัดภาพสภาวะคงตัว ----------
+   เป้าเรียงซ้ายไปขวา ตรงกับกติกาที่ผู้ชนะไหลไปทางซ้าย
+   ที่เว้นล่าง 34 หน่วยคือที่ว่างให้ปุ่มขยายของ ZoomableDiagram */
+const STW = 104;
+const STGAP = 14;
+const stx = (i: number): number => 20 + (i - 1) * (STW + STGAP);
+const stcx = (i: number): number => stx(i) + STW / 2;
+const ST_TOP = 86;
+const ST_H = 82;
+const steadyVB = `0 0 ${stx(EX1.N) + STW + 12} 284`;
+/** ที่นั่งของเป้าหนึ่งเป้า เรียงลำดับน้อยไปมาก */
+const seatsAt = (i: number): SteadySeat[] => steady1.filter((x) => x.target === i);
+
+/* ---------- พิกัดภาพเป้าที่ไปจบของทุกจุดเริ่ม ---------- */
+const UKW = 62;
+const UKGAP = 10;
+const ukx = (i: number): number => 46 + i * (UKW + UKGAP);
+const UK_TOP = 56;
+const UK_ROW = 34;
+const ukVB = `0 0 ${ukx(EX1.N - 1) + UKW + 24} ${UK_TOP + 2 * UK_ROW + 121}`;
+/** จุดเริ่มที่ให้เป้าสุดท้ายดีที่สุด อาจมีหลายจุด โจทย์ให้ตอบจุดที่มากที่สุด */
+const ukTies = ans1.finals
+  .map((v, i) => ({ k: i + 1, v }))
+  .filter((x) => x.v === ans1.best)
+  .map((x) => x.k);
 
 /* ---------- สูตร ---------- */
 
@@ -647,7 +699,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
   </p>
 
   <ZoomableDiagram caption="กติกาการย้ายที่ ผู้ชนะไหลไปทางซ้ายทีละเป้า ผู้แพ้อยู่กับที่ ยกเว้นผู้แพ้ที่เป้า 1 ที่ถูกเหวี่ยงกลับไปท้ายแถว วงจรจึงปิดเป็นวงกลม (วาดประกอบโดยผู้เขียน)">
-    <svg viewBox="0 0 596 236" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเป้ายิงธนูสี่เป้าเรียงกัน มีลูกศรจากเป้าขวาชี้ไปเป้าซ้ายกำกับว่าผู้ชนะ และลูกศรโค้งใหญ่จากเป้าหนึ่งอ้อมกลับไปเป้าสุดท้ายกำกับว่าผู้แพ้ที่เป้า 1">
+    <svg viewBox="0 0 544 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเป้ายิงธนูสี่เป้าเรียงกัน มีลูกศรจากเป้าขวาชี้ไปเป้าซ้ายกำกับว่าผู้ชนะ และลูกศรโค้งใหญ่จากเป้าหนึ่งอ้อมกลับไปเป้าสุดท้ายกำกับว่าผู้แพ้ที่เป้า 1">
       <defs>
         <marker id="ar-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
@@ -810,7 +862,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
     </p>
 
     <ZoomableDiagram caption="ทุกเป้าส่งป้ายที่สูงกว่าออกไปทางซ้าย และเก็บป้ายที่ต่ำกว่าไว้ สนามทั้งสนามจึงเล่าได้ด้วยตัวเลข 0 ถึง 2 ต่อหนึ่งเป้า (วาดประกอบโดยผู้เขียน)">
-      <svg viewBox="0 0 438 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสามกรณีของการเจอกันที่หนึ่งเป้า หนึ่งเจอหนึ่ง หนึ่งเจอศูนย์ และศูนย์เจอศูนย์ แต่ละกรณีมีลูกศรชี้ออกทางซ้ายกำกับว่าคนที่ออกไป และป้ายกำกับว่าคนที่อยู่ต่อ">
+      <svg viewBox="0 0 434 216" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสามกรณีของการเจอกันที่หนึ่งเป้า หนึ่งเจอหนึ่ง หนึ่งเจอศูนย์ และศูนย์เจอศูนย์ แต่ละกรณีมีลูกศรชี้ออกทางซ้ายกำกับว่าคนที่ออกไป และป้ายกำกับว่าคนที่อยู่ต่อ">
         {[
           { pair: ['1', '1'], out: '1', stay: '1' },
           { pair: ['1', '0'], out: '1', stay: '0' },
@@ -1110,6 +1162,74 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       พอเข้าสภาวะคงตัว ลำดับ 1 จอดที่เป้า 1 ถาวร ลำดับ 2 ถึง N+1 กลายเป็นขบวนที่วนซ้ายรอบละหนึ่งช่อง
       ส่วนที่เหลือคือลำดับ N+2 ถึง 2N ค้างนิ่งอยู่เป้าละคน
     </p>
+    <ZoomableDiagram caption={`สภาพกระดานจริงของตัวอย่างที่ 1 หลังเดินไปจนพ้นช่วงตั้งตัว วาดจากการเดินกระดานจริง ${2 * EX1.N} รอบ ไม่ได้จัดวางด้วยมือ ช่องเขียวที่เป้า 1 คือลำดับ ${parkedRank} ซึ่งจอดถาวรเพราะที่เป้า 1 ผู้ชนะอยู่ต่อ ช่องทองคือขบวนที่วนไปทางซ้ายรอบละหนึ่งเป้า มี ${EX1.N} คนพอดี คือลำดับ ${roles1.circulators.join(', ')} ส่วนช่องเทาคือคนที่ค้างนิ่งเป้าละคน คือลำดับ ${roles1.frozen.filter((r) => r !== parkedRank).join(', ')} ผลตรวจอัตโนมัติว่าคนที่จอดที่เป้า 1 เป็นลำดับ 1 จริงคือ ${steadyClaim ? 'ตรง' : 'ไม่ตรง'} (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={steadyVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวเป้า ${EX1.N} เป้า แต่ละเป้ามีคนสองคน เป้า 1 มีลำดับ ${seatsAt(1).map((x) => x.rank).join(' กับ ')} โดยลำดับ ${parkedRank} จอดถาวร ${[2, 3, 4].map((i) => `เป้า ${i} มีลำดับ ${seatsAt(i).map((x) => x.rank).join(' กับ ')}`).join(' ')} ลูกศรด้านล่างแสดงขบวนที่วนไปทางซ้าย และวนกลับจากเป้า 1 ไปเป้า ${EX1.N}`}>
+        <text x={stx(1)} y="28" fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
+          เขียว จอดถาวร
+        </text>
+        <text x={stx(1) + 120} y="28" fill="#e0b400" font-size="12.5" text-anchor="start" font-weight="700">
+          ทอง ขบวนที่วนไม่หยุด
+        </text>
+        <text x={stx(1) + 300} y="28" fill="#8f9ab2" font-size="12.5" text-anchor="start" font-weight="700">
+          เทา ค้างนิ่ง
+        </text>
+        <text x={stx(1)} y="48" fill="#98a3ba" font-size="11" text-anchor="start">
+          ผู้ชนะไหลไปทางซ้าย ยกเว้นที่เป้า 1 ที่ผู้ชนะอยู่ต่อ
+        </text>
+
+        {Array.from({ length: EX1.N }, (_, i) => i + 1).map((i) => (
+          <>
+            <rect x={stx(i)} y={ST_TOP} width={STW} height={ST_H} rx="9" fill="#0f1626" stroke="#2a3350" stroke-width="1.6" />
+            <text x={stcx(i)} y={ST_TOP - 8} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">
+              เป้า {i}
+            </text>
+            {seatsAt(i).map((seat, si) => {
+              const parked = seat.rank === parkedRank && i === 1;
+              const ink = parked ? '#4ade80' : seat.moving ? '#e0b400' : '#8f9ab2';
+              const bg = parked ? '#12291c' : seat.moving ? '#2e2510' : '#161d2e';
+              return (
+                <>
+                  <rect x={stx(i) + 12} y={ST_TOP + 10 + si * 34} width={STW - 24} height="28" rx="6" fill={bg} stroke={ink} stroke-width="1.8" />
+                  <text x={stcx(i)} y={ST_TOP + 29 + si * 34} fill={ink} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">
+                    ลำดับ {seat.rank}
+                  </text>
+                </>
+              );
+            })}
+          </>
+        ))}
+
+        {Array.from({ length: EX1.N - 1 }, (_, i) => i + 2).map((i) => (
+          <>
+            <path
+              d={`M${stcx(i)} ${ST_TOP + ST_H + 10} L${stcx(i)} ${ST_TOP + ST_H + 26} L${stcx(i - 1)} ${ST_TOP + ST_H + 26} L${stcx(i - 1)} ${ST_TOP + ST_H + 14}`}
+              fill="none"
+              stroke="#e0b400"
+              stroke-width="1.8"
+            />
+            <polygon
+              points={`${stcx(i - 1) - 4.5},${ST_TOP + ST_H + 22} ${stcx(i - 1) + 4.5},${ST_TOP + ST_H + 22} ${stcx(i - 1)},${ST_TOP + ST_H + 12}`}
+              fill="#e0b400"
+            />
+          </>
+        ))}
+        <path
+          d={`M${stcx(1)} ${ST_TOP + ST_H + 40} L${stcx(1)} ${ST_TOP + ST_H + 62} L${stcx(EX1.N)} ${ST_TOP + ST_H + 62} L${stcx(EX1.N)} ${ST_TOP + ST_H + 44}`}
+          fill="none"
+          stroke="#e0b400"
+          stroke-width="1.6"
+          stroke-dasharray="6 5"
+        />
+        <polygon
+          points={`${stcx(EX1.N) - 4.5},${ST_TOP + ST_H + 52} ${stcx(EX1.N) + 4.5},${ST_TOP + ST_H + 52} ${stcx(EX1.N)},${ST_TOP + ST_H + 42}`}
+          fill="#e0b400"
+        />
+        <text x={stcx(1) + 14} y={ST_TOP + ST_H + 78} fill="#e0b400" font-size="11" text-anchor="start">
+          ผู้แพ้ที่เป้า 1 ถูกเหวี่ยงไปท้ายแถว ขบวนจึงวนครบรอบ
+        </text>
+      </svg>
+    </ZoomableDiagram>
+
     <figure class="tbl">
       <table class="rec">
         <caption>ตรวจข้ออ้างกับตัวอย่างทั้งสองชุด</caption>
@@ -1300,6 +1420,63 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       <code>u(k)</code> แค่ราว <code>log N</code> ครั้ง ครั้งละ <code>O(N)</code>
     </p>
   </Spoiler>
+
+  <ZoomableDiagram caption={`ตัวอย่างที่ 1 เป้าที่ไปจบของทุกจุดยืนเริ่มต้น คำนวณด้วยการจำลองคนจริงทุกจุด ไม่ได้พิมพ์มือ แถวบนคือจุดเริ่ม แถวล่างคือเป้าที่ไปจบ ค่าที่ดีที่สุดคือเป้า ${ans1.best} ซึ่งได้จากจุดเริ่ม ${ukTies.join(' และ ')} เมื่อมีหลายจุดให้ผลเท่ากัน โจทย์ให้ตอบจุดที่มากที่สุด จึงตอบ ${ans1.start} สังเกตว่าแถวล่างไม่ได้เรียงจากน้อยไปมาก จึงค้นหาแบบทวิภาคบนค่านี้ตรง ๆ ไม่ได้ (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={ukVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางสองแถว แถวบนคือจุดยืนเริ่มต้น 1 ถึง ${EX1.N} แถวล่างคือเป้าที่ไปจบซึ่งได้ ${ans1.finals.join(' ')} ตามลำดับ ค่าที่ดีที่สุดคือ ${ans1.best} และคำตอบที่โจทย์ต้องการคือจุดเริ่ม ${ans1.start}`}>
+      <text x={ukx(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">
+        ลองยืนทุกเป้า แล้วดูว่าจบที่ไหน
+      </text>
+      <text x={ukx(0) - 12} y={UK_TOP + 20} fill="#cdd6ea" font-size="11.5" text-anchor="end" font-family="monospace">
+        เริ่ม
+      </text>
+      <text x={ukx(0) - 12} y={UK_TOP + UK_ROW + 20} fill="#cdd6ea" font-size="11.5" text-anchor="end" font-family="monospace">
+        จบ
+      </text>
+      {ans1.finals.map((fin, idx) => {
+        const k = idx + 1;
+        const isBest = fin === ans1.best;
+        const isAns = k === ans1.start;
+        return (
+          <>
+            <rect x={ukx(idx)} y={UK_TOP} width={UKW} height="28" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4" />
+            <text x={ukx(idx) + UKW / 2} y={UK_TOP + 19} fill="#cdd6ea" font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">
+              {k}
+            </text>
+            <rect
+              x={ukx(idx)}
+              y={UK_TOP + UK_ROW}
+              width={UKW}
+              height="28"
+              rx="6"
+              fill={isAns ? '#12291c' : isBest ? '#2e2510' : '#161d2e'}
+              stroke={isAns ? '#4ade80' : isBest ? '#e0b400' : '#2a3350'}
+              stroke-width={isBest ? '2' : '1.4'}
+            />
+            <text
+              x={ukx(idx) + UKW / 2}
+              y={UK_TOP + UK_ROW + 19}
+              fill={isAns ? '#d7ffe4' : isBest ? '#ffe58a' : '#8f9ab2'}
+              font-size="13"
+              text-anchor="middle"
+              font-weight="700"
+              font-family="monospace"
+            >
+              {fin}
+            </text>
+          </>
+        );
+      })}
+      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 34} fill="#e0b400" font-size="11.5" text-anchor="start">
+        ทองคือจุดที่จบถึงเป้า {ans1.best} ซึ่งเป็นค่าที่ดีที่สุด มี {ukTies.length} จุด
+      </text>
+      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 58} fill="#4ade80" font-size="11.5" text-anchor="start">
+        เขียวคือคำตอบ เพราะเสมอกันแล้วโจทย์ให้เอาจุดเริ่มที่มากที่สุด
+      </text>
+      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 82} fill="#98a3ba" font-size="11.5" text-anchor="start">
+        แถวล่างขึ้นแล้วลง จึงห้ามค้นหาแบบทวิภาคบนค่านี้
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>โค้ดเต็มขอบเขต</h2>
   <Spoiler>
