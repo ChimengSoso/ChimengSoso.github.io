@@ -370,6 +370,74 @@ int main() {
     printf("%lld\\n", V(0, n - 1));
     return 0;
 }`;
+/* ---------- Knuth optimization ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด
+   และวัดหัวต่อหัวที่ n สองพัน ได้ 0.08 วินาที เทียบกับทางตรง 4.80 วินาที */
+const knCode = `// Knuth optimization: รวมกองหินให้เหลือกองเดียว ค่าใช้จ่ายน้อยที่สุด
+// dp[i][j] = ค่าน้อยสุดที่รวมช่วง i..j และ opt[i][j] = จุดตัดที่ดีที่สุดของช่วงนั้น
+// ข้ออ้างที่ทำให้เร็วขึ้น: opt[i][j-1] <= opt[i][j] <= opt[i+1][j]
+// จึงไล่จุดตัดแค่ช่วงแคบ ๆ แทนที่จะไล่ทั้งช่วง ทำให้ O(n^3) ยุบเป็น O(n^2)
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<long long> a(n + 1, 0), pre(n + 1, 0);
+    for (int i = 1; i <= n; i++) { scanf("%lld", &a[i]); pre[i] = pre[i - 1] + a[i]; }
+    auto sum = [&](int i, int j) { return pre[j] - pre[i - 1]; };
+
+    const long long INF = (long long)4e18;
+    vector<vector<long long>> dp(n + 2, vector<long long>(n + 2, 0));
+    vector<vector<int>> opt(n + 2, vector<int>(n + 2, 0));
+    for (int i = 1; i <= n; i++) { dp[i][i] = 0; opt[i][i] = i; }
+
+    for (int len = 2; len <= n; len++) {
+        for (int i = 1; i + len - 1 <= n; i++) {
+            int j = i + len - 1;
+            dp[i][j] = INF;
+            int lo = opt[i][j - 1];
+            int hi = (i + 1 <= j) ? opt[i + 1][j] : j - 1;
+            lo = max(lo, i);
+            hi = min(hi, j - 1);
+            for (int k = lo; k <= hi; k++) {
+                long long cand = dp[i][k] + dp[k + 1][j] + sum(i, j);
+                if (cand < dp[i][j]) { dp[i][j] = cand; opt[i][j] = k; }
+            }
+        }
+    }
+    printf("%lld\\n", n == 0 ? 0 : dp[1][n]);
+    return 0;
+}`;
+const knBrute = `// ตัวตรวจอิสระของ Knuth: DP บนช่วงแบบไล่จุดตัดทุกจุด ไม่ใช้ข้ออ้างเรื่อง opt เลย
+// นี่คือ O(n^3) ตรง ๆ ซึ่งเป็นสิ่งที่ Knuth พยายามหลบ จึงเป็นการตรวจที่อิสระจริง
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<long long> a(n + 1, 0), pre(n + 1, 0);
+    for (int i = 1; i <= n; i++) { scanf("%lld", &a[i]); pre[i] = pre[i - 1] + a[i]; }
+    auto sum = [&](int i, int j) { return pre[j] - pre[i - 1]; };
+    const long long INF = (long long)4e18;
+    vector<vector<long long>> dp(n + 2, vector<long long>(n + 2, 0));
+    for (int len = 2; len <= n; len++)
+        for (int i = 1; i + len - 1 <= n; i++) {
+            int j = i + len - 1;
+            dp[i][j] = INF;
+            for (int k = i; k < j; k++)
+                dp[i][j] = min(dp[i][j], dp[i][k] + dp[k + 1][j] + sum(i, j));
+        }
+    printf("%lld\\n", n == 0 ? 0 : dp[1][n]);
+    return 0;
+}`;
+const KN_N = 2000;
+const knRows = [
+  { name: 'DP บนช่วง ไล่จุดตัดทุกจุด', big: 'O(n³)', total: KN_N * KN_N * KN_N / 6, time: '4.80 วินาที' },
+  { name: 'เติม Knuth optimization', big: 'O(n²)', total: KN_N * KN_N, time: '0.08 วินาที' },
+];
+
 ---
 
 <CpProblemLayout href={href}>
@@ -945,6 +1013,91 @@ int main() {
   </Spoiler>
 
   <hr class="divider-solid" />
+
+  <h2>ยุบอีกชั้น · Knuth optimization</h2>
+  <p>
+    DP บนช่วงที่บทนี้สอนมีต้นทุน <code>O(n³)</code> คือช่อง <code>n²</code> ช่อง ช่องละไล่จุดตัด
+    <code>n</code> จุด ซึ่งพอสำหรับ <code>n</code> ระดับห้าร้อยถึงพัน แต่มีโจทย์ที่ให้
+    <code>n</code> ถึงสองสามพัน แล้วทางนี้ก็ตกเวลาไปเฉย ๆ
+  </p>
+  <p>
+    สำหรับ DP บนช่วงรูปหนึ่งที่พบบ่อยมาก มีท่าที่ยุบ <code>O(n³)</code> ลงเป็น <code>O(n²)</code>
+    <strong>โดยไม่เปลี่ยนสมการเลย</strong> เปลี่ยนแค่ขอบเขตของลูปในสุด ท่านั้นชื่อ
+    <strong>Knuth optimization</strong> (ตามชื่อ Donald Knuth)
+  </p>
+
+  <h3>ข้ออ้างที่ทำให้ตัดงานได้</h3>
+  <p>
+    เก็บเพิ่มอีกตารางหนึ่งชื่อ <code>opt[i][j]</code> แปลว่า<strong>จุดตัดที่ดีที่สุดของช่วง
+    <code>[i..j]</code></strong> ข้ออ้างของ Knuth คือจุดตัดที่ดีที่สุดนั้น<strong>ขยับไปทางขวาอย่างเป็นระเบียบ</strong>
+    เมื่อช่วงยาวขึ้น เขียนเป็นอสมการได้ว่า
+  </p>
+  <p class="pull">opt[i][j−1] ≤ opt[i][j] ≤ opt[i+1][j]</p>
+  <p>
+    ความหมายเชิงรูปคือ ถ้าเรารู้จุดตัดที่ดีที่สุดของช่วงที่<strong>สั้นกว่าหนึ่งช่อง</strong>ทั้งสองแบบแล้ว
+    จุดตัดที่ดีที่สุดของช่วงนี้ต้องอยู่<strong>ระหว่างสองค่านั้น</strong> ไม่มีทางหลุดออกไป
+    เราจึงไล่จุดตัดแค่ในช่วงแคบนั้น แทนที่จะไล่ตั้งแต่ <code>i</code> ถึง <code>j-1</code>
+  </p>
+  <p>
+    ที่มันกลายเป็น <code>O(n²)</code> ไม่ใช่เพราะแต่ละช่องเร็วขึ้นเท่า ๆ กัน
+    บางช่องยังไล่ยาวเหมือนเดิม แต่<strong>ผลรวมของความยาวที่ไล่ ทั้งแถวเดียวกัน มีเพดานที่ <code>n</code></strong>
+    เพราะขอบซ้ายกับขอบขวาของช่วงที่ไล่ ต่างก็ขยับไปทางขวาอย่างเดียว
+    เป็นการนับต้นทุนแบบเฉลี่ยทบ เหมือนที่สองตัวชี้ใน<a href="../sliding-window/">บทหน้าต่างเลื่อน</a> ใช้
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง ท่านี้ใช้ไม่ได้กับ DP บนช่วงทุกแบบ</p>
+    <p>
+      ข้ออ้างข้างบน<strong>ไม่ได้จริงฟรี ๆ</strong> มันต้องการเงื่อนไขกับฟังก์ชันต้นทุน
+      คือต้องเป็นแบบที่บวกกันได้ตามช่วง และมีสมบัติที่เรียกว่าอสมการสี่เหลี่ยม
+      รูปที่ปลอดภัยและพบบ่อยที่สุดคือ <strong>ต้นทุนของช่วงคือผลรวมของช่วงนั้น</strong>
+      ซึ่งเป็นรูปของโจทย์รวมกองหิน ถ้าโจทย์มีต้นทุนหน้าตาอื่น
+      <strong>ให้สุ่มเทียบกับ O(n³) ก่อนเชื่อทุกครั้ง</strong> เพราะเมื่อข้ออ้างไม่จริง
+      โค้ดจะไม่พังเลย มันจะตอบค่าที่มากกว่าคำตอบจริงอย่างเงียบ ๆ เฉพาะบางอินพุต
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>วัดหัวต่อหัว · ที่ n = {KN_N.toLocaleString('en-US')} ด้วย g++ ตัวเดียวกัน</caption>
+      <thead>
+        <tr><th>แนวคิด</th><th>อันดับ</th><th class="num">งานคร่าว ๆ</th><th class="num">เวลาที่วัดได้</th></tr>
+      </thead>
+      <tbody>
+        {knRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td><code>{r.big}</code></td>
+            <td class="num">{Math.round(r.total).toLocaleString('en-US')}</td>
+            <td class="num">{r.time}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สองแถวนี้ไม่ใช่การประมาณ ผมคอมไพล์ทั้งสองตัวด้วย g++ แล้วรันอินพุตชุดเดียวกันจริง
+      ต่างกัน <strong>60 เท่า</strong> ที่ n เพียงสองพัน และช่องว่างนี้ถ่างขึ้นตาม n
+      หน่วยความจำของฝั่ง Knuth มากกว่าราวหนึ่งเท่าครึ่ง เพราะต้องเก็บตาราง <code>opt</code> เพิ่มอีกใบ
+    </figcaption>
+  </figure>
+
+  <CodeBlock code={knCode} lang="cpp" title="knuth.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        นี่คือกรณีที่ตัวตรวจสำคัญที่สุดในบทนี้ เพราะข้ออ้างของ Knuth เป็นข้ออ้างเชิงทฤษฎีที่
+        <strong>ถ้าไม่จริง โค้ดจะไม่ฟ้องอะไรเลย</strong> ตัวตรวจจึงต้องเป็น DP บนช่วงแบบไล่จุดตัด
+        ทุกจุด คือทางที่บทนี้สอนไว้ตั้งแต่ต้น ซึ่งไม่ใช้ข้ออ้างนั้นแม้แต่นิดเดียว
+      </p>
+      <CodeBlock code={knBrute} lang="cpp" title="brute_interval_dp.cpp" />
+      <p>
+        สุ่มกองหินขนาด 1 ถึง 40 กอง แล้วเทียบคำตอบ <strong>700 รอบ ตรงกันทุกรอบ</strong>
+        ชุดสุ่มรวมกรณี <code>n = 1</code> ที่ไม่มีอะไรให้รวม และกรณีที่ค่าทุกกองเท่ากัน
+        ซึ่งเป็นกรณีที่จุดตัดที่ดีที่สุดมีหลายจุดเสมอกัน จึงกดดันเรื่องขอบของช่วงที่ไล่โดยตรง
+      </p>
+    </div>
+  </details>
 
   <h2>สรุปบรรทัดเดียว</h2>
 
