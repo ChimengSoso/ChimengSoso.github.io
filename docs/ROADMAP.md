@@ -76,7 +76,7 @@ Plan written 2026-07-09. Each item is self-contained: an agent should be able to
 
 **When to actually start:** none of this is warranted at the current ~9 articles. Revisit item 1 (pagination) around low-hundreds; the rest as each threshold above is reached.
 
-## 8. [ ] Retrofit the no-em-dash rule onto the older published prose
+## 8. [x] Retrofit the no-em-dash rule onto the older published prose `5a2a59c`
 
 **Why:** `CLAUDE.md` states the zero-em-dash rule as a hard rule for all published prose (`/knowledge/*`, `/divine-lore/*`, `/cp/*`, plus `articles.ts`/`divineLore.ts`/`cp.ts`), and commit `6096395` already stripped every em-dash from the ICPC editorial. The rule was adopted after most `/knowledge/` articles were written, so those were never retrofitted. Every new page since then complies, which means the site's voice is currently split: recent pages read as the owner, older ones still carry the loudest AI tell in the guide. **1,152 em-dashes remain in 16 files** (counted 2026-09-07, after `eb5226f` cleared `divine-lore/index.astro` and `divineLore.ts`):
 
