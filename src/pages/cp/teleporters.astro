@@ -2,6 +2,7 @@
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 
 const href = 'teleporters/';
 
@@ -78,6 +79,80 @@ const EX2: Pair[] = [
 const EX2M = 3;
 const a2 = analyse(EX2);
 const ans2 = best(a2.base, a2.cycles, EX2M);
+
+/* ---------- โครงของกราฟฟังก์ชัน ใช้วาดภาพข้างล่าง ----------
+   คืนทั้งเส้นทางหลักและวงที่เหลือเป็นรายชื่อช่วงจริง ไม่ใช่แค่ขนาด
+   ภาพจึงวาดจากลูกศรชุดเดียวกับที่ analyse() เดิน ไม่มีเลขไหนพิมพ์มือ */
+interface TpShape {
+  intervals: number;
+  path: number[];
+  loops: number[][];
+}
+function shape(ps: Pair[]): TpShape {
+  const pts = ps.flat().sort((a, b) => a - b);
+  const idx = new Map<number, number>();
+  pts.forEach((p, i) => idx.set(p, i + 1));
+  const partner = new Map<number, number>();
+  for (const [a, b] of ps) {
+    partner.set(a, b);
+    partner.set(b, a);
+  }
+  const P2 = pts.length;
+  const nxt: number[] = new Array<number>(P2).fill(-1);
+  for (let j = 0; j < P2; j++) nxt[j] = idx.get(partner.get(pts[j]) as number) as number;
+
+  const seen = new Array<boolean>(P2 + 1).fill(false);
+  const path: number[] = [];
+  let cur = 0;
+  while (cur !== P2) {
+    seen[cur] = true;
+    path.push(cur);
+    cur = nxt[cur];
+  }
+  seen[P2] = true;
+  path.push(P2);
+  const loops: number[][] = [];
+  for (let j = 0; j < P2; j++)
+    if (!seen[j]) {
+      const one: number[] = [];
+      let u = j;
+      while (!seen[u]) {
+        seen[u] = true;
+        one.push(u);
+        u = nxt[u];
+      }
+      loops.push(one);
+    }
+  return { intervals: P2 + 1, path, loops };
+}
+const sh1 = shape(EX1);
+
+/* พิกัดของภาพ กว้างเท่าเนื้อภาพพอดี บวกที่ว่างให้ปุ่มขยายที่มุมล่างขวา */
+const IW = 66;
+const IGAP = 10;
+const ix = (i: number): number => 18 + i * (IW + IGAP);
+const icx = (i: number): number => ix(i) + IW / 2;
+const shVB = `0 0 ${ix(sh1.intervals - 1) + IW + 12} 214`;
+/** โค้งเชื่อมช่วงสองช่วง ขึ้นด้านบนเมื่ออยู่บนเส้นทางหลัก ลงด้านล่างเมื่อเป็นวง */
+const arc = (a: number, b: number, up: boolean): string => {
+  const x1 = icx(a);
+  const x2 = icx(b);
+  const y = up ? 70 : 114;
+  const lift = up ? y - Math.min(36, 14 + Math.abs(x2 - x1) / 7) : y + Math.min(36, 14 + Math.abs(x2 - x1) / 7);
+  return `M${x1} ${y} C ${x1} ${lift}, ${x2} ${lift}, ${x2} ${y}`;
+};
+/** ห่วงของช่วงที่ชี้กลับตัวเอง ต้องมีความกว้าง ไม่งั้นเส้นโค้งยุบเป็นขีดตรง */
+const selfArc = (i: number): string => {
+  const c = icx(i);
+  return `M${c - 13} 114 C ${c - 20} 152, ${c + 20} 152, ${c + 13} 114`;
+};
+/** หัวลูกศรวาดเป็นสามเหลี่ยม ไม่ใช้ marker เพื่อให้ก็อปไปวางในกล่องขยายได้ครบ */
+const head = (x: number, up: boolean): string => {
+  const y = up ? 70 : 114;
+  const d = up ? 8 : -8;
+  return `${x - 4.5},${y - d} ${x + 4.5},${y - d} ${x},${y}`;
+};
+const inPath = (i: number): boolean => sh1.path.indexOf(i) !== -1;
 
 /* ---------- มินิเกม แจกเครื่องเคลื่อนย้าย M ตัวให้ได้แต้มมากที่สุด ----------
    แต้มของทุกการกระทำมาจากฟังก์ชันเดียวกับที่บทความใช้ และแต้มที่ดีที่สุดของแต่ละชุด
@@ -383,7 +458,8 @@ ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื
         และคำตอบขึ้นกับว่าเรามาจากไหนไหม</strong> พอคิดสักพักก็เห็นว่าไม่ขึ้นเลย มันขึ้นกับจุดปลายที่เราไปเหยียบอย่างเดียว
       </p>
       <p>
-        พอปลายทางถูกกำหนดไว้แน่นอนแล้ว สิ่งที่เรามีอยู่ในมือคือฟังก์ชันจากช่วงไปช่วง และเพราะการจับคู่จุดปลาย
+        พอปลายทางถูกกำหนดไว้แน่นอนแล้ว สิ่งที่เรามีอยู่ในมือคือฟังก์ชันจากช่วงไปช่วง ซึ่งกราฟที่ทุกปม
+        มีลูกศรออกเส้นเดียวแบบนี้เรียกว่า<strong>กราฟฟังก์ชัน</strong> (functional graph) และเพราะการจับคู่จุดปลาย
         เป็นแบบหนึ่งต่อหนึ่ง ฟังก์ชันนั้นจึงเป็นการสลับที่ ซึ่งมีรูปร่างที่รู้กันอยู่แล้วว่าต้องเป็น
         <strong>เส้นทางกับวงปิด</strong> ไม่มีอย่างอื่น ที่เหลือคือนับ
       </p>
@@ -406,6 +482,60 @@ ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื
       คะแนนก่อนเพิ่มเครื่องคือ<strong>จำนวนช่วงบนเส้นทางหลัก ลบหนึ่ง</strong> ส่วนวงปิดที่เหลือคือช่วงที่เราไม่มีวันไปถึง
       เพราะไม่มีลูกศรจากเส้นทางหลักชี้เข้าไปเลย
     </p>
+
+    <div class="callout callout-note">
+      <p class="callout-label">ปูพื้นไว้ให้แล้ว</p>
+      <p>
+        กราฟฟังก์ชันคือกราฟที่ทุกปมมีลูกศรออก<strong>เส้นเดียว</strong> ห้ามมากกว่านั้นและห้ามไม่มี
+        ข้อจำกัดข้อเดียวนี้บังคับรูปร่างของมันไว้หมด คือทุกส่วนต้องเป็น<strong>วงปิดหนึ่งวง ที่มีต้นไม้ห้อยเข้าหาวง</strong>
+        เท่านั้น ในข้อนี้ลูกศรยังเป็นการจับคู่หนึ่งต่อหนึ่งอีกชั้น รูปจึงยุบลงเหลือเส้นทางกับวงล้วน ๆ ไม่มีต้นไม้ห้อย
+      </p>
+      <p>
+        ถ้าอ่านเรื่องนี้ครั้งแรก มี<a href="../functional-graph/">บทปูพื้นเรื่องกราฟฟังก์ชัน</a>อยู่ในคลังนี้แล้ว
+        มันสอนสองท่าที่ใช้ซ้ำได้ทุกข้อ คือปอกใบทิ้งเพื่อหาว่าใครอยู่บนวง และเดิน <code>k</code> ก้าวโดยไม่เดินจริง
+      </p>
+    </div>
+
+    <ZoomableDiagram caption={`ตัวอย่างที่ 1 วาดจากลูกศรจริง จุดปลาย ${EX1.length * 2} จุดตัดเส้นออกเป็น ${sh1.intervals} ช่วง ลูกศรเขียวด้านบนคือเส้นทางหลักที่เดินได้จริงจาก I0 ถึง I${sh1.intervals - 1} ผ่าน ${sh1.path.length} ช่วง จึงได้ ${a1.base} คะแนน ส่วนลูกศรทองด้านล่างคือวงที่ลอยอยู่ ${sh1.loops.length} วง รวม ${sh1.loops.reduce((t, l) => t + l.length, 0)} ช่วง ที่ไม่มีลูกศรจากเส้นทางหลักชี้เข้าไปเลย (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={shVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวช่วง ${sh1.intervals} ช่อง เรียงจาก I0 ถึง I${sh1.intervals - 1} ช่วงบนเส้นทางหลักคือ ${sh1.path.map((i) => 'I' + i).join(' ไป ')} มีลูกศรโค้งด้านบนเชื่อมต่อกันตามลำดับ ส่วนช่วงที่เหลือรวมกันเป็นวงปิด ${sh1.loops.map((l) => l.map((i) => 'I' + i).join(' กับ ')).join(' และอีกวงคือ ')} มีลูกศรโค้งด้านล่างวนกลับเข้าหาตัวเอง`}>
+        <text x={icx(sh1.path[0])} y="26" fill="#4ade80" font-size="12" text-anchor="start" font-weight="700">เส้นทางหลัก เดินได้จริง</text>
+        {sh1.path.slice(0, -1).map((from, k) => (
+          <>
+            <path d={arc(from, sh1.path[k + 1], true)} fill="none" stroke="#4ade80" stroke-width="1.8" />
+            <polygon points={head(icx(sh1.path[k + 1]), true)} fill="#4ade80" />
+          </>
+        ))}
+        {Array.from({ length: sh1.intervals }, (_, i) => i).map((i) => (
+          <>
+            <rect
+              x={ix(i)}
+              y="70"
+              width={IW}
+              height="44"
+              rx="7"
+              fill={inPath(i) ? '#12291c' : '#2e2510'}
+              stroke={inPath(i) ? '#4ade80' : '#e0b400'}
+              stroke-width="1.8"
+            />
+            <text x={icx(i)} y="98" fill={inPath(i) ? '#d7ffe4' : '#ffe58a'} font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">I{i}</text>
+          </>
+        ))}
+        {sh1.loops.map((loop) => (loop.length === 1 ? (
+          <>
+            <path d={selfArc(loop[0])} fill="none" stroke="#e0b400" stroke-width="1.8" />
+            <polygon points={head(icx(loop[0]) + 13, false)} fill="#e0b400" />
+          </>
+        ) : (
+          loop.map((from, k) => (
+            <>
+              <path d={arc(from, loop[(k + 1) % loop.length], false)} fill="none" stroke="#e0b400" stroke-width="1.8" />
+              <polygon points={head(icx(loop[(k + 1) % loop.length]), false)} fill="#e0b400" />
+            </>
+          ))
+        )))}
+        <text x={icx(0)} y="196" fill="#e0b400" font-size="12" text-anchor="start" font-weight="700">วงที่ลอยอยู่ ไปไม่ถึง</text>
+      </svg>
+    </ZoomableDiagram>
 
     <figure class="tbl">
       <table class="rec">
@@ -455,6 +585,27 @@ ans += (r / 2) * 4 + (r % 2) * 1;        // ต้องเสียเครื
       <p>
         สรุปคือสองเครื่องได้ 4 คะแนน แต่เครื่องเดี่ยว ๆ ที่เหลือค้างได้แค่ 1 คะแนน
         ตรงนี้คือจุดที่โค้ดผมพลาดรอบแรก แล้วตัวตรวจสอบจับได้
+      </p>
+    </div>
+    <p>
+      พอค่าตอบแทนมาเป็นคู่แบบนี้ สิ่งเดียวที่ต้องรู้เกี่ยวกับเครื่องที่เหลือคือมัน<strong>เป็นจำนวนคู่หรือคี่</strong>
+      ซึ่งการมองปัญหาด้วยคำถามคู่หรือคี่แบบนี้เรียกว่าการดู<strong>คู่คี่</strong> (parity) เหลือเป็นคู่ก็จับคู่กันได้หมด
+      ได้เครื่องละ 2 คะแนนถ้วน เหลือเศษหนึ่งเครื่องก็หาคู่ไม่ได้ ต้องยอมรับ 1 คะแนน
+      บรรทัด <code>(r / 2) * 4 + (r % 2) * 1</code> ในโค้ดคือประโยคนี้เขียนเป็นเลขตรง ๆ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ทบทวนพื้นฐาน · คู่คี่</p>
+      <p>
+        <strong>คู่คี่</strong> (parity) คือการสนใจแค่ว่าจำนวนหนึ่ง<strong>หารสองลงตัวหรือไม่</strong> โดยทิ้งค่าจริงไปเลย
+        ฟังดูหยาบ แต่มันมีคุณสมบัติที่ใช้งานได้จริงคือ ทุกครั้งที่เราทำอะไรที่<strong>เปลี่ยนจำนวนไปทีละสอง</strong>
+        คู่คี่จะไม่เปลี่ยน สิ่งที่ไม่เปลี่ยนแม้เราจะทำอะไรกับมันตั้งเท่าไร เรียกว่า<strong>ค่าไม่แปรผัน</strong> (invariant)
+        และมันตอบคำถามประเภท "ทำแบบนี้ไปเรื่อย ๆ จะไปถึงสภาพนั้นได้ไหม" ได้โดยไม่ต้องลองเลย
+      </p>
+      <p>
+        ในข้อนี้คู่คี่ตอบเรื่องเล็ก คือเครื่องที่เหลือจับคู่ได้ครบไหม แต่ท่าเดียวกันตัดสินเรื่องใหญ่ได้ด้วย
+        เช่นใน<a href="../fifteen-puzzle/">ปริศนาสิบห้าช่อง</a> คู่คี่ของการสลับที่บอกได้ว่ากระดานที่ได้มา
+        แก้ได้หรือแก้ไม่ได้เลย และใน<a href="../training-route/">โจทย์ตัดถนน</a> คู่คี่ของความยาวเส้นทาง
+        คือเงื่อนไขทั้งข้อ เจอโจทย์ที่ถามว่า "เป็นไปได้ไหม" ให้ลองถามหาคู่คี่ก่อนเสมอ
       </p>
     </div>
     <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
