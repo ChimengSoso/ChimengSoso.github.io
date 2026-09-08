@@ -1,0 +1,162 @@
+---
+/* เปลือกของเครื่องเดินทีละขั้นในหมวด /cp/
+ *
+ * รับกระดานเข้ามาทาง slot แล้วห่อด้วยแถบควบคุมกับแผงคำอธิบายที่หน้าตาเหมือนกันทุกหน้า
+ * ตัวคุมพฤติกรรมอยู่ที่ src/lib/cpPlayer.ts ส่วนหน้าที่เรียกใช้เพียงส่งสเต็ปกับวิธีวาดเข้ามา
+ *
+ * หมายเหตุเรื่องสโคปของ CSS: สไตล์ในไฟล์นี้จับได้แค่ธาตุที่ไฟล์นี้เขียนเอง
+ * คือแถบปุ่ม กล่องเลื่อน และแผงคำอธิบาย ส่วนกระดานที่มาจาก slot ยังถือ cid ของหน้าที่เรียก
+ * จึงต้องให้หน้านั้นสไตล์กระดานของตัวเองเหมือนเดิม ซึ่งถูกต้องแล้วเพราะกระดานเป็นของเฉพาะหน้า
+ */
+interface Props {
+  /** ชื่อ data attribute ที่หน้าใช้หากล่องนี้ เช่น sailsim จะได้ data-sailsim */
+  hook: string;
+  /** สเต็ปทั้งหมด สร้างตอนบิลด์แล้วฝังมาเป็น JSON */
+  steps: unknown[];
+  /** ป้ายบอกว่ากระดานนี้กำลังเดินอะไร โชว์ซ้ายมือของแถบปุ่ม */
+  label?: string;
+}
+const { hook, steps, label } = Astro.props;
+---
+
+<div class="dpsim" data-steps={JSON.stringify(steps)} {...{ [`data-${hook}`]: true }} tabindex="0">
+  <div class="dps-bar">
+    <div class="dps-btns">
+      <button type="button" class="dps-b" data-act="first" aria-label="กลับไปขั้นแรก">เริ่มใหม่</button>
+      <button type="button" class="dps-b" data-act="prev" aria-label="ขั้นก่อนหน้า">ย้อน</button>
+      <button type="button" class="dps-b dps-play" data-act="play" aria-label="เล่นอัตโนมัติ">เล่น</button>
+      <button type="button" class="dps-b" data-act="next" aria-label="ขั้นถัดไป">ถัดไป</button>
+      <button type="button" class="dps-b" data-act="last" aria-label="ข้ามไปขั้นสุดท้าย">ข้ามไปจบ</button>
+    </div>
+    <label class="dps-seek">
+      <span class="dps-count">ขั้น 0</span>
+      <input type="range" class="dps-range" min="0" value="0" step="1" aria-label="เลื่อนไปขั้นที่ต้องการ" />
+    </label>
+  </div>
+
+  {label && <p class="dps-label">{label}</p>}
+
+  <div class="dps-scroll">
+    <slot />
+  </div>
+
+  <div class="dps-say" aria-live="polite"></div>
+</div>
+
+<style>
+  .dpsim {
+    border: 1px solid var(--dl-border);
+    border-radius: 10px;
+    background: #0b1220;
+    overflow: hidden;
+    margin: 1.4rem auto;
+  }
+  .dpsim:focus-visible {
+    outline: 2px solid var(--dl-emerald);
+    outline-offset: 2px;
+  }
+  .dps-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    background: #070c17;
+    border-bottom: 1px solid var(--dl-border);
+  }
+  .dps-btns {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+  .dps-b {
+    font: inherit;
+    font-size: 0.74rem;
+    cursor: pointer;
+    border-radius: 999px;
+    padding: 0.28rem 0.75rem;
+    border: 1px solid var(--dl-border);
+    background: #141b2b;
+    color: var(--dl-muted);
+    transition:
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .dps-b:hover:not(:disabled) {
+    border-color: var(--dl-emerald);
+    color: #fff;
+  }
+  .dps-b:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .dps-play {
+    border-color: var(--dl-emerald);
+    color: var(--dl-emerald-bright);
+  }
+  .dps-seek {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 12rem;
+    min-width: 10rem;
+  }
+  /* ตัวนับต้องกว้างพอสำหรับสตริงที่ยาวที่สุดที่มันจะเคยแสดง
+     ไม่งั้นตอนเลขขั้นเปลี่ยนจากหลักเดียวเป็นสองหลัก แถบปุ่มจะกว้างขึ้น
+     แล้วดันการ์ดที่เป็น fit-content ให้ขยับทั้งกล่องระหว่างขั้น */
+  .dps-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    color: var(--dl-muted);
+    white-space: nowrap;
+    min-width: 5.5rem;
+  }
+  .dps-range {
+    flex: 1 1 auto;
+    min-width: 6rem;
+    accent-color: var(--dl-emerald-bright);
+    cursor: pointer;
+  }
+  .dps-scroll {
+    overflow-x: auto;
+  }
+  /* ป้ายกับแผงคำอธิบายเป็นภาษาไทย ซึ่งไม่มีช่องว่างระหว่างคำ max-content ของมัน
+     จึงเป็นทั้งประโยคบรรทัดเดียว กล่องนี้เป็น fit-content ถ้าปล่อยไว้ ข้อความจะเป็นตัว
+     กำหนดความกว้างของกล่อง แล้วกล่องจะเปลี่ยนขนาดทุกครั้งที่เปลี่ยนขั้น
+     ท่าแก้คือไม่ให้มันมีส่วนร่วมกับความกว้างที่คำนวณ แต่ยังกางเต็มกล่องตอนเรนเดอร์
+     ข้อความยาวจึงกลายเป็นความสูงแทน ซึ่งเป็นสิ่งที่เครื่องเดินทีละขั้นต้องการ */
+  .dps-label,
+  .dps-say {
+    width: 0;
+    min-width: 100%;
+  }
+  .dps-label {
+    margin: 0;
+    padding: 0.6rem 0.85rem 0;
+    font-size: 0.78rem;
+    color: var(--dl-muted);
+  }
+  .dps-say {
+    padding: 0.7rem 0.85rem 0.85rem;
+    border-top: 1px solid var(--dl-border);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: #cdd6ea;
+  }
+  .dps-say :global(b) {
+    color: var(--dl-gold);
+    font-family: 'Fira Code', 'Fira Mono', monospace;
+    font-weight: 600;
+  }
+  .dps-say :global(em) {
+    color: var(--dl-emerald-bright);
+    font-style: normal;
+  }
+  /* จองความสูงไว้ล่วงหน้า ไม่งั้นข้อความยาวสั้นไม่เท่ากันจะทำให้กล่องกระตุกทุกขั้น */
+  @media (min-width: 640px) {
+    .dps-say {
+      min-height: 5.5rem;
+    }
+  }
+</style>
