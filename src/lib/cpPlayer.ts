@@ -162,3 +162,44 @@ function wireOne<T>(root: HTMLElement, opts: CpPlayerOptions<T>): void {
 export function initCpPlayers<T>(selector: string, opts: CpPlayerOptions<T>): void {
   document.querySelectorAll<HTMLElement>(selector).forEach((root) => wireOne(root, opts));
 }
+
+/* ---------------------------------------------------------------------------
+ * เครื่องเดินแบบแถว
+ *
+ * หน้าที่เดินตารางส่วนใหญ่มีรูปเดียวกันหมด คือหนึ่งแถวคือหนึ่งก้าวของอัลกอริทึม
+ * เดิมทุกหน้าพิมพ์ตารางออกมาทั้งใบพร้อมกัน ผู้อ่านจึงเห็นคำตอบของก้าวที่ยังไม่ได้คิด
+ * และไม่มีอะไรบอกว่าตอนนี้กำลังดูแถวไหน
+ *
+ * ตัวช่วยนี้ทำให้ตารางเดิมกลายเป็นตารางที่ทยอยเผยทีละแถว แถวที่กำลังดูถูกเน้น
+ * และมีคำอธิบายของแถวนั้นอยู่ใต้กระดาน โดยหน้าที่เรียกไม่ต้องเขียนตัวคุมเอง
+ * ------------------------------------------------------------------------- */
+
+/** ก้าวของเครื่องเดินแบบแถว มีแค่คำอธิบาย ส่วนข้อมูลอยู่ในแถวของตารางแล้ว */
+export interface CpRowStep {
+  note: string;
+}
+
+function isRowStep(x: unknown): x is CpRowStep {
+  return typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>).note === 'string';
+}
+
+/** ผูกเครื่องเดินแบบแถวให้ทุกกล่องที่ตรงกับ selector
+ *  จำนวนก้าวต้องเท่ากับจำนวนแถวใน tbody ไม่งั้นไม่ผูกให้ เพื่อไม่ให้เล่าไม่ตรงกับที่เห็น */
+export function initCpRowPlayers(selector: string): void {
+  initCpPlayers<CpRowStep>(selector, {
+    narrow: (raw) => {
+      const ok = raw.filter(isRowStep);
+      return ok.length === raw.length ? ok : null;
+    },
+    sayFrom: (st) => st.note,
+    draw: (_st, ctx) => {
+      const rows = Array.from(ctx.parts.root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+      rows.forEach((tr, i) => {
+        tr.classList.toggle('is-later', i > ctx.at);
+        tr.classList.toggle('is-now', i === ctx.at);
+      });
+      const now = rows[ctx.at];
+      if (now) ctx.keepInView(now.cells[0] ?? now);
+    },
+  });
+}

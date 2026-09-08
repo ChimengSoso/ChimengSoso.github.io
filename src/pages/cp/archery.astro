@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -602,6 +603,24 @@ int main() {
     printf("%d\\n", ans);
     return 0;
 }`;
+/* คำอธิบายรายรอบของการเดินกระดานตัวอย่างที่ 2 คิดจาก demoFrames ตัวเดียวกับตาราง */
+const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
+  const nextPos = demoFrames[idx + 1].pos;
+  return {
+    note:
+      `รอบที่ <b>${f.round}</b> เรายืนที่เป้า <b>${f.pos}</b> ` +
+      (f.oppStrong
+        ? `คู่แข่งเป็นป้าย 1 ซึ่งเก่งกว่าเรา เราจึงแพ้ ` +
+          (f.pos === 1
+            ? `และเพราะอยู่ที่เป้า 1 กติกากลับด้าน ผู้แพ้ถูกส่งไปเป้า <em>${nextPos}</em>`
+            : 'และผู้แพ้อยู่ที่เดิม')
+        : `คู่แข่งเป็นป้าย 0 เราจึงชนะ ` +
+          (f.pos === 1
+            ? 'และผู้ชนะที่เป้า 1 อยู่ที่เดิม'
+            : `ผู้ชนะขยับไปทางซ้ายหนึ่งเป้า คือเป้า <em>${nextPos}</em>`)),
+  };
+});
+
 ---
 
 <CpProblemLayout href={href}>
@@ -905,8 +924,8 @@ int main() {
       เอาตัวอย่างที่สองมาเดินจริง หมายเลขทักษะของเราคือ {meOf(DEMO)} จากทั้งหมด {2 * DEMO.N} คน จึงมีป้าย
       <code>1</code> อยู่แค่ {demoBetter} คน (นับตัวเราเองด้วย) และเราเลือกเริ่มที่เป้า {DEMO_K}
     </p>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="arcsim" steps={arcNotes} label="กดถัดไปเพื่อเดินกระดานทีละรอบ">
+    <table class="rec arcboard">
         <caption>ตัวอย่างที่ 2 · เริ่มที่เป้า {DEMO_K}</caption>
         <thead>
           <tr>
@@ -943,14 +962,15 @@ int main() {
           })}
         </tbody>
       </table>
-      <figcaption>
-        ช่องที่ใส่วงเล็บเหลี่ยมคือเป้าที่เรายืนอยู่ในรอบนั้น อ่านคอลัมน์ c ไล่ลงมาจะเห็นเลข <code>1</code>
+  </CpStepPlayer>
+  <p class="io-note">
+    ช่องที่ใส่วงเล็บเหลี่ยมคือเป้าที่เรายืนอยู่ในรอบนั้น อ่านคอลัมน์ c ไล่ลงมาจะเห็นเลข <code>1</code>
         ไหลไปทางซ้ายรอบละหนึ่งช่อง พอสองตัวมาเจอกันที่เป้า 1 ช่องนั้นขึ้นเป็น <code>2</code> แล้วตัวที่อ่อนกว่า
         ก็ถูกเหวี่ยงไปโผล่ที่เป้า {DEMO.N} รอบถัดมา ทั้งหมดนี้มี {demoWins} รอบที่เราเจอป้าย <code>0</code>
         แล้วเดินไปทางซ้ายได้ และ {demoLosses} รอบที่เจอป้าย <code>1</code> ซึ่งเป็นรอบที่โดนส่งกลับไปท้ายแถว
         จบลงที่เป้า {demoEnd}
-      </figcaption>
-    </figure>
+  </p>
+
     <p>
       ทำแบบเดียวกันกับทุกจุดที่แทรกได้ แล้วเทียบกัน
     </p>
@@ -1419,6 +1439,24 @@ int main() {
   .ar-res{font-size:0.7rem;color:#7b8397;}
   .ar-start.picked{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
   .ar-start.picked .ar-res{color:#0b1220;}
+
+  /* กระดานของเครื่องเดินต้องนิ่ง ตารางนี้มีทั้งวงเล็บเหลี่ยมรอบเป้าที่เรายืน
+     และคอลัมน์ผลที่ข้อความยาวไม่เท่ากันทุกรอบ พอทยอยเผยทีละแถว
+     แถวที่กว้างที่สุดจะโผล่กลางทาง แล้วดันการ์ดที่เป็น fit-content กว้างขึ้น 20px
+     ล็อกความกว้างคอลัมน์ไว้ ข้อความยาวจะขึ้นบรรทัดใหม่แทนที่จะดันการ์ด */
+  /* table-layout:fixed อย่างเดียวไม่พอ เพราะเลย์เอาต์บังคับ width:100% ให้ตารางในกล่องนี้
+     ซึ่งยังส่ง max-content ของตัวเองไปให้การ์ดที่เป็น fit-content คิดความกว้าง
+     ท่าที่ใช้ได้คือ width:0 กับ min-width:100% ตารางจึงไม่มีส่วนร่วมกับความกว้างที่คำนวณ
+     แต่ยังกางเต็มการ์ดตอนเรนเดอร์ การ์ดจึงถูกกำหนดโดยแถบปุ่มซึ่งนิ่งตลอด เหมือนหน้าอื่น */
+  /* ห้ามเขียนเป็น .dpsim table.rec เพราะ .dpsim ถูกเขียนโดย CpStepPlayer
+     มันจึงถือ cid ของคอมโพเนนต์ ไม่ใช่ของหน้านี้ สไตล์ที่สโคปไว้กับหน้าจะไม่ตรงเลย
+     ทางที่ตรงคือให้ตารางมีคลาสของตัวเอง แล้วจับที่คลาสนั้น
+     ส่วน !important จำเป็นเพราะเลย์เอาต์ตั้ง width:100% ด้วยตัวเลือกที่ยาวกว่า */
+  table.rec.arcboard{table-layout:fixed;width:0 !important;min-width:100%;}
+  table.rec.arcboard th:first-child,
+  table.rec.arcboard td:first-child{width:3.6rem;}
+  table.rec.arcboard th.num,
+  table.rec.arcboard td.num{width:3.4rem;}
 </style>
 
 <script>
@@ -1549,4 +1587,12 @@ int main() {
   }
 
   document.addEventListener('astro:page-load', initArcheryGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-arcsim]');
+  });
 </script>
