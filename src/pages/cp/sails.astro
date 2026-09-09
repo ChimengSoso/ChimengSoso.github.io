@@ -221,6 +221,49 @@ const good = rangeImpl(MASTS, true);
 const bad = rangeImpl(MASTS, false);
 const isSorted = (row: number[]): boolean => row.every((v, i) => i === 0 || row[i - 1] >= v);
 
+/* ---------- โค้ดที่ผิดรอบแรก กับเคสที่เล็กที่สุดที่จับมันได้ ----------
+   เหมือน rangeImpl ทุกบรรทัด ต่างแค่รับความสูงสูงสุดเข้ามาเอง จะได้ใช้กับชุดเล็กนอก MASTS ได้ */
+function rangeCost(masts: Mast[], headRule: boolean, maxh: number): { cost: number; after: number[][] } {
+  const a = new Array<number>(maxh + 1).fill(0);
+  const after: number[][] = [];
+  for (const m of [...masts].sort((x, y) => x.h - y.h)) {
+    const v = a[m.h - m.k + 1];
+    let l = 1;
+    while (l <= m.h && a[l] > v) l++;
+    let r = m.h;
+    while (r >= 1 && a[r] < v) r--;
+    const below = m.h - r;
+    for (let i = r + 1; i <= m.h; i++) a[i]++;
+    const k2 = m.k - below;
+    if (k2 > 0) {
+      if (headRule) for (let i = l; i <= l + k2 - 1; i++) a[i]++;
+      else for (let i = r - k2 + 1; i <= r; i++) a[i]++;
+    }
+    after.push(a.slice(1));
+  }
+  return { cost: cost(a.slice(1)), after };
+}
+const brokenSnippet = `int below = H - r;                     // ระดับที่ค่าน้อยกว่า v อยู่ท้ายสุด ใส่ก่อนทั้งหมด
+range(r + 1, H, 1);
+int k2 = K - below;
+if (k2 > 0) range(r - k2 + 1, r, 1);   // <-- บรรทัดที่ผิด หยิบจากท้ายบล็อก
+                                       // ของจริงคือ range(l, l + k2 - 1, 1)`;
+const BROKEN_MASTS: Mast[] = [
+  { h: 2, k: 1 },
+  { h: 2, k: 1 },
+];
+const BROKEN_MAXH = Math.max(...BROKEN_MASTS.map((m) => m.h));
+const brokenInput =
+  BROKEN_MASTS.length + '\n' + BROKEN_MASTS.map((m) => m.h + ' ' + m.k).join('\n');
+const brokenTrue = bestByBrute(BROKEN_MASTS);
+const brokenRun = rangeCost(BROKEN_MASTS, false, BROKEN_MAXH);
+const brokenWrong = brokenRun.cost;
+const brokenAfterFirst = brokenRun.after[0].join(' ');
+const goodAfterFirst = rangeCost(BROKEN_MASTS, true, BROKEN_MAXH).after[0].join(' ');
+if (brokenWrong === brokenTrue) {
+  throw new Error('sails: เคสตัวอย่างของบักกฎเสมอไม่ต่างกันแล้ว ต้องหาเคสใหม่');
+}
+
 const NMAX = 100000;
 const HMAX = 100000;
 const fmt = (n: number): string => n.toLocaleString('en-US');
@@ -717,6 +760,35 @@ const saBill = [
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="sails.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดที่ผมเขียนผิดรอบแรก และเคสที่เล็กที่สุดที่มันแตกต่าง</summary>
+      <div class="expander-body">
+        <p>
+          ทั้งไฟล์เหมือนโค้ดข้างบนทุกบรรทัด ต่างกันแค่บรรทัดเดียวที่หยิบระดับจากบล็อกค่าเท่ากัน
+        </p>
+        <CodeBlock code={brokenSnippet} lang="cpp" title="sails_wrong.cpp · เฉพาะท่อนที่เลือกระดับในบล็อก" />
+        <p>
+          เคสที่เล็กที่สุดที่สองเวอร์ชันตอบไม่ตรงกันคือเสาสูง 2 สองต้น ต้นละหนึ่งใบ
+        </p>
+        <CodeBlock code={brokenInput} lang="text" title="INPUT" />
+        <p>
+          เสาต้นแรกมีระดับ 1 กับระดับ 2 ให้เลือก ค่าเท่ากันทั้งคู่ กฎที่ถูกหยิบระดับล่าง อาเรย์กลายเป็น
+          <code>{goodAfterFirst}</code> ซึ่งยังไม่เพิ่มขึ้น ส่วนกฎที่ผิดหยิบระดับบน อาเรย์กลายเป็น
+          <code>{brokenAfterFirst}</code> ซึ่งเพิ่มขึ้นแล้ว พอเสาต้นที่สองมาถึง การค้นแบบไบนารีที่หาขอบบล็อก
+          ตั้งอยู่บนข้อสมมติที่พังไปแล้ว มันจึงชี้ไปที่ระดับที่มีใบอยู่ และซ้อนใบที่สองทับลงไปตรงนั้น
+          คำตอบจริงคือ <strong>{brokenTrue}</strong> เวอร์ชันที่ผิดตอบ <strong>{brokenWrong}</strong>
+        </p>
+        <p>
+          ตัวเลข {brokenTrue} มาจากตัวไล่วางทุกแบบข้างบน ไม่ได้มาจากท่าโลภที่กำลังตรวจ
+          และตัวอย่างในโจทย์เองก็จับบักตัวนี้ได้ เวอร์ชันที่ผิดตอบ <strong>{bad.cost}</strong> แทนที่จะเป็น
+          <strong>{answer}</strong> ซึ่งเป็นเลขที่ทำให้ผมรู้ตัวตั้งแต่รอบแรก
+        </p>
+        <p>
+          ไล่ทุกชุดที่มีเสาไม่เกิน 4 ต้นและสูงไม่เกิน 5 ทั้งหมด 3,875 ชุด เวอร์ชันที่ถูกตรงกับตัวไล่ทุกแบบทั้งหมด
+          ส่วนเวอร์ชันที่ผิดหลุด 2,299 ชุด
+        </p>
       </div>
     </details>
     <p>
