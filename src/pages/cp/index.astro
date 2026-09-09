@@ -425,6 +425,10 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
     const RAIL_EDGE_REM = 0.8; // เผื่อขอบจอไว้ไม่ให้แถบไปชนขอบพอดี
     const panel = listEl.closest('.panel');
     function layoutRail(): void {
+      /* หลัง ClientRouter สลับไปหน้าอื่นแล้ว จุดยึด home หลุดออกจากเอกสารไปพร้อม DOM เก่า
+         ถ้าปล่อยให้ทำงานต่อ บรรทัด appendChild ข้างล่างจะเอาแถบของหน้าฮับเก่า
+         ไปแปะไว้บน body ของหน้าถัดไป ซึ่งเป็นอาการที่เคยเห็นบนหน้าโจทย์ (แถบโผล่ท้ายหน้าแบบไม่มีสไตล์) */
+      if (!home.isConnected) return;
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       const panelW = panel ? panel.getBoundingClientRect().width : 0;
       const gutter = (window.innerWidth - panelW) / 2;
@@ -445,15 +449,25 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
       if (toolsEl.parentElement !== document.body) return;
       home.parentNode?.insertBefore(toolsEl, home);
     };
-    // คืนที่เดิมก่อน ClientRouter สลับ DOM จะได้ไม่มีธาตุค้างอยู่บน body ของหน้าถัดไป
-    document.addEventListener('astro:before-swap', goHome, { once: true });
-
-    layoutRail();
     let resizeTimer = 0;
-    window.addEventListener('resize', () => {
+    const onResize = (): void => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(layoutRail, 120);
-    });
+    };
+    /* เก็บกวาดก่อน ClientRouter สลับ DOM ต้องทำสามอย่าง ไม่ใช่แค่คืนแถบที่เดิม
+       ตัวฟัง resize อยู่บน window ซึ่งไม่ถูกสลับตามหน้า ถ้าไม่ถอดทิ้ง มันจะค้างอยู่
+       พร้อมกับตัวแปร toolsEl ของหน้าเก่า แล้วพอมี resize บนหน้าถัดไป layoutRail
+       ก็จะเอาแถบเก่าไปแปะบน body ของหน้านั้น เข้าหน้าฮับกี่รอบก็ค้างเพิ่มอีกรอบละชุด
+       ซึ่งเป็นเหตุผลที่เคยเห็นแถบซ้ำสองชุดท้ายหน้าโจทย์ */
+    const cleanup = (): void => {
+      window.removeEventListener('resize', onResize);
+      window.clearTimeout(resizeTimer);
+      goHome();
+    };
+    document.addEventListener('astro:before-swap', cleanup, { once: true });
+
+    layoutRail();
+    window.addEventListener('resize', onResize);
 
     /* ปุ่มขยายรายการหัวข้อที่พับไว้ */
     for (const more of tools.querySelectorAll<HTMLButtonElement>('[data-cp-more]')) {
