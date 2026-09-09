@@ -454,6 +454,17 @@ export const cpProblems: CpProblem[] = [
     dateISO: '2026-09-09',
     readingMinutes: 14,
   },
+  {
+    href: 'oil-blocks/',
+    setId: 'programming-in-th',
+    label: '2027',
+    title: 'บ่อน้ำมันสามผืน: เลิกเลือกบล็อก แล้วหันไปเลือกเส้นที่แบ่งกระดาน',
+    desc: 'สามสี่เหลี่ยมที่ไม่ทับกันบนตารางพันห้าร้อยคูณพันห้าร้อย ลากเส้นแบ่งได้เสมอ จึงเหลือแค่หกทรง บทนี้มีบักจริงที่ตอบตัวอย่างในโจทย์ถูก แล้วพังที่ตารางสองคูณสอง',
+    topics: ['prefix sum', 'dp', 'ad hoc'],
+    difficulty: 4,
+    dateISO: '2026-09-09',
+    readingMinutes: 13,
+  },
 ];
 
 /**
