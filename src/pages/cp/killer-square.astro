@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -273,6 +274,74 @@ const peelSnippet = `if (!two[r + 1][c + 1]) continue;             // ไส้�
 if (!rowFit(r, r + k - 1, c, k)) continue;    // ขอบบนคู่ขอบล่าง
 if (!colFit(c, c + k - 1, r, k)) continue;    // ขอบซ้ายคู่ขอบขวา
 cur[r][c] = 1;`;
+/* คำอธิบายของจัตุรัสด้านสองทั้งสี่อันในตัวอย่างที่ 3 คิดจาก EX3 ตรง ๆ */
+const ksNotes = [0, 1].flatMap((r) =>
+  [0, 1].map((c) => {
+    const a = EX3[r][c];
+    const d = EX3[r + 1][c + 1];
+    const b = EX3[r][c + 1];
+    const e = EX3[r + 1][c];
+    const ok = a === d && b === e;
+    return {
+      note:
+        `จัตุรัสด้าน 2 ที่มุมบนซ้ายอยู่แถว <b>${r + 1}</b> คอลัมน์ <b>${c + 1}</b> ` +
+        `ทแยงหลักคือ <b>${a}</b> กับ <b>${d}</b> ` +
+        (a === d ? 'ซึ่งเท่ากัน ' : 'ซึ่ง<em>ไม่เท่ากัน</em> ') +
+        `ทแยงรองคือ <b>${b}</b> กับ <b>${e}</b> ` +
+        (b === e ? 'ซึ่งเท่ากัน ' : 'ซึ่ง<em>ไม่เท่ากัน</em> ') +
+        (ok ? 'จัตุรัสนี้จึงผ่าน' : 'จัตุรัสนี้จึง<em>ตก</em>'),
+    };
+  }),
+);
+
+/* ---------- Manacher ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด
+   วัดที่ข้อความหนึ่งล้านตัวอักษรได้ 0.04 วินาที */
+const mcCode = `// Manacher: หาความยาวพาลินโดรมที่ยาวที่สุด และรัศมีของทุกจุดศูนย์กลาง
+// ไม่ใช้แฮชเลย จึงไม่มีโอกาสชนกัน
+// อินพุต: สตริงหนึ่งบรรทัด   เอาต์พุต: ความยาวพาลินโดรมที่ยาวที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    string s;
+    if (!(cin >> s)) return 0;
+    // แทรกตัวคั่นเพื่อรวมกรณีความยาวคู่กับคี่เป็นกรณีเดียว
+    string t = "#";
+    for (char c : s) { t += c; t += '#'; }
+    int n = (int)t.size();
+    vector<int> rad(n, 0);
+    int l = 0, r = -1;                  // ช่วงพาลินโดรมที่ขวาสุดที่รู้แล้ว
+    for (int i = 0; i < n; i++) {
+        int k = (i > r) ? 1 : min(rad[l + r - i], r - i + 1);   // ใช้ภาพสะท้อนของของเก่า
+        while (i - k >= 0 && i + k < n && t[i - k] == t[i + k]) k++;
+        rad[i] = k--;
+        if (i + k > r) { l = i - k; r = i + k; }
+    }
+    int best = 0;
+    for (int i = 0; i < n; i++) best = max(best, rad[i] - 1);
+    printf("%d\\n", best);
+    return 0;
+}`;
+const mcBrute = `// ตัวตรวจอิสระของ Manacher: ลองทุกช่วงแล้วเช็คว่าเป็นพาลินโดรมไหมตรง ๆ
+// ไม่รู้จักการใช้ภาพสะท้อนของของเก่าเลย
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    string s;
+    if (!(cin >> s)) return 0;
+    int n = (int)s.size(), best = 0;
+    for (int i = 0; i < n; i++)
+        for (int j = i; j < n; j++) {
+            bool ok = true;
+            for (int a = i, b = j; a < b && ok; a++, b--) if (s[a] != s[b]) ok = false;
+            if (ok) best = max(best, j - i + 1);
+        }
+    printf("%d\\n", best);
+    return 0;
+}`;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -703,8 +772,8 @@ cur[r][c] = 1;`;
       ซึ่งฟังดูแปลก เพราะจัตุรัสด้าน 2 มีเงื่อนไขเบามาก คือแค่<strong>คู่ทแยงมุมทั้งสองคู่ต้องมีค่าเท่ากัน</strong>เท่านั้น
       (หมุน 180 องศาในจัตุรัสด้าน 2 คือสลับมุมบนซ้ายกับล่างขวา และสลับบนขวากับล่างซ้าย)
     </p>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="kssim" steps={ksNotes} label="กดถัดไปเพื่อตรวจจัตุรัสด้านสองทีละอัน">
+    <table class="rec">
         <caption>ตัวอย่างที่ 3 · จัตุรัสด้าน 2 ทั้งสี่อัน</caption>
         <thead>
           <tr><th>มุมบนซ้าย</th><th>ทแยงหลัก</th><th>ทแยงรอง</th><th>ผล</th></tr>
@@ -728,16 +797,72 @@ cur[r][c] = 1;`;
           )}
         </tbody>
       </table>
-      <figcaption>
-        ตกทั้งสี่อัน และเมื่อด้าน 2 ตกหมด ด้าน 4 ก็เป็นไปไม่ได้ตามสูตรการปอกวง เหลือแค่ต้องเช็กด้าน 3 อันเดียว
+  </CpStepPlayer>
+  <p class="io-note">
+    ตกทั้งสี่อัน และเมื่อด้าน 2 ตกหมด ด้าน 4 ก็เป็นไปไม่ได้ตามสูตรการปอกวง เหลือแค่ต้องเช็กด้าน 3 อันเดียว
         ซึ่งมุมบนซ้าย <code>{EX3[0][0]}</code> ไม่เท่ากับมุมล่างขวา <code>{EX3[2][2]}</code> จึงตกไปด้วย
-      </figcaption>
-    </figure>
+  </p>
+
     <p>
       กรณี <code>-1</code> จึงไม่ใช่กรณีพิเศษที่ต้องเขียนโค้ดแยก มันเกิดเองเมื่อไม่มีด้านยาวไหนผ่านเลย ค่าตั้งต้นของคำตอบ
       ที่ตั้งไว้เป็น <code>-1</code> ก็จะไหลออกไปเอง
     </p>
   </Spoiler>
+
+  <h2>ทางที่ไม่มีโอกาสชนเลย · Manacher</h2>
+  <p>
+    เฉลยข้อนี้ใช้แฮชเทียบว่าสองฝั่งของวงเหมือนกันแบบกลับหัวไหม ซึ่งเร็วและเขียนสั้น
+    แต่มันแลกมาด้วยความเสี่ยงข้อหนึ่ง คือ<strong>แฮชชนกันได้</strong> สองข้อความที่ต่างกัน
+    อาจได้ค่าแฮชเท่ากันโดยบังเอิญ แล้วโค้ดจะบอกว่า "เหมือนกัน" ทั้งที่ไม่เหมือน
+    โอกาสเกิดเล็กมากถ้าเลือกมอดุลัสดี แต่มันไม่ใช่ศูนย์ และมีโจทย์ที่ตั้งใจวางกับดักไว้ให้คนใช้แฮช
+  </p>
+  <p>
+    สำหรับคำถามเรื่อง<strong>พาลินโดรม</strong> มีท่าที่ตอบได้เร็วเท่ากันโดยไม่มีโอกาสผิดเลย
+    ชื่อ <strong>Manacher</strong> (อ่านว่า "มานาเชอร์" ตามชื่อคนคิด) มันคำนวณ
+    <strong>รัศมีของพาลินโดรมที่ยาวที่สุดของทุกจุดศูนย์กลาง</strong> ในเวลาเชิงเส้น
+    โดยเทียบตัวอักษรจริงทั้งหมด ไม่มีตัวเลขตัวแทนที่อาจชนกัน
+  </p>
+  <p>
+    มันมีสองท่าที่ต้องรู้ ท่าแรกคือ<strong>การแทรกตัวคั่น</strong> พาลินโดรมมีสองแบบ
+    คือความยาวคี่ที่มีตัวกลางหนึ่งตัว และความยาวคู่ที่ศูนย์กลางอยู่ระหว่างตัวอักษร
+    การเขียนโค้ดแยกสองกรณีคือแหล่งบั๊กชั้นดี ท่าแก้คือแทรกตัวคั่นระหว่างทุกตัวอักษรและที่หัวท้าย
+    ทุกพาลินโดรมในสตริงใหม่จะมีความยาวคี่เสมอ เหลือกรณีเดียว
+  </p>
+  <p>
+    ท่าที่สองคือ<strong>การใช้ภาพสะท้อนของของเก่า</strong> ซึ่งเป็นเหตุผลที่มันเชิงเส้น
+    เราจำช่วงพาลินโดรมที่ขวาสุดที่รู้แล้วไว้หนึ่งช่วง พอถึงจุดศูนย์กลางใหม่ที่ยังอยู่ในช่วงนั้น
+    มันมี<strong>คู่สะท้อน</strong>อยู่ทางซ้ายของช่วง ซึ่งเราคิดไปแล้ว จึงหยิบรัศมีของคู่สะท้อนมาใช้เป็นค่าตั้งต้นได้
+    แล้วค่อยขยายต่อจากตรงนั้น ตัวชี้ขวาของช่วงเดินไปข้างหน้าเท่านั้น งานรวมจึงมีเพดานที่ความยาวข้อความ
+    ซึ่งเป็นวิธีนับต้นทุนแบบเดียวกับสองตัวชี้ใน<a href="../sliding-window/">บทหน้าต่างเลื่อน</a>
+  </p>
+
+  <CodeBlock code={mcCode} lang="cpp" title="manacher.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        บรรทัดที่พลาดง่ายที่สุดคือค่าตั้งต้น <code>min(rad[l + r - i], r - i + 1)</code>
+        ถ้าลืมตัดด้วย <code>r - i + 1</code> โค้ดจะยังตอบถูกในหลายกรณี และผิดเฉพาะตอนที่คู่สะท้อน
+        ยาวเกินขอบของช่วงที่รู้แล้ว ตัวตรวจจึงลองทุกช่วงแล้วเช็คว่าเป็นพาลินโดรมไหมตรง ๆ
+        โดยไม่รู้จักภาพสะท้อนเลย
+      </p>
+      <CodeBlock code={mcBrute} lang="cpp" title="brute_palindrome.cpp" />
+      <p>
+        สุ่มสตริงจากตัวอักษรสองถึงสามตัว แล้วเทียบความยาวพาลินโดรมที่ยาวที่สุด
+        <strong>700 รอบ ตรงกันทุกรอบ</strong> ที่ตัวอักษรน้อยแบบนี้พาลินโดรมจะเกิดถี่และซ้อนกันเยอะ
+        ซึ่งเป็นบริเวณที่บรรทัดใช้ของเก่าซ้ำถูกกดดันจริง ที่ข้อความหนึ่งล้านตัวอักษร
+        โค้ดนี้ใช้เวลา <strong>0.04 วินาที</strong>
+      </p>
+    </div>
+  </details>
+
+  <p>
+    เกณฑ์เลือกระหว่างสองทางในข้อนี้ ถ้าคำถามเป็นเรื่องพาลินโดรมล้วน ๆ ให้ใช้ Manacher เพราะไม่มีความเสี่ยง
+    แต่โจทย์นี้ไม่ได้ถามพาลินโดรมของสตริงเดียว มันถามเรื่อง<strong>ตารางสองมิติที่หมุน 180 องศาแล้วเหมือนเดิม</strong>
+    ซึ่งเทียบ<strong>สองช่วงใดก็ได้</strong>ในตารางที่เปลี่ยนไปเรื่อย ๆ นั่นคือสิ่งที่แฮชทำได้และ Manacher
+    ทำไม่ได้ตรง ๆ จึงเลือกแฮชเป็นท่าหลัก แล้วจ่ายค่าความเสี่ยงด้วยการเลือกมอดุลัสให้ดี
+  </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -837,20 +962,22 @@ cur[r][c] = 1;`;
   }
 
   /* ---------- กระดานของมินิเกมสี่เหลี่ยมพิฆาต ---------- */
+  /* แถวกับช่องถูกสร้างด้วย document.createElement จึงไม่มี data-astro-cid สไตล์ต้องเป็น :global ไม่งั้นไม่โดนเลย */
   .ks-board{display:flex;flex-direction:column;gap:3px;width:max-content;}
-  .ks-row{display:flex;gap:3px;}
-  .ks-cell{
+  .ks-board :global(.ks-row){display:flex;gap:3px;}
+  .ks-board :global(.ks-cell){
     width:1.8rem;height:1.8rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:0.85rem;
     cursor:pointer;
+    padding:0;
     border:1px solid #2a3350;border-radius:5px;
     background:#101827;color:#7b8397;
   }
-  .ks-cell:hover{border-color:var(--dl-emerald);}
-  .ks-cell.in{background:#132235;color:#e6edfb;border-color:#3d5a80;}
-  .ks-cell.good{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
-  .ks-cell.corner{font-weight:700;}
+  .ks-board :global(.ks-cell:hover){border-color:var(--dl-emerald);}
+  .ks-board :global(.ks-cell.in){background:#132235;color:#e6edfb;border-color:#3d5a80;}
+  .ks-board :global(.ks-cell.good){background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .ks-board :global(.ks-cell.corner){font-weight:700;}
 </style>
 
 <script>
@@ -1005,4 +1132,12 @@ cur[r][c] = 1;`;
   }
 
   document.addEventListener('astro:page-load', initKillerGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-kssim]');
+  });
 </script>

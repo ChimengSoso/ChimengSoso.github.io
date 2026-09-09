@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -32,6 +33,30 @@ function trace(a: number[], limit: number): Step[] {
 const steps = trace(DEMO, S);
 const answer = steps[steps.length - 1].best;
 const totalShrinks = steps.reduce((s, x) => s + x.shrunk, 0);
+
+/* ---------- ภาพสองแถว เลือกก้าวจากรอยเดินจริง ไม่ได้เลือกด้วยตา ----------
+   แถวบนคือก้าวที่ได้หน้าต่างยาวที่สุด แถวล่างคือก้าวแรกที่ต้องหดตัวชี้ซ้าย
+   ทั้งสองก้าวหาจาก steps ที่ trace() คืนมา ถ้าตัวอย่างเปลี่ยน ภาพก็เปลี่ยนตาม */
+const winStep = steps.reduce((b, x) => (x.len > b.len ? x : b), steps[0]);
+const shrinkStep = steps.find((x) => x.shrunk > 0) as Step;
+
+const CW = 54;
+const CGAP = 7;
+const cellX = (i: number): number => 16 + i * (CW + CGAP);
+const ROW1 = 52;
+const ROW2 = 178;
+const CH = 44;
+const WIN_W = 16 + DEMO.length * (CW + CGAP) - CGAP + 16;
+const winVB = `0 0 ${WIN_W - 4} 290`;
+/** ปีกกาใต้หน้าต่าง บอกว่าช่วงไหนกำลังถูกนับอยู่ */
+const brace = (l: number, r: number, y: number): string => {
+  const x1 = cellX(l);
+  const x2 = cellX(r) + CW;
+  return `M${x1} ${y} L${x1} ${y + 7} L${x2} ${y + 7} L${x2} ${y}`;
+};
+const inWin = (i: number, st: Step): boolean => i >= st.l && i <= st.r;
+/** ช่องที่ถูกทิ้งออกจากหน้าต่างในก้าวนี้ */
+const dropped = (i: number, st: Step): boolean => i >= st.l - st.shrunk && i < st.l;
 
 /** ต้นทุนของสองแนวคิด เมื่อ n เป็นล้าน */
 const NBIG = 1000000;
@@ -118,6 +143,54 @@ const swPuzzles: SwPuzzleData[] = SW_PUZZLES.map((p) => ({
 }));
 const swJson = JSON.stringify(swPuzzles);
 
+/* ---------- หัวข้อเทคนิคที่สอง แถวสองหัวที่เรียงลด ----------
+   ต้นทุนของสองทางที่ n เป็นล้านและ k เป็นห้าพัน ใช้เทียบให้เห็นว่าทำไมต้องมีท่านี้ */
+const DQ_N = 1000000;
+const DQ_K = 5000;
+const dqRows = [
+  { name: 'กวาดหาค่ามากสุดใหม่ทุกหน้าต่าง', per: 'k ครั้ง', total: DQ_N * DQ_K },
+  { name: 'แถวสองหัวที่เรียงลด', per: 'เฉลี่ย 2 ครั้ง', total: DQ_N * 2 },
+];
+const dqCode = `// ค่ามากที่สุดของทุกหน้าต่างกว้าง k ด้วยแถวสองหัวที่เรียงลด
+// dq เก็บ "ตำแหน่ง" ไม่ใช่ค่า และค่าที่ตำแหน่งเหล่านั้นเรียงจากมากไปน้อยเสมอ
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, k; scanf("%d %d", &n, &k);
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+
+    deque<int> dq;
+    for (int r = 0; r < n; r++) {
+        // ตัวใหม่ใหญ่กว่าหรือเท่าตัวท้ายแถว ตัวท้ายจึงหมดสิทธิ์เป็นคำตอบตลอดกาล
+        // เพราะมันทั้งเก่ากว่าและไม่ใหญ่กว่า ทิ้งได้เลยโดยไม่ต้องกลัวเสียคำตอบ
+        while (!dq.empty() && a[dq.back()] <= a[r]) dq.pop_back();
+        dq.push_back(r);
+        // หัวแถวหลุดออกนอกหน้าต่างไปแล้ว
+        if (dq.front() <= r - k) dq.pop_front();
+        // หน้าต่างเต็มแล้ว หัวแถวคือค่ามากสุดของหน้าต่างนี้
+        if (r >= k - 1) printf("%d%c", a[dq.front()], r + 1 == n ? '\\n' : ' ');
+    }
+    return 0;
+}`;
+const dqBrute = `// ตัวตรวจอิสระ กวาดทุกหน้าต่างแล้วหาค่ามากสุดตรง ๆ
+// มันไม่รู้จักข้ออ้างเรื่อง "เก่ากว่าและเล็กกว่า" เลย จึงไม่ได้ทดสอบแค่การพิมพ์
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, k; scanf("%d %d", &n, &k);
+    vector<int> a(n);
+    for (int i = 0; i < n; i++) scanf("%d", &a[i]);
+    for (int l = 0; l + k <= n; l++) {
+        int best = a[l];
+        for (int j = l; j < l + k; j++) best = max(best, a[j]);
+        printf("%d%c", best, l + k == n ? '\\n' : ' ');
+    }
+    return 0;
+}`;
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -192,6 +265,75 @@ const swJson = JSON.stringify(swPuzzles);
     ทั้งสองแบบมีจุดร่วมเดียวกันคือ <code>l</code> กับ <code>r</code> ไม่เคยถอยหลัง แต่ละตัวจึงเดินได้มากที่สุด
     <code>n</code> ก้าว รวมเป็น <code>2n</code> ก้าวตลอดโปรแกรม ไม่ว่าลูปข้างในจะดูน่ากลัวแค่ไหน
   </p>
+
+  <ZoomableDiagram caption={`ตัวอย่าง ${DEMO.join(', ')} กับเพดานผลรวม ${S} แถวบนคือก้าวที่หน้าต่างยาวที่สุด คือช่อง ${winStep.l} ถึง ${winStep.r} ผลรวม ${winStep.sum} ยาว ${winStep.len} ช่อง แถวล่างคือก้าวแรกที่ผลรวมล้นเพดาน ตัวชี้ขวาขยับมาถึงช่อง ${shrinkStep.r} แล้วผลรวมเกิน จึงต้องทิ้งช่องทางซ้ายออก ${shrinkStep.shrunk} ช่อง จนผลรวมเหลือ ${shrinkStep.sum} สังเกตว่าตัวชี้ซ้ายเดินไปทางขวาเท่านั้น ไม่เคยถอยกลับ ทั้งการเดินจึงเสียแรงรวมกันไม่เกินสองรอบอาเรย์ (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={winVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`สองแถว แถวบนแสดงอาเรย์แปดช่องคือ ${DEMO.join(' ')} โดยช่องที่ ${winStep.l} ถึง ${winStep.r} ถูกเน้นเป็นหน้าต่างที่ยาวที่สุด ผลรวม ${winStep.sum} แถวล่างแสดงอาเรย์เดียวกันในก้าวที่ตัวชี้ขวาอยู่ช่องที่ ${shrinkStep.r} ซึ่งทำให้ผลรวมล้นเพดาน ${S} จึงมีช่องทางซ้าย ${shrinkStep.shrunk} ช่องถูกทิ้งออกจากหน้าต่าง`}>
+      <text x={cellX(0)} y="22" fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
+        ก้าวที่ชนะ · ยาว {winStep.len} ช่อง ผลรวม {winStep.sum}
+      </text>
+      {DEMO.map((v, i) => (
+        <>
+          <rect
+            x={cellX(i)}
+            y={ROW1}
+            width={CW}
+            height={CH}
+            rx="7"
+            fill={inWin(i, winStep) ? '#12291c' : '#141b2b'}
+            stroke={inWin(i, winStep) ? '#4ade80' : '#2a3350'}
+            stroke-width={inWin(i, winStep) ? '2' : '1.4'}
+          />
+          <text x={cellX(i) + CW / 2} y={ROW1 + 28} fill={inWin(i, winStep) ? '#d7ffe4' : '#7b8397'} font-size="16" text-anchor="middle" font-weight="700" font-family="monospace">
+            {v}
+          </text>
+          <text x={cellX(i) + CW / 2} y={ROW1 - 9} fill="#7b8397" font-size="10.5" text-anchor="middle" font-family="monospace">
+            {i}
+          </text>
+        </>
+      ))}
+      <path d={brace(winStep.l, winStep.r, ROW1 + CH)} fill="none" stroke="#4ade80" stroke-width="1.8" />
+      <text x={(cellX(winStep.l) + cellX(winStep.r) + CW) / 2} y={ROW1 + CH + 26} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">
+        l={winStep.l} r={winStep.r}
+      </text>
+
+      <text x={cellX(0)} y={ROW2 - 18} fill="#e0b400" font-size="12.5" text-anchor="start" font-weight="700">
+        ก้าวที่ล้นเพดาน · ทิ้งซ้ายออก {shrinkStep.shrunk} ช่อง เหลือผลรวม {shrinkStep.sum}
+      </text>
+      {DEMO.map((v, i) => (
+        <>
+          <rect
+            x={cellX(i)}
+            y={ROW2}
+            width={CW}
+            height={CH}
+            rx="7"
+            fill={dropped(i, shrinkStep) ? '#3d1f22' : inWin(i, shrinkStep) ? '#2e2510' : '#141b2b'}
+            stroke={dropped(i, shrinkStep) ? '#e06c75' : inWin(i, shrinkStep) ? '#e0b400' : '#2a3350'}
+            stroke-width={dropped(i, shrinkStep) || inWin(i, shrinkStep) ? '2' : '1.4'}
+            stroke-dasharray={dropped(i, shrinkStep) ? '5 4' : undefined}
+          />
+          <text
+            x={cellX(i) + CW / 2}
+            y={ROW2 + 28}
+            fill={dropped(i, shrinkStep) ? '#ffb3b8' : inWin(i, shrinkStep) ? '#ffe58a' : '#7b8397'}
+            font-size="16"
+            text-anchor="middle"
+            font-weight="700"
+            font-family="monospace"
+          >
+            {v}
+          </text>
+        </>
+      ))}
+      <path d={brace(shrinkStep.l, shrinkStep.r, ROW2 + CH)} fill="none" stroke="#e0b400" stroke-width="1.8" />
+      <text x={(cellX(shrinkStep.l) + cellX(shrinkStep.r) + CW) / 2} y={ROW2 + CH + 26} fill="#e0b400" font-size="12" text-anchor="middle" font-family="monospace">
+        l={shrinkStep.l} r={shrinkStep.r}
+      </text>
+      <text x={cellX(0)} y={ROW2 + CH + 26} fill="#e06c75" font-size="11.5" text-anchor="start">
+        ช่องเส้นประคือช่องที่หลุดออกไป
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · ลากหน้าต่างหาช่วงที่ยาวที่สุด</h2>
   <div class="cpgame swgame" data-swgame data-puzzles={swJson}>
@@ -370,6 +512,102 @@ const swJson = JSON.stringify(swPuzzles);
     </p>
   </Spoiler>
 
+  <h2>อีกท่าหนึ่งที่ต้องมี · เมื่อคำถามเปลี่ยนจากผลรวมเป็นค่ามากสุด</h2>
+  <p>
+    ท่าหน้าต่างเลื่อนที่ผ่านมาทั้งบทยืนอยู่บนกติกาข้อเดียว คือ<strong>ตอนตัวเข้าตัวออก
+    เราต้องอัปเดตคำตอบของหน้าต่างได้ทันที</strong> ผลรวมทำได้ เพราะบวกตัวที่เข้าและลบตัวที่ออกก็จบ
+    แต่ถ้าโจทย์เปลี่ยนคำถามเป็น <strong>ค่ามากที่สุดของทุกหน้าต่างกว้าง k</strong> กติกานั้นพังทันที
+  </p>
+  <p>
+    ที่พังเพราะการลบ ตอนตัวซ้ายหลุดออกจากหน้าต่าง ถ้าตัวที่หลุดนั้นดันเป็นตัวที่มากที่สุดอยู่
+    เราจะ<strong>ไม่มีข้อมูลอะไรเหลือให้กู้คำตอบใหม่เลย</strong> รู้แค่ว่าค่ามากสุดเดิมเท่าไร
+    ซึ่งใช้ไม่ได้แล้ว ทางที่เห็นชัดที่สุดคือกวาดหาใหม่ทั้งหน้าต่าง แต่นั่นคือ <code>k</code> ครั้งต่อหนึ่งก้าว
+    ซึ่งพาเรากลับไปที่ปัญหาเดิมที่บทนี้เปิดเรื่องด้วย
+  </p>
+
+  <h3>ข้อสังเกตที่ทิ้งของได้ทั้งกอง</h3>
+  <p>
+    ลองถามคำถามที่แคบกว่าเดิม แทนที่จะถามว่า "ค่ามากสุดคืออะไร" ให้ถามว่า
+    <strong>ตำแหน่งไหนยังมีสิทธิ์เป็นคำตอบในอนาคตอยู่บ้าง</strong>
+  </p>
+  <p>
+    สมมติมีสองตำแหน่ง <code>j</code> กับ <code>r</code> โดย <code>j</code> อยู่ก่อน <code>r</code>
+    และ <code>a[j] ≤ a[r]</code> ตำแหน่ง <code>j</code> จะไม่มีวันได้เป็นคำตอบอีกเลย
+    เพราะทุกหน้าต่างที่ยังมี <code>j</code> อยู่ ก็มี <code>r</code> อยู่ด้วยแน่ ๆ
+    (<code>r</code> อยู่ทางขวาและหน้าต่างเลื่อนไปทางขวาเท่านั้น) และ <code>r</code> ก็ไม่เล็กกว่า
+    <strong>เก่ากว่าและไม่ใหญ่กว่า จึงไร้ประโยชน์ถาวร</strong> ทิ้งได้เลย
+  </p>
+  <p>
+    พอทิ้งของแบบนั้นได้ ตำแหน่งที่เหลืออยู่ในมือจะมีค่า<strong>เรียงจากมากไปน้อย</strong>โดยอัตโนมัติ
+    เพราะทุกคู่ที่ผิดลำดับถูกทิ้งไปแล้ว และเมื่อมันเรียงอยู่แล้ว <strong>ค่ามากสุดของหน้าต่างก็คือตัวหัวแถว</strong>
+    ไม่ต้องหาอะไรอีก
+  </p>
+  <p>
+    โครงสร้างที่รับของเข้าท้ายแถว ทิ้งของจากท้ายแถว และทิ้งของที่หมดอายุจากหัวแถวได้ด้วย
+    เรียกว่า<strong>แถวสองหัว</strong> (deque ย่อจาก double-ended queue อ่านว่า "เด็ก") และเมื่อเราคุมให้ค่าในนั้น
+    เรียงทางเดียวตลอด ก็เรียกรวมกันว่า<strong>แถวสองหัวที่เรียงทางเดียว</strong> (monotonic deque)
+  </p>
+
+  <h3>ทำไมมันไม่แพง ทั้งที่มีลูปซ้อนอยู่</h3>
+  <p>
+    ในโค้ดข้างล่างมี <code>while</code> ซ้อนอยู่ใน <code>for</code> ซึ่งหน้าตาเหมือน <code>O(n²)</code>
+    แต่มันไม่ใช่ เพราะ<strong>ทุกตำแหน่งเข้าแถวได้ครั้งเดียวและออกจากแถวได้ครั้งเดียว</strong>
+    งานทั้งการเดินจึงมีเพดานที่ <code>2n</code> ครั้ง ไม่ว่าลูปในจะวนยาวแค่ไหนในบางก้าว
+    วิธีนับต้นทุนแบบมองยอดรวมแทนการมองก้าวที่แย่ที่สุด เรียกว่า<strong>การนับแบบเฉลี่ยทบ</strong> (amortized)
+    ซึ่งเป็นวิธีนับเดียวกับที่ทำให้ท่าสองตัวชี้ในบทนี้ถูกตั้งแต่ต้น
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ต้นทุน · ที่ n = {fmt(DQ_N)} และ k = {fmt(DQ_K)}</caption>
+      <thead>
+        <tr><th>แนวคิด</th><th>งานต่อหนึ่งก้าว</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {dqRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.per}</td>
+            <td class="num">{fmt(r.total)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ต่างกัน {fmt(Math.round(dqRows[0].total / dqRows[1].total))} เท่า
+      ผมคอมไพล์โค้ดข้างล่างด้วย g++ แล้วรันที่ขอบเขตนี้จริง ใช้เวลา <strong>0.15 วินาที</strong>
+      และหน่วยความจำราว 12 เมกะไบต์ ส่วนทางที่กวาดใหม่ทุกหน้าต่างคือห้าพันล้านครั้ง ซึ่งไม่จบในเวลาที่โจทย์แบบนี้ให้
+    </figcaption>
+  </figure>
+
+  <CodeBlock code={dqCode} lang="cpp" title="window_max.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        ข้ออ้างทั้งหมดของท่านี้อยู่บนประโยคเดียว คือ "เก่ากว่าและไม่ใหญ่กว่า จึงทิ้งได้"
+        ตัวตรวจจึงต้อง<strong>ไม่รู้จักประโยคนั้นเลย</strong> ไม่งั้นมันจะทดสอบแค่ว่าผมพิมพ์ถูกไหม
+        ตัวนี้กวาดทุกหน้าต่างแบบซื่อ ๆ ซึ่งช้ากว่ามากแต่ไม่มีอะไรให้คิดผิด
+      </p>
+      <CodeBlock code={dqBrute} lang="cpp" title="brute_window_max.cpp" />
+      <p>
+        ผมสุ่มอาเรย์เล็ก ๆ พร้อม <code>k</code> สุ่ม แล้วเทียบเอาต์พุตสองฝั่ง <strong>600 รอบ ตรงกันทุกรอบ</strong>
+        ชุดสุ่มจงใจให้มีค่าซ้ำกันเยอะ (สุ่มจาก -9 ถึง 9) เพราะจุดที่พลาดง่ายที่สุดของท่านี้คือเครื่องหมาย
+        ตอนเทียบค่าเท่ากัน ถ้าเขียน <code>&lt;</code> แทน <code>≤</code> ตำแหน่งที่ค่าเท่ากันจะค้างอยู่ในแถว
+        แล้วโค้ดยังตอบถูกอยู่ดีในหลายกรณี ผิดเฉพาะบางรูป ซึ่งเป็นบั๊กประเภทที่ตัวอย่างในโจทย์จับไม่ได้
+      </p>
+    </div>
+  </details>
+
+  <p>
+    ท่านี้ยกไปใช้ได้กว้างกว่าที่คิด รูปทั่วไปของมันคือ <strong>ถ้าของชิ้นหนึ่งทั้งเก่ากว่าและแย่กว่าอีกชิ้น
+    มันไร้ประโยชน์ถาวร</strong> พอเจอโจทย์ที่ต้องรู้ค่าที่ดีที่สุดของช่วงที่เลื่อนไปทางเดียว ให้ลองถามประโยคนี้ก่อน
+    ถ้าตอบว่าใช่ ก็เก็บของที่ยังมีสิทธิ์ไว้ในแถวเดียว แล้วคำตอบจะรออยู่ที่หัวแถวเสมอ
+    ญาติสนิทของมันคือ<strong>สแต็กที่เรียงทางเดียว</strong> (monotonic stack) ซึ่งตอบคำถามว่า
+    "ตัวถัดไปที่ใหญ่กว่าอยู่ที่ไหน" ด้วยข้ออ้างเดียวกันเป๊ะ
+  </p>
+
   <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
   <ul>
     <li>
@@ -462,15 +700,15 @@ const swJson = JSON.stringify(swPuzzles);
 
   /* ---------- แถบตัวเลขของมินิเกมหน้าต่างเลื่อน ---------- */
   .sw-strip{display:flex;gap:5px;width:max-content;}
-  .sw-cell{
+  .sw-strip :global(.sw-cell){
     min-width:2.2rem;height:2.2rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:0.9rem;
     border:1px solid #2a3350;border-radius:6px;
     background:#101827;color:#7b8397;
   }
-  .sw-cell.in{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
-  .sw-cell.over{background:#351717;color:#f0a6a6;border-color:#8a3b3b;}
+  .sw-strip :global(.sw-cell.in){background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .sw-strip :global(.sw-cell.over){background:#351717;color:#f0a6a6;border-color:#8a3b3b;}
 </style>
 
 <script>

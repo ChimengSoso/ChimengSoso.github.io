@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -124,6 +125,24 @@ function answerOf(cs: Case): number {
   return best;
 }
 const ans1 = answerOf(EX1);
+
+/* ---------- ภาพผังของตัวอย่างที่ 1 ----------
+   ตำแหน่งฐานที่วาดมาจาก cheapest() ตัวเดียวกับที่หน้านี้ใช้หาคำตอบ
+   จึงเป็นจุดที่ถูกที่สุดจริงสำหรับด้านยาว ans1 ไม่ใช่จุดที่เลือกด้วยตา */
+const bestSpot = cheapest(EX1, ans1);
+const CELL = 32;
+const GX = 44;
+const GY = 34;
+const gx = (x: number): number => GX + (x - 1) * CELL;
+const gy = (y: number): number => GY + (y - 1) * CELL;
+const pbVB = `0 0 ${gx(EX1.M + 1) + 112} ${gy(EX1.N + 1) + 46}`;
+const obsInBase = (o: Obstacle): boolean =>
+  bestSpot !== null &&
+  o.x2 >= bestSpot.x &&
+  o.x1 <= bestSpot.x + ans1 - 1 &&
+  o.y2 >= bestSpot.y &&
+  o.y1 <= bestSpot.y + ans1 - 1;
+
 const ans2 = answerOf(EX2);
 
 /** ตารางที่แสดงว่าค่าใช้จ่ายต่ำสุดเพิ่มขึ้นตาม s ซึ่งเป็นเหตุผลที่ค้นหาแบบไบนารีได้ */
@@ -267,6 +286,12 @@ while (lo < hi) {
     ll md = (lo + hi + 1) / 2;
     if (ok(md)) lo = md; else hi = md - 1;
 }`;
+/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
+const pbBill = [
+  { name: 'ไล่ช่วง y ที่ถูกห้าม ต่อหนึ่งขนาด', limit: 'P หลักพัน และ B = 0', work: '20,000,000 ครั้ง' },
+  { name: 'ค้นหาไบนารีคู่กับเซกเมนต์ทรี', limit: 'P ถึง 400,000', work: '152,000,000 ครั้ง' },
+];
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · หาที่วางฐานปิรามิดให้ใหญ่ที่สุดในงบที่มี</h2>
@@ -335,6 +360,77 @@ while (lo < hi) {
       สิ่งกีดขวางหนึ่งก้อนจะห้ามมุมล่างซ้ายไว้ที่บริเวณรูปอะไร
     </p>
   </div>
+
+  {bestSpot !== null && (
+    <ZoomableDiagram caption={`ผังของตัวอย่างที่ 1 กว้าง ${EX1.M} ยาว ${EX1.N} งบรื้อ ${EX1.B} สี่เหลี่ยมทองคือสิ่งกีดขวาง ${EX1.obs.length} ก้อน ตัวเลขในก้อนคือค่ารื้อของก้อนนั้น กรอบเขียวคือฐานจัตุรัสด้านยาว ${ans1} ที่ใหญ่ที่สุดเท่าที่งบไหว วางที่มุมล่างซ้าย (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อรวมของก้อนที่ทับกรอบนี้คือ ${bestSpot.cost} ซึ่งไม่เกินงบ ลองไล่ดูจะเห็นว่าด้าน ${ans1 + 1} วางที่ไหนก็เกินงบทุกจุด (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={pbVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางกว้าง ${EX1.M} ช่อง ยาว ${EX1.N} ช่อง มีสิ่งกีดขวางสี่เหลี่ยม ${EX1.obs.length} ก้อน คือ ${EX1.obs.map((o) => `ก้อนจาก (${o.x1}, ${o.y1}) ถึง (${o.x2}, ${o.y2}) ค่ารื้อ ${o.c}`).join(' ')} และกรอบของฐานจัตุรัสด้านยาว ${ans1} ที่มุมล่างซ้ายอยู่ที่ (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อรวม ${bestSpot.cost} จากงบ ${EX1.B}`}>
+        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) =>
+          Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
+            <rect x={gx(x)} y={gy(y)} width={CELL} height={CELL} fill="#0f1626" stroke="#1e2740" stroke-width="1" />
+          )),
+        )}
+        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) => (
+          <text x={gx(x) + CELL / 2} y={GY - 8} fill="#7b8397" font-size="10.5" text-anchor="middle" font-family="monospace">
+            {x}
+          </text>
+        ))}
+        {Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
+          <text x={GX - 10} y={gy(y) + CELL / 2 + 4} fill="#7b8397" font-size="10.5" text-anchor="end" font-family="monospace">
+            {y}
+          </text>
+        ))}
+        {EX1.obs.map((o) => (
+          <>
+            <rect
+              x={gx(o.x1)}
+              y={gy(o.y1)}
+              width={(o.x2 - o.x1 + 1) * CELL}
+              height={(o.y2 - o.y1 + 1) * CELL}
+              rx="4"
+              fill={obsInBase(o) ? 'rgba(224,108,117,0.30)' : 'rgba(224,180,0,0.22)'}
+              stroke={obsInBase(o) ? '#e06c75' : '#e0b400'}
+              stroke-width="1.8"
+            />
+            <text
+              x={(gx(o.x1) + gx(o.x2) + CELL) / 2}
+              y={(gy(o.y1) + gy(o.y2) + CELL) / 2 + 5}
+              fill={obsInBase(o) ? '#ffb3b8' : '#ffe58a'}
+              font-size="13"
+              text-anchor="middle"
+              font-weight="700"
+              font-family="monospace"
+            >
+              {o.c}
+            </text>
+          </>
+        ))}
+        <rect
+          x={gx(bestSpot.x)}
+          y={gy(bestSpot.y)}
+          width={ans1 * CELL}
+          height={ans1 * CELL}
+          fill="none"
+          stroke="#4ade80"
+          stroke-width="3"
+          rx="3"
+        />
+        <text x={gx(EX1.M + 1) + 12} y={GY + 14} fill="#4ade80" font-size="12" text-anchor="start" font-family="monospace">
+          ฐานด้าน {ans1}
+        </text>
+        <text x={gx(EX1.M + 1) + 12} y={GY + 32} fill="#4ade80" font-size="12" text-anchor="start" font-family="monospace">
+          มุม ({bestSpot.x}, {bestSpot.y})
+        </text>
+        <text x={gx(EX1.M + 1) + 12} y={GY + 50} fill="#e06c75" font-size="12" text-anchor="start" font-family="monospace">
+          รื้อ {bestSpot.cost}
+        </text>
+        <text x={gx(EX1.M + 1) + 12} y={GY + 68} fill="#cdd6ea" font-size="12" text-anchor="start" font-family="monospace">
+          งบ {EX1.B}
+        </text>
+        <text x={gx(EX1.M + 1) + 12} y={GY + 92} fill="#e0b400" font-size="11" text-anchor="start">ทองคือกีดขวาง</text>
+        <text x={gx(EX1.M + 1) + 12} y={GY + 116} fill="#e06c75" font-size="11" text-anchor="start">แดงคือก้อนที่ต้องรื้อ</text>
+      </svg>
+    </ZoomableDiagram>
+  )}
 
   <h2>ลองเอง · หาที่วางฐานให้ใหญ่ที่สุดในงบ</h2>
   <div class="cpgame pbgame" data-pbgame data-puzzles={pbJson}>
@@ -489,6 +585,26 @@ while (lo < hi) {
     </p>
   </Spoiler>
 
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {pbBill.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.limit}</td>
+            <td class="num">{r.work}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทั้งสองแถวคูณจำนวนรอบของการค้นหาแบบไบนารีไว้แล้ว จึงเทียบกันได้ตรง ๆ แต่ตัวเลขไม่ใช่ประเด็นเดียว ทางบนตอบได้แค่คำถามว่ามีช่องว่างไหม ส่วนทางล่างตอบคำถามว่าผลรวมต่ำสุดเท่าไร ซึ่งเป็นคำถามที่แพงกว่าและครอบคำถามแรกอยู่ในตัว ชุดทดสอบที่มีงบจริงจึงใช้ทางบนไม่ได้เลยแม้ P จะเล็ก</figcaption>
+  </figure>
+
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
@@ -516,6 +632,14 @@ while (lo < hi) {
     </p>
     <p>
       เครื่องมือของข้อนี้อยู่ในบทปูพื้นฐาน <a href="../segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
+    </p>
+    <p>
+      ท่าที่ติดมือกลับไปมีสองชั้น ชั้นแรกคือเกณฑ์ว่าจะหยิบการค้นหาคำตอบแบบไบนารีมาใช้ได้เมื่อไร
+      ต้องมีคุณสมบัติว่าถ้าคำตอบขนาดหนึ่งทำได้ ขนาดที่เล็กกว่าต้องทำได้ด้วยเสมอ ข้อนี้มีให้ฟรีเพราะจัตุรัสเล็กกว่า
+      ซุกอยู่ในจัตุรัสใหญ่ได้ พอมีข้อนั้นแล้วคำถามว่า<strong>ใหญ่สุดเท่าไร</strong>ก็แปลงเป็นคำถามว่า
+      <strong>ขนาดนี้ทำได้ไหม</strong> ซึ่งตอบง่ายกว่ามาก ชั้นที่สองคือบทเรียนเรื่องเวลาที่ผมเสียไปข้างบน
+      งานที่อยู่ในลูปของการค้นหาแบบไบนารีถูกทำซ้ำยี่สิบรอบเสมอ ก่อนจะไปรื้อโครงสร้างข้อมูลที่ดูหนักที่สุด
+      ให้ไล่ดูก่อนว่ามีงานเตรียมข้อมูลชิ้นไหนที่ผลลัพธ์เหมือนกันทุกรอบ แล้วยกมันออกไปทำครั้งเดียวนอกลูป
     </p>
   </Spoiler>
 
@@ -614,8 +738,8 @@ while (lo < hi) {
 
   /* ---------- กระดานของมินิเกมฐานปิรามิด ---------- */
   .pb-board{display:flex;flex-direction:column;gap:3px;width:max-content;}
-  .pb-row{display:flex;gap:3px;}
-  .pb-cell{
+  .pb-board :global(.pb-row){display:flex;gap:3px;}
+  .pb-board :global(.pb-cell){
     width:1.8rem;height:1.8rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:0.72rem;
@@ -623,10 +747,10 @@ while (lo < hi) {
     border:1px solid #2a3350;border-radius:5px;
     background:#101827;color:#7b8397;
   }
-  .pb-cell:hover{border-color:var(--dl-emerald);}
-  .pb-cell.rock{background:#241a1a;color:#f0a6a6;border-color:#4a2a2a;}
-  .pb-cell.in{outline:2px solid #2f9e5c;outline-offset:-2px;}
-  .pb-cell.over{outline:2px solid #8a3b3b;outline-offset:-2px;}
+  .pb-board :global(.pb-cell:hover){border-color:var(--dl-emerald);}
+  .pb-board :global(.pb-cell.rock){background:#241a1a;color:#f0a6a6;border-color:#4a2a2a;}
+  .pb-board :global(.pb-cell.in){outline:2px solid #2f9e5c;outline-offset:-2px;}
+  .pb-board :global(.pb-cell.over){outline:2px solid #8a3b3b;outline-offset:-2px;}
 </style>
 
 <script>

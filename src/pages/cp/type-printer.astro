@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -165,10 +166,26 @@ function labelOffset(a: number[], b: number[]): [number, number] {
   return [nx * 13, ny * 13];
 }
 
+/* คำอธิบายรายก้าวของเครื่องพิมพ์ สร้างจาก goodTrace ตัวเดียวกับตาราง */
+const printerSteps = goodTrace.map((st) => ({
+  note:
+    `คำสั่งที่ <b>${st.i}</b> คือ <b>${st.op}</b> ` +
+    (st.printed
+      ? `สั่งพิมพ์ ได้คำว่า <em>${st.printed}</em> ออกมา โดยไม่ต้องแก้อะไรในเครื่องเลย`
+      : st.op === '-'
+        ? `ลบตัวท้ายออกหนึ่งตัว เหลือ <b>${st.state === '' ? 'ว่าง' : st.state}</b> ค้างอยู่ในเครื่อง`
+        : `เติมตัวอักษรเข้าไป เครื่องจึงมี <b>${st.state}</b> ค้างอยู่`),
+}));
+
 const NMAX = 25000;
 const LENMAX = 20;
 const NODEMAX = NMAX * LENMAX;
 const fmt = (n: number): string => n.toLocaleString('en-US');
+
+/* ตัวเลขของหัวข้อ "ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย" คิดจากค่าจริงของหน้านี้ ไม่ได้พิมพ์มือ */
+const SUBN = 18; // ขอบเขตของชุดทดสอบย่อย 40 คะแนน
+const sampleOrders = WORDS.reduce((acc, _w, i) => acc * (i + 1), 1);
+const subStates = Math.pow(2, SUBN) * SUBN;
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
@@ -255,6 +272,12 @@ const coreSnippet = `void dfs(int u) {
         dfs(T[u].ch[keepChild]);
     }
 }`;
+/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
+const tpBill = [
+  { name: 'มองเป็นปัญหาเดินเยี่ยมให้ครบ', limit: 'N ไม่เกิน 18', work: '84,934,656 ครั้ง' },
+  { name: 'เดินบนไทร', limit: 'N ถึง 25,000', work: '500,000 ครั้ง' },
+];
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · เครื่องพิมพ์ที่จำคำล่าสุดไว้ให้</h2>
@@ -305,6 +328,25 @@ const coreSnippet = `void dfs(int u) {
   </table>
   <p class="io-note">
     คำสั่งชุดนี้เป็นคนละชุดกับในโจทย์ แต่ยาวเท่ากันคือ {optimal} ครั้ง ซึ่งโจทย์บอกเองว่าตอบแบบไหนก็ได้
+  </p>
+
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    ของที่เราเลือกเองได้คือลำดับการพิมพ์ ตัวอย่างในโจทย์มี {WORDS.length} คำ จึงมีลำดับให้เลือก
+    {sampleOrders} แบบ ไล่ดูให้ครบได้ในกระดาษแผ่นเดียว แต่โจทย์จริงให้คำมาได้ถึง {fmt(NMAX)} คำ
+    จำนวนลำดับคือผลคูณของ 1 คูณ 2 คูณ 3 ไปเรื่อย ๆ จนถึง {fmt(NMAX)} ซึ่งยาวเกินกว่าจะเขียนลงกระดาษ
+  </p>
+  <p>
+    ชุดทดสอบย่อยที่ให้ 40 คะแนนวางกับดักไว้ตรงนี้พอดี พอเห็นว่า <code>N</code> ไม่เกิน {SUBN}
+    ท่าที่โผล่มาในหัวทันทีคือดีพีบนหน้ากากบิตของเซตคำที่พิมพ์ไปแล้ว ซึ่งคิดเป็นราว {fmt(subStates)} ครั้ง
+    สบายมากในหนึ่งวินาที ปัญหาคือมันตันสนิทตั้งแต่ <code>N</code> เป็น {SUBN + 1} และไม่มีส่วนไหนของมัน
+    ต่อยอดไปหาเฉลยเต็มได้
+  </p>
+  <p>
+    จุดที่ปลดล็อกอยู่ในราคาของการย้ายจากคำหนึ่งไปอีกคำหนึ่ง ราคานั้นขึ้นกับสองคำที่ติดกันเท่านั้น
+    คำที่เหลือจะเรียงกันยังไงก็ไม่เกี่ยว ลำดับทั้งลำดับจึงไม่ใช่ของที่ต้องนั่งเลือก
+    และเมื่อย้อนกลับไปอ่านประโยคที่ว่าตัวอักษรซึ่งค้างอยู่ตอนจบไม่ต้องเสียค่าลบ
+    ก็เหลือของที่ต้องตัดสินใจจริง ๆ อยู่อย่างเดียว คือ<strong>คำไหนที่ปล่อยค้างไว้ในเครื่อง</strong>
   </p>
 
   <div class="callout callout-tip">
@@ -587,8 +629,8 @@ const coreSnippet = `void dfs(int u) {
 
   <h2>ไล่คำสั่งทีละก้าว</h2>
   <Spoiler>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="printsim" steps={printerSteps} label="กดถัดไปเพื่อไล่คำสั่งทีละครั้ง">
+    <table class="rec">
         <caption>สถานะของเครื่องพิมพ์ตลอด {goodOps.length} คำสั่ง</caption>
         <thead>
           <tr><th class="num">ครั้งที่</th><th>คำสั่ง</th><th>ในเครื่อง</th><th>พิมพ์ออกมา</th></tr>
@@ -604,12 +646,33 @@ const coreSnippet = `void dfs(int u) {
           ))}
         </tbody>
       </table>
-      <figcaption>
-        สังเกตท้ายตาราง เครื่องจบด้วย <code>{longest}</code> ค้างอยู่ ไม่มีคำสั่งลบตามหลังอีกเลย
+  </CpStepPlayer>
+  <p class="io-note">
+    สังเกตท้ายตาราง เครื่องจบด้วย <code>{longest}</code> ค้างอยู่ ไม่มีคำสั่งลบตามหลังอีกเลย
         นั่นคือ {longest.length} ครั้งที่เราประหยัดได้
-      </figcaption>
-    </figure>
+  </p>
+
   </Spoiler>
+
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {tpBill.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.limit}</td>
+            <td class="num">{r.work}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>แถวบนคือการจำว่าเคยพิมพ์คำชุดไหนไปแล้ว ซึ่งเป็นหน้ากากบิตของคำทั้งหมด จำนวนสถานะจึงเป็นสองยกกำลัง N แถวล่างไม่ต้องจำอะไรแบบนั้นเลย เพราะไทรบอกอยู่แล้วว่าจากจุดนี้เดินต่อไปไหนได้ ต่างกันตรงที่แถวบนโตแบบทวีคูณตามจำนวนคำ ส่วนแถวล่างโตตามความยาวตัวอักษรรวม</figcaption>
+  </figure>
 
   <h2>โค้ด C++</h2>
   <Spoiler>
@@ -639,6 +702,18 @@ const coreSnippet = `void dfs(int u) {
       <strong>76 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
     </p>
   </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+    <p>
+      การตัดสินใจว่าจะเก็บกิ่งไหนไว้ทีหลังเป็น<strong>ท่าโลภ</strong> (greedy) คือเราเลือกด้วยกฎข้อเดียวว่า
+      เก็บกิ่งที่<strong>มีคำที่ลึกที่สุด</strong>ไว้ท้ายสุด แล้วไม่ย้อนกลับมาทบทวน สิ่งที่ทำให้กล้าเชื่อกฎนี้คือ
+      หัวข้อ "ถ้าเลือกกิ่งค้างผิด จะแพงขึ้นเท่าไร" ข้างบน ซึ่งคิดราคาของการเลือกผิดออกมาเป็นตัวเลข
+    </p>
+    <p>
+      รูปนี้ยกไปใช้ได้กับท่าโลภทุกข้อ คือ<strong>อย่าเชื่อกฎเพราะตัวอย่างผ่าน ให้คิดราคาของการทำตรงข้าม</strong>
+      ถ้าทำตรงข้ามแล้วแย่ลงเสมอ กฎนั้นถูก ถ้ามีกรณีที่ไม่แย่ลง กฎนั้นยังไม่พร้อมใช้
+      มี<a href="../mobiles/">คำอธิบายเรื่องท่าโลภ</a>อยู่ในโจทย์โมบาย
+    </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -743,7 +818,7 @@ const coreSnippet = `void dfs(int u) {
   .tr-words td.done{background:#14351f;color:#4ade80;}
   .tr-screen{width:0;min-width:100%;margin:0.3rem 0 0;}
   .tr-screen code{font-size:1.05rem;letter-spacing:0.1em;}
-  .tr-key{min-width:2.2rem;font-family:var(--dl-mono,monospace);}
+  .cpg-controls :global(.tr-key){min-width:2.2rem;font-family:var(--dl-mono,monospace);}
 </style>
 
 <script>
@@ -915,4 +990,12 @@ const coreSnippet = `void dfs(int u) {
   }
 
   document.addEventListener('astro:page-load', initPrinterGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-printsim]');
+  });
 </script>

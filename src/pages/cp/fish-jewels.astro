@@ -1,5 +1,7 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -42,6 +44,23 @@ function allCombos(): string[] {
 const combos = allCombos();
 const rawAnswer = combos.length;
 const answer = rawAnswer % MODULUS;
+
+/* ---------- ภาพเพดานกับครึ่งเพดาน ----------
+   เลือกชนิดที่มีปลายาวที่สุดเป็นตัวอย่าง เพราะเห็นเส้นแบ่งชัดที่สุด
+   ค่าเพดานและจำนวนที่หยิบได้มาจาก reachOf() ตัวเดียวกับที่นับคำตอบ */
+const PICK_T = FISH.reduce((b, f) => (f.len > b.len ? f : b), FISH[0]).type;
+const reach = reachOf(FISH, K, PICK_T) as { cap: number; hi: number[] };
+const fishSorted = [...FISH].sort((a, b) => b.len - a.len);
+const swallowable = (f: Fish): boolean => 2 * f.len <= reach.cap;
+const UNIT = 44;
+const FX = 128;
+const BAR_H2 = 26;
+const BAR_GAP2 = 14;
+const fbarY = (k: number): number => 62 + k * (BAR_H2 + BAR_GAP2);
+const fux = (len: number): number => FX + len * UNIT;
+const TYPE_INK = ['#4ade80', '#e0b400', '#6aa9ff'];
+const fjVB = `0 0 ${fux(reach.cap) + 73} ${fbarY(fishSorted.length) + 81}`;
+
 
 /* ---------- มินิเกม เก็บชุดอัญมณีให้ครบทุกแบบ ----------
    เกมนี้ใช้กติกาเดียวกับที่บทความนับ คือเลือกชนิดที่จะจับก่อน
@@ -305,6 +324,21 @@ ans = (ans + own % MOD * left) % MOD;
 // กรณี (ก) ชนิดตัวเองเต็มเพดาน  ชนิดที่มาทีหลังยังใส่ได้จนกว่าจะถึงตัวที่กลืน x ได้
 int J = first_index_after_i_whose_prefix_swallows(x);
 ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
+/* คำอธิบายรายชนิด สร้างจาก rows ตัวเดียวกับตาราง */
+const fjNotes = rows.map((r) => ({
+  note:
+    `ชนิดที่ <b>${r.type}</b> มีตัวแทนยาว <b>${r.B}</b> ` +
+    `ปลาที่ยาวไม่เกินครึ่งของมันจึงถูกกลืนได้ นับต่อชนิดได้ <b>${r.m.join(' , ')}</b> ` +
+    `เพดานของชนิดตัวเองคือ <b>${r.A}</b> ` +
+    `กรณีที่นับได้จึงเป็น <em>${r.caseB}</em> กับ <em>${r.caseA}</em> แบบ`,
+}));
+
+/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
+const fjBill = [
+  { name: 'คูณไล่ตรง ๆ ทุกรอบ', limit: 'K ไม่เกิน 7,000', work: '49,000,000 ครั้ง' },
+  { name: 'เซกเมนต์ทรีที่เก็บผลคูณ', limit: 'K ถึง 500,000', work: '9,500,000 ครั้ง' },
+];
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · จับปลาหนึ่งตัว ได้อัญมณีในท้องมันทั้งหมด</h2>
@@ -368,6 +402,48 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
       <strong>ชุดเดียวกันเกิดได้จากปลาหลายตัว</strong> แล้วเราจะนับมันครั้งเดียวได้ยังไง
     </p>
   </div>
+
+  <ZoomableDiagram caption={`ปลาทั้ง ${FISH.length} ตัวในตัวอย่าง เรียงจากยาวไปสั้น สมมติเลือกจับปลาชนิด ${PICK_T} ตัวที่ยาวที่สุดของชนิดนั้นยาว ${reach.cap} จึงเป็นเพดาน เส้นประที่ ${reach.cap / 2} คือครึ่งเพดาน ปลาตัวไหนที่ยาวไม่เกินเส้นนี้จะถูกกลืนไปด้วยได้ เพราะปลาจะกลืนกันได้เมื่อตัวที่ถูกกลืนยาวไม่เกินครึ่งของตัวที่กลืน ในตัวอย่างนี้มีปลา ${FISH.filter(swallowable).length} ตัวที่เข้าเงื่อนไข ทำให้จำนวนที่หยิบได้ของแต่ละชนิดเป็น ${reach.hi.join(', ')} ตามลำดับชนิด (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={fjVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนภูมิแท่งนอน ${FISH.length} แท่ง แต่ละแท่งคือปลาหนึ่งตัว ความยาวจากมากไปน้อยคือ ${fishSorted.map((f) => f.len).join(' ')} เส้นตั้งเส้นแรกอยู่ที่ ${reach.cap / 2} คือครึ่งของเพดาน เส้นที่สองอยู่ที่ ${reach.cap} คือเพดาน ปลาที่สั้นกว่าครึ่งเพดานถูกเน้นไว้ มี ${FISH.filter(swallowable).length} ตัว`}>
+      <line x1={fux(reach.cap / 2)} y1="42" x2={fux(reach.cap / 2)} y2={fbarY(fishSorted.length) - 4} stroke="#4ade80" stroke-width="1.6" stroke-dasharray="6 5" />
+      <line x1={fux(reach.cap)} y1="42" x2={fux(reach.cap)} y2={fbarY(fishSorted.length) - 4} stroke="#e06c75" stroke-width="1.6" stroke-dasharray="6 5" />
+      <text x={fux(reach.cap / 2)} y="32" fill="#4ade80" font-size="11.5" text-anchor="middle" font-family="monospace">
+        ครึ่งเพดาน {reach.cap / 2}
+      </text>
+      <text x={fux(reach.cap)} y="32" fill="#e06c75" font-size="11.5" text-anchor="end" font-family="monospace">
+        เพดาน {reach.cap}
+      </text>
+      {fishSorted.map((f, k) => (
+        <>
+          <text x={FX - 12} y={fbarY(k) + 18} fill={TYPE_INK[(f.type - 1) % 3]} font-size="11.5" text-anchor="end" font-family="monospace">
+            ชนิด {f.type} · ยาว {f.len}
+          </text>
+          <rect
+            x={FX}
+            y={fbarY(k)}
+            width={f.len * UNIT}
+            height={BAR_H2}
+            rx="5"
+            fill={swallowable(f) ? 'rgba(74,222,128,0.20)' : 'rgba(127,141,176,0.14)'}
+            stroke={swallowable(f) ? '#4ade80' : '#5b6478'}
+            stroke-width={swallowable(f) ? '2' : '1.3'}
+          />
+          <text x={FX + f.len * UNIT + 10} y={fbarY(k) + 18} fill={swallowable(f) ? '#4ade80' : '#7b8397'} font-size="11" text-anchor="start">
+            {swallowable(f) ? 'ถูกกลืนได้' : 'ยาวเกินครึ่ง'}
+          </text>
+        </>
+      ))}
+      <text x={FX - 12} y={fbarY(fishSorted.length) + 26} fill="#cdd6ea" font-size="11.5" text-anchor="end" font-family="monospace">
+        หยิบได้ต่อชนิด
+      </text>
+      <text x={FX} y={fbarY(fishSorted.length) + 26} fill="#cdd6ea" font-size="11.5" text-anchor="start" font-family="monospace">
+        {reach.hi.join(' , ')}
+      </text>
+      <text x={FX} y={fbarY(fishSorted.length) + 44} fill="#98a3ba" font-size="11" text-anchor="start">
+        ชนิดที่เลือกจับได้เพิ่มอีกหนึ่ง เพราะตัวที่กลืนก็นับด้วย
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · เก็บชุดอัญมณีให้ครบทุกแบบ</h2>
   <div class="cpgame fishgame" data-fishgame data-puzzles={fishJson}>
@@ -501,8 +577,8 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
 
   <h2>แกะตัวอย่างในโจทย์ทีละชนิด</h2>
   <Spoiler>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="fjsim" steps={fjNotes} label="กดถัดไปเพื่อไล่ชนิดทีละชนิด">
+    <table class="rec">
         <caption>เรียงชนิดตามตัวแทนจากเล็กไปใหญ่</caption>
         <thead>
           <tr>
@@ -528,12 +604,13 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
           ))}
         </tbody>
       </table>
-      <figcaption>
-        คอลัมน์ "กินได้กี่ตัวต่อชนิด" อ่านตามลำดับที่เรียงไว้ ไม่ใช่ตามหมายเลขชนิดเดิม
+  </CpStepPlayer>
+  <p class="io-note">
+    คอลัมน์ "กินได้กี่ตัวต่อชนิด" อ่านตามลำดับที่เรียงไว้ ไม่ใช่ตามหมายเลขชนิดเดิม
         รวมสองคอลัมน์สุดท้ายได้ {formulaTotal} ซึ่งตรงกับการไล่นับตรง ๆ ที่ได้ {rawAnswer} แบบ
         และ {formulaTotal} หารเอาเศษด้วย {MODULUS} ได้ {answer}
-      </figcaption>
-    </figure>
+  </p>
+
     <p>
       สังเกตแถวแรก ชนิด {rows[0].type} มีตัวแทนยาวแค่ {rows[0].B} จึงกินอะไรไม่ได้เลย เพดานของตัวเองคือ 1
       กรณี (ข) จึงเป็นศูนย์ และกรณี (ก) ให้ชุดเดียวคือ <code>[{rows[0].type}]</code>
@@ -570,6 +647,26 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
     </p>
   </Spoiler>
 
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {fjBill.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.limit}</td>
+            <td class="num">{r.work}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวนี้นับด้วยหน่วยเดียวกันคือจำนวนครั้งของการคูณหนึ่งครั้ง ที่ขอบเขตของตัวเอง งานของสองทางใกล้กันกว่าที่คิด แต่ถ้าเอาทางบนไปรันที่ K ห้าแสน มันจะกลายเป็นสองแสนห้าหมื่นล้านครั้งทันที ซึ่งคือส่วนที่ตารางนี้อธิบายไม่ได้ในบรรทัดเดียว จุดสำคัญคือทางบนโตแบบยกกำลังสอง ส่วนทางล่างโตแบบเชิงเส้นคูณลอการิทึม</figcaption>
+  </figure>
+
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
@@ -592,6 +689,19 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
       <a href="../segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
     </p>
   </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+    <p>
+      การตัดสินใจในเฉลยนี้เป็น<strong>ท่าโลภ</strong> (greedy) คือเมื่อถึงคิวของอัญมณีชนิดหนึ่ง เราเลือกด้วยข้อมูล
+      เฉพาะหน้าแล้วไม่ย้อนกลับมาแก้ ที่มันถูกได้เพราะเราจัดลำดับการคิดใหม่ให้ผูกกับ<strong>ชนิด</strong>
+      ไม่ผูกกับตัวปลา พอเรียงลำดับถูก การเลือกเฉพาะหน้าก็ไม่ปิดทางที่ดีกว่าอีก
+    </p>
+    <p>
+      นี่คือรูปที่พบบ่อยที่สุดของท่าโลภที่ใช้ได้จริง คือ<strong>เรียงลำดับให้ถูกก่อน แล้วท่าโลภจึงจะถูก</strong>
+      ถ้าท่าโลภของเราตอบผิด ให้กลับไปสงสัยลำดับที่เราไล่ ก่อนจะไปสงสัยตัวการตัดสินใจ
+      มี<a href="../mobiles/">คำอธิบายเรื่องท่าโลภ</a>อยู่ในโจทย์โมบาย และ<a href="../sails/">โจทย์ใบเรือ</a>
+      เป็นอีกข้อที่ความถูกต้องของท่าโลภมาจากลำดับที่ไล่
+    </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -947,4 +1057,12 @@ ans = (ans + left * prod(i + 1, J - 1)) % MOD;`;
   }
 
   document.addEventListener('astro:page-load', initFishGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-fjsim]');
+  });
 </script>
