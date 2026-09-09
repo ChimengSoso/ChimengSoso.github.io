@@ -1,0 +1,917 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'mole-tunnels/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Edge = [number, number];
+
+/** ระยะทางจากปมเริ่ม ไปทุกปมที่ยังเชื่อมถึงกัน หลังตัดเส้น cut ออกแล้ว */
+function bfs(n: number, edges: Edge[], src: number, cut: number): { dist: number[]; par: number[]; seen: number[] } {
+  const adj: number[][] = Array.from({ length: n + 1 }, () => []);
+  edges.forEach(([a, b], i) => {
+    if (i === cut) return;
+    adj[a].push(b);
+    adj[b].push(a);
+  });
+  const dist = new Array<number>(n + 1).fill(-1);
+  const par = new Array<number>(n + 1).fill(0);
+  const seen: number[] = [src];
+  dist[src] = 0;
+  for (let i = 0; i < seen.length; i++) {
+    const u = seen[i];
+    for (const v of adj[u])
+      if (dist[v] < 0) {
+        dist[v] = dist[u] + 1;
+        par[v] = u;
+        seen.push(v);
+      }
+  }
+  return { dist, par, seen };
+}
+
+/** เส้นผ่านศูนย์กลางกับจุดกึ่งกลางของก้อนที่ src อยู่ หาโดยเดินกว้างสองรอบ */
+function diamAndCenter(n: number, edges: Edge[], src: number, cut: number): { diam: number; center: number; nodes: number[] } {
+  const first = bfs(n, edges, src, cut);
+  let u = src;
+  for (const x of first.seen) if (first.dist[x] > first.dist[u]) u = x;
+  const second = bfs(n, edges, u, cut);
+  let w = u;
+  for (const x of second.seen) if (second.dist[x] > second.dist[w]) w = x;
+  let cur = w;
+  for (let s = 0; s < Math.floor(second.dist[w] / 2); s++) cur = second.par[cur];
+  return { diam: second.dist[w], center: cur, nodes: first.seen };
+}
+
+/** เส้นผ่านศูนย์กลางของทั้งต้นไม้ ตามรูปที่เป็นอยู่ */
+function wholeDiam(n: number, edges: Edge[]): number {
+  return diamAndCenter(n, edges, 1, -1).diam;
+}
+
+type Plan = { cut: number; score: number; d1: number; d2: number; c1: number; c2: number };
+
+/** ประเมินทุกเส้นที่ปิดได้ ด้วยสูตร แล้วคืนแผนที่ดีที่สุด */
+function planAll(n: number, edges: Edge[]): { rows: Plan[]; best: Plan } {
+  const rows: Plan[] = edges.map(([a, b], i) => {
+    const A = diamAndCenter(n, edges, a, i);
+    const B = diamAndCenter(n, edges, b, i);
+    const score = Math.max(A.diam, B.diam, Math.ceil(A.diam / 2) + Math.ceil(B.diam / 2) + 1);
+    return { cut: i, score, d1: A.diam, d2: B.diam, c1: A.center, c2: B.center };
+  });
+  let best = rows[0];
+  for (const r of rows) if (r.score < best.score) best = r;
+  return { rows, best };
+}
+
+/** ตัวตรวจ ลองปิดทุกเส้นและลองต่อทุกคู่ห้อง วัดระยะไกลสุดจริงทุกครั้ง ไม่ใช้สูตรใด ๆ */
+function bruteBest(n: number, edges: Edge[]): number {
+  let best = Infinity;
+  for (let cut = 0; cut < edges.length; cut++) {
+    const A = bfs(n, edges, edges[cut][0], cut);
+    const B = bfs(n, edges, edges[cut][1], cut);
+    for (const x of A.seen)
+      for (const y of B.seen) {
+        const rebuilt: Edge[] = edges.filter((_, i) => i !== cut).concat([[x, y]]);
+        let d = 0;
+        for (let s = 1; s <= n; s++) {
+          const r = bfs(n, rebuilt, s, -1);
+          if (r.seen.length !== n) {
+            d = Infinity;
+            break;
+          }
+          for (const t of r.seen) d = Math.max(d, r.dist[t]);
+        }
+        best = Math.min(best, d);
+      }
+  }
+  return best;
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE_A: { n: number; edges: Edge[] } = { n: 4, edges: [[1, 2], [2, 3], [3, 4]] };
+const SAMPLE_B: { n: number; edges: Edge[] } = {
+  n: 7,
+  edges: [[1, 3], [2, 3], [2, 7], [4, 3], [7, 5], [3, 6]],
+};
+const samples = [SAMPLE_A, SAMPLE_B].map((s) => {
+  const { best } = planAll(s.n, s.edges);
+  return { ...s, best, before: wholeDiam(s.n, s.edges) };
+});
+
+/* ด่านตรวจตอนบิลด์ สูตรต้องตรงกับการลองทุกคู่จริง ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 120;
+{
+  let seed = 992025;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 2 + rnd(7);
+    const edges: Edge[] = [];
+    for (let i = 2; i <= n; i++) edges.push([1 + rnd(i - 1), i]);
+    const byFormula = planAll(n, edges).best.score;
+    const byBrute = bruteBest(n, edges);
+    if (byFormula !== byBrute)
+      throw new Error(`mole-tunnels: สูตรได้ ${byFormula} แต่การลองทุกคู่ได้ ${byBrute} ที่ต้นไม้ ${JSON.stringify(edges)}`);
+  }
+}
+
+/* ---------- ต้นไม้สาธิตสำหรับตัวเล่นทีละขั้น ---------- */
+const DEMO: { n: number; edges: Edge[] } = {
+  n: 9,
+  edges: [[1, 2], [2, 3], [3, 4], [4, 5], [3, 6], [6, 7], [2, 8], [8, 9]],
+};
+const demoPlan = planAll(DEMO.n, DEMO.edges);
+const DEMO_BEFORE = wholeDiam(DEMO.n, DEMO.edges);
+const DEMO_BEST = demoPlan.best;
+const demoSteps = demoPlan.rows.map((r) => {
+  const [a, b] = DEMO.edges[r.cut];
+  const r1 = Math.ceil(r.d1 / 2);
+  const r2 = Math.ceil(r.d2 / 2);
+  const through = r1 + r2 + 1;
+  const win = Math.max(r.d1, r.d2, through);
+  const which = win === through ? 'ทางที่วิ่งข้ามอุโมงค์ใหม่' : 'ก้อนที่ยาวที่สุดในตัวมันเอง';
+  return {
+    note:
+      `ปิดอุโมงค์ <b>${a} ถึง ${b}</b> แล้วได้สองก้อนที่ยาว <b>${r.d1}</b> กับ <b>${r.d2}</b> ` +
+      `รัศมีของสองก้อนคือ <b>${r1}</b> กับ <b>${r2}</b> ต่อกลางกับกลางจึงได้ทางข้ามยาว <b>${through}</b> ` +
+      `ตัวที่ใหญ่ที่สุดในสามตัวคือ <b>${win}</b> ซึ่งมาจาก${which}`,
+  };
+});
+
+/* ---------- แผนภาพ วางตำแหน่งปมด้วยการเดินกว้าง ---------- */
+type Pos = { id: number; x: number; y: number };
+function layout(n: number, edges: Edge[], root: number, x0: number, y0: number, dx: number, dy: number): Pos[] {
+  const { dist, seen } = bfs(n, edges, root, -1);
+  const byLevel = new Map<number, number[]>();
+  for (const v of seen) {
+    const lv = dist[v];
+    if (!byLevel.has(lv)) byLevel.set(lv, []);
+    (byLevel.get(lv) ?? []).push(v);
+  }
+  const out: Pos[] = [];
+  for (const [lv, list] of [...byLevel.entries()].sort((a, b) => a[0] - b[0]))
+    list.forEach((v, i) => out.push({ id: v, x: x0 + lv * dx, y: y0 + (i - (list.length - 1) / 2) * dy }));
+  return out;
+}
+
+/* แผนภาพอธิบายว่าทำไมต้องต่อที่จุดกึ่งกลาง */
+const RAD_D = 6;
+const radPts = Array.from({ length: RAD_D + 1 }, (_, i) => i);
+const RAD_MID = Math.floor(RAD_D / 2);
+
+/* ---------- มินิเกม เลือกเส้นที่จะปิดและจุดที่จะต่อ ---------- */
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  edges: Edge[];
+  pos: Pos[];
+  best: number;
+  before: number;
+};
+function makePuzzle(id: string, label: string, tease: string, n: number, edges: Edge[], root: number): GamePuzzle {
+  const byFormula = planAll(n, edges).best.score;
+  const byBrute = bruteBest(n, edges);
+  if (byFormula !== byBrute) throw new Error(`mole-tunnels: เฉลยเกม ${id} ไม่ตรงกับการลองทุกคู่`);
+  return { id, label, tease, n, edges, pos: layout(n, edges, root, 44, 96, 74, 52), best: byFormula, before: wholeDiam(n, edges) };
+}
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ทางเดินยาว 6 ห้อง', 'ทางเดินเส้นเดียวคือกรณีที่มองออกง่ายที่สุด ตัดตรงไหนแล้วได้อะไร ลองเล่นให้ครบทุกเส้น', 6, [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6]], 1),
+  makePuzzle('b', 'ต้นไม้ 9 ห้องของบทนี้', 'ต้นนี้มีสามกิ่งยาวไม่เท่ากัน เส้นที่ควรปิดไม่ใช่เส้นที่อยู่ตรงกลางรูปเสมอไป', DEMO.n, DEMO.edges, 1),
+  makePuzzle('c', 'ดาวสองดวงเชื่อมกัน', 'สองก้อนนี้ยาวเท่ากันเป๊ะ คำถามคือปิดเส้นที่เชื่อมมันแล้วจะดีขึ้นไหม', 9, [[1, 2], [1, 3], [1, 4], [4, 5], [5, 6], [6, 7], [7, 8], [7, 9]], 1),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 300000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const bill = [
+  { name: 'ปิดทุกเส้น แล้วเดินวัดสองก้อนใหม่ทุกครั้ง', limit: 'N ไม่เกินราวสามพัน', work: `${fmt(N_MAX)} คูณ ${fmt(N_MAX)} คือเก้าหมื่นล้าน` },
+  { name: 'ไล่ค่าขึ้นลงรอบเดียว แล้วเดินกว้างเฉพาะเส้นที่ชนะ', limit: `N ถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 3)} ครั้ง` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int N;
+vector<int> head_, nxt_, to_;
+void addEdge(int u, int v){ to_.push_back(v); nxt_.push_back(head_[u]); head_[u] = (int)to_.size() - 1; }
+vector<int> par, ord_, h, dd, uh, ud;
+
+// เดินจาก s ในกราฟที่ตัดเส้น (ba, bb) ออกแล้ว คืนระยะทางกับพ่อของทุกปมที่ไปถึง
+void bfs(int s, int ba, int bb, vector<int>&d, vector<int>&pa, vector<int>&seen){
+    d[s] = 0; pa[s] = 0; seen.clear(); seen.push_back(s);
+    for(size_t i = 0; i < seen.size(); i++){ int u = seen[i];
+        for(int e = head_[u]; e != -1; e = nxt_[e]){ int v = to_[e];
+            if((u == ba && v == bb) || (u == bb && v == ba)) continue;
+            if(d[v] < 0){ d[v] = d[u] + 1; pa[v] = u; seen.push_back(v); } } }
+}
+
+int main(){
+    if(scanf("%d", &N) != 1) return 0;
+    head_.assign(N + 1, -1);
+    for(int i = 0; i < N - 1; i++){ int a, b; scanf("%d %d", &a, &b); addEdge(a, b); addEdge(b, a); }
+    if(N == 1){ printf("0\\n"); return 0; }              // ไม่มีอุโมงค์ให้ปิด
+
+    par.assign(N + 1, 0); ord_.reserve(N);
+    h.assign(N + 1, 0); dd.assign(N + 1, 0); uh.assign(N + 1, 0); ud.assign(N + 1, 0);
+    // เรียงแบบกว้างก่อนแล้วไล่ย้อน แทนการเรียกซ้ำ ต้นไม้สูงสามแสนชั้นจึงไม่ทำสแต็กแตก
+    vector<char> vis(N + 1, 0); ord_.push_back(1); vis[1] = 1;
+    for(size_t i = 0; i < ord_.size(); i++){ int u = ord_[i];
+        for(int e = head_[u]; e != -1; e = nxt_[e]){ int v = to_[e];
+            if(!vis[v]){ vis[v] = 1; par[v] = u; ord_.push_back(v); } } }
+
+    // ขาลง h = ความสูงของกิ่ง, dd = เส้นผ่านศูนย์กลางภายในกิ่ง
+    for(int i = N - 1; i >= 0; i--){ int v = ord_[i]; int a1 = 0, a2 = 0;
+        for(int e = head_[v]; e != -1; e = nxt_[e]){ int c = to_[e]; if(c == par[v]) continue;
+            int a = h[c] + 1; if(a > a1){ a2 = a1; a1 = a; } else if(a > a2) a2 = a;
+            dd[v] = max(dd[v], dd[c]); }
+        h[v] = a1; dd[v] = max(dd[v], a1 + a2); }
+
+    // ขาขึ้น uh = ระยะไกลสุดที่ออกไปทางพ่อ, ud = เส้นผ่านศูนย์กลางของส่วนที่เหลือ
+    for(int i = 0; i < N; i++){ int p = ord_[i];
+        int a1 = 0, a2 = 0, a3 = 0, i1 = -1, i2 = -1;     // สามอันดับของระยะลงไปในลูก
+        int d1 = 0, d2 = 0, j1 = -1;                       // สองอันดับของเส้นผ่านศูนย์กลางในลูก
+        for(int e = head_[p]; e != -1; e = nxt_[e]){ int c = to_[e]; if(c == par[p]) continue;
+            int a = h[c] + 1;
+            if(a > a1){ a3 = a2; a2 = a1; i2 = i1; a1 = a; i1 = c; }
+            else if(a > a2){ a3 = a2; a2 = a; i2 = c; }
+            else if(a > a3){ a3 = a; }
+            int d = dd[c];
+            if(d > d1){ d2 = d1; d1 = d; j1 = c; } else if(d > d2) d2 = d; }
+        for(int e = head_[p]; e != -1; e = nxt_[e]){ int c = to_[e]; if(c == par[p]) continue;
+            int b1 = (i1 == c) ? a2 : a1;                  // ระยะลงที่ยาวสุด ไม่นับกิ่งของ c
+            int b2 = (i1 == c) ? a3 : ((i2 == c) ? a3 : a2);
+            int bd = (j1 == c) ? d2 : d1;                  // เส้นผ่านศูนย์กลางของลูกตัวอื่น
+            int s1 = uh[p], s2 = 0;                        // สองทางที่ยาวสุดจาก p รวมทางขึ้นข้างบน
+            if(b1 > s1){ s2 = s1; s1 = b1; } else s2 = b1;
+            if(b2 > s2) s2 = b2;
+            ud[c] = max(max(ud[p], bd), s1 + s2);
+            uh[c] = 1 + max(uh[p], b1); } }
+
+    int best = INT_MAX, bv = -1;
+    for(int v = 2; v <= N; v++){
+        int d1 = dd[v], d2 = ud[v];
+        int s = max(max(d1, d2), (d1 + 1) / 2 + (d2 + 1) / 2 + 1);
+        if(s < best){ best = s; bv = v; } }
+
+    // รู้แล้วว่าปิดเส้นไหน จึงค่อยเดินกว้างสองรอบต่อข้าง เพื่อหาจุดกึ่งกลางจริง ๆ
+    int pu = par[bv];
+    vector<int> d(N + 1, -1), pa(N + 1, 0), seen;
+    auto centerOf = [&](int s) -> int {
+        fill(d.begin(), d.end(), -1); bfs(s, pu, bv, d, pa, seen);
+        int u = s; for(int x : seen) if(d[x] > d[u]) u = x;
+        fill(d.begin(), d.end(), -1); bfs(u, pu, bv, d, pa, seen);
+        int w = u; for(int x : seen) if(d[x] > d[w]) w = x;
+        int steps = d[w] / 2, cur = w; while(steps--) cur = pa[cur];
+        return cur; };
+    printf("%d\\n%d %d\\n%d %d\\n", best, pu, bv, centerOf(bv), centerOf(pu));
+}`;
+
+const bruteCode = `// ตัวตรวจ ปิดทุกเส้น ต่อทุกคู่ห้อง แล้ววัดระยะไกลสุดจริงทุกครั้ง
+// ไม่มีคำว่ารัศมีหรือจุดกึ่งกลางอยู่ในนี้เลย
+#include <bits/stdc++.h>
+using namespace std;
+int N; vector<pair<int,int>> E;
+int diamOf(vector<vector<int>>&g, vector<int>&comp){
+    int best = 0;
+    for(int s : comp){ vector<int> d(N + 1, -1); queue<int> q; q.push(s); d[s] = 0;
+        while(!q.empty()){ int u = q.front(); q.pop();
+            for(int v : g[u]) if(d[v] < 0){ d[v] = d[u] + 1; q.push(v); } }
+        for(int v : comp) best = max(best, d[v]); }
+    return best; }
+int main(){
+    scanf("%d", &N); E.resize(N - 1);
+    for(auto &e : E) scanf("%d %d", &e.first, &e.second);
+    int ans = INT_MAX;
+    for(int rm = 0; rm < N - 1; rm++){
+        vector<vector<int>> g(N + 1);
+        for(int i = 0; i < N - 1; i++) if(i != rm){
+            g[E[i].first].push_back(E[i].second); g[E[i].second].push_back(E[i].first); }
+        vector<int> col(N + 1, 0), A, B;
+        { queue<int> q; q.push(E[rm].first); col[E[rm].first] = 1;
+          while(!q.empty()){ int u = q.front(); q.pop(); A.push_back(u);
+            for(int v : g[u]) if(!col[v]){ col[v] = 1; q.push(v); } } }
+        for(int v = 1; v <= N; v++) if(!col[v]) B.push_back(v);
+        for(int x : A) for(int y : B){
+            g[x].push_back(y); g[y].push_back(x);
+            vector<int> all; for(int v = 1; v <= N; v++) all.push_back(v);
+            ans = min(ans, diamOf(g, all));
+            g[x].pop_back(); g[y].pop_back(); } }
+    printf("%d\\n", ans);
+}`;
+
+const coreSnippet = `// ปิดเส้นหนึ่งแล้วได้สองก้อน ยาว d1 กับ d2
+// ต่อที่จุดกึ่งกลางของทั้งสองก้อน ทางที่วิ่งข้ามอุโมงค์ใหม่จึงยาว รัศมี + รัศมี + 1
+// คำตอบของเส้นนี้คือตัวที่ใหญ่ที่สุดในสามตัว
+int s = max(max(d1, d2), (d1 + 1) / 2 + (d2 + 1) / 2 + 1);`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ตัวตุ่นที่ยอมรื้ออุโมงค์ได้แค่เส้นเดียว</h2>
+  <p>
+    ตัวตุ่นขุดห้องไว้ <code>N</code> ห้อง แล้วเชื่อมด้วยอุโมงค์จน<strong>เดินจากห้องไหนไปห้องไหนก็ได้ และมีทางเดียวเสมอ</strong>
+    ซึ่งก็คือรูปของ<strong>ต้นไม้</strong> ระยะทางระหว่างสองห้องคือจำนวนอุโมงค์ที่ต้องผ่าน
+  </p>
+  <p>
+    แขกบางคนบ่นว่าเดินระหว่างบางคู่ห้องไกลเกินไป ตัวตุ่นจึงจะรื้อ <strong>ปิดอุโมงค์หนึ่งเส้น
+    แล้วเปิดเส้นใหม่หนึ่งเส้น</strong> โดยยังต้องเดินถึงกันได้ทุกห้องเหมือนเดิม
+    เป้าหมายคือทำให้<strong>ระยะระหว่างสองห้องที่ไกลกันที่สุดน้อยที่สุด</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้นอีก <code>N</code> ลบหนึ่งบรรทัด
+        แต่ละบรรทัดคือหมายเลขห้องสองห้องที่อุโมงค์เส้นนั้นเชื่อม
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {fmt(N_MAX)}</code> ห้องหมายเลข 1 ถึง <code>N</code>
+        เวลา 3 วินาที หน่วยความจำ 128 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> สามบรรทัด คือระยะไกลสุดหลังรื้อ ตามด้วยอุโมงค์ที่ปิด
+        และอุโมงค์ที่เปิดใหม่ แผนที่ให้มาไม่จำเป็นต้องเหมือนของเฉลย ขอแค่ได้ค่าน้อยที่สุดเท่ากัน
+      </li>
+      <li>
+        <strong>ให้คะแนน:</strong> 40% มี <code>N</code> น้อยกว่า 30 และ 70% มี <code>N</code> น้อยกว่า 3,000
+        นอกจากนี้ถ้าตอบบรรทัดแรกถูกบรรทัดเดียว ก็ยังได้ราว 70% ของค่าชุดนั้น
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      {samples.map((s) => (
+        <tr>
+          <td>{s.n}<br />{s.edges.map((e) => <>{e[0]} {e[1]}<br /></>)}</td>
+          <td>
+            {s.best.score}<br />
+            {s.edges[s.best.cut][0]} {s.edges[s.best.cut][1]}<br />
+            {s.best.c1} {s.best.c2}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <Spoiler linked>
+    <p class="io-note">
+      ชุดแรกเป็นทางเดินยาวสี่ห้อง ระยะไกลสุดตอนแรกคือ {samples[0].before} พอรื้อแล้วเหลือ {samples[0].best.score}
+      ส่วนชุดที่สองลดจาก {samples[1].before} เหลือ {samples[1].best.score}
+      แผนที่หน้านี้พิมพ์ออกมาไม่เหมือนของโจทย์ แต่ได้ค่าน้อยที่สุดเท่ากัน ซึ่งโจทย์อนุญาต
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      พอปิดอุโมงค์ไปหนึ่งเส้น ต้นไม้จะแตกเป็น<strong>สองก้อน</strong>เสมอ และอุโมงค์ใหม่ต้องเชื่อมสองก้อนนั้นเข้าด้วยกัน
+      ไม่งั้นจะมีห้องที่เดินไปไม่ถึง
+    </p>
+    <p>
+      ถ้าสองก้อนถูกกำหนดมาแล้ว คำถามที่เหลือคือ<strong>ควรต่อที่ห้องไหนของแต่ละก้อน</strong>
+      ลองนึกถึงห้องที่ "ไกลจากห้องอื่นในก้อนของตัวเองน้อยที่สุด" ดู
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; เลือกเส้นที่จะปิด แล้วเลือกจุดที่จะต่อ</h2>
+  <div class="cpgame mtgame" data-mtgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกผังอุโมงค์">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => {
+        const xs = p.pos.map((q) => q.x);
+        const ys = p.pos.map((q) => q.y);
+        const w = Math.max(...xs) + 44;
+        const h = Math.max(...ys) + 40;
+        return (
+          <div class="mt-wrap" data-mt-board={String(k)} hidden={k !== 0}>
+          <svg class="mt-board" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ผังห้อง ${p.n} ห้องเชื่อมกันเป็นต้นไม้ กดที่เส้นเพื่อเลือกอุโมงค์ที่จะปิด แล้วกดที่ห้องสองห้องคนละก้อนเพื่อเปิดอุโมงค์ใหม่`}>
+            {p.edges.map((e, i) => {
+              const a = p.pos.find((q) => q.id === e[0]);
+              const b = p.pos.find((q) => q.id === e[1]);
+              return a && b ? (
+                <g>
+                  <line class="mt-edge" data-mt-edge={`${k}:${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+                  <line class="mt-hit" data-mt-edge={`${k}:${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+                </g>
+              ) : null;
+            })}
+            {p.pos.map((q) => (
+              <g>
+                <circle class="mt-node" data-mt-node={`${k}:${q.id}`} cx={q.x} cy={q.y} r="15" />
+                <text class="mt-lbl" x={q.x} y={q.y + 4} text-anchor="middle">{q.id}</text>
+              </g>
+            ))}
+          </svg>
+          </div>
+        );
+      })}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-mt-clear>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-mt-check>ตรวจแผนนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่เส้นเพื่อเลือกอุโมงค์ที่จะปิดก่อน</p>
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้เลือกอะไร</p>
+    <p class="cpg-hint">ปิดหนึ่งเส้นแล้วผังจะแตกเป็นสองก้อน จากนั้นกดหนึ่งห้องในแต่ละก้อนเพื่อเปิดอุโมงค์ใหม่</p>
+  </div>
+  <p class="io-note">
+    ลองผังที่สามดูจะเห็นเรื่องที่ขัดความรู้สึกอยู่หน่อย คือบางครั้งเส้นที่ควรปิด
+    ไม่ใช่เส้นที่ดู "อยู่ตรงกลาง" ของรูป แต่เป็นเส้นที่ทำให้สองก้อนที่ได้<strong>ยาวพอ ๆ กัน</strong>
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ถ้ารู้ว่าปิดเส้นไหน ที่เหลือไม่มีอะไรให้เลือกแล้ว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ผมเริ่มจากนับจำนวนทางเลือกก่อน มันมีเส้นให้ปิด <code>N</code> ลบหนึ่งเส้น
+        และมีคู่ห้องให้ต่อได้ถึง <code>N</code> ยกกำลังสองคู่ ถ้าลองทุกอย่างจริง ๆ
+        ที่ <code>N</code> เท่ากับสามแสนมันจบไม่ได้แน่ ผมจึงถามว่าอันไหน<strong>ตัดสินใจแทนได้เลย</strong>
+        โดยไม่ต้องลอง
+      </p>
+      <p>
+        คำตอบมาจากการเขียนสูตรของระยะไกลสุดหลังต่อ ถ้าต่อห้อง <code>x</code> กับห้อง <code>y</code>
+        ระยะไกลสุดคือค่ามากสุดของสามอย่าง คือระยะไกลสุดในก้อนแรก ในก้อนที่สอง
+        และทางที่วิ่งข้ามอุโมงค์ใหม่ซึ่งยาวเท่ากับ <strong>ระยะไกลสุดจาก x ในก้อนตัวเอง บวกหนึ่ง บวกระยะไกลสุดจาก y</strong>
+        สองตัวแรกไม่ขึ้นกับ <code>x</code> กับ <code>y</code> เลย เหลือแค่ตัวที่สามที่เราคุมได้
+        และมันจะน้อยที่สุดเมื่อเลือกห้องที่ไกลจากคนอื่นในก้อนตัวเองน้อยที่สุด ซึ่งก็คือ<strong>จุดกึ่งกลาง</strong>
+      </p>
+      <p>
+        พอเห็นตรงนี้ ปัญหาก็เหลือมิติเดียว คือ<strong>เลือกเส้นที่จะปิด</strong> เท่านั้น
+        ที่เหลือคำนวณได้ทันที บทเรียนที่ยกไปข้ออื่นได้คือ เวลามีตัวแปรหลายตัว
+        ให้เขียนสูตรของคำตอบออกมาก่อน แล้วดูว่าตัวแปรไหน<strong>หายไปจากสูตร</strong>
+        หรือมีค่าที่ดีที่สุดตายตัว ตัวนั้นเลิกเป็นตัวเลือกได้ทันที
+      </p>
+    </div>
+    <p>
+      ปิดเส้นหนึ่งแล้วได้สองก้อน ให้ก้อนแรกมีระยะไกลสุดในตัวเองเท่ากับ <code>d1</code>
+      และก้อนที่สองเท่ากับ <code>d2</code> ค่าพวกนี้ไม่เปลี่ยนไม่ว่าจะต่ออุโมงค์ใหม่ตรงไหน
+      เพราะอุโมงค์ใหม่ไม่ได้ทำให้ทางภายในก้อนเดียวกันสั้นลง
+    </p>
+    <p>
+      ส่วนทางที่วิ่งข้ามอุโมงค์ใหม่ ยาวเท่ากับ<strong>ระยะไกลสุดจากปลายฝั่งนี้ บวกหนึ่ง บวกระยะไกลสุดจากปลายฝั่งโน้น</strong>
+      ค่านี้น้อยที่สุดเมื่อเลือกห้องที่มีระยะไกลสุดน้อยที่สุดในก้อนของมัน ซึ่งเรียกว่า<strong>จุดกึ่งกลาง</strong> (center)
+      และค่าที่ได้เรียกว่า<strong>รัศมี</strong> (radius) ซึ่งเท่ากับ<strong>เส้นผ่านศูนย์กลางหารสองปัดขึ้น</strong>เสมอ
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <ZoomableDiagram caption={`ทางเดิน ${RAD_D + 1} ห้องที่เส้นผ่านศูนย์กลางเท่ากับ ${RAD_D} ห้องกลางคือห้องที่ ${RAD_MID + 1} ซึ่งไกลจากปลายทั้งสองข้างแค่ ${Math.ceil(RAD_D / 2)} ห้อง นี่คือค่าที่น้อยที่สุดที่ห้องใดห้องหนึ่งจะมีได้ในก้อนนี้ จึงเป็นห้องที่ควรต่ออุโมงค์ใหม่`}>
+      <svg viewBox="0 0 452 152" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ทางเดินเจ็ดห้องเรียงเป็นเส้นตรง ห้องกลางถูกทำเป็นสีทองพร้อมป้ายว่าจุดกึ่งกลาง มีลูกศรสองเส้นจากห้องกลางชี้ไปยังปลายทั้งสองข้าง แต่ละเส้นกำกับว่าสามห้อง">
+        <defs>
+          <marker id="mtArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0 0 L9 4.5 L0 9 z" fill="#7dd3fc" />
+          </marker>
+        </defs>
+        {radPts.slice(0, -1).map((i) => (
+          <line x1={30 + i * 64} y1="86" x2={30 + (i + 1) * 64} y2="86" stroke="#2a3350" stroke-width="2" />
+        ))}
+        {radPts.map((i) => (
+          <>
+            <circle cx={30 + i * 64} cy="86" r="15" fill={i === RAD_MID ? '#3a2f16' : '#121a2b'} stroke={i === RAD_MID ? '#d8b25a' : '#2a3350'} stroke-width={i === RAD_MID ? '2.2' : '1'} />
+            <text x={30 + i * 64} y="91" fill={i === RAD_MID ? '#d8b25a' : '#9aa7bd'} font-size="12" text-anchor="middle" font-family="monospace">{i + 1}</text>
+          </>
+        ))}
+        <text x={30 + RAD_MID * 64} y="128" fill="#d8b25a" font-size="12" text-anchor="middle">จุดกึ่งกลาง</text>
+        <path d={`M${30 + RAD_MID * 64 - 18} 60 L${30 + 10} 60`} stroke="#7dd3fc" stroke-width="1.6" fill="none" marker-end="url(#mtArrow)" />
+        <path d={`M${30 + RAD_MID * 64 + 18} 60 L${30 + RAD_D * 64 - 10} 60`} stroke="#7dd3fc" stroke-width="1.6" fill="none" marker-end="url(#mtArrow)" />
+        <text x={30 + RAD_MID * 64} y="40" fill="#7dd3fc" font-size="12" text-anchor="middle">ไกลสุดแค่ {Math.ceil(RAD_D / 2)} ห้อง ทั้งสองทาง</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p class="pull">ค่าของเส้นที่ปิด คือค่ามากที่สุดในสามตัว ระยะไกลสุดของก้อนซ้าย ของก้อนขวา และรัศมีของสองก้อนบวกหนึ่ง</p>
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งผัง</h2>
+  <Spoiler>
+    <CpStepPlayer hook="mtsim" steps={demoSteps} label={`ลองปิดทีละเส้นบนผัง ${DEMO.n} ห้อง ซึ่งตอนแรกไกลสุด ${DEMO_BEFORE}`}>
+      <table class="rec mtrec">
+        <caption>ค่าของทุกเส้นที่ปิดได้</caption>
+        <thead>
+          <tr>
+            <th>ปิดอุโมงค์</th>
+            <th class="num">ก้อนซ้ายยาว</th>
+            <th class="num">ก้อนขวายาว</th>
+            <th class="num">รัศมีรวมบวกหนึ่ง</th>
+            <th class="num">ได้ค่า</th>
+          </tr>
+        </thead>
+        <tbody>
+          {demoPlan.rows.map((r) => (
+            <tr>
+              <td><code>{DEMO.edges[r.cut][0]} ถึง {DEMO.edges[r.cut][1]}</code></td>
+              <td class="num">{r.d1}</td>
+              <td class="num">{r.d2}</td>
+              <td class="num">{Math.ceil(r.d1 / 2) + Math.ceil(r.d2 / 2) + 1}</td>
+              <td class={'num' + (r.score === DEMO_BEST.score ? ' mt-win' : '')}>{r.score}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ผังนี้ตอนแรกไกลสุด {DEMO_BEFORE} ห้อง หลังรื้อเหลือ <strong>{DEMO_BEST.score}</strong> ห้อง
+      โดยปิดอุโมงค์ {DEMO.edges[DEMO_BEST.cut][0]} ถึง {DEMO.edges[DEMO_BEST.cut][1]}
+      แล้วเปิดเส้นใหม่ระหว่างห้อง {DEMO_BEST.c1} กับห้อง {DEMO_BEST.c2}
+      ตัวเลขทุกช่องมาจากการเดินจริงบนผังนี้ตอนสร้างหน้า
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; หาความยาวของสองก้อนให้ครบทุกเส้น ในการไล่รอบเดียว</h2>
+  <Spoiler>
+    <p>
+      เหลือปัญหาเดียวคือ ต้องรู้ <code>d1</code> กับ <code>d2</code> ของ<strong>ทุกเส้น</strong>
+      ถ้าปิดทีละเส้นแล้วเดินวัดใหม่ จะเป็น <code>N</code> คูณ <code>N</code> ซึ่งที่สามแสนคือเก้าหมื่นล้าน
+    </p>
+    <p>
+      ท่าที่ใช้คือ<strong>ปักรากแล้วไล่ค่าสองรอบ</strong> รอบแรกไล่จากใบขึ้นมาหาราก เก็บสองอย่างต่อปม
+      คือความสูงของกิ่ง และเส้นผ่านศูนย์กลางภายในกิ่งนั้น ค่าพวกนี้ตอบฝั่ง <strong>ก้อนที่เป็นกิ่ง</strong> ได้ทันที
+    </p>
+    <p>
+      รอบที่สองไล่จากรากลงไปหาใบ เก็บว่า<strong>ส่วนที่เหลือทั้งหมด</strong> ซึ่งก็คือทุกอย่างนอกกิ่งนี้
+      มีความสูงเท่าไรและมีเส้นผ่านศูนย์กลางเท่าไร ค่าของปมหนึ่งคำนวณจากพ่อของมัน
+      โดยต้อง<strong>ไม่นับกิ่งของตัวเอง</strong> จึงต้องเก็บสามอันดับแรกของความสูงในบรรดาลูก
+      และสองอันดับแรกของเส้นผ่านศูนย์กลาง เพื่อให้ตัดตัวเองออกได้เสมอ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; ทำไมต้องสามอันดับ ไม่ใช่สองอันดับ</p>
+      <p>
+        เวลาคิดค่าของลูกตัวหนึ่ง เราต้องการ<strong>สองทางที่ยาวที่สุดจากพ่อ โดยไม่นับทางที่ลงมาหาลูกตัวนี้</strong>
+        ถ้าลูกตัวนี้เป็นอันดับหนึ่ง เราจะใช้อันดับสองกับอันดับสาม ถ้ามันเป็นอันดับสอง
+        เราจะใช้อันดับหนึ่งกับอันดับสาม สามอันดับจึงเป็นจำนวนที่พอดี
+      </p>
+    </div>
+    <p>
+      จุดที่ทำให้โค้ดสั้นลงมาก คือเราไม่ต้องรู้ว่า<strong>จุดกึ่งกลางของทุกเส้น</strong>อยู่ที่ไหน
+      เรารู้แค่ตัวเลข <code>d1</code> กับ <code>d2</code> ก็เลือกเส้นที่ดีที่สุดได้แล้ว
+      พอรู้ว่าเส้นไหนชนะ ค่อยเดินกว้างสองรอบต่อข้าง<strong>ครั้งเดียว</strong> เพื่อหาห้องที่เป็นจุดกึ่งกลางจริง ๆ
+    </p>
+    <p class="pull">ตัวเลขคำนวณให้ครบทุกเส้น แต่ตำแหน่งจริงคำนวณให้เฉพาะเส้นที่ชนะ</p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="mole.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_mole.cpp" />
+        <p>
+          ตัวตรวจนี้ไม่รู้จักคำว่ารัศมีหรือจุดกึ่งกลางเลย มันปิดทุกเส้น ต่อทุกคู่ห้อง แล้ววัดของจริง
+          ซึ่งสำคัญมาก เพราะข้ออ้างหลักของหน้านี้คือ<strong>ต่อที่จุดกึ่งกลางแล้วดีที่สุดเสมอ</strong>
+          ถ้าตัวตรวจใช้ข้ออ้างเดียวกัน มันก็จะได้แค่ตรวจการพิมพ์
+        </p>
+        <p>
+          ผมเทียบสองโปรแกรมบนต้นไม้ 5 ทรง คือทางเดินยาว ดาว หนอนผีเสื้อ ต้นไม้ทวิภาค และต้นไม้สุ่ม
+          ขนาด 2 ถึง 14 ห้อง รวม 990 เคส และทุกเคส<strong>ตรวจแผนที่พิมพ์ออกมาด้วย</strong> คือปิดเส้นที่บอก
+          ต่อเส้นที่บอก แล้ววัดว่าได้ค่าตามที่พิมพ์ไว้จริงไหม ตรงกันทั้งหมด
+          หน้าเว็บนี้ก็รันด่านตรวจแบบเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ที่ <code>N</code> เท่ากับ {fmt(N_MAX)} ทั้งทางเดินยาวสามแสนห้อง
+      ต้นไม้สุ่ม และดาวดวงเดียว ใช้เวลา <strong>0.17 วินาที</strong> จากลิมิต 3 วินาที
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง &middot; ความลึกของต้นไม้</p>
+      <p>
+        ต้นไม้สามแสนห้องอาจเป็นทางเดินยาวสามแสนห้อง ถ้าเขียนการไล่ค่าด้วยการเรียกซ้ำ
+        สแต็กของระบบจะแตกก่อนจะได้คำตอบ โค้ดนี้จึงเรียงปมด้วยการเดินกว้างเก็บไว้ในอาเรย์
+        แล้ว<strong>ไล่ย้อนอาเรย์</strong>แทนขาลง และไล่ไปข้างหน้าแทนขาขึ้น
+      </p>
+      <p>
+        เรื่องนี้มีเขียนไว้ละเอียดใน <a href="/cp/tree-dp/">DP บนต้นไม้</a> ซึ่งเป็นบทปูพื้นของท่านี้
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าแรกคือ<strong>รัศมีเท่ากับเส้นผ่านศูนย์กลางหารสองปัดขึ้น</strong>เสมอในต้นไม้
+    ซึ่งเป็นข้อเท็จจริงที่ใช้ซ้ำได้ทุกครั้งที่ต้องเอาต้นไม้สองต้นมาต่อกัน
+    ท่าที่สองคือ<strong>คำนวณตัวเลขให้ครบทุกทางเลือก แต่คำนวณของจริงเฉพาะทางเลือกที่ชนะ</strong>
+    ซึ่งตัดงานหนักออกไปทั้งก้อนโดยไม่เสียความถูกต้อง
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; หาเส้นผ่านศูนย์กลางด้วยการเดินกว้างสองรอบ</p>
+    <p>
+      วิธีที่สั้นที่สุดคือเดินกว้างจากห้องไหนก็ได้ ไปเจอห้องที่ไกลที่สุดเรียกว่า <code>u</code>
+      แล้วเดินกว้างจาก <code>u</code> อีกรอบ ห้องที่ไกลที่สุดรอบนี้คืออีกปลายของเส้นผ่านศูนย์กลางพอดี
+      ระหว่างทางเก็บพ่อไว้ด้วย แล้วเดินย้อนกลับมาครึ่งทาง ก็จะได้จุดกึ่งกลาง
+    </p>
+    <p>
+      ท่านี้ใช้ได้เฉพาะกับต้นไม้ ไม่ใช่กราฟทั่วไป เพราะมันอาศัยข้อเท็จจริงว่า
+      ทางระหว่างสองห้องมีทางเดียว ถ้าโจทย์ไหนมีวงจร ท่านี้จะให้คำตอบผิดเงียบ ๆ
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวนี้นับจำนวนครั้งที่ต้องแตะปมหนึ่งปมเหมือนกัน ต่างกันแค่แถวบนแตะทุกปมใหม่ทุกครั้งที่ปิดเส้น ส่วนแถวล่างแตะทุกปมสามรอบพอดี คือขาลง ขาขึ้น และการเดินกว้างของเส้นที่ชนะ</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    พอเขียนสูตรของระยะไกลสุดหลังต่อออกมา ตำแหน่งที่ควรต่อก็ถูกล็อกเป็นจุดกึ่งกลางทันที
+    เหลือแค่ต้องรู้ความยาวของสองก้อนสำหรับทุกเส้นที่ปิดได้ ซึ่งไล่ค่าขึ้นลงรอบเดียวก็ครบ
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Mole</i> บน programming.in.th ข้อ 2025
+      <a href="https://programming.in.th/tasks/2025" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2025
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>COCI 2008/2009 Contest #1</i> วันที่ 18 ตุลาคม 2008</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.mtrec{width:auto !important;table-layout:fixed;}
+  table.rec.mtrec th:nth-child(1), table.rec.mtrec td:nth-child(1){width:9rem;}
+  table.rec.mtrec th.num, table.rec.mtrec td.num{width:7.5rem;}
+  table.rec.mtrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.mtrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.mtrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+  table.rec.mtrec td.num.mt-win{color:#4ade80;font-weight:700;}
+
+  /* ---------- ผังของมินิเกม ---------- */
+  .mt-board{display:block;margin:0.2rem auto 0.6rem;max-width:100%;height:auto;}
+  /* บนจอแคบ ถ้าปล่อยให้ผังย่อตามการ์ด เลขห้องจะเหลือไม่กี่พิกเซล
+     บังคับความกว้างขั้นต่ำแล้วให้ .cpg-scroll เลื่อนเอง หน้าเว็บจึงไม่เลื่อนตาม */
+  @media (max-width:640px){
+    .mt-board{min-width:420px;}
+  }
+  .mt-edge{stroke:#3d4a6b;stroke-width:3;}
+  .mt-edge.cut{stroke:#b23b3b;stroke-width:3;stroke-dasharray:7 5;}
+  .mt-edge.added{stroke:#2f9e5c;stroke-width:3;}
+  .mt-hit{stroke:transparent;stroke-width:16;cursor:pointer;}
+  .mt-node{fill:#121a2b;stroke:#2a3350;cursor:pointer;}
+  .mt-node.sideA{fill:#12233a;stroke:#3d6ea5;}
+  .mt-node.sideB{fill:#1c2536;stroke:#7a6a3a;}
+  .mt-node.pick{stroke:var(--dl-emerald-bright);stroke-width:3;}
+  .mt-lbl{fill:#cdd6ea;font-size:12px;font-family:"Fira Code","Fira Mono",monospace;pointer-events:none;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type MtPuzzle = { id: string; label: string; tease: string; n: number; edges: [number, number][]; best: number; before: number };
+
+  function initMoleGame(): void {
+    const maybeUi = cpGameUi('[data-mtgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as MtPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let cut = -1;
+    let picks: number[] = [];
+
+    const pz = (): MtPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-mt-board]'));
+
+    /** ฝั่งของทุกห้อง เมื่อปิดเส้น cut แล้ว 0 คือฝั่งเดียวกับปลายแรก */
+    function sides(p: MtPuzzle, cutIdx: number): number[] {
+      const side = new Array<number>(p.n + 1).fill(-1);
+      if (cutIdx < 0) return side;
+      const adj: number[][] = Array.from({ length: p.n + 1 }, () => []);
+      p.edges.forEach((e, i) => {
+        if (i === cutIdx) return;
+        adj[e[0]].push(e[1]);
+        adj[e[1]].push(e[0]);
+      });
+      for (const [start, tag] of [[p.edges[cutIdx][0], 0], [p.edges[cutIdx][1], 1]] as [number, number][]) {
+        const q = [start];
+        side[start] = tag;
+        for (let i = 0; i < q.length; i++) for (const v of adj[q[i]]) if (side[v] < 0) { side[v] = tag; q.push(v); }
+      }
+      return side;
+    }
+
+    /** ระยะไกลสุดของผังหลังปิดหนึ่งเส้นและเปิดเส้นใหม่ */
+    function diameterAfter(p: MtPuzzle, cutIdx: number, x: number, y: number): number {
+      const adj: number[][] = Array.from({ length: p.n + 1 }, () => []);
+      p.edges.forEach((e, i) => {
+        if (i === cutIdx) return;
+        adj[e[0]].push(e[1]);
+        adj[e[1]].push(e[0]);
+      });
+      adj[x].push(y);
+      adj[y].push(x);
+      let best = 0;
+      for (let s = 1; s <= p.n; s++) {
+        const d = new Array<number>(p.n + 1).fill(-1);
+        const q = [s];
+        d[s] = 0;
+        for (let i = 0; i < q.length; i++) for (const v of adj[q[i]]) if (d[v] < 0) { d[v] = d[q[i]] + 1; q.push(v); }
+        for (let v = 1; v <= p.n; v++) best = Math.max(best, d[v]);
+      }
+      return best;
+    }
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      const side = sides(p, cut);
+      const board = boards[pi];
+      for (const ln of Array.from(board.querySelectorAll<SVGLineElement>('.mt-edge'))) {
+        const idx = Number((ln.dataset.mtEdge ?? '').split(':')[1]);
+        ln.classList.toggle('cut', idx === cut);
+      }
+      for (const nd of Array.from(board.querySelectorAll<SVGCircleElement>('.mt-node'))) {
+        const id = Number((nd.dataset.mtNode ?? '').split(':')[1]);
+        nd.classList.toggle('sideA', cut >= 0 && side[id] === 0);
+        nd.classList.toggle('sideB', cut >= 0 && side[id] === 1);
+        nd.classList.toggle('pick', picks.includes(id));
+      }
+      if (cut < 0) ui.setScore('ยังไม่ได้เลือกอะไร');
+      else if (picks.length < 2) ui.setScore(`ปิดอุโมงค์ ${p.edges[cut][0]} ถึง ${p.edges[cut][1]} แล้ว เลือกห้องอีก ${2 - picks.length} ห้อง`);
+      else ui.setScore(`แผนนี้ได้ระยะไกลสุด ${diameterAfter(p, cut, picks[0], picks[1])} ห้อง ส่วนค่าที่ดีที่สุดของผังนี้คือ ${p.best}`);
+    }
+
+    function onEdge(idx: number): void {
+      cut = idx;
+      picks = [];
+      const p = pz();
+      ui.setStatus(`ปิดอุโมงค์ ${p.edges[idx][0]} ถึง ${p.edges[idx][1]} แล้ว ตอนนี้ผังแตกเป็นสองก้อน สีฟ้ากับสีน้ำตาล กดหนึ่งห้องในแต่ละก้อน`, 'plain');
+      render();
+    }
+
+    function onNode(id: number): void {
+      const p = pz();
+      if (cut < 0) {
+        ui.setStatus('ต้องเลือกอุโมงค์ที่จะปิดก่อน กดที่เส้นระหว่างห้อง', 'bad');
+        return;
+      }
+      const side = sides(p, cut);
+      if (picks.length === 1 && side[picks[0]] === side[id]) {
+        ui.setStatus('สองห้องนี้อยู่ก้อนเดียวกัน อุโมงค์ใหม่ต้องเชื่อมคนละก้อน ไม่งั้นจะมีห้องที่เดินไปไม่ถึง', 'bad');
+        return;
+      }
+      if (picks.includes(id)) return;
+      if (picks.length >= 2) picks = [];
+      picks.push(id);
+      if (picks.length === 2) ui.setStatus('ได้แผนครบแล้ว กดตรวจแผนนี้ หรือจะลองเปลี่ยนก็ได้', 'plain');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (cut < 0 || picks.length < 2) {
+        ui.setStatus('ยังเลือกไม่ครบ ต้องมีทั้งเส้นที่ปิดและห้องสองห้องที่จะต่อ', 'bad');
+        return;
+      }
+      const got = diameterAfter(p, cut, picks[0], picks[1]);
+      if (got === p.best) ui.setStatus(`ดีที่สุดแล้วครับ ผังนี้ลดจาก ${p.before} เหลือ ${p.best} ห้อง`, 'good');
+      else ui.setStatus(`แผนนี้ได้ ${got} ห้อง แต่ผังนี้ทำได้ถึง ${p.best} ห้อง ลองดูว่าสองก้อนที่ได้ยาวพอ ๆ กันหรือยัง`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      cut = -1;
+      picks = [];
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดที่เส้นเพื่อเลือกอุโมงค์ที่จะปิดก่อน');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const edge = e.target.closest('[data-mt-edge]');
+      if (edge instanceof SVGElement) {
+        onEdge(Number((edge.dataset.mtEdge ?? '').split(':')[1]));
+        return;
+      }
+      const node = e.target.closest('[data-mt-node]');
+      if (node instanceof SVGElement) onNode(Number((node.dataset.mtNode ?? '').split(':')[1]));
+    });
+
+    ui.onClick('data-mt-clear', () => selectPuzzle(pi));
+    ui.onClick('data-mt-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initMoleGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-mtsim]');
+  });
+</script>
