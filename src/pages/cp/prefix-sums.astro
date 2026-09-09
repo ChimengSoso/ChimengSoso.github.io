@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import { mc, texCode } from '../../lib/math';
 
 const href = 'prefix-sums/';
@@ -66,6 +67,35 @@ const coverRows = Array.from({ length: N }, (_, k) => {
   };
 });
 
+/* ---------- ก้าวของเครื่องเดินทีละขั้น สองตัว คือถามผลรวมและแก้ค่า ----------
+   คำอธิบายทุกบรรทัดงอกจาก queryPath/updatePath ตัวเดียวกับที่ตารางใช้
+   จึงไม่มีทางที่เรื่องเล่าจะไม่ตรงกับแถวที่เห็น */
+
+const askSteps = Q_PATH.map((i, k) => {
+  const [l, r] = covers(i);
+  const got = Q_PATH.slice(0, k + 1).reduce((sum, j) => sum + TREE[j], 0);
+  const nxt = i - lowbit(i);
+  const tail =
+    nxt === 0
+      ? `แล้ว <b>${i} − ${lowbit(i)} = 0</b> คือสัญญาณว่าไล่ถึงหัวแถวแล้ว จบลูป ผลรวมสุดท้ายคือ <em>${got}</em>`
+      : `ช่องนี้ดูแลย้อนไปถึงตำแหน่ง ${l} เท่านั้น ที่เหลือคือช่วง <b>1..${nxt}</b> ซึ่งยังไม่มีใครนับ กระโดดด้วย <b>${i} − ${lowbit(i)} = ${nxt}</b>`;
+  return {
+    note: `แวะช่อง <b>t[${i}]</b> ซึ่งดูแล <b>a[${l}..${r}]</b> ยาว ${r - l + 1} ช่อง เก็บค่า <b>${TREE[i]}</b> เข้ากระเป๋า รวมได้ <em>${got}</em> ${tail}`,
+  };
+});
+
+const editSteps = U_PATH.map((i, k) => {
+  const [l, r] = covers(i);
+  const nxt = i + lowbit(i);
+  const tail =
+    nxt > N
+      ? `แล้ว <b>${i} + ${lowbit(i)} = ${nxt}</b> ซึ่งเลยขอบอาเรย์ (n = ${N}) จบลูป แก้ไปทั้งหมด ${k + 1} ช่อง`
+      : `ช่องถัดไปที่ต้องแก้คือช่องที่คลุมเราอยู่และใหญ่ขึ้นหนึ่งชั้น หาได้ด้วย <b>${i} + ${lowbit(i)} = ${nxt}</b>`;
+  return {
+    note: `แก้ช่อง <b>t[${i}]</b> ซึ่งดูแล <b>a[${l}..${r}]</b> ตำแหน่ง ${U_AT} อยู่ในช่วงนี้ ค่าของช่องนี้จึงต้องขยับตามส่วนต่างที่เข้ามา ${tail}`,
+  };
+});
+
 /* ---------- ต้นทุนของสามท่า คิดหน่วยเดียวกันคือ "จำนวนครั้งที่แตะช่องข้อมูล" ---------- */
 
 const BIG_N = 200000;
@@ -105,6 +135,136 @@ function human(n: number): string {
   return fmt(n);
 }
 
+/* ---------- อนิเมชันของ i & -i ----------
+   ไล่ให้เห็นว่าทำไมการ and เลขกับค่าลบของตัวเองเหลือบิตต่ำสุดบิตเดียว
+   ทุกแถวคำนวณจากเลขจริงด้วยเลขคณิตสองส่วนเติมเต็มบนความกว้าง BITS บิต */
+
+const BIT_I = 12;
+const BITS = 5;
+const MASK = (1 << BITS) - 1;
+const bin = (v: number): string => (v & MASK).toString(2).padStart(BITS, '0');
+
+const bitRows = [
+  {
+    name: 'i',
+    val: BIT_I,
+    note: `เริ่มจาก <b>i = ${BIT_I}</b> ซึ่งเขียนฐานสองได้ <b>${bin(BIT_I)}</b> บิตต่ำสุดที่ยังเป็นหนึ่งอยู่ตรงหลักค่า <em>${BIT_I & -BIT_I}</em> ตาแรกเราจะยังไม่ใช้สูตร แต่จะดูให้เห็นก่อนว่าสูตรต้องคายเลขอะไรออกมา`,
+  },
+  {
+    name: 'กลับบิตทุกตัว',
+    val: ~BIT_I,
+    note: `ขั้นแรกของการทำเลขติดลบคือกลับบิตทุกตัว หลักที่เป็นหนึ่งกลายเป็นศูนย์และกลับกัน ตอนนี้ทุกหลัก<strong>ต่างจากแถวบนหมดทุกหลัก</strong> ซึ่งถ้า and กันตรงนี้จะได้ศูนย์เปล่า ๆ`,
+  },
+  {
+    name: 'บวกหนึ่ง คือ −i',
+    val: -BIT_I,
+    note: `บวกหนึ่งเข้าไป ตัวทดจะไหลขึ้นจากหลักขวาสุดแล้ว<strong>หยุดตายตัวที่หลักของบิตต่ำสุดเดิม</strong> ผลคือหลักตั้งแต่บิตต่ำสุดลงไปทางขวากลับมาเหมือนแถวแรกอีกครั้ง ส่วนหลักทางซ้ายของมันยังต่างกันอยู่ทุกหลัก`,
+  },
+  {
+    name: 'i & −i',
+    val: BIT_I & -BIT_I,
+    note: `and สองแถวนี้เข้าด้วยกัน หลักทางซ้ายต่างกันจึงตายทั้งหมด หลักทางขวาของบิตต่ำสุดเป็นศูนย์ทั้งสองฝั่งอยู่แล้ว เหลือรอดหลักเดียวคือบิตต่ำสุดเอง ได้ <b>${BIT_I & -BIT_I}</b> ตรงกับที่ตาแรกเล็งไว้`,
+  },
+].map((r) => ({ ...r, bits: bin(r.val).split(''), note: r.note }));
+
+const bitSteps = bitRows.map((r) => ({ note: r.note }));
+
+/* ---------- มินิเกม ต่อก้อนให้เต็มช่วง ----------
+   คำตอบของทุกชุดหามาด้วยการไล่ทุกสับเซตของช่อง 2^LG_N ชุด
+   ซึ่งเป็นวิธีที่บทนี้ไม่ได้สอน จึงใช้ตรวจสิ่งที่บทนี้สอนได้จริง
+   ถ้าชุดไหนไม่ตรงกับที่หน้านี้อ้าง บิลด์จะพังทันที ไม่ใช่ปล่อยให้เกมผิดขึ้นเว็บ */
+
+const LG_N = 16;
+
+type LgTask =
+  | { id: string; label: string; tease: string; kind: 'cover'; l: number; r: number }
+  | { id: string; label: string; tease: string; kind: 'update'; p: number };
+
+const LG_TASKS: LgTask[] = [
+  { id: 'c7', label: 'ชุดที่ 1 · เต็มช่วง 1..7', tease: 'เลือกช่องของต้นไม้ให้แถบข้างล่างเป็นสีเขียวพอดีทั้งช่วง 1 ถึง 7 ห้ามมีช่องไหนถูกคลุมสองครั้ง และห้ามล้นออกนอกช่วง', kind: 'cover', l: 1, r: 7 },
+  { id: 'c13', label: 'ชุดที่ 2 · เต็มช่วง 1..13', tease: 'ชุดเดิมแต่ปลายทางไกลขึ้น ลองเขียน 13 เป็นเลขฐานสองในใจก่อนแตะช่องแรก', kind: 'cover', l: 1, r: 13 },
+  { id: 'u5', label: 'ชุดที่ 3 · แก้ค่าที่ตำแหน่ง 5', tease: 'คราวนี้ค่าที่ตำแหน่ง 5 เปลี่ยนไป เลือกช่องของต้นไม้ทุกช่องที่ค่าของมันต้องขยับตาม ขาดไปช่องเดียวก็ผิด เกินมาช่องเดียวก็ผิด', kind: 'update', p: 5 },
+  { id: 'c38', label: 'ชุดที่ 4 · เต็มช่วง 3..8', tease: 'ชุดนี้ขอช่วงที่ไม่ได้เริ่มจากหัวแถว ลองดูว่าต่อได้ไหม ถ้าคิดว่าไม่มีทางต่อได้ ก็มีปุ่มให้ตอบแบบนั้น', kind: 'cover', l: 3, r: 8 },
+];
+
+/** ไล่ทุกสับเซตของช่อง 1..LG_N หาชุดที่คลุมช่วง [l,r] พอดีทุกตำแหน่งและไม่ล้นออกนอกช่วง */
+function exactCovers(l: number, r: number): number[][] {
+  const out: number[][] = [];
+  for (let mask = 0; mask < 1 << LG_N; mask++) {
+    const cnt = new Array<number>(LG_N + 2).fill(0);
+    let bad = false;
+    for (let k = 0; k < LG_N && !bad; k++) {
+      if ((mask & (1 << k)) === 0) continue;
+      const i = k + 1;
+      const [cl, cr] = covers(i);
+      if (cl < l || cr > r) bad = true;
+      else for (let pos = cl; pos <= cr; pos++) if (++cnt[pos] > 1) bad = true;
+    }
+    if (bad) continue;
+    let full = true;
+    for (let pos = l; pos <= r; pos++) if (cnt[pos] !== 1) full = false;
+    if (!full) continue;
+    const pick: number[] = [];
+    for (let k = 0; k < LG_N; k++) if (mask & (1 << k)) pick.push(k + 1);
+    out.push(pick);
+  }
+  return out;
+}
+
+type LgPuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  kind: 'cover' | 'update';
+  n: number;
+  l: number;
+  r: number;
+  answer: number[];
+  possible: boolean;
+};
+
+const lgPuzzles: LgPuzzle[] = LG_TASKS.map((t) => {
+  if (t.kind === 'update') {
+    return {
+      id: t.id,
+      label: t.label,
+      tease: t.tease,
+      kind: 'update' as const,
+      n: LG_N,
+      l: t.p,
+      r: t.p,
+      answer: updatePath(t.p, LG_N),
+      possible: true,
+    };
+  }
+  const sols = exactCovers(t.l, t.r);
+  return {
+    id: t.id,
+    label: t.label,
+    tease: t.tease,
+    kind: 'cover' as const,
+    n: LG_N,
+    l: t.l,
+    r: t.r,
+    answer: sols.length > 0 ? sols[0] : [],
+    possible: sols.length > 0,
+  };
+});
+
+/* ยันสิ่งที่หน้านี้อ้างด้วยผลจากการไล่ทุกสับเซต ไม่ใช่ด้วยความเชื่อ */
+for (const z of lgPuzzles) {
+  if (z.kind !== 'cover') continue;
+  const sols = exactCovers(z.l, z.r);
+  if (z.l === 1) {
+    if (sols.length !== 1) throw new Error(`เกม ${z.id}: ช่วงหัวแถวควรมีทางต่อได้ทางเดียว แต่เจอ ${sols.length} ทาง`);
+    const want = queryPath(z.r).slice().sort((x, y) => x - y);
+    if (sols[0].join(',') !== want.join(',')) throw new Error(`เกม ${z.id}: ทางเดียวที่ไล่เจอไม่ตรงกับเส้นทางของสูตร i -= i & -i`);
+  } else if (sols.length !== 0) {
+    throw new Error(`เกม ${z.id}: หน้านี้อ้างว่าต่อไม่ได้ แต่ไล่เจอ ${sols.length} ทาง`);
+  }
+}
+const lgJson = JSON.stringify(lgPuzzles);
+
 /* ---------- ตัวช่วยวาดบันได ---------- */
 
 const CELL = 46;
@@ -123,6 +283,9 @@ const texPre = texCode(
 );
 const texCover = texCode(
   `${mc.fn('t')}[i] ${mc.op('=')} \\sum_{j \\,=\\, i \\,-\\, ${mc.fn('low')}(i) \\,+\\, ${mc.num('1')}}^{i} ${mc.fn('a')}[j] \\qquad ${mc.fn('low')}(i) ${mc.op('=')} i \\;\\&\\; {-i}`,
+);
+const texRR = texCode(
+  `${mc.fn('pre')}(i) ${mc.op('=')} ${mc.fn('b_1')}.${mc.fn('pre')}(i) ${mc.op('\times')} i ${mc.op('-')} ${mc.fn('b_2')}.${mc.fn('pre')}(i)`,
 );
 const texPre2d = texCode(
   `${mc.fn('sum')} ${mc.op('=')} ${mc.fn('s')}[r_2][c_2] ${mc.op('-')} ${mc.fn('s')}[r_1 ${mc.op('-')} ${mc.num('1')}][c_2] ${mc.op('-')} ${mc.fn('s')}[r_2][c_1 ${mc.op('-')} ${mc.num('1')}] ${mc.op('+')} ${mc.fn('s')}[r_1 ${mc.op('-')} ${mc.num('1')}][c_1 ${mc.op('-')} ${mc.num('1')}]`,
@@ -183,6 +346,65 @@ int main() {
         }
     }
     return 0;
+}`;
+
+/* ---------- เทคนิคอื่นในกล่องเดียวกัน ----------
+   สี่ชิ้นนี้คอมไพล์ด้วย g++ 11.4 แล้วสุ่มเทียบกับตัวไล่ตรง ๆ 3 000 รอบ
+   รอบละสุ่มทั้งขนาดอาเรย์ คำสั่ง และค่าติดลบ ตรงกันทุกรอบ */
+
+const buildCode = `// สร้างต้นไม้ในเวลา O(n) แทนที่จะเรียก add ทีละช่อง n log n ครั้ง
+// เวอร์ชันนี้เขียนแบบฐานศูนย์ เพราะสูตรที่ใช้คือ i | (i+1) ไม่ใช่ i & -i
+// (ทั้งสองแบบคือของอย่างเดียวกัน แค่เลื่อนดัชนีไปหนึ่ง)
+vector<long long> b = a;                  // ยืมอาเรย์ต้นฉบับมาเป็นต้นไม้เลย
+for (int i = 0; i < n; i++) {
+    int r = i | (i + 1);                  // ช่องถัดไปที่ครอบ i อยู่
+    if (r < n) b[r] += b[i];              // ยกยอดของช่องนี้ขึ้นไปให้ช่องที่ครอบ
+}
+
+// ถามผลรวม 0..i ของเวอร์ชันฐานศูนย์ ตัดก้อนด้วย (i & (i+1)) - 1
+long long pre(int i) {
+    long long s = 0;
+    for (; i >= 0; i = (i & (i + 1)) - 1) s += b[i];
+    return s;
+}`;
+
+const rangePointCode = `// แก้ค่าเป็นช่วง ถามค่าเป็นจุด ใช้ต้นไม้ใบเดียว
+// กลไกคือเก็บ "ส่วนต่างระหว่างช่องกับช่องก่อนหน้า" แทนที่จะเก็บตัวค่า
+// พอถามจุด i ก็คือบวกส่วนต่างทั้งหมดตั้งแต่หัวแถว ซึ่งเป็นงานที่ต้นไม้ทำอยู่แล้ว
+void addRange(int l, int r, long long v) {
+    add(l, v);                 // ตั้งแต่ช่อง l เป็นต้นไป สูงขึ้น v
+    if (r + 1 <= n) add(r + 1, -v);   // พ้นช่อง r แล้ว หักคืน v ให้กลับเป็นเดิม
+}
+
+long long at(int i) { return pre(i); }   // ค่าที่ตำแหน่ง i คือผลรวมของส่วนต่าง`;
+
+const rangeRangeCode = `// แก้เป็นช่วง ถามเป็นช่วง ใช้ต้นไม้สองใบ
+// b1 เก็บส่วนต่างเหมือนหัวข้อก่อน ส่วน b2 เก็บ "ส่วนเกินที่ b1 นับล่วงหน้าไป"
+// เพราะ b1.pre(i) * i คิดเหมือนว่าของที่เพิ่มเริ่มตั้งแต่ช่องแรก ซึ่งเกินจริงไปเท่ากับ v*(l-1)
+BIT b1(n), b2(n);
+
+void addRange(int l, int r, long long v) {
+    b1.add(l, v);
+    if (r + 1 <= n) b1.add(r + 1, -v);
+    b2.add(l, v * (l - 1));
+    if (r + 1 <= n) b2.add(r + 1, -v * r);
+}
+
+long long pre(int i) { return b1.pre(i) * i - b2.pre(i); }
+long long range(int l, int r) { return pre(r) - pre(l - 1); }`;
+
+const kthCode = `// หาตำแหน่งแรกที่ผลรวมสะสมถึง k โดยไม่ต้องไล่ทีละช่อง
+// ใช้ได้เมื่อค่าในต้นไม้ไม่ติดลบ เพราะตอนนั้นผลรวมสะสมเพิ่มขึ้นทางเดียว
+// วิธีคือไล่บิตจากใหญ่ลงเล็ก แล้วก้าวเมื่อก้าวได้ ซึ่งอ่านตารางของต้นไม้ตรง ๆ
+int kth(long long k) {
+    int pos = 0;
+    for (int pw = 1 << (31 - __builtin_clz(n)); pw > 0; pw >>= 1) {
+        if (pos + pw <= n && t[pos + pw] < k) {
+            pos += pw;
+            k -= t[pos];        // ก้อนนี้กินไปแล้ว เหลือให้หาอีก k
+        }
+    }
+    return pos + 1;             // ช่องถัดจากที่ก้าวมาไม่ถึง คือช่องที่ทำให้ถึง k
 }`;
 
 const q1Code = `#include <bits/stdc++.h>
@@ -546,6 +768,29 @@ int main() {
     Peter Fenwick นักวิทยาศาสตร์คอมพิวเตอร์ชาวนิวซีแลนด์ที่เขียนถึงมันในปี 1994 อีกชื่อที่เจอบ่อยพอกันคือ
     Binary Indexed Tree (ย่อว่า BIT) แปลตรงตัวว่าต้นไม้ที่ใช้เลขฐานสองเป็นดัชนี ซึ่งเป็นชื่อที่บอกกลไกได้ตรงกว่า
   </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ที่มาของแนวคิดนี้</p>
+    <p>
+      สองท่าที่ผ่านมาเกิดจากการสังเกตอย่างเดียว คือคำถามที่ถูกถามซ้ำ ๆ มีส่วนที่<strong>คำนวณเหมือนกันทุกครั้ง</strong>
+      แล้วเราทิ้งมันหลังตอบเสร็จ ผลรวมสะสมคือการย้ายงานนั้นมาทำรอบเดียวตอนต้น
+      คำถามที่ตัดสินว่าจะใช้ท่าไหนจึงมีข้อเดียว คือ <strong>ของที่เตรียมไว้ ยังใช้ได้อยู่ไหมหลังข้อมูลถูกแก้</strong>
+    </p>
+    <p>
+      ถ้าไม่มีการแก้ค่าเลย คำตอบคือใช้ได้ตลอด ผลรวมสะสมจึงจบงาน แต่ถ้ามีการแก้ค่าแม้แต่ช่องเดียว
+      <code>pre</code> ตั้งแต่ช่องนั้นไปจนสุดแถวเสียหมด การสร้างใหม่ราคาเท่ากับความยาวอาเรย์
+      และตรงนี้คือจุดที่ต้องคูณเลขออกมาดู แก้สองแสนครั้ง ครั้งละสร้างใหม่สองแสนช่อง
+      ก็คือ <strong>สี่หมื่นล้านครั้ง เท่ากับท่าวนบวกดิบ ๆ ที่เราเพิ่งหนีมาเป๊ะ ๆ</strong>
+      ผลรวมสะสมไม่ได้ช่วยอะไรเลยในสถานการณ์นั้น
+    </p>
+    <p>
+      ต้นไม้เฟนวิกเกิดมาเพื่อช่องว่างตรงนั้นช่องเดียว มันยอมให้การถามช้าลงจากทันทีเป็น <code>log n</code> ก้าว
+      เพื่อแลกกับการที่การแก้ค่าก็เป็น <code>log n</code> ก้าวเหมือนกัน แทนที่จะเป็นสองแสน
+    </p>
+    <p>
+      บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนหยิบโครงสร้างที่แรงกว่า ให้<strong>คูณราคาของท่าที่ง่ายกว่าออกมาก่อน</strong>
+      บางทีมันผ่านสบาย และบางทีมันแพงเท่ากับท่าดิบที่เราคิดว่าหนีพ้นแล้ว
+    </p>
+  </div>
   <p>
     กติกามีข้อเดียว <strong>ช่องที่ <code>i</code> ของต้นไม้ดูแลช่วงที่ยาวเท่ากับบิตต่ำสุดที่ยังเป็น 1 ของ <code>i</code></strong>
     และช่วงนั้นจบลงที่ <code>i</code> พอดี เขียนบิตต่ำสุดนั้นเป็นสูตรได้ว่า <code>i & -i</code>
@@ -555,6 +800,32 @@ int main() {
     เหตุผลที่ <code>i & -i</code> ให้บิตต่ำสุดออกมา อยู่ที่วิธีที่คอมพิวเตอร์เก็บเลขติดลบ ค่า <code>-i</code>
     คือการกลับบิตทุกตัวของ <code>i</code> แล้วบวกหนึ่ง ผลคือบิตทางซ้ายของบิตต่ำสุดกลับด้านกันหมด และบิตต่ำสุดเองยังตรงกัน
     การ <code>and</code> กันจึงเหลือรอดแค่บิตเดียวนั้น
+  </p>
+  <CpStepPlayer hook="bitsim" steps={bitSteps} label={`กดถัดไปเพื่อไล่ดูว่า i & -i ของ ${BIT_I} เหลือบิตเดียวได้ยังไง`}>
+    <table class="rec bitboard">
+      <caption>i & −i ที่ i = {BIT_I} เขียนบน {BITS} บิต</caption>
+      <thead>
+        <tr>
+          <th>แถว</th>
+          {Array.from({ length: BITS }, (_, k) => (
+            <th class="num">{1 << (BITS - 1 - k)}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {bitRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            {r.bits.map((b) => (
+              <td class={b === '1' ? 'num bit-on' : 'num bit-off'}>{b}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </CpStepPlayer>
+  <p class="io-note">
+    หัวตารางคือค่าประจำหลัก ไม่ใช่ลำดับหลัก จะได้อ่านคำตอบของแถวล่างสุดออกมาเป็นเลขได้เลย
   </p>
 
   <figure class="tbl">
@@ -651,12 +922,55 @@ int main() {
     </svg>
   </ZoomableDiagram>
 
+  <h3>ลองเอง · ต่อก้อนให้เต็มช่วง</h3>
+  <p>
+    ก่อนอ่านสูตรของการถามและการแก้ ลองต่อก้อนด้วยมือดูก่อน แถบล่างคือตำแหน่ง 1 ถึง {LG_N}
+    ปุ่มแต่ละปุ่มคือหนึ่งช่องของต้นไม้ พร้อมเลขฐานสองของดัชนีมันกำกับไว้ให้
+    เป้าหมายคือทำให้ช่วงที่โจทย์ขอเป็นสีเขียวพอดี ไม่ทับกันและไม่มีรู
+  </p>
+  <div class="cpgame lowgame" data-lowgame data-puzzles={lgJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {lgPuzzles.map((z, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {z.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{lgPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <div class="lg-strip" data-lg-strip></div>
+    </div>
+    <div class="cpg-scroll">
+      <div class="lg-cells" data-lg-cells></div>
+    </div>
+
+    <p class="fg-sub" data-lg-info></p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-lg-clear>ล้างที่เลือก</button>
+      <button type="button" class="cpg-btn" data-lg-imp>ชุดนี้ทำไม่ได้</button>
+      <button type="button" class="cpg-btn main" data-lg-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>แตะปุ่มช่องของต้นไม้ แล้วดูแถบข้างบนเปลี่ยนสี</p>
+    <p class="cpg-score" data-cpg-score>ผ่านแล้ว <b data-lg-done>0</b> จาก <b data-lg-all>{lgPuzzles.length}</b> ชุด</p>
+    <p class="cpg-hint">
+      ในชุดที่ต่อไม่ได้ ให้สังเกตว่าช่องที่คลุมตำแหน่งซ้ายสุดของช่วง มันคลุมอะไรพ่วงมาด้วยเสมอ
+    </p>
+  </div>
+  <p class="io-note">
+    ชุดที่สี่มีอยู่เพื่อบอกเรื่องเดียว คือช่องของต้นไม้ต่อกันได้เฉพาะช่วงที่<strong>เริ่มจากหัวแถว</strong>
+    ซึ่งเป็นข้อจำกัดที่จะย้อนมามีผลใหญ่มากในหัวข้อท้ายบท
+  </p>
+
   <h3>ถามผลรวม · ตัดทีละก้อนจากขวาเข้าซ้าย</h3>
   <p>
     อยากได้ผลรวมตั้งแต่ต้นถึงตำแหน่ง {Q_AT} ก็เริ่มที่ช่อง <code>t[{Q_AT}]</code> ซึ่งดูแลช่วงท้ายสุดมาก้อนหนึ่ง
     แล้วกระโดดถอยไปยังช่องที่ดูแลก้อนถัดไป การกระโดดคือ <code>i -= i & -i</code> ตรง ๆ ทำซ้ำจนถึงศูนย์
   </p>
-  <figure class="tbl">
+  <CpStepPlayer hook="asksim" steps={askSteps} label="กดถัดไปเพื่อไล่ทีละก้อน">
     <table class="rec">
       <caption>ถามผลรวม 1 ถึง {Q_AT}</caption>
       <thead>
@@ -676,20 +990,20 @@ int main() {
         })}
       </tbody>
     </table>
-    <figcaption>
-      สามก้อนนี้ต่อกันพอดีเป็นช่วง <code>a[1..{Q_AT}]</code> ไม่ทับกันและไม่มีรู ผลรวมที่ได้คือ {PRE[Q_AT]}
-      ตรงกับ <code>pre[{Q_AT}]</code> ในตารางแรก ที่มันแวะแค่ {Q_PATH.length} ช่องเพราะเลข {Q_AT} เขียนฐานสองได้
-      <code>{Q_AT.toString(2)}</code> ซึ่งมีเลขหนึ่งอยู่ {Q_AT.toString(2).split('').filter((c) => c === '1').length} ตัว
-      และการกระโดดหนึ่งครั้งลบเลขหนึ่งออกไปหนึ่งตัวเสมอ
-    </figcaption>
-  </figure>
+  </CpStepPlayer>
+  <p class="io-note">
+    สามก้อนนี้ต่อกันพอดีเป็นช่วง <code>a[1..{Q_AT}]</code> ไม่ทับกันและไม่มีรู ผลรวมที่ได้คือ {PRE[Q_AT]}
+    ตรงกับ <code>pre[{Q_AT}]</code> ในตารางแรก ที่มันแวะแค่ {Q_PATH.length} ช่องเพราะเลข {Q_AT} เขียนฐานสองได้
+    <code>{Q_AT.toString(2)}</code> ซึ่งมีเลขหนึ่งอยู่ {Q_AT.toString(2).split('').filter((c) => c === '1').length} ตัว
+    และการกระโดดหนึ่งครั้งลบเลขหนึ่งออกไปหนึ่งตัวเสมอ
+  </p>
 
   <h3>แก้ค่า · ไล่ขึ้นไปหาทุกช่องที่ครอบเราอยู่</h3>
   <p>
     ถ้าค่าที่ตำแหน่ง {U_AT} เปลี่ยนไป ช่องของต้นไม้ที่ต้องแก้ตามคือทุกช่องที่<strong>ช่วงของมันคลุมตำแหน่ง {U_AT} อยู่</strong>
     ซึ่งหาได้ด้วยการกระโดดไปทางตรงข้ามคือ <code>i += i & -i</code>
   </p>
-  <figure class="tbl">
+  <CpStepPlayer hook="editsim" steps={editSteps} label="กดถัดไปเพื่อไล่ขึ้นทีละชั้น">
     <table class="rec">
       <caption>แก้ค่าที่ตำแหน่ง {U_AT}</caption>
       <thead>
@@ -708,11 +1022,11 @@ int main() {
         })}
       </tbody>
     </table>
-    <figcaption>
-      ช่องอื่นที่เหลือทั้งหมดไม่มีตำแหน่ง {U_AT} อยู่ในช่วงของมัน จึงไม่ต้องแตะเลย จาก {N} ช่องเหลือแก้แค่ {U_PATH.length} ช่อง
-      และพอ <code>n</code> เป็นสองแสน ตัวเลขนี้ก็ยังไม่เกิน {LOGN}
-    </figcaption>
-  </figure>
+  </CpStepPlayer>
+  <p class="io-note">
+    ช่องอื่นที่เหลือทั้งหมดไม่มีตำแหน่ง {U_AT} อยู่ในช่วงของมัน จึงไม่ต้องแตะเลย จาก {N} ช่องเหลือแก้แค่ {U_PATH.length} ช่อง
+    และพอ <code>n</code> เป็นสองแสน ตัวเลขนี้ก็ยังไม่เกิน {LOGN}
+  </p>
 
   <div class="callout callout-warn">
     <p class="callout-label">ระวัง</p>
@@ -732,6 +1046,119 @@ int main() {
   <p>
     ผมสุ่มเทียบกับตัวไล่บวกทีละช่องแบบซื่อ ๆ 400 เทส แต่ละเทสสุ่มทั้งการถามและการแก้ค่าสลับกันไปมา
     รวมทั้งกรณี <code>n = 1</code> และค่าติดลบ ตรงกันทั้งหมด
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ข้อจำกัด · สิ่งเดียวที่เฟนวิกขอจากเราเป็นการแลก</h2>
+  <p>
+    ชุดที่สี่ของเกมข้างบนต่อไม่ได้ และเหตุผลอยู่ที่กติกาข้อเดียวของโครงสร้างนี้ ทุกช่วงที่ช่องหนึ่งดูแล
+    <strong>จบลงที่ดัชนีของตัวเองเสมอ</strong> ช่องที่คลุมตำแหน่ง 3 ได้จึงมีแค่ <code>t[3]</code>
+    ซึ่งคลุมแค่ตำแหน่ง 3 เอง ส่วนช่องที่ใหญ่ขึ้นมาคือ <code>t[4]</code> ลากย้อนไปถึงหัวแถว
+    พาตำแหน่ง 1 กับ 2 ที่เราไม่ได้ขอมาด้วยทุกครั้ง
+  </p>
+  <p>
+    ทางออกที่บทนี้ใช้ตั้งแต่ต้นคือ<strong>ไม่ต่อช่วงกลางตาราง แต่เอาสองช่วงหัวแถวมาหักกัน</strong>
+    คือ <code>range(l, r) = pre(r) − pre(l − 1)</code> ซึ่งเป็นบรรทัดที่ดูไม่มีอะไรเลยในโค้ด
+    แต่มันคือที่ที่ข้อจำกัดทั้งหมดของเฟนวิกซ่อนอยู่ เพราะการหักกันได้แปลว่าตัวดำเนินการที่ใช้ต้องมี
+    <strong>ตัวผกผัน</strong> (<i>inverse</i> อ่านว่า "อินเวิร์ส" แปลว่าตัวที่ย้อนของเดิมกลับ
+    เหมือนการลบที่ย้อนการบวก)
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ที่ต้นไม้เฟนวิกทำไม่ได้</p>
+    <p>
+      ผลรวมมีตัวผกผันคือการลบ จึงหักกันได้ การคูณมอดุโลกับ xor ก็มี เฟนวิกจึงรับได้ทั้งสามอย่าง
+      แต่ <code>min</code> กับ <code>max</code> <strong>ไม่มีตัวผกผัน</strong> รู้ว่าค่าน้อยสุดของช่วง 1 ถึง 7
+      คือ 1 และค่าน้อยสุดของช่วง 1 ถึง 2 คือ 1 ไม่ได้บอกอะไรเลยเกี่ยวกับช่วง 3 ถึง 7
+      เพราะไม่มีการดำเนินการที่ "เอา min ออก" ได้
+    </p>
+    <p>
+      อาการนี้มีชื่อทางพีชคณิตว่าเซตกับตัวดำเนินการนั้นไม่เป็น<strong>กรุป</strong> (<i>group</i>
+      อ่านว่า "กรุป" คือเซตที่มีการดำเนินการซึ่งมีตัวเอกลักษณ์และมีตัวผกผันครบทุกตัว)
+      ทางแก้ในสนามแข่งคือย้ายไปใช้<a href="../segment-tree/">เซกเมนต์ทรี</a> ซึ่งเก็บผลของสองครึ่งไว้จริง
+      จึงรวมช่วงกลางตารางได้โดยไม่ต้องหักอะไรออก และเป็นเหตุผลที่ทั้งสองโครงสร้างยังอยู่คู่กันในคลังของทุกคน
+      ไม่ใช่ว่าอันหนึ่งแทนอีกอันได้หมด
+    </p>
+    <p>
+      ถ้าการแก้ค่า<strong>มีทางเดียว</strong> เช่นค่าลดลงได้เท่านั้น ต้นไม้เฟนวิกที่เก็บ <code>min</code>
+      ก็ใช้ได้อยู่ เพราะไม่มีใครต้องถอนค่าเก่าออก ข้อจำกัดคือคำว่าถอน ไม่ใช่คำว่า min
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>เทคนิคอื่นในกล่องเดียวกัน</h2>
+  <p>
+    สี่ท่าถัดไปเป็นของที่ต่อยอดจากสองลูปเดิมโดยไม่ต้องเปลี่ยนโครงสร้างเลย ผมยกมาจาก
+    <a href="https://cp-algorithms.com/data_structures/fenwick.html" rel="noreferrer">หน้า Fenwick Tree ของ cp-algorithms</a>
+    ซึ่งเป็นแหล่งอ้างอิงที่ครบที่สุดของหัวข้อนี้ แล้วเขียนโค้ดใหม่ในสไตล์เดียวกับบทนี้
+    ทุกชิ้นคอมไพล์แล้วสุ่มเทียบกับตัวไล่ตรง ๆ <strong>3 000 รอบ</strong> รอบละสุ่มทั้งขนาดอาเรย์
+    คำสั่ง และค่าติดลบ ตรงกันทุกรอบ
+  </p>
+
+  <h3>ท่าที่ 1 · สร้างต้นไม้ในเวลา O(n)</h3>
+  <p>
+    โค้ดหลักของบทนี้สร้างต้นไม้ด้วยการเรียก <code>add</code> ทีละช่อง <code>n</code> ครั้ง
+    ซึ่งเป็น <code>n log n</code> ทั้งที่มันเป็นงานเชิงเส้นได้ ท่าที่เร็วกว่าคือ<strong>ยกยอด</strong>
+    เอาอาเรย์ต้นฉบับมาเป็นต้นไม้เลย แล้วเดินไปข้างหน้าครั้งเดียว ช่องไหนเสร็จแล้วก็โยนยอดรวมของตัวเอง
+    ขึ้นไปให้ช่องที่ครอบมันอยู่ ทุกช่องจึงถูกแตะสองครั้งเท่านั้น
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทำไมโค้ดในหนังสือบางเล่มเขียน i | (i + 1)</p>
+    <p>
+      ท่านี้เขียนสวยที่สุดตอนดัชนีเริ่มที่ศูนย์ ซึ่งเป็นตอนที่สูตรเปลี่ยนหน้าตาไปเลย
+      แบบเริ่มที่หนึ่งใช้ <code>i − (i & −i)</code> เพื่อถอยและ <code>i + (i & −i)</code> เพื่อขึ้น
+      แบบเริ่มที่ศูนย์ใช้ <code>(i & (i + 1)) − 1</code> เพื่อถอยและ <code>i | (i + 1)</code> เพื่อขึ้น
+      สองแบบนี้คือโครงสร้างเดียวกันที่เลื่อนดัชนีไปหนึ่ง ไม่ใช่สองอย่าง ถ้าเจอโค้ดที่หน้าตาไม่เหมือนบทนี้
+      ให้มองหาว่ามันนับดัชนีจากไหนก่อน
+    </p>
+  </div>
+  <CodeBlock code={buildCode} lang="cpp" title="สร้างในเวลา O(n)" />
+
+  <h3>ท่าที่ 2 · แก้เป็นช่วง ถามเป็นจุด</h3>
+  <p>
+    โจทย์ที่กลับด้านกับบทนี้ก็มี คือ "บวก <code>v</code> ให้ทุกช่องในช่วง <code>l</code> ถึง <code>r</code>"
+    แล้วถามค่าของช่องเดียว ท่าที่ใช้คือเลิกเก็บตัวค่า แล้วเก็บ<strong>ส่วนต่างระหว่างช่องกับช่องก่อนหน้า</strong>
+    การบวกทั้งช่วงจึงเหลือแค่แก้สองจุด คือจุดที่ระดับขึ้นและจุดที่ระดับกลับลง
+    ส่วนค่าของช่องเดียวคือผลรวมของส่วนต่างตั้งแต่หัวแถว ซึ่งเป็นงานที่ต้นไม้ทำอยู่แล้ว
+  </p>
+  <CodeBlock code={rangePointCode} lang="cpp" title="แก้เป็นช่วง ถามเป็นจุด" />
+
+  <h3>ท่าที่ 3 · แก้เป็นช่วง ถามเป็นช่วง</h3>
+  <p>
+    ท่าที่ 2 ตอบจุดเดียวได้แต่ตอบช่วงไม่ได้ ถ้าอยากได้ทั้งสองอย่างต้องใช้ต้นไม้สองใบ
+    ใบแรกเก็บส่วนต่างเหมือนเดิม ปัญหาคือ <code>b1.pre(i) * i</code> คิดเหมือนว่าของที่เพิ่มเข้ามา
+    เริ่มนับตั้งแต่ช่องแรก ซึ่งเกินความจริงไปเท่ากับ <code>v * (l − 1)</code> ทุกครั้ง
+    ต้นไม้ใบที่สองจึงมีหน้าที่เดียวคือ<strong>จดส่วนเกินนั้นไว้ให้หักคืน</strong>
+  </p>
+  <div set:html={texRR} />
+  <p>
+    ตรวจสามช่วงด้วยมือจะเห็นว่ามันลงตัว ตำแหน่งก่อน <code>l</code> ทั้งสองพจน์เป็นศูนย์
+    ตำแหน่งในช่วงได้ <code>v</code> คูณจำนวนช่องที่นับมาแล้ว และตำแหน่งหลัง <code>r</code>
+    ได้ <code>v</code> คูณความยาวช่วงเต็มพอดี
+  </p>
+  <CodeBlock code={rangeRangeCode} lang="cpp" title="แก้เป็นช่วง ถามเป็นช่วง" />
+
+  <h3>ท่าที่ 4 · หาตัวที่ k โดยไม่ต้องค้นซ้ำ</h3>
+  <p>
+    ท่าที่คนเขียนบ่อยที่สุดเวลาต้องหา "ตำแหน่งแรกที่ผลรวมสะสมถึง <code>k</code>" คือค้นทวิภาค
+    แล้วเรียก <code>pre</code> ทุกครั้งที่เดา ซึ่งเป็น <code>log²n</code> แต่ต้นไม้เฟนวิกทำได้ในรอบเดียว
+    เพราะตัวมันเองเก็บก้อนที่ยาวเป็นกำลังของสองอยู่แล้ว วิธีคือ<strong>ไล่บิตจากใหญ่ลงเล็ก แล้วก้าวเมื่อก้าวได้</strong>
+    เหลือ <code>log n</code> ก้าวเท่ากับการถามหนึ่งครั้ง
+  </p>
+  <p>
+    ท่านี้ใช้ได้เมื่อค่าในต้นไม้ไม่ติดลบ เพราะตอนนั้นผลรวมสะสมโตทางเดียว ถ้ามีค่าติดลบปนอยู่
+    ลำดับก็ไม่เรียงแล้ว การไล่บิตลงจะเดินผิดทางเงียบ ๆ โดยไม่มีอะไรฟ้อง
+    โจทย์ที่ใช้ท่านี้เต็ม ๆ อยู่ในคลังนี้แล้ว คือ <a href="/cp/dna-kth/">สายดีเอ็นเอตัวที่ k</a>
+  </p>
+  <CodeBlock code={kthCode} lang="cpp" title="หาตัวที่ k ด้วยการไล่บิตลง" />
+
+  <h3>ท่าที่ 5 · หลายมิติ</h3>
+  <p>
+    ต้นไม้เฟนวิกซ้อนกันได้ตรง ๆ คือให้แต่ละช่องของต้นไม้แกนแรกเก็บต้นไม้อีกต้นของแกนที่สอง
+    ทั้งการถามและการแก้กลายเป็นลูปสองชั้นที่กระโดดด้วยสูตรเดิมทั้งคู่ ราคาจึงเป็น <code>log²n</code>
+    ต่อคำสั่ง และเป็น <code>logᵈn</code> ที่ <code>d</code> มิติ โค้ดยาวขึ้นราวสี่บรรทัด
+    ท่านี้ทำงานอยู่ในข้อ <a href="/cp/hearing-pairs/">คู่ที่ได้ยินกัน</a> แล้ว จึงไม่ยกโค้ดมาซ้ำที่นี่
   </p>
 
   <hr class="divider-solid" />
@@ -760,26 +1187,21 @@ int main() {
   </div>
   <Spoiler>
     <div class="callout callout-note">
-      <p class="callout-label">ที่มาของท่านี้</p>
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        ท่าทั้งบทนี้เกิดจากการสังเกตอย่างเดียว คือคำถามที่ถูกถามซ้ำ ๆ มีส่วนที่<strong>คำนวณเหมือนกันทุกครั้ง</strong>
-        แล้วเราทิ้งมันหลังตอบเสร็จทุกครั้ง ผลรวมสะสมคือการย้ายงานนั้นมาทำรอบเดียวตอนต้น
-        คำถามที่ตัดสินว่าจะใช้ท่าไหนจึงมีข้อเดียว คือ <strong>ของที่เตรียมไว้ ยังใช้ได้อยู่ไหมหลังข้อมูลถูกแก้</strong>
+        จุดที่ต้องคิดจริงในข้อนี้มีจุดเดียว คือ<strong>รูปที่เราเก็บไว้ล่วงหน้าได้ ต้องเป็นรูปที่มีมุมติดอยู่กับ (1,1)</strong>
+        เพราะถ้าเก็บสี่เหลี่ยมลอย ๆ ที่เริ่มตรงไหนก็ได้ จำนวนสี่เหลี่ยมที่ต้องเก็บคือสี่ตัวเลือกคูณกัน
+        ที่ตาราง 1 000 คูณ 1 000 ก็คือหลายแสนล้านช่อง เก็บไม่ไหวตั้งแต่ยังไม่เริ่ม
       </p>
       <p>
-        ถ้าไม่มีการแก้ค่าเลย คำตอบคือใช้ได้ตลอด ผลรวมสะสมจึงจบงาน แต่ถ้ามีการแก้ค่าแม้แต่ช่องเดียว
-        <code>pre</code> ตั้งแต่ช่องนั้นไปจนสุดแถวเสียหมด การสร้างใหม่ราคาเท่ากับความยาวอาเรย์
-        และตรงนี้คือจุดที่ต้องคูณเลขออกมาดู แก้สองแสนครั้ง ครั้งละสร้างใหม่สองแสนช่อง
-        ก็คือ <strong>สี่หมื่นล้านครั้ง เท่ากับท่าวนบวกดิบ ๆ ที่เราเพิ่งหนีมาเป๊ะ ๆ</strong>
-        ผลรวมสะสมไม่ได้ช่วยอะไรเลยในสถานการณ์นั้น
+        พอบังคับว่ามุมหนึ่งต้องอยู่ที่ (1,1) จำนวนรูปที่ต้องเก็บเหลือเท่ากับจำนวนช่องในตารางพอดี
+        คำถามถัดมาคือสี่เหลี่ยมที่โจทย์ถามซึ่งลอยอยู่กลางตาราง ประกอบขึ้นจากรูปมุมติด (1,1) ได้ไหม
+        ท่าที่ใช้คือวาดสี่เหลี่ยมใหญ่ที่คลุมถึงมุมขวาล่างของมัน แล้วตัดแถบบนกับแถบซ้ายออก
+        ตอนวาดจริงบนกระดาษจะเห็นทันทีว่ามุมซ้ายบนถูกตัดสองครั้ง จึงต้องคืนกลับหนึ่งครั้ง
       </p>
       <p>
-        ต้นไม้เฟนวิกเกิดมาเพื่อช่องว่างตรงนั้นช่องเดียว มันยอมให้การถามช้าลงจากทันทีเป็น <code>log n</code> ก้าว
-        เพื่อแลกกับการที่การแก้ค่าก็เป็น <code>log n</code> ก้าวเหมือนกัน แทนที่จะเป็นสองแสน
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนหยิบโครงสร้างที่แรงกว่า ให้<strong>คูณราคาของท่าที่ง่ายกว่าออกมาก่อน</strong>
-        บางทีมันผ่านสบาย และบางทีมันแพงเท่ากับท่าดิบที่เราคิดว่าหนีพ้นแล้ว
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาจะเตรียมคำตอบไว้ล่วงหน้า ให้<strong>เลือกรูปที่มีจุดยึดตายตัว</strong>
+        จำนวนของที่ต้องเก็บจะยุบจากคูณกันเหลือเท่าจำนวนช่อง แล้วค่อยหาวิธีประกอบรูปที่โจทย์ถามจากรูปที่ยึดไว้
       </p>
     </div>
     <p>
@@ -818,6 +1240,25 @@ int main() {
     </p>
   </div>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ตัวที่บังคับรูปของคำตอบข้อนี้คือ<strong>เงื่อนไขสองอย่างที่พูดถึงของสองแกนพร้อมกัน</strong>
+        คือ <code>i &lt; j</code> พูดถึงตำแหน่ง และ <code>a[i] &gt; a[j]</code> พูดถึงค่า
+        เงื่อนไขคู่แบบนี้คิดตรง ๆ ไม่ได้ เพราะต้องดูทุกคู่ ซึ่งที่ <code>n</code> สองแสนคือสองหมื่นล้านคู่
+      </p>
+      <p>
+        ท่าที่ใช้กับเงื่อนไขสองแกนคือ<strong>จับแกนหนึ่งให้นิ่งด้วยลำดับที่เราเดิน</strong> แล้วเหลือให้ถามแค่แกนเดียว
+        ตรงนี้มีสองทางเลือก เดินตามตำแหน่งแล้วถามเรื่องค่า หรือเดินตามค่าแล้วถามเรื่องตำแหน่ง
+        ทางแรกง่ายกว่า เพราะถ้าเราเดินจากขวาไปซ้าย ของทุกตัวที่ใส่ต้นไม้ไปแล้ว<strong>อยู่ทางขวาของตัวที่กำลังยืนอยู่โดยอัตโนมัติ</strong>
+        เงื่อนไขตำแหน่งจึงหายไปเองโดยไม่ต้องเช็ก เหลือคำถามเดียวว่ามีของที่ค่าน้อยกว่าอยู่กี่ตัว
+      </p>
+      <p>
+        พอคำถามเหลือ "นับของที่ค่าน้อยกว่านี้" ก็เห็นชัดว่ามันคือผลรวมของช่วงหัวแถว
+        ถ้าเราใส่เลข 1 ไว้ที่ตำแหน่งของค่าแทนที่จะเป็นตำแหน่งในอาเรย์ บทเรียนที่ยกไปข้ออื่นได้คือ
+        <strong>ต้นไม้ไม่จำเป็นต้องมีดัชนีเป็นตำแหน่งในอาเรย์</strong> อะไรที่เรียงลำดับได้ก็เป็นดัชนีได้
+      </p>
+    </div>
     <p>
       เดินจาก<strong>ขวาไปซ้าย</strong> พอถึงตำแหน่ง <code>i</code> ทุกตัวที่ใส่ลงต้นไม้ไปแล้วคือตัวที่อยู่ทางขวาของมัน
       คำถามว่ามีกี่ตัวที่เล็กกว่า <code>a[i]</code> จึงเป็นการถามผลรวมตั้งแต่ต้นถึงอันดับของ <code>a[i]</code> ลบหนึ่ง
@@ -854,6 +1295,23 @@ int main() {
     </p>
   </div>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้วางไว้ต่อจากข้อ 2 เพราะมันหน้าตาเหมือนกันจนหลงได้ง่าย ๆ คือเป็นการนับคู่ที่มีเงื่อนไขเรื่องค่า
+        และท่าต้นไม้จากข้อ 2 ก็ใช้ได้จริง แต่ก่อนเขียนมีประโยคหนึ่งในโจทย์ที่ต่างจากข้อ 2 คนละเรื่อง
+        คือ <strong>ตำแหน่งในอาเรย์ไม่มีความหมาย</strong> ข้อ 2 นับคู่ที่ตำแหน่งซ้ายขวาสำคัญ ข้อนี้ไม่สำคัญเลย
+      </p>
+      <p>
+        ประโยคนั้นแปลว่าเราสลับลำดับข้อมูลได้ตามใจโดยคำตอบไม่เปลี่ยน ซึ่งเป็นอิสระที่ข้อ 2 ไม่มี
+        และของฟรีที่ตามมาคือ<strong>เรียงมันเสียก่อน</strong> พอเรียงแล้ว คำว่า "ค่าต่างกันไม่เกิน D"
+        กลายเป็น "อยู่ห่างกันไม่เกินเท่าไรในแถวที่เรียงแล้ว" ซึ่งเป็นเรื่องของช่วงติดกัน ไม่ใช่การนับข้ามแถวอีก
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนหยิบโครงสร้างมาใช้ ให้อ่านหาก่อนว่า<strong>โจทย์แจกอิสระอะไรมาให้เปล่า ๆ</strong>
+        ประโยคที่บอกว่าอะไรไม่สำคัญ มักมีค่ามากกว่าประโยคที่บอกว่าอะไรสำคัญ
+      </p>
+    </div>
     <p>
       พอเรียงแล้ว คู่ที่ค่าต่างกันไม่เกิน <code>D</code> กลายเป็น<strong>คู่ที่อยู่ในหน้าต่างเดียวกัน</strong>
       คือสำหรับตัวขวาสุดที่ตำแหน่ง <code>r</code> ตัวที่จับคู่กับมันได้คือทุกตัวตั้งแต่ <code>l</code> ถึง <code>r - 1</code>
@@ -995,6 +1453,43 @@ int main() {
     font-size:0.84rem;
   }
   figure.tbl table.rec{width:auto;}
+
+  /* ---------- ตารางบิตของ i & -i ----------
+     ช่องบิตเป็นตัวเลขหลักเดียว ให้ความกว้างคงที่ ไม่งั้นการ์ดขยับตอนเผยแถวถัดไป */
+  .bitboard td.num, .bitboard th.num{width:3.2rem;text-align:center;}
+  .bitboard td.bit-on{color:var(--dl-gold);font-weight:700;}
+  .bitboard td.bit-off{color:#7b8397;}
+
+  /* ---------- กระดานของเกมต่อก้อน ---------- */
+  .lg-strip{display:flex;gap:2px;padding-bottom:0.5rem;}
+  .lg-pos{
+    flex:0 0 auto;width:1.9rem;padding:0.35rem 0;
+    text-align:center;font-size:0.7rem;
+    font-family:"Fira Code","Fira Mono",monospace;
+    border:1px solid #2a3350;border-radius:4px;
+    background:#111c2e;color:#7b8397;
+    transition:background 0.15s ease,color 0.15s ease,border-color 0.15s ease;
+  }
+  .lg-pos.is-target{border-color:#3d4763;color:#cdd6ea;}
+  .lg-pos.is-exact{background:#12331f;border-color:#2f7d4f;color:#4ade80;}
+  .lg-pos.is-over{background:#3a1a1a;border-color:#8a4141;color:#f0a6a6;}
+  .lg-pos.is-outside{background:#3a2a10;border-color:#8a6a2a;color:#e0b400;}
+  .lg-cells{display:flex;flex-wrap:wrap;gap:0.35rem;}
+  .lg-chip{
+    font:inherit;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:0.1rem;
+    padding:0.3rem 0.5rem;border-radius:8px;
+    border:1px solid var(--dl-border);background:#111c2e;color:#cdd6ea;
+  }
+  .lg-chip :global(b){font-size:0.76rem;font-family:"Fira Code","Fira Mono",monospace;font-weight:600;}
+  .lg-chip :global(i){font-size:0.62rem;font-style:normal;color:#7b8397;font-family:"Fira Code","Fira Mono",monospace;}
+  .lg-chip:hover{border-color:var(--dl-emerald);}
+  .lg-chip.is-on{background:#12331f;border-color:var(--dl-emerald-bright);}
+  .lg-chip.is-on :global(b){color:#4ade80;}
+
+  @media (prefers-reduced-motion: reduce){
+    .lg-pos{transition:none;}
+  }
   table.rec caption{
     caption-side:top;
     text-align:left;
@@ -1059,6 +1554,7 @@ int main() {
 
 <script>
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
   import type { CpGameUi } from '../../lib/cpGame';
 
   type PsStep = { kind: string; text: string; answer: number; arr: number[] };
@@ -1196,5 +1692,193 @@ int main() {
     selectPuzzle(0);
   }
 
+  /* ---------- เกมต่อก้อนให้เต็มช่วง ----------
+     กระดานสร้างจาก n ของชุดโจทย์ ส่วนคำตอบมาจาก data attribute ที่คิดไว้ตอนบิลด์
+     หน้าเว็บจึงไม่มีตัวแก้โจทย์อยู่ในตัว และตัวเลขที่ตรวจก็ตัวเดียวกับที่บิลด์ยืนยันแล้ว */
+
+  type LgPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    kind: 'cover' | 'update';
+    n: number;
+    l: number;
+    r: number;
+    answer: number[];
+    possible: boolean;
+  };
+
+  function initLowGame(): void {
+    const maybeUi = cpGameUi('[data-lowgame]');
+    if (!maybeUi) return;
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as LgPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const stripHost = ui.root.querySelector<HTMLElement>('[data-lg-strip]');
+    const cellsHost = ui.root.querySelector<HTMLElement>('[data-lg-cells]');
+    const infoHost = ui.root.querySelector<HTMLElement>('[data-lg-info]');
+    const doneHost = ui.root.querySelector<HTMLElement>('[data-lg-done]');
+    if (!stripHost || !cellsHost || !infoHost || !doneHost) return;
+
+    const strip: HTMLElement = stripHost;
+    const cells: HTMLElement = cellsHost;
+    const info: HTMLElement = infoHost;
+    const done: HTMLElement = doneHost;
+
+    const lowbit = (i: number): number => i & -i;
+    const N = puzzles[0].n;
+
+    /* กระดานสร้างครั้งเดียว ทุกชุดใช้ขนาดเดียวกัน สลับชุดแล้วแค่ล้างที่เลือก */
+    const posEls: HTMLElement[] = [];
+    const chipEls: HTMLButtonElement[] = [];
+    for (let i = 1; i <= N; i++) {
+      const cell = document.createElement('span');
+      cell.className = 'lg-pos';
+      cell.textContent = String(i);
+      strip.appendChild(cell);
+      posEls.push(cell);
+
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'lg-chip';
+      chip.dataset.i = String(i);
+      chip.innerHTML = `<b>t[${i}]</b><i>${i.toString(2).padStart(5, '0')}</i>`;
+      chip.setAttribute('aria-pressed', 'false');
+      chip.setAttribute('aria-label', `ช่องที่ ${i} ของต้นไม้`);
+      cells.appendChild(chip);
+      chipEls.push(chip);
+    }
+
+    let at = 0;
+    let picked = new Set<number>();
+    const solved = new Set<string>();
+
+    const counts = (): number[] => {
+      const cnt = new Array<number>(N + 2).fill(0);
+      for (const i of picked) {
+        const from = i - lowbit(i) + 1;
+        for (let pos = from; pos <= i; pos++) cnt[pos]++;
+      }
+      return cnt;
+    };
+
+    const render = (): void => {
+      const z = puzzles[at];
+      const cnt = counts();
+      let exact = 0;
+      let over = 0;
+      let outside = 0;
+      for (let pos = 1; pos <= N; pos++) {
+        const el = posEls[pos - 1];
+        const inTarget = z.kind === 'cover' ? pos >= z.l && pos <= z.r : pos === z.l;
+        el.className = 'lg-pos';
+        if (inTarget) el.classList.add('is-target');
+        if (cnt[pos] >= 2) {
+          el.classList.add('is-over');
+          over++;
+        } else if (cnt[pos] === 1) {
+          el.classList.add(inTarget ? 'is-exact' : 'is-outside');
+          if (inTarget) exact++;
+          else outside++;
+        }
+      }
+      for (const chip of chipEls) chip.setAttribute('aria-pressed', picked.has(Number(chip.dataset.i)) ? 'true' : 'false');
+      for (const chip of chipEls) chip.classList.toggle('is-on', picked.has(Number(chip.dataset.i)));
+
+      if (z.kind === 'cover') {
+        const want = z.r - z.l + 1;
+        info.textContent = `เลือกไว้ ${picked.size} ช่อง · คลุมพอดี ${exact} จาก ${want} ตำแหน่ง · ทับกัน ${over} ตำแหน่ง · ล้นออกนอกช่วง ${outside} ตำแหน่ง`;
+      } else {
+        let hit = 0;
+        for (const i of picked) if (i - lowbit(i) + 1 <= z.l && z.l <= i) hit++;
+        info.textContent = `เลือกไว้ ${picked.size} ช่อง · ในนั้นคลุมตำแหน่ง ${z.l} อยู่ ${hit} ช่อง`;
+      }
+      done.textContent = String(solved.size);
+    };
+
+    const win = (msg: string): void => {
+      solved.add(puzzles[at].id);
+      ui.setStatus(msg, 'good');
+      render();
+    };
+
+    const check = (): void => {
+      const z = puzzles[at];
+      if (picked.size === 0) {
+        ui.setStatus('ยังไม่ได้เลือกช่องไหนเลยครับ', 'bad');
+        return;
+      }
+      if (z.kind === 'update') {
+        const want = new Set(z.answer);
+        const missing = z.answer.filter((i) => !picked.has(i)).length;
+        const extra = [...picked].filter((i) => !want.has(i)).length;
+        if (missing === 0 && extra === 0) {
+          win(`ถูกครับ ทั้ง ${z.answer.length} ช่องนี้คือทุกช่องที่ช่วงของมันคลุมตำแหน่ง ${z.l} อยู่ และมันคือเส้นทางของ i += i & -i พอดี`);
+          return;
+        }
+        ui.setStatus(`ยังไม่ครบ ขาดไป ${missing} ช่อง และเกินมา ${extra} ช่อง`, 'bad');
+        return;
+      }
+      const cnt = counts();
+      let bad = 0;
+      for (let pos = 1; pos <= N; pos++) {
+        const inTarget = pos >= z.l && pos <= z.r;
+        if (inTarget && cnt[pos] !== 1) bad++;
+        if (!inTarget && cnt[pos] !== 0) bad++;
+      }
+      if (bad === 0) {
+        const min = z.answer.length;
+        const extra = picked.size > min ? ` (มีทางที่ใช้แค่ ${min} ช่องด้วย)` : '';
+        win(`เต็มพอดีครับ ใช้ ${picked.size} ช่อง${extra} จำนวนช่องที่น้อยที่สุดเท่ากับจำนวนเลขหนึ่งในเลขฐานสองของ ${z.r} เสมอ`);
+        return;
+      }
+      ui.setStatus(`ยังไม่พอดี มี ${bad} ตำแหน่งที่ยังไม่ถูกคลุมครั้งเดียวเป๊ะ ดูสีในแถบข้างบนได้ครับ`, 'bad');
+    };
+
+    const sayImpossible = (): void => {
+      const z = puzzles[at];
+      if (!z.possible) {
+        win('ถูกครับ ชุดนี้ต่อไม่ได้จริง ช่องเดียวที่คลุมตำแหน่งซ้ายสุดของช่วงได้แบบไม่ล้น คือช่องที่คลุมแค่ตัวมันเอง แล้วตำแหน่งถัดไปก็ไม่มีช่องไหนคลุมได้อีกโดยไม่ลากย้อนไปถึงหัวแถว');
+        return;
+      }
+      ui.setStatus('ชุดนี้ต่อได้ครับ ลองอีกที', 'bad');
+    };
+
+    const select = (k: number): void => {
+      at = k;
+      picked = new Set<number>();
+      ui.selectTab(k);
+      ui.setTease(puzzles[k].tease);
+      ui.setStatus('แตะปุ่มช่องของต้นไม้ แล้วดูแถบข้างบนเปลี่ยนสี');
+      render();
+    };
+
+    for (const chip of chipEls) {
+      chip.addEventListener('click', () => {
+        const i = Number(chip.dataset.i);
+        if (picked.has(i)) picked.delete(i);
+        else picked.add(i);
+        render();
+      });
+    }
+
+    ui.onClick('data-lg-clear', () => {
+      picked = new Set<number>();
+      ui.setStatus('ล้างแล้ว เริ่มใหม่ได้เลย');
+      render();
+    });
+    ui.onClick('data-lg-check', check);
+    ui.onClick('data-lg-imp', sayImpossible);
+    ui.onTab(select);
+    select(0);
+  }
+
   document.addEventListener('astro:page-load', initPrefixGame);
+  document.addEventListener('astro:page-load', initLowGame);
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-bitsim]');
+    initCpRowPlayers('[data-asksim]');
+    initCpRowPlayers('[data-editsim]');
+  });
 </script>
