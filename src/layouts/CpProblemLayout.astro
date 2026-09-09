@@ -158,10 +158,14 @@ const isLesson = problem.kind === 'lesson';
         headings.forEach((h, i) => {
           const a = links[i];
           const full = (h.textContent ?? '').trim();
-          if (lockedUnder(h)) {
+          const cut = full.indexOf(SEP);
+          /* ปิดบังได้เฉพาะหัวข้อที่มีตัวคั่น เพราะสิ่งที่สปอยล์คือคำบรรยายที่อยู่หลังตัวคั่น
+             ส่วนหัวข้อที่ไม่มีตัวคั่นเป็นป้ายบอกส่วนล้วน ๆ (โค้ด C++, สรุปบรรทัดเดียว,
+             เดินตารางให้ดูหนึ่งกอง) ปิดไปก็ไม่ได้กันอะไร แต่เหลือเป็นแถว "…" ที่กดได้
+             ทั้งที่อ่านไม่ออกว่าคืออะไร ซึ่งแย่กว่าการไม่มีแถวนั้นเลย */
+          if (lockedUnder(h) && cut > 0) {
             hiddenCount += 1;
-            const cut = full.indexOf(SEP);
-            a.textContent = cut > 0 ? `${full.slice(0, cut)}${SEP}…` : '…';
+            a.textContent = `${full.slice(0, cut)}${SEP}…`;
             a.classList.add('is-masked');
             a.title = 'เปิดเฉลยของหัวข้อนี้ก่อน ชื่อเต็มถึงจะขึ้น';
           } else {
@@ -194,10 +198,30 @@ const isLesson = problem.kind === 'lesson';
       const onNavClick = (e: MouseEvent): void => {
         if (e.target instanceof Element && e.target.closest('a')) setOpen(false);
       };
+      // แตะที่อื่นนอกแผงก็ปิด แผงบังเนื้อความอยู่ จึงต้องปิดได้โดยไม่ต้องเล็งปุ่มกากบาท
+      const onDocClick = (e: MouseEvent): void => {
+        if (panel.hidden || !(e.target instanceof Element)) return;
+        if (e.target.closest('[data-cptoc-panel]') || e.target.closest('[data-cptoc-open]')) return;
+        setOpen(false);
+      };
       fab.addEventListener('click', onFab);
       closeBtn.addEventListener('click', onClose);
       document.addEventListener('keydown', onKey);
+      document.addEventListener('click', onDocClick);
       nav.addEventListener('click', onNavClick);
+
+      /* ปุ่มลอยทับการ์ดข้อก่อนหน้า/ข้อถัดไปตอนอ่านถึงท้ายหน้า จนกดลิงก์นั้นไม่ได้
+         พออ่านมาถึงตรงนั้นก็ไม่ต้องใช้สารบัญแล้ว จึงซ่อนปุ่มทิ้งไปเลยตอนการ์ดโผล่
+         เช็กด้วยเรขาคณิตใน sync() ที่ทำงานอยู่แล้วตอนเลื่อน ไม่ใช้ IntersectionObserver
+         เพราะบานหน้าต่างพรีวิวไม่เรียก callback ของมันเลย จึงทดสอบไม่ได้ */
+      const adj = document.querySelector('.cp-adj');
+      const tuckIfAtEnd = (): void => {
+        if (!adj) return;
+        const r = adj.getBoundingClientRect();
+        const near = r.top < window.innerHeight - 40 && r.bottom > 0;
+        fab.classList.toggle('is-tucked', near);
+        if (near && !panel.hidden) setOpen(false);
+      };
 
       const label = fab.querySelector<HTMLElement>('[data-cptoc-label]');
       const sync = (): void => {
@@ -214,6 +238,7 @@ const isLesson = problem.kind === 'lesson';
         }
         links.forEach((l, i) => l.classList.toggle('is-here', i === cur));
         if (label) label.textContent = `${cur + 1}/${headings.length}`;
+        tuckIfAtEnd();
       };
       window.addEventListener('scroll', sync, { passive: true });
       window.addEventListener('resize', sync, { passive: true });
@@ -226,6 +251,7 @@ const isLesson = problem.kind === 'lesson';
         fab.removeEventListener('click', onFab);
         closeBtn.removeEventListener('click', onClose);
         document.removeEventListener('keydown', onKey);
+        document.removeEventListener('click', onDocClick);
         nav.removeEventListener('click', onNavClick);
       };
     }
@@ -246,6 +272,13 @@ const isLesson = problem.kind === 'lesson';
   }
   .cptoc-fab:hover{border-color:var(--dl-emerald);color:#fff;}
   .cptoc-fab[hidden]{display:none;}
+  /* ซ่อนตอนอ่านถึงการ์ดข้อก่อนหน้า/ข้อถัดไป ไม่งั้นปุ่มไปทับลิงก์นั้นพอดี */
+  .cptoc-fab.is-tucked{opacity:0;pointer-events:none;transform:translateY(0.5rem);}
+  .cptoc-fab{transition:opacity 0.18s ease, transform 0.18s ease;}
+  @media (prefers-reduced-motion: reduce){
+    .cptoc-fab{transition:none;}
+    .cptoc-fab.is-tucked{transform:none;}
+  }
   .cptoc-panel{
     /* ผูกทั้งซ้ายและขวา แล้วดันไปทางขวาด้วย margin-left:auto
        แผงจึงหดตามจอเองและล้นขอบไม่ได้เลย ต่างจาก width:min(...) ที่พลาดได้ 1px */
