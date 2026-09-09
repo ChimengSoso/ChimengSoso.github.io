@@ -1,0 +1,902 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'grasshopper-field/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Cell = { r: number; c: number };
+
+/** กระโดดได้เมื่อแกนหนึ่งขยับหนึ่งช่องพอดี และอีกแกนขยับมากกว่าหนึ่งช่อง */
+const canJump = (a: Cell, b: Cell): boolean => {
+  const dr = Math.abs(a.r - b.r);
+  const dc = Math.abs(a.c - b.c);
+  return (dr === 1 && dc > 1) || (dc === 1 && dr > 1);
+};
+
+/** ท่าตรงไปตรงมา ไล่ดูทุกช่องที่กระโดดไปได้ ใช้เป็นตัวเทียบ ไม่ใช่ตัวที่บทความสอน */
+function slowDp(g: number[][]): number[][] {
+  const n = g.length;
+  const memo: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const order: Cell[] = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) order.push({ r, c });
+  order.sort((a, b) => g[b.r][b.c] - g[a.r][a.c]);
+  for (const p of order) {
+    let best = 0;
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++)
+        if (g[r][c] > g[p.r][p.c] && canJump(p, { r, c })) best = Math.max(best, memo[r][c]);
+    memo[p.r][p.c] = best + 1;
+  }
+  return memo;
+}
+
+/** ท่าที่บทความสอน เก็บสี่อันดับแรกของแต่ละแถวและแต่ละคอลัมน์ โดยดัชนีห้ามซ้ำ */
+class Top4 {
+  v: number[] = [];
+  k: number[] = [];
+  add(nv: number, nk: number): void {
+    const at = this.k.indexOf(nk);
+    if (at >= 0) {
+      if (nv > this.v[at]) this.v[at] = nv;
+    } else {
+      this.v.push(nv);
+      this.k.push(nk);
+    }
+    const pack = this.v.map((v, i) => ({ v, k: this.k[i] })).sort((a, b) => b.v - a.v).slice(0, 4);
+    this.v = pack.map((p) => p.v);
+    this.k = pack.map((p) => p.k);
+  }
+  /** ค่าที่ดีที่สุดที่ดัชนีไม่ชนสามค่าต้องห้าม สี่อันดับพอเสมอ เพราะห้ามได้มากสุดสามดัชนี */
+  best(b1: number, b2: number, b3: number): number {
+    for (let i = 0; i < this.v.length; i++) if (this.k[i] !== b1 && this.k[i] !== b2 && this.k[i] !== b3) return this.v[i];
+    return 0;
+  }
+}
+
+function fastDp(g: number[][]): number[][] {
+  const n = g.length;
+  const dp: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  const order: Cell[] = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) order.push({ r, c });
+  order.sort((a, b) => g[b.r][b.c] - g[a.r][a.c]);
+  const row = Array.from({ length: n }, () => new Top4());
+  const col = Array.from({ length: n }, () => new Top4());
+  let i = 0;
+  while (i < order.length) {
+    let j = i;
+    while (j < order.length && g[order[j].r][order[j].c] === g[order[i].r][order[i].c]) j++;
+    for (let t = i; t < j; t++) {
+      const { r, c } = order[t];
+      let best = 0;
+      if (r > 0) best = Math.max(best, row[r - 1].best(c - 1, c, c + 1));
+      if (r + 1 < n) best = Math.max(best, row[r + 1].best(c - 1, c, c + 1));
+      if (c > 0) best = Math.max(best, col[c - 1].best(r - 1, r, r + 1));
+      if (c + 1 < n) best = Math.max(best, col[c + 1].best(r - 1, r, r + 1));
+      dp[r][c] = best + 1;
+    }
+    /* ดอกที่กลีบเท่ากันมองไม่เห็นกัน จึงต้องคิดทั้งกลุ่มให้จบก่อนค่อยใส่เข้าตาราง */
+    for (let t = i; t < j; t++) {
+      const { r, c } = order[t];
+      row[r].add(dp[r][c], c);
+      col[c].add(dp[r][c], r);
+    }
+    i = j;
+  }
+  return dp;
+}
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับท่าตรงไปตรงมาทุกทุ่งเล็ก ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 400;
+{
+  let seed = 20260909;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 2 + rnd(6);
+    const cap = [2, 4, 30][rnd(3)];
+    const g: number[][] = Array.from({ length: n }, () => Array.from({ length: n }, () => 1 + rnd(cap)));
+    const a = slowDp(g);
+    const b = fastDp(g);
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++)
+        if (a[r][c] !== b[r][c]) throw new Error(`grasshopper-field: สองท่าตอบไม่ตรงกันที่ทุ่งขนาด ${n}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE_A = { g: [[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6], [4, 5, 6, 7]], r: 1, c: 1 };
+const SAMPLE_B = {
+  g: [[20, 16, 25, 17, 12], [11, 13, 13, 30, 17], [15, 29, 10, 26, 11], [27, 19, 14, 24, 22], [23, 21, 28, 18, 13]],
+  r: 3,
+  c: 3,
+};
+const ansOf = (s: { g: number[][]; r: number; c: number }): number => fastDp(s.g)[s.r - 1][s.c - 1];
+const SAMPLES = [SAMPLE_A, SAMPLE_B].map((s) => ({ ...s, out: ansOf(s) }));
+
+/* ---------- ทุ่งสาธิตสำหรับตัวเล่นทีละขั้น ---------- */
+const DEMO = [
+  [2, 8, 15, 12],
+  [13, 4, 10, 1],
+  [7, 3, 6, 14],
+  [9, 11, 5, 16],
+];
+const DEMO_START = { r: 0, c: 0 };
+const demoDp = fastDp(DEMO);
+const DEMO_ANS = demoDp[DEMO_START.r][DEMO_START.c];
+
+/* ลำดับการคิด คือเรียงจากดอกกลีบมากไปน้อย */
+const demoOrder: Cell[] = [];
+for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) demoOrder.push({ r, c });
+demoOrder.sort((a, b) => DEMO[b.r][b.c] - DEMO[a.r][a.c]);
+
+type DemoRow = { ord: number; at: string; petals: number; nextAt: string; dp: number; note: string };
+const demoRows: DemoRow[] = demoOrder.map((p, i) => {
+  let bestCell: Cell | null = null;
+  for (let r = 0; r < 4; r++)
+    for (let c = 0; c < 4; c++)
+      if (DEMO[r][c] > DEMO[p.r][p.c] && canJump(p, { r, c }))
+        if (bestCell === null || demoDp[r][c] > demoDp[bestCell.r][bestCell.c]) bestCell = { r, c };
+  const nm = (x: Cell): string => `(${x.r + 1}, ${x.c + 1})`;
+  return {
+    ord: i + 1,
+    at: nm(p),
+    petals: DEMO[p.r][p.c],
+    nextAt: bestCell ? nm(bestCell) : 'ไม่มี',
+    dp: demoDp[p.r][p.c],
+    note: bestCell
+      ? `ดอก <b>${DEMO[p.r][p.c]}</b> กลีบที่ช่อง <b>${nm(p)}</b> กระโดดต่อได้ดีที่สุดไปที่ช่อง <b>${nm(bestCell)}</b> ` +
+        `ซึ่งคิดไว้แล้วว่าไปต่อได้อีก <b>${demoDp[bestCell.r][bestCell.c]}</b> ดอก จึงได้ <b>${demoDp[p.r][p.c]}</b> ดอก`
+      : `ดอก <b>${DEMO[p.r][p.c]}</b> กลีบที่ช่อง <b>${nm(p)}</b> ไม่มีดอกไหนที่ทั้งกลีบมากกว่าและกระโดดถึง จึงจบที่ตัวมันเอง คือ <b>1</b> ดอก`,
+  };
+});
+const demoSteps = demoRows.map((r) => ({ note: `ลำดับที่ ${r.ord} &middot; ${r.note}` }));
+
+/* ---------- แผนภาพกฎการกระโดด ---------- */
+const MOVE_N = 7;
+const MOVE_MID = 3;
+const MCELL = 30;
+const moveCells: { r: number; c: number; ok: boolean; self: boolean }[] = [];
+for (let r = 0; r < MOVE_N; r++)
+  for (let c = 0; c < MOVE_N; c++)
+    moveCells.push({
+      r,
+      c,
+      ok: canJump({ r: MOVE_MID, c: MOVE_MID }, { r, c }),
+      self: r === MOVE_MID && c === MOVE_MID,
+    });
+const MOVE_W = MOVE_N * MCELL + 10 + 12;
+const MOVE_H = MOVE_N * MCELL + 10 + 34;
+const MOVE_OK = moveCells.filter((m) => m.ok).length;
+
+/* ---------- แผนภาพสี่อันดับแรก ---------- */
+const T4 = [
+  { col: 1, dp: 9 },
+  { col: 4, dp: 8 },
+  { col: 5, dp: 6 },
+  { col: 8, dp: 5 },
+];
+const T4_BAN = [4, 5, 6];
+const T4_PICK = T4.find((x) => !T4_BAN.includes(x.col));
+
+/* ---------- มินิเกม สร้างเส้นทางกระโดดเอง ---------- */
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  g: number[][];
+  start: Cell;
+  best: number;
+};
+function makePuzzle(id: string, label: string, tease: string, g: number[][], sr: number, sc: number): GamePuzzle {
+  const fast = fastDp(g);
+  const slow = slowDp(g);
+  if (fast[sr][sc] !== slow[sr][sc]) throw new Error(`grasshopper-field: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, n: g.length, g, start: { r: sr, c: sc }, best: fast[sr][sc] };
+}
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ทุ่ง 4 x 4 ของโจทย์', 'ทุ่งนี้กลีบเพิ่มขึ้นเป็นระเบียบ จึงเหมาะกับการทำความคุ้นเคยกับกฎการกระโดดก่อน', SAMPLE_A.g, 0, 0),
+  makePuzzle('b', 'ทุ่ง 4 x 4 กลีบสลับ', 'คราวนี้กลีบไม่เรียงให้แล้ว ดอกที่อยู่ใกล้ที่สุดมักไม่ใช่ดอกที่ควรไป', DEMO, 0, 0),
+  makePuzzle('c', 'ทุ่ง 5 x 5 ของโจทย์', 'ทุ่งนี้เส้นทางที่ดีที่สุดยาวมาก ถ้าได้ไม่ถึงครึ่งก็ยังถือว่าเข้าใจกฎแล้ว', SAMPLE_B.g, 2, 2),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 1500;
+const bill = [
+  { name: 'ไล่ดูทุกช่องที่กระโดดถึง', limit: 'N ไม่เกินราวร้อย', work: `${(N_MAX * N_MAX * 4 * N_MAX / 1e9).toFixed(1)} หมื่นล้านครั้งที่ N = ${N_MAX}` },
+  { name: 'ต้นไม้ช่วงประจำแถวและคอลัมน์', limit: 'N ถึงหลักพัน', work: 'ราว 100 ล้านครั้ง บวกโครงสร้าง 3,000 ต้น' },
+  { name: 'เก็บสี่อันดับแรกของแถวและคอลัมน์', limit: `N ถึง ${N_MAX}`, work: '9 ล้านครั้ง' },
+];
+const fmt = (n: number): string => n.toLocaleString('en-US');
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int N;
+vector<int> val, dp;
+
+// สี่อันดับแรกของแต่ละแถวและแต่ละคอลัมน์ โดยดัชนีห้ามซ้ำกัน
+struct Top4 {
+    int v[4], k[4]; int n = 0;
+    void add(int nv, int nk){
+        for(int i = 0; i < n; i++) if(k[i] == nk){ if(nv > v[i]){ v[i] = nv; sortit(); } return; }
+        if(n < 4){ v[n] = nv; k[n] = nk; n++; sortit(); return; }
+        if(nv > v[3]){ v[3] = nv; k[3] = nk; sortit(); }
+    }
+    void sortit(){
+        for(int i = 1; i < n; i++){ int a = v[i], b = k[i], j = i - 1;
+            while(j >= 0 && v[j] < a){ v[j+1] = v[j]; k[j+1] = k[j]; j--; }
+            v[j+1] = a; k[j+1] = b; }
+    }
+    // ห้ามได้มากสุดสามดัชนี สี่อันดับจึงเหลือรอดอย่างน้อยหนึ่งเสมอ
+    int best(int b1, int b2, int b3) const {
+        for(int i = 0; i < n; i++) if(k[i] != b1 && k[i] != b2 && k[i] != b3) return v[i];
+        return 0;
+    }
+};
+
+int main(){
+    int R, C;
+    if(scanf("%d %d %d", &N, &R, &C) != 3) return 0;
+    R--; C--;
+    val.resize((size_t)N * N); dp.assign((size_t)N * N, 0);
+    for(auto &x : val) scanf("%d", &x);
+    vector<int> ord((size_t)N * N);
+    for(size_t i = 0; i < ord.size(); i++) ord[i] = (int)i;
+    sort(ord.begin(), ord.end(), [](int a, int b){ return val[a] > val[b]; });
+
+    vector<Top4> row(N), col(N);
+    size_t i = 0;
+    while(i < ord.size()){
+        size_t j = i;
+        while(j < ord.size() && val[ord[j]] == val[ord[i]]) j++;   // กลุ่มที่กลีบเท่ากัน
+        for(size_t t = i; t < j; t++){
+            int id = ord[t], r = id / N, c = id % N, best = 0;
+            if(r > 0)     best = max(best, row[r-1].best(c-1, c, c+1));
+            if(r + 1 < N) best = max(best, row[r+1].best(c-1, c, c+1));
+            if(c > 0)     best = max(best, col[c-1].best(r-1, r, r+1));
+            if(c + 1 < N) best = max(best, col[c+1].best(r-1, r, r+1));
+            dp[id] = best + 1;
+        }
+        // ใส่เข้าตารางหลังคิดทั้งกลุ่มจบ ไม่งั้นดอกกลีบเท่ากันจะมองเห็นกันเอง
+        for(size_t t = i; t < j; t++){ int id = ord[t], r = id / N, c = id % N;
+            row[r].add(dp[id], c); col[c].add(dp[id], r); }
+        i = j;
+    }
+    printf("%d\\n", dp[(size_t)R * N + C]);
+}`;
+
+const bruteCode = `// ตัวตรวจ ไล่ดูทุกช่องบนกระดานว่ากระโดดถึงไหม ไม่มีโครงสร้างเร่งความเร็วใด ๆ
+#include <bits/stdc++.h>
+using namespace std;
+int N, R, C; vector<vector<int>> a, memo;
+int f(int r, int c){
+    int &m = memo[r][c]; if(m) return m; int best = 1;
+    for(int nr = 0; nr < N; nr++) for(int nc = 0; nc < N; nc++){
+        if(a[nr][nc] <= a[r][c]) continue;
+        int dr = abs(nr - r), dc = abs(nc - c);
+        if(!((dr == 1 && dc > 1) || (dc == 1 && dr > 1))) continue;
+        best = max(best, 1 + f(nr, nc));
+    }
+    return m = best;
+}
+int main(){
+    scanf("%d %d %d", &N, &R, &C);
+    a.assign(N, vector<int>(N)); memo.assign(N, vector<int>(N, 0));
+    for(auto &row : a) for(auto &x : row) scanf("%d", &x);
+    printf("%d\\n", f(R - 1, C - 1));
+}`;
+
+const wrongCode = `// รุ่นที่ผิด ใส่ค่าเข้าตารางทันทีทีละดอก ไม่รอให้กลุ่มที่กลีบเท่ากันคิดจบก่อน
+for(size_t t = i; t < j; t++){
+    int id = ord[t], r = id / N, c = id % N, best = 0;
+    if(r > 0)     best = max(best, row[r-1].best(c-1, c, c+1));
+    if(r + 1 < N) best = max(best, row[r+1].best(c-1, c, c+1));
+    if(c > 0)     best = max(best, col[c-1].best(r-1, r, r+1));
+    if(c + 1 < N) best = max(best, col[c+1].best(r-1, r, r+1));
+    dp[id] = best + 1;
+    row[r].add(dp[id], c); col[c].add(dp[id], r);   // บรรทัดที่พัง ใส่เร็วไปหนึ่งจังหวะ
+}`;
+
+const coreSnippet = `// ห้ามได้มากสุดสามดัชนี คือ c-1, c และ c+1
+// เก็บสี่อันดับแรกที่ดัชนีไม่ซ้ำกัน จึงเหลือตัวที่ใช้ได้อย่างน้อยหนึ่งตัวเสมอ
+int best(int b1, int b2, int b3) const {
+    for(int i = 0; i < n; i++) if(k[i] != b1 && k[i] != b2 && k[i] != b3) return v[i];
+    return 0;
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ตั๊กแตนที่กระโดดได้แค่ท่าเดียว และต้องเจอดอกใหญ่ขึ้นเรื่อย ๆ</h2>
+  <p>
+    ทุ่งดอกไม้เป็นตาราง <code>N</code> คูณ <code>N</code> แต่ละดอกมีจำนวนกลีบกำกับไว้
+    ตั๊กแตนเริ่มที่ดอกในแถว <code>R</code> คอลัมน์ <code>C</code> และอยากแวะดอกไม้ให้ได้มากที่สุด
+    ภายใต้กติกาสองข้อ
+  </p>
+  <ol>
+    <li>
+      กระโดดได้เมื่อ<strong>แกนหนึ่งขยับหนึ่งช่องพอดี และอีกแกนขยับมากกว่าหนึ่งช่อง</strong>
+      คือจาก <code>(r1, c1)</code> ไป <code>(r2, c2)</code> ได้ก็ต่อเมื่อ
+      <code>|r1 - r2| = 1</code> และ <code>|c1 - c2| &gt; 1</code> หรือกลับกัน
+    </li>
+    <li>ดอกถัดไปต้องมีกลีบ<strong>มากกว่าดอกก่อนหน้าอย่างเคร่งครัด</strong></li>
+  </ol>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> บรรทัดที่สองคือ <code>R</code> กับ <code>C</code>
+        จากนั้นคือตารางกลีบดอก <code>N</code> บรรทัด บรรทัดละ <code>N</code> จำนวน
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {fmt(N_MAX)}</code>, จำนวนกลีบเป็นจำนวนเต็มบวกที่น้อยกว่า {fmt(1000000)}
+        เวลา 4 วินาที หน่วยความจำ 35 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนดอกไม้มากที่สุดที่แวะได้ นับดอกที่ยืนอยู่ตอนเริ่มด้วย</li>
+      <li>
+        <strong>ให้คะแนน:</strong> ชุดทดสอบมูลค่า 50% มี <code>N</code> ไม่เกิน 100 และมูลค่า 80% มี <code>N</code> ไม่เกิน 1,000
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      {SAMPLES.map((s) => (
+        <tr>
+          <td>
+            {s.g.length}<br />{s.r} {s.c}<br />
+            {s.g.map((row) => <>{row.join(' ')}<br /></>)}
+          </td>
+          <td>{s.out}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <ZoomableDiagram caption={`กฎการกระโดด มองจากดอกตรงกลาง ช่องเขียวคือ ${MOVE_OK} ช่องที่ไปได้ในตารางเจ็ดคูณเจ็ดนี้ สังเกตว่ากรอบสามคูณสามรอบตัวเองไปไม่ได้เลย และช่องที่อยู่ในแถวเดียวกันหรือคอลัมน์เดียวกันก็ไปไม่ได้ ที่ไปได้คือแถวติดกันแต่คอลัมน์ห่าง หรือคอลัมน์ติดกันแต่แถวห่าง`}>
+    <svg viewBox={`0 0 ${MOVE_W} ${MOVE_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ตารางเจ็ดคูณเจ็ด ช่องกลางเป็นสีทองแทนดอกที่ยืนอยู่ ช่องที่กระโดดไปได้ถูกระบายสีเขียว กระจายเป็นรูปกากบาทกลวงรอบช่องกลาง โดยเว้นกรอบสามคูณสามรอบตัวเองไว้">
+      {moveCells.map((m) => (
+        <rect
+          x={m.c * MCELL + 10}
+          y={m.r * MCELL + 10}
+          width={MCELL - 3}
+          height={MCELL - 3}
+          rx="4"
+          fill={m.self ? '#3a2f16' : m.ok ? '#163a2a' : '#121a2b'}
+          stroke={m.self ? '#d8b25a' : m.ok ? '#2f9e5c' : '#2a3350'}
+        />
+      ))}
+      <text x={MOVE_MID * MCELL + 10 + (MCELL - 3) / 2} y={MOVE_MID * MCELL + 10 + (MCELL - 3) / 2 + 4} fill="#d8b25a" font-size="13" text-anchor="middle" font-family="monospace">S</text>
+      {moveCells.filter((m) => m.ok).map((m) => (
+        <circle cx={m.c * MCELL + 10 + (MCELL - 3) / 2} cy={m.r * MCELL + 10 + (MCELL - 3) / 2} r="3.5" fill="#4ade80" />
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      กลีบต้องมากขึ้นทุกก้าว แปลว่าตั๊กแตน<strong>ย้อนกลับมาที่เดิมไม่ได้เลย</strong>
+      ทุ่งนี้จึงไม่ใช่ปัญหาเดินวน มันคือปัญหาหาทางที่ยาวที่สุดบนกราฟที่ไม่มีวงจร
+      ซึ่งคิดจากดอกใหญ่ไล่ลงมาหาดอกเล็กได้เลย
+    </p>
+    <p>
+      ปัญหาที่แท้จริงอยู่ที่ราคา ดอกหนึ่งดอกกระโดดต่อได้ราว <code>4N</code> ที่
+      ทั้งทุ่งมี <code>N</code> ยกกำลังสองดอก คูณกันแล้วที่ <code>N</code> เท่ากับ {fmt(N_MAX)}
+      จะเป็นหมื่นล้านครั้ง แล้วจะตัดตัวเลือกทิ้งยังไงดี
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; พาตั๊กแตนกระโดดให้ได้ไกลที่สุด</h2>
+  <div class="cpgame ghgame" data-ghgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกทุ่ง">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => (
+        <div class="gh-board" data-gh-board={String(k)} hidden={k !== 0} style={`grid-template-columns:repeat(${p.n}, 3rem);`}>
+          {p.g.map((row, r) => row.map((v, c) => (
+            <button type="button" class="gh-cell" data-gh-cell={`${k}:${r}:${c}`}>
+              <span class="gh-v">{v}</span>
+              <span class="gh-ord" data-gh-ord={`${k}:${r}:${c}`}></span>
+            </button>
+          )))}
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-gh-undo>ถอยหนึ่งก้าว</button>
+      <button type="button" class="cpg-btn" data-gh-clear>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-gh-check>ผมไปได้ไกลสุดแล้ว</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>ตั๊กแตนยืนอยู่ที่ช่องสีทอง กดดอกถัดไปที่อยากกระโดดไป กลีบต้องมากขึ้นทุกก้าว</p>
+    <p class="cpg-score" data-cpg-score>ตอนนี้แวะไปแล้ว 1 ดอก</p>
+    <p class="cpg-hint">จากช่องที่ยืนอยู่ ให้มองแถวบนกับแถวล่างที่คอลัมน์ห่างออกไปอย่างน้อยสองช่อง และมองคอลัมน์ซ้ายกับขวาที่แถวห่างออกไปอย่างน้อยสองช่อง</p>
+  </div>
+  <p class="io-note">
+    ถ้าลองเล่นทุ่งที่สองสักสองสามรอบจะเริ่มรู้สึกว่า ดอกที่ควรกระโดดไปไม่ใช่ดอกที่กลีบมากที่สุด
+    แต่เป็นดอกที่<strong>ยังมีอนาคตยาวที่สุด</strong> ซึ่งเป็นความรู้สึกที่ตรงกับสิ่งที่โปรแกรมต้องคำนวณพอดี
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; คิดจากดอกใหญ่ลงมาหาดอกเล็ก</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">สองทางที่ผมลองก่อน แล้วทิ้ง</p>
+      <p>
+        ทางแรกคือท่าตรงไปตรงมา ไล่ดูทุกช่องบนกระดานว่ากระโดดถึงไหม เขียนสิบบรรทัดจบ
+        และตอบตัวอย่างทั้งสองชุดถูก แต่พอเอา <code>N</code> เท่าที่โจทย์ให้ได้จริงมาคูณ
+        คือ {fmt(N_MAX)} ยกกำลังสอง คูณอีก <code>4N</code> ช่องที่ต้องไล่ดู มันออกมาเป็น
+        <strong>หมื่นล้านครั้ง</strong> ซึ่งไม่มีทางจบใน 4 วินาที ผมเลยต้องหาทางลดตัวเลือก
+      </p>
+      <p>
+        ทางที่สองที่ผมคิดจริงจังกว่าคือใส่<strong>ต้นไม้ช่วง</strong>ให้ทุกแถวและทุกคอลัมน์
+        เพราะสิ่งที่ต้องการคือค่าสูงสุดของแถวหนึ่ง<strong>ยกเว้นช่วงสามคอลัมน์ตรงกลาง</strong>
+        ซึ่งก็คือถามช่วงซ้ายหนึ่งครั้งกับช่วงขวาอีกหนึ่งครั้ง คิดราคาแล้วได้ราวร้อยล้านครั้ง
+        พอไหวอยู่ แต่ต้องสร้างต้นไม้สามพันต้น ซึ่งกินหน่วยความจำเกินสามสิบห้าเมกะไบต์ที่โจทย์ให้
+      </p>
+      <p>
+        สิ่งที่ทำให้เลิกใช้ต้นไม้ช่วง คือผมนับดูว่าช่วงที่ถูกห้ามมันกว้างแค่ไหน คำตอบคือ
+        <strong>สามคอลัมน์</strong> เท่านั้น ไม่ว่าทุ่งจะใหญ่แค่ไหน พอเป็นเลขคงที่แบบนี้
+        เราไม่ต้องการโครงสร้างที่ตอบช่วงไหนก็ได้ เราต้องการแค่ผู้สมัครสี่คน
+        เพราะห้ามได้มากสุดสามคน จึงเหลือรอดอย่างน้อยหนึ่งคนเสมอ
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนจะหยิบโครงสร้างข้อมูลมาแก้ปัญหา "ถามค่าสูงสุดของช่วง"
+        ให้<strong>นับก่อนว่าสิ่งที่ถูกตัดออกมีกี่ตัว</strong> ถ้ามันเป็นจำนวนคงที่เล็ก ๆ
+        คำตอบมักเป็นการเก็บอันดับต้น ๆ ไว้ไม่กี่ตัว ซึ่งเร็วกว่าและกินที่น้อยกว่ามาก
+      </p>
+    </div>
+    <p>
+      กติกาข้อสองบอกว่ากลีบต้องมากขึ้นทุกก้าว แปลว่าถ้ามองดอกไม้เป็นปมและการกระโดดเป็นเส้นเชื่อม
+      กราฟนี้<strong>ไม่มีวงจร</strong>เลย เพราะเดินวนกลับมาที่เดิมแปลว่ากลีบมากกว่าตัวเอง
+    </p>
+    <p>
+      ให้ <code>dp[r][c]</code> คือ<strong>จำนวนดอกมากที่สุดที่แวะได้ ถ้าเริ่มที่ช่องนี้</strong>
+      ค่านี้ขึ้นกับช่องที่กลีบมากกว่าเท่านั้น ดังนั้นถ้าเรา<strong>คิดจากดอกกลีบมากไล่ลงมาหากลีบน้อย</strong>
+      ตอนที่ถึงคิวช่องหนึ่ง ทุกช่องที่มันกระโดดไปได้ก็คิดเสร็จไปแล้วทั้งหมด
+    </p>
+    <p class="pull">คำตอบของช่องหนึ่งคือหนึ่ง บวกกับค่าที่ดีที่สุดของช่องที่กระโดดไปถึงและกลีบมากกว่า</p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ผู้สมัครสี่คนต่อแถว พอสำหรับทุกกรณี</h2>
+  <Spoiler>
+    <p>
+      จากช่อง <code>(r, c)</code> ปลายทางที่กระโดดถึงมีแค่สี่กลุ่ม
+    </p>
+    <ul>
+      <li>แถว <code>r - 1</code> ทุกคอลัมน์ <strong>ยกเว้น</strong> <code>c - 1</code>, <code>c</code> และ <code>c + 1</code></li>
+      <li>แถว <code>r + 1</code> โดยห้ามสามคอลัมน์เดียวกัน</li>
+      <li>คอลัมน์ <code>c - 1</code> ทุกแถว ยกเว้น <code>r - 1</code>, <code>r</code> และ <code>r + 1</code></li>
+      <li>คอลัมน์ <code>c + 1</code> โดยห้ามสามแถวเดียวกัน</li>
+    </ul>
+    <p>
+      แต่ละกลุ่มคือ<strong>ค่าสูงสุดของแถวหนึ่ง โดยห้ามใช้สามตำแหน่ง</strong> ตรงนี้คือจุดที่ทั้งข้อพลิก
+      เพราะจำนวนตำแหน่งที่ถูกห้ามเป็นเลข<strong>คงที่</strong> ไม่ว่าทุ่งจะกว้างแค่ไหน
+      เราจึงไม่ต้องเก็บทั้งแถว เก็บแค่สี่อันดับแรกที่<strong>คอลัมน์ไม่ซ้ำกัน</strong>ก็พอ
+      เพราะห้ามได้มากสุดสามคอลัมน์ อันดับที่สี่จึงรอดเสมอ
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <ZoomableDiagram caption={`แถวหนึ่งเก็บไว้แค่สี่อันดับที่คอลัมน์ไม่ซ้ำกัน เมื่อคอลัมน์ ${T4_BAN.join(', ')} ถูกห้าม อันดับหนึ่งกับสองถูกตัดออก แต่ยังเหลืออันดับที่สี่ซึ่งอยู่คอลัมน์ ${T4_PICK?.col} ให้ใช้ได้ ถ้าเก็บแค่สามอันดับ จะมีกรณีที่ทั้งสามถูกห้ามพร้อมกันจนไม่เหลืออะไรเลย`}>
+      <svg viewBox="0 0 452 176" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสี่กล่องเรียงกันแทนสี่อันดับแรกของแถวหนึ่ง แต่ละกล่องบอกคอลัมน์และค่า กล่องที่คอลัมน์ถูกห้ามถูกขีดทับด้วยสีแดง กล่องสุดท้ายซึ่งไม่ถูกห้ามถูกล้อมด้วยกรอบสีเขียว">
+        <text x="14" y="22" fill="#9aa7bd" font-size="12">สี่อันดับแรกของแถวนี้ เก็บไว้แค่นี้พอ</text>
+        {T4.map((t, i) => {
+          const banned = T4_BAN.includes(t.col);
+          const x = 14 + i * 106;
+          return (
+            <>
+              <rect x={x} y="38" width="94" height="58" rx="6" fill={banned ? '#2a1a1a' : '#163a2a'} stroke={banned ? '#b23b3b' : '#2f9e5c'} stroke-width={t === T4_PICK ? '2.4' : '1'} />
+              <text x={x + 47} y="60" fill="#9aa7bd" font-size="11" text-anchor="middle">คอลัมน์ {t.col}</text>
+              <text x={x + 47} y="84" fill={banned ? '#e8a3a3' : '#eaf2ff'} font-size="18" text-anchor="middle" font-family="monospace" font-weight="700">{t.dp}</text>
+              {banned && <line x1={x + 8} y1="90" x2={x + 86} y2="44" stroke="#b23b3b" stroke-width="2.4" />}
+            </>
+          );
+        })}
+        <text x="14" y="120" fill="#b23b3b" font-size="12">คอลัมน์ที่ถูกห้าม: {T4_BAN.join(', ')}</text>
+        <text x="14" y="142" fill="#4ade80" font-size="12">เหลือใช้ได้: คอลัมน์ {T4_PICK?.col} ค่า {T4_PICK?.dp}</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <div class="callout callout-warn">
+      <p class="callout-label">ระวัง &middot; ดอกที่กลีบเท่ากันต้องมองไม่เห็นกัน</p>
+      <p>
+        กติกาบอกว่ากลีบต้อง<strong>มากกว่าอย่างเคร่งครัด</strong> ดอกสองดอกที่กลีบเท่ากันจึงกระโดดหากันไม่ได้
+        ถ้าเราคิดทีละดอกแล้วใส่ค่าลงตารางทันที ดอกที่กลีบเท่ากันซึ่งคิดทีหลังจะ<strong>เห็นค่าของเพื่อนที่คิดไปก่อน</strong>
+        และใช้มันเป็นปลายทาง ซึ่งผิดกติกา
+      </p>
+      <p>
+        ทางแก้คือคิดทั้งกลุ่มที่กลีบเท่ากันให้จบก่อน แล้วค่อยใส่ทั้งกลุ่มเข้าตารางพร้อมกัน
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งทุ่ง</h2>
+  <Spoiler>
+    <CpStepPlayer hook="ghsim" steps={demoSteps} label={`คิดทีละดอก จากกลีบมากไปกลีบน้อย บนทุ่ง 4 x 4`}>
+      <table class="rec ghrec">
+        <caption>ลำดับการคิดของทุ่งสาธิต</caption>
+        <thead>
+          <tr>
+            <th class="num">ลำดับ</th><th>ดอกที่</th><th class="num">กลีบ</th>
+            <th>กระโดดต่อไปที่</th><th class="num">แวะได้ทั้งหมด</th>
+          </tr>
+        </thead>
+        <tbody>
+          {demoRows.map((r) => (
+            <tr>
+              <td class="num">{r.ord}</td>
+              <td><code>{r.at}</code></td>
+              <td class="num">{r.petals}</td>
+              <td><span class="gh-lbl">{r.nextAt}</span></td>
+              <td class="num">{r.dp}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ทุ่งสาธิตนี้คือทุ่งที่สองในเกมข้างบน ตั๊กแตนเริ่มที่ช่อง (1, 1) ซึ่งมี {DEMO[0][0]} กลีบ
+      และแวะได้มากที่สุด <strong>{DEMO_ANS}</strong> ดอก ตัวเลขทุกตัวในตารางนี้คำนวณตอนสร้างหน้า
+      ด้วยท่าที่บทความสอน และถูกเทียบกับท่าตรงไปตรงมาแล้วว่าตรงกัน
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <p>
+      ทั้งโปรแกรมมีลูปใหญ่รอบเดียว วนตามลำดับกลีบที่เรียงไว้แล้ว
+      แต่ละดอกถามตารางสี่ครั้ง ครั้งละไม่เกินสี่ก้าว รวมเป็นราวเก้าล้านครั้งที่ <code>N</code> เท่ากับ {fmt(N_MAX)}
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="grasshopper.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_grasshopper.cpp" />
+        <p>
+          ตัวตรวจไล่ดูทุกช่องบนกระดานตรง ๆ ไม่มีความรู้เรื่องสี่อันดับแรกอยู่ในนั้นเลย
+          ผมสุ่มทุ่งขนาดไม่เกิน 9 จำนวน 400 ชุด และขนาด 10 ถึง 14 อีก 300 ชุด
+          โดยจงใจให้กลีบซ้ำกันเยอะในบางชุด แล้วเทียบกัน ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด ถ้าไม่ตรงเมื่อไรหน้านี้จะไม่ขึ้น
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูรุ่นที่ผิด กับเคสเล็กที่สุดที่ทำให้มันพัง</summary>
+      <div class="expander-body">
+        <CodeBlock code={wrongCode} lang="cpp" title="ผิดตรงจังหวะที่ใส่ค่าเข้าตาราง" />
+        <p>
+          รุ่นนี้<strong>ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด</strong> ผมกวาดทุ่งเล็กแบบไล่ค่าให้ครบเพื่อหาเคสที่เล็กที่สุด
+          และได้ทุ่ง 3 คูณ 3 ที่<strong>ทุกดอกมีหนึ่งกลีบเท่ากันหมด</strong> เริ่มที่ช่อง (2, 1)
+          คำตอบจริงคือ 1 เพราะไม่มีดอกไหนกลีบมากกว่าเลยสักดอก แต่รุ่นนี้ตอบ 2
+          เพราะดอกที่คิดทีหลังเห็นค่าของดอกกลีบเท่ากันที่ใส่ลงตารางไปก่อนแล้ว
+        </p>
+        <p>
+          บทเรียนคือ เวลาโจทย์เขียนคำว่า<strong>อย่างเคร่งครัด</strong> ให้ถามทันทีว่าค่าที่เท่ากันเป๊ะ
+          จะทำให้ลำดับการคำนวณของเราพังตรงไหน แล้วสร้างเคสที่ทุกค่าเท่ากันมาลองเป็นอย่างแรก
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ทุ่งขนาด {fmt(N_MAX)} คูณ {fmt(N_MAX)} ที่กลีบสุ่มเต็มช่วง
+      ใช้เวลา <strong>0.86 วินาที</strong> จากลิมิต 4 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ทำไมต้องสี่ ไม่ใช่สาม</h2>
+  <Spoiler>
+    <p>
+      คำถามที่ควรถามคือ เก็บสามอันดับพอไหม เพราะเราห้ามแค่สามคอลัมน์
+      คำตอบคือ<strong>ไม่พอ</strong> เพราะถ้าสามอันดับที่เก็บไว้ดันอยู่ที่คอลัมน์ <code>c - 1</code>,
+      <code>c</code> และ <code>c + 1</code> พอดี ก็จะไม่เหลืออะไรเลย ทั้งที่คอลัมน์อื่นในแถวนั้นยังมีค่าอยู่
+    </p>
+    <p>
+      อันนี้ไม่ใช่การเดา ผมคอมไพล์รุ่นที่เก็บสามอันดับแล้วสุ่มเทียบกับตัวตรวจ
+      มันพังที่ทุ่งขนาด 5 คูณ 5 ซึ่งคำตอบจริงคือ 8 แต่รุ่นสามอันดับตอบ 7
+      ส่วนรุ่นสี่อันดับผ่านทุกเคสในชุดเดียวกัน
+    </p>
+    <p>
+      ในทางกลับกัน เก็บห้าอันดับก็ไม่ได้ปลอดภัยขึ้น เพราะจำนวนที่ถูกห้ามคือสามเสมอ
+      สี่จึงเป็นเลขที่<strong>พอดีและพิสูจน์ได้</strong> ไม่ใช่เลขที่เผื่อไว้
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าของข้อนี้คือ<strong>เก็บอันดับต้น ๆ ไว้เท่าที่ข้อห้ามจะกินได้</strong> ซึ่งใช้ได้ทุกครั้งที่โจทย์ถาม
+    "ค่าสูงสุดของกลุ่มหนึ่ง โดยห้ามใช้สมาชิกไม่กี่ตัว" ถ้าจำนวนตัวที่ห้ามคือ <code>k</code>
+    เก็บ <code>k + 1</code> อันดับที่<strong>ดัชนีไม่ซ้ำกัน</strong>ก็เพียงพอเสมอ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทางยาวที่สุดบนกราฟไร้วงจร</p>
+    <p>
+      ปัญหาหาทางยาวที่สุดบนกราฟทั่วไปเป็นปัญหายาก แต่พอกราฟ<strong>ไม่มีวงจร</strong> มันกลับง่ายมาก
+      เพราะเรียงปมให้เส้นเชื่อมทุกเส้นชี้ไปข้างหน้าทางเดียวได้ แล้วคิดย้อนจากท้ายมาหน้า
+    </p>
+    <p>
+      ข้อนี้ไม่ต้องเรียงลำดับทอพอโลยีเองด้วยซ้ำ เพราะจำนวนกลีบทำหน้าที่นั้นให้แล้ว
+      เส้นเชื่อมทุกเส้นวิ่งจากกลีบน้อยไปกลีบมากเสมอ การเรียงตามกลีบจึงเป็นลำดับที่ถูกต้องอยู่แล้ว
+      ท่านี้ใช้ได้ทุกครั้งที่โจทย์มี<strong>ค่าที่ต้องเพิ่มขึ้นทุกก้าว</strong>
+    </p>
+    <p>
+      ถ้าอยากเห็นการยุบกราฟให้ไม่มีวงจรก่อนจะคิดแบบนี้ ลองอ่าน
+      <a href="/cp/functional-graph/">กราฟที่ทุกปมมีทางออกทางเดียว</a>
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย &middot; สามทางที่คิด นับด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทั้งสามแถวนับจำนวนครั้งที่โปรแกรมต้องหยิบตัวเลขขึ้นมาดู แถวกลางไหวเรื่องเวลาแต่ตายเรื่องหน่วยความจำ เพราะต้องมีต้นไม้ช่วงสามพันต้นในโควตา 35 เมกะไบต์ ส่วนแถวล่างใช้ที่แค่แถวละสี่ตัว คือหมื่นสองพันตัวสำหรับทั้งทุ่ง</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    กลีบที่ต้องมากขึ้นทุกก้าวทำให้ทุ่งกลายเป็นกราฟไร้วงจรที่คิดย้อนได้
+    และเพราะข้อห้ามของการกระโดดกว้างแค่สามตำแหน่งเสมอ
+    ค่าสูงสุดของทั้งแถวจึงเก็บไว้แค่สี่อันดับก็พอ
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Grasshopper</i> บน programming.in.th ข้อ 2024
+      <a href="https://programming.in.th/tasks/2024" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2024
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>COCI 2008/2009 Contest #1</i> วันที่ 18 ตุลาคม 2008</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.ghrec{width:auto !important;table-layout:fixed;}
+  table.rec.ghrec th:nth-child(1), table.rec.ghrec td:nth-child(1){width:5rem;}
+  table.rec.ghrec th:nth-child(2), table.rec.ghrec td:nth-child(2){width:6.5rem;}
+  table.rec.ghrec th:nth-child(3), table.rec.ghrec td:nth-child(3){width:5rem;}
+  table.rec.ghrec th:nth-child(4), table.rec.ghrec td:nth-child(4){width:9rem;}
+  table.rec.ghrec th:nth-child(5), table.rec.ghrec td:nth-child(5){width:8rem;}
+  /* ป้ายไทยในเซลล์ต้องไม่เอาความยาวไปถ่างตาราง */
+  .gh-lbl{display:block;width:0;min-width:100%;}
+  table.rec.ghrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.ghrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.ghrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .gh-board{display:grid;gap:0.3rem;justify-content:center;margin:0.2rem auto 0.6rem;}
+  .gh-cell{
+    position:relative;
+    width:3rem;height:3rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.8rem;
+    border-radius:6px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    padding:0;
+  }
+  .gh-cell.start{border-color:var(--dl-gold);}
+  .gh-cell.visited{background:#163a2a;border-color:var(--dl-emerald-bright);color:#eaf2ff;font-weight:700;}
+  .gh-cell.here{outline:2px solid var(--dl-gold);outline-offset:1px;}
+  .gh-cell.reach{border-color:#3d6ea5;}
+  .gh-ord{
+    position:absolute;top:2px;right:4px;
+    font-size:0.6rem;color:var(--dl-gold);
+  }
+  @media (prefers-reduced-motion: reduce){
+    .gh-cell{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type GhPuzzle = { id: string; label: string; tease: string; n: number; g: number[][]; start: { r: number; c: number }; best: number };
+
+  function initGrasshopperGame(): void {
+    const maybeUi = cpGameUi('[data-ghgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as GhPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let path: { r: number; c: number }[] = [];
+
+    const pz = (): GhPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-gh-board]'));
+
+    const canJump = (a: { r: number; c: number }, b: { r: number; c: number }): boolean => {
+      const dr = Math.abs(a.r - b.r);
+      const dc = Math.abs(a.c - b.c);
+      return (dr === 1 && dc > 1) || (dc === 1 && dr > 1);
+    };
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      const here = path[path.length - 1];
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-gh-cell]'))) {
+        const parts = (btn.dataset.ghCell ?? '').split(':');
+        const r = Number(parts[1]);
+        const c = Number(parts[2]);
+        const at = path.findIndex((x) => x.r === r && x.c === c);
+        btn.classList.toggle('start', r === p.start.r && c === p.start.c);
+        btn.classList.toggle('visited', at >= 0);
+        btn.classList.toggle('here', at === path.length - 1);
+        btn.classList.toggle('reach', at < 0 && canJump(here, { r, c }) && p.g[r][c] > p.g[here.r][here.c]);
+        const ord = btn.querySelector<HTMLElement>('[data-gh-ord]');
+        if (ord) ord.textContent = at >= 0 ? String(at + 1) : '';
+      }
+      ui.setScore(`ตอนนี้แวะไปแล้ว ${path.length} ดอก`);
+    }
+
+    function tryMove(r: number, c: number): void {
+      const p = pz();
+      const here = path[path.length - 1];
+      if (!canJump(here, { r, c })) {
+        ui.setStatus('ท่านั้นกระโดดไม่ได้ ต้องขยับแกนหนึ่งหนึ่งช่องพอดี และอีกแกนอย่างน้อยสองช่อง', 'bad');
+        return;
+      }
+      if (p.g[r][c] <= p.g[here.r][here.c]) {
+        ui.setStatus(`ดอกนั้นมี ${p.g[r][c]} กลีบ ซึ่งไม่มากกว่า ${p.g[here.r][here.c]} กลีบที่ยืนอยู่ตอนนี้`, 'bad');
+        return;
+      }
+      path.push({ r, c });
+      ui.setStatus(`กระโดดไปดอก ${p.g[r][c]} กลีบแล้ว ช่องที่ยังไปต่อได้ถูกทำขอบสีฟ้าไว้`, 'plain');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (path.length === p.best) {
+        ui.setStatus(`ยาวที่สุดแล้วครับ ทุ่งนี้ไปได้มากที่สุด ${p.best} ดอกพอดี`, 'good');
+      } else {
+        ui.setStatus(`ตอนนี้ได้ ${path.length} ดอก แต่ทุ่งนี้ไปได้ถึง ${p.best} ดอก ลองถอยกลับไปเปลี่ยนก้าวแรก ๆ ดู`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      path = [{ r: puzzles[k].start.r, c: puzzles[k].start.c }];
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('ตั๊กแตนยืนอยู่ที่ช่องสีทอง กดดอกถัดไปที่อยากกระโดดไป กลีบต้องมากขึ้นทุกก้าว');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const btn = e.target.closest('[data-gh-cell]');
+      if (!(btn instanceof HTMLElement)) return;
+      const parts = (btn.dataset.ghCell ?? '').split(':');
+      tryMove(Number(parts[1]), Number(parts[2]));
+    });
+
+    ui.onClick('data-gh-undo', () => {
+      if (path.length > 1) path.pop();
+      ui.setStatus('ถอยกลับมาหนึ่งก้าวแล้ว', 'plain');
+      render();
+    });
+    ui.onClick('data-gh-clear', () => selectPuzzle(pi));
+    ui.onClick('data-gh-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initGrasshopperGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-ghsim]');
+  });
+</script>
