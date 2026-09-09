@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -39,6 +40,20 @@ function suffix(n: number): number[][] {
 }
 const F = suffix(N);
 const totalCount = F[0][0];
+
+/* ---------- ภาพบันได ทุกช่องมาจาก walk() ตัวเดียวกับตารางในบทนี้ ----------
+   แต่ละขั้นบันไดคือหนึ่งตำแหน่ง ซ้ายคือกิ่ง 0 ขวาคือกิ่ง 1
+   กิ่งที่ถูกข้ามจะแสดงขนาดของมันไว้ เพราะขนาดนั้นคือจำนวนที่อันดับถูกหักออก */
+const STEP_X = 116;
+const STEP_Y = 56;
+const BW2 = 52;
+const BH2 = 34;
+const stepX = (i: number): number => 26 + i * STEP_X;
+const stepY = (i: number): number => 34 + i * STEP_Y;
+/** อันดับที่เหลือ "ก่อน" ตัดสินใจของแต่ละขั้น ใช้เล่าว่าเทียบกับอะไร */
+const remBefore = (i: number): number => (i === 0 ? R : walkRows[i - 1].rest);
+const ctwVB = `0 0 ${stepX(N - 1) + BW2 + 162} ${stepY(N - 1) + BH2 + 68}`;
+
 
 type Walk = { i: number; rest: number; zero: number; one: number | null; pick: string };
 function walk(n: number, r: number): Walk[] {
@@ -148,6 +163,62 @@ const cwPuzzles: CwPuzzleData[] = CW_PUZZLES.map((p) => {
 });
 const cwJson = JSON.stringify(cwPuzzles);
 
+/* ---------- ค้นหาคำตอบแบบไบนารีคู่กับการนับ ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด
+   วัดที่ n สองแสนได้ 0.08 วินาที */
+const bsCode = `// ค้นหาคำตอบแบบไบนารีคู่กับการนับ: หาผลบวก a[i]+a[j] (i<j) ที่เล็กเป็นอันดับที่ k
+// ไม่ต้องสร้างผลบวกทั้ง n(n-1)/2 ตัวเลย
+// อินพุต: n k แล้วอาเรย์ n ตัว   เอาต์พุต: ค่าผลบวกอันดับที่ k (นับจาก 1)
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n; long long k;
+    if (scanf("%d %lld", &n, &k) != 2) return 0;
+    vector<long long> a(n);
+    for (int i = 0; i < n; i++) scanf("%lld", &a[i]);
+    sort(a.begin(), a.end());
+
+    // นับว่ามีผลบวกกี่คู่ที่ไม่เกิน x ด้วยสองตัวชี้ ซึ่งเป็น O(n) ต่อการนับหนึ่งครั้ง
+    auto countLE = [&](long long x) {
+        long long c = 0;
+        int j = n - 1;
+        for (int i = 0; i < n; i++) {
+            if (j <= i) j = i;                       // ไม่ให้ตัวชี้ขวาแซงมาซ้ายกว่าตัวชี้ซ้าย
+            while (j > i && a[i] + a[j] > x) j--;
+            if (j > i) c += j - i;                   // คู่ (i, i+1..j) ผ่านทั้งหมด
+        }
+        return c;
+    };
+
+    long long lo = a[0] + a[1], hi = a[n - 1] + a[n - 2];
+    while (lo < hi) {
+        long long mid = lo + (hi - lo) / 2;          // ระวังการปัดของเลขลบ ใช้รูปนี้จึงปลอดภัย
+        if (countLE(mid) >= k) hi = mid;
+        else lo = mid + 1;
+    }
+    printf("%lld\\n", lo);
+    return 0;
+}`;
+const bsBrute = `// ตัวตรวจอิสระ: สร้างผลบวกทุกคู่จริง เรียง แล้วหยิบตัวที่ k
+// ไม่มีการค้นหาแบบไบนารี ไม่มีการนับ จึงไม่ได้ทดสอบข้ออ้างของท่านั้นเลย
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n; long long k;
+    if (scanf("%d %lld", &n, &k) != 2) return 0;
+    vector<long long> a(n);
+    for (int i = 0; i < n; i++) scanf("%lld", &a[i]);
+    vector<long long> all;
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++) all.push_back(a[i] + a[j]);
+    sort(all.begin(), all.end());
+    printf("%lld\\n", all[k - 1]);
+    return 0;
+}`;
+const BS_N = 200000;
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -204,6 +275,45 @@ const cwJson = JSON.stringify(cwPuzzles);
       สองล้านล้านล้าน ก็ต้องบวกแบบมีเพดาน ไม่งั้นตัวเลขจะพลิกเป็นลบแล้วการเทียบทุกครั้งหลังจากนั้นก็มั่วหมด
     </p>
   </div>
+
+  <ZoomableDiagram caption={`การเดินหาสตริงอันดับที่ ${R} ของความยาว ${N} ทีละตำแหน่ง ที่แต่ละขั้นเราถามคำถามเดียวคือ กิ่งที่เริ่มด้วย 0 มีสมาชิกกี่ตัว ถ้าอันดับที่เหลือยังไม่เกินจำนวนนั้น คำตอบอยู่ในกิ่งนั้น จึงเลือก 0 แล้วอันดับไม่เปลี่ยน ถ้าเกิน ก็ข้ามกิ่งนั้นทั้งกิ่ง เลือก 1 แล้วหักขนาดของกิ่งที่ข้ามออกจากอันดับ เดินครบ ${N} ตำแหน่งได้คำตอบ ${target} จากทั้งหมด ${totalCount} ตัว โดยไม่เคยสร้างสตริงตัวไหนขึ้นมาเลย (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={ctwVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`บันได ${N} ขั้น ขั้นที่ i คือการตัดสินใจตำแหน่งที่ i โดยมีอันดับที่เหลือกำกับไว้ ${walkRows.map((w, i) => `ขั้นที่ ${i + 1} อันดับที่เหลือ ${remBefore(i)} กิ่งศูนย์มี ${w.zero} ตัว เลือก ${w.pick}`).join(' ')} สุดท้ายได้สตริง ${target}`}>
+      {walkRows.map((w, i) => (
+        <>
+          {i > 0 && (
+            <line
+              x1={stepX(i - 1) + BW2 / 2}
+              y1={stepY(i - 1) + BH2}
+              x2={stepX(i) + BW2 / 2}
+              y2={stepY(i)}
+              stroke="#4ade80"
+              stroke-width="1.8"
+            />
+          )}
+          <rect x={stepX(i)} y={stepY(i)} width={BW2} height={BH2} rx="7" fill="#12291c" stroke="#4ade80" stroke-width="2" />
+          <text x={stepX(i) + BW2 / 2} y={stepY(i) + 23} fill="#d7ffe4" font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+            {w.pick}
+          </text>
+          <text x={stepX(i) + BW2 + 12} y={stepY(i) + 15} fill="#cdd6ea" font-size="11.5" text-anchor="start" font-family="monospace">
+            อันดับเหลือ {remBefore(i)} · กิ่ง 0 มี {w.zero}
+          </text>
+          <text
+            x={stepX(i) + BW2 + 12}
+            y={stepY(i) + 30}
+            fill={w.pick === '1' ? '#e0b400' : '#7b8397'}
+            font-size="11.5"
+            text-anchor="start"
+            font-family="monospace"
+          >
+            {w.pick === '1' ? `ข้ามกิ่ง 0 ทั้งกิ่ง หัก ${w.zero} เหลือ ${w.rest}` : 'คำตอบอยู่ในกิ่ง 0 ไม่ต้องหัก'}
+          </text>
+        </>
+      ))}
+      <text x={stepX(0)} y={stepY(N - 1) + BH2 + 30} fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700" font-family="monospace">
+        ได้คำตอบ {target}
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · เดินไปหาสตริงอันดับที่ขอ</h2>
   <div class="cpgame cwgame" data-cwgame data-puzzles={cwJson}>
@@ -363,6 +473,65 @@ const cwJson = JSON.stringify(cwPuzzles);
     <p>ผมสุ่มการเรียงสับเปลี่ยนขนาดเล็ก 600 ชุดเทียบกับการไล่ทุกชุดตามลำดับ ตรงกันหมด</p>
   </Spoiler>
 
+  <h2>อีกท่าหนึ่งของคำถามเดียวกัน · เมื่อของที่ต้องเรียงไม่มีลำดับตามธรรมชาติ</h2>
+  <p>
+    ท่านับก่อนแล้วเดินในบทนี้ต้องการอย่างหนึ่งที่เราไม่ได้พูดถึงตรง ๆ คือ
+    <strong>ของที่เรากำลังเรียงต้องประกอบขึ้นทีละชิ้นได้</strong> สตริงประกอบทีละตัวอักษร
+    การเรียงสับเปลี่ยนประกอบทีละตำแหน่ง เราจึงเดินลงไปทีละชั้นแล้วนับกิ่งได้
+  </p>
+  <p>
+    แต่มีโจทย์ "ขออันดับที่ k" อีกตระกูลที่ของไม่มีโครงแบบนั้นเลย เช่น
+    <strong>ผลบวกของทุกคู่ในอาเรย์ ที่เล็กเป็นอันดับที่ k</strong> ผลบวกไม่ได้ประกอบขึ้นทีละหลัก
+    มันเป็นเพียงตัวเลข และมีทั้งหมด <code>n(n-1)/2</code> ตัว ซึ่งที่
+    <code>n = {BS_N.toLocaleString('en-US')}</code> คือราวสองหมื่นล้านตัว สร้างทั้งกองไม่ได้
+  </p>
+  <p>
+    ท่าที่ใช้ตรงนี้คือ<strong>ค้นหาคำตอบแบบไบนารี คู่กับการนับ</strong> ซึ่งกลับทิศของคำถามทั้งหมด
+    แทนที่จะถามว่า "อันดับที่ k คือค่าอะไร" ให้ถามว่า
+  </p>
+  <p class="pull">ถ้าคำตอบคือ x จะมีของกี่ชิ้นที่ไม่เกิน x</p>
+  <p>
+    คำถามใหม่นี้<strong>นับได้โดยไม่ต้องสร้างของ</strong> สำหรับผลบวกของคู่ พอเรียงอาเรย์แล้ว
+    การนับคู่ที่ผลบวกไม่เกิน <code>x</code> ทำได้ด้วย<strong>สองตัวชี้</strong>ในเวลาเชิงเส้น
+    ซึ่งเป็นท่าจาก<a href="../sliding-window/">บทหน้าต่างเลื่อน</a> ตรง ๆ
+  </p>
+  <p>
+    และเพราะจำนวนของที่ไม่เกิน <code>x</code> <strong>ไม่เคยลดลงเมื่อ <code>x</code> โตขึ้น</strong>
+    ฟังก์ชันนับจึงเป็นฟังก์ชันที่ค้นหาแบบไบนารีได้ เราจึงค้นหาค่า <code>x</code> ที่เล็กที่สุด
+    ซึ่งทำให้จำนวนของที่ไม่เกินมันถึง <code>k</code> พอดี ค่านั้นคือคำตอบ
+    ต้นทุนรวมเป็นการนับ <code>log</code> ครั้ง ครั้งละเชิงเส้น
+  </p>
+
+  <CodeBlock code={bsCode} lang="cpp" title="kth_pair_sum.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        ท่านี้มีจุดพลาดสองจุดที่คลาสสิกมาก จุดแรกคือ<strong>ขอบของการค้นหา</strong>
+        ถ้าเขียนเงื่อนไขเป็น <code>&gt;</code> แทน <code>&ge;</code> คำตอบจะคลาดไปหนึ่ง
+        จุดที่สองคือการปัดของ <code>mid</code> เมื่อค่าเป็น<strong>เลขลบ</strong>
+        โค้ดข้างบนจึงเขียน <code>lo + (hi - lo) / 2</code> ไม่ใช่ <code>(lo + hi) / 2</code>
+        ตัวตรวจจึงต้องสร้างผลบวกทุกคู่จริง เรียง แล้วหยิบตัวที่ k ซึ่งไม่มีการค้นหาและไม่มีการนับเลย
+      </p>
+      <CodeBlock code={bsBrute} lang="cpp" title="brute_kth_sum.cpp" />
+      <p>
+        สุ่มอาเรย์เล็ก ๆ ที่มี<strong>ทั้งค่าลบและค่าซ้ำ</strong> พร้อมสุ่ม <code>k</code>
+        ให้ครอบทุกอันดับที่เป็นไปได้ แล้วเทียบ <strong>700 รอบ ตรงกันทุกรอบ</strong>
+        ค่าซ้ำสำคัญมาก เพราะเมื่อมีผลบวกหลายคู่ที่เท่ากัน ค่าที่อันดับ k กับจำนวนคู่ที่ไม่เกินค่านั้น
+        จะไม่สอดคล้องกันแบบหนึ่งต่อหนึ่งอีก ซึ่งเป็นจุดที่โค้ดแบบนี้ชอบพลาด
+        ที่ <code>n = {BS_N.toLocaleString('en-US')}</code> โค้ดข้างบนใช้เวลา <strong>0.08 วินาที</strong>
+      </p>
+    </div>
+  </details>
+
+  <p>
+    เกณฑ์เลือกระหว่างสองท่าชัดเจน ถ้าของประกอบขึ้นทีละชิ้นได้และเราต้องการ<strong>ตัวของมันเอง</strong>
+    ให้นับก่อนแล้วเดิน เพราะได้ของจริงออกมา ถ้าของเป็นเพียงค่าและเราต้องการแค่<strong>ตัวเลข</strong>
+    ให้ค้นหาแบบไบนารีคู่กับการนับ คำถามที่ต้องตอบให้ได้ก่อนใช้ท่าหลังคือ
+    <strong>เรานับของที่ไม่เกินค่าหนึ่งได้เร็วไหม โดยไม่ต้องสร้างมัน</strong>
+  </p>
+
   <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
   <ul>
     <li>
@@ -460,15 +629,15 @@ const cwJson = JSON.stringify(cwPuzzles);
 
   /* ---------- แถบหลักของมินิเกมนับแล้วเดิน ---------- */
   .cw-strip{display:flex;gap:5px;width:max-content;}
-  .cw-cell{
+  .cw-strip :global(.cw-cell){
     width:2rem;height:2.3rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:1rem;
     border:1px solid #2a3350;border-radius:6px;
     background:#101827;color:#7b8397;
   }
-  .cw-cell.zero{color:#9ecbff;border-color:#3d5a80;}
-  .cw-cell.one{color:#4ade80;border-color:#2f9e5c;background:#14351f;}
+  .cw-strip :global(.cw-cell.zero){color:#9ecbff;border-color:#3d5a80;}
+  .cw-strip :global(.cw-cell.one){color:#4ade80;border-color:#2f9e5c;background:#14351f;}
 </style>
 
 <script>

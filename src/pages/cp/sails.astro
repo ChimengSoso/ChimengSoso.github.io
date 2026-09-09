@@ -1,5 +1,7 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -38,6 +40,59 @@ function greedy(masts: Mast[]): GreedyStep[] {
 }
 const steps = greedy(MASTS);
 const answer = steps[steps.length - 1].cost;
+
+/* ---------- สเต็ปของเครื่องเดินทีละขั้น ----------
+   หนึ่งขั้นคือใส่ใบเรือของเสาหนึ่งต้น ทุกค่าที่ขั้นนั้นแสดงมาจาก greedy() ตัวเดียวกับที่หน้านี้ใช้
+   คำอธิบายก็ประกอบจากค่าจริงของขั้นนั้น จึงไม่มีทางเล่าไม่ตรงกับตัวเลขที่เห็น */
+interface SailStep {
+  i: number;
+  h: number;
+  k: number;
+  picked: number[];
+  after: number[];
+  cost: number;
+  gain: number;
+  note: string;
+}
+const sailSteps: SailStep[] = steps.map((st, idx) => {
+  const before = idx === 0 ? new Array<number>(MAXH).fill(0) : steps[idx - 1].after;
+  const gain = st.cost - (idx === 0 ? 0 : steps[idx - 1].cost);
+  const lowest = Math.min(...before.slice(0, st.mast.h));
+  return {
+    i: st.i,
+    h: st.mast.h,
+    k: st.mast.k,
+    picked: st.picked,
+    after: [...st.after],
+    cost: st.cost,
+    gain,
+    note:
+      `เสาต้นที่ <b>${st.i}</b> สูง <b>${st.mast.h}</b> ต้องใส่ใบ <b>${st.mast.k}</b> ใบ ` +
+      `ระดับที่มันเอื้อมถึงคือ 1 ถึง <b>${st.mast.h}</b> และตอนนี้ระดับที่ว่างที่สุดในนั้นมีอยู่ <b>${lowest}</b> ใบ ` +
+      `จึงหย่อนลงระดับ <b>${st.picked.join(', ')}</b> ` +
+      (gain === 0
+        ? 'รอบนี้ไม่มีใบไหนไปเจอเพื่อนร่วมระดับ จึงยังไม่เสียแต้มเพิ่ม'
+        : `ทำให้เกิดคู่ใหม่ เสียแต้มเพิ่ม <em>${gain}</em> รวมเป็น <em>${st.cost}</em>`),
+  };
+});
+
+/* ---------- ภาพผลลัพธ์ของท่าโลภ ----------
+   จำนวนใบเรือของแต่ละระดับมาจาก steps ตัวสุดท้าย คือสภาพหลังวางครบทุกเสา
+   แต้มที่เสียของแต่ละระดับคิดด้วย c(c-1)/2 สูตรเดียวกับ cost() ที่หน้านี้ใช้ */
+const finalCnt = steps[steps.length - 1].after;
+const pairCost = (c: number): number => (c * (c - 1)) / 2;
+const maxCnt = Math.max(...finalCnt, 1);
+const SQ = 26;
+const SQGAP = 5;
+const ROW_H = 34;
+const LEFT = 86;
+const sqX = (j: number): number => LEFT + j * (SQ + SQGAP);
+const rowY = (level: number): number => 44 + (MAXH - level) * ROW_H;
+const COSTX = sqX(maxCnt) + 16;
+const sailsVB = `0 0 ${COSTX + 69} ${rowY(1) + ROW_H + 59}`;
+/** เสาที่เตี้ยที่สุดกับสูงที่สุด ใช้บอกว่าระดับล่างถูกทุกเสาแย่งกัน */
+const sortedMasts = [...MASTS].sort((a, b) => a.h - b.h);
+
 
 /* ---------- มินิเกม วางใบเรือเอง ----------
    ชุดโจทย์เลือกมาให้กดดันคนละจุด และคำตอบที่ดีที่สุดของทุกชุด
@@ -240,6 +295,100 @@ int below = H - r;                      // ระดับที่ค่าน�
 range(r + 1, H, 1);
 int k2 = K - below;                     // ที่เหลือหยิบจาก "หัว" ของบล็อก ไม่ใช่ท้าย
 if (k2 > 0) range(l, l + k2 - 1, 1);`;
+/* ---------- ท่าโลภเขียนด้วยคิวลำดับความสำคัญ ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 500 รอบ ตรงกันหมด
+   ตัวตรวจไล่ทุกวิธีจัดจริง จึงตรวจข้ออ้างของท่าโลภได้ ไม่ใช่แค่ตรวจการพิมพ์ */
+const pqCode = `// ท่าโลภของโจทย์ใบเรือ เขียนด้วยคิวลำดับความสำคัญ
+// ไล่เสาจากเตี้ยไปสูง แต่ละเสาหย่อนใบลงระดับที่ "ว่างที่สุด" ในระยะที่มันเอื้อมถึง
+// อินพุต: n แล้ว n บรรทัด h k    เอาต์พุต: แต้มที่เสียน้อยที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<pair<int, int>> m(n);
+    int H = 0;
+    for (int i = 0; i < n; i++) { scanf("%d %d", &m[i].first, &m[i].second); H = max(H, m[i].first); }
+    sort(m.begin(), m.end());                 // เตี้ยก่อน เพราะเสาเตี้ยมีตัวเลือกน้อยกว่า
+
+    vector<int> cnt(H + 1, 0);                // cnt[l] = จำนวนใบที่ระดับ l (ระดับนับ 1..H)
+    // คิวเก็บ (จำนวนใบตอนนี้, ระดับ) โดยเอาน้อยสุดขึ้นก่อน ค่าเท่ากันเอาระดับล่างก่อน
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+    int opened = 0;                           // ระดับที่ปล่อยให้ใช้ได้แล้ว
+    for (auto [h, k] : m) {
+        while (opened < h) { ++opened; pq.push({cnt[opened], opened}); }
+        // หยิบ k ระดับที่ว่างที่สุดออกมา แล้วใส่กลับพร้อมค่าที่เพิ่มขึ้น
+        vector<int> picked;
+        picked.reserve(k);
+        for (int t = 0; t < k; t++) {
+            // ค่าในคิวอาจเก่า ถ้าไม่ตรงกับ cnt จริงให้ทิ้งแล้วหยิบใหม่
+            while (!pq.empty() && pq.top().first != cnt[pq.top().second]) pq.pop();
+            auto [c, lv] = pq.top();
+            pq.pop();
+            cnt[lv] = c + 1;
+            picked.push_back(lv);
+        }
+        for (int lv : picked) pq.push({cnt[lv], lv});
+    }
+    long long cost = 0;
+    for (int l = 1; l <= H; l++) cost += (long long)cnt[l] * (cnt[l] - 1) / 2;
+    printf("%lld\\n", cost);
+    return 0;
+}`;
+const pqBrute = `// ตัวตรวจอิสระของท่าโลภใบเรือ: ไล่ทุกวิธีจัดจริง
+// ไม่รู้จักคำว่า "ว่างที่สุด" หรือลำดับเตี้ยไปสูงเลย จึงตรวจข้ออ้างของท่าโลภได้จริง
+#include <bits/stdc++.h>
+using namespace std;
+
+int n, H;
+vector<pair<int, int>> m;
+vector<int> cnt;
+long long best;
+
+long long costNow() {
+    long long c = 0;
+    for (int l = 1; l <= H; l++) c += (long long)cnt[l] * (cnt[l] - 1) / 2;
+    return c;
+}
+
+/** เลือก k ระดับจาก 1..h แบบไล่ทุกชุด */
+void choose(int mast, int start, int left) {
+    if (left == 0) {
+        if (mast + 1 == n) best = min(best, costNow());
+        else {
+            int h = m[mast + 1].first, k = m[mast + 1].second;
+            (void)h;
+            choose(mast + 1, 1, k);
+        }
+        return;
+    }
+    int h = m[mast].first;
+    for (int lv = start; lv <= h; lv++) {
+        cnt[lv]++;
+        choose(mast, lv + 1, left - 1);
+        cnt[lv]--;
+    }
+}
+
+int main() {
+    if (scanf("%d", &n) != 1) return 0;
+    m.resize(n);
+    H = 0;
+    for (int i = 0; i < n; i++) { scanf("%d %d", &m[i].first, &m[i].second); H = max(H, m[i].first); }
+    cnt.assign(H + 1, 0);
+    best = LLONG_MAX;
+    choose(0, 1, m[0].second);
+    printf("%lld\\n", best);
+    return 0;
+}`;
+
+/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
+const saBill = [
+  { name: 'ไล่ทุกวิธีจัด', limit: 'จำนวนวิธีรวมไม่เกินหนึ่งล้าน', work: '1,000,000 แบบ' },
+  { name: 'ท่าโลภกับคิวลำดับความสำคัญ', limit: 'N ถึง 100,000', work: '1,700,000 ครั้ง' },
+];
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · ใบเรือที่บังลมกันเอง</h2>
@@ -305,6 +454,50 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
       การเลือกระดับล่างกับระดับบนต่างกันไหม
     </p>
   </div>
+
+  <ZoomableDiagram caption={`สภาพหลังท่าโลภวางใบเรือครบทุกเสาในตัวอย่าง เสาทั้ง ${MASTS.length} ต้นสูง ${sortedMasts.map((m) => m.h).join(', ')} และต้องการใบเรือ ${sortedMasts.map((m) => m.k).join(', ')} ใบตามลำดับที่ท่าโลภไล่ คือจากเสาเตี้ยไปเสาสูง ช่องในแต่ละแถวคือใบเรือที่ระดับนั้นรับไป ตัวเลขขวามือคือแต้มที่เสียของระดับนั้น ซึ่งคิดจากจำนวนคู่ของใบเรือที่อยู่ระดับเดียวกัน รวมทั้งภาพได้ ${answer} แต้ม สังเกตว่าระดับล่างรับไปมากกว่าเพราะทุกเสาเอื้อมถึง ส่วนระดับบนมีแต่เสาสูงที่เอื้อมถึง (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={sailsVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางแนวนอน ${MAXH} แถว แถวบนสุดคือระดับ ${MAXH} ไล่ลงมาถึงระดับ 1 จำนวนใบเรือของแต่ละระดับจากล่างขึ้นบนคือ ${finalCnt.join(' ')} และแต้มที่เสียของแต่ละระดับคือ ${finalCnt.map((c) => pairCost(c)).join(' ')} รวมได้ ${answer}`}>
+      <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ระดับ</text>
+      <text x={sqX(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ใบเรือที่ระดับนี้รับไป</text>
+      <text x={COSTX} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">แต้มที่เสีย</text>
+      {finalCnt.map((cnt, k) => {
+        const level = k + 1;
+        const y = rowY(level);
+        return (
+          <>
+            <text x="16" y={y + 18} fill="#cdd6ea" font-size="13" text-anchor="start" font-family="monospace">
+              {level}
+            </text>
+            {Array.from({ length: maxCnt }, (_, j) => j).map((j) => (
+              <rect
+                x={sqX(j)}
+                y={y}
+                width={SQ}
+                height={SQ}
+                rx="5"
+                fill={j < cnt ? '#12291c' : '#111726'}
+                stroke={j < cnt ? '#4ade80' : '#232c42'}
+                stroke-width={j < cnt ? '1.8' : '1.2'}
+              />
+            ))}
+            <text
+              x={COSTX}
+              y={y + 18}
+              fill={pairCost(cnt) > 0 ? '#e0b400' : '#7b8397'}
+              font-size="13"
+              text-anchor="start"
+              font-family="monospace"
+            >
+              {cnt} ใบ · {pairCost(cnt)}
+            </text>
+          </>
+        );
+      })}
+      <text x={COSTX} y={rowY(1) + ROW_H + 22} fill="#4ade80" font-size="13" text-anchor="start" font-weight="700" font-family="monospace">
+        รวม {answer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · วางใบเรือให้เสียแต้มน้อยที่สุด</h2>
   <div class="cpgame sailgame" data-sailgame data-puzzles={gameJson}>
@@ -435,32 +628,33 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
 
   <h2>ไล่ท่าโลภทีละเสาบนตัวอย่าง</h2>
   <Spoiler>
-    <figure class="tbl">
-      <table class="rec">
-        <caption>เรียงเสาจากเตี้ยไปสูง แล้วใส่ใบทีละต้น</caption>
+    <CpStepPlayer hook="sailsim" steps={sailSteps} label="กดถัดไปเพื่อใส่ใบของเสาต้นถัดไป หรือกดเล่นให้มันเดินเอง">
+      <table class="rec sailtbl">
+        <caption>จำนวนใบเรือของแต่ละระดับ หลังใส่เสาต้นที่กำลังดูอยู่</caption>
         <thead>
           <tr>
-            <th class="num">ลำดับ</th><th>เสา (สูง, ใบ)</th><th>ใส่ที่ระดับ</th>
-            <th>จำนวนใบต่อระดับ</th><th class="num">ค่ารวม</th>
+            <th><span>ระดับ</span></th>
+            {Array.from({ length: MAXH }, (_, i) => i + 1).map((lv) => (
+              <th class="num">{lv}</th>
+            ))}
+            <th class="num">ค่ารวม</th>
           </tr>
         </thead>
         <tbody>
-          {steps.map((s) => (
-            <tr>
-              <td class="num">{s.i}</td>
-              <td><code>({s.mast.h}, {s.mast.k})</code></td>
-              <td><code>{s.picked.join(', ')}</code></td>
-              <td><code>{s.after.join(' ')}</code></td>
-              <td class="num">{s.cost}</td>
-            </tr>
-          ))}
+          <tr>
+            <td><span>จำนวนใบ</span></td>
+            {Array.from({ length: MAXH }, (_, i) => i).map((i) => (
+              <td class="num cnt" data-lv={i}>·</td>
+            ))}
+            <td class="num total">0</td>
+          </tr>
         </tbody>
       </table>
-      <figcaption>
-        คอลัมน์จำนวนใบต่อระดับอ่านจากระดับ 1 ไป {MAXH} สังเกตว่ามันไม่เคยเพิ่มขึ้นตามระดับเลยสักแถว
-        นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
-      </figcaption>
-    </figure>
+    </CpStepPlayer>
+    <p class="io-note">
+      สังเกตแถวจำนวนใบตอนกดไล่ดู มันไม่เคยเพิ่มขึ้นตามระดับเลยสักขั้น
+      คือระดับล่างมีใบมากกว่าหรือเท่ากับระดับบนตลอด นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
+    </p>
   </Spoiler>
 
   <h2>อีกมุมหนึ่ง: ไล่ทุกวิธีจัด (ชุดทดสอบย่อย 25 คะแนน)</h2>
@@ -486,6 +680,26 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
       ตรงกันหมด ส่วนเวอร์ชันที่ใช้กฎเสมอผิดหลุดตั้งแต่ลำแรก ๆ
     </p>
   </Spoiler>
+
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {saBill.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.limit}</td>
+            <td class="num">{r.work}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>แถวบนนับจำนวนวิธีจัดที่ต้องกางออกมาดูทั้งหมด แถวล่างนับจำนวนครั้งที่แตะคิว ซึ่งคือจำนวนใบเรือคูณลอการิทึมของความสูง สิ่งที่ทำให้สองแถวนี้ต่างกันไม่ใช่ความเร็วของเครื่อง แต่เป็นข้อโต้แย้งแลกเปลี่ยนในหัวข้อข้างล่าง ที่อนุญาตให้เราไม่ต้องดูวิธีจัดอื่นเลย</figcaption>
+  </figure>
 
   <h2>โค้ด C++</h2>
   <Spoiler>
@@ -514,6 +728,78 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
       <a href="../prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> ก่อนได้
     </p>
   </Spoiler>
+
+  <h2>ทำไมท่าโลภนี้ถูก · ข้อโต้แย้งแลกเปลี่ยน</h2>
+  <p>
+    หัวข้อก่อนหน้าบอกว่าท่าโลภของข้อนี้ได้คำตอบ แต่ยังไม่ได้บอกว่า<strong>ทำไมมันถึงถูก</strong>
+    ซึ่งเป็นคำถามที่ต้องตอบทุกครั้งที่ใช้ท่าโลภ เพราะท่าโลภส่วนใหญ่ผิด
+    การที่ตัวอย่างในโจทย์ผ่านไม่ได้เป็นหลักฐานอะไรเลย
+  </p>
+  <p>
+    วิธีพิสูจน์ท่าโลภที่ใช้ได้กว้างที่สุดเรียกว่า <strong>ข้อโต้แย้งแลกเปลี่ยน</strong> (exchange argument)
+    รูปของมันคือ <strong>สมมติว่ามีคำตอบที่ดีที่สุดอยู่แล้ว แล้วแสดงว่าเราแก้มันให้กลายเป็นคำตอบของท่าโลภได้
+    โดยไม่ทำให้แย่ลง</strong> ถ้าทำได้ ท่าโลภก็ดีที่สุดด้วย
+  </p>
+
+  <h3>ใช้กับข้อนี้</h3>
+  <p>
+    แต้มที่เสียของระดับหนึ่งคือจำนวนคู่ของใบเรือที่อยู่ระดับเดียวกัน ซึ่งเท่ากับ
+    <code>c(c−1)/2</code> เมื่อระดับนั้นมีใบอยู่ <code>c</code> ใบ สิ่งที่ต้องสังเกตคือ
+    <strong>ต้นทุนของการเพิ่มใบที่ <code>c + 1</code> คือ <code>c</code> พอดี</strong>
+    คือยิ่งระดับนั้นแน่นอยู่แล้ว ใบใหม่ยิ่งแพง เรียกคุณสมบัตินี้ว่า<strong>ต้นทุนส่วนเพิ่มไม่ลด</strong>
+  </p>
+  <p>
+    ทีนี้สมมติมีคำตอบที่ดีที่สุดอันหนึ่ง ที่<strong>ไม่</strong>ได้ทำตามท่าโลภ นั่นแปลว่ามีเสาต้นหนึ่ง
+    ที่วางใบลงระดับ <code>p</code> ทั้งที่มีระดับ <code>q</code> ที่มันเอื้อมถึงและว่างกว่า
+    (คือ <code>cnt[q] &lt; cnt[p]</code>) ลองย้ายใบนั้นจาก <code>p</code> ไป <code>q</code>
+    ต้นทุนที่ลดลงคือ <code>cnt[p] − 1</code> และต้นทุนที่เพิ่มขึ้นคือ <code>cnt[q]</code>
+    เพราะ <code>cnt[q] ≤ cnt[p] − 1</code> การย้ายนี้จึง<strong>ไม่ทำให้แย่ลงเลย</strong>
+  </p>
+  <p>
+    ทำซ้ำไปเรื่อย ๆ ทุกครั้งที่เจอคู่ที่ผิดแบบนั้น จนไม่มีคู่ไหนเหลือ สิ่งที่ได้คือคำตอบที่ทำตามท่าโลภพอดี
+    และมันไม่แย่กว่าคำตอบที่ดีที่สุดที่เราเริ่มด้วย ท่าโลภจึงดีที่สุด
+    ส่วนเหตุผลที่ต้อง<strong>ไล่จากเสาเตี้ยไปเสาสูง</strong> อยู่ที่เสาเตี้ยมีตัวเลือกน้อยกว่า
+    ถ้าให้เสาสูงเลือกก่อน มันอาจไปนั่งทับระดับล่างที่เสาเตี้ยจำเป็นต้องใช้ ทั้งที่ตัวมันเองมีทางอื่น
+  </p>
+
+  <h3>เขียนอีกแบบ · คิวลำดับความสำคัญ</h3>
+  <p>
+    พอรู้ว่ากฎคือ "หย่อนลงระดับที่ว่างที่สุดที่เอื้อมถึง" ก็เขียนได้อีกแบบที่ตรงกับประโยคนั้นคำต่อคำ
+    คือเก็บระดับที่เปิดใช้ได้แล้วไว้ใน<strong>คิวลำดับความสำคัญ</strong> ที่เอาระดับที่ว่างที่สุดขึ้นก่อน
+    แล้วหยิบออกมาทีละ <code>k</code> ตัวต่อเสา
+  </p>
+  <p>
+    มีรายละเอียดหนึ่งที่พลาดง่าย ค่าที่อยู่ในคิว<strong>ล้าสมัยได้</strong> เพราะเราแก้จำนวนใบของระดับหนึ่ง
+    หลังจากใส่มันลงคิวไปแล้ว ท่าแก้ที่ง่ายที่สุดคือ<strong>ตรวจตอนหยิบ</strong>
+    ถ้าค่าที่ติดมากับรายการไม่ตรงกับค่าจริงในตอนนี้ ให้ทิ้งรายการนั้นแล้วหยิบใหม่
+  </p>
+
+  <CodeBlock code={pqCode} lang="cpp" title="sails_pq.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อทั้งข้ออ้างและโค้ด</summary>
+    <div class="expander-body">
+      <p>
+        นี่คือกรณีที่ตัวตรวจตรวจ<strong>ข้ออ้าง</strong> ไม่ใช่แค่ตรวจการพิมพ์
+        เพราะถ้าข้อโต้แย้งแลกเปลี่ยนข้างบนผิด ท่าโลภจะให้คำตอบที่มากกว่าคำตอบจริง
+        โดยไม่มีอะไรฟ้องเลย ตัวตรวจจึง<strong>ไล่ทุกวิธีจัดจริง</strong> คือเลือกทุกชุดของระดับ
+        ให้ทุกเสา แล้วเอาค่าที่น้อยที่สุด ซึ่งไม่รู้จักคำว่า "ว่างที่สุด" หรือลำดับเตี้ยไปสูงเลย
+      </p>
+      <CodeBlock code={pqBrute} lang="cpp" title="brute_all_arrangements.cpp" />
+      <p>
+        สุ่มเสา 1 ถึง 5 ต้น สูงไม่เกิน 4 แล้วเทียบ <strong>500 รอบ ตรงกันทุกรอบ</strong>
+        ชุดเล็กเพราะการไล่ทุกวิธีจัดโตเร็วมาก แต่เล็กพอที่จะครอบกรณีที่กฎเสมอกันมีผลจริง
+        คือตอนที่มีหลายระดับว่างเท่ากันและเลือกผิดตัวจะแพงขึ้น
+      </p>
+    </div>
+  </details>
+
+  <p>
+    บทเรียนที่ยกไปใช้ได้คือ <strong>ท่าโลภที่ไม่มีข้อโต้แย้งแลกเปลี่ยนรองรับ คือท่าที่ยังไม่ได้พิสูจน์</strong>
+    และคำถามที่ใช้เริ่มพิสูจน์ได้เกือบทุกครั้งคือ "ถ้าสลับสองการตัดสินใจในคำตอบที่ดีที่สุด
+    มันแย่ลงหรือไม่" ถ้าตอบได้ว่าไม่แย่ลง ท่าโลภก็ถูก ถ้าหาคู่ที่สลับแล้วดีขึ้นได้ ท่าโลภผิด
+    และคู่นั้นคืออินพุตที่ทำให้มันตก
+  </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -617,11 +903,11 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
     color:#cdd6ea;
   }
   .sg-board th{font-weight:600;color:#9aa7bd;white-space:nowrap;}
-  .sg-sub{display:block;font-size:0.72rem;color:#7b8397;font-family:var(--dl-mono,monospace);}
-  .sg-sub.done{color:#4ade80;}
-  .sg-sub.over{color:#f0a6a6;}
-  .sg-none{background:repeating-linear-gradient(135deg,#0b1220,#0b1220 5px,#101827 5px,#101827 10px);}
-  .sg-cell{
+  .sg-board :global(.sg-sub){display:block;font-size:0.72rem;color:#7b8397;font-family:var(--dl-mono,monospace);}
+  .sg-board :global(.sg-sub.done){color:#4ade80;}
+  .sg-board :global(.sg-sub.over){color:#f0a6a6;}
+  .sg-board :global(.sg-none){background:repeating-linear-gradient(135deg,#0b1220,#0b1220 5px,#101827 5px,#101827 10px);}
+  .sg-board :global(.sg-cell){
     width:1.9rem;height:1.6rem;
     display:block;margin:0 auto;
     cursor:pointer;
@@ -629,15 +915,37 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
     background:#101827;
     transition:background 0.15s ease,border-color 0.15s ease;
   }
-  .sg-cell:hover{border-color:var(--dl-emerald);}
-  .sg-cell.on{background:#14351f;border-color:#2f9e5c;}
-  .sg-cell.on::after{content:'';display:block;width:0.6rem;height:0.6rem;margin:0 auto;border-radius:50%;background:#4ade80;}
-  .sg-cell.clash{background:#351717;border-color:#8a3b3b;}
-  .sg-cell.clash::after{background:#f0a6a6;}
-  .sg-pen{font-family:var(--dl-mono,monospace);color:#7b8397;}
-  .sg-pen.hot{color:#f0a6a6;}
+  .sg-board :global(.sg-cell:hover){border-color:var(--dl-emerald);}
+  .sg-board :global(.sg-cell.on){background:#14351f;border-color:#2f9e5c;}
+  .sg-board :global(.sg-cell.on::after){content:'';display:block;width:0.6rem;height:0.6rem;margin:0 auto;border-radius:50%;background:#4ade80;}
+  .sg-board :global(.sg-cell.clash){background:#351717;border-color:#8a3b3b;}
+  .sg-board :global(.sg-cell.clash::after){background:#f0a6a6;}
+  .sg-board :global(.sg-pen){font-family:var(--dl-mono,monospace);color:#7b8397;}
+  .sg-board :global(.sg-pen.hot){color:#f0a6a6;}
   @media (prefers-reduced-motion: reduce){
-    .sg-cell{transition:none;}
+    .sg-board :global(.sg-cell){transition:none;}
+  }
+
+  /* กระดานของเครื่องเดิน คอลัมน์ต้องกว้างคงที่ เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง
+     และต้องชนะกฎ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์ */
+  .dpsim table.sailtbl{width:auto;table-layout:fixed;margin:0;}
+  table.sailtbl caption{border-radius:0;}
+  /* เซลล์แรกเป็นข้อความไทย ซึ่ง max-content คือทั้งวลีบรรทัดเดียว
+     td เอาทริค width:0 ไปใช้ตรง ๆ ไม่ได้ ต้องใส่ span ข้างในแล้วทำที่ span */
+  table.sailtbl th:first-child, table.sailtbl td:first-child{width:5.5rem;}
+  table.sailtbl th:first-child span, table.sailtbl td:first-child span{display:block;width:0;min-width:100%;}
+  table.sailtbl th.num, table.sailtbl td.num{width:3.2rem;}
+  table.sailtbl td.cnt{
+    text-align:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    color:#7b8397;
+    transition:background-color .15s ease, color .15s ease;
+  }
+  .dpsim table.sailtbl td.num.cnt.is-touched{background:rgba(74,222,128,0.16);color:#d7ffe4;font-weight:700;}
+  .dpsim table.sailtbl td.num.cnt.is-filled{color:#cdd6ea;}
+  .dpsim table.sailtbl td.num.total{color:var(--dl-gold);font-weight:700;}
+  @media (prefers-reduced-motion: reduce){
+    table.sailtbl td.cnt{transition:none;}
   }
 </style>
 
@@ -825,4 +1133,61 @@ if (k2 > 0) range(l, l + k2 - 1, 1);`;
   }
 
   document.addEventListener('astro:page-load', initSailGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  interface SailStepClient {
+    i: number;
+    h: number;
+    k: number;
+    picked: number[];
+    after: number[];
+    cost: number;
+    gain: number;
+    note: string;
+  }
+
+  /** ตรวจว่าค่าที่อ่านมาจาก data-steps ครบตามที่กระดานต้องใช้ */
+  function isSailStep(v: unknown): v is SailStepClient {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return (
+      typeof o.i === 'number' &&
+      typeof o.h === 'number' &&
+      typeof o.k === 'number' &&
+      Array.isArray(o.picked) &&
+      Array.isArray(o.after) &&
+      typeof o.cost === 'number' &&
+      typeof o.gain === 'number' &&
+      typeof o.note === 'string'
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<SailStepClient>('[data-sailsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isSailStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const cells = Array.from(ctx.parts.root.querySelectorAll<HTMLTableCellElement>('td.cnt'));
+        cells.forEach((td, lv) => {
+          const n = st.after[lv] ?? 0;
+          td.className = 'num cnt';
+          td.textContent = n === 0 ? '·' : String(n);
+          if (n > 0) td.classList.add('is-filled');
+          // ระดับที่เพิ่งรับใบของเสาต้นนี้ ต้องเห็นชัดว่าขั้นนี้ทำอะไร
+          if (st.picked.indexOf(lv + 1) !== -1) {
+            td.classList.add('is-touched');
+            ctx.keepInView(td);
+          }
+        });
+        const total = ctx.parts.root.querySelector<HTMLElement>('td.total');
+        if (total) total.textContent = String(st.cost);
+      },
+    });
+  });
 </script>

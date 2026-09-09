@@ -1,5 +1,7 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -37,6 +39,43 @@ const RR = 5;
 const listed = enumerate(PAT, KK);
 const answer = listed[RR - 1];
 const firstSeven = listed.slice(0, 7);
+
+/* ---------- ภาพเทียบลำดับที่ผ่านกับลำดับที่ตกเพราะรอยต่อเกิน ----------
+   ตัวที่ตกหามาจากการไล่ทุกลำดับที่เข้ากันได้กับแพตเทิร์นโดยไม่กรองรอยต่อ
+   แล้วเอาตัวแรกที่รอยต่อถึงเพดาน จึงเป็นตัวอย่างจริง ไม่ใช่ตัวที่ยกมาลอย ๆ */
+function allMatching(pat: string): string[] {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === pat.length) {
+      out.push(cur);
+      return;
+    }
+    const c = pat[cur.length];
+    for (const x of AL) if (c === 'N' || c === x) rec(cur + x);
+  };
+  rec('');
+  return out;
+}
+const rejected = allMatching(PAT).find((x) => drops(x) >= KK) as string;
+/** ตำแหน่งรอยต่อ คือช่องที่ตัวถัดไปเล็กลง */
+const dropAt = (x: string): number[] => {
+  const out: number[] = [];
+  for (let i = 0; i + 1 < x.length; i++) if (x[i] > x[i + 1]) out.push(i);
+  return out;
+};
+const slotSet = new Set<number>();
+for (let i = 0; i < PAT.length; i++) if (PAT[i] === 'N') slotSet.add(i);
+
+const DC = 40;
+const DGAP = 10;
+const dx = (i: number): number => 26 + i * (DC + DGAP);
+const DROW1 = 60;
+const DROW2 = 168;
+const DCH = 42;
+const dnaVB = `0 0 ${dx(PAT.length - 1) + DC + 12} 274`;
+/** เครื่องหมายรอยต่อวางกลางช่องไฟระหว่างสองตัวอักษร */
+const gapX = (i: number): number => dx(i) + DC + DGAP / 2;
+
 
 const PAT2 = 'ACANN';
 const K2 = 4;
@@ -225,6 +264,25 @@ for (int i = 0; i < M; i++) {
         R -= cnt;                        // ตัวที่ตามหาอยู่หลังก้อนนี้ ข้ามไปทั้งก้อน
     }
 }`;
+/* คำอธิบายรายตำแหน่งของการเดิน สร้างจาก walkRows ตัวเดียวกับตาราง */
+const dnaNotes = walkRows.map((r) => ({
+  note:
+    `ตำแหน่งที่ <b>${r.i}</b> ` +
+    (r.tried.length === 1
+      ? `แพตเทิร์นล็อกตัวนี้ไว้เป็น <b>${r.pick}</b> ไม่มีอะไรให้เลือก อันดับที่เหลือจึงยังเป็น <b>${r.rest}</b>`
+      : `ไล่ตัวเลือกจากเล็กไปใหญ่ ` +
+        r.tried
+          .map((t) => `<b>${t.ch}</b> มีของตามมาได้ <b>${t.cnt}</b> ตัว`)
+          .join(' แล้ว ') +
+        ` อันดับไปหยุดในก้อนของ <em>${r.pick}</em> เหลืออันดับ <b>${r.rest}</b> ให้เดินต่อ`),
+}));
+
+/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
+const dnaBill = [
+  { name: 'ไล่สร้างทุกลำดับ', limit: 'M ไม่เกิน 10', work: '1,048,576 ลำดับ' },
+  { name: 'นับก่อนแล้วเดิน', limit: 'M ถึง 50,000', work: '200,000 ครั้ง' },
+];
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · เติมช่องว่างใน DNA แล้วขอตัวที่ R</h2>
@@ -284,6 +342,67 @@ for (int i = 0; i < M; i++) {
       "ลำดับที่ขึ้นต้นด้วย <code>ACA</code> มีกี่ตัว" ล่ะ จะช่วยอะไรได้บ้าง
     </p>
   </div>
+
+  <ZoomableDiagram caption={`แพตเทิร์น ${PAT} มีช่องว่างให้เติม ${slotSet.size} ช่อง และเพดานรอยต่อคือ ${KK - 1} รอย แถวบนคือคำตอบอันดับที่ ${RR} ซึ่งมีรอยต่อ ${dropAt(answer).length} รอย จึงผ่าน แถวล่างคือ ${rejected} ที่เข้ากันได้กับแพตเทิร์นเหมือนกันแต่มีรอยต่อ ${dropAt(rejected).length} รอย จึงตกไป รอยต่อคือจุดที่ตัวถัดไปเล็กลงตามลำดับ A น้อยกว่า C น้อยกว่า G น้อยกว่า T (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={dnaVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`สองแถว แถวบนคือลำดับ ${answer} ซึ่งมีรอยต่อที่ตำแหน่ง ${dropAt(answer).join(' และ ')} รวม ${dropAt(answer).length} รอย ผ่านเพดาน ${KK - 1} รอย แถวล่างคือลำดับ ${rejected} ซึ่งมีรอยต่อ ${dropAt(rejected).length} รอย จึงเกินเพดาน ช่องที่ระบายสีคือช่องว่างที่เราเติมเอง ช่องสีจางคือตัวอักษรที่แพตเทิร์นกำหนดมาแล้ว`}>
+      <text x={dx(0)} y="30" fill="#98a3ba" font-size="11.5" text-anchor="start">
+        แพตเทิร์น {PAT} · ช่อง N คือช่องที่เราเติมได้
+      </text>
+      <text x={dx(0)} y={DROW1 - 8} fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
+        อันดับที่ {RR} คือ {answer} · รอยต่อ {dropAt(answer).length} รอย ผ่าน
+      </text>
+      {[...answer].map((ch, i) => (
+        <>
+          <rect
+            x={dx(i)}
+            y={DROW1}
+            width={DC}
+            height={DCH}
+            rx="7"
+            fill={slotSet.has(i) ? '#12291c' : '#141b2b'}
+            stroke={slotSet.has(i) ? '#4ade80' : '#2a3350'}
+            stroke-width={slotSet.has(i) ? '2' : '1.3'}
+          />
+          <text x={dx(i) + DC / 2} y={DROW1 + 28} fill={slotSet.has(i) ? '#d7ffe4' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+            {ch}
+          </text>
+        </>
+      ))}
+      {dropAt(answer).map((i) => (
+        <text x={gapX(i)} y={DROW1 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
+          &#8250;
+        </text>
+      ))}
+      <text x={dx(0)} y={DROW2 - 8} fill="#e06c75" font-size="12.5" text-anchor="start" font-weight="700">
+        {rejected} · รอยต่อ {dropAt(rejected).length} รอย เกินเพดาน {KK - 1} จึงตก
+      </text>
+      {[...rejected].map((ch, i) => (
+        <>
+          <rect
+            x={dx(i)}
+            y={DROW2}
+            width={DC}
+            height={DCH}
+            rx="7"
+            fill={slotSet.has(i) ? '#3d1f22' : '#141b2b'}
+            stroke={slotSet.has(i) ? '#e06c75' : '#2a3350'}
+            stroke-width={slotSet.has(i) ? '2' : '1.3'}
+          />
+          <text x={dx(i) + DC / 2} y={DROW2 + 28} fill={slotSet.has(i) ? '#ffb3b8' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+            {ch}
+          </text>
+        </>
+      ))}
+      {dropAt(rejected).map((i) => (
+        <text x={gapX(i)} y={DROW2 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
+          &#8250;
+        </text>
+      ))}
+      <text x={dx(0)} y={DROW2 + DCH + 26} fill="#e0b400" font-size="11.5" text-anchor="start">
+        เครื่องหมายระหว่างช่องคือรอยต่อ จุดที่ตัวถัดไปเล็กลง
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · เติมช่องว่างให้ได้ลำดับอันดับที่ขอ</h2>
   <div class="cpgame dnagame" data-dnagame data-puzzles={dnaJson}>
@@ -405,8 +524,8 @@ for (int i = 0; i < M; i++) {
       โจทย์ยกเจ็ดตัวแรกมาให้ดูแล้ว ลิสต์ที่โปรแกรมสร้างได้คือ <code>{firstSeven.join(', ')}</code>
       ตรงกับในโจทย์ทุกตัว ตัวที่ {RR} จึงเป็น <code>{answer}</code>
     </p>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="dnasim" steps={dnaNotes} label="กดถัดไปเพื่อเดินทีละตำแหน่ง">
+    <table class="rec">
         <caption>เดินหาตัวที่ {RR} ทีละตำแหน่ง</caption>
         <thead>
           <tr>
@@ -429,11 +548,12 @@ for (int i = 0; i < M; i++) {
           ))}
         </tbody>
       </table>
-      <figcaption>
-        ตำแหน่งที่โจทย์ไม่ได้ให้เป็น <code>N</code> มีตัวเลือกเดียว จึงไม่มีการหักค่า
+  </CpStepPlayer>
+  <p class="io-note">
+    ตำแหน่งที่โจทย์ไม่ได้ให้เป็น <code>N</code> มีตัวเลือกเดียว จึงไม่มีการหักค่า
         ส่วนตำแหน่งที่เป็น <code>N</code> จะเห็นว่า R ค่อย ๆ ถูกหักลงทีละก้อน จนไปหยุดในก้อนที่ใช่
-      </figcaption>
-    </figure>
+  </p>
+
   </Spoiler>
 
   <h2>อีกมุมหนึ่ง: ไล่สร้างทุกตัวเลย (ชุดทดสอบย่อย M ≤ 10)</h2>
@@ -463,6 +583,26 @@ for (int i = 0; i < M; i++) {
     </p>
   </Spoiler>
 
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {dnaBill.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td>{r.limit}</td>
+            <td class="num">{r.work}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>แถวบนต้องสร้างของจริงทุกตัวก่อนจะหยิบตัวที่ต้องการ แถวล่างไม่สร้างของเลยแม้ตัวเดียว มันแตะแค่สี่ตัวเลือกต่อหนึ่งตำแหน่ง ต่างกันตรงที่แถวบนโตแบบทวีคูณตามความยาว ส่วนแถวล่างโตแบบเชิงเส้น นั่นคือเหตุผลเดียวที่ขอบเขตเต็มเป็นไปได้</figcaption>
+  </figure>
+
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
@@ -485,6 +625,19 @@ for (int i = 0; i < M; i++) {
       <a href="../count-then-walk/">นับก่อน แล้วค่อยเดินไปหาตัวที่ต้องการ</a>
     </p>
   </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+    <p>
+      ท่าของข้อนี้คือ<strong>นับก่อนแล้วค่อยเดิน</strong> ซึ่งใช้กับโจทย์ "ขอตัวที่ R" ได้ทุกข้อที่นับได้
+      และสิ่งที่เรานับคือจำนวน<strong>สตริง</strong> (string แปลว่าสายอักขระ คือลำดับของตัวอักษรที่เรียงต่อกัน)
+      ที่เติมช่องว่างได้ตามเงื่อนไข โดยไม่ต้องสร้างสตริงพวกนั้นขึ้นมาจริงแม้ตัวเดียว
+    </p>
+    <p>
+      มี<a href="../count-then-walk/">บทปูพื้นเรื่องนับก่อนแล้วเดิน</a>อยู่ในคลังนี้ ส่วนโจทย์สตริงที่เหลือในคลัง
+      ใช้ท่าที่ต่างกันคนละเรื่อง คือ<a href="../string-hashing/">การแฮชข้อความ</a>สำหรับเทียบสองช่วงว่าเหมือนกันไหม
+      และ<a href="../trie/">ไทร</a>สำหรับจัดกลุ่มตามคำนำหน้า สามท่านี้ตอบคำถามคนละแบบ
+      คำถามที่ต้องถามก่อนเลือกท่าคือ <strong>เรากำลังนับ เทียบ หรือจัดกลุ่ม</strong>
+    </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -579,17 +732,17 @@ for (int i = 0; i < M; i++) {
 
   /* ---------- แถบตัวอักษรของมินิเกม DNA ---------- */
   .dn-strip{display:flex;gap:5px;width:max-content;}
-  .dn-cell{
+  .dn-strip :global(.dn-cell){
     width:2rem;height:2.4rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:1rem;
     border:1px solid #2a3350;border-radius:7px;
     background:#101827;color:#cdd6ea;
   }
-  .dn-cell.slot{cursor:pointer;border-color:#3d5a80;color:#9ecbff;}
-  .dn-cell.slot:hover{border-color:var(--dl-emerald);}
-  .dn-cell.fixed{color:#7b8397;}
-  .dn-cell.drop{border-color:#8a3b3b;background:#351717;color:#f0a6a6;}
+  .dn-strip :global(.dn-cell.slot){cursor:pointer;border-color:#3d5a80;color:#9ecbff;}
+  .dn-strip :global(.dn-cell.slot:hover){border-color:var(--dl-emerald);}
+  .dn-strip :global(.dn-cell.fixed){color:#7b8397;}
+  .dn-strip :global(.dn-cell.drop){border-color:#8a3b3b;background:#351717;color:#f0a6a6;}
   .cpg-score .over{color:#f0a6a6;}
 </style>
 
@@ -726,4 +879,12 @@ for (int i = 0; i < M; i++) {
   }
 
   document.addEventListener('astro:page-load', initDnaGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-dnasim]');
+  });
 </script>

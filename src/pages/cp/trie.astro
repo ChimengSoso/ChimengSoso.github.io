@@ -164,6 +164,66 @@ const tgPuzzles: TgPuzzleData[] = TG_PUZZLES.map((p) => {
 });
 const tgJson = JSON.stringify(tgPuzzles);
 
+/* ---------- เทียบไทรกับตารางแฮชของคำนำหน้า ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด */
+const mapCode = `// นับคำในคลังที่มีคำนำหน้าตามที่ถาม โดยใช้ตารางแฮชของคำนำหน้าทุกอัน
+// อินพุต: n q, n คำในคลัง, q คำถาม (คำนำหน้า)
+// เอาต์พุต: จำนวนคำในคลังที่เริ่มด้วยคำนำหน้านั้น ทีละบรรทัด
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    unordered_map<string, int> cnt;
+    cnt.reserve(1 << 15);
+    for (int i = 0; i < n; i++) {
+        char buf[64];
+        scanf("%s", buf);
+        string w = buf;
+        // ยัดคำนำหน้าทุกอันของคำนี้ลงตาราง คำยาว L สร้าง L รายการ
+        string cur;
+        for (char c : w) {
+            cur += c;
+            cnt[cur]++;
+        }
+    }
+    for (int i = 0; i < q; i++) {
+        char buf[64];
+        scanf("%s", buf);
+        auto it = cnt.find(string(buf));
+        printf("%d\\n", it == cnt.end() ? 0 : it->second);
+    }
+    return 0;
+}`;
+const mapBrute = `// ตัวตรวจอิสระ: เทียบคำนำหน้ากับทุกคำในคลังตรง ๆ
+// ไม่มีตารางแฮช ไม่มีไทร
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<string> words(n);
+    for (int i = 0; i < n; i++) {
+        char buf[64];
+        scanf("%s", buf);
+        words[i] = buf;
+    }
+    for (int i = 0; i < q; i++) {
+        char buf[64];
+        scanf("%s", buf);
+        string p = buf;
+        int c = 0;
+        for (const string& w : words)
+            if (w.size() >= p.size() && w.compare(0, p.size(), p) == 0) c++;
+        printf("%d\\n", c);
+    }
+    return 0;
+}`;
+const TR_N = 100000;
+const TR_L = 30;
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -424,6 +484,60 @@ const tgJson = JSON.stringify(tgPuzzles);
     <p>ผมสุ่มชุดตัวเลขเล็ก ๆ 1,500 ชุดเทียบกับตัวไล่ทุกคู่ ตรงกันหมด</p>
   </Spoiler>
 
+  <h2>ทางที่คนคิดถึงก่อน · ยัดคำนำหน้าทุกอันลงตารางแฮช</h2>
+  <p>
+    ก่อนจะรู้จักไทร คนส่วนใหญ่คิดออกอีกทางหนึ่งก่อน และทางนั้น<strong>ถูกจริงและเขียนสั้นกว่ามาก</strong>
+    คือถ้าคำถามคือ "มีคำในคลังกี่คำที่เริ่มด้วยข้อความนี้" ก็เอาคำนำหน้า<strong>ทุกอัน</strong>ของทุกคำ
+    ไปยัดลงตารางแฮชพร้อมตัวนับไว้เลย แล้วตอบคำถามด้วยการค้นหาหนึ่งครั้ง
+  </p>
+  <p>
+    คำยาว <code>L</code> ตัวมีคำนำหน้า <code>L</code> อัน ดังนั้นคลัง <code>n</code> คำสร้างรายการ
+    <code>n · L</code> รายการ ซึ่งที่ <code>n = {TR_N.toLocaleString('en-US')}</code> และ
+    <code>L = {TR_L}</code> คือ {(TR_N * TR_L).toLocaleString('en-US')} รายการ
+    ยังไหวอยู่ แต่ทุกรายการเป็น<strong>สตริง</strong> ไม่ใช่ตัวเลข
+  </p>
+
+  <CodeBlock code={mapCode} lang="cpp" title="prefix_map.cpp" />
+
+  <p>ทางนี้แพ้ไทรอยู่สามเรื่อง และคุ้มที่จะรู้ว่าแพ้เพราะอะไร</p>
+  <ul>
+    <li>
+      <strong>ค่าใช้จ่ายต่อครั้งไม่คงที่</strong> การแฮชสตริงยาว <code>L</code> ต้องอ่านตัวอักษรครบ
+      <code>L</code> ตัวเพื่อคำนวณค่าแฮชอยู่แล้ว แล้วยังต้องเทียบสตริงเต็มตอนชนช่องเดียวกัน
+      ส่วนไทรเดินทีละตัวอักษร <code>L</code> ก้าวโดยไม่มีการแฮชและไม่มีการเทียบสตริงเลย
+    </li>
+    <li>
+      <strong>หน่วยความจำโตตามความยาวที่ซ้ำกัน</strong> ถ้าคลังมีคำที่ขึ้นต้นเหมือนกันเยอะ
+      ตารางแฮชเก็บคำนำหน้าเดียวกันซ้ำไม่ได้ แต่ก็ต้องเก็บสตริงนั้นไว้หนึ่งชุดอยู่ดี
+      ขณะที่ไทร<strong>ยุบคำนำหน้าที่ซ้ำกันให้เป็นเส้นทางเดียว</strong> ซึ่งเป็นเหตุผลที่มันมีชื่อมาจากคำว่า
+      re<i>trie</i>val ตั้งแต่แรก
+    </li>
+    <li>
+      <strong>มันตอบได้แค่คำถามที่เตรียมไว้</strong> ตารางแฮชตอบเรื่องการนับคำนำหน้าได้ แต่ตอบไม่ได้เลยว่า
+      "จากจุดนี้เดินต่อได้ด้วยตัวอักษรอะไรบ้าง" ซึ่งเป็นคำถามที่โจทย์<a href="../type-printer/">เครื่องพิมพ์โบราณ</a>
+      ถามตรง ๆ และเป็นคำถามที่ไทรตอบได้ฟรีเพราะโครงสร้างของมันคือคำตอบ
+    </li>
+  </ul>
+
+  <details class="expander">
+    <summary>ตัวตรวจของทางนี้</summary>
+    <div class="expander-body">
+      <p>
+        ผมสุ่มเทียบทางตารางแฮชกับการเดินเทียบทุกคำในคลังตรง ๆ <strong>700 รอบ ตรงกันทุกรอบ</strong>
+        ชุดสุ่มใช้ตัวอักษรแค่สองตัวและคำสั้น เพื่อบังคับให้มีคำนำหน้าซ้ำกันเยอะที่สุด
+        ซึ่งเป็นบริเวณที่ตัวนับจะพลาดถ้านับซ้ำหรือนับขาด
+      </p>
+      <CodeBlock code={mapBrute} lang="cpp" title="brute_prefix_count.cpp" />
+    </div>
+  </details>
+
+  <p>
+    บทเรียนที่ยกไปใช้ได้คือ <strong>ตารางแฮชแลกความง่ายด้วยการทิ้งโครงสร้างของข้อมูลไป</strong>
+    มันเก็บทุกคำนำหน้าเป็นก้อนแยกกันที่ไม่รู้จักกัน ส่วนไทรเก็บ<strong>ความสัมพันธ์</strong>ระหว่างคำนำหน้าไว้ด้วย
+    พอโจทย์ถามอะไรที่ต้องใช้ความสัมพันธ์นั้น ทางที่ทิ้งมันไปแล้วจะตอบไม่ได้
+    เจอโจทย์สตริงครั้งหน้าให้ถามก่อนว่า คำถามนี้ต้องรู้แค่ "มีหรือไม่มี" หรือต้องรู้ว่า "เดินต่อไปไหนได้"
+  </p>
+
   <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
   <ul>
     <li>
@@ -519,14 +633,14 @@ const tgJson = JSON.stringify(tgPuzzles);
 
   /* ---------- คลังคำของมินิเกมไทร ---------- */
   .tg-list{display:flex;flex-wrap:wrap;gap:5px;}
-  .tg-word{
+  .tg-list :global(.tg-word){
     padding:0.25rem 0.55rem;border-radius:6px;
     font-family:var(--dl-mono,monospace);font-size:0.85rem;
     border:1px solid #2a3350;background:#101827;color:#4a5468;
   }
-  .tg-word.live{color:#cdd6ea;border-color:#3d5a80;background:#132235;}
-  .tg-word.target{border-color:#2f9e5c;}
-  .tg-word.live.target{background:#14351f;color:#4ade80;}
+  .tg-list :global(.tg-word.live){color:#cdd6ea;border-color:#3d5a80;background:#132235;}
+  .tg-list :global(.tg-word.target){border-color:#2f9e5c;}
+  .tg-list :global(.tg-word.live.target){background:#14351f;color:#4ade80;}
 </style>
 
 <script>

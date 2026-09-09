@@ -1,5 +1,7 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -21,6 +23,18 @@ for (let i = 0; i + g <= S.length; i++) {
   windows.push({ i, text, hit: sortKey(text) === target });
 }
 const answer = windows.filter((w) => w.hit).length;
+
+/* ---------- ภาพหน้าต่างทุกบานเรียงซ้อนกัน ----------
+   สถานะของทุกบานมาจาก windows ตัวเดียวกับที่หน้านี้ใช้นับคำตอบ
+   บานที่ตรงจะถูกเน้น จึงเห็นทันทีว่าคำตอบ ${answer} มาจากบานไหน */
+const CH = 30;
+const CH_GAP = 3;
+const chX = (i: number): number => 30 + i * (CH + CH_GAP);
+const BAR_H = 15;
+const BAR_GAP = 4;
+const barY = (k: number): number => 92 + k * (BAR_H + BAR_GAP);
+const awVB = `0 0 ${chX(S.length) + 95} ${barY(windows.length) + 30}`;
+
 
 /* ---------- ต้นทุนของแต่ละแนวคิด นับเป็นจำนวนครั้งที่แตะตัวอักษรหนึ่งตัว ---------- */
 
@@ -176,6 +190,15 @@ if (r >= g) {                                    // ตัวที่หลุ�
     have[d]--;
 }
 if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอดีพร้อมกัน`;
+/* คำอธิบายรายก้าวของตัวนับ สร้างจาก trace ตัวเดียวกับตาราง */
+const awNotes = trace.map((t) => ({
+  note:
+    `ก้าวที่ <b>${t.r + 1}</b> ตัวที่เข้าคือ <b>${t.ch}</b> ` +
+    (t.out ? `และตัวที่หลุดออกคือ <b>${t.out}</b> ` : 'หน้าต่างยังไม่เต็ม จึงยังไม่มีตัวหลุดออก ') +
+    `ตอนนี้มีกลิฟที่จำนวนพอดีแล้ว <b>${t.matched}</b> จาก <b>${distinctTypes}</b> ชนิด ` +
+    (t.hit ? 'ครบทุกชนิดพอดี จึงนับหน้าต่างนี้เป็นคำตอบหนึ่งอัน' : 'ยังไม่ครบ จึงยังไม่นับ'),
+}));
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · คำเดียวกันที่เขียนสลับที่ได้ตามใจ</h2>
@@ -257,6 +280,47 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
       ที่เหลือเหมือนกันหมด แล้วทำไมเรายังต้องนับใหม่ทั้งหน้าต่างทุกครั้งด้วย
     </p>
   </div>
+
+  <ZoomableDiagram caption={`ข้อความ ${S} กับคำที่ต้องหา ${W} ซึ่งยาว ${g} ตัว หน้าต่างกว้าง ${g} ตัวเลื่อนไปได้ ${windows.length} ตำแหน่ง แถบแต่ละแถบข้างล่างคือหนึ่งตำแหน่ง แถบเขียวคือตำแหน่งที่ตัวอักษรในหน้าต่างสลับที่แล้วตรงกับ ${W} พอดี มีอยู่ ${answer} ตำแหน่ง สังเกตว่าสองตำแหน่งที่ติดกันต่างกันแค่ตัวอักษรหัวกับท้าย จึงไม่ต้องนับใหม่ทั้งบาน (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={awVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ข้อความ ${S} เรียงเป็นช่องตัวอักษร ใต้ข้อความมีแถบ ${windows.length} แถบแทนหน้าต่างแต่ละตำแหน่ง ตำแหน่งที่ตรงกับคำ ${W} คือตำแหน่งที่ ${windows.filter((w) => w.hit).map((w) => w.i).join(' และ ')} รวม ${answer} ตำแหน่ง`}>
+      <text x={chX(0)} y="26" fill="#98a3ba" font-size="12" text-anchor="start">ข้อความ</text>
+      {[...S].map((ch, i) => (
+        <>
+          <rect x={chX(i)} y="38" width={CH} height={CH} rx="5" fill="#141b2b" stroke="#2a3350" stroke-width="1.4" />
+          <text x={chX(i) + CH / 2} y="58" fill="#cdd6ea" font-size="14" text-anchor="middle" font-weight="700" font-family="monospace">
+            {ch}
+          </text>
+          <text x={chX(i) + CH / 2} y="80" fill="#7b8397" font-size="9.5" text-anchor="middle" font-family="monospace">
+            {i}
+          </text>
+        </>
+      ))}
+      {windows.map((w, k) => (
+        <>
+          <rect
+            x={chX(w.i)}
+            y={barY(k)}
+            width={g * (CH + CH_GAP) - CH_GAP}
+            height={BAR_H}
+            rx="4"
+            fill={w.hit ? '#12291c' : '#161d2e'}
+            stroke={w.hit ? '#4ade80' : '#2a3350'}
+            stroke-width={w.hit ? '1.8' : '1.1'}
+          />
+          <text
+            x={chX(S.length) + 12}
+            y={barY(k) + 12}
+            fill={w.hit ? '#4ade80' : '#7b8397'}
+            font-size="11"
+            text-anchor="start"
+            font-family="monospace"
+          >
+            {w.i} · {w.text} {w.hit ? 'ตรง' : ''}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · ลากหน้าต่างหาคำที่สลับที่แล้วตรงกัน</h2>
   <div class="glyphgame" data-glyphgame data-puzzles={puzzleJson}>
@@ -361,8 +425,8 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
       คำที่ตามหาคือ <code>{W}</code> ซึ่งใช้กลิฟ {distinctTypes} ชนิด ดังนั้นหน้าต่างจะใช้ได้เมื่อ
       <code>matched</code> ขึ้นไปแตะ {distinctTypes} พอดี
     </p>
-    <figure class="tbl">
-      <table class="rec">
+      <CpStepPlayer hook="awsim" steps={awNotes} label="กดถัดไปเพื่อเลื่อนหน้าต่างทีละตัวอักษร">
+    <table class="rec">
         <caption>เดินตัวนับตลอดแผ่นจารึก</caption>
         <thead>
           <tr>
@@ -389,11 +453,12 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
           ))}
         </tbody>
       </table>
-      <figcaption>
-        ทุกก้าวแตะข้อมูลแค่สองช่อง คือช่องของตัวที่เข้าและช่องของตัวที่ออก
+  </CpStepPlayer>
+  <p class="io-note">
+    ทุกก้าวแตะข้อมูลแค่สองช่อง คือช่องของตัวที่เข้าและช่องของตัวที่ออก
         ค่า <code>matched</code> จึงเดินขึ้นลงเองโดยไม่ต้องกวาดตารางทั้งใบเลยสักครั้ง
-      </figcaption>
-    </figure>
+  </p>
+
   </Spoiler>
 
   <h2>สามแนวคิด ราคาต่างกันคนละโลก</h2>
@@ -452,6 +517,14 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
     <p>
       เวลาที่วัดได้บนเครื่องผม อินพุตเต็มขอบเขตคือแผ่นจารึกสามล้านตัวกับคำยาวสามพันตัว ใช้เวลา
       <strong>96 มิลลิวินาที</strong> จากลิมิตสามวินาที
+    </p>
+    <p>
+      เวลาจะยกท่านี้ไปข้ออื่น มีคำถามเดียวที่ต้องตอบก่อน คือของที่เราเก็บไว้นั้น
+      <strong>ซ่อมจากส่วนต่างได้ไหม</strong> เมื่อรู้แค่ว่าใครเข้าและใครออก จำนวนนับกับผลรวมซ่อมได้
+      เพราะตัวที่ออกไปหักออกตรง ๆ ได้ ส่วนค่ามากสุดของหน้าต่างซ่อมไม่ได้ เพราะวันที่ตัวออกคือตัวที่มากที่สุดพอดี
+      ไม่มีใครรู้ว่าตัวรองคือตัวไหนโดยไม่กวาดหน้าต่างใหม่ ถ้าเจอกรณีหลัง ให้เลิกดัดวิธีนับแล้วไปเปลี่ยนเครื่องมือเลย
+      ท่าที่ใช้แทนอยู่ในหัวข้อสุดท้ายของบทปูพื้นฐาน
+      <a href="../sliding-window/">สองตัวชี้กับหน้าต่างเลื่อน</a>
     </p>
   </Spoiler>
 
@@ -569,17 +642,17 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
   .gg-scroll{overflow-x:auto;padding-bottom:0.35rem;}
   .gg-strip{display:flex;gap:4px;width:max-content;outline:none;}
   .gg-strip:focus-visible{box-shadow:0 0 0 2px var(--dl-emerald-bright);border-radius:8px;}
-  .gg-cell{
+  .gg-strip :global(.gg-cell){
     width:2rem;height:2.4rem;flex:none;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:1rem;
     border:1px solid #2a3350;border-radius:7px;background:#101827;color:#7b8397;
     transition:background 0.15s ease,color 0.15s ease,border-color 0.15s ease;
   }
-  .gg-cell.in{background:#132235;color:#e6edfb;border-color:#3d5a80;}
-  .gg-cell.edge{border-color:var(--dl-emerald-bright);}
-  .gg-cell.win{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
-  .gg-cell.got{box-shadow:inset 0 -3px 0 #2f9e5c;}
+  .gg-strip :global(.gg-cell.in){background:#132235;color:#e6edfb;border-color:#3d5a80;}
+  .gg-strip :global(.gg-cell.edge){border-color:var(--dl-emerald-bright);}
+  .gg-strip :global(.gg-cell.win){background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .gg-strip :global(.gg-cell.got){box-shadow:inset 0 -3px 0 #2f9e5c;}
   .gg-controls{display:flex;gap:0.5rem;align-items:center;margin:0.85rem 0 0.9rem;}
   .gg-btn{
     font:inherit;font-size:0.85rem;cursor:pointer;
@@ -595,7 +668,7 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
   }
   .gg-count tbody th{text-align:left;font-family:inherit;color:#9aa7bd;white-space:nowrap;}
   .gg-count td.ok{color:#4ade80;background:#14351f;}
-  .gg-count td.over{color:#f0a6a6;background:#351717;}
+  .gg-count :global(td.over){color:#f0a6a6;background:#351717;}
   .gg-count td.moved{border-color:var(--dl-emerald-bright);}
   .gg-status{width:0;min-width:100%;margin:0 0 0.35rem;font-size:0.88rem;color:#cdd6ea;min-height:1.4em;}
   .gg-status.good{color:#4ade80;}
@@ -603,7 +676,7 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
   .gg-score{width:0;min-width:100%;margin:0;font-size:0.88rem;color:#9aa7bd;}
   .gg-score b{color:#e6edfb;}
   @media (prefers-reduced-motion: reduce){
-    .gg-cell{transition:none;}
+    .gg-strip :global(.gg-cell){transition:none;}
   }
 </style>
 
@@ -833,4 +906,12 @@ if (r >= g - 1 && matched == distinct) ans++;    // ทุกชนิดพอ�
   }
 
   document.addEventListener('astro:page-load', initGlyphGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-awsim]');
+  });
 </script>

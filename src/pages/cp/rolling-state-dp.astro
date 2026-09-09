@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -79,6 +80,19 @@ const MEMS: Mem[] = [
   { name: 'ข้อ Miners', what: 'คู่ล่าสุดของสองเหมือง', alpha: 4, win: 4 },
 ];
 const memRows = MEMS.map((m) => ({ ...m, count: m.alpha ** m.win }));
+
+/* คำอธิบายรายแถวของตารางเดโม แถวศูนย์คือสภาพก่อนเริ่ม */
+const rollNotes = demoLayers.map((row, i) => ({
+  note:
+    i === 0
+      ? 'ก่อนเริ่ม ยังไม่มีของชิ้นไหนถูกตัดสินใจ สถานะเดียวที่ไปถึงได้คือค้าง 0 ชิ้น ที่ 0 คะแนน'
+      : `หลังตัดสินใจของชิ้นที่ <b>${i}</b> ซึ่งมีค่า <b>${DEMO[i - 1]}</b> ` +
+        `แถวนี้อ่านว่า ถ้าตอนนี้ค้าง 0, 1 หรือ 2 ชิ้น คะแนนที่ดีที่สุดคือ ` +
+        `<b>${row.map((v) => fmtCell(v)).join(' , ')}</b> ตามลำดับ` +
+        (i === demoLayers.length - 1
+          ? ` และคำตอบของทั้งแถวคือค่าที่มากที่สุดในแถวนี้ คือ <em>${demoBest}</em>`
+          : ''),
+}));
 
 const N_BIG = 100000;
 const fmt = (n: number): string => n.toLocaleString('en-US');
@@ -276,6 +290,85 @@ const rsPuzzles: RsPuzzleData[] = RS_PUZZLES.map((p) => ({
 }));
 const rsJson = JSON.stringify(rsPuzzles);
 
+/* ---------- DP บนหน้ากากบิต ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 400 รอบ ตรงกันหมด */
+const bpCode = `// DP บนหน้ากากบิต (broken profile): นับวิธีปูโดมิโน 1x2 ให้เต็มตาราง n แถว m คอลัมน์
+// สถานะคือ "หน้ากากของช่องที่ยื่นล้ำมาจากคอลัมน์ก่อนหน้า" ซึ่งเป็นการบีบสถานะแบบเดียวกับบทนี้
+// แต่สิ่งที่บีบไม่ใช่ตัวเลขเดียว มันคือแถวหนึ่งแถวที่เก็บเป็นบิต
+// อินพุต: n m   เอาต์พุต: จำนวนวิธี หารเอาเศษด้วย 1e9+7
+#include <bits/stdc++.h>
+using namespace std;
+const long long MOD = 1000000007LL;
+
+int main() {
+    int n, m;
+    if (scanf("%d %d", &n, &m) != 2) return 0;
+    if (n > m) swap(n, m);                 // ให้ n เป็นด้านที่แคบกว่า หน้ากากจึงเล็กที่สุด
+    int full = 1 << n;
+    vector<long long> cur(full, 0), nxt(full, 0);
+    cur[0] = 1;
+    for (int col = 0; col < m; col++) {
+        // เดินทีละคอลัมน์ ภายในคอลัมน์เดินทีละแถว
+        for (int row = 0; row < n; row++) {
+            fill(nxt.begin(), nxt.end(), 0);
+            for (int mask = 0; mask < full; mask++) {
+                long long v = cur[mask];
+                if (v == 0) continue;
+                if (mask >> row & 1) {
+                    // ช่องนี้ถูกโดมิโนแนวนอนจากคอลัมน์ก่อนกินไปแล้ว ปิดบิตทิ้ง
+                    nxt[mask ^ (1 << row)] = (nxt[mask ^ (1 << row)] + v) % MOD;
+                } else {
+                    // วางแนวนอน ยื่นไปคอลัมน์ถัดไป
+                    nxt[mask | (1 << row)] = (nxt[mask | (1 << row)] + v) % MOD;
+                    // วางแนวตั้ง กินช่องนี้กับช่องล่างในคอลัมน์เดียวกัน
+                    if (row + 1 < n && !(mask >> (row + 1) & 1))
+                        nxt[mask | (1 << (row + 1))] = (nxt[mask | (1 << (row + 1))] + v) % MOD;
+                }
+            }
+            cur.swap(nxt);
+        }
+    }
+    printf("%lld\\n", cur[0] % MOD);
+    return 0;
+}`;
+const bpBrute = `// ตัวตรวจอิสระของ broken profile: ไล่วางโดมิโนทุกวิธีด้วยการเรียกซ้ำบนช่องว่างแรกที่เจอ
+// ไม่มีหน้ากากบิต ไม่มีการบีบสถานะ จึงไม่ได้ทดสอบข้ออ้างของท่านั้นเลย
+#include <bits/stdc++.h>
+using namespace std;
+const long long MOD = 1000000007LL;
+
+int n, m;
+vector<vector<int>> used;
+long long ways = 0;
+
+void rec() {
+    int r = -1, c = -1;
+    for (int i = 0; i < n && r == -1; i++)
+        for (int j = 0; j < m; j++)
+            if (!used[i][j]) { r = i; c = j; break; }
+    if (r == -1) { ways = (ways + 1) % MOD; return; }
+    // วางแนวนอน
+    if (c + 1 < m && !used[r][c + 1]) {
+        used[r][c] = used[r][c + 1] = 1;
+        rec();
+        used[r][c] = used[r][c + 1] = 0;
+    }
+    // วางแนวตั้ง
+    if (r + 1 < n && !used[r + 1][c]) {
+        used[r][c] = used[r + 1][c] = 1;
+        rec();
+        used[r][c] = used[r + 1][c] = 0;
+    }
+}
+
+int main() {
+    if (scanf("%d %d", &n, &m) != 2) return 0;
+    used.assign(n, vector<int>(m, 0));
+    rec();
+    printf("%lld\\n", ways % MOD);
+    return 0;
+}`;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -343,6 +436,12 @@ const rsJson = JSON.stringify(rsPuzzles);
     ค่านี้เป็นได้แค่ 0, 1 หรือ 2 เท่านั้น (ถ้าถึง 3 ก็ผิดกติกาไปแล้ว) ตารางจึงกว้างขึ้นแค่<strong>สามเท่า</strong>
     ไม่ใช่โตแบบทวีคูณตามความยาวแถว และนี่คือรูปแบบที่บทนี้จะพูดถึงตลอด คือ<strong>สถานะที่เป็นความจำล่าสุด</strong>
     ของสิ่งที่เพิ่งเกิดขึ้น ไม่ใช่บันทึกของอดีตทั้งหมด
+  </p>
+  <p>
+    การยุบอดีตทั้งกองให้เหลือค่าเล็ก ๆ ค่าเดียวแบบนี้เรียกว่า<strong>การบีบสถานะ</strong> (state compression)
+    ชื่อมันตรงกับสิ่งที่เกิดขึ้นเลย คืออดีตถูกบีบจนเหลือเท่าที่จำเป็น ระวังคำนี้ไว้อย่างหนึ่ง
+    การบีบสถานะไม่ได้แปลว่าย่อข้อมูลให้เล็กลงเฉย ๆ มันคือ<strong>การทิ้งสิ่งที่ไม่มีผลต่ออนาคต</strong>
+    ซึ่งต้องพิสูจน์ได้ว่าทิ้งแล้วไม่เสียคำตอบ สองข้อสอบข้างล่างนี้คือวิธีพิสูจน์
   </p>
 
   <div class="callout callout-note">
@@ -430,7 +529,7 @@ const rsJson = JSON.stringify(rsPuzzles);
     เอาแถว <code>{DEMO.join(' ')}</code> มาเดินจริง แต่ละแถวของตารางคือหลังตัดสินใจของชิ้นนั้นเสร็จแล้ว
     ช่องที่เป็นจุดคือสถานะที่ยังไปไม่ถึง
   </p>
-  <figure class="tbl">
+    <CpStepPlayer hook="rollsim2" steps={rollNotes} label="กดถัดไปเพื่อดูตารางโตขึ้นทีละแถว">
     <table class="rec">
       <caption>แถว {DEMO.join(' ')} · คำตอบคือ {demoBest}</caption>
       <thead>
@@ -450,14 +549,15 @@ const rsJson = JSON.stringify(rsPuzzles);
         ))}
       </tbody>
     </table>
-    <figcaption>
-      แผนที่ดีที่สุดคือเก็บชิ้นที่ {demoPlan.picks.join(', ')} รวม {demoPlan.total} คะแนน
+  </CpStepPlayer>
+  <p class="io-note">
+    แผนที่ดีที่สุดคือเก็บชิ้นที่ {demoPlan.picks.join(', ')} รวม {demoPlan.total} คะแนน
       สังเกตแถวที่เขียนว่า <code>2. ค่า {DEMO[1]}</code> สองช่องซ้ายยังเก็บ {fmtCell(demoLayers[2][0])} ไว้
       ทั้งที่ช่องขวาสุดของแถวเดียวกันมี {fmtCell(demoLayers[2][2])} ซึ่งมากกว่า ถ้าตารางมีคอลัมน์เดียว
       เลข {fmtCell(demoLayers[2][2])} จะกลืนที่เหลือไปหมดตั้งแต่ตรงนั้น แล้วของชิ้นที่ 3 ที่มีค่า {DEMO[2]}
       ก็จะเก็บไม่ได้ ทั้งที่แถวถัดมาบอกชัดว่าเลข {fmtCell(demoLayers[2][0])} คือตัวที่พาไปถึง {fmtCell(demoLayers[3][1])}
-    </figcaption>
-  </figure>
+  </p>
+
 
   <h2>ด่านที่สาม · สถานะมีได้กี่แบบ</h2>
   <p>
@@ -698,6 +798,65 @@ const rsJson = JSON.stringify(rsPuzzles);
 
   <hr class="divider-solid" />
 
+  <h2>ก้าวถัดไปของการบีบสถานะ · เมื่อสิ่งที่ต้องจำไม่ใช่ตัวเลขตัวเดียว</h2>
+  <p>
+    ทั้งบทนี้บีบอดีตให้เหลือ<strong>ตัวเลขตัวเดียว</strong> คือจำนวนที่เลือกติดกันมาแล้ว
+    ซึ่งเป็นไปได้เพราะสิ่งที่อนาคตต้องรู้มีแค่นั้น แต่มีโจทย์อีกตระกูลที่สิ่งที่ต้องจำ
+    <strong>เป็นแถวหนึ่งแถว</strong> ไม่ใช่ตัวเลขตัวเดียว และท่าเดิมก็ไม่พอทันที
+  </p>
+  <p>
+    ตัวอย่างที่เห็นภาพที่สุดคือ นับวิธีปูโดมิโนขนาด 1 คูณ 2 ให้เต็มตาราง <code>n</code> แถว
+    <code>m</code> คอลัมน์ เดินทีละคอลัมน์แล้วถามว่า "ต้องจำอะไรจากคอลัมน์ก่อนหน้า"
+    คำตอบคือ <strong>ช่องไหนของคอลัมน์นี้ถูกโดมิโนแนวนอนจากคอลัมน์ก่อนกินไปแล้ว</strong>
+    ซึ่งเป็นข้อมูล <code>n</code> บิต ไม่ใช่ตัวเลขตัวเดียว
+  </p>
+  <p>
+    ท่าที่รับมือคือเก็บ <code>n</code> บิตนั้นเป็น<strong>จำนวนเต็มหนึ่งตัว</strong> โดยให้บิตที่
+    <code>i</code> แทนแถวที่ <code>i</code> จำนวนเต็มตัวนั้นเรียกว่า<strong>หน้ากากบิต</strong> (bitmask)
+    และ DP ที่ใช้มันเป็นสถานะเรียกว่า <strong>DP บนหน้ากากบิต</strong> รูปที่เดินทีละช่อง
+    ไม่ใช่ทีละคอลัมน์เต็ม เรียกเฉพาะลงไปอีกว่า <strong>broken profile</strong>
+  </p>
+  <p>
+    สองข้อสอบของบทนี้ยังใช้ได้เหมือนเดิม <strong>ข้อพอไหม</strong> รู้หน้ากากแล้วคิดทางเลือกของช่องถัดไป
+    ได้ครบไหม ตอบว่าได้ เพราะช่องที่ถูกกินไปแล้วห้ามวางซ้ำ ที่เหลือวางได้
+    <strong>ข้อปิดตัวเองไหม</strong> รู้หน้ากากเดิมกับสิ่งที่เพิ่งวาง แล้วคำนวณหน้ากากใหม่ได้ไหม
+    ตอบว่าได้ ด้วยการเปิดปิดบิตตรง ๆ
+  </p>
+  <p>
+    ส่วนด่านที่สามของบทนี้ คือ<strong>สถานะมีได้กี่แบบ</strong> กลายเป็นเรื่องคอขวดตรงนี้พอดี
+    หน้ากาก <code>n</code> บิตมีได้ <code>2ⁿ</code> แบบ ต้นทุนจึงเป็น <code>O(m · n · 2ⁿ)</code>
+    ซึ่งใช้ได้เฉพาะเมื่อ <strong>ด้านหนึ่งของตารางแคบ</strong> โค้ดข้างล่างจึงสลับให้ <code>n</code>
+    เป็นด้านที่แคบกว่าเสมอก่อนเริ่ม เพราะนั่นคือความต่างระหว่างทำได้กับทำไม่ได้
+  </p>
+
+  <CodeBlock code={bpCode} lang="cpp" title="broken_profile.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        DP บนหน้ากากบิตมีจุดพลาดที่ไม่ค่อยฟ้อง คือลำดับการเปิดปิดบิต และการตัดสินว่าบิตไหนแทนแถวไหน
+        ถ้าสลับกันโค้ดจะยังรันได้และให้เลขที่หน้าตาสมเหตุสมผล ตัวตรวจจึงต้องไม่มีบิตเลย
+        ตัวนี้ไล่วางโดมิโนทุกวิธีด้วยการเรียกซ้ำบนช่องว่างแรกที่เจอ
+      </p>
+      <CodeBlock code={bpBrute} lang="cpp" title="brute_domino.cpp" />
+      <p>
+        สุ่มตารางเล็ก ๆ ตั้งแต่ 1 คูณ 1 ถึง 5 คูณ 7 แล้วเทียบจำนวนวิธี
+        <strong>400 รอบ ตรงกันทุกรอบ</strong> ชุดสุ่มรวมกรณีที่ช่องทั้งหมดเป็นจำนวนคี่
+        ซึ่งคำตอบต้องเป็นศูนย์ (ปูไม่ได้เลย) และกรณีแถวเดียวที่ปูได้ทางเดียว
+        ที่ตาราง 5 คูณ 1000 โค้ดข้างบนใช้เวลาต่ำกว่า <strong>0.01 วินาที</strong>
+        ขณะที่ตัวตรวจแตะขนาดนั้นไม่ได้เลย
+      </p>
+    </div>
+  </details>
+
+  <p>
+    คำถามที่ยกไปใช้กับข้ออื่นได้คือ <strong>สิ่งที่อนาคตต้องรู้ เป็นตัวเลขตัวเดียวหรือเป็นรูปร่าง</strong>
+    ถ้าเป็นตัวเลขตัวเดียว ใช้ท่าในบทนี้ ถ้าเป็นรูปร่างที่แคบพอจะเขียนเป็นบิตได้
+    ให้เขียนเป็นหน้ากากบิต และถ้ามันกว้างเกินจะเขียนเป็นบิต ให้กลับไปดูว่าโจทย์ให้ขอบเขตแคบ ๆ
+    ไว้ที่ไหนหรือไม่ เพราะขอบเขตนั้นมักเป็นคำใบ้ว่าอะไรที่ควรกลายเป็นหน้ากาก
+  </p>
+
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
     เมื่อทางที่คะแนนน้อยกว่าตอนนี้พาไปคำตอบที่ดีกว่าตอนจบได้ แปลว่าตารางขาด<strong>สภาพ</strong>ไปหนึ่งมิติ
@@ -790,16 +949,16 @@ const rsJson = JSON.stringify(rsPuzzles);
 
   /* ---------- แถบของของมินิเกมเลือกของ ---------- */
   .rs-strip{display:flex;gap:5px;width:max-content;}
-  .rs-cell{
+  .rs-strip :global(.rs-cell){
     min-width:2.3rem;height:2.3rem;cursor:pointer;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:0.9rem;
     border:1px solid #2a3350;border-radius:6px;
     background:#101827;color:#cdd6ea;
   }
-  .rs-cell:hover{border-color:var(--dl-emerald);}
-  .rs-cell.on{background:#14351f;color:#4ade80;border-color:#2f9e5c;}
-  .rs-cell.bad{background:#351717;color:#f0a6a6;border-color:#8a3b3b;}
+  .rs-strip :global(.rs-cell:hover){border-color:var(--dl-emerald);}
+  .rs-strip :global(.rs-cell.on){background:#14351f;color:#4ade80;border-color:#2f9e5c;}
+  .rs-strip :global(.rs-cell.bad){background:#351717;color:#f0a6a6;border-color:#8a3b3b;}
 </style>
 
 <script>
@@ -918,4 +1077,12 @@ const rsJson = JSON.stringify(rsPuzzles);
   }
 
   document.addEventListener('astro:page-load', initRollGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-rollsim2]');
+  });
 </script>

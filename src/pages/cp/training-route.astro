@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 
@@ -88,6 +89,36 @@ function bestKeep(): { pick: ExInfo[]; weight: number } {
 }
 const kept = bestKeep();
 const answer = totalCost - kept.weight;
+
+/* ---------- พิกัดของภาพกราฟ ----------
+   ต้นไม้ของตัวอย่างนี้เป็นเส้นตรง 1 ถึง 5 พอดี จึงวางเมืองเรียงกันได้ตรง ๆ
+   สถานะของถนนไม่ราดยางแต่ละเส้น (ต้องปิด / เก็บได้แต่ไม่ได้เก็บ / เก็บไว้) มาจาก info กับ kept
+   ไม่ได้ระบายสีด้วยตา ถ้าเปลี่ยนตัวอย่าง ภาพก็เปลี่ยนตาม */
+const CITY_R = 21;
+const cityX = (v: number): number => 34 + (v - 1) * 118;
+const CITY_Y = 196;
+const trVB = `0 0 ${cityX(N) + CITY_R + 12} 300`;
+type ArcState = 'kept' | 'passed' | 'forced';
+const stateOf = (x: ExInfo): ArcState =>
+  kept.pick.indexOf(x) !== -1 ? 'kept' : x.even ? 'passed' : 'forced';
+const ARC_INK = { kept: '#4ade80', passed: '#8fa2c4', forced: '#e06c75' };
+/* เรียงเส้นที่กว้างกว่าให้อยู่ชั้นสูงกว่า แต่ละเส้นได้ชั้นของตัวเอง จึงไม่มีสองเส้นซ้อนกันพอดี */
+const arcOrder = [...info]
+  .sort((p, q) => Math.abs(q.e.a - q.e.b) - Math.abs(p.e.a - p.e.b))
+  .map((x) => x.e);
+const arcLane = (x: ExInfo): number => arcOrder.indexOf(x.e);
+const arcTop = (x: ExInfo): number => CITY_Y - CITY_R - 24 - arcLane(x) * 32;
+const arcPath = (x: ExInfo): string => {
+  const x1 = cityX(x.e.a);
+  const x2 = cityX(x.e.b);
+  const top = arcTop(x);
+  return `M${x1} ${CITY_Y - CITY_R} C ${x1} ${top}, ${x2} ${top}, ${x2} ${CITY_Y - CITY_R}`;
+};
+/** ยอดจริงของเส้นโค้งลูกบาศก์ที่จุดควบคุมทั้งสองอยู่ระดับเดียวกัน คือที่ t = 0.5 */
+const arcApex = (x: ExInfo): number => ((CITY_Y - CITY_R) * 2 + 6 * arcTop(x)) / 8;
+const arcLabelY = (x: ExInfo): number => arcApex(x) - 7;
+const treeEdges = paved.map((e) => ({ a: Math.min(e.a, e.b), b: Math.max(e.a, e.b) }));
+
 
 /* ---------- มินิเกม เลือกเองว่าจะปิดถนนเส้นไหน ----------
    ตัวตัดสินของเกมไม่ได้ใช้กฎสองข้อของเฉลยเลย มันไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้
@@ -206,6 +237,40 @@ const NMAX = 1000;
 const MMAX = 5000;
 const DEGMAX = 10;
 const MASKMAX = Math.pow(2, DEGMAX);
+
+/* ตัวเลขของหัวข้อ "ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย" คิดจากค่าจริงของหน้านี้ ไม่ได้พิมพ์มือ */
+const trFmt = (n: number): string => n.toLocaleString('en-US');
+const CLOSABLE_MAX = MMAX - (NMAX - 1); // ถนนไม่ราดยางมีได้มากสุดเท่านี้
+const sampleSubsets = Math.pow(2, extra.length);
+
+/** นับวงจรอย่างง่ายทุกวงในกราฟ นับวงละครั้ง (ยึดปมเล็กสุดเป็นจุดเริ่ม แล้วหารสองทิศทางออก) */
+function countSimpleCycles(n: number, es: Edge[]): number {
+  let total = 0;
+  const seen = new Set<number>();
+  const walk = (start: number, u: number, parentEdge: number, depth: number): void => {
+    for (let i = 0; i < es.length; i++) {
+      if (i === parentEdge) continue;
+      const e = es[i];
+      const v = e.a === u ? e.b : e.b === u ? e.a : 0;
+      if (v === 0) continue;
+      if (v === start && depth + 1 >= 3) {
+        total += 1;
+        continue;
+      }
+      if (v < start || seen.has(v)) continue;
+      seen.add(v);
+      walk(start, v, i, depth + 1);
+      seen.delete(v);
+    }
+  };
+  for (let s = 1; s <= n; s++) {
+    seen.clear();
+    seen.add(s);
+    walk(s, s, -1, 0);
+  }
+  return total / 2;
+}
+const sampleCycles = countSimpleCycles(N, EDGES);
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
@@ -385,6 +450,24 @@ for (int mk = full - 1; mk >= 0; mk--)
     </tbody>
   </table>
 
+  <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
+  <p>
+    สิ่งที่เราเลือกคือเซตของถนนไม่ราดยางที่จะปิด ตัวอย่างในโจทย์มีถนนแบบนั้น {extra.length} สาย
+    จึงมีเซตให้ลองแค่ {sampleSubsets} แบบ ไล่ดูทีละแบบได้สบาย แต่ขอบเขตจริงเปิดให้ถนนไม่ราดยาง
+    มีได้ถึง {trFmt(CLOSABLE_MAX)} สาย จำนวนเซตคือสองยกกำลัง {trFmt(CLOSABLE_MAX)}
+  </p>
+  <p>
+    ด่านที่สองหนักกว่าด่านแรก สมมติมีคนยื่นเซตหนึ่งมาให้แล้วบอกให้ตอบว่าเซตนี้ใช้ได้ไหม
+    เงื่อนไขของโจทย์พูดถึง<strong>ทุกวงปิด</strong>ที่ยังเหลืออยู่ในกราฟ กราฟหนึ่งกราฟมีวงปิดได้มากกว่า
+    จำนวนถนนของมันเยอะ ตัวอย่างเล็ก ๆ ในโจทย์มีถนนแค่ {EDGES.length} สาย แต่มีวงจรอย่างง่ายอยู่
+    {sampleCycles} วง แค่การตรวจคำตอบหนึ่งข้อก็แพงแล้ว ยังไม่นับว่าต้องตรวจกี่ข้อ
+  </p>
+  <p>
+    ทางออกจึงต้องมาจากการยุบเงื่อนไขทั้งข้อให้เหลือสิ่งที่ตัดสินได้ระหว่างเดินบนต้นไม้
+    โดยไม่ต้องไปแตะวงปิดสักวงเดียว และตรงนั้นเองที่ขอบเขตดีกรีไม่เกิน {DEGMAX} ซึ่งดูเหมือนของแถม
+    จะได้ใช้งานจริง
+  </p>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -396,6 +479,56 @@ for (int mk = full - 1; mk >= 0; mk--)
       ที่เส้นทางบนต้นไม้ของมัน<strong>ทับกัน</strong> จะเกิดวงอะไรขึ้นอีกบ้างที่เราไม่ได้ตั้งใจ
     </p>
   </div>
+
+  <ZoomableDiagram caption={`ตัวอย่างในโจทย์ เมือง ${N} เมืองกับถนนราดยาง ${paved.length} สายที่ทำให้เมืองทั้งหมดต่อกันเป็นต้นไม้ ส่วนเส้นโค้งด้านบนคือถนนไม่ราดยาง ${extra.length} สาย แต่ละสายเขียนไว้ว่าเส้นทางบนต้นไม้ยาวกี่สาย และวงที่มันสร้างยาวเท่าไร เส้นแดงคือเส้นที่วงเป็นเลขคู่ จึงต้องปิดโดยไม่มีทางเลือก ส่วนเส้นสีจางคือเส้นที่เก็บไว้ได้ตามกฎที่หนึ่ง แต่เส้นทางของมันทับกับเส้นที่คุ้มกว่า จึงไม่ได้เก็บตามกฎที่สอง เหลือเส้นเขียวที่เก็บได้จริง น้ำหนักรวม ${kept.weight} จากค่าใช้จ่ายทั้งหมด ${totalCost} คำตอบจึงเป็น ${answer} (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={trVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กราฟของเมือง ${N} เมืองเรียงเป็นแถวจากซ้ายไปขวา เชื่อมกันด้วยถนนราดยางเป็นเส้นตรง เหนือแถวมีเส้นโค้ง ${extra.length} เส้นแทนถนนไม่ราดยาง คือ ${info.map((x) => `เส้นจากเมือง ${x.e.a} ถึงเมือง ${x.e.b} ค่าปิด ${x.e.c} เส้นทางบนต้นไม้ยาว ${x.len} สาย วงยาว ${x.len + 1} ${stateOf(x) === 'forced' ? 'ต้องปิด' : stateOf(x) === 'kept' ? 'เก็บไว้ได้' : 'เก็บได้ตามกฎแรกแต่เส้นทางทับกับเส้นอื่น'}`).join(' ')}`}>
+      {treeEdges.map((e) => (
+        <line x1={cityX(e.a) + CITY_R} y1={CITY_Y} x2={cityX(e.b) - CITY_R} y2={CITY_Y} stroke="#5b6478" stroke-width="3" />
+      ))}
+      {info.map((x) => (
+        <path
+          d={arcPath(x)}
+          fill="none"
+          stroke={ARC_INK[stateOf(x)]}
+          stroke-width={stateOf(x) === 'kept' ? '2.6' : '1.8'}
+          stroke-dasharray={stateOf(x) === 'kept' ? undefined : '6 5'}
+        />
+      ))}
+      {/* ป้ายทุกใบวาดหลังเส้นทุกเส้น เส้นที่วาดทีหลังจึงไม่พาดทับป้ายของเส้นอื่น */}
+      {info.map((x) => (
+        <>
+          <rect
+            x={(cityX(x.e.a) + cityX(x.e.b)) / 2 - 62}
+            y={arcLabelY(x) - 12}
+            width="124"
+            height="17"
+            rx="4"
+            fill="#0b1220"
+          />
+          <text
+            x={(cityX(x.e.a) + cityX(x.e.b)) / 2}
+            y={arcLabelY(x)}
+            fill={ARC_INK[stateOf(x)]}
+            font-size="11.5"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            ค่า {x.e.c} · ยาว {x.len} · วง {x.len + 1}
+          </text>
+        </>
+      ))}
+      {Array.from({ length: N }, (_, i) => i + 1).map((v) => (
+        <>
+          <circle cx={cityX(v)} cy={CITY_Y} r={CITY_R} fill="#141b2b" stroke="#7f8db0" stroke-width="2" />
+          <text x={cityX(v)} y={CITY_Y + 6} fill="#cdd6ea" font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">
+            {v}
+          </text>
+        </>
+      ))}
+      <text x="34" y={CITY_Y + 48} fill="#4ade80" font-size="11.5" text-anchor="start">เขียวทึบ เก็บไว้ได้จริง</text>
+      <text x="34" y={CITY_Y + 64} fill="#e06c75" font-size="11.5" text-anchor="start">แดง วงเป็นเลขคู่ ต้องปิด</text>
+    </svg>
+  </ZoomableDiagram>
 
   <h2>ลองเอง · ปิดถนนให้ถูกที่สุด</h2>
   <div class="cpgame trgame" data-trgame data-puzzles={trJson}>
@@ -587,6 +720,23 @@ for (int mk = full - 1; mk >= 0; mk--)
       ซึ่งมีตัวอย่างเต็ม ๆ ใน <a href="../rolling-state-dp/">ดีพีที่สถานะคือความจำล่าสุด</a>
     </p>
   </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+    <p>
+      สองกฎในเฉลยเป็นข้อสรุปเรื่อง<strong>คู่คี่</strong> (parity) ทั้งคู่ คือเราไม่ได้สนใจว่าเส้นทางยาวเท่าไร
+      สนใจแค่ว่ามัน<strong>ยาวเป็นจำนวนคู่หรือคี่</strong> พอถามแค่นั้น ถนนทั้งกราฟก็ถูกจัดออกเป็นสองพวกทันที
+      และเงื่อนไขทั้งข้อยุบลงเหลือกฎสั้น ๆ สองข้อ
+    </p>
+    <p>
+      ท่านี้เป็นญาติกับ<strong>การระบายสองสี</strong> (bipartite coloring) คือถ้าเราไล่ระบายสีปมสลับกันสองสีตามเส้นเชื่อม
+      แล้วระบายได้สำเร็จโดยไม่มีเส้นไหนเชื่อมสีเดียวกัน กราฟนั้นไม่มีวงคี่เลย ซึ่งเป็นข้อความเดียวกับกฎในเฉลยนี้
+      พูดด้วยคำอีกชุด รู้ความเชื่อมโยงนี้ไว้จะอ่านโจทย์กราฟที่พูดเรื่องคู่คี่ออกเร็วขึ้นมาก
+      มี<a href="../teleporters/">คำอธิบายเรื่องคู่คี่</a>อยู่ในโจทย์เครื่องเคลื่อนย้าย
+    </p>
+    <p>
+      อีกท่าที่ข้อนี้ใช้คือ<strong>การบีบสถานะ</strong> (state compression) ตอนไล่ต้นไม้ เราไม่เก็บทุกอย่างของกิ่ง
+      เก็บแค่ค่าที่พ่อต้องใช้ ซึ่งมี<a href="../rolling-state-dp/">บทปูพื้น</a>อยู่ในคลังนี้แล้ว
+    </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>

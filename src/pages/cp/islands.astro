@@ -1,5 +1,6 @@
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
@@ -349,6 +350,79 @@ for (int j = 0; j < 2 * c; j++) {
     while (!dq.empty() && d[dq.back() % c] - P[dq.back()] <= cur) dq.pop_back();
     dq.push_back(j);
 }`;
+/* ---------- เส้นผ่าศูนย์กลางด้วย BFS สองรอบ ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด
+   วัดที่ n สองแสนได้ 0.04 วินาที */
+const dmCode = `// เส้นผ่าศูนย์กลางของต้นไม้ ด้วย BFS สองรอบ
+// รอบแรกจากปมใดก็ได้ หาปมที่ไกลสุด รอบสองเริ่มจากปมนั้น ระยะที่ไกลสุดคือคำตอบ
+// อินพุต: n แล้ว n-1 บรรทัด u v   เอาต์พุต: ความยาวเส้นผ่าศูนย์กลาง (นับเป็นจำนวนเส้น)
+#include <bits/stdc++.h>
+using namespace std;
+
+/** คืนคู่ (ปมที่ไกลสุด, ระยะถึงปมนั้น) เมื่อเริ่มจาก s */
+pair<int, int> far(int s, const vector<vector<int>>& g) {
+    int n = (int)g.size();
+    vector<int> dist(n, -1);
+    dist[s] = 0;
+    vector<int> q{s};
+    for (int h = 0; h < (int)q.size(); h++)
+        for (int v : g[q[h]])
+            if (dist[v] == -1) {
+                dist[v] = dist[q[h]] + 1;
+                q.push_back(v);
+            }
+    int best = s;
+    for (int i = 0; i < n; i++) if (dist[i] > dist[best]) best = i;
+    return {best, dist[best]};
+}
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<vector<int>> g(n);
+    for (int i = 0; i + 1 < n; i++) {
+        int u, v;
+        scanf("%d %d", &u, &v);
+        g[u].push_back(v);
+        g[v].push_back(u);
+    }
+    if (n == 1) { printf("0\\n"); return 0; }
+    int a = far(0, g).first;      // ปมปลายทางหนึ่งของเส้นผ่าศูนย์กลาง
+    printf("%d\\n", far(a, g).second);
+    return 0;
+}`;
+const dmBrute = `// ตัวตรวจอิสระของเส้นผ่าศูนย์กลาง: BFS จากทุกปม เอาระยะที่มากที่สุดของทั้งหมด
+// ไม่ใช้ข้ออ้างว่า "ปมที่ไกลสุดจากปมใดก็ได้ เป็นปลายของเส้นผ่าศูนย์กลาง" เลย
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<vector<int>> g(n);
+    for (int i = 0; i + 1 < n; i++) {
+        int u, v;
+        scanf("%d %d", &u, &v);
+        g[u].push_back(v);
+        g[v].push_back(u);
+    }
+    int best = 0;
+    for (int s = 0; s < n; s++) {
+        vector<int> dist(n, -1);
+        dist[s] = 0;
+        vector<int> q{s};
+        for (int h = 0; h < (int)q.size(); h++)
+            for (int v : g[q[h]])
+                if (dist[v] == -1) {
+                    dist[v] = dist[q[h]] + 1;
+                    q.push_back(v);
+                }
+        for (int i = 0; i < n; i++) best = max(best, dist[i]);
+    }
+    printf("%d\\n", best);
+    return 0;
+}`;
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · เดินให้ไกลที่สุด แต่ห้ามซ้ำเกาะ</h2>
@@ -592,7 +666,15 @@ for (int j = 0; j < 2 * c; j++) {
   <h2>แกะตัวอย่างในโจทย์</h2>
   <Spoiler>
     {comps.map((c, ci) => (
-      <figure class="tbl">
+      <CpStepPlayer
+        hook="islesim"
+        steps={c.cyc.map((v, i) => ({
+          note:
+            `เกาะ <b>${v}</b> อยู่ลำดับที่ <b>${i}</b> บนวง ต้นไม้ที่ห้อยจากมันลึก <b>${c.d[i]}</b> ` +
+            `สะพานไปเกาะถัดไปยาว <b>${c.w[i]}</b> ระยะสะสมจากจุดเริ่มของวงจึงเป็น <b>${c.pref[i]}</b>`,
+        }))}
+        label={`กลุ่มที่ ${ci + 1} กดถัดไปเพื่อไล่เกาะบนวงทีละเกาะ`}
+      >
         <table class="rec">
           <caption>กลุ่มที่ {ci + 1} · วงคือเกาะ {c.cyc.join(' ไป ')} แล้ววนกลับ</caption>
           <thead>
@@ -613,12 +695,13 @@ for (int j = 0; j < 2 * c; j++) {
             ))}
           </tbody>
         </table>
-        <figcaption>
-          คู่ที่ดีที่สุดของกลุ่มนี้คือลงต้นไม้ที่เกาะ {c.bestPair} ได้ {c.local} ส่วนเส้นทางที่จมอยู่ในต้นไม้ล้วน ๆ
-          ยาวที่สุด {c.treeBest} คำตอบของกลุ่มคือค่าที่มากกว่า นั่นคือ {c.local}
-        </figcaption>
-      </figure>
+      </CpStepPlayer>
     ))}
+    <p class="io-note">
+      คู่ที่ดีที่สุดของแต่ละกลุ่มคือลงต้นไม้ที่เกาะ {comps.map((c) => c.bestPair).join(' และ ')}
+      ส่วนเส้นทางที่จมอยู่ในต้นไม้ล้วน ๆ ยาวที่สุด {comps.map((c) => c.treeBest).join(' และ ')}
+      คำตอบของกลุ่มคือค่าที่มากกว่าในสองอันนั้น
+    </p>
     <p>
       รวมทุกกลุ่มได้ {comps.map((c) => c.local).join(' + ')} = <strong>{answer}</strong>
       ตรงกับคำตอบในโจทย์
@@ -695,6 +778,72 @@ for (int j = 0; j < 2 * c; j++) {
       <a href="../tree-dp/">ดีพีบนต้นไม้</a>
     </p>
   </Spoiler>
+
+  <h2>อีกท่าหนึ่งของค่าเดียวกัน · BFS สองรอบ ที่สั้นกว่าครึ่ง</h2>
+  <p>
+    ค่าที่เฉลยนี้หาในต้นไม้แต่ละต้น คือทางที่ยาวที่สุดระหว่างสองปมใด ๆ ในต้นไม้นั้น
+    มีชื่อว่า<strong>เส้นผ่าศูนย์กลางของต้นไม้</strong> (tree diameter) และมีท่ามาตรฐานสองท่า
+    เฉลยข้างบนใช้ท่าแรก คือ DP เก็บความลึกที่ลึกที่สุดสองอันดับแรกของลูก แล้วต่อกันที่ปมนั้น
+    ซึ่งจำเป็นที่นี่เพราะเราต้องใช้ค่าความลึกรายปมไปคิดเรื่องวงต่อ
+  </p>
+  <p>
+    แต่ถ้าโจทย์ถามแค่<strong>ตัวเลขเส้นผ่าศูนย์กลาง</strong> อย่างเดียว มีท่าที่สั้นกว่าครึ่ง
+    <strong>BFS สองรอบ</strong> รอบแรกเริ่มจากปมใดก็ได้ หาปมที่ไกลที่สุดเรียกว่า <code>a</code>
+    รอบสองเริ่มจาก <code>a</code> ระยะที่ไกลที่สุดที่ได้คือคำตอบ
+  </p>
+  <p>
+    ที่มันถูกเพราะข้ออ้างข้อเดียว <strong>ปมที่ไกลที่สุดจากปมใดก็ได้ ต้องเป็นปลายข้างหนึ่งของ
+    เส้นผ่าศูนย์กลางเสมอ</strong> เหตุผลคือถ้ามันไม่ใช่ปลายของเส้นผ่าศูนย์กลาง เราจะสร้างทางที่ยาวกว่า
+    เส้นผ่าศูนย์กลางได้จากมัน ซึ่งขัดกับคำว่ายาวที่สุด พอรู้ปลายข้างหนึ่งแล้ว
+    รอบที่สองก็แค่วัดจากปลายนั้นออกไปให้ไกลสุด
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง ข้ออ้างนี้ใช้ได้แค่บนต้นไม้</p>
+    <p>
+      ท่า BFS สองรอบ<strong>ใช้กับกราฟทั่วไปไม่ได้</strong> มันพังทันทีเมื่อกราฟมีวง
+      ซึ่งเป็นเหตุผลว่าทำไมในโจทย์นี้เราใช้มันได้เฉพาะกับต้นไม้ที่ห้อยจากวง ไม่ใช่กับทั้งกลุ่ม
+      ถ้าเผลอเอาไปใช้กับกลุ่มทั้งกลุ่มที่มีวงอยู่ คำตอบจะผิดแบบเงียบ ๆ
+      และนี่คือเหตุผลที่เฉลยหลักต้องแยกเรื่องวงออกมาคิดเองตั้งแต่ต้น
+    </p>
+  </div>
+
+  <CodeBlock code={dmCode} lang="cpp" title="tree_diameter.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        ข้ออ้างเรื่อง "ปมที่ไกลสุดคือปลายของเส้นผ่าศูนย์กลาง" เป็นข้ออ้างที่ฟังดูชัดเจนมาก
+        และเป็นข้ออ้างที่คนเอาไปใช้ผิดที่บ่อยที่สุด ตัวตรวจจึง<strong>ไม่ใช้ข้ออ้างนั้นเลย</strong>
+        มัน BFS จากทุกปมแล้วเอาระยะที่มากที่สุดของทั้งหมด ซึ่งเป็นนิยามของเส้นผ่าศูนย์กลางตรง ๆ
+      </p>
+      <CodeBlock code={dmBrute} lang="cpp" title="brute_diameter.cpp" />
+      <p>
+        สุ่มต้นไม้เล็ก ๆ ทุกรูป รวมกรณีปมเดียวและกรณีเป็นเส้นตรง แล้วเทียบ
+        <strong>700 รอบ ตรงกันทุกรอบ</strong> ที่ <code>n</code> สองแสนโค้ดนี้ใช้เวลา
+        <strong>0.04 วินาที</strong> และหน่วยความจำราว 17 เมกะไบต์
+      </p>
+    </div>
+  </details>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+    <p>
+      โครงสร้างที่ข้อนี้เดินอยู่มีชื่อเรียก คือ<strong>กราฟฟังก์ชัน</strong> (functional graph) กราฟที่ทุกปมมีลูกศรออก
+      เส้นเดียวพอดี ข้อจำกัดข้อเดียวนั้นบังคับรูปร่างไว้หมด คือทุกกลุ่มต้องเป็นวงหนึ่งวงที่มีต้นไม้ห้อยเข้าหาวง
+      ซึ่งเป็นเหตุผลที่เราแยกกรณีได้แค่สองแบบตลอดทั้งเฉลย
+    </p>
+    <p>
+      ส่วนตัวเลขที่เราหาในต้นไม้แต่ละต้น คือทางที่ยาวที่สุดระหว่างสองปมใด ๆ ในต้นไม้นั้น มีชื่อว่า
+      <strong>เส้นผ่าศูนย์กลางของต้นไม้</strong> (tree diameter) รู้ชื่อนี้ไว้คุ้มมาก เพราะมันมีท่ามาตรฐานสองท่า
+      ท่าที่เฉลยนี้ใช้คือ DP เก็บความลึกที่ลึกที่สุดสองอันดับแรกของลูก แล้วเอามาต่อกันที่ปมนั้น
+      อีกท่าที่สั้นกว่าคือ<strong>ไล่กว้างสองรอบ</strong> รอบแรกจากปมใดก็ได้เพื่อหาปมที่ไกลสุด รอบสองเริ่มจากปมนั้น
+      ระยะที่ได้คือคำตอบ ทั้งสองท่าใช้เวลาเชิงเส้นเท่ากัน
+    </p>
+    <p>
+      มี<a href="../functional-graph/">บทปูพื้นเรื่องกราฟฟังก์ชัน</a>และ<a href="../tree-dp/">บทเรื่อง DP บนต้นไม้</a>
+      อยู่ในคลังนี้แล้ว และคำถามที่ยกไปใช้ได้คือ <strong>ลูกศรของแต่ละก้าวถูกกำหนดตายตัวหรือไม่</strong>
+      ถ้าตายตัว รูปของกราฟก็ถูกล็อกทันที และเรานับได้เลยโดยไม่ต้องค้นหา
+    </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -795,11 +944,11 @@ for (int j = 0; j < 2 * c; j++) {
     border:1px solid #2a3350;padding:0.24rem 0.7rem;text-align:center;color:#cdd6ea;
   }
   .is-bridges th{color:#9aa7bd;font-weight:600;white-space:nowrap;}
-  .is-isle{display:inline-flex;flex-direction:column;align-items:center;gap:0.1rem;line-height:1.2;}
-  .is-group{font-size:0.68rem;color:#7b8397;}
-  .is-isle.used{background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
-  .is-isle.used .is-group{color:#0b1220;}
-  .is-isle.reach{border-color:var(--dl-emerald);}
+  .cpg-controls :global(.is-isle){display:inline-flex;flex-direction:column;align-items:center;gap:0.1rem;line-height:1.2;}
+  .cpg-controls :global(.is-group){font-size:0.68rem;color:#7b8397;}
+  .cpg-controls :global(.is-isle.used){background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .cpg-controls :global(.is-isle.used .is-group){color:#0b1220;}
+  .cpg-controls :global(.is-isle.reach){border-color:var(--dl-emerald);}
 </style>
 
 <script>
@@ -988,4 +1137,12 @@ for (int j = 0; j < 2 * c; j++) {
   }
 
   document.addEventListener('astro:page-load', initIslandGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-islesim]');
+  });
 </script>

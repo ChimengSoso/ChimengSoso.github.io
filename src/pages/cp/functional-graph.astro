@@ -189,6 +189,69 @@ const fgPuzzles: FgPuzzleData[] = FG_PUZZLES.map((p) => ({
 }));
 const fgJson = JSON.stringify(fgPuzzles);
 
+/* ---------- เต่ากับกระต่าย ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด */
+const floydCode = `// เต่ากับกระต่าย (Floyd): หาความยาวหางกับความยาววงบนกราฟฟังก์ชัน
+// ด้วยหน่วยความจำคงที่ ไม่ใช้อาเรย์ visited เลย
+// อินพุต: n start แล้ว nxt[0..n-1]
+// เอาต์พุต: mu lambda  (mu = จำนวนก้าวจาก start ถึงปมแรกที่อยู่บนวง, lambda = ความยาววง)
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, start;
+    if (scanf("%d %d", &n, &start) != 2) return 0;
+    vector<int> nxt(n);
+    for (int i = 0; i < n; i++) scanf("%d", &nxt[i]);
+
+    // เฟส 1 หาจุดพบกันในวง เต่าเดินหนึ่งก้าว กระต่ายเดินสองก้าว
+    int slow = nxt[start];
+    int fast = nxt[nxt[start]];
+    while (slow != fast) {
+        slow = nxt[slow];
+        fast = nxt[nxt[fast]];
+    }
+    // เฟส 2 ย้ายเต่ากลับจุดเริ่ม แล้วเดินพร้อมกันทีละก้าว จุดที่เจอกันคือปมแรกบนวง
+    int mu = 0;
+    slow = start;
+    while (slow != fast) {
+        slow = nxt[slow];
+        fast = nxt[fast];
+        mu++;
+    }
+    // เฟส 3 วนรอบวงหนึ่งรอบ นับความยาว
+    int lambda = 1;
+    fast = nxt[slow];
+    while (fast != slow) {
+        fast = nxt[fast];
+        lambda++;
+    }
+    printf("%d %d\\n", mu, lambda);
+    return 0;
+}`;
+const floydBrute = `// ตัวตรวจอิสระของเต่ากับกระต่าย: เดินไปเรื่อย ๆ แล้วจดว่าเคยเหยียบปมไหนตอนก้าวที่เท่าไร
+// ใช้หน่วยความจำ O(n) ซึ่งเป็นสิ่งที่ท่าเต่ากระต่ายพยายามเลี่ยง จึงเป็นการตรวจที่อิสระจริง
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n, start;
+    if (scanf("%d %d", &n, &start) != 2) return 0;
+    vector<int> nxt(n);
+    for (int i = 0; i < n; i++) scanf("%d", &nxt[i]);
+
+    vector<int> seenAt(n, -1);
+    int cur = start, step = 0;
+    while (seenAt[cur] == -1) {
+        seenAt[cur] = step++;
+        cur = nxt[cur];
+    }
+    int mu = seenAt[cur];              // ก้าวแรกที่เหยียบปมที่วนซ้ำ คือความยาวหาง
+    int lambda = step - seenAt[cur];   // ก้าวที่เดินไปแล้วลบก้าวที่เคยเหยียบ คือความยาววง
+    printf("%d %d\\n", mu, lambda);
+    return 0;
+}`;
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -268,7 +331,7 @@ const fgJson = JSON.stringify(fgPuzzles);
         />
       ))}
       <line x1="220" y1="84" x2="238" y2="112" stroke="#4ade80" stroke-width="1.8" marker-end="url(#fg-ar)" />
-      <text x="96" y="180" fill="#9aa7bd" font-size="12" text-anchor="middle">ต้นไม้ที่ห้อยอยู่</text>
+      <text x="96" y="180" fill="#4ade80" font-size="12" text-anchor="middle">ต้นไม้ที่ห้อยอยู่</text>
       <text x="300" y="180" fill="#e0b400" font-size="12" text-anchor="middle">วง</text>
       <text x="150" y="30" fill="#4ade80" font-size="11">ลูกศรวิ่งเข้าหาวงเสมอ</text>
     </svg>
@@ -457,6 +520,53 @@ const fgJson = JSON.stringify(fgPuzzles);
     <p>ผมสุ่มกราฟเล็ก ๆ 1,500 ชุดเทียบกับตัวไล่เช็กทีละปมแบบซื่อ ๆ ตรงกันหมด</p>
   </Spoiler>
 
+  <h2>ท่าที่ 3 · หาวงโดยไม่ต้องจดว่าเคยไปไหน</h2>
+  <p>
+    ท่าปอกใบในบทนี้หาว่าใครอยู่บนวงได้ครบ แต่มันต้องมีอาเรย์นับดีกรีและคิวขนาดเท่าจำนวนปม
+    คือใช้หน่วยความจำ <code>O(n)</code> ซึ่งปกติไม่ใช่ปัญหา แต่มีสถานการณ์ที่มันเป็นปัญหาจริง
+    คือตอนที่<strong>เราไม่มีกราฟทั้งใบอยู่ในมือ</strong> เรามีแค่ฟังก์ชันที่ถามได้ทีละก้าวว่า
+    "จากตรงนี้ไปไหนต่อ" เช่นลำดับสุ่มที่คำนวณค่าถัดไปจากค่าปัจจุบัน
+  </p>
+  <p>
+    ในสถานการณ์นั้นยังหาวงได้ ด้วยหน่วยความจำ<strong>คงที่</strong> ไม่ขึ้นกับขนาดของวงเลย
+    ท่านั้นชื่อ <strong>เต่ากับกระต่าย</strong> (tortoise and hare หรือเรียกตามชื่อคนคิดว่า Floyd)
+  </p>
+  <p>
+    เดินสองตัวพร้อมกันจากจุดเดียวกัน ตัวหนึ่งก้าวละหนึ่ง อีกตัวก้าวละสอง
+    ถ้ามีวงอยู่ ตัวเร็วจะวนกลับมาไล่ตัวช้าทันในวงแน่ ๆ เพราะระยะห่างระหว่างสองตัวเพิ่มขึ้นทีละหนึ่งก้าว
+    เมื่อทั้งคู่อยู่ในวงแล้ว ระยะห่างจึงต้องมาลงตรงศูนย์พอดีในที่สุด
+  </p>
+  <p>
+    จุดที่เจอกันยัง<strong>ไม่ใช่</strong>ปมแรกของวง แต่มันมีคุณสมบัติที่ใช้ต่อได้ คือระยะจากจุดเริ่มถึงปมแรกของวง
+    เท่ากับระยะจากจุดที่เจอกันถึงปมแรกของวงพอดี จึงย้ายตัวหนึ่งกลับไปที่จุดเริ่ม แล้วเดินสองตัวพร้อมกันทีละก้าว
+    จุดที่มาเจอกันครั้งนี้คือ<strong>ปมแรกที่อยู่บนวง</strong> จากนั้นวนรอบวงหนึ่งรอบก็ได้ความยาววง
+  </p>
+
+  <CodeBlock code={floydCode} lang="cpp" title="floyd_cycle.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        ข้ออ้างของท่านี้เป็นเรื่องระยะทางที่ฟังดูน่าเชื่อแต่พิสูจน์ในหัวพลาดง่าย ตัวตรวจจึงต้องไม่ใช้ข้ออ้างนั้นเลย
+        ตัวนี้เดินไปเรื่อย ๆ แล้วจดว่าเคยเหยียบปมไหนตอนก้าวที่เท่าไร ซึ่งใช้หน่วยความจำ <code>O(n)</code>
+        คือสิ่งที่ท่าเต่ากระต่ายพยายามเลี่ยง จึงเป็นการตรวจที่อิสระจากกันจริง
+      </p>
+      <CodeBlock code={floydBrute} lang="cpp" title="brute_cycle.cpp" />
+      <p>
+        สุ่มกราฟฟังก์ชันเล็ก ๆ พร้อมจุดเริ่มสุ่ม แล้วเทียบทั้งความยาวหางและความยาววง
+        <strong>700 รอบ ตรงกันทุกรอบ</strong> ชุดสุ่มมีทั้งกรณีที่จุดเริ่มอยู่บนวงตั้งแต่แรก (หางยาวศูนย์)
+        และกรณีวงยาวหนึ่งปมที่ชี้กลับตัวเอง ซึ่งเป็นสองกรณีที่โค้ดแบบนี้ชอบพลาด
+      </p>
+    </div>
+  </details>
+
+  <p>
+    เกณฑ์เลือกระหว่างสองท่าชัดมาก ถ้ามีกราฟทั้งใบอยู่ในมือและต้องรู้ว่า<strong>ทุกปม</strong>อยู่บนวงหรือไม่
+    ให้ปอกใบ เพราะรอบเดียวได้คำตอบของทุกปม ถ้ามีแค่ฟังก์ชันที่เดินได้ทีละก้าวและสนใจวงที่<strong>ปมเดียว</strong>
+    เดินไปเจอ ให้ใช้เต่ากับกระต่าย เพราะไม่ต้องจองหน่วยความจำตามขนาดของสิ่งที่มองไม่เห็น
+  </p>
+
   <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
   <ul>
     <li>
@@ -554,8 +664,8 @@ const fgJson = JSON.stringify(fgPuzzles);
     border:1px solid #2a3350;padding:0.25rem 0.6rem;text-align:center;
     font-family:var(--dl-mono,monospace);color:#cdd6ea;min-width:2rem;
   }
-  .fg-map th.here{background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
-  .fg-map td.oncyc{background:#132235;color:#9ecbff;}
+  .fg-map :global(th.here){background:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
+  .fg-map :global(td.oncyc){background:#132235;color:#9ecbff;}
 </style>
 
 <script>

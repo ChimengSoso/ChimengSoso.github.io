@@ -302,6 +302,89 @@ int main() {
 
 const gameData = { points: TWO_D, m: TWO_M, d: TWO_D_D };
 const fmtInt = (n: number): string => n.toLocaleString('en-US');
+/* ---------- CDQ divide and conquer ----------
+   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 700 รอบ ตรงกันหมด (ชุดสุ่มให้ x ไม่ซ้ำ ตามข้อกำหนดของโค้ด)
+   วัดที่ n สองแสนได้ 0.23 วินาที */
+const cdqCode = `// CDQ divide and conquer: นับคู่ที่เล็กกว่ากันครบทั้งสามมิติ
+// ให้จุด n จุด แต่ละจุดมี (x, y, z) นับจำนวนคู่ที่ xi<xj และ yi<yj และ zi<zj
+//
+// ข้อกำหนดของโค้ดชุดนี้: ค่า x ต้องไม่ซ้ำกัน
+// เพราะการแบ่งครึ่งใช้ "ลำดับหลังเรียงตาม x" แทนการเทียบ x จริง ถ้ามี x ซ้ำ
+// สองจุดที่ x เท่ากันอาจไปอยู่คนละครึ่งแล้วถูกนับ ซึ่งผิดเงื่อนไข xi<xj
+// กรณีมี x ซ้ำต้องจับกลุ่ม x เท่ากันมาหักออกอีกชั้น ซึ่งไม่รวมในโค้ดนี้
+#include <bits/stdc++.h>
+using namespace std;
+
+struct P { int x, y, z; };
+
+int NZ;
+vector<int> fen;
+void fupd(int i, int v) { for (++i; i <= NZ; i += i & -i) fen[i] += v; }
+int fqry(int i) { int s = 0; for (++i; i > 0; i -= i & -i) s += fen[i]; return s; }
+
+long long answer = 0;
+vector<P> a, buf;
+
+void cdq(int lo, int hi) {
+    if (hi - lo <= 1) return;
+    int mid = (lo + hi) / 2;
+    cdq(lo, mid);
+    cdq(mid, hi);
+    // ออกจากสองบรรทัดบน ทั้งสองครึ่งเรียงตาม y แล้ว รวมกลับแบบ merge พร้อมนับ
+    // ทุกจุดในครึ่งซ้ายมี x เล็กกว่าทุกจุดในครึ่งขวาแน่นอน มิติแรกจึงไม่ต้องเช็คอีก
+    int i = lo, j = mid, k = lo;
+    while (i < mid || j < hi) {
+        if (j >= hi || (i < mid && a[i].y < a[j].y)) {
+            fupd(a[i].z, 1);                  // จุดซ้ายที่ y เล็กกว่า ใส่ลงเฟนวิกไว้
+            buf[k++] = a[i++];
+        } else {
+            answer += fqry(a[j].z - 1);       // จุดขวา ถามว่ามีซ้ายกี่ตัวที่ z เล็กกว่า
+            buf[k++] = a[j++];
+        }
+    }
+    for (int t = lo; t < mid; t++) fupd(a[t].z, -1);   // ล้างเฟนวิกให้ว่างก่อนออกจากชั้นนี้
+    for (int t = lo; t < hi; t++) a[t] = buf[t];
+}
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    a.resize(n);
+    buf.resize(n);
+    for (int i = 0; i < n; i++) scanf("%d %d %d", &a[i].x, &a[i].y, &a[i].z);
+    // ย่อ z ให้เป็นดัชนีติดกัน เฟนวิกจึงมีขนาดพอดีกับจำนวนค่าที่ต่างกันจริง
+    vector<int> zs;
+    for (const P& p : a) zs.push_back(p.z);
+    sort(zs.begin(), zs.end());
+    zs.erase(unique(zs.begin(), zs.end()), zs.end());
+    for (P& p : a) p.z = (int)(lower_bound(zs.begin(), zs.end(), p.z) - zs.begin());
+    NZ = (int)zs.size() + 2;
+    fen.assign(NZ + 2, 0);
+
+    sort(a.begin(), a.end(), [](const P& p, const P& q) { return p.x < q.x; });
+    cdq(0, n);
+    printf("%lld\\n", answer);
+    return 0;
+}`;
+const cdqBrute = `// ตัวตรวจอิสระของ CDQ: ไล่ทุกคู่แล้วเช็คสามเงื่อนไขตรง ๆ
+// ไม่มีการแบ่งครึ่ง ไม่มีเฟนวิก จึงไม่ได้ทดสอบข้ออ้างของท่านั้นเลย
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<array<int, 3>> p(n);
+    for (int i = 0; i < n; i++) scanf("%d %d %d", &p[i][0], &p[i][1], &p[i][2]);
+    long long c = 0;
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            if (i != j && p[i][0] < p[j][0] && p[i][1] < p[j][1] && p[i][2] < p[j][2]) c++;
+    printf("%lld\\n", c);
+    return 0;
+}`;
+const CDQ_N = 200000;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -726,6 +809,70 @@ const fmtInt = (n: number): string => n.toLocaleString('en-US');
     </details>
   </Spoiler>
 
+  <h2>อีกทางสำหรับสามมิติ · CDQ divide and conquer</h2>
+  <p>
+    เฉลยของข้อนี้จัดการมิติที่สามด้วยการหมุนกระดาน ซึ่งใช้ได้เพราะรูปของโจทย์เอื้อให้ทำ
+    แต่มีท่ามาตรฐานสำหรับปัญหารูปนี้ที่ใช้ได้โดยไม่ต้องพึ่งความพอดีของโจทย์
+    และคุ้มที่จะรู้เพราะมันเป็นท่าประจำของ<strong>ทุกโจทย์ที่ต้องนับคู่ที่เล็กกว่ากันครบทุกมิติ</strong>
+  </p>
+  <p>
+    ท่านั้นชื่อ <strong>CDQ divide and conquer</strong> และแนวคิดของมันคือ<strong>ลดจำนวนมิติ
+    ด้วยการแบ่งครึ่ง</strong> ไม่ใช่ด้วยการหมุนหรือการเปลี่ยนพิกัด
+  </p>
+
+  <h3>ทำไมการแบ่งครึ่งลดมิติได้</h3>
+  <p>
+    ปัญหาคือนับคู่ที่ <code>x</code> เล็กกว่า และ <code>y</code> เล็กกว่า และ <code>z</code> เล็กกว่า
+    พร้อมกันทั้งสามมิติ เริ่มด้วยการ<strong>เรียงตาม <code>x</code></strong> แล้วแบ่งอาเรย์เป็นสองครึ่ง
+  </p>
+  <p>
+    ตรงนี้คือหัวใจ คู่ที่เราต้องนับแบ่งได้เป็นสามพวก คู่ที่อยู่ในครึ่งซ้ายทั้งคู่
+    คู่ที่อยู่ในครึ่งขวาทั้งคู่ และคู่ที่คร่อมสองครึ่ง สองพวกแรกคือปัญหาเดิมที่เล็กลง จึงเรียกซ้ำได้
+    ส่วนพวกที่สาม<strong>มิติแรกไม่ต้องเช็คอีกเลย</strong> เพราะทุกจุดในครึ่งซ้ายมี
+    <code>x</code> เล็กกว่าทุกจุดในครึ่งขวาอยู่แล้วโดยการเรียง
+  </p>
+  <p>
+    พอมิติแรกหายไป งานที่เหลือคือ<strong>ปัญหาสองมิติ</strong> ซึ่งเราแก้ได้ด้วยท่าที่บทนี้ใช้อยู่แล้ว
+    คือกวาดตาม <code>y</code> พร้อมถามเฟนวิกบน <code>z</code>
+    และเพราะการเรียกซ้ำคืนของที่เรียงตาม <code>y</code> มาให้แล้วทั้งสองครึ่ง
+    การกวาดจึงทำพร้อมกับการรวมกลับแบบ merge ได้เลย ไม่ต้องเรียงใหม่
+  </p>
+  <p>
+    ต้นทุนจึงเป็น <code>O(n log² n)</code> คือแบ่งครึ่ง <code>log n</code> ชั้น ชั้นละ
+    <code>n log n</code> จากเฟนวิก ที่ <code>n = {fmtInt(CDQ_N)}</code> ผมรันโค้ดข้างล่างจริง
+    ได้ <strong>0.23 วินาที</strong> เทียบกับการไล่ทุกคู่ที่เป็นสองหมื่นล้านครั้ง
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ข้อกำหนดที่ต้องบอกไว้ตรง ๆ</p>
+    <p>
+      โค้ดข้างล่างต้องการให้ค่า <code>x</code> <strong>ไม่ซ้ำกัน</strong> เพราะการแบ่งครึ่งใช้
+      "ลำดับหลังเรียงตาม <code>x</code>" แทนการเทียบค่า <code>x</code> จริง
+      ถ้ามีค่าซ้ำ สองจุดที่ <code>x</code> เท่ากันอาจไปอยู่คนละครึ่งแล้วถูกนับ
+      ซึ่งผิดเงื่อนไขที่ต้องเล็กกว่าจริง กรณีมีค่าซ้ำต้องจับกลุ่มที่เท่ากันมาหักออกอีกชั้น
+      ผมไม่ใส่ส่วนนั้นไว้เพื่อให้โครงของท่าอ่านออกง่าย และชุดสุ่มที่ใช้ทดสอบก็ให้ <code>x</code> ไม่ซ้ำตามนั้น
+    </p>
+  </div>
+
+  <CodeBlock code={cdqCode} lang="cpp" title="cdq.cpp" />
+
+  <details class="expander">
+    <summary>ตัวตรวจที่ทำให้กล้าเชื่อโค้ดข้างบน</summary>
+    <div class="expander-body">
+      <p>
+        CDQ มีจุดพลาดที่ไม่ฟ้องเลยสองจุด จุดแรกคือ<strong>ลืมล้างเฟนวิก</strong>ก่อนออกจากชั้น
+        ทำให้ชั้นถัดไปเห็นของค้างจากชั้นก่อน จุดที่สองคือลำดับของการใส่กับการถามใน merge
+        ถ้าถามก่อนใส่หรือใส่ก่อนถามผิดจังหวะ คำตอบจะคลาดไปเรื่อย ๆ ตัวตรวจจึงต้องไล่ทุกคู่ตรง ๆ
+        โดยไม่มีการแบ่งครึ่งและไม่มีเฟนวิกเลย
+      </p>
+      <CodeBlock code={cdqBrute} lang="cpp" title="brute_dominance.cpp" />
+      <p>
+        สุ่มจุด 1 ถึง 40 จุด โดยให้ <code>y</code> และ <code>z</code> มาจากช่วงแคบ ๆ
+        เพื่อบังคับให้มีค่าซ้ำเยอะในสองมิตินั้น ซึ่งเป็นบริเวณที่เงื่อนไข "เล็กกว่าจริง"
+        กับ "ไม่เกิน" จะให้คำตอบต่างกัน แล้วเทียบ <strong>700 รอบ ตรงกันทุกรอบ</strong>
+      </p>
+    </div>
+  </details>
+
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
     <code>|a| + |b| = max(|a+b|, |a−b|)</code> คือทั้งหมดที่ข้อนี้ต้องการ มันเปลี่ยนเงื่อนไขที่พัวพันสองแกน
@@ -976,9 +1123,10 @@ const fmtInt = (n: number): string => n.toLocaleString('en-US');
 
 <script>
   // ตัวเล่นสองตัวชี้ของกระดานหนึ่งมิติ ขั้นถูกสร้างไว้ตอน build
-  type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
+  // ตัวคุมปุ่มและแถบเลื่อนอยู่ที่ src/lib/cpPlayer.ts หน้านี้ส่งมาแค่วิธีวาดกระดาน
+  import { initCpPlayers } from '../../lib/cpPlayer';
 
-  const PLAY_MS = 1300;
+  type SweepStep = { i: number; j: number; gained: number; total: number; note: string };
 
   function isStep(v: unknown): v is SweepStep {
     if (typeof v !== 'object' || v === null) return false;
@@ -986,93 +1134,33 @@ const fmtInt = (n: number): string => n.toLocaleString('en-US');
     return typeof o.i === 'number' && typeof o.j === 'number' && typeof o.note === 'string';
   }
 
-  function initSweep(root: HTMLElement) {
-    if (root.dataset.wired === '1') return;
-    root.dataset.wired = '1';
-
-    const parsed: unknown = JSON.parse(root.dataset.steps ?? '[]');
-    const steps: SweepStep[] = Array.isArray(parsed) ? parsed.filter(isStep) : [];
-    if (steps.length === 0) return;
-
-    const marks = Array.from(root.querySelectorAll<HTMLTableCellElement>('td.mark'));
-    const totalCell = root.querySelector<HTMLElement>('td.total');
-    const say = root.querySelector<HTMLElement>('.dps-say');
-    const range = root.querySelector<HTMLInputElement>('.dps-range');
-    const count = root.querySelector<HTMLElement>('.dps-count');
-    const playBtn = root.querySelector<HTMLButtonElement>('.dps-play');
-    const btns = Array.from(root.querySelectorAll<HTMLButtonElement>('.dps-b'));
-    if (!totalCell || !say || !range || !count || !playBtn) return;
-
-    range.max = String(steps.length - 1);
-    let at = 0;
-    let timer: number | null = null;
-
-    const render = () => {
-      const st = steps[at];
-      marks.forEach((td, k) => {
-        td.className = 'num mark';
-        td.textContent = '·';
-        if (k === st.i) {
-          td.classList.add('is-i');
-          td.textContent = 'i';
-        } else if (k >= st.j && k < st.i) {
-          td.classList.add('is-win');
-          td.textContent = '+';
-        }
-        if (k === st.j && k !== st.i) td.classList.add('is-j');
-      });
-      totalCell.textContent = String(st.total);
-      say.innerHTML = st.note;
-      range.value = String(at);
-      count.textContent = `ขั้น ${at + 1} / ${steps.length}`;
-      for (const b of btns) {
-        const act = b.dataset.act;
-        if (act === 'prev' || act === 'first') b.disabled = at === 0;
-        if (act === 'next' || act === 'last') b.disabled = at === steps.length - 1;
-      }
-    };
-
-    const stop = () => {
-      if (timer !== null) window.clearInterval(timer);
-      timer = null;
-      playBtn.textContent = 'เล่น';
-    };
-    const go = (to: number) => {
-      at = Math.max(0, Math.min(steps.length - 1, to));
-      if (at === steps.length - 1) stop();
-      render();
-    };
-
-    for (const b of btns) {
-      b.addEventListener('click', () => {
-        const act = b.dataset.act;
-        if (act === 'play') {
-          if (timer !== null) { stop(); return; }
-          if (at === steps.length - 1) at = 0;
-          playBtn.textContent = 'หยุด';
-          timer = window.setInterval(() => go(at + 1), PLAY_MS);
-          go(at + 1);
-          return;
-        }
-        stop();
-        if (act === 'first') go(0);
-        else if (act === 'prev') go(at - 1);
-        else if (act === 'next') go(at + 1);
-        else if (act === 'last') go(steps.length - 1);
-      });
-    }
-    range.addEventListener('input', () => { stop(); go(Number(range.value)); });
-    root.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') { stop(); go(at + 1); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft') { stop(); go(at - 1); e.preventDefault(); }
-    });
-
-    document.addEventListener('astro:before-swap', stop, { once: true });
-    render();
-  }
-
   document.addEventListener('astro:page-load', () => {
-    document.querySelectorAll<HTMLElement>('[data-sweepsim]').forEach(initSweep);
+    initCpPlayers<SweepStep>('[data-sweepsim]', {
+      playMs: 1300,
+      narrow: (raw) => {
+        const ok = raw.filter(isStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const marks = Array.from(ctx.parts.root.querySelectorAll<HTMLTableCellElement>('td.mark'));
+        marks.forEach((td, k) => {
+          td.className = 'num mark';
+          td.textContent = '\u00b7';
+          if (k === st.i) {
+            td.classList.add('is-i');
+            td.textContent = 'i';
+          } else if (k >= st.j && k < st.i) {
+            td.classList.add('is-win');
+            td.textContent = '+';
+          }
+          if (k === st.j && k !== st.i) td.classList.add('is-j');
+        });
+        const totalCell = ctx.parts.root.querySelector<HTMLElement>('td.total');
+        if (totalCell) totalCell.textContent = String(st.total);
+        ctx.keepInView(marks[st.i] ?? null);
+      },
+    });
   });
 </script>
 
