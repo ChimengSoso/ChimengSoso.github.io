@@ -1,0 +1,869 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'atm-robbery/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Graph = { n: number; edges: [number, number][]; cash: number[]; start: number; pubs: number[] };
+
+/** ตัวตรวจ ค้นทุกสถานะ (จุดที่ยืน, เซตของตู้ที่ปล้นแล้ว) ไม่มีทฤษฎีองค์ประกอบเชื่อมโยงใด ๆ */
+function bruteBest(g: Graph): number {
+  const adj: number[][] = Array.from({ length: g.n + 1 }, () => []);
+  for (const [a, b] of g.edges) adj[a].push(b);
+  const best = new Map<string, number>();
+  const key = (u: number, m: number): string => `${u}:${m}`;
+  const startMask = 1 << (g.start - 1);
+  best.set(key(g.start, startMask), g.cash[g.start - 1]);
+  const queue: [number, number][] = [[g.start, startMask]];
+  for (let i = 0; i < queue.length; i++) {
+    const [u, mask] = queue[i];
+    const cur = best.get(key(u, mask)) ?? 0;
+    for (const v of adj[u]) {
+      const nm = mask | (1 << (v - 1));
+      const nv = cur + ((mask >> (v - 1)) & 1 ? 0 : g.cash[v - 1]);
+      if (nv > (best.get(key(v, nm)) ?? -1)) {
+        best.set(key(v, nm), nv);
+        queue.push([v, nm]);
+      }
+    }
+  }
+  let ans = -1;
+  for (const [k, v] of best) {
+    const u = Number(k.split(':')[0]);
+    if (g.pubs.includes(u)) ans = Math.max(ans, v);
+  }
+  return ans;
+}
+
+type Comp = { id: number; nodes: number[]; sum: number; hasPub: boolean; dp: number };
+
+/** ท่าที่บทความสอน ยุบองค์ประกอบเชื่อมโยงเข้ม แล้วหาทางที่ได้เงินมากสุดบนกราฟไร้วงจร */
+function byScc(g: Graph): { comps: Comp[]; order: number[]; answer: number } {
+  const adj: number[][] = Array.from({ length: g.n + 1 }, () => []);
+  for (const [a, b] of g.edges) adj[a].push(b);
+  /* ทาร์ยานแบบวนลูป ไม่ใช้สแต็กของระบบ */
+  const num = new Array<number>(g.n + 1).fill(0);
+  const low = new Array<number>(g.n + 1).fill(0);
+  const comp = new Array<number>(g.n + 1).fill(-1);
+  const onstk = new Array<boolean>(g.n + 1).fill(false);
+  const it = new Array<number>(g.n + 1).fill(0);
+  const stk: number[] = [];
+  const groups: number[][] = [];
+  let timer = 0;
+  for (let s = 1; s <= g.n; s++) {
+    if (num[s]) continue;
+    const call: number[] = [s];
+    num[s] = low[s] = ++timer;
+    stk.push(s);
+    onstk[s] = true;
+    it[s] = 0;
+    while (call.length) {
+      const u = call[call.length - 1];
+      if (it[u] < adj[u].length) {
+        const v = adj[u][it[u]++];
+        if (!num[v]) {
+          num[v] = low[v] = ++timer;
+          stk.push(v);
+          onstk[v] = true;
+          it[v] = 0;
+          call.push(v);
+        } else if (onstk[v]) low[u] = Math.min(low[u], num[v]);
+      } else {
+        call.pop();
+        if (call.length) low[call[call.length - 1]] = Math.min(low[call[call.length - 1]], low[u]);
+        if (low[u] === num[u]) {
+          const grp: number[] = [];
+          for (;;) {
+            const w = stk.pop() ?? 0;
+            onstk[w] = false;
+            comp[w] = groups.length;
+            grp.push(w);
+            if (w === u) break;
+          }
+          groups.push(grp.sort((a, b) => a - b));
+        }
+      }
+    }
+  }
+  const comps: Comp[] = groups.map((nodes, id) => ({
+    id,
+    nodes,
+    sum: nodes.reduce((acc, v) => acc + g.cash[v - 1], 0),
+    hasPub: nodes.some((v) => g.pubs.includes(v)),
+    dp: -1,
+  }));
+  const cadj: number[][] = comps.map(() => []);
+  for (const [a, b] of g.edges) if (comp[a] !== comp[b]) cadj[comp[a]].push(comp[b]);
+  /* ทาร์ยานปิดองค์ประกอบตามลำดับทอพอโลยีกลับหัวอยู่แล้ว ไล่จากหมายเลขมากลงไปน้อยจึงถูกลำดับ */
+  const order = comps.map((_, i) => comps.length - 1 - i);
+  comps[comp[g.start]].dp = comps[comp[g.start]].sum;
+  for (const c of order) {
+    if (comps[c].dp < 0) continue;
+    for (const d of cadj[c]) if (comps[c].dp + comps[d].sum > comps[d].dp) comps[d].dp = comps[c].dp + comps[d].sum;
+  }
+  let answer = 0;
+  for (const c of comps) if (c.hasPub && c.dp > answer) answer = c.dp;
+  return { comps, order, answer };
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE: Graph = {
+  n: 6,
+  edges: [[1, 2], [2, 3], [3, 5], [2, 4], [4, 1], [2, 6], [6, 5]],
+  cash: [10, 12, 8, 16, 1, 5],
+  start: 1,
+  pubs: [4, 3, 5, 6],
+};
+const SAMPLE_RUN = byScc(SAMPLE);
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับการค้นทุกสถานะ ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 260;
+{
+  let seed = 20290909;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  let done = 0;
+  while (done < SWEEP_CASES) {
+    const n = 1 + rnd(7);
+    const m = 1 + rnd(Math.min(14, n * n));
+    const edges: [number, number][] = Array.from({ length: m }, () => [1 + rnd(n), 1 + rnd(n)] as [number, number]);
+    const cash = Array.from({ length: n }, () => rnd(21));
+    const start = 1 + rnd(n);
+    const pubs = [...new Set(Array.from({ length: 1 + rnd(n) }, () => 1 + rnd(n)))];
+    const g: Graph = { n, edges, cash, start, pubs };
+    const want = bruteBest(g);
+    if (want < 0) continue; // ไปไม่ถึงผับเลย โจทย์รับประกันว่าไม่เกิด
+    if (byScc(g).answer !== want) throw new Error(`atm-robbery: ท่ายุบองค์ประกอบได้ ${byScc(g).answer} แต่ควรได้ ${want}`);
+    done++;
+  }
+  if (SAMPLE_RUN.answer !== 47) throw new Error('atm-robbery: ตัวอย่างในโจทย์ไม่ได้ 47');
+}
+
+/* ---------- ตัวเล่นทีละขั้น เดินองค์ประกอบตามลำดับทอพอโลยี ---------- */
+const sampleRows = SAMPLE_RUN.order
+  .map((c) => SAMPLE_RUN.comps[c])
+  .map((c) => ({
+    nodes: c.nodes.join(', '),
+    sum: c.sum,
+    dp: c.dp,
+    hasPub: c.hasPub,
+  }));
+const sampleSteps = sampleRows.map((r) => ({
+  note:
+    `กลุ่มที่มีแยก <b>${r.nodes}</b> รวมเงินในกลุ่มได้ <b>${r.sum}</b> ` +
+    (r.dp < 0
+      ? 'แต่ออกจากใจกลางเมืองแล้ววิ่งมาถึงกลุ่มนี้ไม่ได้ จึงไม่นับ'
+      : `เส้นทางที่ดีที่สุดที่มาจบในกลุ่มนี้ได้เงินรวม <b>${r.dp}</b>`) +
+    (r.hasPub ? ' และกลุ่มนี้<b>มีผับ</b> จึงเป็นผู้เข้าชิงคำตอบ' : ' กลุ่มนี้ไม่มีผับ จึงเป็นแค่ทางผ่าน'),
+}));
+
+/* ---------- แผนภาพกราฟตัวอย่าง ---------- */
+type Pos = { id: number; x: number; y: number };
+const SPOS: Pos[] = [
+  { id: 1, x: 60, y: 60 },
+  { id: 2, x: 210, y: 60 },
+  { id: 3, x: 360, y: 60 },
+  { id: 4, x: 135, y: 170 },
+  { id: 5, x: 435, y: 170 },
+  { id: 6, x: 285, y: 170 },
+];
+const spos = (id: number): Pos => SPOS.find((p) => p.id === id) ?? SPOS[0];
+/** ย่นปลายเส้นให้หยุดที่ขอบวงกลม ไม่ให้หัวลูกศรมุดเข้าไปในวง */
+function shrink(a: Pos, b: Pos, r: number): { x1: number; y1: number; x2: number; y2: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x1: a.x + (dx / len) * r, y1: a.y + (dy / len) * r, x2: b.x - (dx / len) * r, y2: b.y - (dy / len) * r };
+}
+const SCC_OF = new Map<number, number>();
+SAMPLE_RUN.comps.forEach((c) => c.nodes.forEach((v) => SCC_OF.set(v, c.id)));
+const CYCLE_COMP = SAMPLE_RUN.comps.find((c) => c.nodes.length > 1);
+const GX = Math.max(...SPOS.map((p) => p.x)) + 22 + 12;
+/* เผื่อแถบว่างล่างขวาไว้ให้ปุ่มขยายของ ZoomableDiagram ไม่ทับปมไหน */
+const GY = Math.max(...SPOS.map((p) => p.y)) + 22 + 62;
+
+/* ---------- มินิเกม เดินเส้นทางปล้นเอง ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; g: Graph; pos: Pos[]; best: number };
+function makePuzzle(id: string, label: string, tease: string, g: Graph, pos: Pos[]): GamePuzzle {
+  const want = bruteBest(g);
+  if (byScc(g).answer !== want) throw new Error(`atm-robbery: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, g, pos, best: want };
+}
+const P1: Graph = {
+  n: 5,
+  edges: [[1, 2], [2, 3], [3, 1], [2, 4], [4, 5], [3, 5]],
+  cash: [4, 7, 6, 9, 3],
+  start: 1,
+  pubs: [5],
+};
+const P1POS: Pos[] = [
+  { id: 1, x: 60, y: 50 },
+  { id: 2, x: 190, y: 50 },
+  { id: 3, x: 125, y: 150 },
+  { id: 4, x: 320, y: 50 },
+  { id: 5, x: 320, y: 150 },
+];
+const P2POS: Pos[] = SPOS;
+const P3: Graph = {
+  n: 7,
+  edges: [[1, 2], [2, 3], [3, 4], [4, 2], [3, 5], [5, 6], [6, 3], [4, 7]],
+  cash: [5, 2, 9, 4, 8, 6, 1],
+  start: 1,
+  pubs: [7, 6],
+};
+const P3POS: Pos[] = [
+  { id: 1, x: 55, y: 100 },
+  { id: 2, x: 175, y: 45 },
+  { id: 3, x: 300, y: 100 },
+  { id: 4, x: 175, y: 165 },
+  { id: 5, x: 425, y: 45 },
+  { id: 6, x: 425, y: 165 },
+  { id: 7, x: 60, y: 210 },
+];
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ห้าแยก มีวงเดียว', 'สามแยกแรกวิ่งวนกันได้ ลองดูว่าการวนกลับมามีประโยชน์ตรงไหน', P1, P1POS),
+  makePuzzle('b', 'ตัวอย่างในโจทย์', 'นี่คือผังในโจทย์ คำตอบคือ 47 ลองหาเส้นทางที่ได้เท่านี้ให้เจอ', SAMPLE, P2POS),
+  makePuzzle('c', 'เจ็ดแยก สองวงซ้อนกัน', 'ผังนี้มีสองวงที่ใช้แยกร่วมกัน ผับที่ได้เงินมากกว่าอาจไม่ใช่ผับที่ไปถึงง่ายกว่า', P3, P3POS),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 500000;
+const CASH_MAX = 4000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const MAX_TOTAL = N_MAX * CASH_MAX;
+const INT32 = 2147483647;
+const bill = [
+  { name: 'ค้นทุกสถานะ จุดที่ยืนคูณเซตของตู้ที่ปล้นแล้ว', limit: 'ไม่เกินราว 20 แยก', work: 'จำนวนแยกคูณสองยกกำลังจำนวนแยก' },
+  { name: 'ยุบองค์ประกอบเชื่อมโยงเข้ม แล้วไล่บนกราฟไร้วงจร', limit: `แยกและถนนถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 2)} ครั้ง` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int n, m;
+vector<int> hd, nx, to_;                     // กราฟแบบรายการต่อกัน
+vector<int> comp, low, num, stk, cash;
+
+int main(){
+    if(scanf("%d %d", &n, &m) != 2) return 0;
+    hd.assign(n + 1, -1); nx.resize(m); to_.resize(m);
+    for(int i = 0; i < m; i++){ int a, b; scanf("%d %d", &a, &b); to_[i] = b; nx[i] = hd[a]; hd[a] = i; }
+    cash.assign(n + 1, 0);
+    for(int i = 1; i <= n; i++) scanf("%d", &cash[i]);
+    int s, p; scanf("%d %d", &s, &p);
+    vector<char> pub(n + 1, 0);
+    for(int i = 0; i < p; i++){ int x; scanf("%d", &x); pub[x] = 1; }
+
+    // ทาร์ยานแบบวนลูป ไม่ใช้สแต็กของระบบ เพราะกราฟลึกได้ถึงห้าแสนชั้น
+    comp.assign(n + 1, -1); low.assign(n + 1, 0); num.assign(n + 1, 0);
+    vector<char> onstk(n + 1, 0);
+    vector<int> it(n + 1, -1), callStk;
+    int timer = 0, nc = 0;
+    for(int s0 = 1; s0 <= n; s0++){
+        if(num[s0]) continue;
+        callStk.push_back(s0);
+        num[s0] = low[s0] = ++timer; stk.push_back(s0); onstk[s0] = 1; it[s0] = hd[s0];
+        while(!callStk.empty()){
+            int u = callStk.back();
+            if(it[u] != -1){
+                int e = it[u]; it[u] = nx[e]; int v = to_[e];
+                if(!num[v]){ num[v] = low[v] = ++timer; stk.push_back(v); onstk[v] = 1; it[v] = hd[v]; callStk.push_back(v); }
+                else if(onstk[v]) low[u] = min(low[u], num[v]);
+            } else {
+                callStk.pop_back();
+                if(!callStk.empty()) low[callStk.back()] = min(low[callStk.back()], low[u]);
+                if(low[u] == num[u]){
+                    while(true){ int w = stk.back(); stk.pop_back(); onstk[w] = 0; comp[w] = nc; if(w == u) break; }
+                    nc++; }
+            }
+        }
+    }
+
+    // ยุบเป็นกราฟไร้วงจร แล้วหาทางที่ได้เงินมากสุด
+    vector<ll> sum(nc, 0);
+    for(int v = 1; v <= n; v++) sum[comp[v]] += cash[v];
+    vector<char> hasPub(nc, 0);
+    for(int v = 1; v <= n; v++) if(pub[v]) hasPub[comp[v]] = 1;
+    // ลำดับที่ทาร์ยานปิดองค์ประกอบ เป็นลำดับทอพอโลยีกลับหัวอยู่แล้ว
+    vector<int> ord(nc); for(int i = 0; i < nc; i++) ord[i] = nc - 1 - i;
+    vector<ll> dp(nc, -1); dp[comp[s]] = sum[comp[s]];
+    vector<vector<int>> adj(nc);
+    for(int u = 1; u <= n; u++) for(int e = hd[u]; e != -1; e = nx[e]){
+        int v = to_[e]; if(comp[u] != comp[v]) adj[comp[u]].push_back(comp[v]); }
+    for(int idx = 0; idx < nc; idx++){
+        int c = ord[idx]; if(dp[c] < 0) continue;
+        for(int d : adj[c]) if(dp[c] + sum[d] > dp[d]) dp[d] = dp[c] + sum[d];
+    }
+    ll ans = 0;
+    for(int c = 0; c < nc; c++) if(hasPub[c] && dp[c] > ans) ans = dp[c];
+    printf("%lld\\n", ans);
+}`;
+
+const bruteCode = `// ตัวตรวจ ค้นทุกสถานะ (จุดที่ยืน, เซตของตู้ที่ปล้นแล้ว)
+// ไม่มีคำว่าองค์ประกอบเชื่อมโยงเข้มอยู่ในนี้เลย ใช้ได้เฉพาะกราฟจิ๋ว
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, m; scanf("%d %d", &n, &m);
+    vector<vector<int>> g(n);
+    for(int i = 0; i < m; i++){ int a, b; scanf("%d %d", &a, &b); g[a-1].push_back(b-1); }
+    vector<int> w(n); for(auto &x : w) scanf("%d", &x);
+    int s, p; scanf("%d %d", &s, &p); s--;
+    vector<int> pub(n, 0); for(int i = 0; i < p; i++){ int x; scanf("%d", &x); pub[x-1] = 1; }
+    vector<vector<int>> best(n, vector<int>(1 << n, -1));
+    deque<pair<int,int>> q; int st = 1 << s; best[s][st] = w[s]; q.push_back({s, st});
+    while(!q.empty()){
+        auto [u, mask] = q.front(); q.pop_front(); int cur = best[u][mask];
+        for(int v : g[u]){
+            int nm = mask | (1 << v);
+            int nv = cur + ((mask >> v & 1) ? 0 : w[v]);
+            if(nv > best[v][nm]){ best[v][nm] = nv; q.push_back({v, nm}); } }
+    }
+    int ans = -1;
+    for(int u = 0; u < n; u++) if(pub[u]) for(int mk = 0; mk < (1 << n); mk++) ans = max(ans, best[u][mk]);
+    printf("%d\\n", ans);
+}`;
+
+const coreSnippet = `// ถ้าสองแยกวิ่งถึงกันได้ทั้งไปและกลับ มันอยู่กลุ่มเดียวกัน
+// และการเข้ากลุ่มนั้นได้ แปลว่าเก็บเงินในกลุ่มได้ครบทุกตู้เสมอ เพราะวิ่งวนได้ไม่จำกัดรอบ
+for(int v = 1; v <= n; v++) sum[comp[v]] += cash[v];`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ถนนทางเดียว ตู้เอทีเอ็มทุกแยก และผับที่ต้องไปจบ</h2>
+  <p>
+    เมืองสิรุเสรีมีแต่ถนน<strong>ทางเดียว</strong> ทุกแยกมีตู้เอทีเอ็มหนึ่งตู้ ส่วนผับมีอยู่บางแยกเท่านั้น
+    โจรวางแผนออกจาก<strong>ใจกลางเมือง</strong> ขับวนปล้นตู้ที่ผ่าน แล้วไปจบวันที่<strong>ผับแห่งใดแห่งหนึ่ง</strong>
+  </p>
+  <p>
+    เขาผ่านแยกเดิมหรือถนนเดิม<strong>กี่ครั้งก็ได้</strong> แต่ตู้หนึ่งตู้มีเงินให้ปล้นแค่ครั้งแรกที่ผ่าน
+    งานของเราคือบอกจำนวนเงินมากที่สุดที่เขาปล้นได้
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> กับ <code>M</code> คือจำนวนแยกกับจำนวนถนน
+        จากนั้น <code>M</code> บรรทัดของถนน แต่ละบรรทัดคือแยกต้นทางกับแยกปลายทาง
+        ตามด้วย <code>N</code> บรรทัดของจำนวนเงินในตู้แต่ละแยก แล้วบรรทัดที่มี <code>S</code> กับ <code>P</code>
+        และบรรทัดสุดท้ายคือหมายเลขแยกที่มีผับ <code>P</code> ตัว
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>N, M &le; {fmt(N_MAX)}</code> เงินในตู้ไม่เกิน {fmt(CASH_MAX)}
+        และรับประกันว่าจากใจกลางเมืองไปถึงผับได้อย่างน้อยหนึ่งแห่ง เวลา 1.5 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเงินมากที่สุดที่ปล้นได้</li>
+      <li><strong>ให้คะแนน:</strong> 50% ของชุดทดสอบมี <code>N</code> และ <code>M</code> ไม่เกิน 3,000</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {SAMPLE.n} {SAMPLE.edges.length}<br />
+          {SAMPLE.edges.map((e) => <>{e[0]} {e[1]}<br /></>)}
+          {SAMPLE.cash.map((c) => <>{c}<br /></>)}
+          {SAMPLE.start} {SAMPLE.pubs.length}<br />
+          {SAMPLE.pubs.join(' ')}
+        </td>
+        <td>{SAMPLE_RUN.answer}</td>
+      </tr>
+    </tbody>
+  </table>
+  <Spoiler label="แตะเพื่อดูเส้นทางของตัวอย่าง">
+    <p class="io-note">
+      เส้นทางที่ได้ {SAMPLE_RUN.answer} คือ 1 ไป 2 ไป 4 กลับมา 1 แล้วไป 2 ไป 3 ไป 5
+      สังเกตว่าเขาเดินผ่านแยก 1 และ 2 สองครั้ง แต่ได้เงินจากมันครั้งเดียว
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ประโยคที่สำคัญที่สุดของโจทย์คือ<strong>ผ่านถนนเดิมกี่ครั้งก็ได้</strong>
+      ลองคิดถึงกลุ่มแยกที่<strong>วิ่งถึงกันได้ทั้งไปและกลับ</strong> ถ้าโจรเข้าไปในกลุ่มนั้นได้หนึ่งแยก
+      เขาจะเก็บตู้ในกลุ่มนั้นได้กี่ตู้
+    </p>
+    <p>
+      แล้วถ้ายุบทั้งกลุ่มให้เหลือปมเดียวที่มีเงินเท่ากับผลรวมของกลุ่ม กราฟที่เหลือจะหน้าตาเป็นยังไง
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; ขับรถปล้นเอง</h2>
+  <div class="cpgame atmgame" data-atmgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกผังเมือง">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => {
+        const w = Math.max(...p.pos.map((q) => q.x)) + 60;
+        const h = Math.max(...p.pos.map((q) => q.y)) + 50;
+        return (
+          <div class="atm-wrap" data-atm-board={String(k)} hidden={k !== 0}>
+            <svg class="atm-board" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ผังเมือง ${p.g.n} แยก เชื่อมด้วยถนนทางเดียว วงกลมสองชั้นคือแยกที่มีผับ กดที่แยกที่อยู่ปลายถนนจากแยกที่ยืนอยู่ เพื่อขับไปที่นั่น`}>
+              <defs>
+                <marker id={`atmA${k}`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+                  <path d="M0 0 L9 4.5 L0 9 z" fill="#5a6b8c" />
+                </marker>
+              </defs>
+              {p.g.edges.map((e) => {
+                const a = p.pos.find((q) => q.id === e[0]);
+                const b = p.pos.find((q) => q.id === e[1]);
+                if (!a || !b) return null;
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const len = Math.hypot(dx, dy) || 1;
+                const r = 22;
+                return (
+                  <line
+                    class="atm-edge"
+                    x1={a.x + (dx / len) * r}
+                    y1={a.y + (dy / len) * r}
+                    x2={b.x - (dx / len) * r}
+                    y2={b.y - (dy / len) * r}
+                    marker-end={`url(#atmA${k})`}
+                  />
+                );
+              })}
+              {p.pos.map((q) => (
+                <>
+                  {p.g.pubs.includes(q.id) && <circle class="atm-pubring" cx={q.x} cy={q.y} r="22" />}
+                  <circle class="atm-node" data-atm-node={`${k}:${q.id}`} cx={q.x} cy={q.y} r="18" />
+                  <text class="atm-id" x={q.x} y={q.y - 1} text-anchor="middle">{q.id}</text>
+                  <text class="atm-cash" x={q.x} y={q.y + 11} text-anchor="middle">{p.g.cash[q.id - 1]}</text>
+                </>
+              ))}
+            </svg>
+          </div>
+        );
+      })}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-atm-clear>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-atm-check>จบที่ผับนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>รถอยู่ที่แยกที่มีลูกศรเข้าจากใจกลางเมือง กดแยกที่มีถนนออกจากแยกปัจจุบันเพื่อขับไป</p>
+    <p class="cpg-score" data-cpg-score>ปล้นไปแล้ว 0</p>
+    <p class="cpg-hint">วงกลมสองชั้นคือแยกที่มีผับ ตัวเลขบนคือหมายเลขแยก ตัวเลขล่างคือเงินในตู้</p>
+  </div>
+  <p class="io-note">
+    ลองผังแรกก่อน แล้วสังเกตว่าการวิ่งวนกลับมาที่แยกเดิมไม่ได้เสียอะไรเลย
+    เพราะไม่มีค่าผ่านทาง มีแต่ได้ ถ้าเข้าไปในวงได้หนึ่งครั้ง ก็เก็บได้ทั้งวง
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; กลุ่มที่วิ่งวนถึงกัน คือกองเงินกองเดียว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งแรกที่ผมเขียนคือตัวตรวจ ซึ่งเก็บสถานะเป็นคู่ของ<strong>แยกที่ยืน</strong>กับ<strong>เซตของตู้ที่ปล้นไปแล้ว</strong>
+        มันถูกแน่นอนแต่โตเป็นสองยกกำลังจำนวนแยก จึงใช้ได้แค่ราวยี่สิบแยก
+        การเขียนมันมีประโยชน์อย่างเดียว คือทำให้เห็นชัดว่า<strong>เซตของตู้ที่ปล้นแล้ว</strong>คือสิ่งที่ทำให้ปัญหาแพง
+      </p>
+      <p>
+        คำถามถัดมาจึงเป็นว่า มีกรณีไหนที่เราไม่ต้องจำเซตเลยไหม คำตอบมาจากประโยคในโจทย์เองว่า
+        ผ่านถนนเดิมกี่ครั้งก็ได้ ถ้าแยกสองแยกวิ่งถึงกันได้ทั้งไปและกลับ การไปเก็บอีกแยกหนึ่งแล้ววิ่งกลับมา
+        <strong>ไม่มีค่าใช้จ่าย</strong> เพราะโจทย์ไม่มีค่าผ่านทางและไม่จำกัดจำนวนก้าว
+        แปลว่าเข้ากลุ่มนั้นได้เมื่อไร ก็ได้เงินทั้งกลุ่มเสมอ ไม่ต้องเลือกอะไรอีก
+      </p>
+      <p>
+        พอยุบทุกกลุ่มแบบนั้นแล้ว กราฟที่เหลือ<strong>ไม่มีวงจร</strong> ตามนิยาม เพราะถ้ายังมีวง
+        แปลว่าสองกลุ่มนั้นวิ่งถึงกันได้ทั้งไปและกลับ ซึ่งขัดกับการที่มันเป็นคนละกลุ่ม
+        และบนกราฟไร้วงจร การหาทางที่ได้เงินมากที่สุดคือการไล่ค่าตามลำดับ ซึ่งเป็นเส้นตรงเรื่องเวลา
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เมื่อสถานะแพงเพราะต้องจำว่าเก็บอะไรไปแล้ว
+        ให้มองหา<strong>บริเวณที่การเก็บของไม่ต้องตัดสินใจ</strong> ถ้าเจอ ยุบมันทิ้งไปทั้งก้อน
+        แล้วปัญหาที่เหลือมักกลายเป็นโจทย์มาตรฐานทันที
+      </p>
+    </div>
+    <p>
+      กลุ่มของแยกที่วิ่งถึงกันได้ทั้งไปและกลับ เรียกว่า<strong>องค์ประกอบเชื่อมโยงเข้ม</strong>
+      (strongly connected component) การหามันทำได้ในเวลาเชิงเส้นด้วย<strong>อัลกอริทึมของทาร์ยาน</strong>
+      ซึ่งเดินลึกลงไปครั้งเดียวแล้วเก็บสองตัวเลขต่อปม คือลำดับที่ไปเจอมัน กับปมที่ย้อนกลับขึ้นไปได้สูงสุด
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <ZoomableDiagram caption={`ผังในโจทย์ แยก ${CYCLE_COMP?.nodes.join(', ')} วิ่งถึงกันได้ครบทั้งไปและกลับ จึงเป็นกลุ่มเดียวกันและรวมเงินได้ ${CYCLE_COMP?.sum} พอยุบกลุ่มนี้เป็นปมเดียว กราฟที่เหลือไม่มีวงจรอีกเลย เส้นทางที่ดีที่สุดจึงหาได้ด้วยการไล่ค่าไปข้างหน้าทางเดียว`}>
+      <svg viewBox={`0 0 ${GX} ${GY}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ผังหกแยกเชื่อมด้วยถนนทางเดียว แยกหนึ่ง สอง และสี่ ถูกล้อมด้วยกรอบสีทองแสดงว่าเป็นกลุ่มที่วิ่งวนถึงกันได้ ส่วนแยกที่มีผับถูกวาดเป็นวงกลมสองชั้น">
+        <defs>
+          <marker id="atmMain" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0 0 L9 4.5 L0 9 z" fill="#5a6b8c" />
+          </marker>
+        </defs>
+        {CYCLE_COMP && (
+          <rect
+            x={Math.min(...CYCLE_COMP.nodes.map((v) => spos(v).x)) - 34}
+            y={Math.min(...CYCLE_COMP.nodes.map((v) => spos(v).y)) - 32}
+            width={Math.max(...CYCLE_COMP.nodes.map((v) => spos(v).x)) - Math.min(...CYCLE_COMP.nodes.map((v) => spos(v).x)) + 68}
+            height={Math.max(...CYCLE_COMP.nodes.map((v) => spos(v).y)) - Math.min(...CYCLE_COMP.nodes.map((v) => spos(v).y)) + 64}
+            rx="12"
+            fill="none"
+            stroke="#d8b25a"
+            stroke-width="1.6"
+            stroke-dasharray="6 5"
+          />
+        )}
+        {SAMPLE.edges.map((e) => {
+          const s = shrink(spos(e[0]), spos(e[1]), 22);
+          return <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke="#5a6b8c" stroke-width="1.8" marker-end="url(#atmMain)" />;
+        })}
+        {SPOS.map((q) => (
+          <>
+            {SAMPLE.pubs.includes(q.id) && <circle cx={q.x} cy={q.y} r="22" fill="none" stroke="#2f9e5c" stroke-width="1.6" />}
+            <circle cx={q.x} cy={q.y} r="18" fill={SCC_OF.get(q.id) === CYCLE_COMP?.id ? '#3a2f16' : '#121a2b'} stroke="#2a3350" />
+            <text x={q.x} y={q.y - 1} fill="#eaf2ff" font-size="12" text-anchor="middle" font-family="monospace">{q.id}</text>
+            <text x={q.x} y={q.y + 11} fill="#9aa7bd" font-size="10" text-anchor="middle" font-family="monospace">{SAMPLE.cash[q.id - 1]}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+
+    <p class="pull">เข้ากลุ่มที่วิ่งวนถึงกันได้หนึ่งครั้ง เท่ากับได้เงินทั้งกลุ่ม จึงไม่มีอะไรให้ตัดสินใจอีกภายในกลุ่ม</p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; พอไม่มีวงจร ก็ไล่ค่าไปข้างหน้าได้เลย</h2>
+  <Spoiler>
+    <p>
+      หลังยุบกลุ่ม ให้ปมของกลุ่มมีน้ำหนักเท่ากับผลรวมเงินในกลุ่มนั้น แล้วนิยาม
+      <code>dp</code> ของกลุ่มหนึ่งว่า<strong>เงินมากที่สุดที่เก็บได้ เมื่อเดินจากใจกลางเมืองมาจบที่กลุ่มนี้</strong>
+      คำตอบคือค่ามากที่สุดของ <code>dp</code> ในบรรดากลุ่มที่<strong>มีผับ</strong>
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; ไม่ต้องเรียงลำดับทอพอโลยีเอง</p>
+      <p>
+        ทาร์ยาน<strong>ปิดกลุ่ม</strong>ก็ต่อเมื่อทุกกลุ่มที่เดินต่อไปได้ถูกปิดไปแล้ว
+        หมายเลขกลุ่มที่มันแจกจึงเป็นลำดับทอพอโลยี<strong>กลับหัว</strong>อยู่แล้วโดยธรรมชาติ
+        ไล่จากหมายเลขมากลงไปหาน้อย ก็ได้ลำดับที่ถูกต้องฟรี ๆ ไม่ต้องเรียงใหม่
+      </p>
+    </div>
+    <p>
+      จุดที่ต้องระวังคือขนาดของคำตอบ ผลรวมสูงสุดที่เป็นไปได้คือ {fmt(N_MAX)} แยก คูณเงินตู้ละ {fmt(CASH_MAX)}
+      เท่ากับ <strong>{fmt(MAX_TOTAL)}</strong> ซึ่ง<strong>ยังพอดีกับจำนวนเต็ม 32 บิต</strong> ที่รับได้ถึง {fmt(INT32)}
+      แต่เหลือขอบแค่ราว {Math.round(((INT32 - MAX_TOTAL) / INT32) * 100)} เปอร์เซ็นต์ ผมจึงใช้ 64 บิตไปเลย
+      เพราะที่นี่มันไม่มีต้นทุนอะไรเลย และเคสทดสอบที่ผมสร้างขึ้นเองก็ชนเพดานนั้นพอดี
+    </p>
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งผัง</h2>
+  <Spoiler>
+    <CpStepPlayer hook="atmsim" steps={sampleSteps} label="ไล่กลุ่มตามลำดับทอพอโลยี บนผังในโจทย์">
+      <table class="rec atmrec">
+        <caption>กลุ่มหลังยุบ และเงินที่เก็บได้</caption>
+        <thead>
+          <tr>
+            <th>แยกในกลุ่ม</th><th class="num">เงินในกลุ่ม</th><th class="num">เก็บได้ถึงกลุ่มนี้</th><th>มีผับ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sampleRows.map((r) => (
+            <tr>
+              <td><code>{r.nodes}</code></td>
+              <td class="num">{r.sum}</td>
+              <td class={'num' + (r.hasPub && r.dp === SAMPLE_RUN.answer ? ' atm-win' : '')}>{r.dp < 0 ? 'ไปไม่ถึง' : r.dp}</td>
+              <td>{r.hasPub ? 'มี' : 'ไม่มี'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      คำตอบคือ {SAMPLE_RUN.answer} ซึ่งมาจากกลุ่มที่มีผับและมีค่าเก็บได้มากที่สุด
+      ตัวเลขทุกช่องมาจากการยุบกลุ่มจริงตอนสร้างหน้า และถูกเทียบกับตัวตรวจแบบค้นทุกสถานะแล้ว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="atm.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_atm.cpp" />
+        <p>
+          ตัวตรวจเก็บสถานะเป็นคู่ของแยกที่ยืนกับเซตของตู้ที่ปล้นแล้ว จึงไม่มีความรู้เรื่องการยุบกลุ่มเลย
+          ผมสุ่มกราฟไม่เกิน 8 แยกและ 16 ถนน โดยจงใจให้มีวงเยอะ รวม 1,023 เคสที่ไปถึงผับได้ แล้วเทียบกัน ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม กราฟ {fmt(N_MAX)} แยก {fmt(N_MAX)} ถนน แบบทางยาวบวกถนนสุ่ม
+      ใช้เวลา <strong>0.41 วินาที</strong> ส่วนกรณีสุดขั้วที่ทั้งเมืองเป็น<strong>วงเดียว</strong>
+      คือห้าแสนแยกวนกลับมาที่เดิม ใช้เวลา <strong>0.38 วินาที</strong> และให้คำตอบ {fmt(MAX_TOTAL)} พอดี
+      จากลิมิต 1.5 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าของข้อนี้คือ<strong>ยุบวงจรทิ้ง</strong> เวลาโจทย์ให้เดินซ้ำได้ไม่จำกัดและไม่มีค่าผ่านทาง
+    ทุกกลุ่มที่วิ่งถึงกันได้ทั้งไปและกลับจะกลายเป็นก้อนเดียวที่ไม่มีอะไรให้เลือก
+    พอยุบแล้วกราฟจะไม่มีวงจร และโจทย์ที่ยากบนกราฟทั่วไปมักกลายเป็นโจทย์ง่ายบนกราฟไร้วงจรทันที
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมกราฟที่ยุบแล้วจึงไม่มีวงจร</p>
+    <p>
+      สมมติว่ายุบแล้วยังมีวงจรระหว่างกลุ่ม A ไป B และ B กลับมา A แปลว่าทุกแยกใน A ไปถึงทุกแยกใน B ได้
+      และกลับกันด้วย ตามนิยาม A กับ B จึงควรเป็นกลุ่มเดียวกันตั้งแต่แรก
+      ซึ่งขัดกับที่เราแยกมันเป็นสองกลุ่ม
+    </p>
+    <p>
+      ท่าเดียวกันนี้ปรากฏในโจทย์อื่นบ่อยมาก ถ้าอยากดูกราฟที่รูปถูกล็อกไว้ด้วยกติกาแทน
+      ลองอ่าน <a href="/cp/functional-graph/">กราฟที่ทุกปมมีทางออกทางเดียว</a>
+      ซึ่งวงจรก็เป็นตัวเอกเหมือนกัน
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>แถวบนโตแบบยกกำลัง เพราะต้องจำว่าปล้นตู้ไหนไปแล้วบ้าง ส่วนแถวล่างไม่ต้องจำเลย เพราะการยุบกลุ่มทำให้คำถามว่าเก็บอะไรไปแล้วหมดความหมายไปเอง</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ประโยคว่าวิ่งซ้ำได้ไม่จำกัด แปลว่ากลุ่มที่วิ่งวนถึงกันคือกองเงินกองเดียวที่ได้ครบเสมอ
+    พอยุบทุกกลุ่มแล้ว กราฟไม่มีวงจร และคำตอบก็เหลือแค่การไล่ค่าไปข้างหน้ารอบเดียว
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>ATM</i> บน programming.in.th ข้อ 2029
+      <a href="https://programming.in.th/tasks/2029" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2029
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>Asia-Pacific Informatics Olympiad 2009</i></li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.atmrec{width:auto !important;table-layout:fixed;}
+  table.rec.atmrec th:nth-child(1), table.rec.atmrec td:nth-child(1){width:9rem;}
+  table.rec.atmrec th:nth-child(2), table.rec.atmrec td:nth-child(2){width:8rem;}
+  table.rec.atmrec th:nth-child(3), table.rec.atmrec td:nth-child(3){width:10rem;}
+  table.rec.atmrec th:nth-child(4), table.rec.atmrec td:nth-child(4){width:6rem;}
+  table.rec.atmrec td.num.atm-win{color:#4ade80;font-weight:700;}
+  table.rec.atmrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.atmrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.atmrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- ผังของมินิเกม ---------- */
+  .atm-board{display:block;margin:0.2rem auto 0.6rem;max-width:100%;height:auto;}
+  @media (max-width:640px){
+    .atm-board{min-width:440px;}
+  }
+  .atm-edge{stroke:#5a6b8c;stroke-width:1.8;}
+  .atm-node{fill:#121a2b;stroke:#2a3350;cursor:pointer;}
+  .atm-node.robbed{fill:#163a2a;stroke:var(--dl-emerald-bright);}
+  .atm-node.here{stroke:var(--dl-gold);stroke-width:3;}
+  .atm-node.reach{stroke:#3d6ea5;stroke-width:2;}
+  .atm-pubring{fill:none;stroke:#2f9e5c;stroke-width:1.6;}
+  .atm-id{fill:#eaf2ff;font-size:12px;font-family:"Fira Code","Fira Mono",monospace;pointer-events:none;}
+  .atm-cash{fill:#9aa7bd;font-size:10px;font-family:"Fira Code","Fira Mono",monospace;pointer-events:none;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type AtmGraph = { n: number; edges: [number, number][]; cash: number[]; start: number; pubs: number[] };
+  type AtmPuzzle = { id: string; label: string; tease: string; g: AtmGraph; best: number };
+
+  function initAtmGame(): void {
+    const maybeUi = cpGameUi('[data-atmgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as AtmPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let here = 1;
+    let robbed = new Set<number>();
+
+    const pz = (): AtmPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-atm-board]'));
+    const canGo = (p: AtmPuzzle, from: number, to: number): boolean => p.g.edges.some((e) => e[0] === from && e[1] === to);
+    const money = (p: AtmPuzzle): number => [...robbed].reduce((acc, v) => acc + p.g.cash[v - 1], 0);
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      for (const nd of Array.from(boards[pi].querySelectorAll<SVGCircleElement>('[data-atm-node]'))) {
+        const id = Number((nd.dataset.atmNode ?? '').split(':')[1]);
+        nd.classList.toggle('robbed', robbed.has(id));
+        nd.classList.toggle('here', id === here);
+        nd.classList.toggle('reach', id !== here && canGo(p, here, id));
+      }
+      ui.setScore(`ปล้นไปแล้ว ${money(p)} จากตู้ ${robbed.size} ตู้ ตอนนี้อยู่ที่แยก ${here}`);
+    }
+
+    function go(id: number): void {
+      const p = pz();
+      if (!canGo(p, here, id)) {
+        ui.setStatus(`จากแยก ${here} ไม่มีถนนทางเดียวที่วิ่งไปแยก ${id}`, 'bad');
+        return;
+      }
+      here = id;
+      const isNew = !robbed.has(id);
+      robbed.add(id);
+      ui.setStatus(
+        isNew
+          ? `ถึงแยก ${id} และปล้นตู้ได้ ${p.g.cash[id - 1]}`
+          : `ถึงแยก ${id} แต่ตู้นี้ปล้นไปแล้ว จึงไม่ได้เงินเพิ่ม`,
+        'plain',
+      );
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (!p.g.pubs.includes(here)) {
+        ui.setStatus(`แยก ${here} ไม่มีผับ ต้องไปจบที่แยกที่มีวงกลมสองชั้น`, 'bad');
+        return;
+      }
+      const got = money(p);
+      if (got === p.best) ui.setStatus(`มากที่สุดแล้วครับ ผังนี้ปล้นได้ ${p.best} พอดี`, 'good');
+      else ui.setStatus(`เส้นทางนี้ได้ ${got} แต่ผังนี้ปล้นได้ถึง ${p.best} ลองหาวงที่วิ่งกลับมาที่เดิมได้ดู`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      here = puzzles[k].g.start;
+      robbed = new Set<number>([here]);
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus(`เริ่มที่ใจกลางเมือง คือแยก ${here} และปล้นตู้แรกไปแล้ว`);
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const nd = e.target.closest('[data-atm-node]');
+      if (!(nd instanceof SVGElement)) return;
+      go(Number((nd.dataset.atmNode ?? '').split(':')[1]));
+    });
+
+    ui.onClick('data-atm-clear', () => selectPuzzle(pi));
+    ui.onClick('data-atm-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initAtmGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-atmsim]');
+  });
+</script>

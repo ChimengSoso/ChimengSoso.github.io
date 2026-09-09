@@ -1,0 +1,839 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'convention-centre/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Req = { id: number; s: number; e: number };
+
+/** จำนวนงานมากที่สุดที่วางได้ทั้งก้อนในช่วงวัน [l, r] ท่าโลภมาตรฐาน คือเลือกตัวที่จบเร็วที่สุดก่อน */
+function countIn(reqs: Req[], l: number, r: number): number {
+  const fit = reqs.filter((q) => q.s >= l && q.e <= r).sort((a, b) => a.e - b.e);
+  let cur = l - 1;
+  let n = 0;
+  for (const q of fit)
+    if (q.s > cur) {
+      cur = q.e;
+      n++;
+    }
+  return n;
+}
+
+type Trace = { id: number; s: number; e: number; taken: boolean; gap: [number, number] | null; c1: number; c2: number; c: number };
+
+/** ไล่ตามหมายเลขบริษัท รับได้ก็รับ ตราบใดที่จำนวนรวมยังไม่ลด */
+function lexSmallest(reqs: Req[], LO: number, HI: number): { chosen: number[]; total: number; trace: Trace[] } {
+  const total = countIn(reqs, LO, HI);
+  let gaps: [number, number][] = [[LO, HI]];
+  const chosen: number[] = [];
+  const trace: Trace[] = [];
+  for (const q of reqs) {
+    if (chosen.length === total) {
+      trace.push({ id: q.id, s: q.s, e: q.e, taken: false, gap: null, c1: 0, c2: 0, c: 0 });
+      continue;
+    }
+    const gi = gaps.findIndex((g) => q.s >= g[0] && q.e <= g[1]);
+    if (gi < 0) {
+      trace.push({ id: q.id, s: q.s, e: q.e, taken: false, gap: null, c1: 0, c2: 0, c: 0 });
+      continue;
+    }
+    const [gl, gr] = gaps[gi];
+    const c = countIn(reqs, gl, gr);
+    const c1 = countIn(reqs, gl, q.s - 1);
+    const c2 = countIn(reqs, q.e + 1, gr);
+    const ok = c1 + 1 + c2 === c;
+    if (ok) {
+      gaps = gaps.filter((_, i) => i !== gi);
+      if (gl <= q.s - 1) gaps.push([gl, q.s - 1]);
+      if (q.e + 1 <= gr) gaps.push([q.e + 1, gr]);
+      gaps.sort((a, b) => a[0] - b[0]);
+      chosen.push(q.id);
+    }
+    trace.push({ id: q.id, s: q.s, e: q.e, taken: ok, gap: [gl, gr], c1, c2, c });
+  }
+  return { chosen, total, trace };
+}
+
+/** ตัวตรวจ ลองทุกเซตย่อย เอาเซตใหญ่ที่สุดที่เรียงแล้วเล็กที่สุดตามพจนานุกรม */
+function bruteLex(reqs: Req[]): number[] {
+  let best: number[] = [];
+  for (let m = 0; m < 1 << reqs.length; m++) {
+    const ids: number[] = [];
+    for (let i = 0; i < reqs.length; i++) if ((m >> i) & 1) ids.push(i);
+    let ok = true;
+    for (let a = 0; a < ids.length && ok; a++)
+      for (let b = a + 1; b < ids.length && ok; b++) {
+        const x = reqs[ids[a]];
+        const y = reqs[ids[b]];
+        if (!(x.e < y.s || y.e < x.s)) ok = false;
+      }
+    if (!ok) continue;
+    const list = ids.map((i) => reqs[i].id);
+    if (list.length > best.length) best = list;
+    else if (list.length === best.length) {
+      for (let i = 0; i < list.length; i++) {
+        if (list[i] < best[i]) {
+          best = list;
+          break;
+        }
+        if (list[i] > best[i]) break;
+      }
+    }
+  }
+  return best;
+}
+
+const mk = (rows: [number, number][]): Req[] => rows.map(([s, e], i) => ({ id: i + 1, s, e }));
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE = mk([[4, 9], [9, 11], [13, 19], [10, 17]]);
+const SAMPLE_RUN = lexSmallest(SAMPLE, 1, 1000000000);
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับการลองทุกเซตย่อย ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 400;
+{
+  let seed = 20280909;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(9);
+    const D = [6, 12, 25][rnd(3)];
+    const rows: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const a = 1 + rnd(D);
+      rows.push([a, a + rnd(5)]);
+    }
+    const reqs = mk(rows);
+    const got = lexSmallest(reqs, 1, 1000000000).chosen;
+    const want = bruteLex(reqs);
+    if (got.join(',') !== want.join(','))
+      throw new Error(`convention-centre: ได้ [${got}] แต่ควรได้ [${want}] ที่ ${JSON.stringify(rows)}`);
+  }
+  if (SAMPLE_RUN.chosen.join(' ') !== '1 3') throw new Error('convention-centre: ตัวอย่างในโจทย์ไม่ได้ 1 3');
+}
+
+/* ---------- ชุดสาธิตสำหรับตัวเล่นทีละขั้น ---------- */
+const DEMO = mk([[2, 5], [1, 3], [4, 6], [6, 9], [7, 8], [10, 12], [9, 11], [3, 4]]);
+const DEMO_RUN = lexSmallest(DEMO, 1, 20);
+const demoSteps = DEMO_RUN.trace.map((t) => ({
+  note: t.gap
+    ? `บริษัท <b>${t.id}</b> ขอวันที่ <b>${t.s}</b> ถึง <b>${t.e}</b> ซึ่งอยู่ในช่องว่าง ${t.gap[0]} ถึง ${t.gap[1]} ` +
+      `ช่องว่างนี้เดิมวางได้ <b>${t.c}</b> งาน ถ้ารับบริษัทนี้ จะเหลือซ้าย <b>${t.c1}</b> และขวา <b>${t.c2}</b> ` +
+      `รวมเป็น <b>${t.c1 + 1 + t.c2}</b> ` +
+      (t.taken ? 'ซึ่งเท่าเดิม จึง<b>รับได้</b>' : 'ซึ่ง<b>น้อยกว่าเดิม</b> จึงต้องปฏิเสธ')
+    : `บริษัท <b>${t.id}</b> ขอวันที่ <b>${t.s}</b> ถึง <b>${t.e}</b> ซึ่ง<b>คร่อมงานที่รับไปแล้ว</b> จึงรับไม่ได้ตั้งแต่ต้น`,
+}));
+
+/* ---------- แผนภาพเส้นเวลา แสดงการกระโดดของท่าโลภ ---------- */
+const TL_LO = 1;
+const TL_HI = 12;
+const TL_X = 40;
+const TL_UNIT = 52;
+const TL_ROW = 30;
+const tlX = (d: number): number => TL_X + (d - TL_LO) * TL_UNIT;
+/** จากตำแหน่ง p งานที่เริ่มไม่ก่อน p และจบเร็วที่สุด คือตัวที่ท่าโลภหยิบ */
+function greedyChain(reqs: Req[], lo: number, hi: number): Req[] {
+  const out: Req[] = [];
+  let p = lo;
+  for (;;) {
+    const cand = reqs.filter((q) => q.s >= p && q.e <= hi).sort((a, b) => a.e - b.e)[0];
+    if (!cand) break;
+    out.push(cand);
+    p = cand.e + 1;
+  }
+  return out;
+}
+const TL_CHAIN = greedyChain(DEMO, TL_LO, TL_HI);
+const TL_ROWS = DEMO.slice().sort((a, b) => a.e - b.e);
+const TL_W = tlX(TL_HI) + TL_UNIT + 12;
+const TL_LANE = 34 + TL_ROWS.length * TL_ROW + 22;
+const TL_H = TL_LANE + 22 + 34;
+
+/* ---------- มินิเกม เลือกชุดที่ใหญ่ที่สุดและเล็กที่สุดตามพจนานุกรม ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; reqs: Req[]; answer: number[]; lo: number; hi: number };
+function makePuzzle(id: string, label: string, tease: string, rows: [number, number][], hi: number): GamePuzzle {
+  const reqs = mk(rows);
+  const byGap = lexSmallest(reqs, 1, 1000000000).chosen;
+  const byBrute = bruteLex(reqs);
+  if (byGap.join(',') !== byBrute.join(',')) throw new Error(`convention-centre: เฉลยเกม ${id} ไม่ตรงกัน`);
+  return { id, label, tease, reqs, answer: byBrute, lo: 1, hi };
+}
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ตัวอย่างในโจทย์ 4 บริษัท', 'ชุดนี้วางได้มากที่สุดสองงาน แต่มีหลายวิธี คำถามคือชุดไหนที่หมายเลขเรียงแล้วเล็กที่สุด', [[4, 9], [9, 11], [13, 19], [10, 17]], 20),
+  makePuzzle('b', '7 บริษัท ที่มีตัวล่อ', 'ตัวที่เริ่มเร็วที่สุดไม่ได้ควรรับเสมอ ลองดูว่าตัวไหนกินที่ของอีกสองตัว', [[1, 6], [1, 2], [3, 4], [5, 6], [7, 9], [8, 12], [10, 12]], 14),
+  makePuzzle('c', '8 บริษัทของบทนี้', 'ชุดนี้คือชุดที่ตารางเดินทีละขั้นข้างล่างใช้ ลองทำเองก่อนแล้วค่อยไปเทียบ', [[2, 5], [1, 3], [4, 6], [6, 9], [7, 8], [10, 12], [9, 11], [3, 4]], 14),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 200000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const bill = [
+  { name: 'ลองรับทีละตัว แล้วคำนวณจำนวนรวมใหม่ทั้งชุด', limit: 'N ไม่เกินราวสามพัน', work: `${fmt(N_MAX)} คูณ ${fmt(N_MAX)} คือสี่หมื่นล้าน` },
+  { name: 'ตารางกระโดดสองยกกำลัง แล้วถามสี่ครั้งต่อบริษัท', limit: `N ถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 4 * 18 / 1000000)} ล้านครั้ง` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int n, m_, LOG;
+vector<int> xs;                       // พิกัดวันที่ถูกบีบแล้ว
+vector<vector<int>> up;               // up[k][i] = ดัชนีพิกัดหลังกระโดด 2^k ครั้ง
+const int NONE = -1;
+inline int idxOf(int v){ return (int)(lower_bound(xs.begin(), xs.end(), v) - xs.begin()); }
+
+// จำนวนงานที่ไม่ทับกันมากที่สุด ที่วางได้ทั้งก้อนในช่วงวัน [l, r]
+int cnt(int l, int r){
+    if(l > r) return 0;
+    int cur = idxOf(l);               // พิกัดแรกที่ไม่ก่อน l
+    if(cur >= m_) return 0;
+    int res = 0;
+    for(int k = LOG - 1; k >= 0; k--){
+        int q = up[k][cur];
+        if(q != NONE && xs[q] <= r + 1){ res += 1 << k; cur = q; }
+    }
+    return res;
+}
+
+int main(){
+    if(scanf("%d", &n) != 1) return 0;
+    vector<int> s(n), e(n);
+    for(int i = 0; i < n; i++) scanf("%d %d", &s[i], &e[i]);
+    xs.reserve(3 * n + 2);
+    for(int i = 0; i < n; i++){ xs.push_back(s[i]); xs.push_back(e[i]); xs.push_back(e[i] + 1); }
+    xs.push_back(1); xs.push_back(1000000001);
+    sort(xs.begin(), xs.end()); xs.erase(unique(xs.begin(), xs.end()), xs.end());
+    m_ = (int)xs.size();
+
+    // f[i] = วันจบที่น้อยที่สุด ในบรรดางานที่เริ่มไม่ก่อนพิกัด xs[i]
+    vector<int> f(m_, INT_MAX);
+    { vector<vector<int>> byStart(m_);
+      for(int i = 0; i < n; i++) byStart[idxOf(s[i])].push_back(e[i]);
+      int best = INT_MAX;
+      for(int i = m_ - 1; i >= 0; i--){ for(int v : byStart[i]) best = min(best, v); f[i] = best; } }
+
+    LOG = 1; while((1 << LOG) <= n) LOG++;
+    up.assign(LOG, vector<int>(m_, NONE));
+    for(int i = 0; i < m_; i++) if(f[i] != INT_MAX) up[0][i] = idxOf(f[i] + 1);
+    for(int k = 1; k < LOG; k++) for(int i = 0; i < m_; i++){
+        int q = up[k-1][i]; up[k][i] = (q == NONE) ? NONE : up[k-1][q]; }
+
+    int LO = 1, HI = 1000000000;
+    int total = cnt(LO, HI);
+
+    // ไล่ตามหมายเลขบริษัท รับได้ก็รับ ตราบใดที่จำนวนรวมยังไม่ลด
+    set<pair<int,int>> gaps; gaps.insert({LO, HI});
+    vector<int> chosen;
+    for(int i = 0; i < n && (int)chosen.size() < total; i++){
+        auto it = gaps.upper_bound({s[i], INT_MAX});
+        if(it == gaps.begin()) continue;
+        --it;
+        int gl = it->first, gr = it->second;
+        if(s[i] < gl || e[i] > gr) continue;                  // คร่อมงานที่รับไปแล้ว
+        if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;
+        gaps.erase(it);
+        if(gl <= s[i] - 1) gaps.insert({gl, s[i] - 1});
+        if(e[i] + 1 <= gr) gaps.insert({e[i] + 1, gr});
+        chosen.push_back(i + 1);
+    }
+    printf("%d\\n", total);
+    for(size_t i = 0; i < chosen.size(); i++) printf("%d%c", chosen[i], i + 1 == chosen.size() ? '\\n' : ' ');
+    if(chosen.empty()) printf("\\n");
+}`;
+
+const bruteCode = `// ตัวตรวจ ลองทุกเซตย่อย เอาเซตใหญ่ที่สุดที่เรียงแล้วเล็กที่สุดตามพจนานุกรม
+// ไม่มีท่าโลภหรือตารางกระโดดอยู่ในนี้เลย
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n; scanf("%d", &n); vector<int> s(n), e(n);
+    for(int i = 0; i < n; i++) scanf("%d %d", &s[i], &e[i]);
+    vector<int> best;
+    for(int m = 0; m < (1 << n); m++){
+        vector<int> id; bool ok = true;
+        for(int i = 0; i < n; i++) if(m >> i & 1) id.push_back(i);
+        for(size_t a = 0; a < id.size() && ok; a++) for(size_t b = a + 1; b < id.size() && ok; b++){
+            int x = id[a], y = id[b]; if(!(e[x] < s[y] || e[y] < s[x])) ok = false; }
+        if(!ok) continue;
+        if(id.size() > best.size() || (id.size() == best.size() && id < best)) best = id;
+    }
+    printf("%d\\n", (int)best.size());
+    for(size_t i = 0; i < best.size(); i++) printf("%d%c", best[i] + 1, i + 1 == best.size() ? '\\n' : ' ');
+    if(best.empty()) printf("\\n");
+}`;
+
+const coreSnippet = `// รับบริษัทนี้ได้ก็ต่อเมื่อจำนวนรวมของช่องว่างที่มันตกอยู่ ไม่ลดลง
+// ซ้ายของมัน บวกตัวมันเอง บวกขวาของมัน ต้องเท่ากับที่ช่องว่างนี้เคยวางได้
+if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ให้เช่าห้องประชุมให้ได้จำนวนบริษัทมากที่สุด</h2>
+  <p>
+    ศูนย์ประชุมมีห้องเดียว บริษัท <code>N</code> รายยื่นขอเช่า แต่ละรายบอกวันเริ่มกับวันจบของงานตัวเอง
+    และจะเช่าก็ต่อเมื่อได้ห้อง<strong>คนเดียวตลอดช่วงนั้น</strong> ฝ่ายการตลาดอยากปล่อยห้องให้ได้<strong>จำนวนบริษัทมากที่สุด</strong>
+  </p>
+  <p>
+    ปัญหาคือชุดที่ได้จำนวนมากที่สุดมักมีหลายชุด ฝ่ายการตลาดจึงตั้งกติกาเพิ่มว่า
+    ในบรรดาชุดที่ใหญ่ที่สุดทั้งหมด ให้เลือกชุดที่เขียนหมายเลขบริษัทเรียงจากน้อยไปมากแล้ว
+    <strong>เล็กที่สุดตามลำดับพจนานุกรม</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้นอีก <code>N</code> บรรทัด
+        บรรทัดที่ <code>i</code> คือวันเริ่มกับวันจบของบริษัทที่ <code>i</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>N &le; {fmt(N_MAX)}</code> วันเริ่มไม่น้อยกว่า 1 และวันจบไม่เกิน
+        {fmt(1000000000)} เวลา 1.5 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> บรรทัดแรกคือจำนวนบริษัทมากที่สุด บรรทัดที่สองคือหมายเลขของบริษัทในชุดนั้น
+      </li>
+      <li><strong>ให้คะแนน:</strong> 50% ของชุดทดสอบมี <code>N</code> ไม่เกิน 3,000</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{SAMPLE.length}<br />{SAMPLE.map((q) => <>{q.s} {q.e}<br /></>)}</td>
+        <td>{SAMPLE_RUN.total}<br />{SAMPLE_RUN.chosen.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <Spoiler label="แตะเพื่อดูว่าทำไมคำตอบเป็นชุดนี้">
+    <p class="io-note">
+      ชุดที่ใหญ่ที่สุดของตัวอย่างนี้มีสามชุด คือ (1, 3), (2, 3) และ (1, 4)
+      เรียงตามพจนานุกรมแล้ว (1, 3) มาก่อน (1, 4) และ (1, 4) มาก่อน (2, 3) คำตอบจึงเป็น (1, 3)
+    </p>
+  </Spoiler>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ครึ่งแรกของโจทย์คือ<strong>จัดตารางให้ได้จำนวนมากที่สุด</strong> ซึ่งเป็นโจทย์คลาสสิก
+      คำตอบคือเรียงตามวันจบแล้วเลือกตัวที่จบเร็วที่สุดที่ยังไม่ชนกับที่เลือกไว้
+    </p>
+    <p>
+      ครึ่งหลังหนักกว่ามาก เพราะเราต้องได้ชุด<strong>ที่หมายเลขเล็กที่สุด</strong> ท่าที่อยากทำคือ
+      ไล่บริษัทที่ 1, 2, 3 ไปเรื่อย ๆ แล้วรับถ้ารับได้ คำถามคือ<strong>รับได้แปลว่าอะไร</strong>
+      และตรวจมันด้วยราคาเท่าไร
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; หาชุดที่ใหญ่ที่สุดและหมายเลขเล็กที่สุด</h2>
+  <div class="cpgame ccgame" data-ccgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดคำขอ">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => {
+        const unit = 34;
+        const left = 54;
+        const w = left + (p.hi - p.lo + 1) * unit + 14;
+        const h = 30 + p.reqs.length * 28 + 10;
+        return (
+          <div class="cc-wrap" data-cc-board={String(k)} hidden={k !== 0}>
+            <svg class="cc-board" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`เส้นเวลาแสดงคำขอของบริษัท ${p.reqs.length} ราย แต่ละแท่งคือช่วงวันที่บริษัทนั้นขอใช้ห้อง กดที่แท่งเพื่อเลือกบริษัทนั้น`}>
+              {Array.from({ length: p.hi - p.lo + 1 }, (_, i) => (
+                <text class="cc-day" x={left + i * unit + unit / 2} y="18" text-anchor="middle">{p.lo + i}</text>
+              ))}
+              {p.reqs.map((q, ri) => (
+                <>
+                  <text class="cc-name" x="8" y={30 + ri * 28 + 17}>#{q.id}</text>
+                  <rect
+                    class="cc-bar"
+                    data-cc-req={`${k}:${q.id}`}
+                    x={left + (q.s - p.lo) * unit + 2}
+                    y={30 + ri * 28 + 3}
+                    width={(q.e - q.s + 1) * unit - 4}
+                    height="20"
+                    rx="5"
+                  />
+                  <text class="cc-span" x={left + (q.s - p.lo) * unit + ((q.e - q.s + 1) * unit) / 2} y={30 + ri * 28 + 17} text-anchor="middle">{q.s} ถึง {q.e}</text>
+                </>
+              ))}
+            </svg>
+          </div>
+        );
+      })}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-cc-clear>ล้างที่เลือก</button>
+      <button type="button" class="cpg-btn main" data-cc-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่แท่งเพื่อรับบริษัทนั้น แท่งที่ทับกันรับพร้อมกันไม่ได้</p>
+    <p class="cpg-score" data-cpg-score>รับไว้ 0 บริษัท</p>
+    <p class="cpg-hint">เป้าหมายมีสองชั้น ชั้นแรกคือจำนวนต้องมากที่สุด ชั้นที่สองคือถ้าจำนวนเท่ากัน หมายเลขต้องเล็กที่สุด</p>
+  </div>
+  <p class="io-note">
+    ถ้าลองชุดที่สองจะเห็นตัวล่อชัด ๆ คือบริษัทที่เริ่มวันแรกสุดแต่ยาวจนกินที่ของอีกสองราย
+    รับมันแล้วจำนวนรวมลดลงทันที ทั้งที่หมายเลขมันเล็กที่สุด
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ครึ่งแรกคือท่าโลภที่รู้กันอยู่แล้ว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมเริ่มจากท่าที่อยากทำที่สุด คือไล่บริษัทตามหมายเลข แล้วถามทีละตัวว่า
+        "ถ้ารับตัวนี้ จำนวนรวมยังเท่าเดิมไหม" ซึ่งถูกต้องแน่นอน เพราะการรับตัวที่หมายเลขน้อยที่สุด
+        เท่าที่รับได้โดยไม่เสียจำนวนรวม คือนิยามของคำว่าเล็กที่สุดตามพจนานุกรมพอดี
+      </p>
+      <p>
+        ปัญหาอยู่ที่ราคา ถ้าตอบคำถามนั้นด้วยการคำนวณจำนวนรวมของทั้งชุดใหม่ทุกครั้ง
+        มันคือ <code>N</code> คูณ <code>N</code> ซึ่งที่สองแสนคือสี่หมื่นล้าน ผมจึงต้องหาวิธี
+        ตอบคำถามนี้แบบ<strong>เฉพาะที่</strong>
+      </p>
+      <p>
+        สิ่งที่ปลดล็อกคือสังเกตว่า งานที่รับไปแล้วทำให้ช่วงเวลาทั้งหมด<strong>ถูกซอยเป็นช่องว่างที่เป็นอิสระต่อกัน</strong>
+        งานหนึ่งงานตกอยู่ในช่องว่างเดียวเสมอ และการรับมันมีผลแค่กับช่องว่างนั้น
+        คำถามจึงเล็กลงเหลือ "ช่องว่างนี้เคยวางได้กี่งาน และถ้าตัดตรงนี้จะวางได้กี่งาน"
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาต้องตอบคำถามว่า "รับตัวนี้แล้วคำตอบรวมเปลี่ยนไหม" ซ้ำ ๆ
+        ให้หาก่อนว่าของที่รับไปแล้ว<strong>แบ่งปัญหาออกเป็นก้อนอิสระ</strong>ได้หรือเปล่า
+        ถ้าได้ คำถามระดับโลกจะกลายเป็นคำถามระดับก้อน ซึ่งมักถูกกว่ามาก
+      </p>
+    </div>
+    <p>
+      ครึ่งแรกคือโจทย์จัดตารางแบบคลาสสิก เรียงตาม<strong>วันจบ</strong> แล้วไล่เลือกตัวที่จบเร็วที่สุด
+      ที่เริ่มหลังงานที่เลือกไว้ล่าสุด ท่านี้ได้จำนวนมากที่สุดเสมอ เพราะการเลือกตัวที่จบเร็วที่สุด
+      <strong>เหลือเวลาข้างหลังให้มากที่สุด</strong> จึงไม่มีทางเสียเปรียบทางเลือกอื่น
+    </p>
+    <p class="pull">รับตัวที่หมายเลขเล็กที่สุดเท่าที่รับได้โดยจำนวนรวมไม่ลด ทำแบบนี้ไปเรื่อย ๆ ก็ได้ชุดที่เล็กที่สุดตามพจนานุกรม</p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ถามว่า "ช่วงนี้วางได้กี่งาน" ให้ได้ในเวลาลอการิทึม</h2>
+  <Spoiler>
+    <p>
+      ต้องมีฟังก์ชัน <code>cnt(l, r)</code> ที่บอกว่า<strong>ช่วงวัน <code>[l, r]</code> วางงานที่ไม่ทับกันได้มากที่สุดกี่งาน</strong>
+      โดยนับเฉพาะงานที่อยู่ในช่วงนั้นทั้งก้อน
+    </p>
+    <p>
+      ท่าโลภบอกไว้แล้วว่าจากตำแหน่ง <code>p</code> เราควรหยิบงานที่<strong>เริ่มไม่ก่อน <code>p</code> และจบเร็วที่สุด</strong>
+      เรียกวันจบของมันว่า <code>f(p)</code> แล้วตำแหน่งถัดไปคือ <code>f(p) + 1</code>
+      การนับจึงเป็นการ<strong>กระโดดตามฟังก์ชันเดิมซ้ำ ๆ</strong> จนกว่าจะเลยขอบขวา
+    </p>
+    <p>
+      การกระโดดทีละก้าวยังช้า จึงใช้<strong>ตารางกระโดดสองยกกำลัง</strong> คือเก็บไว้ว่าจากตำแหน่งนี้
+      กระโดด 1 ครั้งไปไหน 2 ครั้งไปไหน 4 ครั้งไปไหน ไปจนถึง <code>N</code> ครั้ง
+      แล้วนับจำนวนก้าวด้วยการไล่จากก้าวใหญ่ลงมา เหมือนเขียนเลขเป็นฐานสอง
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <ZoomableDiagram caption={`ชุดคำขอเดียวกันนี้เรียงตามวันจบ แท่งเขียวคือสิ่งที่ท่าโลภหยิบเมื่อถามช่วงวัน ${TL_LO} ถึง ${TL_HI} แถวล่างสุดใต้เส้นคั่นคือลำดับที่หยิบจริง เรียงต่อกันโดยไม่ทับกัน ลูกศรทองคือการกระโดดจากวันจบของงานที่เพิ่งหยิบ ไปยังงานถัดไปที่หยิบได้ จำนวนแท่งในแถวนั้นคือค่าของ cnt ของช่วงนี้ ซึ่งเท่ากับ ${TL_CHAIN.length}`}>
+      <svg viewBox={`0 0 ${TL_W} ${TL_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`เส้นเวลาวันที่หนึ่งถึงสิบสอง มีแท่งแทนคำขอของแต่ละบริษัทเรียงตามวันจบ แท่งที่ท่าโลภเลือกถูกระบายสีเขียว และมีลูกศรสีทองชี้จากวันจบของแท่งที่เลือก ไปยังจุดเริ่มของแท่งถัดไปที่เลือก`}>
+        <defs>
+          <marker id="ccArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0 0 L9 4.5 L0 9 z" fill="#d8b25a" />
+          </marker>
+        </defs>
+        {Array.from({ length: TL_HI - TL_LO + 1 }, (_, i) => (
+          <text x={tlX(TL_LO + i) + TL_UNIT / 2} y="16" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{TL_LO + i}</text>
+        ))}
+        {TL_ROWS.map((q, ri) => {
+          const picked = TL_CHAIN.some((c) => c.id === q.id);
+          return (
+            <>
+              <rect
+                x={tlX(q.s) + 2}
+                y={34 + ri * TL_ROW}
+                width={(q.e - q.s + 1) * TL_UNIT - 4}
+                height="22"
+                rx="5"
+                fill={picked ? '#163a2a' : '#1c2536'}
+                stroke={picked ? '#2f9e5c' : '#3d4a6b'}
+              />
+              <text x={tlX(q.s) + ((q.e - q.s + 1) * TL_UNIT) / 2} y={34 + ri * TL_ROW + 16} fill={picked ? '#4ade80' : '#9aa7bd'} font-size="12" text-anchor="middle" font-family="monospace">#{q.id}</text>
+            </>
+          );
+        })}
+        <line x1="8" y1={TL_LANE - 14} x2={TL_W - 12} y2={TL_LANE - 14} stroke="#2a3350" />
+        {TL_CHAIN.map((q) => (
+          <>
+            <rect x={tlX(q.s) + 2} y={TL_LANE} width={(q.e - q.s + 1) * TL_UNIT - 4} height="22" rx="5" fill="#163a2a" stroke="#2f9e5c" />
+            <text x={tlX(q.s) + ((q.e - q.s + 1) * TL_UNIT) / 2} y={TL_LANE + 16} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">#{q.id}</text>
+          </>
+        ))}
+        {/* ลูกศรอยู่ในเลนของตัวเองใต้เส้นคั่น จึงไม่ตัดผ่านป้ายของแท่งไหนเลย */}
+        {TL_CHAIN.slice(0, -1).map((q, i) => {
+          const nxt = TL_CHAIN[i + 1];
+          const x1 = tlX(q.e) + TL_UNIT - 2;
+          const x2 = tlX(nxt.s) + 2;
+          return <path d={`M${x1} ${TL_LANE + 11} L${x2 - 1} ${TL_LANE + 11}`} stroke="#d8b25a" stroke-width="1.8" fill="none" marker-end="url(#ccArrow)" />;
+        })}
+      </svg>
+    </ZoomableDiagram>
+
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; ทำไมต้องบีบพิกัดวัน</p>
+      <p>
+        วันมีได้ถึงพันล้าน แต่ตำแหน่งที่มีความหมายจริง ๆ มีแค่วันเริ่ม วันจบ และวันจบบวกหนึ่ง
+        ของทุกบริษัท ซึ่งไม่เกินสามเท่าของ <code>N</code> เราจึงเก็บเฉพาะพิกัดเหล่านั้น
+        แล้วอ้างถึงมันด้วยดัชนี ตารางกระโดดจึงมีขนาดพอดีกับข้อมูลจริง ไม่ใช่พอดีกับช่วงเวลา
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; ช่องว่างที่เป็นอิสระต่อกัน</h2>
+  <Spoiler>
+    <p>
+      งานที่รับไปแล้วซอยเวลาออกเป็นช่องว่าง ซึ่งเก็บไว้ในเซตที่เรียงตามจุดเริ่ม
+      พอถึงคิวบริษัทที่ <code>i</code> เราหาว่ามันตกอยู่ในช่องว่างไหน ถ้ามันคร่อมงานที่รับไปแล้ว
+      ก็ปฏิเสธทันที ถ้าอยู่ในช่องว่างเดียวพอดี ก็เทียบสามตัวเลข
+    </p>
+    <ul>
+      <li><code>cnt(gl, gr)</code> คือช่องว่างนี้เคยวางได้กี่งาน</li>
+      <li><code>cnt(gl, s - 1)</code> คือถ้ารับตัวนี้ ฝั่งซ้ายของมันยังวางได้กี่งาน</li>
+      <li><code>cnt(e + 1, gr)</code> คือฝั่งขวายังวางได้กี่งาน</li>
+    </ul>
+    <p>
+      ถ้าซ้ายบวกหนึ่งบวกขวา<strong>เท่ากับ</strong>ของเดิม แปลว่ารับตัวนี้แล้วไม่เสียอะไรเลย จึงรับ
+      แล้วแทนที่ช่องว่างเดิมด้วยสองช่องว่างใหม่ ถ้าน้อยกว่า แปลว่ารับแล้วจำนวนรวมลด จึงต้องปฏิเสธ
+    </p>
+    <p class="pull">การรับงานหนึ่งงาน มีผลแค่กับช่องว่างเดียวที่มันตกอยู่ คำถามระดับทั้งชุดจึงยุบเหลือคำถามระดับช่องว่าง</p>
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งชุด</h2>
+  <Spoiler>
+    <CpStepPlayer hook="ccsim" steps={demoSteps} label={`ไล่ทีละบริษัทบนชุด ${DEMO.length} ราย ซึ่งวางได้มากที่สุด ${DEMO_RUN.total} งาน`}>
+      <table class="rec ccrec">
+        <caption>ไล่ตามหมายเลขบริษัท</caption>
+        <thead>
+          <tr>
+            <th class="num">บริษัท</th><th>ขอวันที่</th>
+            <th class="num">ช่องว่างเดิมวางได้</th><th class="num">ถ้ารับจะได้</th><th>ผล</th>
+          </tr>
+        </thead>
+        <tbody>
+          {DEMO_RUN.trace.map((t) => (
+            <tr>
+              <td class="num">{t.id}</td>
+              <td><code>{t.s} ถึง {t.e}</code></td>
+              <td class="num">{t.gap ? t.c : '·'}</td>
+              <td class="num">{t.gap ? t.c1 + 1 + t.c2 : '·'}</td>
+              <td class={t.taken ? 'cc-yes' : ''}>{t.taken ? 'รับ' : 'ไม่รับ'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ชุดนี้วางได้มากที่สุด {DEMO_RUN.total} งาน และชุดที่หมายเลขเล็กที่สุดคือ
+      <strong>{DEMO_RUN.chosen.join(', ')}</strong> ตัวเลขทุกช่องคำนวณตอนสร้างหน้า
+      และถูกเทียบกับการลองทุกเซตย่อยแล้วว่าตรงกัน
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="convention.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_convention.cpp" />
+        <p>
+          ตัวตรวจไล่ทุกเซตย่อยแล้วเทียบตามพจนานุกรมตรง ๆ ไม่มีท่าโลภอยู่ในนั้นเลย
+          ซึ่งสำคัญ เพราะข้ออ้างของหน้านี้มีสองชั้น คือท่าโลภให้จำนวนมากที่สุดจริง
+          และการรับตัวที่หมายเลขน้อยที่สุดเท่าที่ไม่เสียจำนวน ให้ชุดที่เล็กที่สุดจริง
+        </p>
+        <p>
+          ผมสุ่มชุดคำขอไม่เกิน 11 บริษัท บนช่วงวันแคบ ๆ เพื่อให้ทับกันเยอะ รวม 1,500 เคส
+          แล้วเทียบ<strong>ทั้งสองบรรทัดของเอาต์พุต</strong> ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ที่ <code>N</code> เท่ากับ {fmt(N_MAX)} และวันกระจายเต็มพันล้าน
+      ใช้เวลา <strong>0.46 วินาที</strong> ส่วนชุดที่จงใจให้ทับกันหนามาก คือทุกงานยาวไม่เกินสี่วันในช่วงพันวัน
+      ใช้เวลา <strong>0.14 วินาที</strong> จากลิมิต 1.5 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าแรกคือ<strong>ตารางกระโดดสองยกกำลัง</strong> (binary lifting) ซึ่งใช้ได้ทุกครั้งที่มีฟังก์ชัน
+    "จากตรงนี้ไปตรงไหนต่อ" แล้วต้องถามว่าเดินซ้ำกี่ครั้งถึงจะพ้นขอบ ท่าที่สองคือ
+    <strong>ตรวจว่ารับของชิ้นนี้แล้วเสียของหรือเปล่า ด้วยการเทียบจำนวนก่อนกับหลัง</strong>
+    ซึ่งเป็นวิธีมาตรฐานของโจทย์ที่ขอคำตอบเล็กที่สุดตามพจนานุกรม
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมท่าโลภแบบจบเร็วก่อนถึงถูก</p>
+    <p>
+      สมมติมีคำตอบที่ดีที่สุดชุดหนึ่งที่ไม่ได้เลือกงานที่จบเร็วที่สุด ให้สลับงานแรกของชุดนั้น
+      ด้วยงานที่จบเร็วที่สุด งานที่เหลือทั้งหมดยังวางได้เหมือนเดิม เพราะงานใหม่จบไม่ช้ากว่างานเดิม
+      จำนวนจึงไม่ลด ทำแบบนี้ซ้ำไปเรื่อย ๆ ก็แปลงคำตอบที่ดีที่สุดให้กลายเป็นคำตอบของท่าโลภได้
+    </p>
+    <p>
+      ข้อควรระวังคือท่านี้ตอบได้แค่<strong>จำนวน</strong> ไม่ได้ตอบว่าชุดไหน
+      โจทย์ข้อนี้จึงยากขึ้นอีกชั้นตรงที่ถามถึงตัวชุดเอง
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวนี้นับจำนวนครั้งที่ต้องแตะข้อมูลหนึ่งชิ้นเหมือนกัน ต่างกันที่แถวบนคำนวณคำตอบของทั้งชุดใหม่ทุกครั้งที่พิจารณาบริษัทหนึ่งราย ส่วนแถวล่างถามแค่สี่ครั้งต่อราย ครั้งละราวสิบแปดก้าวของตารางกระโดด</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ชุดที่เล็กที่สุดตามพจนานุกรมได้จากการไล่รับตามหมายเลข โดยรับเมื่อจำนวนรวมไม่ลด
+    และคำถามว่าจำนวนรวมลดไหม ยุบเหลือการนับงานในช่องว่างเดียว
+    ซึ่งตอบได้ด้วยการกระโดดตามท่าโลภแบบสองยกกำลัง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Convention Centre</i> บน programming.in.th ข้อ 2028
+      <a href="https://programming.in.th/tasks/2028" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2028
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>Asia-Pacific Informatics Olympiad 2009</i></li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.ccrec{width:auto !important;table-layout:fixed;}
+  table.rec.ccrec th:nth-child(1), table.rec.ccrec td:nth-child(1){width:6rem;}
+  table.rec.ccrec th:nth-child(2), table.rec.ccrec td:nth-child(2){width:8rem;}
+  table.rec.ccrec th:nth-child(3), table.rec.ccrec td:nth-child(3){width:9.5rem;}
+  table.rec.ccrec th:nth-child(4), table.rec.ccrec td:nth-child(4){width:8rem;}
+  table.rec.ccrec th:nth-child(5), table.rec.ccrec td:nth-child(5){width:5.5rem;}
+  table.rec.ccrec td.cc-yes{color:#4ade80;font-weight:700;}
+  table.rec.ccrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.ccrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.ccrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- เส้นเวลาของมินิเกม ---------- */
+  .cc-board{display:block;margin:0.2rem auto 0.6rem;max-width:100%;height:auto;}
+  @media (max-width:640px){
+    .cc-board{min-width:480px;}
+  }
+  .cc-day{fill:#7b8397;font-size:11px;font-family:"Fira Code","Fira Mono",monospace;}
+  .cc-name{fill:#9aa7bd;font-size:12px;font-family:"Fira Code","Fira Mono",monospace;}
+  .cc-span{fill:#cdd6ea;font-size:11px;font-family:"Fira Code","Fira Mono",monospace;pointer-events:none;}
+  .cc-bar{fill:#1c2536;stroke:#3d4a6b;cursor:pointer;}
+  .cc-bar.taken{fill:#163a2a;stroke:var(--dl-emerald-bright);}
+  .cc-bar.clash{fill:#2a1a1a;stroke:#b23b3b;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type CcReq = { id: number; s: number; e: number };
+  type CcPuzzle = { id: string; label: string; tease: string; reqs: CcReq[]; answer: number[]; lo: number; hi: number };
+
+  function initConventionGame(): void {
+    const maybeUi = cpGameUi('[data-ccgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as CcPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let taken: number[] = [];
+
+    const pz = (): CcPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-cc-board]'));
+    const reqOf = (p: CcPuzzle, id: number): CcReq | undefined => p.reqs.find((q) => q.id === id);
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      for (const bar of Array.from(boards[pi].querySelectorAll<SVGRectElement>('[data-cc-req]'))) {
+        const id = Number((bar.dataset.ccReq ?? '').split(':')[1]);
+        const q = reqOf(p, id);
+        const clash =
+          q !== undefined &&
+          !taken.includes(id) &&
+          taken.some((t) => {
+            const o = reqOf(p, t);
+            return o !== undefined && !(q.e < o.s || o.e < q.s);
+          });
+        bar.classList.toggle('taken', taken.includes(id));
+        bar.classList.toggle('clash', clash);
+      }
+      ui.setScore(`รับไว้ ${taken.length} บริษัท คือ ${taken.length ? [...taken].sort((a, b) => a - b).join(', ') : 'ยังไม่มี'}`);
+    }
+
+    function toggle(id: number): void {
+      const p = pz();
+      const at = taken.indexOf(id);
+      if (at >= 0) {
+        taken.splice(at, 1);
+        render();
+        return;
+      }
+      const q = reqOf(p, id);
+      if (!q) return;
+      const hit = taken.find((t) => {
+        const o = reqOf(p, t);
+        return o !== undefined && !(q.e < o.s || o.e < q.s);
+      });
+      if (hit !== undefined) {
+        ui.setStatus(`บริษัท ${id} ทับช่วงกับบริษัท ${hit} ที่รับไว้แล้ว ห้องมีห้องเดียว จึงรับพร้อมกันไม่ได้`, 'bad');
+        return;
+      }
+      taken.push(id);
+      ui.setStatus(`รับบริษัท ${id} แล้ว`, 'plain');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      const mine = [...taken].sort((a, b) => a - b);
+      const want = p.answer;
+      if (mine.join(',') === want.join(',')) {
+        ui.setStatus(`ถูกต้องครับ ชุดนี้ใหญ่ที่สุดที่ ${want.length} บริษัท และหมายเลขเล็กที่สุดด้วย`, 'good');
+        return;
+      }
+      if (mine.length < want.length) {
+        ui.setStatus(`ชุดนี้ได้ ${mine.length} บริษัท แต่จัดได้ถึง ${want.length} บริษัท ลองหาตัวที่กินที่ของคนอื่นแล้วเอาออก`, 'bad');
+        return;
+      }
+      ui.setStatus(`จำนวนถูกแล้วที่ ${want.length} บริษัท แต่ยังมีชุดที่หมายเลขเล็กกว่านี้ ลองไล่จากบริษัทหมายเลขน้อยไปมากดู`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      taken = [];
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดที่แท่งเพื่อรับบริษัทนั้น แท่งที่ทับกันรับพร้อมกันไม่ได้');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const bar = e.target.closest('[data-cc-req]');
+      if (!(bar instanceof SVGElement)) return;
+      toggle(Number((bar.dataset.ccReq ?? '').split(':')[1]));
+    });
+
+    ui.onClick('data-cc-clear', () => selectPuzzle(pi));
+    ui.onClick('data-cc-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initConventionGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-ccsim]');
+  });
+</script>

@@ -1,0 +1,838 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'oil-blocks/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Grid = number[][];
+
+/** ผลรวมของบล็อก K คูณ K ที่มีมุมบนซ้ายอยู่ที่ (r, c) นับจากศูนย์ */
+function blockSum(g: Grid, K: number, r: number, c: number): number {
+  let s = 0;
+  for (let i = 0; i < K; i++) for (let j = 0; j < K; j++) s += g[r + i][c + j];
+  return s;
+}
+
+/** ค่าที่ดีที่สุดของบล็อกที่วางอยู่ในสี่เหลี่ยม [r1, r2] x [c1, c2] ทั้งก้อน */
+function bestIn(g: Grid, K: number, r1: number, r2: number, c1: number, c2: number): number {
+  let best = 0;
+  for (let r = r1; r + K - 1 <= r2; r++) for (let c = c1; c + K - 1 <= c2; c++) best = Math.max(best, blockSum(g, K, r, c));
+  return best;
+}
+
+type CaseRow = { name: string; value: number };
+
+/** ท่าที่บทความสอน หกทรงของการแบ่งกระดาน */
+function bySixCases(g: Grid, K: number): { rows: CaseRow[]; best: number } {
+  const M = g.length;
+  const N = g[0].length;
+  const rows: CaseRow[] = [];
+  /* แถบที่บางเกินกว่าจะวางบล็อกได้ จะได้ค่าศูนย์จาก bestIn เอง จึงไม่ต้องกันขอบเป็นพิเศษ */
+  let v = 0;
+  for (let a = K - 1; a < M; a++)
+    for (let b = a + K; b < M; b++)
+      v = Math.max(v, bestIn(g, K, 0, a, 0, N - 1) + bestIn(g, K, a + 1, b, 0, N - 1) + bestIn(g, K, b + 1, M - 1, 0, N - 1));
+  rows.push({ name: 'แถบแนวนอนสามแถบ', value: v });
+
+  v = 0;
+  for (let a = K - 1; a < N; a++)
+    for (let b = a + K; b < N; b++)
+      v = Math.max(v, bestIn(g, K, 0, M - 1, 0, a) + bestIn(g, K, 0, M - 1, a + 1, b) + bestIn(g, K, 0, M - 1, b + 1, N - 1));
+  rows.push({ name: 'แถบแนวตั้งสามแถบ', value: v });
+
+  v = 0;
+  for (let t = K - 1; t + K < M; t++)
+    for (let c = K - 1; c + K < N; c++)
+      v = Math.max(v, bestIn(g, K, 0, t, 0, N - 1) + bestIn(g, K, t + 1, M - 1, 0, c) + bestIn(g, K, t + 1, M - 1, c + 1, N - 1));
+  rows.push({ name: 'ตัดขวางหนึ่งเส้น ครึ่งล่างตัดตั้ง', value: v });
+
+  v = 0;
+  for (let t = K - 1; t + K < M; t++)
+    for (let c = K - 1; c + K < N; c++)
+      v = Math.max(v, bestIn(g, K, t + 1, M - 1, 0, N - 1) + bestIn(g, K, 0, t, 0, c) + bestIn(g, K, 0, t, c + 1, N - 1));
+  rows.push({ name: 'ตัดขวางหนึ่งเส้น ครึ่งบนตัดตั้ง', value: v });
+
+  v = 0;
+  for (let c = K - 1; c + K < N; c++)
+    for (let t = K - 1; t + K < M; t++)
+      v = Math.max(v, bestIn(g, K, 0, M - 1, 0, c) + bestIn(g, K, 0, t, c + 1, N - 1) + bestIn(g, K, t + 1, M - 1, c + 1, N - 1));
+  rows.push({ name: 'ตัดตั้งหนึ่งเส้น ครึ่งขวาตัดขวาง', value: v });
+
+  v = 0;
+  for (let c = K - 1; c + K < N; c++)
+    for (let t = K - 1; t + K < M; t++)
+      v = Math.max(v, bestIn(g, K, 0, M - 1, c + 1, N - 1) + bestIn(g, K, 0, t, 0, c) + bestIn(g, K, t + 1, M - 1, 0, c));
+  rows.push({ name: 'ตัดตั้งหนึ่งเส้น ครึ่งซ้ายตัดขวาง', value: v });
+
+  return { rows, best: Math.max(...rows.map((r) => r.value)) };
+}
+
+/** ตัวตรวจ ลองทุกสามบล็อกที่ไม่ทับกัน ไม่ใช้ทฤษฎีการแบ่งแถบใด ๆ */
+function bruteBest(g: Grid, K: number): { best: number; pick: [number, number][] } {
+  const M = g.length;
+  const N = g[0].length;
+  const pos: { r: number; c: number; s: number }[] = [];
+  for (let r = 0; r + K <= M; r++) for (let c = 0; c + K <= N; c++) pos.push({ r, c, s: blockSum(g, K, r, c) });
+  const overlap = (a: { r: number; c: number }, b: { r: number; c: number }): boolean =>
+    !(a.r + K <= b.r || b.r + K <= a.r || a.c + K <= b.c || b.c + K <= a.c);
+  let best = -1;
+  let pick: [number, number][] = [];
+  for (let i = 0; i < pos.length; i++)
+    for (let j = i + 1; j < pos.length; j++) {
+      if (overlap(pos[i], pos[j])) continue;
+      for (let k = j + 1; k < pos.length; k++) {
+        if (overlap(pos[i], pos[k]) || overlap(pos[j], pos[k])) continue;
+        const tot = pos[i].s + pos[j].s + pos[k].s;
+        if (tot > best) {
+          best = tot;
+          pick = [[pos[i].r, pos[i].c], [pos[j].r, pos[j].c], [pos[k].r, pos[k].c]];
+        }
+      }
+    }
+  return { best, pick };
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE: Grid = [
+  [1, 1, 1, 1, 1, 1, 1, 1, 1],
+  [1, 1, 1, 1, 1, 1, 1, 1, 1],
+  [1, 8, 8, 8, 8, 8, 1, 1, 1],
+  [1, 8, 8, 8, 8, 8, 1, 1, 1],
+  [1, 8, 8, 8, 8, 8, 1, 1, 1],
+  [1, 1, 1, 1, 8, 8, 8, 1, 1],
+  [1, 1, 1, 1, 1, 1, 8, 8, 8],
+  [1, 1, 1, 1, 1, 1, 9, 9, 9],
+  [1, 1, 1, 1, 1, 1, 9, 9, 9],
+];
+const SAMPLE_K3 = bySixCases(SAMPLE, 3);
+const SAMPLE_K2 = bySixCases(SAMPLE, 2);
+const SAMPLE_PICK = bruteBest(SAMPLE, 3).pick;
+
+/* ด่านตรวจตอนบิลด์ หกทรงต้องตอบเท่ากับการลองทุกสามบล็อก ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 220;
+{
+  let seed = 27092026;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  let done = 0;
+  while (done < SWEEP_CASES) {
+    const K = 1 + rnd(3);
+    const M = K + rnd(7);
+    const N = K + rnd(7);
+    if (Math.floor(M / K) * Math.floor(N / K) < 3) continue;
+    const g: Grid = Array.from({ length: M }, () => Array.from({ length: N }, () => rnd(10)));
+    if (bySixCases(g, K).best !== bruteBest(g, K).best)
+      throw new Error(`oil-blocks: หกทรงไม่ตรงกับการลองทุกสามบล็อก ที่ M=${M} N=${N} K=${K}`);
+    done++;
+  }
+  if (bruteBest(SAMPLE, 3).best !== SAMPLE_K3.best || SAMPLE_K3.best !== 208)
+    throw new Error('oil-blocks: ตัวอย่างในโจทย์ไม่ได้ 208');
+  if (SAMPLE_K2.best !== 100) throw new Error('oil-blocks: ตัวอย่างที่ K = 2 ไม่ได้ 100');
+}
+
+/* ---------- ตัวเล่นทีละขั้น เดินหกทรงบนตัวอย่างในโจทย์ ---------- */
+const caseSteps = SAMPLE_K3.rows.map((r, i) => ({
+  note:
+    `ทรงที่ ${i + 1} คือ<b>${r.name}</b> ` +
+    `ค่าที่ดีที่สุดของทรงนี้บนตารางตัวอย่างคือ <b>${r.value}</b> ` +
+    (r.value === SAMPLE_K3.best
+      ? 'ซึ่งเป็นค่าที่มากที่สุดในหกทรง จึงเป็นคำตอบของทั้งข้อ'
+      : `ซึ่งยังน้อยกว่าค่าที่ดีที่สุด คือ ${SAMPLE_K3.best}`),
+}));
+
+/* ---------- แผนภาพหกทรง ---------- */
+/* ขนาดในหน่วยของ viewBox ตั้งให้ภาพรวมกว้างราว 700 เท่ากับแผนภาพหน้าอื่น
+   ถ้าตั้งเล็กกว่านี้ ตัวอักษรจะถูกขยายตามการยืดของกล่องจนใหญ่เกินหน้า */
+const SHAPE_W = 210;
+const SHAPE_H = 150;
+type Piece = { x: number; y: number; w: number; h: number; n: number };
+const shapes: { title: string; pieces: Piece[] }[] = [
+  { title: 'นอน 3 แถบ', pieces: [{ x: 0, y: 0, w: 1, h: 1 / 3, n: 1 }, { x: 0, y: 1 / 3, w: 1, h: 1 / 3, n: 2 }, { x: 0, y: 2 / 3, w: 1, h: 1 / 3, n: 3 }] },
+  { title: 'ตั้ง 3 แถบ', pieces: [{ x: 0, y: 0, w: 1 / 3, h: 1, n: 1 }, { x: 1 / 3, y: 0, w: 1 / 3, h: 1, n: 2 }, { x: 2 / 3, y: 0, w: 1 / 3, h: 1, n: 3 }] },
+  { title: 'บน 1 ล่าง 2', pieces: [{ x: 0, y: 0, w: 1, h: 0.42, n: 1 }, { x: 0, y: 0.42, w: 0.5, h: 0.58, n: 2 }, { x: 0.5, y: 0.42, w: 0.5, h: 0.58, n: 3 }] },
+  { title: 'ล่าง 1 บน 2', pieces: [{ x: 0, y: 0.58, w: 1, h: 0.42, n: 1 }, { x: 0, y: 0, w: 0.5, h: 0.58, n: 2 }, { x: 0.5, y: 0, w: 0.5, h: 0.58, n: 3 }] },
+  { title: 'ซ้าย 1 ขวา 2', pieces: [{ x: 0, y: 0, w: 0.42, h: 1, n: 1 }, { x: 0.42, y: 0, w: 0.58, h: 0.5, n: 2 }, { x: 0.42, y: 0.5, w: 0.58, h: 0.5, n: 3 }] },
+  { title: 'ขวา 1 ซ้าย 2', pieces: [{ x: 0.58, y: 0, w: 0.42, h: 1, n: 1 }, { x: 0, y: 0, w: 0.58, h: 0.5, n: 2 }, { x: 0, y: 0.5, w: 0.58, h: 0.5, n: 3 }] },
+];
+const SHAPES_VW = 3 * (SHAPE_W + 24) + 12;
+const SHAPES_VH = 2 * (SHAPE_H + 40) + 34;
+
+/* ---------- มินิเกม เลือกสามบล็อกเอง ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; K: number; g: Grid; best: number };
+function makePuzzle(id: string, label: string, tease: string, g: Grid, K: number): GamePuzzle {
+  const b = bruteBest(g, K).best;
+  if (bySixCases(g, K).best !== b) throw new Error(`oil-blocks: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, K, g, best: b };
+}
+const TRAP: Grid = [
+  [9, 1, 9, 1, 9],
+  [1, 1, 1, 1, 1],
+  [9, 1, 2, 1, 9],
+  [1, 1, 1, 1, 1],
+  [9, 1, 9, 1, 9],
+];
+const MIX: Grid = [
+  [3, 7, 2, 1, 4, 6],
+  [8, 9, 1, 2, 5, 3],
+  [1, 2, 6, 7, 2, 1],
+  [4, 1, 8, 9, 1, 2],
+  [2, 3, 1, 1, 7, 8],
+  [1, 1, 2, 3, 6, 9],
+];
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ตาราง 5 x 5 บล็อก 1 x 1', 'บล็อกขนาดหนึ่งช่องคือกรณีที่ง่ายที่สุด กดสามช่องที่คิดว่ารวมกันได้มากที่สุด', TRAP, 1),
+  makePuzzle('b', 'ตาราง 6 x 6 บล็อก 2 x 2', 'คราวนี้บล็อกกินพื้นที่สองคูณสอง สองบล็อกที่ดีที่สุดมักอยู่ใกล้กันจนวางพร้อมกันไม่ได้', MIX, 2),
+  makePuzzle('c', 'ตาราง 9 x 9 ของโจทย์', 'ตารางนี้คือตัวอย่างในโจทย์ ลองหาให้ได้ก่อนไปดูเฉลยว่าสามบล็อกที่ถูกต้องอยู่ตรงไหน', SAMPLE, 3),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const M_MAX = 1500;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const bill = [
+  { name: 'ลองทุกสามบล็อกที่ไม่ทับกัน', limit: 'ตารางไม่เกินราว 12 คูณ 12', work: 'จำนวนตำแหน่งยกกำลังสาม' },
+  { name: 'ผลรวมสะสม บวกตารางมุมสี่ทิศ บวกหกทรง', limit: `ตารางถึง ${fmt(M_MAX)} คูณ ${fmt(M_MAX)}`, work: `ราว ${fmt(M_MAX * M_MAX * 6 / 1000000)} ล้านครั้ง` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int M, N, K, MB, NB;
+vector<int> pre, blk, f1, f2, f3, f4;
+inline int P(int i, int j){ return pre[(size_t)i * (N + 1) + j]; }
+inline int&BK(int i, int j){ return blk[(size_t)i * (NB + 2) + j]; }   // มุมบนซ้ายที่ (i, j) ฐานหนึ่ง
+inline int&F1(int i, int j){ return f1[(size_t)i * (NB + 2) + j]; }
+inline int&F2(int i, int j){ return f2[(size_t)i * (NB + 2) + j]; }
+inline int&F3(int i, int j){ return f3[(size_t)i * (NB + 2) + j]; }
+inline int&F4(int i, int j){ return f4[(size_t)i * (NB + 2) + j]; }
+
+int main(){
+    if(scanf("%d %d %d", &M, &N, &K) != 3) return 0;
+    pre.assign((size_t)(M + 1) * (N + 1), 0);
+    for(int i = 1; i <= M; i++) for(int j = 1; j <= N; j++){ int x; scanf("%d", &x);
+        pre[(size_t)i * (N + 1) + j] = x + P(i-1, j) + P(i, j-1) - P(i-1, j-1); }
+
+    MB = M - K + 1; NB = N - K + 1;
+    blk.assign((size_t)(MB + 2) * (NB + 2), 0);
+    for(int i = 1; i <= MB; i++) for(int j = 1; j <= NB; j++)
+        BK(i, j) = P(i+K-1, j+K-1) - P(i-1, j+K-1) - P(i+K-1, j-1) + P(i-1, j-1);
+
+    // ตารางมุมสี่ทิศ ค่าที่ดีที่สุดของบล็อกที่อยู่ในสี่เหลี่ยมมุมนั้นทั้งก้อน
+    f1.assign(blk.size(), 0); f2.assign(blk.size(), 0); f3.assign(blk.size(), 0); f4.assign(blk.size(), 0);
+    for(int i = 1; i <= MB; i++) for(int j = 1; j <= NB; j++) F1(i,j) = max(BK(i,j), max(F1(i-1,j), F1(i,j-1)));
+    for(int i = 1; i <= MB; i++) for(int j = NB; j >= 1; j--) F2(i,j) = max(BK(i,j), max(F2(i-1,j), F2(i,j+1)));
+    for(int i = MB; i >= 1; i--) for(int j = 1; j <= NB; j++) F3(i,j) = max(BK(i,j), max(F3(i+1,j), F3(i,j-1)));
+    for(int i = MB; i >= 1; i--) for(int j = NB; j >= 1; j--) F4(i,j) = max(BK(i,j), max(F4(i+1,j), F4(i,j+1)));
+
+    // ค่าที่ดีที่สุดของบล็อกที่แถวบนเป็น i พอดี และที่คอลัมน์ซ้ายเป็น j พอดี
+    vector<int> rb(MB + 2, 0), cb(NB + 2, 0);
+    for(int i = 1; i <= MB; i++) for(int j = 1; j <= NB; j++){ rb[i] = max(rb[i], BK(i,j)); cb[j] = max(cb[j], BK(i,j)); }
+    vector<int> rp(MB + 2, 0), rs(MB + 3, 0), cp(NB + 2, 0), cs(NB + 3, 0);
+    for(int i = 1; i <= MB; i++) rp[i] = max(rp[i-1], rb[i]);
+    for(int i = MB; i >= 1; i--) rs[i] = max(rs[i+1], rb[i]);
+    for(int j = 1; j <= NB; j++) cp[j] = max(cp[j-1], cb[j]);
+    for(int j = NB; j >= 1; j--) cs[j] = max(cs[j+1], cb[j]);
+    auto A  = [&](int t){ int k = t - K + 1; return (k >= 1) ? rp[min(k, MB)] : 0; };   // ดีที่สุดในแถว 1..t
+    auto Bv = [&](int t){ return (t <= MB) ? rs[max(t, 1)] : 0; };                      // ดีที่สุดในแถว t..M
+    auto L  = [&](int v){ int k = v - K + 1; return (k >= 1) ? cp[min(k, NB)] : 0; };
+    auto Rv = [&](int v){ return (v <= NB) ? cs[max(v, 1)] : 0; };
+
+    ll best = 0;
+    // 1. แถบแนวนอนสามแถบ เดินตามแถบกลางที่มีแถวบนเป็น m
+    for(int m = 1; m <= MB; m++) best = max(best, (ll)A(m-1) + rb[m] + Bv(m + K));
+    // 2. แถบแนวตั้งสามแถบ
+    for(int m = 1; m <= NB; m++) best = max(best, (ll)L(m-1) + cb[m] + Rv(m + K));
+    // 3. ตัดขวางที่ t ครึ่งบนหนึ่งบล็อก ครึ่งล่างตัดตั้ง
+    for(int t = K; t + K <= M; t++){ int bi = t + 1, inner = 0;
+        for(int v = K; v + K <= N; v++) inner = max(inner, F3(bi, v-K+1) + F4(bi, v+1));
+        best = max(best, (ll)A(t) + inner); }
+    // 4. ตัดขวางที่ t ครึ่งล่างหนึ่งบล็อก ครึ่งบนตัดตั้ง  (t เริ่มที่ K ไม่ใช่ 2K)
+    for(int t = K; t <= M - K; t++){ int inner = 0;
+        for(int v = K; v + K <= N; v++) inner = max(inner, F1(t-K+1, v-K+1) + F2(t-K+1, v+1));
+        best = max(best, (ll)Bv(t+1) + inner); }
+    // 5. ตัดตั้งที่ v ครึ่งซ้ายหนึ่งบล็อก ครึ่งขวาตัดขวาง
+    for(int v = K; v + K <= N; v++){ int bj = v + 1, inner = 0;
+        for(int t = K; t + K <= M; t++) inner = max(inner, F2(t-K+1, bj) + F4(t+1, bj));
+        best = max(best, (ll)L(v) + inner); }
+    // 6. ตัดตั้งที่ v ครึ่งขวาหนึ่งบล็อก ครึ่งซ้ายตัดขวาง
+    for(int v = K; v <= N - K; v++){ int inner = 0;
+        for(int t = K; t + K <= M; t++) inner = max(inner, F1(t-K+1, v-K+1) + F3(t+1, v-K+1));
+        best = max(best, (ll)Rv(v+1) + inner); }
+    printf("%lld\\n", best);
+}`;
+
+const bruteCode = `// ตัวตรวจ ลองทุกสามบล็อกที่ไม่ทับกัน ไม่มีทฤษฎีการแบ่งแถบอยู่ในนี้เลย
+#include <bits/stdc++.h>
+using namespace std;
+int M, N, K; int g[20][20];
+int blockSum(int r, int c){ int s = 0;
+    for(int i = 0; i < K; i++) for(int j = 0; j < K; j++) s += g[r+i][c+j]; return s; }
+bool ov(int r1, int c1, int r2, int c2){
+    return !(r1 + K <= r2 || r2 + K <= r1 || c1 + K <= c2 || c2 + K <= c1); }
+int main(){
+    scanf("%d %d %d", &M, &N, &K);
+    for(int i = 0; i < M; i++) for(int j = 0; j < N; j++) scanf("%d", &g[i][j]);
+    vector<array<int,3>> P;
+    for(int r = 0; r + K <= M; r++) for(int c = 0; c + K <= N; c++) P.push_back({r, c, blockSum(r, c)});
+    long long best = -1;
+    for(size_t a = 0; a < P.size(); a++) for(size_t b = a + 1; b < P.size(); b++){
+        if(ov(P[a][0], P[a][1], P[b][0], P[b][1])) continue;
+        for(size_t c = b + 1; c < P.size(); c++){
+            if(ov(P[a][0], P[a][1], P[c][0], P[c][1]) || ov(P[b][0], P[b][1], P[c][0], P[c][1])) continue;
+            best = max(best, (long long)P[a][2] + P[b][2] + P[c][2]); } }
+    printf("%lld\\n", best);
+}`;
+
+const wrongCode = `// รุ่นที่ผิด ทรงที่ 4 กับ 6 เริ่มเส้นตัดที่ 2K ทั้งที่ควรเริ่มที่ K
+for(int t = 2 * K; t <= M - K; t++){ ... }     // ครึ่งบนวางสองบล็อกเรียงกันแนวนอน
+for(int v = 2 * K; v <= N - K; v++){ ... }     // ครึ่งซ้ายวางสองบล็อกเรียงกันแนวตั้ง`;
+
+const coreSnippet = `// ตารางมุม ค่าที่ดีที่สุดของบล็อกที่อยู่ในสี่เหลี่ยมมุมบนซ้ายทั้งก้อน
+// สร้างด้วยการไล่ครั้งเดียว โดยรับค่ามาจากช่องบนกับช่องซ้าย
+F1(i, j) = max(BK(i, j), max(F1(i-1, j), F1(i, j-1)));`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; สามบริษัทฮั้วกัน ขอบล็อกละหนึ่งผืน</h2>
+  <p>
+    รัฐบาลแบ่งที่ดินแหล่งน้ำมันเป็นตาราง <code>M</code> คูณ <code>N</code> ช่อง
+    แต่ละช่องมีตัวเลขบอกปริมาณน้ำมันสำรองที่ประเมินไว้ กติกาคือผู้รับเหมาหนึ่งราย
+    ประมูลได้<strong>บล็อกสี่เหลี่ยมจัตุรัสขนาด <code>K</code> คูณ <code>K</code> เพียงบล็อกเดียว</strong>
+  </p>
+  <p>
+    กลุ่มสามบริษัทที่ฮั้วกันจึงอยากเลือก<strong>สามบล็อกที่ไม่ทับกันเลย</strong>
+    ให้ผลรวมมากที่สุด งานของเราคือบอกผลรวมนั้น
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>M</code>, <code>N</code> และ <code>K</code>
+        จากนั้นคือตาราง <code>M</code> บรรทัด บรรทัดละ <code>N</code> จำนวนเต็มไม่ติดลบ
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>K &le; M</code>, <code>K &le; N</code>,
+        <code>M, N &le; {fmt(M_MAX)}</code> ค่าในแต่ละช่องไม่เกิน 500 และรับประกันว่าวางบล็อกที่ไม่ทับกันได้อย่างน้อยสามบล็อก
+        เวลา 1.5 วินาที หน่วยความจำ 128 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ผลรวมที่มากที่สุดของสามบล็อก</li>
+      <li><strong>ให้คะแนน:</strong> 30% ของชุดทดสอบมี <code>M</code> และ <code>N</code> ไม่เกิน 12</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>9 9 3<br />{SAMPLE.map((row) => <>{row.join(' ')}<br /></>)}</td>
+        <td>{SAMPLE_K3.best}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    โจทย์เล่าไว้เองว่าตารางเดียวกันนี้ ถ้า <code>K</code> เท่ากับ 2 จะได้ {SAMPLE_K2.best}
+    ส่วนที่ <code>K</code> เท่ากับ 3 จะได้ {SAMPLE_K3.best} ตัวเลขสองตัวนี้หน้าเว็บคำนวณเองตอนสร้างหน้า
+    และตรงกับที่โจทย์บอกทั้งคู่
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      จำนวนตำแหน่งที่วางบล็อกได้มีราว <code>M</code> คูณ <code>N</code> ตำแหน่ง
+      ที่ {fmt(M_MAX)} คูณ {fmt(M_MAX)} คือสองล้านกว่าตำแหน่ง ถ้าลองทุกสามตำแหน่ง
+      มันคือเลขยกกำลังสาม ซึ่งไม่ต้องคิดต่อเลย
+    </p>
+    <p>
+      ลองวาดสี่เหลี่ยมสามอันที่ไม่ทับกันบนกระดาษดูหลาย ๆ แบบ แล้วถามว่า
+      <strong>มีเส้นตรงเส้นหนึ่งที่ลากผ่านทั้งกระดานโดยไม่ตัดบล็อกไหนเลยเสมอไหม</strong>
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; เลือกสามบล็อกที่ไม่ทับกัน</h2>
+  <div class="cpgame oilgame" data-oilgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกตาราง">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => (
+        <div class="oil-board" data-oil-board={String(k)} hidden={k !== 0} style={`grid-template-columns:repeat(${p.g[0].length}, 2.2rem);`}>
+          {p.g.map((row, r) => row.map((v, c) => (
+            <button type="button" class="oil-cell" data-oil-cell={`${k}:${r}:${c}`}>{v}</button>
+          )))}
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-oil-clear>ล้างที่เลือก</button>
+      <button type="button" class="cpg-btn main" data-oil-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่ช่องเพื่อวางมุมบนซ้ายของบล็อก วางได้สามบล็อก กดซ้ำที่เดิมเพื่อเอาออก</p>
+    <p class="cpg-score" data-cpg-score>วางแล้ว 0 จาก 3 บล็อก</p>
+    <p class="cpg-hint">บล็อกกินพื้นที่ลงล่างและไปขวาจากช่องที่กด และห้ามทับกันแม้แต่ช่องเดียว</p>
+  </div>
+  <p class="io-note">
+    ตารางแรกจงใจวางของดีไว้ที่มุมทั้งสี่ ลองสังเกตว่าเวลาเลือกสามอันที่ดีที่สุดแล้ว
+    มัน<strong>ยังเหลือช่องว่างให้ลากเส้นตรงผ่านกลางได้เสมอ</strong> ซึ่งเป็นข้อสังเกตที่ทั้งข้อยืนอยู่บนมัน
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; สามสี่เหลี่ยมที่ไม่ทับกัน มีได้แค่หกทรง</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
+      <p>
+        ผมเห็นเรื่องหกทรงค่อนข้างเร็ว เพราะมันคือคำถามเดียวว่าจะแบ่งกระดานยังไงให้แต่ละส่วนมีบล็อกเดียว
+        แต่ตอนแปลงหกทรงเป็นโค้ด ผมเขียนขอบเขตของเส้นตัดผิดไปสองทรง คือทรงที่ครึ่งหนึ่งของกระดาน
+        ต้องวางสองบล็อกเรียงกัน ผมใส่ว่าครึ่งนั้นต้อง<strong>กว้างอย่างน้อย 2K</strong>
+      </p>
+      <p>
+        ซึ่งผิด เพราะสองบล็อกที่วางเรียงกันในแนวนอน ต้องการความ<strong>สูง</strong>แค่ <code>K</code>
+        ส่วนที่ต้องการ <code>2K</code> คือความกว้าง ผมสลับสองแกนนี้กันในหัว
+      </p>
+      <p>
+        รุ่นที่ผิดนั้น<strong>ตอบตัวอย่าง 9 คูณ 9 ในโจทย์ได้ 208 ถูกเป๊ะ</strong> ถ้าผมเชื่อตัวอย่าง
+        ผมก็ส่งไปแล้ว สิ่งที่จับได้คือตัวสุ่มเทียบกับตัวตรวจ ซึ่งพังตั้งแต่เคสที่ 51
+        แล้วผมกวาดเคสเล็กแบบไล่ให้ครบเพื่อหาเคสที่เล็กที่สุด ได้ตาราง 2 คูณ 2 ที่ <code>K</code> เท่ากับ 1
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาโค้ดมีเงื่อนไขขอบแบบ <code>2K</code> หรือ <code>K</code>
+        ให้กลับไปถามเป็นภาษาคนว่า<strong>ของสองชิ้นวางเรียงกันแล้วกินพื้นที่ทางไหน</strong>
+        เพราะความผิดพลาดแบบนี้ไม่โผล่ในตัวอย่างของโจทย์ ซึ่งมักใหญ่พอที่ทุกเงื่อนไขจะเป็นจริงอยู่แล้ว
+      </p>
+    </div>
+    <p>
+      ข้อสังเกตที่ทั้งข้อยืนอยู่บนมันคือ ถ้ามีสี่เหลี่ยมสามอันที่ไม่ทับกันบนกระดาน
+      เราจะ<strong>ลากเส้นตรงเต็มความกว้างหรือเต็มความสูงได้เสมอหนึ่งเส้น</strong> โดยไม่ตัดสี่เหลี่ยมไหนเลย
+      เส้นนั้นแบ่งกระดานเป็นสองฝั่ง ฝั่งหนึ่งมีหนึ่งบล็อก อีกฝั่งมีสอง
+      แล้วฝั่งที่มีสองก็ลากเส้นแบ่งได้อีกทีด้วยเหตุผลเดียวกัน
+    </p>
+    <p>
+      พอไล่ให้ครบว่าเส้นแรกเป็นแนวนอนหรือแนวตั้ง และเส้นที่สองอยู่ฝั่งไหนและเป็นแนวไหน
+      ก็ได้ทั้งหมด<strong>หกทรง</strong> ตามภาพ
+    </p>
+
+    <ZoomableDiagram caption="หกทรงของการแบ่งกระดานให้แต่ละส่วนมีบล็อกเดียว สองทรงแรกคือแถบสามแถบซึ่งใช้เส้นตัดสองเส้นในแนวเดียวกัน ส่วนอีกสี่ทรงใช้เส้นตัดหนึ่งเส้นแล้วแบ่งฝั่งที่มีสองบล็อกอีกที เลขในกล่องคือหมายเลขบล็อก ไม่ได้บอกลำดับ">
+      <svg viewBox={`0 0 ${SHAPES_VW} ${SHAPES_VH}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพหกกล่องสี่เหลี่ยม แต่ละกล่องถูกแบ่งเป็นสามส่วนด้วยรูปแบบต่างกัน สองแบบแรกเป็นแถบสามแถบแนวนอนและแนวตั้ง อีกสี่แบบเป็นการตัดหนึ่งเส้นแล้วแบ่งฝั่งหนึ่งอีกที">
+        {shapes.map((sh, i) => {
+          const ox = 6 + (i % 3) * (SHAPE_W + 24);
+          const oy = 30 + Math.floor(i / 3) * (SHAPE_H + 40);
+          return (
+            <>
+              <text x={ox + SHAPE_W / 2} y={oy - 10} fill="#9aa7bd" font-size="13" text-anchor="middle">{sh.title}</text>
+              {sh.pieces.map((p) => (
+                <>
+                  <rect
+                    x={ox + p.x * SHAPE_W + 1.5}
+                    y={oy + p.y * SHAPE_H + 1.5}
+                    width={p.w * SHAPE_W - 3}
+                    height={p.h * SHAPE_H - 3}
+                    rx="4"
+                    fill="#163a2a"
+                    stroke="#2f9e5c"
+                  />
+                  <text
+                    x={ox + (p.x + p.w / 2) * SHAPE_W}
+                    y={oy + (p.y + p.h / 2) * SHAPE_H + 4}
+                    fill="#4ade80"
+                    font-size="15"
+                    text-anchor="middle"
+                    font-family="monospace"
+                  >{p.n}</text>
+                </>
+              ))}
+            </>
+          );
+        })}
+      </svg>
+    </ZoomableDiagram>
+
+    <p class="pull">พอรู้ว่ามีแค่หกทรง คำถามก็เปลี่ยนจากเลือกสามบล็อก เป็นเลือกเส้นตัด แล้วถามหาบล็อกที่ดีที่สุดของแต่ละส่วน</p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ถามหาบล็อกที่ดีที่สุดของสี่เหลี่ยมใด ๆ ในเวลาคงที่</h2>
+  <Spoiler>
+    <p>
+      ก่อนอื่นต้องรู้ผลรวมของบล็อกทุกตำแหน่ง ซึ่งได้จาก<strong>ผลรวมสะสมสองมิติ</strong>
+      คือตารางที่ช่อง <code>(i, j)</code> เก็บผลรวมของสี่เหลี่ยมตั้งแต่มุมบนซ้ายถึงช่องนั้น
+      แล้วผลรวมของสี่เหลี่ยมใด ๆ ก็หาได้ด้วยการบวกลบสี่ตัว
+    </p>
+    <p>
+      จากนั้นเราต้องตอบคำถามแบบ "บล็อกที่ดีที่สุดที่อยู่ใน<strong>สี่เหลี่ยมมุมบนซ้าย</strong>ทั้งก้อน คือเท่าไร"
+      ซึ่งสร้างเป็นตารางไว้ล่วงหน้าได้ด้วยการไล่ครั้งเดียว โดยแต่ละช่องรับค่าที่ดีที่สุดมาจากช่องบนกับช่องซ้าย
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ทำแบบเดียวกันทั้งสี่มุม คือบนซ้าย บนขวา ล่างซ้าย ล่างขวา
+      แล้วทุกส่วนที่เกิดจากการตัดในหกทรง ก็เป็นสี่เหลี่ยมที่ติดมุมใดมุมหนึ่งของกระดานเสมอ
+      จึงถามได้ในเวลาคงที่ทั้งหมด
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; ทรงแถบสามแถบไม่ต้องใช้ตารางมุม</p>
+      <p>
+        สำหรับสามแถบ เราเดินตาม<strong>แถบกลาง</strong>ทีละตำแหน่งก็พอ เพราะแถบบนคือทุกอย่างเหนือมัน
+        และแถบล่างคือทุกอย่างใต้มัน ซึ่งเป็นค่าสูงสุดสะสมจากหัวและจากท้ายของอาเรย์มิติเดียว
+        ทรงนี้จึงใช้เวลาแค่ <code>M</code> ไม่ใช่ <code>M</code> คูณ <code>N</code>
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>หกทรงบนตัวอย่างในโจทย์</h2>
+  <Spoiler>
+    <CpStepPlayer hook="oilsim" steps={caseSteps} label="เดินทีละทรง บนตาราง 9 x 9 ที่ K เท่ากับ 3">
+      <table class="rec oilrec">
+        <caption>ค่าที่ดีที่สุดของแต่ละทรง</caption>
+        <thead>
+          <tr><th class="num">ทรงที่</th><th>รูปแบบการแบ่ง</th><th class="num">ค่าที่ได้</th></tr>
+        </thead>
+        <tbody>
+          {SAMPLE_K3.rows.map((r, i) => (
+            <tr>
+              <td class="num">{i + 1}</td>
+              <td><span class="oil-lbl">{r.name}</span></td>
+              <td class={'num' + (r.value === SAMPLE_K3.best ? ' oil-win' : '')}>{r.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      คำตอบคือ {SAMPLE_K3.best} ซึ่งมาจากสามบล็อกที่มุมบนซ้ายอยู่ที่แถวคอลัมน์
+      {SAMPLE_PICK.map((p, i) => <>{i > 0 ? ', ' : ' '}({p[0] + 1}, {p[1] + 1})</>)} นับจากหนึ่ง
+      ตำแหน่งชุดนี้มาจากตัวตรวจที่ลองทุกสามบล็อก ไม่ได้มาจากท่าหกทรง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="oil.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_oil.cpp" />
+        <p>
+          ตัวตรวจไล่ทุกสามบล็อกตรง ๆ ไม่มีคำว่าเส้นตัดหรือหกทรงอยู่ในนั้นเลย ซึ่งเป็นประเด็นสำคัญ
+          เพราะข้ออ้างของหน้านี้คือหกทรงครอบคลุมทุกกรณี ถ้าตัวตรวจใช้ข้ออ้างเดียวกันก็ตรวจอะไรไม่ได้
+        </p>
+        <p>
+          ผมสุ่มตารางขนาดไม่เกิน 9 คูณ 9 ที่ <code>K</code> เป็น 1 ถึง 3 รวม 1,856 เคส แล้วเทียบกัน ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด บวกกับตรวจว่าตัวอย่างในโจทย์ได้ 208 ที่ K เท่ากับ 3
+          และ 100 ที่ K เท่ากับ 2
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูรุ่นที่ผิด กับเคสเล็กที่สุดที่ทำให้มันพัง</summary>
+      <div class="expander-body">
+        <CodeBlock code={wrongCode} lang="cpp" title="ผิดที่ขอบล่างของเส้นตัดสองทรง" />
+        <p>
+          เคสที่เล็กที่สุดที่จับผิดได้คือตาราง 2 คูณ 2 ที่ <code>K</code> เท่ากับ 1
+          และค่าในตารางคือ <code>2 1</code> กับ <code>2 0</code> คำตอบจริงคือ <strong>5</strong>
+          คือหยิบ 2, 1 และ 2 แต่รุ่นที่ผิดตอบ <strong>4</strong> เพราะทรงที่ต้องใช้
+          ถูกตัดทิ้งไปตั้งแต่เงื่อนไขของลูป
+        </p>
+        <p>
+          และย้ำอีกครั้งว่ารุ่นนี้<strong>ตอบตัวอย่างในโจทย์ถูก</strong> ตัวอย่างของโจทย์เขียนมาเพื่ออธิบายโจทย์
+          ไม่ได้เขียนมาเพื่อจับผิดโปรแกรมของเรา
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ตาราง {fmt(M_MAX)} คูณ {fmt(M_MAX)} ที่ <code>K</code> เท่ากับ 50
+      ใช้เวลา <strong>0.53 วินาที</strong> จากลิมิต 1.5 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าของข้อนี้คือ<strong>เปลี่ยนคำถามจากเลือกของ เป็นเลือกเส้นแบ่ง</strong>
+    เวลาโจทย์ให้เลือกสี่เหลี่ยมหลายอันที่ไม่ทับกัน ให้ถามก่อนว่ามันมีเส้นแบ่งที่ต้องมีอยู่เสมอไหม
+    ถ้ามี จำนวนทรงของการวางจะเป็นเลขคงที่เล็ก ๆ แล้วปัญหาจะยุบเหลือการไล่ตำแหน่งเส้น
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; ผลรวมสะสมสองมิติ</p>
+    <p>
+      ตารางผลรวมสะสมสร้างด้วยสูตร <code>P(i,j) = a(i,j) + P(i-1,j) + P(i,j-1) - P(i-1,j-1)</code>
+      ที่ต้องลบตัวสุดท้ายเพราะสี่เหลี่ยมสองผืนที่บวกเข้ามาซ้อนทับกันอยู่หนึ่งผืน
+      พอมีตารางนี้แล้ว ผลรวมของสี่เหลี่ยมใด ๆ คิดได้ด้วยการบวกลบสี่ตัว
+    </p>
+    <p>
+      เรื่องนี้มีบทปูพื้นอยู่แล้วที่ <a href="/cp/prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a>
+      ซึ่งอธิบายทั้งกรณีมิติเดียวและการต่อยอดไปเป็นโครงสร้างที่แก้ค่าระหว่างทางได้
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทั้งสองแถวนับจำนวนครั้งที่ต้องหยิบตัวเลขขึ้นมาดูเหมือนกัน แถวบนโตเป็นกำลังสามของจำนวนตำแหน่ง จึงตายตั้งแต่ตารางขนาดสองหลัก ส่วนแถวล่างเดินทั้งตารางไม่กี่รอบ คือหกรอบสำหรับหกทรง บวกอีกไม่กี่รอบสำหรับตารางมุม</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    สี่เหลี่ยมสามอันที่ไม่ทับกัน ลากเส้นแบ่งเต็มกระดานได้เสมอ
+    การเลือกสามบล็อกจึงกลายเป็นการเลือกเส้นตัด ซึ่งมีแค่หกทรง
+    และแต่ละส่วนที่ได้ก็ถามค่าที่ดีที่สุดจากตารางมุมได้ในเวลาคงที่
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Oil</i> บน programming.in.th ข้อ 2027
+      <a href="https://programming.in.th/tasks/2027" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2027
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>ต้นทางของโจทย์คือ <i>Asia-Pacific Informatics Olympiad 2009</i></li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.oilrec{width:auto !important;table-layout:fixed;}
+  table.rec.oilrec th:nth-child(1), table.rec.oilrec td:nth-child(1){width:6rem;}
+  table.rec.oilrec th:nth-child(2), table.rec.oilrec td:nth-child(2){width:18rem;}
+  table.rec.oilrec th:nth-child(3), table.rec.oilrec td:nth-child(3){width:8rem;}
+  .oil-lbl{display:block;width:0;min-width:100%;}
+  table.rec.oilrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.oilrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.oilrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+  table.rec.oilrec td.num.oil-win{color:#4ade80;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .oil-board{display:grid;gap:0.2rem;justify-content:center;margin:0.2rem auto 0.6rem;}
+  .oil-cell{
+    width:2.2rem;height:2.2rem;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.74rem;
+    border-radius:5px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    padding:0;
+  }
+  .oil-cell.b0{background:#163a2a;border-color:#2f9e5c;color:#eaf2ff;}
+  .oil-cell.b1{background:#12233a;border-color:#3d6ea5;color:#eaf2ff;}
+  .oil-cell.b2{background:#3a2f16;border-color:#d8b25a;color:#eaf2ff;}
+  .oil-cell.corner{font-weight:700;text-decoration:underline;}
+  @media (prefers-reduced-motion: reduce){
+    .oil-cell{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type OilPuzzle = { id: string; label: string; tease: string; K: number; g: number[][]; best: number };
+
+  function initOilGame(): void {
+    const maybeUi = cpGameUi('[data-oilgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as OilPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let picks: { r: number; c: number }[] = [];
+
+    const pz = (): OilPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-oil-board]'));
+
+    const sumOf = (p: OilPuzzle, r: number, c: number): number => {
+      let s = 0;
+      for (let i = 0; i < p.K; i++) for (let j = 0; j < p.K; j++) s += p.g[r + i][c + j];
+      return s;
+    };
+    const overlap = (p: OilPuzzle, a: { r: number; c: number }, b: { r: number; c: number }): boolean =>
+      !(a.r + p.K <= b.r || b.r + p.K <= a.r || a.c + p.K <= b.c || b.c + p.K <= a.c);
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-oil-cell]'))) {
+        const parts = (btn.dataset.oilCell ?? '').split(':');
+        const r = Number(parts[1]);
+        const c = Number(parts[2]);
+        btn.classList.remove('b0', 'b1', 'b2', 'corner');
+        picks.forEach((q, idx) => {
+          if (r >= q.r && r < q.r + p.K && c >= q.c && c < q.c + p.K) {
+            btn.classList.add(`b${idx}`);
+            if (r === q.r && c === q.c) btn.classList.add('corner');
+          }
+        });
+      }
+      const total = picks.reduce((acc, q) => acc + sumOf(p, q.r, q.c), 0);
+      ui.setScore(`วางแล้ว ${picks.length} จาก 3 บล็อก รวมได้ ${total}`);
+    }
+
+    function place(r: number, c: number): void {
+      const p = pz();
+      const at = picks.findIndex((q) => q.r === r && q.c === c);
+      if (at >= 0) {
+        picks.splice(at, 1);
+        render();
+        return;
+      }
+      if (r + p.K > p.g.length || c + p.K > p.g[0].length) {
+        ui.setStatus(`บล็อกขนาด ${p.K} คูณ ${p.K} วางตรงนี้แล้วล้นขอบตาราง`, 'bad');
+        return;
+      }
+      if (picks.length >= 3) {
+        ui.setStatus('วางครบสามบล็อกแล้ว กดที่บล็อกเดิมเพื่อเอาออกก่อน', 'bad');
+        return;
+      }
+      if (picks.some((q) => overlap(p, q, { r, c }))) {
+        ui.setStatus('บล็อกนี้ทับกับบล็อกที่วางไว้แล้ว ซึ่งกติกาไม่ให้ทับกันเลย', 'bad');
+        return;
+      }
+      picks.push({ r, c });
+      ui.setStatus('วางแล้ว กดช่องอื่นเพื่อวางบล็อกถัดไป', 'plain');
+      render();
+    }
+
+    function check(): void {
+      const p = pz();
+      if (picks.length < 3) {
+        ui.setStatus('ยังวางไม่ครบสามบล็อก', 'bad');
+        return;
+      }
+      const total = picks.reduce((acc, q) => acc + sumOf(p, q.r, q.c), 0);
+      if (total === p.best) ui.setStatus(`มากที่สุดแล้วครับ ตารางนี้ได้ ${p.best} พอดี`, 'good');
+      else ui.setStatus(`ชุดนี้ได้ ${total} แต่ตารางนี้ทำได้ถึง ${p.best} ลองลากเส้นแบ่งกระดานดูว่ายังเหลือทรงไหนที่ไม่ได้ลอง`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      picks = [];
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดที่ช่องเพื่อวางมุมบนซ้ายของบล็อก วางได้สามบล็อก กดซ้ำที่เดิมเพื่อเอาออก');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const btn = e.target.closest('[data-oil-cell]');
+      if (!(btn instanceof HTMLElement)) return;
+      const parts = (btn.dataset.oilCell ?? '').split(':');
+      place(Number(parts[1]), Number(parts[2]));
+    });
+
+    ui.onClick('data-oil-clear', () => selectPuzzle(pi));
+    ui.onClick('data-oil-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initOilGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-oilsim]');
+  });
+</script>
