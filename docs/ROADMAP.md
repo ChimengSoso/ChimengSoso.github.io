@@ -155,7 +155,7 @@ Written to be criteria the reader can apply elsewhere rather than a recap of the
 
 **Done 2026-09-09.** All three landed. (1) Five pages (`islands`, `pyramid-base`, `teleporters`, `archery`, `sails`) now show the broken code beside the fixed line, each with the minimal failing input found by sweeping small cases against the page's own brute force, and each verified by actually compiling both versions. Four of the five bugs do pass the statement's samples; `sails`'s does not, and its expander says so. (2) The bridge work turned out to be 2 links, not the 13 first estimated: `hearing-pairs` to `prefix-sums` and `pick-books` to `interval-dp`. `archery` deliberately gets none, because both times it names binary search it says that approach does not work there. (3) `CpProblemLayout` gained a floating table of contents that masks the title of any section whose reveal is still locked, and unmasks it the moment the reader opens that reveal. The conventions this produced are written up in `CLAUDE.md`; `docs/cp-reader-improvements-plan.html` holds the working notes and can be deleted.
 
-**Still open, both small:** `sails` aside, nothing from item 1 remains. `brute_tele.cpp` on `/cp/teleporters` carries a dead `bool ok = true;` that is never set false, spotted in passing and left alone. And the vault mixes `href="../slug/"` with `href="/cp/slug/"` with no rule; the owner has not said whether to unify them, so audits must keep counting both forms.
+**Closed 2026-09-09.** The dead `bool ok = true;` in `brute_tele.cpp` on `/cp/teleporters` is gone, and the owner chose absolute links, so every in-vault link under `src/pages/cp/` is now `href="/cp/<slug>/"` (63 relative ones rewritten, plus the hub's card href). An audit only has to count one form from here on.
 
 ## 12. [x] Two bugs found after item 11 shipped (screenshots, 2026-09-09)
 
@@ -173,4 +173,4 @@ B: masking now applies only to headings that actually contain the ` · ` separat
 
 **One thing that changed during the fix, worth keeping:** the tuck was first written with an `IntersectionObserver`, and a control test showed that a fresh observer on a plainly-visible element never fires a callback in the preview pane at all. It was rewritten to a geometry check inside the existing scroll handler, which the pane can exercise by dispatching a `scroll` event. Do not use `IntersectionObserver` for anything that has to be verified in this pane.
 
-**Still open:** `CLAUDE.md`'s architecture note claiming `DivineLoreLayout` has no `<ClientRouter />` is wrong (line 60 renders one) and has not been corrected yet; the two link styles in `/cp/` are still unreconciled; and `brute_tele.cpp` still carries its dead `bool ok`.
+**Closed 2026-09-09.** `CLAUDE.md`'s `DivineLoreLayout` note was corrected in `d0cb37f`, the two `/cp/` link styles are unified on the absolute form, and the dead `bool ok` is removed. Nothing from items 11-12 remains open.
