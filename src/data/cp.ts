@@ -40,6 +40,7 @@ export const CP_TOPICS = [
   'counting',
   'two pointers',
   'binary search',
+  'binary lifting',
   'ad hoc',
   // โครงสร้างข้อมูล
   'stack',
@@ -464,6 +465,17 @@ export const cpProblems: CpProblem[] = [
     difficulty: 4,
     dateISO: '2026-09-09',
     readingMinutes: 13,
+  },
+  {
+    href: 'convention-centre/',
+    setId: 'programming-in-th',
+    label: '2028',
+    title: 'ห้องประชุมเมืองสิรุเสรี: จำนวนมากที่สุดเป็นแค่ครึ่งเดียวของโจทย์',
+    desc: 'อีกครึ่งคือต้องได้ชุดที่หมายเลขเล็กที่สุดตามพจนานุกรม บทนี้เปลี่ยนคำถามระดับทั้งชุด ให้เป็นคำถามระดับช่องว่างเดียวที่งานนั้นตกอยู่ แล้วตอบมันด้วยตารางกระโดดสองยกกำลัง',
+    topics: ['greedy', 'binary lifting'],
+    difficulty: 5,
+    dateISO: '2026-09-09',
+    readingMinutes: 14,
   },
 ];
 
