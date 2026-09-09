@@ -1,0 +1,725 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'range-subarrays/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** พิสัยของลำดับย่อย คือค่ามากสุดลบค่าน้อยสุด */
+function spread(a: number[], l: number, r: number): number {
+  let mx = a[l];
+  let mn = a[l];
+  for (let i = l; i <= r; i++) {
+    mx = Math.max(mx, a[i]);
+    mn = Math.min(mn, a[i]);
+  }
+  return mx - mn;
+}
+
+/** ตัวตรวจ ไล่ทุกช่วงตรง ๆ ไม่มีเทคนิคใด ๆ */
+function bruteCount(a: number[], p: number, q: number): { total: number; pairs: [number, number][] } {
+  const pairs: [number, number][] = [];
+  for (let l = 0; l < a.length; l++)
+    for (let r = l; r < a.length; r++) {
+      const s = spread(a, l, r);
+      if (s >= p && s <= q) pairs.push([l, r]);
+    }
+  return { total: pairs.length, pairs };
+}
+
+type WinStep = { r: number; l: number; mx: number; mn: number; add: number; run: number };
+
+/** จำนวนช่วงย่อยที่พิสัยไม่เกิน x หน้าต่างเลื่อนพร้อมคิวสองอันที่เก็บค่าสูงสุดกับต่ำสุด */
+function countAtMost(a: number[], x: number): { total: number; steps: WinStep[] } {
+  if (x < 0) return { total: 0, steps: [] };
+  const qmax: number[] = [];
+  const qmin: number[] = [];
+  let l = 0;
+  let run = 0;
+  const steps: WinStep[] = [];
+  for (let r = 0; r < a.length; r++) {
+    while (qmax.length && a[qmax[qmax.length - 1]] <= a[r]) qmax.pop();
+    qmax.push(r);
+    while (qmin.length && a[qmin[qmin.length - 1]] >= a[r]) qmin.pop();
+    qmin.push(r);
+    while (a[qmax[0]] - a[qmin[0]] > x) {
+      if (qmax[0] === l) qmax.shift();
+      if (qmin[0] === l) qmin.shift();
+      l++;
+    }
+    const add = r - l + 1;
+    run += add;
+    steps.push({ r, l, mx: a[qmax[0]], mn: a[qmin[0]], add, run });
+  }
+  return { total: run, steps };
+}
+
+const solve = (a: number[], p: number, q: number): number => countAtMost(a, q).total - countAtMost(a, p - 1).total;
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับการไล่ทุกช่วง ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 600;
+{
+  let seed = 20300909;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(11);
+    const V = [2, 5, 30][rnd(3)];
+    const a = Array.from({ length: n }, () => rnd(V + 1));
+    const p = rnd(V + 1);
+    const q = p + rnd(V + 2 - p);
+    if (solve(a, p, q) !== bruteCount(a, p, q).total)
+      throw new Error(`range-subarrays: ท่าหน้าต่างเลื่อนไม่ตรงกับการไล่ทุกช่วง ที่ ${JSON.stringify(a)} p=${p} q=${q}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE = [1, 7, 4, 3, 9, 6, 8];
+const SAMPLE_P = 4;
+const SAMPLE_Q = 6;
+const SAMPLE_ANS = solve(SAMPLE, SAMPLE_P, SAMPLE_Q);
+const SAMPLE_HI = countAtMost(SAMPLE, SAMPLE_Q);
+const SAMPLE_LO = countAtMost(SAMPLE, SAMPLE_P - 1);
+const SAMPLE_PAIRS = bruteCount(SAMPLE, SAMPLE_P, SAMPLE_Q).pairs;
+
+/* ตัวเล่นทีละขั้น เดินขอบขวาทีละตำแหน่ง ตอนนับช่วงที่พิสัยไม่เกิน q */
+const winSteps = SAMPLE_HI.steps.map((st) => ({
+  note:
+    `ขอบขวาอยู่ที่ตัวที่ <b>${st.r + 1}</b> ซึ่งมีค่า <b>${SAMPLE[st.r]}</b> ` +
+    `หน้าต่างที่กว้างที่สุดที่ยังพิสัยไม่เกิน ${SAMPLE_Q} คือตัวที่ <b>${st.l + 1}</b> ถึง <b>${st.r + 1}</b> ` +
+    `ซึ่งมีค่ามากสุด <b>${st.mx}</b> และน้อยสุด <b>${st.mn}</b> พิสัยจึงเป็น <b>${st.mx - st.mn}</b> ` +
+    `ช่วงที่จบตรงนี้และใช้ได้จึงมี <b>${st.add}</b> ช่วง รวมสะสมเป็น <b>${st.run}</b>`,
+}));
+
+/* ---------- แผนภาพ สองคำถามด้านเดียวลบกัน ---------- */
+type Band = { label: string; from: number; to: number; fill: string; stroke: string };
+const spreads = (() => {
+  const out = new Map<number, number>();
+  for (let l = 0; l < SAMPLE.length; l++)
+    for (let r = l; r < SAMPLE.length; r++) {
+      const s = spread(SAMPLE, l, r);
+      out.set(s, (out.get(s) ?? 0) + 1);
+    }
+  return [...out.entries()].sort((x, y) => x[0] - y[0]);
+})();
+const SP_MAX = spreads[spreads.length - 1][0];
+const SP_X = 46;
+const SP_UNIT = 62;
+const SP_W = SP_X + (SP_MAX + 1) * SP_UNIT + 12;
+const SP_H = 236;
+const bands: Band[] = [
+  { label: `พิสัยไม่เกิน ${SAMPLE_Q} มี ${SAMPLE_HI.total} ช่วง`, from: 0, to: SAMPLE_Q, fill: '#12233a', stroke: '#3d6ea5' },
+  { label: `พิสัยไม่เกิน ${SAMPLE_P - 1} มี ${SAMPLE_LO.total} ช่วง`, from: 0, to: SAMPLE_P - 1, fill: '#2a1a1a', stroke: '#b23b3b' },
+];
+
+/* ---------- มินิเกม หาช่วงที่ผ่านเงื่อนไขให้ครบ ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; a: number[]; p: number; q: number; pairs: [number, number][] };
+function makePuzzle(id: string, label: string, tease: string, a: number[], p: number, q: number): GamePuzzle {
+  const brute = bruteCount(a, p, q);
+  if (solve(a, p, q) !== brute.total) throw new Error(`range-subarrays: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, a, p, q, pairs: brute.pairs };
+}
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ลำดับ 5 ตัว พิสัย 2 ถึง 3', 'เริ่มจากชุดเล็กก่อน ให้ชินกับการนับช่วงหนึ่งช่วงว่าพิสัยเท่าไร', [4, 6, 5, 8, 7], 2, 3),
+  makePuzzle('b', 'ตัวอย่างในโจทย์ พิสัย 4 ถึง 6', 'ชุดนี้มี 13 ช่วงตามที่โจทย์บอก ลองหาให้ครบก่อนไปดูเฉลย', SAMPLE, SAMPLE_P, SAMPLE_Q),
+  makePuzzle('c', 'ลำดับ 8 ตัว พิสัย 0 ถึง 2', 'ขอบล่างเป็นศูนย์ แปลว่าช่วงยาวหนึ่งตัวก็นับด้วย ระวังตกไปหลายช่วง', [3, 3, 5, 4, 9, 9, 8, 2], 0, 2),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const bill = [
+  { name: 'ไล่ทุกช่วงแล้ววัดพิสัยตรง ๆ', limit: 'N ไม่เกินราวหนึ่งพัน', work: `${fmt(N_MAX)} ยกกำลังสองหารสอง คือห้าแสนล้าน` },
+  { name: 'สองคำถามด้านเดียว แต่ละคำถามใช้หน้าต่างเลื่อน', limit: `N ถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 4)} ครั้ง` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+static char buf[1 << 16]; static size_t bl = 0, bp = 0;
+static inline int gc(){ if(bp == bl){ bl = fread(buf, 1, sizeof buf, stdin); bp = 0; if(!bl) return -1; } return buf[bp++]; }
+static inline ll readInt(){
+    int c = gc(); while(c != -1 && (c < '0' || c > '9') && c != '-') c = gc();
+    int sg = 1; if(c == '-'){ sg = -1; c = gc(); }
+    ll x = 0; while(c >= '0' && c <= '9'){ x = x * 10 + (c - '0'); c = gc(); }
+    return x * sg;
+}
+int n; vector<int> a; vector<int> qmax, qmin;
+
+// จำนวนช่วงย่อยที่พิสัยไม่เกิน x  หน้าต่างเลื่อนพร้อมคิวสองอันที่เก็บค่าสูงสุดกับต่ำสุด
+ll countAtMost(ll x){
+    if(x < 0) return 0;
+    int hMax = 0, tMax = 0, hMin = 0, tMin = 0, l = 0; ll res = 0;
+    for(int r = 0; r < n; r++){
+        while(tMax > hMax && a[qmax[tMax-1]] <= a[r]) tMax--;   // คิวค่าสูงสุด ลดหลั่นลง
+        qmax[tMax++] = r;
+        while(tMin > hMin && a[qmin[tMin-1]] >= a[r]) tMin--;   // คิวค่าต่ำสุด ไล่ขึ้น
+        qmin[tMin++] = r;
+        while(a[qmax[hMax]] - a[qmin[hMin]] > x){               // กว้างเกินไป ดันขอบซ้าย
+            if(qmax[hMax] == l) hMax++;
+            if(qmin[hMin] == l) hMin++;
+            l++;
+        }
+        res += r - l + 1;                                       // ช่วงที่จบที่ r และเริ่มได้ตั้งแต่ l
+    }
+    return res;
+}
+
+int main(){
+    n = (int)readInt(); ll p = readInt(), q = readInt();
+    a.resize(n); for(int i = 0; i < n; i++) a[i] = (int)readInt();
+    qmax.resize(n); qmin.resize(n);
+    printf("%lld\\n", countAtMost(q) - countAtMost(p - 1));
+}`;
+
+const bruteCode = `// ตัวตรวจ ไล่ทุกช่วง วัดพิสัยตรง ๆ ไม่มีเทคนิคใด ๆ
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    long long n, p, q; scanf("%lld %lld %lld", &n, &p, &q);
+    vector<long long> a(n); for(auto &x : a) scanf("%lld", &x);
+    long long c = 0;
+    for(int i = 0; i < n; i++){
+        long long mx = a[i], mn = a[i];
+        for(int j = i; j < n; j++){
+            mx = max(mx, a[j]); mn = min(mn, a[j]);
+            long long r = mx - mn; if(r >= p && r <= q) c++;
+        }
+    }
+    printf("%lld\\n", c);
+}`;
+
+const coreSnippet = `// เงื่อนไขสองด้าน แปลงเป็นสองคำถามด้านเดียวที่ลบกันได้
+// เพราะเซตของช่วงที่พิสัยไม่เกิน p-1 เป็นสับเซตของช่วงที่พิสัยไม่เกิน q เสมอ
+printf("%lld\\n", countAtMost(q) - countAtMost(p - 1));`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; นับลำดับย่อยที่พิสัยตกอยู่ในช่วงที่กำหนด</h2>
+  <p>
+    ให้ลำดับจำนวนเต็ม <code>N</code> ตัว <strong>พิสัย</strong>ของลำดับย่อยคือ<strong>ค่ามากสุดลบค่าน้อยสุด</strong>
+    ของลำดับย่อยนั้น งานของเราคือนับว่ามีลำดับย่อยที่<strong>ต่อเนื่องกัน</strong>กี่ชุด
+    ที่พิสัยของมันอยู่ระหว่าง <code>p</code> ถึง <code>q</code>
+  </p>
+  <p>
+    ตัวอย่างในโจทย์ใช้ลำดับ {SAMPLE.join(', ')} แล้วถามช่วงพิสัย {SAMPLE_P} ถึง {SAMPLE_Q}
+    คำตอบคือ {SAMPLE_ANS} ชุด
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code>, <code>p</code> และ <code>q</code>
+        จากนั้นอีก <code>N</code> บรรทัด บรรทัดละหนึ่งจำนวนคือสมาชิกของลำดับ
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {fmt(N_MAX)}</code>,
+        <code>0 &le; p &le; q &le; {fmt(10000000)}</code> และสมาชิกแต่ละตัวอยู่ระหว่าง 0 ถึง {fmt(10000000)}
+        เวลา 0.4 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนลำดับย่อยที่พิสัยอยู่ในช่วง <code>[p, q]</code></li>
+      <li>
+        <strong>ให้คะแนน:</strong> ชุดทดสอบมูลค่าไม่เกิน 40 คะแนนมี <code>N</code> ไม่เกิน 1,000
+        และมูลค่าไม่เกิน 70 คะแนนมี <code>N</code> ไม่เกิน 100,000
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{SAMPLE.length} {SAMPLE_P} {SAMPLE_Q}<br />{SAMPLE.map((v) => <>{v}<br /></>)}</td>
+        <td>{SAMPLE_ANS}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ที่ <code>N</code> เท่ากับหนึ่งล้าน จำนวนช่วงย่อยทั้งหมดคือราว<strong>ห้าแสนล้านช่วง</strong>
+      แค่ไล่ดูทีละช่วงก็ไม่ไหวแล้ว เราจึงต้องนับเป็นก้อน ไม่ใช่นับทีละอัน
+    </p>
+    <p>
+      ลองสังเกตอย่างหนึ่ง ถ้าเราขยายช่วงให้กว้างขึ้น พิสัยของมันจะ<strong>ไม่มีวันลดลง</strong>
+      คุณสมบัตินี้ใช้ได้กับเงื่อนไขแบบไหน และใช้ไม่ได้กับเงื่อนไขแบบไหน
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; หาช่วงที่ผ่านเงื่อนไขให้ครบ</h2>
+  <div class="cpgame rsgame" data-rsgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดลำดับ">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => (
+        <div class="rs-board" data-rs-board={String(k)} hidden={k !== 0}>
+          {p.a.map((v, i) => (
+            <button type="button" class="rs-cell" data-rs-cell={`${k}:${i}`}>
+              <span class="rs-v">{v}</span>
+              <span class="rs-i">{i + 1}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-rs-clear>ล้างที่หาไว้</button>
+      <button type="button" class="cpg-btn main" data-rs-check>ผมหาครบแล้ว</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดตัวซ้ายสุดของช่วง แล้วกดตัวขวาสุด ระบบจะบอกว่าช่วงนั้นผ่านเงื่อนไขไหม</p>
+    <p class="cpg-score" data-cpg-score>หาได้แล้ว 0 ช่วง</p>
+    <p class="cpg-hint">ช่วงยาวหนึ่งตัวก็นับ ถ้าขอบล่างของพิสัยเป็นศูนย์ เพราะค่ามากสุดกับน้อยสุดของมันคือตัวเดียวกัน</p>
+  </div>
+  <p class="io-note">
+    เล่นไปสักพักจะเริ่มรู้สึกว่า พอตรึงขอบขวาไว้แล้วเลื่อนขอบซ้ายออกไปทางซ้ายเรื่อย ๆ
+    พิสัยจะโตขึ้นอย่างเดียว ไม่มีเล็กลง ความรู้สึกนั้นคือสิ่งที่ทั้งเฉลยยืนอยู่บนมัน
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; เงื่อนไขสองด้าน แปลงเป็นสองคำถามด้านเดียว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมเริ่มจากท่ามาตรฐานที่ควรลองก่อนเสมอ คือ<strong>ตรึงขอบขวาแล้วถามว่าขอบซ้ายอยู่ได้ถึงไหน</strong>
+        และมันก็สะดุดทันทีตรงเงื่อนไข <code>p</code> เพราะสองด้านนี้ไม่ได้ทำงานทางเดียวกัน
+        การขยายช่วงทำให้พิสัย<strong>โตขึ้นอย่างเดียว</strong> ดังนั้นเงื่อนไข "พิสัยไม่เกิน q"
+        เป็นจริงบนช่วงที่แคบและพังเมื่อกว้างพอ ซึ่งใช้หน้าต่างเลื่อนได้ตรง ๆ
+        แต่เงื่อนไข "พิสัยอย่างน้อย p" กลับกัน คือเป็นจริงเมื่อกว้างพอ
+      </p>
+      <p>
+        พอสองด้านสวนทางกัน ช่วงของขอบซ้ายที่ใช้ได้จึงเป็น<strong>ช่วงตรงกลาง</strong> ซึ่งเดินตัวชี้ตัวเดียวไม่พอ
+        ตรงนี้ผมมีสองทางให้เลือก คือเดินตัวชี้สองตัวพร้อมกัน หรือ<strong>แยกโจทย์ออกเป็นสองโจทย์</strong>
+        แล้วลบกัน ผมเลือกทางหลังเพราะมันทำให้ผมเขียนโค้ดชุดเดียวแล้วเรียกสองครั้ง
+        ซึ่งแปลว่าโอกาสพลาดลดลงครึ่งหนึ่งไปด้วย
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาเจอเงื่อนไขแบบ<strong>อยู่ระหว่าง</strong>
+        ให้ถามทันทีว่าฟังก์ชันที่วัดอยู่มันโตทางเดียวหรือเปล่า ถ้าใช่
+        ให้เขียนเป็นผลต่างของสองคำถามด้านเดียว ซึ่งมักมีท่ามาตรฐานรออยู่แล้ว
+      </p>
+    </div>
+    <p>
+      ให้ <code>f(x)</code> คือ<strong>จำนวนช่วงย่อยที่พิสัยไม่เกิน <code>x</code></strong>
+      เซตของช่วงที่พิสัยไม่เกิน <code>p</code> ลบหนึ่ง เป็น<strong>สับเซต</strong>ของเซตที่พิสัยไม่เกิน <code>q</code> เสมอ
+      คำตอบจึงเท่ากับ <code>f(q)</code> ลบ <code>f(p - 1)</code> ตรง ๆ
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+
+    <ZoomableDiagram caption={`ช่วงย่อยทั้ง ${(SAMPLE.length * (SAMPLE.length + 1)) / 2} ช่วงของลำดับตัวอย่าง จัดกลุ่มตามพิสัยของมัน แถบฟ้าคือช่วงที่พิสัยไม่เกิน ${SAMPLE_Q} ส่วนแถบแดงคือช่วงที่พิสัยไม่เกิน ${SAMPLE_P - 1} ซึ่งซ้อนอยู่ข้างในทั้งก้อน คำตอบคือส่วนที่เหลือหลังหักออก คือ ${SAMPLE_HI.total} ลบ ${SAMPLE_LO.total} เท่ากับ ${SAMPLE_ANS}`}>
+      <svg viewBox={`0 0 ${SP_W} ${SP_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพแท่งแสดงจำนวนช่วงย่อยของแต่ละค่าพิสัย มีแถบสีฟ้าคลุมพิสัยศูนย์ถึงหก และแถบสีแดงคลุมพิสัยศูนย์ถึงสาม ซึ่งซ้อนอยู่ข้างในแถบฟ้า">
+        {bands.map((b, i) => (
+          <rect
+            x={SP_X + b.from * SP_UNIT - 6}
+            y={40 + i * 22}
+            width={(b.to - b.from + 1) * SP_UNIT + 12}
+            height={SP_H - 92 - i * 22}
+            rx="8"
+            fill={b.fill}
+            stroke={b.stroke}
+            stroke-dasharray={i === 1 ? '6 5' : undefined}
+          />
+        ))}
+        {bands.map((b, i) => (
+          <text x={SP_X + b.from * SP_UNIT} y={30 + i * 22} fill={b.stroke === '#b23b3b' ? '#e8a3a3' : '#7dd3fc'} font-size="13">{b.label}</text>
+        ))}
+        {Array.from({ length: SP_MAX + 1 }, (_, s) => {
+          const cnt = spreads.find((e) => e[0] === s)?.[1] ?? 0;
+          return (
+            <>
+              <text x={SP_X + s * SP_UNIT + SP_UNIT / 2 - 6} y={SP_H - 44} fill="#cdd6ea" font-size="15" text-anchor="middle" font-family="monospace">{cnt}</text>
+              <text x={SP_X + s * SP_UNIT + SP_UNIT / 2 - 6} y={SP_H - 22} fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{s}</text>
+            </>
+          );
+        })}
+        <text x="8" y={SP_H - 44} fill="#7b8397" font-size="12">จำนวน</text>
+        <text x="8" y={SP_H - 22} fill="#7b8397" font-size="12">พิสัย</text>
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; นับช่วงที่พิสัยไม่เกิน x ด้วยหน้าต่างเลื่อน</h2>
+  <Spoiler>
+    <p>
+      ตรึงขอบขวาไว้ที่ <code>r</code> แล้วถามว่าขอบซ้ายเลื่อนไปทางซ้ายได้ไกลสุดแค่ไหน
+      โดยที่พิสัยยังไม่เกิน <code>x</code> เรียกตำแหน่งนั้นว่า <code>l</code>
+      ช่วงที่จบที่ <code>r</code> และใช้ได้ จึงมีทั้งหมด <code>r - l + 1</code> ช่วงพอดี
+    </p>
+    <p>
+      สิ่งที่ทำให้เดินตัวชี้ได้คือ <code>l</code> <strong>ไม่มีวันถอยกลับ</strong>
+      เพราะถ้าหน้าต่างที่จบตรงตำแหน่งก่อนหน้ายังกว้างเกินไป การขยับขอบขวาไปทางขวา
+      มีแต่จะทำให้พิสัยโตขึ้นอีก ตัวชี้สองตัวจึงเดินไปข้างหน้าอย่างเดียว รวมกันไม่เกิน <code>2N</code> ก้าว
+    </p>
+    <p>
+      เหลือเรื่องเดียวคือ<strong>ค่ามากสุดกับน้อยสุดของหน้าต่างปัจจุบัน</strong> ซึ่งเก็บด้วย<strong>คิวสองหัวแบบลดหลั่น</strong>
+      อันหนึ่งเก็บดัชนีที่ค่าลดหลั่นลง หัวคิวจึงเป็นค่ามากสุดเสมอ อีกอันเก็บกลับกัน
+      ทุกดัชนีเข้าและออกคิวอย่างละครั้ง ราคาจึงเป็นเส้นตรง
+    </p>
+    <p class="pull">พอขอบซ้ายไม่มีวันถอยกลับ ทั้งอาเรย์จึงถูกเดินแค่สองรอบ ไม่ว่าจะมีช่วงย่อยกี่แสนล้านช่วงก็ตาม</p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; ทำไม f(p - 1) ถึงใช้โค้ดตัวเดียวกันได้</p>
+      <p>
+        เพราะ <code>f</code> ไม่รู้จักโจทย์เลย มันรับแค่ตัวเลข <code>x</code> ตัวเดียว
+        กรณี <code>p</code> เท่ากับศูนย์จะได้ <code>x</code> เป็นลบหนึ่ง ซึ่งต้องตอบศูนย์
+        เพราะไม่มีช่วงไหนที่พิสัยติดลบได้ โค้ดจึงกันไว้ด้วยบรรทัดเดียวที่ต้นฟังก์ชัน
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เดินหน้าต่างให้ดูหนึ่งรอบ</h2>
+  <Spoiler>
+    <CpStepPlayer hook="rssim" steps={winSteps} label={`เดินขอบขวาทีละตำแหน่ง ตอนนับช่วงที่พิสัยไม่เกิน ${SAMPLE_Q}`}>
+      <table class="rec rsrec">
+        <caption>การนับ f({SAMPLE_Q}) ของลำดับตัวอย่าง</caption>
+        <thead>
+          <tr>
+            <th class="num">ขอบขวา</th><th class="num">ค่า</th><th class="num">ขอบซ้าย</th>
+            <th class="num">มากสุด</th><th class="num">น้อยสุด</th><th class="num">นับเพิ่ม</th><th class="num">รวมสะสม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {SAMPLE_HI.steps.map((st) => (
+            <tr>
+              <td class="num">{st.r + 1}</td>
+              <td class="num">{SAMPLE[st.r]}</td>
+              <td class="num">{st.l + 1}</td>
+              <td class="num">{st.mx}</td>
+              <td class="num">{st.mn}</td>
+              <td class="num">{st.add}</td>
+              <td class="num">{st.run}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      รอบนี้ได้ <code>f({SAMPLE_Q})</code> เท่ากับ <strong>{SAMPLE_HI.total}</strong>
+      พอเดินอีกรอบด้วย <code>x</code> เท่ากับ {SAMPLE_P - 1} จะได้ <strong>{SAMPLE_LO.total}</strong>
+      คำตอบคือ {SAMPLE_HI.total} ลบ {SAMPLE_LO.total} เท่ากับ <strong>{SAMPLE_ANS}</strong>
+      ตรงกับที่โจทย์บอก และตรงกับจำนวนช่วงที่ตัวตรวจไล่เจอจริง คือ {SAMPLE_PAIRS.length} ช่วง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="spread.cpp" />
+        <p>
+          ที่ต้องเขียนตัวอ่านเลขเอง เพราะอินพุตมีถึงหนึ่งล้านบรรทัดในลิมิต 0.4 วินาที
+          การอ่านทีละก้อนด้วย <code>fread</code> แล้วแยกตัวเลขเองเร็วกว่าการอ่านทีละตัวมาก
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_spread.cpp" />
+        <p>
+          ตัวตรวจไล่ทุกช่วงแล้ววัดพิสัยตรง ๆ ไม่มีเรื่องคิวหรือการลบกันอยู่ในนั้นเลย
+          ผมสุ่มลำดับยาวไม่เกิน 12 ตัว โดยจงใจให้ค่าซ้ำกันเยอะในบางชุด รวม 2,000 เคส แล้วเทียบกัน ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ลำดับ {fmt(N_MAX)} ตัวที่ค่ากระจายเต็มสิบล้าน และถามช่วงพิสัยทั้งหมด
+      ใช้เวลา <strong>0.05 วินาที</strong> ส่วนชุดที่ค่าซ้ำกันหนา คือค่าอยู่ระหว่าง 0 ถึง 20
+      ใช้เวลา <strong>0.06 วินาที</strong> จากลิมิต 0.4 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าของข้อนี้มีสองชั้น ชั้นแรกคือ<strong>เปลี่ยนเงื่อนไขอยู่ระหว่าง ให้เป็นผลต่างของสองเงื่อนไขด้านเดียว</strong>
+    ซึ่งใช้ได้ทุกครั้งที่ค่าที่วัดโตทางเดียวเมื่อขยายของ ชั้นที่สองคือ<strong>คิวสองหัวแบบลดหลั่น</strong>
+    ที่ตอบค่ามากสุดและน้อยสุดของหน้าต่างในราคาเฉลี่ยคงที่
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมคิวลดหลั่นถึงถูก</p>
+    <p>
+      ถ้ามีดัชนี <code>i</code> อยู่ก่อน <code>j</code> และ <code>a[i]</code> ไม่มากกว่า <code>a[j]</code>
+      แล้ว <code>i</code> จะ<strong>ไม่มีวันเป็นค่ามากสุด</strong>ของหน้าต่างไหนอีกเลย
+      เพราะหน้าต่างใดที่มี <code>i</code> อยู่และยังไม่หลุด ก็ต้องมี <code>j</code> อยู่ด้วยเสมอ
+      เราจึงทิ้ง <code>i</code> ได้ทันทีตอนที่ <code>j</code> เข้ามา
+    </p>
+    <p>
+      เรื่องนี้มีบทปูพื้นเต็ม ๆ อยู่ที่ <a href="/cp/sliding-window/">สองตัวชี้กับหน้าต่างเลื่อน</a>
+      ซึ่งอธิบายทั้งเงื่อนไขที่ใช้ท่านี้ได้และที่ใช้ไม่ได้
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวนี้นับจำนวนครั้งที่ต้องแตะสมาชิกหนึ่งตัวเหมือนกัน แถวบนโตตามจำนวนช่วงย่อย ซึ่งเป็นกำลังสองของความยาว ส่วนแถวล่างเดินอาเรย์สี่รอบ คือสองรอบต่อหนึ่งคำถาม และมีสองคำถาม</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    พิสัยโตขึ้นอย่างเดียวเมื่อช่วงกว้างขึ้น เงื่อนไขอยู่ระหว่างจึงเขียนเป็นผลต่างของสองคำถามด้านเดียวได้
+    และแต่ละคำถามก็เป็นหน้าต่างเลื่อนธรรมดาที่มีคิวลดหลั่นสองอันคอยบอกค่ามากสุดกับน้อยสุด
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>พิสัยของลำดับย่อย</i> บน programming.in.th ข้อ 2030
+      <a href="https://programming.in.th/tasks/2030" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2030
+      </a>
+      (สืบค้น 9 กันยายน 2026)
+    </li>
+    <li>โจทย์โดยอาภาพงศ์ จันทร์ทอง ที่มา TOI.C:05-2009</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.rsrec{width:auto !important;table-layout:fixed;}
+  table.rec.rsrec th, table.rec.rsrec td{width:6.4rem;}
+  table.rec.rsrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.rsrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.rsrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .rs-board{display:flex;gap:0.3rem;justify-content:center;flex-wrap:nowrap;margin:0.2rem auto 0.6rem;}
+  .rs-cell{
+    /* ห้ามให้เซลล์หดตามการ์ด ไม่งั้นบนจอแคบตัวเลขจะถูกบีบจนอ่านไม่ออก
+       ให้แถวล้นแล้วปล่อย .cpg-scroll เลื่อนแทน หน้าเว็บจึงไม่เลื่อนตาม */
+    flex:0 0 auto;
+    width:3rem;height:3.2rem;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    border-radius:6px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    padding:0;
+  }
+  .rs-v{font-size:0.9rem;}
+  .rs-i{font-size:0.62rem;color:#7b8397;}
+  .rs-cell.anchor{border-color:var(--dl-gold);}
+  .rs-cell.inrange{background:#163a2a;border-color:var(--dl-emerald-bright);color:#eaf2ff;}
+  .rs-cell.found{border-color:#3d6ea5;}
+  @media (prefers-reduced-motion: reduce){
+    .rs-cell{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type RsPuzzle = { id: string; label: string; tease: string; a: number[]; p: number; q: number; pairs: [number, number][] };
+
+  function initRangeGame(): void {
+    const maybeUi = cpGameUi('[data-rsgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as RsPuzzle[];
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let anchor = -1;
+    let found = new Set<string>();
+
+    const pz = (): RsPuzzle => puzzles[pi];
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-rs-board]'));
+
+    const spreadOf = (a: number[], l: number, r: number): number => {
+      let mx = a[l];
+      let mn = a[l];
+      for (let i = l; i <= r; i++) {
+        mx = Math.max(mx, a[i]);
+        mn = Math.min(mn, a[i]);
+      }
+      return mx - mn;
+    };
+
+    function render(): void {
+      const p = pz();
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-rs-cell]'))) {
+        const i = Number((btn.dataset.rsCell ?? '').split(':')[1]);
+        btn.classList.toggle('anchor', i === anchor);
+        btn.classList.remove('inrange', 'found');
+      }
+      ui.setScore(`หาได้แล้ว ${found.size} ช่วง จากทั้งหมด ${p.pairs.length} ช่วง`);
+    }
+
+    function highlight(l: number, r: number, cls: string): void {
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-rs-cell]'))) {
+        const i = Number((btn.dataset.rsCell ?? '').split(':')[1]);
+        if (i >= l && i <= r) btn.classList.add(cls);
+      }
+    }
+
+    function pick(i: number): void {
+      const p = pz();
+      if (anchor < 0) {
+        anchor = i;
+        ui.setStatus(`เลือกตัวที่ ${i + 1} เป็นขอบซ้ายแล้ว กดตัวขวาสุดของช่วง`, 'plain');
+        render();
+        return;
+      }
+      const l = Math.min(anchor, i);
+      const r = Math.max(anchor, i);
+      anchor = -1;
+      const s = spreadOf(p.a, l, r);
+      const key = `${l}:${r}`;
+      render();
+      if (s >= p.p && s <= p.q) {
+        const already = found.has(key);
+        found.add(key);
+        highlight(l, r, 'inrange');
+        ui.setScore(`หาได้แล้ว ${found.size} ช่วง จากทั้งหมด ${p.pairs.length} ช่วง`);
+        ui.setStatus(
+          already
+            ? `ช่วงตัวที่ ${l + 1} ถึง ${r + 1} พิสัยเท่ากับ ${s} ผ่านเงื่อนไข แต่ช่วงนี้เคยหาเจอแล้ว`
+            : `ช่วงตัวที่ ${l + 1} ถึง ${r + 1} พิสัยเท่ากับ ${s} ผ่านเงื่อนไข`,
+          'good',
+        );
+      } else {
+        highlight(l, r, 'found');
+        ui.setStatus(`ช่วงตัวที่ ${l + 1} ถึง ${r + 1} พิสัยเท่ากับ ${s} ซึ่งอยู่นอกช่วง ${p.p} ถึง ${p.q}`, 'bad');
+      }
+    }
+
+    function check(): void {
+      const p = pz();
+      if (found.size === p.pairs.length) ui.setStatus(`ครบแล้วครับ ชุดนี้มี ${p.pairs.length} ช่วงพอดี`, 'good');
+      else ui.setStatus(`ตอนนี้ได้ ${found.size} จาก ${p.pairs.length} ช่วง ที่คนมักตกคือช่วงยาว ๆ ที่บังเอิญพิสัยยังไม่เกิน ${p.q}`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      anchor = -1;
+      found = new Set<string>();
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus(`ชุดนี้หาช่วงที่พิสัยอยู่ระหว่าง ${pz().p} ถึง ${pz().q} กดตัวซ้ายสุดของช่วงก่อน`);
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return;
+      const btn = e.target.closest('[data-rs-cell]');
+      if (!(btn instanceof HTMLElement)) return;
+      pick(Number((btn.dataset.rsCell ?? '').split(':')[1]));
+    });
+
+    ui.onClick('data-rs-clear', () => selectPuzzle(pi));
+    ui.onClick('data-rs-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initRangeGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-rssim]');
+  });
+</script>
