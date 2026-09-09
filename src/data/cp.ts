@@ -57,6 +57,7 @@ export const CP_TOPICS = [
   'state space',
   'sweep line',
   'functional graph',
+  'scc',
   'geometry',
   // ป้ายกำกับอื่น
   'พื้นฐาน',
@@ -476,6 +477,17 @@ export const cpProblems: CpProblem[] = [
     difficulty: 5,
     dateISO: '2026-09-09',
     readingMinutes: 14,
+  },
+  {
+    href: 'atm-robbery/',
+    setId: 'programming-in-th',
+    label: '2029',
+    title: 'ปล้นตู้เอทีเอ็ม: กลุ่มที่วิ่งวนถึงกัน คือกองเงินกองเดียวที่ได้ครบเสมอ',
+    desc: 'ประโยคว่าวิ่งถนนเดิมกี่ครั้งก็ได้ คือใบอนุญาตให้ยุบทุกวงจรทิ้ง พอยุบแล้วกราฟไม่มีวงจร และคำถามที่ต้องจำว่าปล้นตู้ไหนไปแล้ว ก็หมดความหมายไปเอง',
+    topics: ['scc', 'dfs', 'dp'],
+    difficulty: 4,
+    dateISO: '2026-09-09',
+    readingMinutes: 13,
   },
 ];
 
