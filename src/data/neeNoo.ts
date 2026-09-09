@@ -1,5 +1,5 @@
 /**
- * Content for the "หนีหนู" game — professions, deal/market/doodad decks, the
+ * Content for the "หนีหนู" game: professions, deal/market/doodad decks, the
  * fast-track cards, the dreams and the two board layouts.
  *
  * This is an ORIGINAL game. It shares only the genre's unprotected mechanics
