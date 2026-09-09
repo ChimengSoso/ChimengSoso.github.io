@@ -141,7 +141,7 @@ Written to be criteria the reader can apply elsewhere rather than a recap of the
 
 **Verify:** the `/cp/` checklist in `CLAUDE.md` unchanged, plus the two things that bit during this round: measure every diagram's content box against its `viewBox` (Thai label boxes are taller than an 18-unit line spacing, so three stacked legend lines need about 24 units each), and re-check that any value computed in the frontmatter is actually printed somewhere, since `npm run check` reports an unused one only as a hint.
 
-## 11. [ ] Three things a reader of `/cp/` would want next
+## 11. [x] Three things a reader of `/cp/` would want next
 
 **Where this came from:** on 2026-09-09 the owner asked what a reader of the `/cp/` articles would want improved, judged on four things: easy to read, bridges between pages, worked examples of the right way, and worked examples of the wrong way. A structural audit of all 29 pages says three of the four are already strong; the gaps are ranked below.
 
@@ -152,3 +152,7 @@ Written to be criteria the reader can apply elsewhere rather than a recap of the
 3. **No table of contents on `/cp/` while `/knowledge/` has one** (needs a decision first). `pick-books` is 118,914 characters with 11 `h2`s and `archery` is 90,411 with 16, against a vault median of 40,144. `Layout.astro` builds a sticky TOC from `h2`s; `CpProblemLayout` has none. The catch is that section titles give the answer away, so a plain TOC fights the reveal-after-hint rule the whole vault is built on. Ask the owner before building anything.
 
 **Caveat carried from the audit:** the findings above come from measuring structure (headings, links, code blocks, length), not from reading all 29 pages end to end as a reader. Read the page in full before acting on item 1 or 3.
+
+**Done 2026-09-09.** All three landed. (1) Five pages (`islands`, `pyramid-base`, `teleporters`, `archery`, `sails`) now show the broken code beside the fixed line, each with the minimal failing input found by sweeping small cases against the page's own brute force, and each verified by actually compiling both versions. Four of the five bugs do pass the statement's samples; `sails`'s does not, and its expander says so. (2) The bridge work turned out to be 2 links, not the 13 first estimated: `hearing-pairs` to `prefix-sums` and `pick-books` to `interval-dp`. `archery` deliberately gets none, because both times it names binary search it says that approach does not work there. (3) `CpProblemLayout` gained a floating table of contents that masks the title of any section whose reveal is still locked, and unmasks it the moment the reader opens that reveal. The conventions this produced are written up in `CLAUDE.md`; `docs/cp-reader-improvements-plan.html` holds the working notes and can be deleted.
+
+**Still open, both small:** `sails` aside, nothing from item 1 remains. `brute_tele.cpp` on `/cp/teleporters` carries a dead `bool ok = true;` that is never set false, spotted in passing and left alone. And the vault mixes `href="../slug/"` with `href="/cp/slug/"` with no rule; the owner has not said whether to unify them, so audits must keep counting both forms.
