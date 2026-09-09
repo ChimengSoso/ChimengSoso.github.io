@@ -489,6 +489,17 @@ export const cpProblems: CpProblem[] = [
     dateISO: '2026-09-09',
     readingMinutes: 13,
   },
+  {
+    href: 'range-subarrays/',
+    setId: 'programming-in-th',
+    label: '2030',
+    title: 'พิสัยของลำดับย่อย: เงื่อนไขอยู่ระหว่าง เขียนเป็นผลต่างของสองคำถามด้านเดียว',
+    desc: 'ลำดับหนึ่งล้านตัวมีช่วงย่อยห้าแสนล้านช่วง จึงนับทีละช่วงไม่ได้ บทนี้ใช้ข้อเท็จจริงว่าพิสัยโตทางเดียว แยกโจทย์เป็นสองคำถามที่ใช้โค้ดชุดเดียวกัน แล้วลบกัน',
+    topics: ['two pointers', 'stack', 'counting'],
+    difficulty: 3,
+    dateISO: '2026-09-09',
+    readingMinutes: 12,
+  },
 ];
 
 /**
