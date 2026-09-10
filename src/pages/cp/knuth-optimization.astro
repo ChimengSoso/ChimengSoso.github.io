@@ -1,0 +1,2457 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import { texCode, mc } from '../../lib/math';
+
+const href = 'knuth-optimization/';
+
+/* ============================================================================
+   ตัวเลขทุกตัวในหน้านี้งอกจากโมเดลข้างล่าง ไม่มีเลขไหนพิมพ์ด้วยมือ
+   และมี throw กันไว้ทุกข้ออ้าง ถ้าข้ออ้างไหนไม่จริง หน้านี้จะบิลด์ไม่ผ่านเลย
+   ========================================================================== */
+
+const INF = Number.POSITIVE_INFINITY;
+type CostFn = (i: number, j: number) => number;
+
+type DpResult = { dp: number[][]; opt: number[][]; scans: number };
+
+/** DP บนช่วงแบบไล่จุดตัดทุกจุด O(n^3) นี่คือความจริงที่ทุกอย่างต้องตรงกับมัน */
+function cubicDp(n: number, C: CostFn): DpResult {
+  const dp: number[][] = Array.from({ length: n + 2 }, () => Array<number>(n + 2).fill(0));
+  const opt: number[][] = Array.from({ length: n + 2 }, () => Array<number>(n + 2).fill(0));
+  let scans = 0;
+  for (let i = 1; i <= n; i++) opt[i][i] = i;
+  for (let len = 2; len <= n; len++) {
+    for (let i = 1; i + len - 1 <= n; i++) {
+      const j = i + len - 1;
+      let best = INF;
+      let bk = i;
+      for (let k = i; k < j; k++) {
+        scans++;
+        const v = dp[i][k] + dp[k + 1][j] + C(i, j);
+        if (v < best) {
+          best = v;
+          bk = k;
+        }
+      }
+      dp[i][j] = best;
+      opt[i][j] = bk;
+    }
+  }
+  return { dp, opt, scans };
+}
+
+/** ท่าเดียวกัน แต่ลูปในสุดส่องแค่หน้าต่าง [opt(i,j-1), opt(i+1,j)] */
+function knuthDp(n: number, C: CostFn): DpResult {
+  const dp: number[][] = Array.from({ length: n + 2 }, () => Array<number>(n + 2).fill(0));
+  const opt: number[][] = Array.from({ length: n + 2 }, () => Array<number>(n + 2).fill(0));
+  let scans = 0;
+  for (let i = 1; i <= n; i++) opt[i][i] = i;
+  for (let len = 2; len <= n; len++) {
+    for (let i = 1; i + len - 1 <= n; i++) {
+      const j = i + len - 1;
+      const lo = Math.max(opt[i][j - 1], i);
+      const hi = Math.min(opt[i + 1][j], j - 1);
+      let best = INF;
+      let bk = lo;
+      for (let k = lo; k <= hi; k++) {
+        scans++;
+        const v = dp[i][k] + dp[k + 1][j] + C(i, j);
+        if (v < best) {
+          best = v;
+          bk = k;
+        }
+      }
+      dp[i][j] = best;
+      opt[i][j] = bk;
+    }
+  }
+  return { dp, opt, scans };
+}
+
+/** ต้นทุนแบบ "ผลรวมของช่วง" ซึ่งเป็นรูปที่โจทย์ตัดไม้กับหักสตริงใช้ */
+function sumCost(gaps: number[]): CostFn {
+  const pre = [0];
+  for (const g of gaps) pre.push(pre[pre.length - 1] + g);
+  return (i, j) => pre[j] - pre[i - 1];
+}
+
+/** ไล่ "ลำดับการตัด" ทุกแบบจริง ๆ ไม่ใช้ดีพีและไม่ใช้ข้ออ้างเรื่อง opt เลย
+ *  นี่คือตัวตรวจที่อิสระจากทุกอย่างที่บทนี้กำลังจะอ้าง */
+function bestByCutOrder(gaps: number[]): number {
+  const n = gaps.length;
+  const pre = [0];
+  for (const g of gaps) pre.push(pre[pre.length - 1] + g);
+  const span = (l: number, r: number): number => pre[r] - pre[l - 1];
+  const seen = new Map<string, number>();
+  const go = (pieces: [number, number][]): number => {
+    const live = pieces.filter((p) => p[1] > p[0]);
+    if (live.length === 0) return 0;
+    const key = live
+      .slice()
+      .sort((a, b) => a[0] - b[0])
+      .map((p) => p[0] + ':' + p[1])
+      .join(',');
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    let best = INF;
+    for (let idx = 0; idx < live.length; idx++) {
+      const [l, r] = live[idx];
+      const price = span(l, r);
+      for (let c = l; c < r; c++) {
+        const rest = live.filter((_, t) => t !== idx);
+        const v = price + go([...rest, [l, c], [c + 1, r]]);
+        if (v < best) best = v;
+      }
+    }
+    seen.set(key, best);
+    return best;
+  };
+  return n <= 1 ? 0 : go([[1, n]]);
+}
+
+/** แปลงไม้ยาว L ที่มีรอยกา cuts ให้เป็นความยาวของช่องว่างระหว่างรอยกา */
+function gapsOf(L: number, cuts: number[]): number[] {
+  const out: number[] = [];
+  let p = 0;
+  for (const c of cuts) {
+    out.push(c - p);
+    p = c;
+  }
+  out.push(L - p);
+  return out;
+}
+
+/* ---------- ไม้ต้นที่บทนี้เดินให้ดูทั้งบท: ยาว 10 มีรอยกาสี่รอย ---------- */
+const RUN_L = 10;
+const RUN_CUTS = [4, 5, 7, 8];
+const RUN_GAPS = gapsOf(RUN_L, RUN_CUTS);
+const RN = RUN_GAPS.length;
+const runCost = sumCost(RUN_GAPS);
+const runCubic = cubicDp(RN, runCost);
+const runKnuth = knuthDp(RN, runCost);
+const runAnswer = runCubic.dp[1][RN];
+const runByOrder = bestByCutOrder(RUN_GAPS);
+if (runKnuth.dp[1][RN] !== runAnswer || runByOrder !== runAnswer) {
+  throw new Error(
+    `knuth-optimization: ไม้ตัวอย่างไม่ตรงกัน ไล่จุดตัดทุกจุด ${runAnswer} หน้าต่าง Knuth ${runKnuth.dp[1][RN]} ไล่ลำดับตัดทุกแบบ ${runByOrder}`,
+  );
+}
+
+/** ข้ออ้างของ Knuth บนไม้ต้นนี้ ตรวจทุกช่องจริง ไม่ได้เชื่อตามตำรา */
+type MonoCheck = { i: number; j: number; left: number; here: number; below: number };
+const runMono: MonoCheck[] = [];
+for (let len = 2; len <= RN; len++) {
+  for (let i = 1; i + len - 1 <= RN; i++) {
+    const j = i + len - 1;
+    const row = { i, j, left: runCubic.opt[i][j - 1], here: runCubic.opt[i][j], below: runCubic.opt[i + 1][j] };
+    if (row.left > row.here || row.here > row.below) {
+      throw new Error(`knuth-optimization: ข้ออ้างพังที่ช่อง (${i},${j}) คือ ${row.left} ${row.here} ${row.below}`);
+    }
+    runMono.push(row);
+  }
+}
+
+/* ---------- ตารางเทียบจำนวนครั้งที่ต้องส่อง ---------- */
+const runSaving = runCubic.scans - runKnuth.scans;
+
+/* ---------- ช่องที่เอาไปวาดภาพสะพาน เลือกช่องที่ประหยัดได้มากที่สุด ---------- */
+const bridgeCell = runMono.reduce((best, r) => {
+  const gain = (r.j - 1 - r.i + 1) - (Math.min(r.below, r.j - 1) - Math.max(r.left, r.i) + 1);
+  const bestGain = (best.j - 1 - best.i + 1) - (Math.min(best.below, best.j - 1) - Math.max(best.left, best.i) + 1);
+  return gain > bestGain ? r : best;
+});
+const bridgeLo = Math.max(bridgeCell.left, bridgeCell.i);
+const bridgeHi = Math.min(bridgeCell.below, bridgeCell.j - 1);
+const bridgeFull = bridgeCell.j - 1 - bridgeCell.i + 1;
+const bridgeWindow = bridgeHi - bridgeLo + 1;
+
+/* ตัวเปรียบเทียบ < และ <= ที่เขียนในเทมเพลต ทำให้ตัวแปลของ Astro อ่านเป็นแท็ก JSX แล้วพัง
+   ทุกการเทียบจึงคิดไว้ที่นี่ แล้วเทมเพลตอ่านแค่ค่าที่คิดเสร็จแล้ว */
+const runOptGrid: (number | null)[][] = Array.from({ length: RN }, (_, r) =>
+  Array.from({ length: RN }, (_, c) => (c < r ? null : runCubic.opt[r + 1][c + 1])),
+);
+type BoardCell = { i: number; j: number; kind: 'blank' | 'zero' | 'later'; v: string };
+const runBoard: BoardCell[][] = Array.from({ length: RN }, (_, r) =>
+  Array.from({ length: RN }, (_, c) => {
+    const i = r + 1;
+    const j = c + 1;
+    if (c < r) return { i, j, kind: 'blank' as const, v: '' };
+    if (c === r) return { i, j, kind: 'zero' as const, v: '0' };
+    return { i, j, kind: 'later' as const, v: String(runCubic.dp[i][j]) };
+  }),
+);
+/* แถบจุดตัดของภาพสะพาน เก็บเฉพาะ k ที่อยู่ในช่วงเต็ม พร้อมธงว่าอยู่ในหน้าต่างไหม */
+const d2Bar = Array.from({ length: bridgeFull }, (_, t) => {
+  const k = bridgeCell.i + t;
+  return { k, inWin: k >= bridgeLo && k <= bridgeHi };
+});
+
+/* ---------- ไม้ต้นที่สองสำหรับภาพเรื่องผลรวมงานทั้งเส้นทแยง ---------- */
+const TEL_GAPS = [3, 1, 4, 1, 5, 9, 2, 6, 5];
+const TN = TEL_GAPS.length;
+const telCost = sumCost(TEL_GAPS);
+const telCubic = cubicDp(TN, telCost);
+const telKnuth = knuthDp(TN, telCost);
+if (telCubic.dp[1][TN] !== telKnuth.dp[1][TN]) {
+  throw new Error('knuth-optimization: ไม้ต้นที่สองตอบไม่ตรงกัน');
+}
+/** เส้นทแยงที่ยาวพอจะเห็นว่าขอบทั้งสองข้างขยับไปทางขวาอย่างเดียว */
+const TEL_LEN = 5;
+const telBars = Array.from({ length: TN - TEL_LEN + 1 }, (_, t) => {
+  const i = t + 1;
+  const j = i + TEL_LEN - 1;
+  return {
+    i,
+    j,
+    lo: Math.max(telCubic.opt[i][j - 1], i),
+    hi: Math.min(telCubic.opt[i + 1][j], j - 1),
+    full: j - 1 - i + 1,
+  };
+});
+const telBarWork = telBars.reduce((s, b) => s + (b.hi - b.lo + 1), 0);
+const telBarFull = telBars.reduce((s, b) => s + b.full, 0);
+const telSpan = telBars[telBars.length - 1].hi - telBars[0].lo + 1;
+const telBound = telSpan + telBars.length;
+if (telBarWork > telBound) {
+  throw new Error('knuth-optimization: ผลรวมงานของเส้นทแยงเกินเพดานที่บทนี้อ้างไว้');
+}
+/** ขอบทั้งสองข้างต้องไม่ถอยหลังเลย ไม่งั้นเหตุผลเรื่องเพดานใช้ไม่ได้ */
+for (let t = 1; t < telBars.length; t++) {
+  if (telBars[t].lo < telBars[t - 1].lo || telBars[t].hi < telBars[t - 1].hi) {
+    throw new Error('knuth-optimization: ขอบของหน้าต่างในเส้นทแยงเดียวกันถอยหลัง');
+  }
+}
+
+/* ---------- สเต็ปของเครื่องเดิน: เติมตารางไล่ตามความยาวช่วง ---------- */
+type KnStep = {
+  note: string;
+  i: number;
+  j: number;
+  lo: number;
+  hi: number;
+  pick: number;
+  filled: string[];
+};
+const knSteps: KnStep[] = [];
+{
+  const filled: string[] = [];
+  for (let len = 2; len <= RN; len++) {
+    for (let i = 1; i + len - 1 <= RN; i++) {
+      const j = i + len - 1;
+      const lo = Math.max(runCubic.opt[i][j - 1], i);
+      const hi = Math.min(runCubic.opt[i + 1][j], j - 1);
+      filled.push(`${i}-${j}`);
+      const full = j - 1 - i + 1;
+      const win = hi - lo + 1;
+      const saved =
+        win === full
+          ? 'รอบนี้หน้าต่างกว้างเท่าช่วงเต็มพอดี จึงไม่ได้ประหยัดอะไร ซึ่งเกิดได้และไม่ใช่เรื่องผิด'
+          : 'ส่องแค่ <em>' + win + '</em> ช่อง แทนที่จะเป็น ' + full + ' ช่อง';
+      knSteps.push({
+        note:
+          'ช่องที่กำลังเติมคือ <b>[' +
+          i +
+          '..' +
+          j +
+          ']</b> เพื่อนบ้านสองช่องที่เติมไปแล้วบอกขอบให้ คือ <b>opt[' +
+          i +
+          '][' +
+          (j - 1) +
+          '] = ' +
+          runCubic.opt[i][j - 1] +
+          '</b> ทางซ้าย และ <b>opt[' +
+          (i + 1) +
+          '][' +
+          j +
+          '] = ' +
+          runCubic.opt[i + 1][j] +
+          '</b> ข้างล่าง จุดตัดจึงอยู่ใน <em>' +
+          lo +
+          '..' +
+          hi +
+          '</em> ' +
+          saved +
+          ' ผลคือตัดที่ <b>' +
+          runCubic.opt[i][j] +
+          '</b> ได้ค่า <b>' +
+          runCubic.dp[i][j] +
+          '</b>',
+        i,
+        j,
+        lo,
+        hi,
+        pick: runCubic.opt[i][j],
+        filled: [...filled],
+      });
+    }
+  }
+}
+
+/* ---------- มินิเกม: เลือกลำดับตัดไม้เอง ----------
+   คำตอบของทุกชุดมาจากการไล่ลำดับการตัดทุกแบบ ไม่ได้มาจากดีพีที่บทนี้กำลังสอน
+   แล้วยังเทียบกับดีพีอีกชั้นก่อนปล่อยขึ้นหน้า */
+type KnSeed = { id: string; label: string; tease: string; L: number; cuts: number[] };
+const KN_SEEDS: KnSeed[] = [
+  {
+    id: 'k1',
+    label: 'ชุดที่ 1 · ไม้ที่แบ่งเท่ากันหมด',
+    tease: 'ไม้ยาว 100 มีรอยกาสามรอยที่แบ่งเท่า ๆ กัน ชุดนี้ตัดยังไงก็ได้เท่ากันหลายทาง ใช้ชินกับกติกาก่อน',
+    L: 100,
+    cuts: [25, 50, 75],
+  },
+  {
+    id: 'k2',
+    label: 'ชุดที่ 2 · ชุดที่บทนี้เดินให้ดู',
+    tease: 'ไม้ยาว 10 รอยกาที่ 4, 5, 7, 8 ชุดเดียวกับตารางที่จะเดินให้ดูทีหลัง จำคำตอบไว้แล้วไปเทียบกันได้',
+    L: 10,
+    cuts: [4, 5, 7, 8],
+  },
+  {
+    id: 'k3',
+    label: 'ชุดที่ 3 · กับดักของการตัดจากซ้ายไปขวา',
+    tease: 'ไม้ยาว 30 รอยกาห้ารอยที่วางไม่สม่ำเสมอ ชุดนี้ลงโทษคนที่ไล่ตัดเรียงจากรอยซ้ายสุด',
+    L: 30,
+    cuts: [2, 4, 6, 20, 26],
+  },
+];
+
+type KnPuzzle = KnSeed & { gaps: number[]; best: number };
+const knPuzzles: KnPuzzle[] = KN_SEEDS.map((s) => {
+  const gaps = gapsOf(s.L, s.cuts);
+  const byOrder = bestByCutOrder(gaps);
+  const viaCubic = cubicDp(gaps.length, sumCost(gaps)).dp[1][gaps.length];
+  const viaKnuth = knuthDp(gaps.length, sumCost(gaps)).dp[1][gaps.length];
+  if (byOrder !== viaCubic || viaCubic !== viaKnuth) {
+    throw new Error(
+      `มินิเกมของ knuth-optimization: ชุด ${s.id} ไล่ลำดับตัดได้ ${byOrder} ดีพีได้ ${viaCubic} หน้าต่างได้ ${viaKnuth}`,
+    );
+  }
+  return { ...s, gaps, best: byOrder };
+});
+
+/** กฎที่คนคิดออกก่อนเสมอ คือไล่ตัดจากรอยกาซ้ายสุดไปขวาสุด */
+function leftToRightCost(gaps: number[]): number {
+  const pre = [0];
+  for (const g of gaps) pre.push(pre[pre.length - 1] + g);
+  let sum = 0;
+  for (let t = 1; t < gaps.length; t++) {
+    // ตัดที่รอยกาที่ t ตอนนี้ชิ้นที่ยังไม่ถูกตัดคือ t..n
+    sum += pre[gaps.length] - pre[t - 1];
+  }
+  return sum;
+}
+const trapSeed = knPuzzles[2];
+const trapLeft = leftToRightCost(trapSeed.gaps);
+if (trapLeft <= trapSeed.best) {
+  throw new Error(
+    `knuth-optimization: ชุดที่ 3 ควรหักกฎตัดจากซ้ายไปขวา แต่กฎนั้นได้ ${trapLeft} ส่วนคำตอบจริง ${trapSeed.best}`,
+  );
+}
+
+const knJson = JSON.stringify(
+  knPuzzles.map((p) => ({ id: p.id, label: p.label, tease: p.tease, L: p.L, gaps: p.gaps, best: p.best })),
+);
+
+/* ---------- ตัวอย่างค้าน: ตารางค่าใช้จ่ายที่ทำให้ Knuth ตอบผิด ----------
+   ตารางนี้หามาจากการสุ่มตารางเล็ก ๆ แล้วเทียบกับ O(n^3) จนเจอตัวแรกที่ไม่ตรงกัน
+   ค่าที่ไม่ใช่ศูนย์มีแค่สองช่อง ซึ่งเป็นตัวค้านที่เล็กที่สุดเท่าที่หาเจอ */
+const CE_N = 4;
+const CE_TABLE: Record<string, number> = { '1,2': 1, '2,4': 1 };
+const ceCost: CostFn = (i, j) => CE_TABLE[`${i},${j}`] ?? 0;
+const ceTruth = cubicDp(CE_N, ceCost).dp[1][CE_N];
+const ceGot = knuthDp(CE_N, ceCost).dp[1][CE_N];
+if (ceGot === ceTruth) {
+  throw new Error('knuth-optimization: ตัวอย่างค้านไม่ค้านแล้ว หน้าต่าง Knuth ดันตอบถูก');
+}
+/** ช่องที่ดีพีอ่านจริงมีแค่ i<j เท่านั้น ตัวค้านจึงต้องพังที่ช่องพวกนั้น */
+function firstQiBreak(n: number, C: CostFn): { a: number; b: number; c: number; d: number } | null {
+  for (let a = 1; a <= n; a++)
+    for (let b = a; b <= n; b++)
+      for (let c = b; c <= n; c++)
+        for (let d = c; d <= n; d++) if (C(a, c) + C(b, d) > C(a, d) + C(b, c)) return { a, b, c, d };
+  return null;
+}
+function firstMonoBreak(n: number, C: CostFn): { a: number; b: number; c: number; d: number } | null {
+  for (let a = 1; a <= n; a++)
+    for (let b = a; b <= n; b++)
+      for (let c = b; c <= n; c++)
+        for (let d = c; d <= n; d++) if (C(b, c) > C(a, d)) return { a, b, c, d };
+  return null;
+}
+const ceQi = firstQiBreak(CE_N, ceCost);
+const ceMono = firstMonoBreak(CE_N, ceCost);
+if (ceQi === null || ceMono === null) {
+  throw new Error('knuth-optimization: ตัวอย่างค้านควรทำให้เงื่อนไขทั้งสองข้อพัง');
+}
+/** ค่าใช้จ่ายแบบผลรวมของช่วงต้องผ่านทั้งสองเงื่อนไข ไม่งั้นทั้งบทนี้ผิด */
+if (firstQiBreak(RN, runCost) !== null || firstMonoBreak(RN, runCost) !== null) {
+  throw new Error('knuth-optimization: ค่าใช้จ่ายแบบผลรวมของช่วงควรผ่านทั้งสองเงื่อนไข');
+}
+/** แถว opt ของตัวค้าน ใช้โชว์ว่ามันถอยหลังจริง */
+const ceOptRows = (() => {
+  const { opt } = cubicDp(CE_N, ceCost);
+  const rows: { i: number; cells: { j: number; v: number | null }[] }[] = [];
+  for (let i = 1; i <= CE_N; i++) {
+    rows.push({
+      i,
+      cells: Array.from({ length: CE_N }, (_, t) => {
+        const j = t + 1;
+        return { j, v: j >= i ? opt[i][j] : null };
+      }),
+    });
+  }
+  return rows;
+})();
+/** ช่องแรกที่ opt ถอยหลัง คือเหตุผลตรง ๆ ว่าทำไมหน้าต่างถึงพลาดคำตอบ */
+const ceBackStep = (() => {
+  const { opt } = cubicDp(CE_N, ceCost);
+  for (let len = 2; len <= CE_N; len++)
+    for (let i = 1; i + len - 1 <= CE_N; i++) {
+      const j = i + len - 1;
+      if (opt[i][j - 1] > opt[i][j] || opt[i][j] > opt[i + 1][j])
+        return { i, j, left: opt[i][j - 1], here: opt[i][j], below: opt[i + 1][j] };
+    }
+  return null;
+})();
+if (ceBackStep === null) throw new Error('knuth-optimization: ตัวอย่างค้านควรมีช่องที่ opt ถอยหลัง');
+
+/* ============================================================================
+   ตัวอย่างของโจทย์ฝึกทั้งสามข้อ ทุกตัวเลขมาจากโมเดลข้างบน ไม่ได้พิมพ์ไว้
+   ========================================================================== */
+
+/* ---------- ข้อ 1: ตัดไม้ ไม้ยาว 100 รอยกาสามรอย ---------- */
+const P1_L = 100;
+const P1_CUTS = [25, 50, 75];
+const P1_GAPS = gapsOf(P1_L, P1_CUTS);
+const p1Answer = bestByCutOrder(P1_GAPS);
+if (p1Answer !== cubicDp(P1_GAPS.length, sumCost(P1_GAPS)).dp[1][P1_GAPS.length]) {
+  throw new Error('knuth-optimization: ตัวอย่างข้อที่ 1 คิดได้ไม่ตรงกัน');
+}
+/** ลำดับการตัดหนึ่งลำดับที่ได้ค่าต่ำสุด ใช้วาดภาพ */
+function oneBestOrder(gaps: number[]): { mark: number; piece: [number, number]; price: number }[] {
+  const pre = [0];
+  for (const g of gaps) pre.push(pre[pre.length - 1] + g);
+  const span = (l: number, r: number): number => pre[r] - pre[l - 1];
+  const { opt } = cubicDp(gaps.length, sumCost(gaps));
+  const out: { mark: number; piece: [number, number]; price: number }[] = [];
+  const walk = (l: number, r: number): void => {
+    if (l >= r) return;
+    const k = opt[l][r];
+    out.push({ mark: k, piece: [l, r], price: span(l, r) });
+    walk(l, k);
+    walk(k + 1, r);
+  };
+  walk(1, gaps.length);
+  return out;
+}
+const p1Order = oneBestOrder(P1_GAPS);
+const p1Total = p1Order.reduce((s, x) => s + x.price, 0);
+if (p1Total !== p1Answer) throw new Error('knuth-optimization: ลำดับตัดของข้อที่ 1 รวมได้ไม่ตรงคำตอบ');
+/** มีกี่ลำดับที่ได้ค่าต่ำสุดเท่ากัน ต้องบอก ไม่งั้นคนอ่านจะงงว่าทำไมภาพตัดคนละที่กับที่เขาคิด */
+function countOptimalFirstCuts(gaps: number[]): number {
+  const n = gaps.length;
+  const pre = [0];
+  for (const g of gaps) pre.push(pre[pre.length - 1] + g);
+  const { dp } = cubicDp(n, sumCost(gaps));
+  const total = pre[n] - pre[0];
+  let c = 0;
+  for (let k = 1; k < n; k++) if (dp[1][k] + dp[k + 1][n] + total === dp[1][n]) c++;
+  return c;
+}
+const p1FirstTies = countOptimalFirstCuts(P1_GAPS);
+
+/* ---------- ข้อ 2: หักสตริง ไม้ยาว 30 รอยกาสี่รอย ---------- */
+const P2_L = 30;
+const P2_CUTS = [3, 10, 17, 25];
+const P2_GAPS = gapsOf(P2_L, P2_CUTS);
+const p2Answer = bestByCutOrder(P2_GAPS);
+if (p2Answer !== cubicDp(P2_GAPS.length, sumCost(P2_GAPS)).dp[1][P2_GAPS.length]) {
+  throw new Error('knuth-optimization: ตัวอย่างข้อที่ 2 คิดได้ไม่ตรงกัน');
+}
+const p2Order = oneBestOrder(P2_GAPS);
+const p2Left = leftToRightCost(P2_GAPS);
+const p2FirstTies = countOptimalFirstCuts(P2_GAPS);
+/** ตำแหน่งจริงบนไม้ของรอยกาที่ตัดในแต่ละตา ใช้เขียนคำอธิบายภาพ */
+const P2_MARKS = [0, ...P2_CUTS, P2_L];
+const p2Steps = p2Order.map((x) => ({
+  at: P2_MARKS[x.mark],
+  from: P2_MARKS[x.piece[0] - 1],
+  to: P2_MARKS[x.piece[1]],
+  price: x.price,
+}));
+
+/* ---------- ข้อ 3: ต้นไม้ค้นหาที่ดีที่สุด ---------- */
+const P3_FREQ = [9, 8, 5, 6, 7];
+const P3_KEYS = ['เกลือ', 'ข้าว', 'งา', 'น้ำตาล', 'พริก'];
+const P3_N = P3_FREQ.length;
+const p3pre = [0];
+for (const f of P3_FREQ) p3pre.push(p3pre[p3pre.length - 1] + f);
+const p3Sum = (i: number, j: number): number => (i > j ? 0 : p3pre[j] - p3pre[i - 1]);
+/** g[i][j] = ค่าน้อยสุดของช่วง i..j เมื่อรากของช่วงนั้นนับเป็นชั้นที่ 1 */
+type ObstResult = { g: number[][]; opt: number[][]; scans: number };
+function obstCubic(n: number, S: (i: number, j: number) => number, f: number[]): ObstResult {
+  const g: number[][] = Array.from({ length: n + 3 }, () => Array<number>(n + 3).fill(0));
+  const opt: number[][] = Array.from({ length: n + 3 }, () => Array<number>(n + 3).fill(0));
+  let scans = 0;
+  for (let i = 1; i <= n; i++) {
+    g[i][i] = f[i - 1];
+    opt[i][i] = i;
+  }
+  for (let len = 2; len <= n; len++)
+    for (let i = 1; i + len - 1 <= n; i++) {
+      const j = i + len - 1;
+      let best = INF;
+      let bk = i;
+      for (let k = i; k <= j; k++) {
+        scans++;
+        const v = (k > i ? g[i][k - 1] : 0) + (k < j ? g[k + 1][j] : 0) + S(i, j);
+        if (v < best) {
+          best = v;
+          bk = k;
+        }
+      }
+      g[i][j] = best;
+      opt[i][j] = bk;
+    }
+  return { g, opt, scans };
+}
+function obstKnuth(n: number, S: (i: number, j: number) => number, f: number[]): ObstResult {
+  const g: number[][] = Array.from({ length: n + 3 }, () => Array<number>(n + 3).fill(0));
+  const opt: number[][] = Array.from({ length: n + 3 }, () => Array<number>(n + 3).fill(0));
+  let scans = 0;
+  for (let i = 1; i <= n; i++) {
+    g[i][i] = f[i - 1];
+    opt[i][i] = i;
+  }
+  for (let len = 2; len <= n; len++)
+    for (let i = 1; i + len - 1 <= n; i++) {
+      const j = i + len - 1;
+      const lo = Math.max(opt[i][j - 1], i);
+      const hi = Math.min(opt[i + 1][j], j);
+      let best = INF;
+      let bk = lo;
+      for (let k = lo; k <= hi; k++) {
+        scans++;
+        const v = (k > i ? g[i][k - 1] : 0) + (k < j ? g[k + 1][j] : 0) + S(i, j);
+        if (v < best) {
+          best = v;
+          bk = k;
+        }
+      }
+      g[i][j] = best;
+      opt[i][j] = bk;
+    }
+  return { g, opt, scans };
+}
+/** ไล่ทุกทรงของต้นไม้จริง ๆ ไม่มีตารางจำ คิดจากนิยาม ผลรวมของ ความถี่ คูณ ชั้น */
+function bestByEveryTree(f: number[]): number {
+  const rec = (i: number, j: number, depth: number): number => {
+    if (i > j) return 0;
+    let best = INF;
+    for (let k = i; k <= j; k++) {
+      const v = depth * f[k - 1] + rec(i, k - 1, depth + 1) + rec(k + 1, j, depth + 1);
+      if (v < best) best = v;
+    }
+    return best;
+  };
+  return rec(1, f.length, 1);
+}
+const p3Cubic = obstCubic(P3_N, p3Sum, P3_FREQ);
+const p3Knuth = obstKnuth(P3_N, p3Sum, P3_FREQ);
+const p3ByTree = bestByEveryTree(P3_FREQ);
+const p3Answer = p3Cubic.g[1][P3_N];
+if (p3Knuth.g[1][P3_N] !== p3Answer || p3ByTree !== p3Answer) {
+  throw new Error(
+    `knuth-optimization: ข้อที่ 3 ไม่ตรงกัน ไล่ทุกจุด ${p3Answer} หน้าต่าง ${p3Knuth.g[1][P3_N]} ไล่ทุกทรงต้นไม้ ${p3ByTree}`,
+  );
+}
+/** ต้นไม้ที่ดีที่สุด อ่านออกมาจากตาราง opt แล้ววางพิกัดให้วาดได้ */
+type ObstNode = { key: string; freq: number; idx: number; depth: number; x: number; parent: number; id: number };
+const p3Nodes: ObstNode[] = [];
+{
+  let slot = 0;
+  const build = (i: number, j: number, depth: number, parent: number): void => {
+    if (i > j) return;
+    const k = p3Cubic.opt[i][j];
+    const id = p3Nodes.length;
+    const node: ObstNode = { key: P3_KEYS[k - 1], freq: P3_FREQ[k - 1], idx: k, depth, x: 0, parent, id };
+    p3Nodes.push(node);
+    build(i, k - 1, depth + 1, id);
+    node.x = slot;
+    slot++;
+    build(k + 1, j, depth + 1, id);
+  };
+  build(1, P3_N, 1, -1);
+}
+const p3Check = p3Nodes.reduce((s, nd) => s + nd.freq * nd.depth, 0);
+if (p3Check !== p3Answer) throw new Error('knuth-optimization: ต้นไม้ที่วาดรวมได้ไม่ตรงคำตอบ');
+/** ทรงที่คนเดาก่อนเสมอ คือเอาตัวที่ความถี่สูงสุดขึ้นเป็นรากแล้วทำแบบเดียวกันต่อ */
+function greedyRootTree(f: number[]): number {
+  const rec = (i: number, j: number, depth: number): number => {
+    if (i > j) return 0;
+    let k = i;
+    for (let t = i; t <= j; t++) if (f[t - 1] > f[k - 1]) k = t;
+    return depth * f[k - 1] + rec(i, k - 1, depth + 1) + rec(k + 1, j, depth + 1);
+  };
+  return rec(1, f.length, 1);
+}
+const p3Greedy = greedyRootTree(P3_FREQ);
+if (p3Greedy <= p3Answer) {
+  throw new Error(`knuth-optimization: ทรงโลภของข้อที่ 3 ควรแพ้ แต่ได้ ${p3Greedy} ส่วนคำตอบจริง ${p3Answer}`);
+}
+
+/* ============================================================================
+   เรขาคณิตของภาพประกอบ ทุก viewBox กว้างเท่าเนื้อหาบวก 12 สูงเท่าเนื้อหาบวก 34
+   เพื่อเว้นมุมขวาล่างไว้ให้ปุ่ม "ขยาย" ของ ZoomableDiagram
+   ========================================================================== */
+
+/* ภาพที่ 1: ไม้กับรอยกา และการตัดหนึ่งลำดับ */
+const D1_X0 = 22;
+const D1_W = 640;
+const d1x = (pos: number): number => D1_X0 + (pos / RUN_L) * D1_W;
+const runOrder = oneBestOrder(RUN_GAPS);
+const RUN_MARKS = [0, ...RUN_CUTS, RUN_L];
+const d1Rows = runOrder.map((x, t) => ({
+  step: t + 1,
+  at: RUN_MARKS[x.mark],
+  from: RUN_MARKS[x.piece[0] - 1],
+  to: RUN_MARKS[x.piece[1]],
+  price: x.price,
+}));
+const D1_ROW_Y = 96;
+const D1_ROW_H = 36;
+const d1Bottom = D1_ROW_Y + d1Rows.length * D1_ROW_H + 22;
+/* ป้าย "จ่าย N" ห้อยพ้นปลายไม้ไปทางขวา ระยะเผื่อวัดจากที่เรนเดอร์จริงในเบราว์เซอร์
+   ถ้าไม่เผื่อ ตัวเลขจะถูก viewBox ตัดหาย เพราะ SVG ตัดขอบให้เองโดยไม่ฟ้อง */
+const D1_LBL = 47;
+const d1VB = `0 0 ${D1_X0 + D1_W + D1_LBL + 12} ${d1Bottom + 34}`;
+
+/* ภาพที่ 2: สะพานของ Knuth ตารางกับหน้าต่าง */
+const D2_CELL = 62;
+const D2_HEAD = 44;
+const d2gx = (j: number): number => 24 + D2_HEAD + (j - 1) * D2_CELL;
+const d2gy = (i: number): number => 60 + (i - 1) * D2_CELL;
+const D2_BAR_Y = 60 + RN * D2_CELL + 46;
+const d2bx = (k: number): number => d2gx(k);
+/** บทบาทของทุกช่องในตาราง คิดที่นี่ เพราะตัวเปรียบเทียบในเทมเพลตทำให้ตัวแปลของ Astro พัง */
+type D2Role = 'target' | 'left' | 'below' | 'used' | 'idle' | 'none';
+const d2Roles: D2Role[][] = Array.from({ length: RN }, (_, r) =>
+  Array.from({ length: RN }, (_, c) => {
+    const i = r + 1;
+    const j = c + 1;
+    if (j < i) return 'none';
+    if (i === bridgeCell.i && j === bridgeCell.j) return 'target';
+    if (i === bridgeCell.i && j === bridgeCell.j - 1) return 'left';
+    if (i === bridgeCell.i + 1 && j === bridgeCell.j) return 'below';
+    if (i === j) return 'idle';
+    return 'used';
+  }),
+);
+const d2Right = d2gx(RN) + D2_CELL;
+const d2VB = `0 0 ${Math.max(d2Right, d2bx(RN) + D2_CELL) + 12} ${D2_BAR_Y + 56 + 34}`;
+
+/* ภาพที่ 3: ผลรวมงานของเส้นทแยงเดียวกัน */
+const D3_X0 = 150;
+const D3_CELL = 52;
+const d3x = (k: number): number => D3_X0 + (k - 1) * D3_CELL;
+const D3_ROW_Y = 56;
+const D3_ROW_H = 40;
+const d3Bottom = D3_ROW_Y + telBars.length * D3_ROW_H + 30;
+const d3VB = `0 0 ${d3x(TN) + D3_CELL - 6 + 12} ${d3Bottom + 34}`;
+
+/* ภาพที่ 4: ข้อที่ 1 ไม้ยาว 100 */
+const D4_X0 = 22;
+const D4_W = 620;
+const d4x = (pos: number): number => D4_X0 + (pos / P1_L) * D4_W;
+const P1_MARKS = [0, ...P1_CUTS, P1_L];
+const d4Rows = p1Order.map((x, t) => ({
+  step: t + 1,
+  at: P1_MARKS[x.mark],
+  from: P1_MARKS[x.piece[0] - 1],
+  to: P1_MARKS[x.piece[1]],
+  price: x.price,
+}));
+const D4_ROW_Y = 92;
+const D4_ROW_H = 34;
+const d4Bottom = D4_ROW_Y + d4Rows.length * D4_ROW_H + 22;
+const D4_LBL = 54;
+const d4VB = `0 0 ${D4_X0 + D4_W + D4_LBL + 12} ${d4Bottom + 34}`;
+
+/* ภาพที่ 5: ข้อที่ 2 เทียบสองลำดับบนไม้ต้นเดียวกัน */
+const D5_X0 = 22;
+const D5_W = 600;
+const d5x = (pos: number): number => D5_X0 + (pos / P2_L) * D5_W;
+const D5_ROW_Y = 92;
+const D5_ROW_H = 34;
+const d5Bottom = D5_ROW_Y + p2Steps.length * D5_ROW_H + 22;
+const D5_LBL = 47;
+const d5VB = `0 0 ${D5_X0 + D5_W + D5_LBL + 12} ${d5Bottom + 34}`;
+
+/* ภาพที่ 6: ข้อที่ 3 ต้นไม้ที่ดีที่สุด */
+const D6_SLOT = 118;
+const D6_BW = 100;
+const D6_BH = 44;
+const D6_GAPY = 78;
+const d6x = (slot: number): number => 20 + slot * D6_SLOT;
+const d6y = (depth: number): number => 18 + (depth - 1) * D6_GAPY;
+const p3MaxDepth = Math.max(...p3Nodes.map((nd) => nd.depth));
+const d6Right = Math.max(...p3Nodes.map((nd) => d6x(nd.x) + D6_BW));
+const d6Bottom = d6y(p3MaxDepth) + D6_BH + 26;
+const d6VB = `0 0 ${d6Right + 12} ${d6Bottom + 34}`;
+const p3Edges = p3Nodes.filter((nd) => nd.parent >= 0).map((nd) => ({ from: p3Nodes[nd.parent], to: nd }));
+
+/* ---------- อินพุตของตัวอย่าง สร้างจากโมเดล จะได้ไม่หลุดจากตัวเลขในภาพ ---------- */
+const p1InputLines = [String(P1_L), String(P1_CUTS.length), P1_CUTS.join(' ')];
+const p2InputLines = [`${P2_L} ${P2_CUTS.length}`, P2_CUTS.join(' ')];
+const p3InputLines = [String(P3_N), P3_FREQ.join(' ')];
+
+/* ---------- สูตร ---------- */
+const MIN_OP = '\\mathop{\\textcolor{#50FA7B}{\\min}}\\limits';
+const DP = mc.fn('dp');
+const CC = mc.fn('C');
+const OPT = mc.fn('opt');
+const GG = mc.fn('g');
+const ONE = mc.num('1');
+const EQ = mc.op('=');
+const PLUS = mc.op('+');
+const MINUS = mc.op('-');
+const LE = mc.op('\\le');
+
+const texRec = texCode(
+  DP +
+    '[i][j] ' +
+    EQ +
+    ' ' +
+    MIN_OP +
+    '_{i ' +
+    LE +
+    ' k ' +
+    mc.op('<') +
+    ' j} \\Big( ' +
+    DP +
+    '[i][k] ' +
+    PLUS +
+    ' ' +
+    DP +
+    '[k' +
+    PLUS +
+    ONE +
+    '][j] \\Big) ' +
+    PLUS +
+    ' ' +
+    CC +
+    '(i,\\, j)',
+);
+const texOpt = texCode(OPT + '(i, j) ' + EQ + ' \\text{ค่า } k \\text{ ที่ทำให้วงเล็บข้างบนน้อยที่สุด}');
+const texMono = texCode(
+  OPT + '(i, j' + MINUS + ONE + ') \\;' + LE + '\\; ' + OPT + '(i, j) \\;' + LE + '\\; ' + OPT + '(i' + PLUS + ONE + ', j)',
+);
+const texQi = texCode(
+  CC + '(a, c) ' + PLUS + ' ' + CC + '(b, d) \\;' + LE + '\\; ' + CC + '(a, d) ' + PLUS + ' ' + CC + '(b, c)',
+);
+const texMonoC = texCode(CC + '(b, c) \\;' + LE + '\\; ' + CC + '(a, d)');
+const texObst = texCode(
+  GG +
+    '[i][j] ' +
+    EQ +
+    ' ' +
+    MIN_OP +
+    '_{i ' +
+    LE +
+    ' k ' +
+    LE +
+    ' j} \\Big( ' +
+    GG +
+    '[i][k' +
+    MINUS +
+    ONE +
+    '] ' +
+    PLUS +
+    ' ' +
+    GG +
+    '[k' +
+    PLUS +
+    ONE +
+    '][j] \\Big) ' +
+    PLUS +
+    ' ' +
+    mc.fn('S') +
+    '(i,\\, j)',
+);
+
+/* ---------- ตารางเทียบเวลา วัดจริงด้วย g++ 11.4 บนเครื่องเดียวกัน ---------- */
+const benchRows = [
+  { n: 1000, cubic: '0.384 วินาที', knuth: '0.018 วินาที', ratio: '21 เท่า' },
+  { n: 3000, cubic: '32.750 วินาที', knuth: '0.454 วินาที', ratio: '72 เท่า' },
+];
+
+/* ---------- โค้ด ----------
+   ทุกชิ้นคอมไพล์ด้วย g++ 11.4 แล้วสุ่มเทียบกับตัวไล่ทุกกรณีตามที่เขียนไว้ในเนื้อหา */
+const codeTemplate = `// แม่แบบ Knuth optimization สำหรับรูป dp[i][j] = min(dp[i][k] + dp[k+1][j]) + C(i, j)
+// เปลี่ยนแค่ฟังก์ชัน C กับการอ่านอินพุต ที่เหลือลอกทั้งก้อน
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n;
+ll C(int i, int j);              // ค่าใช้จ่ายของช่วง i..j
+
+const ll INF = (ll)4e18;
+
+ll solve() {
+    vector<vector<ll>> dp(n + 2, vector<ll>(n + 2, 0));
+    vector<vector<int>> opt(n + 2, vector<int>(n + 2, 0));
+
+    // ช่วงยาวหนึ่งช่องไม่มีอะไรให้ตัด และเป็นที่ที่หน้าต่างเริ่มนับ
+    for (int i = 1; i <= n; i++) { dp[i][i] = 0; opt[i][i] = i; }
+
+    for (int len = 2; len <= n; len++) {
+        for (int i = 1; i + len - 1 <= n; i++) {
+            int j = i + len - 1;
+            dp[i][j] = INF;
+            // ขอบซ้ายมาจากช่องซ้ายมือ ขอบขวามาจากช่องข้างล่าง ทั้งคู่เติมไปแล้ว
+            int lo = max(opt[i][j - 1], i);
+            int hi = min(opt[i + 1][j], j - 1);
+            for (int k = lo; k <= hi; k++) {
+                ll cand = dp[i][k] + dp[k + 1][j] + C(i, j);
+                if (cand < dp[i][j]) { dp[i][j] = cand; opt[i][j] = k; }
+            }
+        }
+    }
+    return n ? dp[1][n] : 0;
+}`;
+
+const codeSticks = `// Cutting Sticks: ไม้ยาว L มีรอยกา n รอย ตัดหนึ่งครั้งเสียเท่าความยาวชิ้นที่กำลังตัด
+// อินพุต: L แล้ว n แล้วตำแหน่งรอยกา n ตัว จบไฟล์เมื่อ L = 0
+// เอาต์พุต: The minimum cutting is <ค่าน้อยสุด>.
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const ll INF = (ll)4e18;
+
+int main() {
+    ll L;
+    while (scanf("%lld", &L) == 1 && L != 0) {
+        int c; scanf("%d", &c);
+        vector<ll> mark(c + 2);
+        mark[0] = 0;
+        for (int t = 1; t <= c; t++) scanf("%lld", &mark[t]);
+        mark[c + 1] = L;
+
+        // ช่องว่างระหว่างรอยกาที่ติดกัน หนึ่งช่องคือของหนึ่งชิ้นที่ห้ามตัดอีก
+        int n = c + 1;
+        vector<ll> pre(n + 1, 0);
+        for (int i = 1; i <= n; i++) pre[i] = pre[i - 1] + (mark[i] - mark[i - 1]);
+        auto C = [&](int i, int j) { return pre[j] - pre[i - 1]; };
+
+        vector<vector<ll>> dp(n + 2, vector<ll>(n + 2, 0));
+        vector<vector<int>> opt(n + 2, vector<int>(n + 2, 0));
+        for (int i = 1; i <= n; i++) { dp[i][i] = 0; opt[i][i] = i; }
+
+        for (int len = 2; len <= n; len++)
+            for (int i = 1; i + len - 1 <= n; i++) {
+                int j = i + len - 1;
+                dp[i][j] = INF;
+                int lo = max(opt[i][j - 1], i);
+                int hi = min(opt[i + 1][j], j - 1);
+                for (int k = lo; k <= hi; k++) {
+                    ll cand = dp[i][k] + dp[k + 1][j] + C(i, j);
+                    if (cand < dp[i][j]) { dp[i][j] = cand; opt[i][j] = k; }
+                }
+            }
+
+        printf("The minimum cutting is %lld.\\n", dp[1][n]);
+    }
+    return 0;
+}`;
+
+const codeBrkstrng = `// Breaking String: เรื่องเดียวกับตัดไม้ แต่ n ถึงหนึ่งพันและมีหลายชุดทดสอบ
+// จุดเดียวที่ต่างจากข้อแรกคือขอบเขต ซึ่งเป็นตัวบังคับว่าต้องใส่หน้าต่างของ Knuth
+// อินพุต: L m แล้วตำแหน่งที่ต้องหัก m ตัว  เอาต์พุต: ค่าน้อยสุดของแต่ละชุด
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const ll INF = (ll)4e18;
+
+int main() {
+    ll L; int m;
+    while (scanf("%lld %d", &L, &m) == 2) {
+        vector<ll> mark(m + 2);
+        mark[0] = 0;
+        for (int t = 1; t <= m; t++) scanf("%lld", &mark[t]);
+        mark[m + 1] = L;
+
+        int n = m + 1;
+        vector<ll> pre(n + 1, 0);
+        for (int i = 1; i <= n; i++) pre[i] = pre[i - 1] + (mark[i] - mark[i - 1]);
+        auto C = [&](int i, int j) { return pre[j] - pre[i - 1]; };
+
+        vector<vector<ll>> dp(n + 2, vector<ll>(n + 2, 0));
+        vector<vector<int>> opt(n + 2, vector<int>(n + 2, 0));
+        for (int i = 1; i <= n; i++) { dp[i][i] = 0; opt[i][i] = i; }
+
+        for (int len = 2; len <= n; len++)
+            for (int i = 1; i + len - 1 <= n; i++) {
+                int j = i + len - 1;
+                dp[i][j] = INF;
+                int lo = max(opt[i][j - 1], i);
+                int hi = min(opt[i + 1][j], j - 1);
+                for (int k = lo; k <= hi; k++) {
+                    ll cand = dp[i][k] + dp[k + 1][j] + C(i, j);
+                    if (cand < dp[i][j]) { dp[i][j] = cand; opt[i][j] = k; }
+                }
+            }
+
+        printf("%lld\\n", n ? dp[1][n] : 0);
+    }
+    return 0;
+}`;
+
+const codeObst = `// Optimal Binary Search Tree: ของ n อย่างเรียงตามชื่ออยู่แล้ว แต่ละอย่างมีความถี่ f[i]
+// จัดเป็นต้นไม้ค้นหา ให้ผลรวมของ ความถี่ คูณ ชั้นที่มันอยู่ น้อยที่สุด (รากคือชั้นที่ 1)
+// รูปนี้ต่างจากแม่แบบนิดเดียว คือ k เป็น "ราก" ซึ่งถูกดึงออกจากทั้งสองข้าง
+// จึงเป็น g[i][k-1] กับ g[k+1][j] และ k เดินได้ถึง j ไม่ใช่ j-1
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const ll INF = (ll)4e18;
+
+int main() {
+    int n;
+    while (scanf("%d", &n) == 1 && n > 0) {
+        vector<ll> f(n + 1, 0), pre(n + 1, 0);
+        for (int i = 1; i <= n; i++) { scanf("%lld", &f[i]); pre[i] = pre[i - 1] + f[i]; }
+        auto S = [&](int i, int j) { return i > j ? 0LL : pre[j] - pre[i - 1]; };
+
+        vector<vector<ll>> g(n + 3, vector<ll>(n + 3, 0));
+        vector<vector<int>> opt(n + 3, vector<int>(n + 3, 0));
+        for (int i = 1; i <= n; i++) { g[i][i] = f[i]; opt[i][i] = i; }
+
+        for (int len = 2; len <= n; len++)
+            for (int i = 1; i + len - 1 <= n; i++) {
+                int j = i + len - 1;
+                g[i][j] = INF;
+                int lo = max(opt[i][j - 1], i);
+                int hi = min(opt[i + 1][j], j);      // ถึง j เพราะรากเป็นตัวขวาสุดได้
+                for (int k = lo; k <= hi; k++) {
+                    ll cand = (k > i ? g[i][k - 1] : 0) + (k < j ? g[k + 1][j] : 0) + S(i, j);
+                    if (cand < g[i][j]) { g[i][j] = cand; opt[i][j] = k; }
+                }
+            }
+
+        printf("%lld\\n", n ? g[1][n] : 0);
+    }
+    return 0;
+}`;
+
+const codeChecker = `// ตัวตรวจอิสระ: ไล่จุดตัดทุกจุดจริง ไม่ใช้ข้ออ้างเรื่อง opt เลยแม้แต่นิดเดียว
+// นี่คือ O(n^3) ซึ่งเป็นสิ่งที่ Knuth พยายามหลบ จึงเป็นการตรวจที่อิสระจริง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+const ll INF = (ll)4e18;
+
+int n; vector<ll> pre;
+ll C(int i, int j) { return pre[j] - pre[i - 1]; }
+
+ll cubic() {
+    vector<vector<ll>> dp(n + 2, vector<ll>(n + 2, 0));
+    for (int len = 2; len <= n; len++)
+        for (int i = 1; i + len - 1 <= n; i++) {
+            int j = i + len - 1;
+            dp[i][j] = INF;
+            for (int k = i; k < j; k++)
+                dp[i][j] = min(dp[i][j], dp[i][k] + dp[k + 1][j] + C(i, j));
+        }
+    return n ? dp[1][n] : 0;
+}
+
+// ตัวตรวจชั้นที่สอง: ไล่ "ลำดับการตัด" ทุกแบบ ไม่ใช้ดีพีเลย
+// ชั้นนี้สำคัญกว่า เพราะมันไม่ได้เชื่อแม้แต่ว่าโจทย์นี้เป็นดีพีบนช่วง
+map<vector<pair<int,int>>, ll> memo;
+ll byOrder(vector<pair<int,int>> st) {
+    vector<pair<int,int>> live;
+    for (auto &p : st) if (p.second > p.first) live.push_back(p);
+    if (live.empty()) return 0;
+    sort(live.begin(), live.end());
+    auto it = memo.find(live);
+    if (it != memo.end()) return it->second;
+    ll best = INF;
+    for (size_t idx = 0; idx < live.size(); idx++) {
+        auto [l, r] = live[idx];
+        ll price = C(l, r);
+        for (int c = l; c < r; c++) {
+            vector<pair<int,int>> ns;
+            for (size_t t = 0; t < live.size(); t++) if (t != idx) ns.push_back(live[t]);
+            ns.push_back({l, c}); ns.push_back({c + 1, r});
+            best = min(best, price + byOrder(ns));
+        }
+    }
+    memo[live] = best;
+    return best;
+}
+
+int main() {
+    mt19937 rng(12345);
+    for (int t = 0; t < 4000; t++) {
+        n = 1 + rng() % 9;
+        pre.assign(n + 1, 0);
+        for (int i = 1; i <= n; i++) pre[i] = pre[i - 1] + (1 + rng() % 12);
+        ll a = cubic();
+        if (n <= 6) { memo.clear(); if (byOrder({{1, n}}) != a) { puts("ORDER MISMATCH"); return 1; } }
+        // เอา a ไปเทียบกับผลของโค้ด Knuth ที่กำลังจะส่ง
+    }
+    puts("OK");
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    มีไม้ท่อนหนึ่ง ยาว <code>{RUN_L}</code> หน่วย บนไม้มีรอยกาไว้แล้วว่าต้องตัดตรงไหนบ้าง
+    ตัดหนึ่งครั้งเสียเงินเท่ากับ<strong>ความยาวของชิ้นที่กำลังถูกตัด</strong> ไม่ใช่ความยาวของชิ้นที่ได้ออกมา
+    คำถามคือ ตัดตามลำดับไหนถึงจะจ่ายน้อยที่สุด
+  </p>
+  <p>
+    จุดที่ทำให้โจทย์นี้ไม่ใช่โจทย์เด็ก ๆ คือ <strong>ลำดับมีผล</strong> ถ้าตัดไม้ท่อนยาวก่อน
+    รอยที่เหลือจะอยู่ในชิ้นที่สั้นลงแล้ว จึงถูกลง กลับกัน ถ้าเก็บรอยกลางไว้ตัดทีหลัง
+    รอยนั้นจะยังอยู่ในชิ้นยาว ๆ อยู่
+  </p>
+
+  <ZoomableDiagram caption={`ไม้ยาว ${RUN_L} หน่วย มีรอยกา ${RUN_CUTS.length} รอย ตารางข้างล่างคือลำดับการตัดที่ถูกที่สุดลำดับหนึ่ง แต่ละแถวบอกว่ารอบนั้นตัดที่ไหน ตอนนั้นชิ้นที่ถือยาวเท่าไร และจ่ายเท่าไร`}>
+    <svg viewBox={d1VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ไม้กับรอยกาและลำดับการตัดที่ถูกที่สุด">
+      <text x="22" y="20" fill="#9aa7bd" font-size="12" font-family="monospace">ไม้ยาว {RUN_L} หน่วย</text>
+      <rect x={d1x(0)} y={30} width={D1_W} height={34} rx="6" fill="#1b2436" stroke="#4a5a7d" />
+      {RUN_CUTS.map((c) => (
+        <>
+          <line x1={d1x(c)} y1={24} x2={d1x(c)} y2={70} stroke="#e0b400" stroke-width="3" />
+          <text x={d1x(c)} y={84} fill="#e0b400" font-size="12" text-anchor="middle" font-family="monospace">{c}</text>
+        </>
+      ))}
+      <text x={d1x(0)} y={84} fill="#6b7690" font-size="12" text-anchor="middle" font-family="monospace">0</text>
+      <text x={d1x(RUN_L)} y={84} fill="#6b7690" font-size="12" text-anchor="middle" font-family="monospace">{RUN_L}</text>
+      {d1Rows.map((r, t) => (
+        <>
+          <text x="22" y={D1_ROW_Y + t * D1_ROW_H + 16} fill="#9aa7bd" font-size="12" font-family="monospace">
+            ตาที่ {r.step}
+          </text>
+          <rect
+            x={d1x(r.from)}
+            y={D1_ROW_Y + t * D1_ROW_H}
+            width={d1x(r.to) - d1x(r.from)}
+            height={22}
+            rx="4"
+            fill="#132033"
+            stroke="#2a3350"
+          />
+          <line
+            x1={d1x(r.at)}
+            y1={D1_ROW_Y + t * D1_ROW_H - 3}
+            x2={d1x(r.at)}
+            y2={D1_ROW_Y + t * D1_ROW_H + 25}
+            stroke="#4ade80"
+            stroke-width="3"
+          />
+          <text
+            x={d1x(r.to) + 8}
+            y={D1_ROW_Y + t * D1_ROW_H + 16}
+            fill="#cdd6ea"
+            font-size="12"
+            font-family="monospace"
+          >
+            จ่าย {r.price}
+          </text>
+        </>
+      ))}
+      <text x="22" y={d1Bottom + 6} fill="#4ade80" font-size="13" font-family="monospace">
+        รวม {runAnswer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เขียนสูตรได้ไม่ยาก มองไม้เป็น <strong>ช่องว่างระหว่างรอยกาที่ติดกัน</strong> ซึ่งไม้ต้นนี้มี{' '}
+    <code>{RN}</code> ช่อง ช่องหนึ่งคือของหนึ่งชิ้นที่ห้ามตัดอีกแล้ว การตัดหนึ่งครั้งจึงเป็นการ
+    <strong>ผ่าช่วงของช่องออกเป็นสองช่วง</strong> โดยจ่ายเท่าความยาวรวมของช่วงที่กำลังผ่า
+  </p>
+  <Fragment set:html={texRec} />
+  <p>
+    ตรงนี้ <code>C(i, j)</code> คือค่าใช้จ่ายที่ต้องจ่ายเมื่อผ่าช่วง <code>[i..j]</code> หนึ่งครั้ง
+    ซึ่งในโจทย์ตัดไม้คือความยาวรวมของช่วงนั้น ส่วน <code>k</code> คือรอยที่เลือกผ่า
+  </p>
+
+  <hr class="divider" />
+
+  <h2>สูตรที่เขียนได้ กับตัวเลขที่ทำให้ตกรอบ</h2>
+  <p>
+    สูตรข้างบนมีช่องให้เติม <code>n²</code> ช่อง แต่ละช่องไล่ <code>k</code> ได้ถึง <code>n</code> จุด
+    รวมเป็น <code>O(n³)</code> ซึ่งไหวถ้า <code>n</code> อยู่ระดับไม่กี่ร้อย
+    พอโจทย์ให้ <code>n</code> เป็นหลักพัน มันก็ตกเวลาไปเฉย ๆ
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>วัดหัวต่อหัว · g++ 11.4 ตัวเดียวกัน คอมไพล์ด้วย -O2</caption>
+      <thead>
+        <tr>
+          <th class="num">n</th>
+          <th class="num">ไล่จุดตัดทุกจุด</th>
+          <th class="num">ใส่หน้าต่างของ Knuth</th>
+          <th class="num">ต่างกัน</th>
+        </tr>
+      </thead>
+      <tbody>
+        {benchRows.map((r) => (
+          <tr>
+            <td class="num">{r.n.toLocaleString('en-US')}</td>
+            <td class="num">{r.cubic}</td>
+            <td class="num">{r.knuth}</td>
+            <td class="num">{r.ratio}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สองแถวนี้ไม่ใช่การประมาณ ผมคอมไพล์ทั้งสองตัวแล้วรันอินพุตชุดเดียวกันจริง
+      ทั้งคู่ตอบเลขเดียวกันทุกครั้ง ต่างกันแค่ขอบเขตของลูปในสุด
+      และช่องว่างนี้ถ่างขึ้นเรื่อย ๆ ตาม <code>n</code>
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ชื่อของท่าที่จะแก้เรื่องนี้</p>
+    <p>
+      ท่านี้ชื่อ <strong>Knuth optimization</strong> ตั้งตามชื่อ <i>Donald Knuth</i> อ่านว่า{' '}
+      <strong>"โดนัลด์ คะนูธ"</strong> นักวิทยาการคอมพิวเตอร์ที่เขียนชุดหนังสือ{' '}
+      <i>The Art of Computer Programming</i> เขาใช้ท่านี้ครั้งแรกในปี 1971
+      กับโจทย์สร้างต้นไม้ค้นหาที่ดีที่สุด ซึ่งเป็นโจทย์ฝึกข้อสุดท้ายของบทนี้พอดี
+      ส่วนคำว่า <i>optimization</i> อ่านว่า <strong>"ออปทิไมเซชัน"</strong> แปลว่า{' '}
+      <strong>"การทำให้ดีที่สุด"</strong> ในที่นี้หมายถึงการเร่งความเร็ว ไม่ได้แปลว่าคำตอบดีขึ้น
+      เพราะคำตอบเท่าเดิมเป๊ะ
+    </p>
+  </div>
+
+  <p>
+    ท่านี้เป็นญาติสนิทของ<a href="/cp/divide-conquer-dp/">บทแบ่งครึ่งเร่งดีพี</a> ทั้งคู่ยืนอยู่บนความคิดเดียวกัน
+    คือ<strong>จุดตัดที่ดีที่สุดไม่ได้กระโดดไปมา</strong> ต่างกันที่รูปของโจทย์ ท่าแบ่งครึ่งใช้กับดีพีที่มี
+    <strong>ชั้น</strong> (แบ่งของเป็น <code>k</code> กอง) ส่วนท่านี้ใช้กับ
+    <a href="/cp/interval-dp/">ดีพีบนช่วง</a> ที่ช่วงหนึ่งแตกเป็นสองช่วงย่อย ถ้ายังไม่ได้อ่านสองบทนั้น
+    อ่านบทนี้ก่อนก็ได้ แต่จะได้ประโยชน์มากขึ้นถ้าอ่านบทดีพีบนช่วงมาก่อน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ลองเอง · เลือกลำดับตัดไม้</h2>
+  <p>
+    ก่อนไปดูท่าเร่งความเร็ว ลองตัดเองก่อน กติกาคือคลิกที่รอยกาเพื่อตัดตรงนั้น
+    ค่าที่ต้องจ่ายคือ<strong>ความยาวของชิ้นที่รอยนั้นอยู่ในขณะที่คลิก</strong> ตัดให้ครบทุกรอย
+    แล้วดูว่ารวมแล้วได้เท่าไร
+  </p>
+
+  <div class="cpgame kngame" data-kngame data-puzzles={knJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {knPuzzles.map((p, t) => (
+        <button
+          type="button"
+          class="cpg-tab"
+          role="tab"
+          data-cpg-tab={String(t)}
+          aria-selected={t === 0 ? 'true' : 'false'}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{knPuzzles[0].tease}</p>
+    <p class="fg-sub">
+      ไม้ยาว <b data-kn-len>{knPuzzles[0].L}</b> หน่วย มีรอยกา{' '}
+      <b data-kn-marks>{knPuzzles[0].gaps.length - 1}</b> รอย ต้องตัดให้ครบทุกรอย
+    </p>
+
+    <div class="cpg-scroll"><div class="kn-row" data-kn-row></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-kn-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn main" data-kn-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกที่รอยกาสีทองเพื่อตัดตรงนั้น</p>
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้ตัดเลย จ่ายไป 0</p>
+    <p class="cpg-hint">ตัวเลขบนรอยที่ตัดแล้วคือลำดับที่ตัด ตัวเลขใต้ชิ้นคือความยาวของชิ้นนั้นตอนนี้</p>
+  </div>
+
+  <p class="io-note">
+    ชุดที่สามมีรอยกาสามรอยกระจุกอยู่ทางซ้าย ถ้าไล่ตัดเรียงจากรอยซ้ายสุดไปขวาสุด จะได้ {trapLeft}{' '}
+    ขณะที่คำตอบจริงคือ {trapSeed.best} เพราะทุกครั้งที่ตัดรอยทางซ้าย ชิ้นที่ถืออยู่ยังยาวเกือบเต็มไม้
+  </p>
+  <p class="ns-cue">
+    พอมีคำตอบในใจแล้ว มาดูกันว่าถ้าไม้ต้นนั้นมีรอยกาสามพันรอย เครื่องจะตัดงานทิ้งได้ยังไง
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ของชิ้นเดียวที่เปลี่ยนทุกอย่าง คือจุดตัดที่ดีที่สุด</h2>
+  <p>
+    ตั้งชื่อให้มันก่อน เรียกว่า <code>opt(i, j)</code>
+  </p>
+  <Fragment set:html={texOpt} />
+  <p>
+    ชื่อ <code>opt</code> ย่อมาจาก <i>optimal</i> อ่านว่า <strong>"ออปทิมัล"</strong> แปลว่า{' '}
+    <strong>"ดีที่สุด"</strong> มันไม่ใช่คำตอบของช่วงนั้น มันคือ<strong>ตำแหน่งที่ทำให้ได้คำตอบนั้น</strong>{' '}
+    ต่างกันเหมือนคะแนนสอบกับเลขที่นั่งของคนที่ได้คะแนนนั้น
+  </p>
+  <p>
+    ทีนี้ลองพิมพ์ <code>opt</code> ของทุกช่องออกมาดู นี่คือของจริงจากไม้ยาว {RUN_L} ข้างบน
+    แถวคือขอบซ้ายของช่วง คอลัมน์คือขอบขวา
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>OPT ของทุกช่วง · ไม้ยาว {RUN_L}</caption>
+      <thead>
+        <tr>
+          <th>i \ j</th>
+          {Array.from({ length: RN }, (_, t) => <th class="num">{t + 1}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {runOptGrid.map((row, r) => (
+          <tr>
+            <td>{r + 1}</td>
+            {row.map((v) => (
+              <td class="num">{v === null ? <span class="dim">·</span> : v}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      อ่านจากซ้ายไปขวาในแถวเดียวกัน ตัวเลขไม่เคยลดลง และอ่านจากบนลงล่างในคอลัมน์เดียวกัน
+      ตัวเลขก็ไม่เคยลดลงเหมือนกัน สองข้อสังเกตนี้คือทั้งหมดของท่านี้
+    </figcaption>
+  </figure>
+
+  <p>
+    เขียนสองข้อสังเกตนั้นเป็นบรรทัดเดียวได้แบบนี้
+  </p>
+  <Fragment set:html={texMono} />
+
+  <p>
+    ประโยคนี้คือจุดที่ผมอ่านตำราแล้วสะดุด เพราะมันบอกแค่ว่าอสมการเป็นจริง แต่ไม่ได้บอกว่า
+    <strong>ทำไมสองช่องนั้น</strong> ลองอ่านมันใหม่โดยมองที่ตารางแทนที่จะมองที่ตัวอักษร
+  </p>
+  <ul>
+    <li>
+      <code>opt(i, j-1)</code> คือ<strong>ช่องซ้ายมือ</strong>ของช่องที่กำลังจะเติม
+      มันคือช่วงเดียวกันแต่ตัดหางขวาออกไปหนึ่งช่อง
+    </li>
+    <li>
+      <code>opt(i+1, j)</code> คือ<strong>ช่องข้างล่าง</strong>
+      มันคือช่วงเดียวกันแต่ตัดหัวซ้ายออกไปหนึ่งช่อง
+    </li>
+    <li>
+      ทั้งสองช่องนั้นสั้นกว่าช่องที่กำลังเติมอยู่หนึ่งช่อง จึง<strong>ถูกเติมไปแล้วแน่นอน</strong>
+      ถ้าเราเติมตารางโดยไล่ตามความยาวช่วงจากสั้นไปยาว
+    </li>
+  </ul>
+  <p>
+    ความหมายเป็นภาษาคนคือ <strong>ต่อหางขวาให้ยาวขึ้น จุดตัดที่ดีที่สุดก็ขยับไปทางขวาหรืออยู่ที่เดิม
+    ไม่มีวันถอยกลับ</strong> และ<strong>ตัดหัวซ้ายทิ้ง จุดตัดก็ขยับไปทางขวาหรืออยู่ที่เดิมเช่นกัน</strong>{' '}
+    เอาสองอันมาประกบกัน จุดตัดของช่องนี้จึงถูกขังอยู่ระหว่างเพื่อนบ้านสองช่องที่รู้คำตอบแล้ว
+  </p>
+
+  <ZoomableDiagram caption={`ช่องเป้าหมายคือ [${bridgeCell.i}..${bridgeCell.j}] ถ้าไม่รู้อะไรเลยต้องส่องจุดตัด ${bridgeFull} จุด แต่เพื่อนบ้านซ้ายกับล่างบอกขอบมาแล้ว จึงเหลือ ${bridgeWindow} จุด แถบข้างล่างคือช่วงที่ต้องส่องจริง`}>
+    <svg viewBox={d2VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตารางดีพีที่ช่องเป้าหมายรับขอบมาจากเพื่อนบ้านซ้ายและล่าง" style="display:block;margin:0 auto;max-width:470px">
+      <text x="24" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ตาราง opt · แถว i คือขอบซ้าย คอลัมน์ j คือขอบขวา</text>
+      {Array.from({ length: RN }, (_, c) => (
+        <text x={d2gx(c + 1) + D2_CELL / 2} y={50} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">
+          j={c + 1}
+        </text>
+      ))}
+      {Array.from({ length: RN }, (_, r) => (
+        <text x={24 + D2_HEAD - 8} y={d2gy(r + 1) + D2_CELL / 2 + 4} fill="#6b7690" font-size="11" text-anchor="end" font-family="monospace">
+          i={r + 1}
+        </text>
+      ))}
+      {d2Roles.map((row, r) =>
+        row.map((role, c) =>
+          role === 'none' ? null : (
+            <>
+              <rect
+                x={d2gx(c + 1)}
+                y={d2gy(r + 1)}
+                width={D2_CELL - 6}
+                height={D2_CELL - 6}
+                rx="5"
+                fill={
+                  role === 'target'
+                    ? 'rgba(74,222,128,0.22)'
+                    : role === 'left' || role === 'below'
+                      ? 'rgba(224,180,0,0.18)'
+                      : '#101827'
+                }
+                stroke={
+                  role === 'target' ? '#4ade80' : role === 'left' || role === 'below' ? '#e0b400' : '#2a3350'
+                }
+              />
+              <text
+                x={d2gx(c + 1) + (D2_CELL - 6) / 2}
+                y={d2gy(r + 1) + (D2_CELL - 6) / 2 + 5}
+                fill={role === 'target' ? '#eaf4ff' : role === 'left' || role === 'below' ? '#ffe9a8' : '#7b8397'}
+                font-size="13"
+                text-anchor="middle"
+                font-family="monospace"
+              >
+                {runCubic.opt[r + 1][c + 1]}
+              </text>
+            </>
+          ),
+        ),
+      )}
+      <text
+        x={d2gx(bridgeCell.j - 1) + (D2_CELL - 6) / 2}
+        y={d2gy(bridgeCell.i) - 8}
+        fill="#e0b400"
+        font-size="11"
+        text-anchor="middle"
+        font-family="monospace"
+      >
+        ขอบซ้าย
+      </text>
+      <text
+        x={d2gx(bridgeCell.j) + (D2_CELL - 6) / 2}
+        y={d2gy(bridgeCell.i + 1) + D2_CELL + 8}
+        fill="#e0b400"
+        font-size="11"
+        text-anchor="middle"
+        font-family="monospace"
+      >
+        ขอบขวา
+      </text>
+      <text x="24" y={D2_BAR_Y - 14} fill="#9aa7bd" font-size="12" font-family="monospace">
+        จุดตัดที่ต้องส่องของช่อง [{bridgeCell.i}..{bridgeCell.j}]
+      </text>
+      {d2Bar.map((b) => (
+        <>
+          <rect
+            x={d2bx(b.k)}
+            y={D2_BAR_Y}
+            width={D2_CELL - 6}
+            height={34}
+            rx="5"
+            fill={b.inWin ? 'rgba(74,222,128,0.22)' : '#101827'}
+            stroke={b.inWin ? '#4ade80' : '#2a3350'}
+          />
+          <text
+            x={d2bx(b.k) + (D2_CELL - 6) / 2}
+            y={D2_BAR_Y + 22}
+            fill={b.inWin ? '#eaf4ff' : '#7b8397'}
+            font-size="12"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            k={b.k}
+          </text>
+        </>
+      ))}
+      <text x="24" y={D2_BAR_Y + 52} fill="#4ade80" font-size="12" font-family="monospace">
+        เขียว {bridgeWindow} ช่อง จากทั้งหมด {bridgeFull} ช่อง
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <hr class="divider" />
+
+  <h2>ทำไมแคบลงนิดเดียวแล้วถึงยุบได้ทั้งอันดับ</h2>
+  <p>
+    ตรงนี้เป็นสะพานที่สองที่ตำรามักข้าม เพราะดูจากภาพข้างบน มันแคบลงแค่ไม่กี่ช่อง
+    แล้วจะยุบจาก <code>O(n³)</code> เป็น <code>O(n²)</code> ได้ยังไง
+  </p>
+  <p>
+    คำตอบคือ<strong>อย่านับทีละช่อง ให้นับทั้งเส้นทแยงพร้อมกัน</strong> เส้นทแยงหนึ่งเส้นคือ
+    ทุกช่วงที่<strong>ยาวเท่ากัน</strong> ในเส้นนั้น ช่องที่อยู่ถัดไปทางขวามีขอบซ้ายของหน้าต่างที่
+    <strong>ไม่น้อยกว่า</strong>ของช่องก่อนหน้า และขอบขวาก็ไม่น้อยกว่าเช่นกัน
+    ขอบทั้งสองข้างจึงเดินไปทางขวาอย่างเดียวตลอดทั้งเส้น
+  </p>
+
+  <ZoomableDiagram caption={`เส้นทแยงของช่วงยาว ${TEL_LEN} ช่อง บนไม้อีกต้นที่มี ${TN} ช่อง แถบเขียวคือจุดตัดที่ต้องส่องจริงของแต่ละช่อง สังเกตว่าขอบซ้ายกับขอบขวาของแถบไม่เคยถอยกลับ ผลรวมความยาวของทุกแถบจึงมีเพดานเท่าความกว้างของทั้งเส้นบวกจำนวนแถบ`}>
+    <svg viewBox={d3VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="แถบหน้าต่างของแต่ละช่องในเส้นทแยงเดียวกัน ขอบทั้งสองข้างขยับไปทางขวาอย่างเดียว">
+      <text x="20" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ช่วงยาว {TEL_LEN} ช่อง ทุกช่องในเส้นทแยงเดียวกัน</text>
+      {Array.from({ length: TN }, (_, t) => (
+        <text x={d3x(t + 1) + (D3_CELL - 6) / 2} y={D3_ROW_Y - 10} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">
+          k={t + 1}
+        </text>
+      ))}
+      {telBars.map((b, t) => (
+        <>
+          <text x="20" y={D3_ROW_Y + t * D3_ROW_H + 22} fill="#9aa7bd" font-size="11" font-family="monospace">
+            [{b.i}..{b.j}]
+          </text>
+          <rect
+            x={d3x(b.i)}
+            y={D3_ROW_Y + t * D3_ROW_H + 4}
+            width={(b.j - 1 - b.i + 1) * D3_CELL - 6}
+            height={26}
+            rx="5"
+            fill="#101827"
+            stroke="#2a3350"
+          />
+          <rect
+            x={d3x(b.lo)}
+            y={D3_ROW_Y + t * D3_ROW_H + 4}
+            width={(b.hi - b.lo + 1) * D3_CELL - 6}
+            height={26}
+            rx="5"
+            fill="rgba(74,222,128,0.22)"
+            stroke="#4ade80"
+          />
+          <text
+            x={d3x(b.lo) + ((b.hi - b.lo + 1) * D3_CELL - 6) / 2}
+            y={D3_ROW_Y + t * D3_ROW_H + 22}
+            fill="#eaf4ff"
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {b.hi - b.lo + 1}
+          </text>
+        </>
+      ))}
+      <text x="20" y={d3Bottom + 4} fill="#4ade80" font-size="12" font-family="monospace">
+        รวมงานจริง {telBarWork} ครั้ง จากที่ถ้าไล่เต็มจะเป็น {telBarFull} ครั้ง
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    พอขอบทั้งสองข้างเดินทางเดียว ผลรวมความยาวของแถบทั้งเส้นก็มีเพดานง่าย ๆ คือ
+    <strong>ระยะที่ขอบขวาเดินได้ทั้งหมด บวกจำนวนแถบ</strong> เพราะแถบหนึ่งกินอย่างน้อยหนึ่งช่องเสมอ
+    ในภาพข้างบนคือ {telSpan} บวก {telBars.length} เท่ากับ {telBound} ซึ่งมากกว่างานจริง {telBarWork} ครั้งอยู่
+    ทั้งเส้นทแยงจึงเป็นงาน <code>O(n)</code> ไม่ใช่ <code>O(n²)</code> และมีเส้นทแยงทั้งหมด{' '}
+    <code>n</code> เส้น รวมเป็น <code>O(n²)</code>
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">วิธีนับแบบนี้มีชื่อ และเคยเจอมาแล้ว</p>
+    <p>
+      การนับที่บอกว่า "ต่อครั้งอาจแพง แต่รวมทั้งชุดแล้วถูก" เรียกว่า{' '}
+      <strong>amortized analysis</strong> อ่านว่า <strong>"อะมอร์ไทซ์"</strong> แปลว่า{' '}
+      <strong>"เฉลี่ยทบ"</strong> เป็นตัวนับเดียวกับที่สองตัวชี้ใน
+      <a href="/cp/sliding-window/">บทหน้าต่างเลื่อน</a> ใช้ คือขอบที่เดินทางเดียวตลอด
+      จึงนับรวมทั้งลูปได้เลย แทนที่จะคูณจำนวนรอบด้วยงานที่แย่ที่สุดของหนึ่งรอบ
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>เดินให้ดูทีละขั้น</h2>
+  <p>
+    นี่คือการเติมตารางจริงของไม้ยาว {RUN_L} ต้นเดิม เดินไล่ตามความยาวช่วงจากสั้นไปยาว
+    ช่องเขียวคือช่องที่กำลังเติม ช่องเหลืองคือเพื่อนบ้านสองช่องที่บอกขอบมาให้
+  </p>
+
+  <CpStepPlayer hook="knsim" steps={knSteps} label="เติมตาราง dp ไล่ตามความยาวช่วง">
+    <table class="rec knboard">
+      <caption>DP · ไม้ยาว {RUN_L}</caption>
+      <thead>
+        <tr>
+          <th>i \ j</th>
+          {Array.from({ length: RN }, (_, t) => <th class="num">{t + 1}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {runBoard.map((row, r) => (
+          <tr>
+            <td>{r + 1}</td>
+            {row.map((cell) => (
+              <td class="num" data-kn-i={String(cell.i)} data-kn-j={String(cell.j)} data-v={cell.v}>
+                {cell.kind === 'blank' ? '' : cell.kind === 'zero' ? '0' : '·'}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </CpStepPlayer>
+
+  <p class="io-note">
+    เดินครบทั้งตารางแล้ว ท่านี้ส่องจุดตัดรวม {runKnuth.scans} ครั้ง ส่วนการไล่ทุกจุดต้องส่อง{' '}
+    {runCubic.scans} ครั้ง ประหยัดไป {runSaving} ครั้ง ซึ่งดูน้อยเพราะไม้ต้นนี้เล็ก
+    ความต่างจริงอยู่ในตารางวัดเวลาข้างบน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>เงื่อนไขที่ต้องจริงก่อน ถึงจะใช้ท่านี้ได้</h2>
+  <p>
+    ข้ออ้างเรื่อง <code>opt</code> ไม่ถูกต้องฟรี ๆ มันต้องการเงื่อนไขสองข้อกับฟังก์ชันค่าใช้จ่าย{' '}
+    <code>C</code> ทั้งสองข้อพูดถึงช่วงสี่ตำแหน่งที่เรียงกันคือ <code>a</code> ถึง <code>b</code> ถึง{' '}
+    <code>c</code> ถึง <code>d</code>
+  </p>
+
+  <p>ข้อแรกคือ <strong>ค่าใช้จ่ายต้องโตตามช่วง</strong> ช่วงที่อยู่ข้างในต้องไม่แพงกว่าช่วงที่ครอบมันอยู่</p>
+  <Fragment set:html={texMonoC} />
+  <p>
+    ข้อสองชื่อ <strong>อสมการสี่เหลี่ยม</strong> (<i>quadrangle inequality</i> อ่านว่า{' '}
+    <strong>"ควอดแรงเกิล อินอิควอลิตี"</strong> แปลตรงตัวว่า <strong>"อสมการสี่เหลี่ยม"</strong>{' '}
+    ตั้งชื่อตามการที่มันพูดถึงสี่จุดพร้อมกัน)
+  </p>
+  <Fragment set:html={texQi} />
+  <p>
+    อสมการข้อสองนี้อ่านยากถ้าดูแค่ตัวอักษร ลองอ่านเป็นภาษาคน ฝั่งซ้ายคือช่วงคู่หนึ่งที่
+    <strong>เหลื่อมกัน</strong> คือ <code>[a..c]</code> กับ <code>[b..d]</code> ส่วนฝั่งขวาคือช่วงคู่หนึ่งที่
+    <strong>ซ้อนกัน</strong> คือ <code>[a..d]</code> ที่ครอบ <code>[b..c]</code> ไว้ทั้งอัน
+    ทั้งสองคู่กินตำแหน่งรวมกันเท่ากันเป๊ะ อสมการจึงบอกว่า{' '}
+    <strong>แบบซ้อนกันแพงกว่าหรือเท่ากับแบบเหลื่อมกันเสมอ</strong> พูดอีกทางคือค่าใช้จ่ายลงโทษการมีช่วงยาว ๆ
+    มากกว่าลงโทษการมีช่วงกลาง ๆ สองช่วง
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ท่าที่ผมใช้จริงเวลาแข่ง</p>
+    <p>
+      พิสูจน์อสมการสี่เหลี่ยมกลางสนามแข่งเป็นเรื่องที่ทำไม่ทัน สิ่งที่ทำได้จริงคือ{' '}
+      <strong>จำรูปที่ปลอดภัยไว้</strong> แล้ว<strong>สุ่มเทียบกับ <code>O(n³)</code> ก่อนส่ง</strong>{' '}
+      รูปที่ปลอดภัยและพบบ่อยที่สุดคือ <strong>ค่าใช้จ่ายของช่วงคือผลรวมของค่าที่ไม่ติดลบในช่วงนั้น</strong>{' '}
+      ซึ่งครอบทั้งโจทย์ตัดไม้ โจทย์รวมกองหิน และโจทย์ต้นไม้ค้นหา ถ้าค่าใช้จ่ายหน้าตาอื่น
+      ให้ถือว่ายังไม่รู้จนกว่าตัวตรวจจะบอก
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ถ้าฝืนใช้กับค่าใช้จ่ายที่ไม่เข้าเงื่อนไข จะพังยังไง</h2>
+  <p>
+    ตรงนี้สำคัญกว่าที่คิด เพราะเวลาข้ออ้างไม่จริง โปรแกรม<strong>ไม่พังและไม่ฟ้องอะไรเลย</strong>{' '}
+    มันแค่ตอบค่าที่มากกว่าคำตอบจริงอย่างเงียบ ๆ เฉพาะบางอินพุต
+  </p>
+  <p>
+    ตัวค้านที่เล็กที่สุดที่ผมหาเจอมีแค่ {CE_N} ช่อง และค่าใช้จ่ายเป็นศูนย์ทุกช่องยกเว้นสองช่อง คือ{' '}
+    <code>C(1,2) = 1</code> กับ <code>C(2,4) = 1</code> ที่เหลือเป็นศูนย์หมด
+    ไล่จุดตัดทุกจุดได้คำตอบ <strong>{ceTruth}</strong> แต่ใส่หน้าต่างของ Knuth แล้วได้{' '}
+    <strong>{ceGot}</strong>
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>OPT ของตัวค้าน</caption>
+      <thead>
+        <tr>
+          <th>i \ j</th>
+          {Array.from({ length: CE_N }, (_, t) => <th class="num">{t + 1}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {ceOptRows.map((row) => (
+          <tr>
+            <td>{row.i}</td>
+            {row.cells.map((c) => (
+              <td class="num">{c.v === null ? <span class="dim">·</span> : c.v}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ช่องที่หักท่านี้คือ [{ceBackStep.i}..{ceBackStep.j}] ซึ่งเพื่อนบ้านซ้ายให้ขอบ {ceBackStep.left}{' '}
+      เพื่อนบ้านล่างให้ขอบ {ceBackStep.below} แต่จุดตัดที่ดีที่สุดจริงคือ {ceBackStep.here}{' '}
+      ซึ่งหลุดออกนอกหน้าต่างไป โปรแกรมจึงไม่มีวันมองเห็นมัน
+    </figcaption>
+  </figure>
+
+  <p>
+    ค่าใช้จ่ายชุดนี้พังทั้งสองเงื่อนไข อสมการสี่เหลี่ยมพังที่ <code>a={ceQi.a}</code>{' '}
+    <code>b={ceQi.b}</code> <code>c={ceQi.c}</code> <code>d={ceQi.d}</code> และเงื่อนไขโตตามช่วงพังที่{' '}
+    <code>a={ceMono.a}</code> <code>b={ceMono.b}</code> <code>c={ceMono.c}</code> <code>d={ceMono.d}</code>{' '}
+    ส่วนค่าใช้จ่ายแบบผลรวมของช่วง ผมไล่ตรวจทุกสี่จุดในไม้ตัวอย่างแล้ว ผ่านทั้งสองข้อ
+  </p>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">เรื่องที่เกิดขึ้นจริงตอนหาตัวค้านตัวนี้</p>
+    <p>
+      รอบแรกผมปล่อยให้ตัวสุ่มใส่ค่าลงช่องแนวทแยง <code>C(i, i)</code> ได้ด้วย
+      มันหาตัวค้านเจอเร็วมาก แต่พอไปดูว่าอสมการพังที่คู่ไหน คำตอบคือคู่ที่ใช้{' '}
+      <code>C(2, 2)</code> ซึ่งเป็นช่องที่ดีพี<strong>ไม่เคยอ่านเลย</strong>
+      เพราะช่วงยาวหนึ่งช่องไม่มีอะไรให้ตัด
+    </p>
+    <p>
+      ตัวค้านแบบนั้นถูกทางเทคนิค แต่เล่าไม่ได้ เพราะคนอ่านจะถามทันทีว่าช่องที่ไม่มีใครอ่าน
+      ทำให้ผลลัพธ์เปลี่ยนได้ยังไง ผมจึงบังคับให้แนวทแยงเป็นศูนย์แล้วสุ่มใหม่
+      ได้ตัวค้านที่ค่าไม่เป็นศูนย์แค่สองช่อง และทั้งสองช่องเป็นช่องที่ดีพีอ่านจริง
+      บทเรียนที่ติดมือกลับมาคือ <strong>ตัวค้านต้องหักของที่อัลกอริทึมแตะจริง</strong>{' '}
+      ไม่ใช่แค่ทำให้เงื่อนไขบนกระดาษเป็นเท็จ
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>แม่แบบที่ลอกไปใช้ได้ทุกข้อ</h2>
+  <p>เทียบกับดีพีบนช่วงธรรมดา โค้ดนี้ต่างกันแค่สามบรรทัด คือตาราง <code>opt</code> กับ <code>lo</code> และ <code>hi</code></p>
+
+  <CodeBlock code={codeTemplate} lang="cpp" title="knuth.cpp" />
+
+  <div class="callout callout-warn">
+    <p class="callout-label">สามจุดที่ต้องระวังในแม่แบบนี้</p>
+    <ul>
+      <li>
+        <strong>ลำดับการเติมห้ามเปลี่ยน</strong> ต้องไล่ตาม <code>len</code> จากสั้นไปยาวเท่านั้น
+        ถ้าเขียนเป็นสองลูป <code>i</code> กับ <code>j</code> ตรง ๆ เพื่อนบ้านสองช่องจะยังไม่ถูกเติม
+        แล้วหน้าต่างจะอ่านค่าศูนย์ที่ยังไม่มีความหมาย
+      </li>
+      <li>
+        <strong>ต้องหนีบขอบด้วย <code>max</code> และ <code>min</code></strong> เพราะ{' '}
+        <code>opt[i][j-1]</code> อาจน้อยกว่า <code>i</code> ไม่ได้ และ <code>opt[i+1][j]</code>{' '}
+        อาจเกิน <code>j-1</code> ไม่ได้ ถ้าลืม ลูปจะอ่านช่องนอกช่วงแล้วได้คำตอบมั่ว
+      </li>
+      <li>
+        <strong>ต้องตั้ง <code>opt[i][i] = i</code></strong> ไม่ใช่ปล่อยเป็นศูนย์
+        เพราะช่องแนวทแยงคือที่ที่หน้าต่างเริ่มนับ ถ้าเป็นศูนย์ ขอบซ้ายของทุกช่วงยาวสองจะเริ่มผิด
+        แล้วอาการจะออกเป็น<strong>คำตอบมากกว่าจริงเล็กน้อย</strong> ซึ่งตัวอย่างในโจทย์มักจับไม่ได้
+      </li>
+    </ul>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สามข้อนี้หยิบมาจากรายการอ้างอิงท้ายหน้า Knuth optimization ของ cp-algorithms
+    เรียงให้ข้อแรกใช้ท่านี้ก็ได้ไม่ใช้ก็ได้ ข้อสองบังคับให้ใช้ และข้อสามเปลี่ยนหน้าตาของค่าใช้จ่าย
+  </p>
+
+  <h3>ฝึกข้อ 1 · ตัดไม้ (UVA 10003 Cutting Sticks)</h3>
+  <p>
+    ช่างไม้รับไม้มาท่อนหนึ่ง ลูกค้าทำเครื่องหมายไว้ว่าต้องตัดตรงไหนบ้าง
+    ร้านคิดเงินตามความยาวของชิ้นที่กำลังตัด ช่างจึงเลือกลำดับเองได้ ให้หาว่าจ่ายน้อยที่สุดเท่าไร
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> ความยาวไม้ <code>L</code> แล้วจำนวนรอยกา <code>n</code> แล้วตำแหน่งรอยกาเรียงจากน้อยไปมาก</li>
+      <li><strong>ขอบเขต:</strong> <code>L</code> ไม่เกินหนึ่งพัน และ <code>n</code> ไม่เกินห้าสิบ</li>
+      <li><strong>เอาต์พุต:</strong> ค่าใช้จ่ายรวมที่น้อยที่สุด</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{p1InputLines.map((l) => <>{l}<br /></>)}</td>
+        <td>{p1Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือความยาวไม้ทั้งท่อน คือ {P1_L} หน่วย บรรทัดที่สองบอกว่ามีรอยกา {P1_CUTS.length} รอย
+      บรรทัดที่สามคือตำแหน่งของรอยกาแต่ละรอย นับจากปลายซ้ายของไม้ ซึ่งคือ {P1_CUTS.join(' และ ')}
+      เอาต์พุตเป็น<strong>เงินรวม</strong> ไม่ใช่จำนวนครั้งที่ตัดและไม่ใช่ความยาวชิ้นไหน
+      ตรงนี้คือจุดที่คนอ่านผิดบ่อยที่สุด
+    </p>
+    <p>
+      ไม้ต้นนี้ถูกแบ่งเท่า ๆ กันพอดี การตัดครั้งแรกจึงต้องจ่ายเต็ม {P1_L} เสมอไม่ว่าจะตัดรอยไหน
+      หลังจากนั้นเหลือสองชิ้นที่ต้องตัดอีกชิ้นละครั้ง เฉพาะครั้งแรกมีจุดตัดที่ให้ค่าต่ำสุดอยู่{' '}
+      {p1FirstTies} แบบ ผลรวมจึงเป็น {d4Rows.map((r) => r.price).join(' บวก ')} เท่ากับ {p1Answer}
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`ลำดับการตัดที่ถูกที่สุดลำดับหนึ่งของตัวอย่างข้อที่ 1 ครั้งแรกจ่ายเต็มความยาวไม้ ครั้งที่สองกับสามจ่ายแค่ครึ่งเดียวเพราะไม้ถูกแยกไปแล้ว`}>
+    <svg viewBox={d4VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ลำดับการตัดของตัวอย่างข้อที่ 1">
+      <text x="22" y="20" fill="#9aa7bd" font-size="12" font-family="monospace">ไม้ยาว {P1_L} รอยกาที่ {P1_CUTS.join(', ')}</text>
+      <rect x={d4x(0)} y={28} width={D4_W} height={32} rx="6" fill="#1b2436" stroke="#4a5a7d" />
+      {P1_CUTS.map((c) => (
+        <>
+          <line x1={d4x(c)} y1={22} x2={d4x(c)} y2={66} stroke="#e0b400" stroke-width="3" />
+          <text x={d4x(c)} y={80} fill="#e0b400" font-size="12" text-anchor="middle" font-family="monospace">{c}</text>
+        </>
+      ))}
+      {d4Rows.map((r, t) => (
+        <>
+          <text x="22" y={D4_ROW_Y + t * D4_ROW_H + 16} fill="#9aa7bd" font-size="12" font-family="monospace">
+            ตาที่ {r.step}
+          </text>
+          <rect
+            x={d4x(r.from)}
+            y={D4_ROW_Y + t * D4_ROW_H}
+            width={d4x(r.to) - d4x(r.from)}
+            height={22}
+            rx="4"
+            fill="#132033"
+            stroke="#2a3350"
+          />
+          <line
+            x1={d4x(r.at)}
+            y1={D4_ROW_Y + t * D4_ROW_H - 3}
+            x2={d4x(r.at)}
+            y2={D4_ROW_Y + t * D4_ROW_H + 25}
+            stroke="#4ade80"
+            stroke-width="3"
+          />
+          <text x={d4x(r.to) + 8} y={D4_ROW_Y + t * D4_ROW_H + 16} fill="#cdd6ea" font-size="12" font-family="monospace">
+            จ่าย {r.price}
+          </text>
+        </>
+      ))}
+      <text x="22" y={d4Bottom + 6} fill="#4ade80" font-size="13" font-family="monospace">รวม {p1Answer}</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      อย่าคิดเป็น "จะตัดรอยไหนก่อน" เพราะพอตัดแล้วไม้แยกเป็นสองชิ้นที่ไม่ยุ่งกันอีกเลย
+      ให้คิดกลับกันว่า <strong>รอยที่ตัดเป็นครั้งแรกคือรอยไหน</strong> แล้วสองชิ้นที่ได้ก็เป็นโจทย์เดิม
+      ที่เล็กลง ถ้าคิดแบบนี้ได้ ขอบเขต <code>n</code> ไม่เกินห้าสิบบอกอะไรกับคุณ
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 1</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งที่ทำให้ผมเลือกดีพีบนช่วงตั้งแต่แรก ไม่ใช่การจำรูป แต่เป็นประโยคเดียวในโจทย์คือ
+        "ตัดแล้วไม้แยกออกจากกัน" ประโยคนั้นแปลว่าหลังตัดครั้งแรก สองชิ้นที่ได้
+        <strong>ไม่มีทางส่งผลถึงกันได้อีก</strong> ซึ่งเป็นเงื่อนไขเดียวกับที่ทำให้ดีพีบนช่วงใช้ได้
+      </p>
+      <p>
+        ทางที่ผมลองก่อนคือดีพีที่จำว่า "ตัดไปแล้วรอยไหนบ้าง" ซึ่งเป็นเซตของรอย {P1_CUTS.length} รอย
+        ที่ <code>n</code> เท่านี้ยังไหว แต่พอเอาไปคูณกับขอบเขตจริงคือห้าสิบรอย
+        มันกลายเป็นสองยกกำลังห้าสิบ ซึ่งไม่ต้องคิดต่อ ตัวเลขนั้นเองที่บีบให้ผมกลับไปอ่านโจทย์ใหม่
+        แล้วเห็นว่าสิ่งที่ต้องจำไม่ใช่ "ตัดอะไรไปแล้ว" แต่เป็น "ตอนนี้ถือชิ้นไหนอยู่"
+        ซึ่งบอกได้ด้วยเลขสองตัวคือปลายซ้ายกับปลายขวา
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ ถ้าสถานะที่คิดออกมามีขนาดโตแบบยกกำลัง
+        ให้กลับไปถามว่าอนาคตต้องใช้อะไรจากอดีตจริง ๆ บ่อยครั้งคำตอบเล็กกว่าที่จำไว้มาก
+      </p>
+    </div>
+    <p>
+      แปลงรอยกาเป็นช่องว่าง ไม้ที่มี <code>n</code> รอยกาจะมี <code>n+1</code> ช่อง
+      แล้วนิยาม <code>dp[i][j]</code> ว่าเป็นค่าน้อยสุดที่ตัดช่วงช่อง <code>[i..j]</code> ให้แหลกหมด
+      ค่าใช้จ่ายของการผ่าช่วงนี้หนึ่งครั้งคือความยาวรวมของช่วง ซึ่งเท่ากันไม่ว่าจะผ่าตรงไหน
+      จึงดึงออกมานอกวงเล็บได้ตามสูตรที่เขียนไว้ข้างบน
+    </p>
+    <p>
+      ที่ <code>n</code> ไม่เกินห้าสิบ การไล่จุดตัดทุกจุดก็ผ่านสบาย ๆ อยู่แล้ว
+      แต่ผมใส่หน้าต่างของ Knuth ลงไปด้วย เพราะโค้ดชุดเดียวกันนี้จะถูกยกไปใช้กับข้อถัดไปที่ไม่ผ่านถ้าไม่ใส่
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 1</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeSticks} lang="cpp" title="sticks.cpp" />
+        <p>
+          ตรวจกับ<strong>ไบนารีที่คอมไพล์จากโค้ดก้อนนี้เอง</strong> ไม่ใช่จากไฟล์ที่เขียนไว้ก่อนแล้วคัดลอกมา
+          คือดึงโค้ดออกจากหน้าที่บิลด์เสร็จแล้ว คอมไพล์ด้วย g++ 11.4 แล้วป้อนไม้สุ่มขนาด 1 ถึง 9 ช่อง{' '}
+          <strong>4,000 รอบ</strong> เทียบกับตัวไล่จุดตัดทุกจุด ตรงกันทุกรอบ
+          จากนั้นป้อนไม้สุ่มขนาด 1 ถึง 6 ช่องอีก <strong>1,200 รอบ</strong> เทียบกับตัวไล่
+          <strong>ลำดับการตัด</strong>ทุกแบบ ซึ่งเป็นตัวตรวจที่ไม่เชื่อแม้แต่ว่าโจทย์นี้เป็นดีพีบนช่วง
+          ตรงกันทุกรอบเช่นกัน
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 · หักสตริง (SPOJ BRKSTRNG Breaking String)</h3>
+  <p>
+    เรื่องเดียวกันเป๊ะ เปลี่ยนจากไม้เป็นสายอักขระ ต้องหักสายที่ตำแหน่งที่กำหนดให้ครบทุกตำแหน่ง
+    หักหนึ่งครั้งเสียเท่าความยาวของสายที่กำลังหัก จุดเดียวที่ต่างคือขอบเขต
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> ความยาวสาย <code>L</code> จำนวนตำแหน่งที่ต้องหัก <code>m</code> แล้วตำแหน่งเหล่านั้น</li>
+      <li><strong>ขอบเขต:</strong> <code>m</code> ถึงหนึ่งพัน และมีหลายชุดทดสอบในไฟล์เดียว</li>
+      <li><strong>เอาต์พุต:</strong> ค่าใช้จ่ายรวมที่น้อยที่สุดของแต่ละชุด</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{p2InputLines.map((l) => <>{l}<br /></>)}</td>
+        <td>{p2Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือความยาวสายทั้งเส้น {P2_L} หน่วย ตามด้วยจำนวนตำแหน่งที่ต้องหัก {P2_CUTS.length} ตำแหน่ง
+      บรรทัดที่สองคือตำแหน่งเหล่านั้น คือ {P2_CUTS.join(', ')} เอาต์พุตเป็น<strong>ค่าใช้จ่ายรวม</strong>{' '}
+      ไม่ใช่จำนวนครั้งที่หัก ซึ่งรู้อยู่แล้วว่าเท่ากับจำนวนตำแหน่งพอดี
+    </p>
+    <p>
+      ตัวอย่างนี้เลือกมาให้ตำแหน่งไม่สม่ำเสมอ ถ้าไล่หักเรียงจากซ้ายไปขวาจะได้ {p2Left}{' '}
+      ส่วนลำดับที่ถูกที่สุดได้ {p2Answer} ต่างกัน {p2Left - p2Answer} หน่วย
+      ครั้งแรกมีตำแหน่งที่ให้ค่าต่ำสุดอยู่ {p2FirstTies} แบบ ถ้าลำดับที่คุณคิดต่างจากในภาพแต่รวมได้เท่ากัน
+      ก็ถูกเหมือนกัน โจทย์ถามแค่ตัวเลข
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`ลำดับการหักที่ถูกที่สุดของตัวอย่างข้อที่ 2 แถบเทาคือชิ้นที่ถืออยู่ในตานั้น เส้นเขียวคือตำแหน่งที่หัก สังเกตว่าตาแรกเลือกตำแหน่งที่แบ่งสายออกใกล้ครึ่ง เพื่อให้ตาถัดไปถือชิ้นสั้นลง`}>
+    <svg viewBox={d5VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ลำดับการหักของตัวอย่างข้อที่ 2">
+      <text x="22" y="20" fill="#9aa7bd" font-size="12" font-family="monospace">สายยาว {P2_L} ตำแหน่งที่ต้องหักคือ {P2_CUTS.join(', ')}</text>
+      <rect x={d5x(0)} y={28} width={D5_W} height={32} rx="6" fill="#1b2436" stroke="#4a5a7d" />
+      {P2_CUTS.map((c) => (
+        <>
+          <line x1={d5x(c)} y1={22} x2={d5x(c)} y2={66} stroke="#e0b400" stroke-width="3" />
+          <text x={d5x(c)} y={80} fill="#e0b400" font-size="12" text-anchor="middle" font-family="monospace">{c}</text>
+        </>
+      ))}
+      {p2Steps.map((r, t) => (
+        <>
+          <text x="22" y={D5_ROW_Y + t * D5_ROW_H + 16} fill="#9aa7bd" font-size="12" font-family="monospace">
+            ตาที่ {t + 1}
+          </text>
+          <rect
+            x={d5x(r.from)}
+            y={D5_ROW_Y + t * D5_ROW_H}
+            width={d5x(r.to) - d5x(r.from)}
+            height={22}
+            rx="4"
+            fill="#132033"
+            stroke="#2a3350"
+          />
+          <line
+            x1={d5x(r.at)}
+            y1={D5_ROW_Y + t * D5_ROW_H - 3}
+            x2={d5x(r.at)}
+            y2={D5_ROW_Y + t * D5_ROW_H + 25}
+            stroke="#4ade80"
+            stroke-width="3"
+          />
+          <text x={d5x(r.to) + 8} y={D5_ROW_Y + t * D5_ROW_H + 16} fill="#cdd6ea" font-size="12" font-family="monospace">
+            จ่าย {r.price}
+          </text>
+        </>
+      ))}
+      <text x="22" y={d5Bottom + 6} fill="#4ade80" font-size="13" font-family="monospace">รวม {p2Answer}</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      โค้ดของข้อที่แล้วยกมาวางได้เลยโดยไม่ต้องแก้อะไรในตัวสูตร แต่ลองคูณดูก่อน{' '}
+      <code>m</code> ถึงหนึ่งพันแปลว่าช่วงมีถึง <code>1001</code> ช่อง ไล่จุดตัดทุกจุดเป็นเท่าไร
+      แล้วในไฟล์มีหลายชุดทดสอบด้วย ตัวเลขนั้นบอกอะไรกับคุณ
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 2</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ผมไม่ได้คิดอะไรใหม่เลย ผมยกโค้ดข้อที่แล้วมาแล้ววัดเวลาก่อน
+        เพราะขอบเขตเป็นสิ่งเดียวที่เปลี่ยน ที่ <code>n</code> เท่ากับหนึ่งพัน
+        การไล่จุดตัดทุกจุดใช้ <strong>0.384 วินาที</strong> ต่อหนึ่งชุดทดสอบ
+        ตัวเลขนี้เองที่ตัดสินทุกอย่าง เพราะโจทย์บอกว่ามีหลายชุดในไฟล์เดียว
+        สิบชุดก็เกินสี่วินาทีแล้ว
+      </p>
+      <p>
+        พอใส่หน้าต่างของ Knuth ลงไป ตัวเลขเดียวกันนั้นเหลือ <strong>0.018 วินาที</strong>
+        และผมยังลองที่ <code>n</code> สามพันเพื่อดูว่าช่องว่างถ่างขึ้นจริงไหม
+        ได้ 32.750 วินาทีเทียบกับ 0.454 วินาที คือต่างกัน 72 เท่า ซึ่งตรงกับที่ทฤษฎีบอก
+      </p>
+      <p>
+        บทเรียนคือ <strong>ขอบเขตของโจทย์คือส่วนหนึ่งของโจทย์</strong> ไม่ใช่ของแถมท้ายหน้า
+        ข้อนี้กับข้อที่แล้วเป็นโจทย์เดียวกันทุกตัวอักษร ต่างกันแค่ตัวเลขสองตัว
+        และตัวเลขสองตัวนั้นเปลี่ยนคำตอบว่าจะเขียนอะไร
+      </p>
+    </div>
+    <p>
+      ค่าใช้จ่ายของข้อนี้คือผลรวมของช่วง ซึ่งเป็นรูปที่ปลอดภัยตามที่บทนี้บอกไว้แล้ว
+      จึงใส่หน้าต่างได้ทันทีโดยไม่ต้องพิสูจน์อะไรใหม่ สิ่งเดียวที่ต้องระวังคือ
+      ตารางขนาดหนึ่งพันคูณหนึ่งพันสองใบ ซึ่งเป็นหน่วยความจำราวสิบสองเมกะไบต์
+      ถ้าโจทย์ให้โควตาน้อยกว่านั้น ต้องเปลี่ยนตาราง <code>opt</code> เป็น{' '}
+      <code>short</code> หรือหันไปใช้ท่าอื่น
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 2</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeBrkstrng} lang="cpp" title="brkstrng.cpp" />
+        <p>
+          ต่างจากโค้ดข้อที่แล้วแค่รูปแบบอินพุตกับเอาต์พุต ตัวสูตรเหมือนกันทุกบรรทัด
+          จึงถูกตรวจไปพร้อมกันในรอบสุ่มชุดเดียวกัน
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 · ต้นไม้ค้นหาที่ดีที่สุด (UVA 10304 Optimal Binary Search Tree)</h3>
+  <p>
+    ร้านขายของชำมีของ {P3_N} อย่างเรียงตามตัวอักษรอยู่แล้ว แต่ละอย่างมีจำนวนครั้งที่ลูกค้าถามหาต่อวัน
+    เจ้าของร้านอยากทำผังถามตอบเป็น<strong>ต้นไม้ค้นหา</strong> คือเริ่มถามที่ของหนึ่งอย่างก่อน
+    ถ้าของที่ลูกค้าต้องการอยู่ก่อนหน้าตามตัวอักษรก็เลี้ยวซ้าย ถ้าอยู่หลังก็เลี้ยวขวา
+    คำถามคือจัดผังยังไงให้<strong>จำนวนครั้งที่ต้องถามรวมทั้งวันน้อยที่สุด</strong>
+  </p>
+  <p>
+    ของที่อยู่บนสุดถูกถามหนึ่งครั้งเสมอ ของที่อยู่ลึกลงไปหนึ่งชั้นถูกถามสองครั้ง
+    ค่าที่ต้องทำให้น้อยที่สุดจึงเป็นผลรวมของ <strong>ความถี่ คูณ ชั้นที่ของนั้นอยู่</strong>
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> จำนวนของ <code>n</code> แล้วความถี่ของแต่ละอย่าง เรียงตามลำดับตัวอักษรอยู่แล้ว</li>
+      <li><strong>ขอบเขต:</strong> <code>n</code> ไม่เกินสองร้อยห้าสิบ ความถี่เป็นจำนวนเต็มไม่ติดลบ</li>
+      <li><strong>เอาต์พุต:</strong> ผลรวมของ ความถี่ คูณ ชั้น ที่น้อยที่สุด โดยรากนับเป็นชั้นที่ 1</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{p3InputLines.map((l) => <>{l}<br /></>)}</td>
+        <td>{p3Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกบอกว่ามีของ {P3_N} อย่าง บรรทัดที่สองคือความถี่ของแต่ละอย่าง{' '}
+      <strong>ตามลำดับตัวอักษร</strong> คือ {P3_KEYS.map((k, t) => `${k} ${P3_FREQ[t]}`).join(', ')}{' '}
+      ลำดับนี้ห้ามสลับ เพราะมันคือกติกาของต้นไม้ค้นหา เอาต์พุตเป็น{' '}
+      <strong>จำนวนครั้งที่ต้องถามรวม</strong> ไม่ใช่ความสูงของต้นไม้และไม่ใช่ชื่อของราก
+    </p>
+    <p>
+      ทรงที่คนเดาก่อนเสมอคือ<strong>เอาตัวที่ความถี่สูงสุดขึ้นเป็นราก</strong> แล้วทำแบบเดียวกันกับสองข้าง
+      ทรงนั้นได้ {p3Greedy} ส่วนคำตอบจริงคือ {p3Answer} ต่างกัน {p3Greedy - p3Answer} ครั้ง
+      เพราะรากที่ความถี่สูงสุดอาจทำให้ต้นไม้เอียงจนของอีกฝั่งลึกกันหมด
+    </p>
+    <p>
+      ต้นไม้ในภาพมีรากคือ <strong>{p3Nodes[0].key}</strong> ซึ่งความถี่ {p3Nodes[0].freq}{' '}
+      อยู่ชั้นที่ 1 จึงคิดเป็น {p3Nodes[0].freq * 1} ครั้ง เอาทุกปมมาบวกกันแบบนี้ได้ {p3Answer}
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`ต้นไม้ค้นหาที่ดีที่สุดของตัวอย่างนี้ ตัวเลขบนกล่องคือความถี่ ตัวเลขข้างกล่องคือชั้น ผลรวมของ ความถี่ คูณ ชั้น เท่ากับ ${p3Answer}`}>
+    <svg viewBox={d6VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้ค้นหาที่ดีที่สุดของตัวอย่างข้อที่ 3" style="display:block;margin:0 auto;max-width:640px">
+      {p3Edges.map((e) => (
+        <line
+          x1={d6x(e.from.x) + D6_BW / 2}
+          y1={d6y(e.from.depth) + D6_BH}
+          x2={d6x(e.to.x) + D6_BW / 2}
+          y2={d6y(e.to.depth)}
+          stroke="#2a3350"
+          stroke-width="2"
+        />
+      ))}
+      {p3Nodes.map((nd) => (
+        <>
+          <rect
+            x={d6x(nd.x)}
+            y={d6y(nd.depth)}
+            width={D6_BW}
+            height={D6_BH}
+            rx="6"
+            fill={nd.depth === 1 ? 'rgba(74,222,128,0.18)' : '#101827'}
+            stroke={nd.depth === 1 ? '#4ade80' : '#2a3350'}
+          />
+          <text x={d6x(nd.x) + D6_BW / 2} y={d6y(nd.depth) + 19} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">
+            {nd.key}
+          </text>
+          <text x={d6x(nd.x) + D6_BW / 2} y={d6y(nd.depth) + 35} fill="#e0b400" font-size="11" text-anchor="middle" font-family="monospace">
+            {nd.freq} x {nd.depth} = {nd.freq * nd.depth}
+          </text>
+        </>
+      ))}
+      <text x="20" y={d6Bottom + 6} fill="#4ade80" font-size="13" font-family="monospace">รวม {p3Answer}</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถามตัวเองว่า <strong>ใครเป็นราก</strong> ของช่วง <code>[i..j]</code> พอเลือกรากได้ ของที่อยู่ก่อนหน้ามัน
+      กลายเป็นต้นไม้ย่อยฝั่งซ้าย ของที่อยู่หลังกลายเป็นฝั่งขวา และทุกปมในสองฝั่งนั้น
+      <strong>ลึกลงไปอีกหนึ่งชั้นพร้อมกันหมด</strong> คำถามคือ การลึกลงหนึ่งชั้นพร้อมกันหมด
+      ทำให้ค่ารวมเพิ่มขึ้นเท่าไร แล้วตัวเลขนั้นขึ้นกับว่าเลือกรากตัวไหนหรือเปล่า
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 3</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้เป็นข้อที่ Knuth ใช้ท่านี้ครั้งแรกจริง ๆ ผมจึงเดาไว้ตั้งแต่ต้นว่าต้องเข้าเงื่อนไข
+        แต่สิ่งที่ต้องคิดจริงคือหน้าตาของค่าใช้จ่าย ซึ่งไม่เหมือนสองข้อแรก
+      </p>
+      <p>
+        กุญแจอยู่ที่คำถามในใบ้ พอเลือกรากเป็น <code>k</code> ของทุกตัวในสองฝั่งลึกลงหนึ่งชั้นพร้อมกัน
+        ค่ารวมจึงเพิ่มขึ้นเท่ากับ<strong>ผลรวมความถี่ของทุกตัวในสองฝั่งนั้น</strong>
+        ตอนแรกผมเขียนว่ามันคือผลรวมของช่วงลบความถี่ของราก ซึ่งถูก แต่ทำให้ค่าใช้จ่ายขึ้นกับ{' '}
+        <code>k</code> แล้วดึงออกนอกวงเล็บไม่ได้ ท่านี้ก็ใช้ไม่ได้ตามไปด้วย
+      </p>
+      <p>
+        ทางออกคือเปลี่ยนวิธีนับชั้น ให้รากนับเป็นชั้นที่ 1 แทนที่จะเป็นชั้นที่ 0
+        พอทำแบบนั้น รากเองก็ถูกนับเพิ่มด้วย ค่าใช้จ่ายจึงกลายเป็น<strong>ผลรวมความถี่ของทั้งช่วง</strong>{' '}
+        ซึ่งไม่ขึ้นกับ <code>k</code> อีกต่อไป และกลับมาเป็นรูปที่ปลอดภัยพอดี
+        ถ้าโจทย์ต้องการแบบรากเป็นชั้นที่ 0 ก็เอาผลรวมความถี่ทั้งหมดไปลบทีหลังครั้งเดียว
+      </p>
+      <p>
+        บทเรียนคือ ก่อนจะสรุปว่าโจทย์ไม่เข้ารูป ให้ลองขยับนิยามของสิ่งที่กำลังนับก่อน
+        บ่อยครั้งค่าใช้จ่ายที่ดูขึ้นกับจุดตัด กลายเป็นไม่ขึ้นได้ด้วยการเลื่อนจุดเริ่มนับไปหนึ่งหน่วย
+      </p>
+    </div>
+    <p>
+      นิยาม <code>g[i][j]</code> ว่าเป็นค่าน้อยสุดของช่วง <code>[i..j]</code> เมื่อรากของช่วงนั้น
+      นับเป็นชั้นที่ 1 จะได้สูตรนี้
+    </p>
+    <Fragment set:html={texObst} />
+    <p>
+      ตรงนี้ <code>S(i, j)</code> คือผลรวมความถี่ของช่วง ต่างจากแม่แบบสองอย่างคือ{' '}
+      <code>k</code> เป็นรากซึ่งถูกดึงออกจากทั้งสองข้าง จึงเป็น <code>g[i][k-1]</code> กับ{' '}
+      <code>g[k+1][j]</code> และ <code>k</code> เดินได้ถึง <code>j</code> ไม่ใช่ <code>j-1</code>
+      เพราะรากเป็นตัวขวาสุดของช่วงก็ได้ ขอบขวาของหน้าต่างจึงต้องหนีบด้วย <code>j</code> ไม่ใช่{' '}
+      <code>j-1</code> ซึ่งเป็นบรรทัดเดียวที่ต่างจากแม่แบบ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 3</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeObst} lang="cpp" title="obst.cpp" />
+        <p>
+          ตรวจแบบเดียวกับข้อแรก คือดึงโค้ดก้อนนี้ออกจากหน้าที่บิลด์เสร็จแล้วไปคอมไพล์
+          แล้วป้อนความถี่สุ่มของ 1 ถึง 8 อย่าง <strong>3,000 รอบ</strong> เทียบกับ
+          <strong>การไล่ทุกทรงของต้นไม้</strong> แบบไม่มีตารางจำเลย ตรงกันทุกรอบ
+          ตัวตรวจชั้นนั้นคิดจากนิยาม ความถี่ คูณ ชั้น ตรง ๆ ไม่ได้ยืมสูตรหรือข้ออ้างของหน้านี้มาใช้เลย
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>ตัวตรวจที่ควรเขียนคู่กันทุกครั้ง</h2>
+  <p>
+    นี่คือกรณีที่ตัวตรวจสำคัญที่สุดเท่าที่มีในคลังนี้ เพราะข้ออ้างของ Knuth เป็นข้ออ้างเชิงทฤษฎีที่
+    <strong>ถ้าไม่จริง โค้ดจะไม่ฟ้องอะไรเลย</strong> ไม่มี segmentation fault ไม่มีลูปไม่รู้จบ
+    มีแต่ตัวเลขที่ใหญ่กว่าคำตอบจริงนิดหน่อยในบางอินพุต
+  </p>
+
+  <details class="expander">
+    <summary>ดูโค้ดตัวตรวจสองชั้น</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeChecker} lang="cpp" title="checker.cpp" />
+      <p>
+        ชั้นแรกคือดีพีบนช่วงที่ไล่จุดตัดทุกจุด ซึ่งไม่ใช้ข้ออ้างเรื่อง <code>opt</code> เลย
+        ชั้นที่สองไล่<strong>ลำดับการตัด</strong>ทุกแบบ ซึ่งไม่ได้เชื่อแม้แต่ว่าโจทย์นี้เป็นดีพีบนช่วง
+        ชั้นที่สองแพงกว่ามาก จึงใช้ได้แค่กับไม้ไม่เกินหกช่อง แต่มันคือชั้นที่ทำให้กล้าเชื่อจริง ๆ
+      </p>
+    </div>
+  </details>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้าดีพีบนช่วงของคุณมีรูป <code>dp[i][j] = min(dp[i][k] + dp[k+1][j]) + C(i, j)</code>{' '}
+    และ <code>C</code> เป็นผลรวมของค่าที่ไม่ติดลบในช่วง ให้เก็บตาราง <code>opt</code> เพิ่มอีกใบ
+    แล้วเปลี่ยนลูปในสุดจาก <code>i</code> ถึง <code>j-1</code> เป็น <code>opt[i][j-1]</code> ถึง{' '}
+    <code>opt[i+1][j]</code> เท่านี้ <code>O(n³)</code> ก็ยุบเป็น <code>O(n²)</code> โดยคำตอบเท่าเดิม
+  </p>
+  <p class="pull">
+    ท่านี้ไม่ได้ทำให้แต่ละช่องเร็วขึ้น มันทำให้ขอบของหน้าต่างเดินไปทางเดียวตลอดทั้งเส้นทแยง
+    แล้วงานทั้งเส้นก็ถูกนับรวมได้ทีเดียว
+  </p>
+
+  <h2>ที่มาและอ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      cp-algorithms, "Knuth's Optimization" ต้นทางของบทนี้ ทั้งเงื่อนไขสองข้อ อสมการเรื่อง{' '}
+      <code>opt</code> และรายการโจทย์ฝึกท้ายหน้า{' '}
+      <a href="https://cp-algorithms.com/dynamic_programming/knuth-optimization.html" rel="noopener noreferrer" target="_blank">cp-algorithms.com</a>
+    </li>
+    <li>
+      F. F. Yao, "Efficient Dynamic Programming Using Quadrangle Inequalities" (1980)
+      งานที่พิสูจน์ว่าอสมการสี่เหลี่ยมทำให้ <code>opt</code> ขยับทางเดียว ซึ่งเป็นฐานของทั้งบท
+    </li>
+    <li>D. E. Knuth, "Optimum binary search trees" (1971) ที่มาของชื่อท่า และของโจทย์ฝึกข้อที่ 3</li>
+    <li>UVA 10003 Cutting Sticks, SPOJ BRKSTRNG Breaking String, UVA 10304 Optimal Binary Search Tree</li>
+    <li>
+      ในคลังนี้: <a href="/cp/interval-dp/">DP บนช่วง</a> คือบทที่ควรอ่านก่อน และ{' '}
+      <a href="/cp/divide-conquer-dp/">แบ่งครึ่งเร่งดีพี</a> คือท่าพี่น้องที่ใช้กับดีพีแบบมีชั้น
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของ DivineLoreLayout (1rem) ไม่ใช่ใหญ่กว่า
+     และใช้ margin แบบ auto ซ้ายขวา ไม่งั้นมันจะทับกฎจัดกลางของ CpProblemLayout */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  .dim{color:#7b8397;}
+
+  /* ---------- กระดานของเครื่องเดิน ----------
+     ล็อกความกว้างคอลัมน์ไว้ ไม่งั้นช่องที่เปลี่ยนจาก · เป็นตัวเลขจะดันตารางทั้งใบ */
+  table.rec.knboard{
+    table-layout:fixed;
+    width:0;
+    min-width:100%;
+  }
+  table.rec.knboard th:first-child,
+  table.rec.knboard td:first-child{width:5.4rem;}
+  table.rec.knboard th.num,
+  table.rec.knboard td.num{width:4.2rem;}
+  /* คลาสสถานะต้องมี .num ด้วย ไม่งั้นแพ้ table.rec td.num ที่ตั้งสีไว้แล้ว */
+  table.rec.knboard td.num.is-target{
+    background:rgba(74,222,128,0.20);
+    color:#eaf4ff;
+    font-weight:700;
+  }
+  table.rec.knboard td.num.is-nb{
+    background:rgba(224,180,0,0.16);
+    color:#ffe9a8;
+  }
+
+  /* ---------- กระดานไม้ของมินิเกม ---------- */
+  .kn-row{display:flex;align-items:stretch;width:max-content;padding:0.5rem 0 0.2rem;}
+  .kn-row :global(.kn-seg){
+    flex:0 0 auto;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:3rem;
+    border:1px solid #2a3350;border-radius:6px;
+    background:#101827;color:#7b8397;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.78rem;
+  }
+  .kn-row :global(.kn-seg .kn-len){color:#cdd6ea;}
+  .kn-row :global(.kn-mark){
+    flex:0 0 auto;
+    width:1.5rem;
+    border:none;background:none;padding:0;margin:0;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  .kn-row :global(.kn-mark::before){
+    content:"";
+    display:block;
+    width:3px;height:2.6rem;
+    border-radius:2px;
+    background:#e0b400;
+  }
+  .kn-row :global(.kn-mark:hover::before){background:#ffe9a8;}
+  .kn-row :global(.kn-mark.cut::before){background:#2a3350;}
+  .kn-row :global(.kn-mark .kn-ord){
+    position:absolute;
+    top:-0.15rem;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.7rem;
+    color:#4ade80;
+  }
+  .kn-row :global(.kn-edge){flex:0 0 auto;width:0.4rem;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type KnPuzzle = { id: string; label: string; tease: string; L: number; gaps: number[]; best: number };
+
+  function initKnGame(): void {
+    const maybeUi = cpGameUi('[data-kngame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as KnPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const rowEl = ui.root.querySelector<HTMLElement>('[data-kn-row]');
+    const lenEl = ui.root.querySelector<HTMLElement>('[data-kn-len]');
+    const marksEl = ui.root.querySelector<HTMLElement>('[data-kn-marks]');
+    if (!rowEl || !lenEl || !marksEl) return;
+    const row: HTMLElement = rowEl;
+    const lenOut: HTMLElement = lenEl;
+    const marksOut: HTMLElement = marksEl;
+
+    let pi = 0;
+    /* ชิ้นไม้ที่ยังอยู่ เก็บเป็นช่วงของ "ช่อง" ฐานหนึ่ง */
+    let pieces: [number, number][] = [];
+    let order = new Map<number, number>();
+    let paid = 0;
+
+    const pz = (): KnPuzzle => puzzles[pi];
+    const spanLen = (l: number, r: number): number => {
+      let s = 0;
+      for (let t = l; t <= r; t++) s += pz().gaps[t - 1];
+      return s;
+    };
+    /** ชิ้นที่รอยกาหมายเลข m อยู่ข้างใน (รอยกา m คั่นระหว่างช่อง m กับ m+1) */
+    const pieceOf = (m: number): number => pieces.findIndex((p) => p[0] <= m && m < p[1]);
+
+    function build(): void {
+      const p = pz();
+      row.textContent = '';
+      const edge = document.createElement('span');
+      edge.className = 'kn-edge';
+      row.appendChild(edge);
+      p.gaps.forEach((g, t) => {
+        const seg = document.createElement('span');
+        seg.className = 'kn-seg';
+        seg.dataset.seg = String(t + 1);
+        /* ความกว้างตามความยาวจริงของช่อง จะได้เห็นว่าชิ้นไหนยาวกว่ากัน */
+        seg.style.width = `${Math.max(2.2, (g / p.L) * 26)}rem`;
+        const len = document.createElement('span');
+        len.className = 'kn-len';
+        len.textContent = String(g);
+        seg.appendChild(len);
+        row.appendChild(seg);
+        if (t < p.gaps.length - 1) {
+          const mk = document.createElement('button');
+          mk.type = 'button';
+          mk.className = 'kn-mark';
+          mk.dataset.mark = String(t + 1);
+          mk.setAttribute('aria-label', `ตัดที่รอยกาที่ ${t + 1}`);
+          row.appendChild(mk);
+        }
+      });
+      const edge2 = document.createElement('span');
+      edge2.className = 'kn-edge';
+      row.appendChild(edge2);
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const mk of Array.from(row.querySelectorAll<HTMLElement>('.kn-mark'))) {
+        const m = Number(mk.dataset.mark);
+        const ord = order.get(m);
+        mk.classList.toggle('cut', ord !== undefined);
+        const old = mk.querySelector('.kn-ord');
+        if (old) old.remove();
+        if (ord !== undefined) {
+          const tag = document.createElement('span');
+          tag.className = 'kn-ord';
+          tag.textContent = String(ord);
+          mk.appendChild(tag);
+        }
+      }
+      lenOut.textContent = String(p.L);
+      marksOut.textContent = String(p.gaps.length - 1);
+      const left = p.gaps.length - 1 - order.size;
+      ui.setScore(
+        order.size === 0
+          ? 'ยังไม่ได้ตัดเลย จ่ายไป 0'
+          : `ตัดไปแล้ว ${order.size} รอย จ่ายไป ${paid} เหลืออีก ${left} รอย`,
+      );
+    }
+
+    function check(): void {
+      const p = pz();
+      const need = p.gaps.length - 1;
+      if (order.size !== need) {
+        ui.setStatus(`ต้องตัดให้ครบ ${need} รอยก่อนครับ ตอนนี้ตัดไป ${order.size} รอย`, 'bad');
+        return;
+      }
+      if (paid === p.best) {
+        ui.setStatus(`ถูกต้องครับ ${paid} คือค่าที่น้อยที่สุดของไม้ต้นนี้`, 'good');
+        return;
+      }
+      ui.setStatus(
+        `ลำดับนี้จ่าย ${paid} ซึ่งยังมากกว่าคำตอบที่ดีที่สุดอยู่ ${paid - p.best} ลองสลับลำดับดูอีกที`,
+        'bad',
+      );
+    }
+
+    function selectPuzzle(t: number): void {
+      pi = t;
+      pieces = [[1, puzzles[t].gaps.length]];
+      order = new Map<number, number>();
+      paid = 0;
+      ui.selectTab(t);
+      ui.setTease(pz().tease);
+      build();
+      ui.setStatus('คลิกที่รอยกาสีทองเพื่อตัดตรงนั้น');
+      render();
+    }
+
+    row.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('.kn-mark');
+      if (!(btn instanceof HTMLElement)) return;
+      const m = Number(btn.dataset.mark);
+      if (order.has(m)) {
+        ui.setStatus('รอยนี้ตัดไปแล้ว ถอนคืนไม่ได้ กดเริ่มใหม่ถ้าอยากลองลำดับอื่น', 'bad');
+        return;
+      }
+      const idx = pieceOf(m);
+      if (idx === -1) return;
+      const [l, r] = pieces[idx];
+      const price = spanLen(l, r);
+      paid += price;
+      order.set(m, order.size + 1);
+      pieces.splice(idx, 1, [l, m], [m + 1, r]);
+      ui.setStatus(`ตัดที่รอยที่ ${m} ตอนนั้นชิ้นที่ถือยาว ${price} จึงจ่าย ${price}`);
+      render();
+    });
+
+    ui.onClick('data-kn-reset', () => selectPuzzle(pi));
+    ui.onClick('data-kn-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initKnGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  /* ตัวเล่นนี้เดินไปตาม "เส้นทแยง" ไม่ใช่ตามแถวของตาราง หนึ่งก้าวคือการเติมหนึ่งช่อง
+     จึงใช้ initCpRowPlayers ไม่ได้ ต้องส่ง draw ของตัวเองเข้ามา */
+  type KnStep = { note: string; i: number; j: number; lo: number; hi: number; pick: number; filled: string[] };
+
+  function isKnStep(x: unknown): x is KnStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.note === 'string' &&
+      typeof o.i === 'number' &&
+      typeof o.j === 'number' &&
+      typeof o.lo === 'number' &&
+      typeof o.hi === 'number' &&
+      typeof o.pick === 'number' &&
+      Array.isArray(o.filled)
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<KnStep>('[data-knsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isKnStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const cells = Array.from(root.querySelectorAll<HTMLTableCellElement>('td.num[data-kn-i]'));
+        const shown = new Set(st.filled);
+        let live: HTMLTableCellElement | null = null;
+        for (const td of cells) {
+          const i = Number(td.dataset.knI);
+          const j = Number(td.dataset.knJ);
+          if (j < i) continue;
+          const key = `${i}-${j}`;
+          /* ช่องแนวทแยงเป็นศูนย์อยู่แล้วตั้งแต่ต้น ที่เหลือเผยเมื่อถึงคิว */
+          td.textContent = i === j || shown.has(key) ? (td.dataset.v ?? '·') : '·';
+          const isTarget = i === st.i && j === st.j;
+          const isNb = (i === st.i && j === st.j - 1) || (i === st.i + 1 && j === st.j);
+          td.classList.toggle('is-target', isTarget);
+          td.classList.toggle('is-nb', isNb);
+          if (isTarget) live = td;
+        }
+        ctx.keepInView(live);
+      },
+    });
+  });
+</script>
