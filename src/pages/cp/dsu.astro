@@ -1,0 +1,2770 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'dsu/';
+
+/* ================================================================
+ * โมเดล DSU ตัวเดียวที่ภาพ เกม ตัวเดิน และตัวเลขในย่อหน้าทุกตัวใช้ร่วมกัน
+ * par[1..n] ช่อง 0 ไม่ใช้ กติกาการรวมตรงกับแม่แบบ C++ บนหน้านี้ทุกประการ
+ * ================================================================ */
+type Par = number[];
+const fresh = (n: number): Par => Array.from({ length: n + 1 }, (_, i) => i);
+const rootOf = (par: Par, x: number): number => {
+  let r = x;
+  while (par[r] !== r) r = par[r];
+  return r;
+};
+const depthOf = (par: Par, x: number): number => {
+  let d = 0;
+  for (let r = x; par[r] !== r; r = par[r]) d++;
+  return d;
+};
+const heightOf = (par: Par): number => {
+  let h = 0;
+  for (let x = 1; x < par.length; x++) h = Math.max(h, depthOf(par, x));
+  return h;
+};
+const groupsOf = (par: Par): number[][] => {
+  const by = new Map<number, number[]>();
+  for (let x = 1; x < par.length; x++) {
+    const r = rootOf(par, x);
+    by.set(r, [...(by.get(r) ?? []), x]);
+  }
+  return [...by.values()];
+};
+
+/** กฎของแม่แบบ: a กับ b คือหัวก๊วน ถ้าก๊วน a เล็กกว่าให้สลับ แล้วให้ b ไปขึ้นกับ a */
+function uniteBySize(par: Par, sz: number[], x: number, y: number): boolean {
+  let a = rootOf(par, x);
+  let b = rootOf(par, y);
+  if (a === b) return false;
+  if (sz[a] < sz[b]) [a, b] = [b, a];
+  par[b] = a;
+  sz[a] += sz[b];
+  return true;
+}
+/** กฎแบบซื่อ: หัวก๊วนของตัวแรกไปขึ้นกับหัวก๊วนของตัวหลังเสมอ */
+function uniteNaive(par: Par, x: number, y: number): void {
+  const a = rootOf(par, x);
+  const b = rootOf(par, y);
+  if (a !== b) par[a] = b;
+}
+
+/* ---------- ตัวจัดวางต้นไม้สำหรับวาดภาพ ---------- */
+type Tone = 'base' | 'hot' | 'root' | 'dim' | 'new';
+type DNode = { k: number; x: number; y: number; tone: Tone };
+type DEdge = { x1: number; y1: number; x2: number; y2: number; tone: Tone };
+type Drawing = { nodes: DNode[]; edges: DEdge[]; left: number; right: number; bottom: number };
+const R = 15;
+
+/** วางป่าของคนใน nodes: ใบเรียงซ้ายไปขวา แม่อยู่กึ่งกลางของลูก รากทุกต้นอยู่แถวเดียวกัน
+ *  แล้วเลื่อนทั้งภาพให้กึ่งกลางอยู่ที่ cx */
+function drawForest(
+  par: Par,
+  nodes: number[],
+  cx: number,
+  y0: number,
+  opt: { gap?: number; row?: number; hot?: number[]; newEdges?: number[] } = {},
+): Drawing {
+  const gap = opt.gap ?? 46;
+  const row = opt.row ?? 58;
+  const hot = new Set(opt.hot ?? []);
+  const newE = new Set(opt.newEdges ?? []);
+  const inSet = new Set(nodes);
+  const kids = new Map<number, number[]>();
+  for (const v of nodes) if (par[v] !== v) kids.set(par[v], [...(kids.get(par[v]) ?? []), v]);
+  const pos = new Map<number, { x: number; y: number }>();
+  let cursor = 0;
+  const place = (v: number, d: number): number => {
+    const ch = (kids.get(v) ?? []).filter((c) => inSet.has(c)).sort((p, q) => p - q);
+    let x: number;
+    if (ch.length === 0) {
+      x = cursor;
+      cursor += gap;
+    } else {
+      const xs = ch.map((c) => place(c, d + 1));
+      x = (xs[0] + xs[xs.length - 1]) / 2;
+    }
+    pos.set(v, { x, y: y0 + d * row });
+    return x;
+  };
+  const roots = nodes.filter((v) => par[v] === v).sort((p, q) => p - q);
+  roots.forEach((r, t) => {
+    if (t > 0) cursor += gap * 0.5;
+    place(r, 0);
+  });
+  const xsAll = [...pos.values()].map((p) => p.x);
+  const shift = cx - (Math.min(...xsAll) + Math.max(...xsAll)) / 2;
+  const out: DNode[] = [];
+  const edges: DEdge[] = [];
+  for (const v of nodes) {
+    const p = pos.get(v);
+    if (!p) continue;
+    const tone: Tone = hot.has(v) ? 'hot' : par[v] === v ? 'root' : 'base';
+    out.push({ k: v, x: p.x + shift, y: p.y, tone });
+    if (par[v] !== v) {
+      const q = pos.get(par[v]);
+      if (!q) continue;
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len;
+      const uy = dy / len;
+      edges.push({
+        x1: p.x + shift + ux * R,
+        y1: p.y + uy * R,
+        x2: q.x + shift - ux * (R + 1),
+        y2: q.y - uy * (R + 1),
+        tone: newE.has(v) ? 'new' : hot.has(v) && hot.has(par[v]) ? 'hot' : 'base',
+      });
+    }
+  }
+  const ys = out.map((n) => n.y);
+  return {
+    nodes: out,
+    edges,
+    left: Math.min(...out.map((n) => n.x)) - R,
+    right: Math.max(...out.map((n) => n.x)) + R,
+    bottom: Math.max(...ys) + R,
+  };
+}
+const stroke = (t: Tone): string =>
+  t === 'hot' ? '#e0b400' : t === 'root' ? '#4ade80' : t === 'new' ? '#4ade80' : t === 'dim' ? '#2a3350' : '#4a5a7d';
+const ink = (t: Tone): string =>
+  t === 'hot' ? '#ffe9a8' : t === 'root' ? '#4ade80' : t === 'dim' ? '#7b8397' : '#cdd6ea';
+const range = (a: number, b: number): number[] => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
+/* ---------- ภาพที่ 1: แถวเดียวของ par กับป่าที่มันแทน ---------- */
+const PAR_A: Par = [0, 1, 1, 2, 1, 5, 5, 6, 8, 8, 8];
+const NA = PAR_A.length - 1;
+const A_CELL = 54;
+const A_X0 = 120;
+const aCellX = (i: number): number => A_X0 + (i - 1) * A_CELL;
+const aTableRight = aCellX(NA) + A_CELL;
+const aForest = drawForest(PAR_A, range(1, NA), (A_X0 + aTableRight) / 2, 150, { gap: 58 });
+const aGroups = groupsOf(PAR_A);
+const aVB = `0 0 ${Math.ceil(Math.max(aTableRight, aForest.right) + 12)} ${Math.ceil(aForest.bottom + 34)}`;
+
+/* ---------- ภาพที่ 2: ลำดับรวมแบบเดียวกัน สองกติกา ---------- */
+const NB = 8;
+const naiveB = fresh(NB);
+const sizeB = fresh(NB);
+const sizeBsz = Array<number>(NB + 1).fill(1);
+for (let k = 2; k <= NB; k++) {
+  uniteNaive(naiveB, 1, k);
+  uniteBySize(sizeB, sizeBsz, 1, k);
+}
+const chainH = heightOf(naiveB);
+const starH = heightOf(sizeB);
+const bChain = drawForest(naiveB, range(1, NB), 150, 64, { row: 44 });
+const bStar = drawForest(sizeB, range(1, NB), 500, 64, { gap: 46 });
+const bVB = `0 0 ${Math.ceil(bStar.right + 12)} ${Math.ceil(Math.max(bChain.bottom, bStar.bottom) + 34)}`;
+
+/* ---------- ข้ออ้างเรื่องความลึก ตรวจตอนบิลด์ ---------- */
+/** จับคู่ก๊วนขนาดเท่ากันเป็นชั้น ๆ คือลำดับที่ทำให้รวมตามขนาดลึกที่สุด */
+function pairingHeight(n: number): number {
+  const par = fresh(n);
+  const sz = Array<number>(n + 1).fill(1);
+  for (let step = 1; step < n; step *= 2)
+    for (let i = 1; i + step <= n; i += 2 * step) uniteBySize(par, sz, i, i + step);
+  return heightOf(par);
+}
+const DEPTH_N = 1024;
+const DEPTH_LOG = Math.log2(DEPTH_N);
+const pairH = pairingHeight(DEPTH_N);
+/* Park-Miller: ผลคูณไม่เกิน 2^47 เลขทศนิยมของ JS จึงแม่นทุกหลัก
+   (ตัวคูณ 1103515245 เคยถูกใช้ตรงนี้ ผลคูณเกิน 2^53 บิตล่างกลายเป็นศูนย์ ลูปข้างล่างเลยไม่จบ) */
+let seed = 20260910;
+const rnd = (m: number): number => {
+  seed = (seed * 48271) % 2147483647;
+  return seed % m;
+};
+const RAND_RUNS = 200;
+let randMax = 0;
+for (let run = 0; run < RAND_RUNS; run++) {
+  const par = fresh(DEPTH_N);
+  const sz = Array<number>(DEPTH_N + 1).fill(1);
+  let left = DEPTH_N - 1;
+  while (left > 0) if (uniteBySize(par, sz, rnd(DEPTH_N) + 1, rnd(DEPTH_N) + 1)) left--;
+  randMax = Math.max(randMax, heightOf(par));
+}
+if (pairH !== DEPTH_LOG || randMax > DEPTH_LOG)
+  throw new Error(`dsu: ข้ออ้างความลึกไม่จริง pairH=${pairH} randMax=${randMax}`);
+
+/* ---------- ภาพที่ 3 + ตัวเดิน: find(7) พร้อมบีบทางเดิน ---------- */
+const PAR_F: Par = [0, 1, 1, 2, 2, 3, 3, 5, 1];
+const NF = PAR_F.length - 1;
+const F_START = 7;
+const fPath: number[] = [];
+for (let v = F_START; ; v = PAR_F[v]) {
+  fPath.push(v);
+  if (PAR_F[v] === v) break;
+}
+const fRoot = fPath[fPath.length - 1];
+const afterF = [...PAR_F];
+for (const v of fPath) afterF[v] = fRoot;
+const fBefore = drawForest(PAR_F, range(1, NF), 175, 64, { hot: fPath });
+const fAfter = drawForest(afterF, range(1, NF), 530, 64, {
+  hot: fPath,
+  newEdges: fPath.filter((v) => PAR_F[v] !== fRoot && v !== fRoot),
+});
+const fVB = `0 0 ${Math.ceil(fAfter.right + 12)} ${Math.ceil(Math.max(fBefore.bottom, fAfter.bottom) + 34)}`;
+const fChanged = fPath.filter((v) => v !== fRoot && PAR_F[v] !== fRoot);
+
+type FStep = { note: string; par: number[]; depth: number[]; cur: number; path: number[]; changed: number };
+const depthRow = (par: Par): number[] => range(1, NF).map((v) => depthOf(par, v));
+const fSteps: FStep[] = [];
+{
+  const par = [...PAR_F];
+  fSteps.push({
+    note: `เริ่มที่ <b>find(${F_START})</b> ตอนนี้ ${F_START} อยู่ลึก ${depthOf(par, F_START)} ชั้น ต้องถามต่อกันขึ้นไปจนเจอคนที่ไม่มีหัวหน้า`,
+    par: [...par],
+    depth: depthRow(par),
+    cur: 0,
+    path: [],
+    changed: 0,
+  });
+  const seen: number[] = [];
+  for (const v of fPath) {
+    seen.push(v);
+    const isRoot = par[v] === v;
+    fSteps.push({
+      note: isRoot
+        ? `ถึง <b>${v}</b> แล้ว <code>par[${v}] = ${v}</code> คือชี้หาตัวเอง แปลว่า ${v} คือหัวก๊วน คำตอบของ find(${F_START}) คือ ${v}`
+        : `อยู่ที่ <b>${v}</b> อ่าน <code>par[${v}] = ${par[v]}</code> ยังไม่ใช่ตัวเอง จึงเรียก find(${par[v]}) ต่อ แล้วรอคำตอบ`,
+      par: [...par],
+      depth: depthRow(par),
+      cur: v,
+      path: [...seen],
+      changed: 0,
+    });
+  }
+  /* ตอนตอบกลับ ลำดับการเขียนทับคือจากใกล้หัวไปหาจุดเริ่ม ตรงกับ par[x] = find(par[x]) ที่เรียกตัวเอง */
+  for (const v of [...fPath].reverse().slice(1)) {
+    const was = par[v];
+    par[v] = fRoot;
+    fSteps.push({
+      note:
+        was === fRoot
+          ? `คำตอบ ${fRoot} ส่งกลับมาถึง <b>${v}</b> ซึ่งชี้ ${fRoot} อยู่แล้ว เขียนทับด้วยค่าเดิม ไม่มีอะไรเปลี่ยน`
+          : `คำตอบ ${fRoot} ส่งกลับมาถึง <b>${v}</b> จึงเขียนทับ <code>par[${v}]</code> จาก ${was} เป็น ${fRoot} ตอนนี้ ${v} ลึกแค่ 1 ชั้น`,
+      par: [...par],
+      depth: depthRow(par),
+      cur: v,
+      path: fPath,
+      changed: was === fRoot ? 0 : v,
+    });
+  }
+  fSteps.push({
+    note: `จบแล้ว ทุกคนบนทางชี้ตรงไปที่ ${fRoot} ครั้งหน้าถ้าถาม find(${F_START}) อีก จะเดินแค่ก้าวเดียว ส่วนคนที่ไม่ได้อยู่บนทาง (4, 6, 8) ไม่ถูกแตะเลย`,
+    par: [...par],
+    depth: depthRow(par),
+    cur: 0,
+    path: fPath,
+    changed: 0,
+  });
+}
+
+/* ---------- มินิเกม: เลือกว่าหัวไหนไปขึ้นกับหัวไหน ---------- */
+type DgPuzzle = { id: string; label: string; tease: string; n: number; ops: [number, number][]; best: number };
+/** ค่าที่ดีที่สุดคิดด้วยการลองทุกทางเลือก ไม่ได้ใช้กฎรวมตามขนาดที่บทสอน */
+function bestHeight(n: number, ops: [number, number][]): number {
+  let best = Infinity;
+  const go = (i: number, par: Par): void => {
+    if (i === ops.length) {
+      best = Math.min(best, heightOf(par));
+      return;
+    }
+    const a = rootOf(par, ops[i][0]);
+    const b = rootOf(par, ops[i][1]);
+    if (a === b) throw new Error('dsu game: คำสั่งรวมคนที่อยู่ก๊วนเดียวกันอยู่แล้ว');
+    const p1 = [...par];
+    p1[a] = b;
+    go(i + 1, p1);
+    const p2 = [...par];
+    p2[b] = a;
+    go(i + 1, p2);
+  };
+  go(0, fresh(n));
+  return best;
+}
+const heightBySize = (n: number, ops: [number, number][]): number => {
+  const par = fresh(n);
+  const sz = Array<number>(n + 1).fill(1);
+  for (const [a, b] of ops) uniteBySize(par, sz, a, b);
+  return heightOf(par);
+};
+const heightNaive = (n: number, ops: [number, number][]): number => {
+  const par = fresh(n);
+  for (const [a, b] of ops) uniteNaive(par, a, b);
+  return heightOf(par);
+};
+const dgRaw: Omit<DgPuzzle, 'best'>[] = [
+  {
+    id: 'a',
+    label: 'ชุด ก',
+    tease: 'คนที่ 1 ชวนเพื่อนเข้าก๊วนทีละคน ห้าครั้งติดกัน',
+    n: 6,
+    ops: [[1, 2], [1, 3], [1, 4], [1, 5], [1, 6]],
+  },
+  {
+    id: 'b',
+    label: 'ชุด ข',
+    tease: 'จับคู่กันก่อน แล้วคู่ต่อคู่ แล้วสี่ต่อสี่',
+    n: 8,
+    ops: [[1, 2], [3, 4], [5, 6], [7, 8], [1, 3], [5, 7], [1, 5]],
+  },
+  {
+    id: 'c',
+    label: 'ชุด ค',
+    tease: 'ก๊วนใหญ่สี่คนเจอก๊วนเล็ก แล้วมีคนมาต่อท้ายอีก',
+    n: 8,
+    ops: [[4, 5], [4, 6], [4, 7], [2, 3], [3, 6], [8, 2], [1, 8]],
+  },
+];
+const dgPuzzles: DgPuzzle[] = dgRaw.map((p) => ({ ...p, best: bestHeight(p.n, p.ops) }));
+for (const p of dgPuzzles)
+  if (heightBySize(p.n, p.ops) !== p.best) throw new Error(`dsu game ${p.id}: รวมตามขนาดไม่ได้ค่าต่ำสุด`);
+const dgJson = JSON.stringify(dgPuzzles);
+const dgNaiveA = heightNaive(dgPuzzles[0].n, dgPuzzles[0].ops);
+const dgBestB = dgPuzzles[1].best;
+
+/* ---------- ตัวเลขเวลาที่วัดจริง ----------
+   g++ 14.2 (MinGW) -O2 บนเครื่องเดียวกัน อินพุตรูปเดียวกันทุกแถว: unite(1, i) ทุก i แล้ว find อีก n ครั้ง
+   ค่าที่แสดงคือเร็วสุดของสามรอบ */
+const bench = [
+  { n: 20000, naive: '0.49 วินาที', size: 'ไม่ถึง 1 ms', comp: 'ไม่ถึง 1 ms', both: 'ไม่ถึง 1 ms' },
+  { n: 50000, naive: '3.07 วินาที', size: 'ไม่ถึง 1 ms', comp: 'ไม่ถึง 1 ms', both: 'ไม่ถึง 1 ms' },
+  { n: 200000, naive: 'ไม่ได้รอ', size: '1 ms', comp: '1 ms', both: '1 ms' },
+];
+
+/* ---------- โค้ด ---------- */
+const codeNaive = `// แบบซื่อ ๆ: ถูกต้อง แต่ต้นไม้อาจกลายเป็นโซ่ยาว n ชั้น
+int par[100005];
+
+void init(int n) {
+    for (int i = 1; i <= n; i++) par[i] = i;   // ตอนเริ่ม ทุกคนเป็นหัวก๊วนของตัวเอง
+}
+
+int find(int x) {
+    while (par[x] != x) x = par[x];            // ถามต่อขึ้นไปจนเจอคนที่ไม่มีหัวหน้า
+    return x;
+}
+
+void unite(int a, int b) {
+    par[find(a)] = find(b);                    // หัวก๊วนของ a ไปขึ้นกับหัวก๊วนของ b
+}`;
+const codeTemplate = `// แม่แบบ DSU: รวมตามขนาด + บีบทางเดิน ลอกไปใช้ได้ทุกข้อ
+#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 200005;
+int par[MAXN], sz[MAXN];
+
+void init(int n) {
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+}
+
+int find(int x) {
+    // เรียกตัวเองได้อย่างปลอดภัย เพราะรวมตามขนาดทำให้ลึกไม่เกิน log2 n ชั้น
+    return par[x] == x ? x : par[x] = find(par[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;            // อยู่ก๊วนเดียวกันอยู่แล้ว
+    if (sz[a] < sz[b]) swap(a, b);       // ให้ a เป็นก๊วนที่ใหญ่กว่าเสมอ
+    par[b] = a;                          // ก๊วนเล็กไปขึ้นกับก๊วนใหญ่
+    sz[a] += sz[b];
+    return true;
+}
+
+int main() {
+    int n, q;
+    scanf("%d %d", &n, &q);
+    init(n);
+    while (q--) {
+        char op; int a, b;
+        scanf(" %c %d %d", &op, &a, &b);
+        if (op == '+') unite(a, b);
+        else puts(find(a) == find(b) ? "YES" : "NO");
+    }
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 1 · Road Construction ================= */
+const P1_IN = [[5, 3], [1, 2], [1, 3], [4, 5]];
+const p1Days: { a: number; b: number; comps: number; best: number; par: Par }[] = [];
+{
+  const n = P1_IN[0][0];
+  const par = fresh(n);
+  const sz = Array<number>(n + 1).fill(1);
+  let comps = n;
+  let best = 1;
+  for (const [a, b] of P1_IN.slice(1)) {
+    if (uniteBySize(par, sz, a, b)) {
+      comps--;
+      best = Math.max(best, sz[rootOf(par, a)]);
+    }
+    p1Days.push({ a, b, comps, best, par: [...par] });
+  }
+}
+const P1_OUT = p1Days.map((d) => `${d.comps} ${d.best}`);
+const P1_OUT_STATEMENT = ['4 2', '3 3', '2 3'];
+if (P1_OUT.join('|') !== P1_OUT_STATEMENT.join('|')) throw new Error('dsu p1: โมเดลไม่ตรงกับตัวอย่างของโจทย์');
+const p1Panels = p1Days.map((d, t) => drawForest(d.par, range(1, P1_IN[0][0]), 120 + t * 235, 78, { gap: 40, row: 50 }));
+/* ต้นสุดท้ายกินถึงมุมขวา จึงเผื่อความสูงมากกว่าปกติ ให้แถบมุมขวาล่างว่างไว้ให้ปุ่ม "ขยาย" */
+const p1VB = `0 0 ${Math.ceil(Math.max(p1Panels[p1Panels.length - 1].right, 120 + 2 * 235 + 105) + 12)} ${Math.ceil(Math.max(...p1Panels.map((p) => p.bottom)) + 54)}`;
+const codeP1 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 100005;
+int par[MAXN], sz[MAXN];
+
+int find(int x) {
+    // บีบทางเดิน: ทุกตัวบนทางชี้ตรงไปหาหัวก๊วน รอบหน้าเดินก้าวเดียวก็ถึง
+    return par[x] == x ? x : par[x] = find(par[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;             // อยู่ก๊วนเดียวกันอยู่แล้ว ถนนเส้นนี้ไม่ได้เชื่อมอะไรใหม่
+    if (sz[a] < sz[b]) swap(a, b);        // เอาก๊วนเล็กไปห้อยใต้ก๊วนใหญ่ ต้นไม้จึงสูงไม่เกิน log n
+    par[b] = a;
+    sz[a] += sz[b];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+
+    int comps = n, best = 1;               // เริ่มแต่ละเมืองเป็นก๊วนเดี่ยว ขนาด 1
+    while (m--) {
+        int a, b;
+        cin >> a >> b;
+        if (unite(a, b)) {
+            comps--;
+            // ก๊วนจะโตได้ก็ตอนรวมเท่านั้น จึงเช็กแค่ก๊วนที่เพิ่งรวมก็พอ
+            best = max(best, sz[find(a)]);
+        }
+        cout << comps << ' ' << best << '\\n';
+    }
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 2 · Roads not only in Berland ================= */
+const P2_N = 7;
+const P2_ROADS: [number, number][] = [[1, 2], [2, 3], [3, 1], [4, 5], [5, 6], [6, 7]];
+const p2Extra: [number, number][] = [];
+const p2Par = fresh(P2_N);
+{
+  const sz = Array<number>(P2_N + 1).fill(1);
+  for (const [a, b] of P2_ROADS) if (!uniteBySize(p2Par, sz, a, b)) p2Extra.push([a, b]);
+}
+const p2Heads = range(1, P2_N).filter((v) => rootOf(p2Par, v) === v);
+const p2Plan = p2Extra.map(([a, b], i) => [a, b, p2Heads[0], p2Heads[i + 1]]);
+const p2Groups = p2Heads.length;
+const P2_POS: Record<number, { x: number; y: number }> = {
+  1: { x: 110, y: 70 },
+  2: { x: 60, y: 160 },
+  3: { x: 170, y: 160 },
+  4: { x: 330, y: 115 },
+  5: { x: 430, y: 115 },
+  6: { x: 530, y: 115 },
+  7: { x: 630, y: 115 },
+};
+const seg = (a: { x: number; y: number }, b: { x: number; y: number }, pad = R) => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  return { x1: a.x + (dx / len) * pad, y1: a.y + (dy / len) * pad, x2: b.x - (dx / len) * pad, y2: b.y - (dy / len) * pad };
+};
+const isExtra = (a: number, b: number): boolean => p2Extra.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+const p2Edges = P2_ROADS.map(([a, b]) => ({ a, b, ...seg(P2_POS[a], P2_POS[b]), extra: isExtra(a, b) }));
+const p2New = p2Plan.map(([, , u, v]) => ({ u, v, ...seg(P2_POS[u], P2_POS[v]) }));
+const p2VB = `0 0 ${630 + R + 12} ${160 + R + 34 + 30}`;
+const codeP2 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 1005;
+int par[MAXN], sz[MAXN];
+
+int find(int x) {
+    return par[x] == x ? x : par[x] = find(par[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a;
+    sz[a] += sz[b];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+
+    // ถนนที่ unite ไม่สำเร็จคือถนนที่ปิดวงรอบ ปิดทิ้งได้โดยไม่มีใครขาดจากกัน
+    vector<pair<int, int>> extra;
+    for (int i = 0; i < n - 1; i++) {
+        int a, b;
+        cin >> a >> b;
+        if (!unite(a, b)) extra.push_back({a, b});
+    }
+
+    // หัวของทุกก๊วน: มีถนน n-1 เส้น เสียไป k เส้น จึงเหลือก๊วนพอดี k+1 ก๊วน
+    vector<int> heads;
+    for (int i = 1; i <= n; i++)
+        if (find(i) == i) heads.push_back(i);
+
+    cout << extra.size() << '\\n';
+    for (size_t i = 0; i < extra.size(); i++)
+        // ใช้ถนนเกินเส้นที่ i ต่อก๊วนแรกเข้ากับก๊วนที่ i+1 ทุกก๊วนจึงถูกต่อครั้งเดียว ไม่เกิดวงรอบใหม่
+        cout << extra[i].first << ' ' << extra[i].second << ' '
+             << heads[0] << ' ' << heads[i + 1] << '\\n';
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 3 · Road Reparation ================= */
+const P3_N = 5;
+const P3_ROADS: [number, number, number][] = [[1, 2, 3], [2, 3, 5], [2, 4, 2], [3, 4, 8], [5, 1, 7], [5, 4, 4]];
+const p3Order = [...P3_ROADS].sort((p, q) => p[2] - q[2]);
+const p3Kept: { a: number; b: number; c: number; used: boolean }[] = [];
+let p3Total = 0;
+{
+  const par = fresh(P3_N);
+  const sz = Array<number>(P3_N + 1).fill(1);
+  for (const [a, b, c] of p3Order) {
+    const used = uniteBySize(par, sz, a, b);
+    if (used) p3Total += c;
+    p3Kept.push({ a, b, c, used });
+  }
+}
+if (p3Total !== 14) throw new Error('dsu p3: โมเดลไม่ตรงกับตัวอย่างของโจทย์');
+const P3_POS: Record<number, { x: number; y: number }> = {
+  1: { x: 90, y: 60 },
+  2: { x: 360, y: 60 },
+  3: { x: 630, y: 60 },
+  4: { x: 500, y: 210 },
+  5: { x: 170, y: 210 },
+};
+const p3Edges = P3_ROADS.map(([a, b, c]) => {
+  const s = seg(P3_POS[a], P3_POS[b]);
+  const dx = s.x2 - s.x1;
+  const dy = s.y2 - s.y1;
+  const len = Math.hypot(dx, dy);
+  /* ป้ายราคาเยื้องไปตามเส้นตั้งฉาก ไม่ใช่เยื้อง x คงที่ ไม่งั้นเส้นทแยงจะทับตัวเลข */
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (ny > 0 || (ny === 0 && nx < 0)) [nx, ny] = [-nx, -ny];
+  const used = p3Kept.find((k) => k.a === a && k.b === b)?.used ?? false;
+  return { a, b, c, ...s, lx: (s.x1 + s.x2) / 2 + nx * 14, ly: (s.y1 + s.y2) / 2 + ny * 14 + 4, used };
+});
+const p3VB = `0 0 ${630 + R + 12} ${210 + R + 34}`;
+const codeP3 = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const int MAXN = 100005;
+int par[MAXN], sz[MAXN];
+
+int find(int x) {
+    return par[x] == x ? x : par[x] = find(par[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a;
+    sz[a] += sz[b];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<array<int, 3>> roads(m);                // {ค่าซ่อม, a, b} ใส่ค่าซ่อมไว้หน้าสุดเพื่อให้ sort เรียงตามราคา
+    for (auto& [c, a, b] : roads) cin >> a >> b >> c;
+    sort(roads.begin(), roads.end());
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+
+    ll total = 0;                                   // n-1 เส้น เส้นละ 1e9 เกิน int ได้
+    int used = 0;
+    for (auto& [c, a, b] : roads)
+        // ถูกสุดก่อน และซ่อมเฉพาะเส้นที่ต่อสองก๊วนที่ยังแยกกัน เส้นที่ปิดวงรอบมีเส้นที่ถูกกว่าทำงานแทนไปแล้ว
+        if (unite(a, b)) total += c, used++;
+
+    if (used == n - 1) cout << total << '\\n';
+    else cout << "IMPOSSIBLE\\n";                    // ซ่อมครบทุกเส้นที่ช่วยได้แล้วยังไม่ถึง n-1 แปลว่ากราฟขาดจากกันตั้งแต่ต้น
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 6 · Knight Tournament ================= */
+const P6_N = 8;
+const P6_FIGHTS: [number, number, number][] = [[3, 5, 4], [3, 7, 6], [2, 8, 8], [1, 8, 1]];
+const P6_OUT_STATEMENT = [0, 8, 4, 6, 4, 8, 6, 1];
+type KCell = 'alive' | 'out' | 'lose' | 'win' | 'skip';
+const p6Rows: { l: number; r: number; x: number; cells: KCell[]; touched: number }[] = [];
+const p6Beat = Array<number>(P6_N + 1).fill(0);
+{
+  const alive = Array<boolean>(P6_N + 1).fill(true);
+  for (const [l, r, x] of P6_FIGHTS) {
+    const cells: KCell[] = [];
+    let touched = 0;
+    for (let i = 1; i <= P6_N; i++) {
+      if (!alive[i]) cells.push(i >= l && i <= r ? 'skip' : 'out');
+      else if (i < l || i > r) cells.push('alive');
+      else if (i === x) {
+        cells.push('win');
+        touched++;
+      } else {
+        cells.push('lose');
+        touched++;
+      }
+    }
+    for (let i = l; i <= r; i++)
+      if (alive[i] && i !== x) {
+        alive[i] = false;
+        p6Beat[i] = x;
+      }
+    p6Rows.push({ l, r, x, cells, touched });
+  }
+}
+if (p6Beat.slice(1).join(' ') !== P6_OUT_STATEMENT.join(' ')) throw new Error('dsu p6: โมเดลไม่ตรงกับตัวอย่างของโจทย์');
+const p6Skipped = p6Rows.reduce((s, r) => s + r.cells.filter((c) => c === 'skip').length, 0);
+const K_CELL = 66;
+const K_X0 = 110;
+const K_ROW = 46;
+const K_Y0 = 40;
+const p6VB = `0 0 ${K_X0 + P6_N * K_CELL + 12} ${K_Y0 + p6Rows.length * K_ROW + 34}`;
+const kFill = (c: KCell): string =>
+  c === 'win' ? 'rgba(74,222,128,0.18)' : c === 'lose' ? 'rgba(224,90,90,0.18)' : c === 'skip' ? 'rgba(224,180,0,0.14)' : '#101827';
+const kStroke = (c: KCell): string =>
+  c === 'win' ? '#4ade80' : c === 'lose' ? '#e05a5a' : c === 'skip' ? '#e0b400' : c === 'alive' ? '#4a5a7d' : '#2a3350';
+const codeP6 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 300005;
+// find(i) = อัศวินหมายเลขน้อยสุดที่ >= i และยังไม่แพ้ (ถ้าไม่มีเลย จะได้ n+1)
+int par[MAXN];
+
+// ข้อนี้รวมตามขนาดไม่ได้ (คนแพ้ต้องชี้ไปทางขวาเสมอ) โซ่จึงยาวได้เป็นแสนช่อง
+// find แบบเรียกตัวเองจะล้นสแต็ก เลยเขียนเป็นสองรอบ: รอบแรกหาหัว รอบสองให้ทุกตัวบนทางชี้ตรงไปที่หัว
+int find(int x) {
+    int root = x;
+    while (par[root] != root) root = par[root];
+    while (par[x] != root) {
+        int next = par[x];
+        par[x] = root;
+        x = next;
+    }
+    return root;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    for (int i = 1; i <= n + 1; i++) par[i] = i;   // n+1 เป็นกำแพงท้ายแถว find จะไม่วิ่งเลยออกไป
+    vector<int> beat(n + 1, 0);
+
+    while (m--) {
+        int l, r, x;
+        cin >> l >> r >> x;
+        // กระโดดข้ามคนที่แพ้ไปแล้วทั้งหมด แตะเฉพาะคนที่ยังอยู่ในช่วง
+        for (int i = find(l); i <= r; i = find(i + 1)) {
+            if (i == x) continue;                  // ผู้ชนะยังอยู่ต่อ
+            beat[i] = x;
+            par[i] = i + 1;                        // แพ้แล้ว ชี้ไปทางขวา ใครมาถามก็ถูกส่งต่อ
+        }
+    }
+    for (int i = 1; i <= n; i++) cout << beat[i] << " \\n"[i == n];
+    return 0;
+}`;
+const codeP6Bug = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 300005;
+// find(i) = อัศวินหมายเลขน้อยสุดที่ >= i และยังไม่แพ้ (ถ้าไม่มีเลย จะได้ n+1)
+int par[MAXN];
+
+int find(int x) {
+    return par[x] == x ? x : par[x] = find(par[x]);   // ผิดตรงนี้: เรียกตัวเองลึกเท่าความยาวโซ่ โซ่ยาวแสนช่องล้นสแต็กเริ่มต้นของ Windows
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    for (int i = 1; i <= n + 1; i++) par[i] = i;   // n+1 เป็นกำแพงท้ายแถว find จะไม่วิ่งเลยออกไป
+    vector<int> beat(n + 1, 0);
+
+    while (m--) {
+        int l, r, x;
+        cin >> l >> r >> x;
+        // กระโดดข้ามคนที่แพ้ไปแล้วทั้งหมด แตะเฉพาะคนที่ยังอยู่ในช่วง
+        for (int i = find(l); i <= r; i = find(i + 1)) {
+            if (i == x) continue;                  // ผู้ชนะยังอยู่ต่อ
+            beat[i] = x;
+            par[i] = i + 1;                        // แพ้แล้ว ชี้ไปทางขวา ใครมาถามก็ถูกส่งต่อ
+        }
+    }
+    for (int i = 1; i <= n; i++) cout << beat[i] << " \\n"[i == n];
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 4 · Anansi's Cobweb ================= */
+const P4_N = 4;
+const P4_EDGES: [number, number][] = [[1, 2], [2, 3], [1, 3], [3, 4]];
+const P4_TEARS = [2, 4, 3];
+const P4_OUT_STATEMENT = [1, 2, 3];
+/** จำลองไปข้างหน้าตามเรื่อง (นับก๊วนใหม่ทุกครั้ง) เพื่อใช้วาดภาพ และเทียบกับการย้อนเวลาของโค้ด */
+const p4Alive = (k: number): number[] => range(1, P4_EDGES.length).filter((e) => !P4_TEARS.slice(0, k).includes(e));
+const p4Comps = (alive: number[]): number => {
+  const par = fresh(P4_N);
+  for (const e of alive) uniteNaive(par, P4_EDGES[e - 1][0], P4_EDGES[e - 1][1]);
+  return groupsOf(par).length;
+};
+const p4Forward = P4_TEARS.map((_, i) => p4Comps(p4Alive(i + 1)));
+const p4Backward: number[] = [];
+{
+  const par = fresh(P4_N);
+  const sz = Array<number>(P4_N + 1).fill(1);
+  let comps = P4_N;
+  for (const e of p4Alive(P4_TEARS.length)) if (uniteBySize(par, sz, ...P4_EDGES[e - 1])) comps--;
+  p4Backward[P4_TEARS.length - 1] = comps;
+  for (let i = P4_TEARS.length - 1; i > 0; i--) {
+    if (uniteBySize(par, sz, ...P4_EDGES[P4_TEARS[i] - 1])) comps--;
+    p4Backward[i - 1] = comps;
+  }
+}
+if (p4Forward.join(' ') !== P4_OUT_STATEMENT.join(' ') || p4Backward.join(' ') !== P4_OUT_STATEMENT.join(' '))
+  throw new Error('dsu p4: การย้อนเวลาไม่ตรงกับการเดินไปข้างหน้า');
+const P4_POS: Record<number, { x: number; y: number }> = { 1: { x: 0, y: 0 }, 2: { x: 90, y: 0 }, 3: { x: 45, y: 72 }, 4: { x: 135, y: 72 } };
+const P4_PANEL_W = 225;
+const p4Panels = P4_TEARS.map((_, i) => {
+  const alive = p4Alive(i + 1);
+  const ox = 50 + i * P4_PANEL_W;
+  const oy = 70;
+  return {
+    ox,
+    comps: p4Forward[i],
+    torn: P4_TEARS[i],
+    edges: P4_EDGES.map(([a, b], j) => {
+      const s = seg({ x: ox + P4_POS[a].x, y: oy + P4_POS[a].y }, { x: ox + P4_POS[b].x, y: oy + P4_POS[b].y });
+      return { ...s, alive: alive.includes(j + 1), justTorn: P4_TEARS[i] === j + 1, id: j + 1 };
+    }),
+    nodes: range(1, P4_N).map((v) => ({ k: v, x: ox + P4_POS[v].x, y: oy + P4_POS[v].y })),
+  };
+});
+const p4VB = `0 0 ${50 + 2 * P4_PANEL_W + 135 + R + 12} ${70 + 72 + R + 34 + 22}`;
+const codeP4 = `#include <bits/stdc++.h>
+using namespace std;
+
+vector<int> par, sz;
+int comps; // จำนวนชิ้นของใยตอนนี้
+
+int find(int x) {
+    // บีบทางเดิน: ให้ทุกตัวบนทางชี้ตรงไปที่หัวหน้า
+    return par[x] == x ? x : par[x] = find(par[x]);
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;      // อยู่ชิ้นเดียวกันอยู่แล้ว เส้นนี้ไม่ช่วยเชื่อมอะไรเพิ่ม
+    if (sz[a] < sz[b]) swap(a, b); // เอาต้นเล็กไปห้อยใต้ต้นใหญ่
+    par[b] = a;
+    sz[a] += sz[b];
+    comps--;
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<int> ea(m + 1), eb(m + 1);
+    for (int i = 1; i <= m; i++) cin >> ea[i] >> eb[i];
+    int q;
+    cin >> q;
+    vector<int> tear(q);
+    vector<bool> torn(m + 1, false);
+    for (int i = 0; i < q; i++) {
+        cin >> tear[i];
+        torn[tear[i]] = true;
+    }
+
+    par.resize(n + 1);
+    sz.assign(n + 1, 1);
+    iota(par.begin(), par.end(), 0);
+    comps = n;
+
+    // เริ่มจากสภาพสุดท้าย: ใส่เฉพาะเส้นที่ไม่มีวันถูกฉีก
+    for (int i = 1; i <= m; i++)
+        if (!torn[i]) unite(ea[i], eb[i]);
+
+    // ย้อนเวลา: ans[i] คือสภาพหลังฉีกครั้งที่ 0..i
+    // ถอยจากท้ายมา การ "ฉีกเส้น tear[i]" กลายเป็น "ต่อเส้น tear[i] กลับ"
+    // ต่อกลับแล้วจะได้สภาพก่อนฉีกครั้งที่ i ซึ่งก็คือหลังฉีกครั้งที่ i-1
+    vector<int> ans(q);
+    ans[q - 1] = comps;
+    for (int i = q - 1; i > 0; i--) {
+        unite(ea[tear[i]], eb[tear[i]]);
+        ans[i - 1] = comps;
+    }
+
+    for (int i = 0; i < q; i++) cout << ans[i] << (i + 1 < q ? ' ' : '\\n');
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 5 · Parity ================= */
+const P5_LEN = 10;
+const P5_Q: [number, number, 'even' | 'odd'][] = [[1, 2, 'even'], [3, 4, 'odd'], [5, 6, 'even'], [1, 6, 'even'], [7, 10, 'odd']];
+/** DSU ที่เก็บ xor ถึงหัว เขียนแยกจากโค้ด C++ เพื่อใช้เดาคำตอบของตัวอย่างและวาดภาพ */
+function parityFirstLie(q: [number, number, 'even' | 'odd'][]): number {
+  const par = new Map<number, number>();
+  const d = new Map<number, number>();
+  const get = (x: number): number => {
+    if (!par.has(x)) {
+      par.set(x, x);
+      d.set(x, 0);
+    }
+    return x;
+  };
+  const find = (x: number): [number, number] => {
+    let acc = 0;
+    let r = get(x);
+    while (par.get(r) !== r) {
+      acc ^= d.get(r) ?? 0;
+      r = par.get(r) ?? r;
+    }
+    return [r, acc];
+  };
+  for (let i = 0; i < q.length; i++) {
+    const [l, r, s] = q[i];
+    const w = s === 'odd' ? 1 : 0;
+    const [ra, da] = find(l - 1);
+    const [rb, db] = find(r);
+    if (ra === rb) {
+      if ((da ^ db) !== w) return i;
+    } else {
+      par.set(rb, ra);
+      d.set(rb, da ^ db ^ w);
+    }
+  }
+  return q.length;
+}
+const p5Answer = parityFirstLie(P5_Q);
+if (p5Answer !== 3) throw new Error('dsu p5: โมเดลไม่ตรงกับตัวอย่างของโจทย์');
+const p5Points = [...new Set(P5_Q.slice(0, p5Answer + 1).flatMap(([l, r]) => [l - 1, r]))].sort((a, b) => a - b);
+const P5_GAP = 170;
+const P5_X0 = 90;
+const P5_Y = 190;
+const p5x = (v: number): number => P5_X0 + p5Points.indexOf(v) * P5_GAP;
+const p5Arcs = P5_Q.slice(0, p5Answer + 1).map(([l, r, s], i) => {
+  const x1 = p5x(l - 1);
+  const x2 = p5x(r);
+  const h = 34 + (x2 - x1) * 0.28;
+  return { i, l, r, s, x1, x2, h, lie: i === p5Answer, lx: (x1 + x2) / 2, ly: P5_Y - R - h * 0.75 - 6 };
+});
+const p5VB = `0 0 ${p5x(p5Points[p5Points.length - 1]) + R + 12} ${P5_Y + R + 34 + 20}`;
+const codeP5 = `#include <bits/stdc++.h>
+using namespace std;
+
+vector<int> par, sz, d; // d[x] = ความเป็นคู่/คี่ของ pre[x] xor pre[par[x]]
+
+int find(int x) {
+    if (par[x] == x) return x;
+    int r = find(par[x]);
+    d[x] ^= d[par[x]]; // ตอนนี้ d[par[x]] คือระยะจากแม่ถึงหัวหน้าแล้ว
+    par[x] = r;
+    return r;
+}
+
+// บันทึกว่า pre[a] xor pre[b] = w  คืน false ถ้าขัดกับที่รู้มาก่อน
+bool unite(int a, int b, int w) {
+    int ra = find(a), rb = find(b);
+    if (ra == rb) return (d[a] ^ d[b]) == w;
+    if (sz[ra] < sz[rb]) swap(ra, rb); // สลับหัวหน้าได้ เพราะ xor สลับข้างได้
+    par[rb] = ra;
+    d[rb] = d[a] ^ d[b] ^ w;           // pre[rb] xor pre[ra] ที่ทำให้เงื่อนไขนี้จริง
+    sz[ra] += sz[rb];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    long long len;
+    while (cin >> len && len != -1) {
+        int q;
+        cin >> q;
+        vector<long long> lo(q), hi(q);
+        vector<int> w(q);
+        vector<long long> xs;
+        for (int i = 0; i < q; i++) {
+            string s;
+            cin >> lo[i] >> hi[i] >> s;
+            lo[i]--; // ช่วง [l, r] มีเลขคี่ตัว  <=>  pre[r] xor pre[l-1] = 1
+            w[i] = (s == "odd");
+            xs.push_back(lo[i]);
+            xs.push_back(hi[i]);
+        }
+        // ความยาวถึง 10^9 แต่มีจุดที่ถูกพูดถึงไม่เกิน 2q จุด
+        sort(xs.begin(), xs.end());
+        xs.erase(unique(xs.begin(), xs.end()), xs.end());
+        int k = xs.size();
+        par.resize(k);
+        iota(par.begin(), par.end(), 0);
+        sz.assign(k, 1);
+        d.assign(k, 0);
+
+        int ans = q; // ถ้าไม่มีข้อไหนขัด คำตอบคือจำนวนคำถามทั้งหมด
+        for (int i = 0; i < q; i++) {
+            int a = lower_bound(xs.begin(), xs.end(), lo[i]) - xs.begin();
+            int b = lower_bound(xs.begin(), xs.end(), hi[i]) - xs.begin();
+            if (!unite(a, b, w[i])) {
+                ans = i; // ข้อ 0..i-1 ยังเป็นไปได้ ข้อที่ i พัง
+                break;   // คำถามที่เหลืออ่านมาครบแล้ว หยุดได้เลย
+            }
+        }
+        cout << ans << '\\n';
+    }
+    return 0;
+}`;
+
+/* ================= ฝึกข้อ 7 · Distinct Colors ================= */
+const P7_COL = [0, 2, 3, 2, 2, 1];
+const P7_EDGES: [number, number][] = [[1, 2], [1, 3], [3, 4], [3, 5]];
+const P7_N = P7_COL.length - 1;
+const P7_OUT_STATEMENT = [3, 1, 2, 1, 1];
+const p7Par = fresh(P7_N);
+{
+  const seen = new Set([1]);
+  const queue = [1];
+  while (queue.length > 0) {
+    const u = queue.shift() ?? 1;
+    for (const [a, b] of P7_EDGES) {
+      const v = a === u ? b : b === u ? a : 0;
+      if (v && !seen.has(v)) {
+        seen.add(v);
+        p7Par[v] = u;
+        queue.push(v);
+      }
+    }
+  }
+}
+const p7Ans = range(1, P7_N).map((v) => {
+  const cols = new Set<number>();
+  for (let x = 1; x <= P7_N; x++) {
+    let y = x;
+    while (y !== v && p7Par[y] !== y) y = p7Par[y];
+    if (y === v) cols.add(P7_COL[x]);
+  }
+  return cols.size;
+});
+if (p7Ans.join(' ') !== P7_OUT_STATEMENT.join(' ')) throw new Error('dsu p7: โมเดลไม่ตรงกับตัวอย่างของโจทย์');
+const p7Tree = drawForest(p7Par, range(1, P7_N), 300, 60, { gap: 190, row: 80 });
+const P7_FILL: Record<number, string> = { 1: '#1f3b63', 2: '#1d4a35', 3: '#4a3a12' };
+const P7_EDGE_C: Record<number, string> = { 1: '#6ea8ff', 2: '#4ade80', 3: '#e0b400' };
+/* ป้าย "สี · ตอบ" ยื่นออกไปทางขวาของวงราว 95 หน่วย */
+const p7VB = `0 0 ${Math.ceil(p7Tree.right + 95 + 12)} ${Math.ceil(p7Tree.bottom + 34 + 18)}`;
+const codeP7 = `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n;
+    cin >> n;
+    vector<set<int>> s(n + 1); // s[v] = สีทั้งหมดในต้นย่อยของ v (สร้างเสร็จเมื่อลูกทุกตัวรวมเข้ามาแล้ว)
+    for (int v = 1; v <= n; v++) {
+        int c;
+        cin >> c;
+        s[v].insert(c);
+    }
+    vector<vector<int>> g(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int a, b;
+        cin >> a >> b;
+        g[a].push_back(b);
+        g[b].push_back(a);
+    }
+
+    // เรียงจุดแบบ BFS จากราก ลูกจะอยู่หลังพ่อเสมอ
+    // ไล่จากท้ายมาจึงได้ทำลูกครบก่อนพ่อ โดยไม่ต้อง DFS เวียนเกิดลึก 2*10^5 ชั้น
+    vector<int> order, parent(n + 1, 0);
+    order.reserve(n);
+    order.push_back(1);
+    for (int i = 0; i < n; i++) {
+        int u = order[i];
+        for (int v : g[u])
+            if (v != parent[u]) parent[v] = u, order.push_back(v);
+    }
+
+    vector<int> ans(n + 1);
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        ans[v] = s[v].size();
+        int p = parent[v];
+        if (p == 0) continue; // ราก ไม่มีใครให้รวมเข้า
+        // รวมเล็กเข้าใหญ่: ให้ s[p] เป็นก้อนที่ใหญ่กว่าเสมอ แล้วเทก้อนเล็กใส่
+        // swap ของ set แค่สลับตัวชี้ ไม่ได้คัดลอกสมาชิก
+        if (s[p].size() < s[v].size()) swap(s[p], s[v]);
+        for (int c : s[v]) s[p].insert(c);
+        set<int>().swap(s[v]); // คืนหน่วยความจำ ต้นย่อยนี้ตอบไปแล้ว
+    }
+
+    for (int v = 1; v <= n; v++) cout << ans[v] << (v < n ? ' ' : '\\n');
+    return 0;
+}`;
+const p7Slow = [
+  { n: 10000, fast: '40 ms', slow: '2.4 วินาที' },
+  { n: 20000, fast: '51 ms', slow: '10.2 วินาที' },
+  { n: 40000, fast: '52 ms', slow: '42.6 วินาที' },
+  { n: 200000, fast: '113 ถึง 119 ms', slow: 'ราว 24.7 นาที' },
+];
+
+/* ================= ฝึกข้อ 8 · Strange Food Chain ================= */
+const P8_N = 100;
+const P8_ST: [number, number, number][] = [[1, 101, 1], [2, 1, 2], [2, 2, 3], [2, 3, 3], [1, 1, 3], [2, 3, 1], [1, 5, 5]];
+type P8Row = { i: number; D: number; x: number; y: number; lie: boolean; why: string };
+/** ตัวแปลความทีละประโยค: เก็บชนิดสัมพัทธ์ (มอดุโล 3) ของทุกตัวในก๊วนเทียบกับหัว */
+const p8Rows: P8Row[] = [];
+{
+  const par = fresh(P8_N);
+  const d = Array<number>(P8_N + 1).fill(0);
+  const find = (x: number): [number, number] => {
+    let acc = 0;
+    let r = x;
+    while (par[r] !== r) {
+      acc = (acc + d[r]) % 3;
+      r = par[r];
+    }
+    return [r, acc];
+  };
+  P8_ST.forEach(([D, x, y], i) => {
+    let lie = false;
+    let why: string;
+    if (x > P8_N || y > P8_N) {
+      lie = true;
+      why = `มีสัตว์หมายเลขเกิน ${P8_N}`;
+    } else if (D === 2 && x === y) {
+      lie = true;
+      why = 'บอกว่าสัตว์กินตัวเอง';
+    } else {
+      const w = D - 1;
+      const [rx, dx] = find(x);
+      const [ry, dy] = find(y);
+      if (rx === ry) {
+        const diff = (((dy - dx) % 3) + 3) % 3;
+        lie = diff !== w;
+        why = lie
+          ? `ขัดกับที่รู้แล้ว ${diff === 0 ? `${x} กับ ${y} ชนิดเดียวกัน` : diff === 1 ? `${x} กิน ${y}` : `${y} กิน ${x}`}`
+          : x === y
+            ? 'ตัวเดียวกันย่อมเป็นชนิดเดียวกัน'
+            : 'ตรงกับที่รู้แล้ว';
+      } else {
+        par[ry] = rx;
+        d[ry] = (((dx + w - dy) % 3) + 3) % 3;
+        why = 'ยังไม่เคยรู้ความสัมพันธ์ของสองตัวนี้ รับไว้เป็นความจริง';
+      }
+    }
+    p8Rows.push({ i: i + 1, D, x, y, lie, why });
+  });
+}
+const p8Lies = p8Rows.filter((r) => r.lie).map((r) => r.i);
+if (p8Lies.join(',') !== '1,4,5') throw new Error('dsu p8: โมเดลไม่ตรงกับคำใบ้ของโจทย์');
+const codeP8 = `#include <bits/stdc++.h>
+using namespace std;
+
+// ชนิดสัตว์เป็น 0, 1, 2 และ x กิน y  <=>  ชนิด(y) = ชนิด(x) + 1 (มอดุโล 3)
+// d[x] = ชนิด(x) - ชนิด(par[x]) มอดุโล 3  (0 = พวกเดียวกับแม่, 1 = แม่กิน x, 2 = x กินแม่)
+vector<int> par, sz, d;
+
+int find(int x) {
+    if (par[x] == x) return x;
+    int r = find(par[x]);
+    d[x] = (d[x] + d[par[x]]) % 3; // ต่อระยะ x ถึงแม่ กับแม่ถึงหัวหน้า
+    par[x] = r;
+    return r;
+}
+
+// บันทึกว่า ชนิด(y) - ชนิด(x) = w (มอดุโล 3)  คืน false ถ้าขัดกับที่เชื่อไปแล้ว
+bool unite(int x, int y, int w) {
+    int rx = find(x), ry = find(y);
+    if (rx == ry) return ((d[y] - d[x]) % 3 + 3) % 3 == w;
+    // ให้ ry ไปห้อยใต้ rx: ชนิด(ry) - ชนิด(rx) = d[x] + w - d[y]
+    int t = ((d[x] + w - d[y]) % 3 + 3) % 3;
+    if (sz[rx] < sz[ry]) {
+        swap(rx, ry);
+        t = (3 - t) % 3; // มองกลับด้าน ความต่างก็กลับเครื่องหมาย
+    }
+    par[ry] = rx;
+    d[ry] = t;
+    sz[rx] += sz[ry];
+    return true;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int t;
+    cin >> t;
+    while (t--) {
+        int n, k;
+        cin >> n >> k;
+        par.resize(n + 1);
+        iota(par.begin(), par.end(), 0);
+        sz.assign(n + 1, 1);
+        d.assign(n + 1, 0);
+        int lies = 0;
+        for (int i = 0; i < k; i++) {
+            int D, x, y;
+            cin >> D >> x >> y;
+            // เงื่อนไขโกหกสองข้อแรก ต้องเช็คก่อนแตะ DSU (x หรือ y อาจเกิน n)
+            if (x > n || y > n || (D == 2 && x == y)) {
+                lies++;
+                continue;
+            }
+            // D = 1 พวกเดียวกัน ความต่าง 0  /  D = 2 x กิน y ความต่าง 1
+            if (!unite(x, y, D - 1)) lies++; // ประโยคที่ขัดไม่ถูกบันทึก เพราะมันไม่ใช่ความจริง
+        }
+        cout << lies << '\\n';
+    }
+    return 0;
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    ลองนึกถึงกลุ่มเพื่อนที่ค่อย ๆ ก่อตัวขึ้นทีละคู่ วันนี้ต้นรู้จักแนน พรุ่งนี้แนนพาเก่งมาเจอ
+    อีกวันเก่งไปสนิทกับกลุ่มของฝ้าย ผ่านไปไม่กี่สัปดาห์ก็มีคนถามว่า
+    "ต้นกับฝ้ายอยู่ก๊วนเดียวกันหรือเปล่า" คนสองคนนี้อาจไม่เคยคุยกันเลย แต่เชื่อมถึงกันผ่านคนกลางหลายทอด
+  </p>
+  <p>
+    ถ้าตอบด้วยการเดินกราฟ (<a href="/cp/state-graph-bfs/">BFS</a>) จากต้นไปเรื่อย ๆ ว่าถึงฝ้ายไหม
+    หนึ่งคำถามก็ต้องไล่ทั้งกลุ่ม ลองเอาขอบเขตของโจทย์ฝึกข้อแรกในบทนี้มาคูณดู คน <code>10⁵</code> คน
+    ความสัมพันธ์ <code>2·10⁵</code> คู่ ถามหลังทุกคู่ใหม่ ก็ได้ราว <code>6·10¹⁰</code> ก้าว
+    ในขณะที่เวลาที่ให้คือหนึ่งวินาที
+  </p>
+  <p>
+    สิ่งที่โจทย์แบบนี้ต้องการจริง ๆ มีสองอย่าง คือ<strong>รวมสองก๊วนเข้าด้วยกัน</strong>
+    กับ<strong>ถามว่าสองคนอยู่ก๊วนเดียวกันไหม</strong> และไม่มีใครถามเลยว่าเชื่อมกันผ่านใคร
+    บทนี้คือเครื่องมือที่ทำสองอย่างนั้นได้เร็วจนแทบไม่ต้องนับเวลา
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ชื่อของเครื่องมือนี้</p>
+    <p>
+      โครงสร้างนี้ชื่อ <strong>disjoint set union</strong> ย่อว่า <strong>DSU</strong> อ่านว่า{' '}
+      <strong>"ดิสจอยต์ เซต ยูเนียน"</strong> คำว่า <i>disjoint</i> มาจาก <i>dis</i> (ไม่) กับ{' '}
+      <i>joint</i> (ข้อต่อ) แปลตรงตัวว่า <strong>"ไม่มีส่วนที่ต่อกัน"</strong> คือเซตที่ไม่มีสมาชิกร่วมกันเลย
+      ซึ่งก็คือก๊วนนั่นเอง คนหนึ่งอยู่ได้ก๊วนเดียว บางตำราเรียกว่า <strong>union-find</strong>{' '}
+      ตามชื่อสองคำสั่งของมัน คือ <i>union</i> (รวม) กับ <i>find</i> (หา)
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ถามหาหัวหน้า แทนการเดินทั้งกราฟ</h2>
+  <p>
+    ความคิดตั้งต้นเรียบง่ายมาก ให้แต่ละก๊วนมี<strong>หัวหน้า</strong>หนึ่งคน สองคนอยู่ก๊วนเดียวกัน
+    ก็ต่อเมื่อหัวหน้าของทั้งคู่เป็นคนเดียวกัน คำถามที่ยากจึงกลายเป็นคำถามที่ง่ายกว่า คือ "หัวหน้าของเธอคือใคร"
+  </p>
+  <p>
+    หัวหน้าของก๊วนเรียกว่า <strong>representative</strong> อ่านว่า <strong>"เรพรีเซนเททีฟ"</strong>{' '}
+    แปลว่า <strong>"ผู้แทน"</strong> คำเดียวกับที่ใช้เรียก ส.ส. ในอังกฤษ ทั้งก๊วนส่งคนคนเดียวมาเป็นหน้าตาของกลุ่ม
+  </p>
+  <p>
+    แต่ไม่จำเป็นต้องให้ทุกคนจำชื่อหัวหน้าไว้ตรง ๆ ให้แต่ละคนจำแค่<strong>คนที่ตัวเองขึ้นตรงด้วย</strong>
+    ก็พอ เหมือนสายบังคับบัญชาในบริษัท ถ้าอยากรู้ว่าใครใหญ่สุดในฝ่าย ก็ถามหัวหน้าตัวเอง
+    แล้วถามหัวหน้าของหัวหน้าต่อไปเรื่อย ๆ จนเจอคนที่ไม่ต้องรายงานใคร
+  </p>
+  <p>
+    ของทั้งหมดนี้เก็บได้ในอาร์เรย์แถวเดียว ชื่อ <code>par</code> (ย่อจาก <i>parent</i> แม่)
+    <code>par[x]</code> คือคนที่ <code>x</code> ขึ้นตรงด้วย ส่วนหัวหน้าให้ชี้หาตัวเอง
+    คือ <code>par[x] = x</code> ภาพข้างล่างคืออาร์เรย์แถวเดียวกับป่าของต้นไม้ที่มันแทน
+  </p>
+
+  <ZoomableDiagram caption={`อาร์เรย์ ${NA} ช่องนี้แทนก๊วน ${aGroups.length} ก๊วน ช่องที่ชี้หาตัวเอง (สีเขียว) คือหัวหน้า ลูกศรทุกเส้นชี้จากลูกขึ้นไปหาแม่ ตามค่าในช่อง par ของลูก`}>
+    <svg viewBox={aVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="อาร์เรย์ par สิบช่องกับป่าของต้นไม้สามต้นที่มันแทน">
+      <defs>
+        <marker id="dsuArrA" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8ea0c4" />
+        </marker>
+      </defs>
+      <text x="22" y="40" fill="#9aa7bd" font-size="12" font-family="monospace">คน</text>
+      <text x="22" y="80" fill="#9aa7bd" font-size="12" font-family="monospace">par</text>
+      {range(1, NA).map((i) => (
+        <>
+          <rect x={aCellX(i)} y="22" width={A_CELL - 4} height="28" rx="4" fill="#141b2b" stroke="#2a3350" />
+          <text x={aCellX(i) + (A_CELL - 4) / 2} y="41" fill="#9aa7bd" font-size="12" text-anchor="middle" font-family="monospace">{i}</text>
+          <rect x={aCellX(i)} y="60" width={A_CELL - 4} height="30" rx="4" fill="#101827" stroke={PAR_A[i] === i ? '#4ade80' : '#4a5a7d'} />
+          <text x={aCellX(i) + (A_CELL - 4) / 2} y="80" fill={PAR_A[i] === i ? '#4ade80' : '#cdd6ea'} font-size="13" text-anchor="middle" font-family="monospace">{PAR_A[i]}</text>
+        </>
+      ))}
+      {aForest.edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#8ea0c4" stroke-width="1.6" marker-end="url(#dsuArrA)" />
+      ))}
+      {aForest.nodes.map((n) => (
+        <>
+          <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke={stroke(n.tone)} stroke-width="1.6" />
+          <text x={n.x} y={n.y + 4} fill={ink(n.tone)} font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เท่านี้ก็เขียนโค้ดได้แล้ว <code>find(x)</code> เดินตาม <code>par</code> ขึ้นไปจนเจอหัว
+    ส่วน <code>unite(a, b)</code> ก็หาหัวของทั้งสองฝั่ง แล้วให้หัวฝั่งหนึ่งไปขึ้นกับอีกฝั่ง
+    ก๊วนทั้งก๊วนย้ายตามไปเองโดยไม่ต้องแตะสมาชิกคนอื่นเลย เพราะทุกคนในก๊วนนั้นเดินขึ้นไปก็ต้องผ่านหัวคนเดิมอยู่ดี
+  </p>
+  <CodeBlock code={codeNaive} lang="cpp" title="naive.cpp" />
+  <p>
+    โค้ดนี้ถูกต้องทุกกรณี ปัญหาอยู่ที่<strong>ความลึก</strong> <code>find</code> ช้าเท่าจำนวนชั้นที่ต้องเดิน
+    และบรรทัด <code>par[find(a)] = find(b)</code> ไม่ได้ดูเลยว่าฝั่งไหนสูงกว่ากัน
+    ก่อนจะไปดูว่ามันพังยังไง ลองเป็นคนตัดสินใจเองก่อน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ลองเอง · รวมก๊วนให้ต้นไม้เตี้ย</h2>
+  <p>
+    แต่ละชุดมีคำสั่งรวมเรียงมาให้แล้ว ทุกครั้งคุณเลือกได้ว่าหัวของก๊วนไหนจะไปขึ้นกับหัวของอีกก๊วน
+    ผลลัพธ์ที่ได้คือก๊วนเดียวกันไม่ว่าจะเลือกทางไหน ที่ต่างกันคือรูปของต้นไม้
+    เป้าหมายคือให้<strong>คนที่อยู่ลึกที่สุดลึกน้อยที่สุด</strong> เพราะนั่นคือจำนวนก้าวที่ <code>find</code> ต้องเดินในกรณีแย่สุด
+  </p>
+
+  <div class="cpgame dggame" data-dggame data-puzzles={dgJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {dgPuzzles.map((p, t) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(t)} aria-selected={t === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+    <p class="cpg-tease" data-cpg-tease>{dgPuzzles[0].tease}</p>
+    <p class="fg-sub" data-dg-ask>รอเริ่ม</p>
+    <div class="dg-choices" data-dg-choices></div>
+    <div class="cpg-scroll"><div class="dg-forest" data-dg-forest></div></div>
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-dg-reset>เริ่มใหม่</button>
+    </div>
+    <p class="cpg-status" data-cpg-status>เลือกว่าหัวไหนจะไปขึ้นกับหัวไหน</p>
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้รวมเลย</p>
+    <p class="cpg-hint">วงสีเขียวคือหัวก๊วน วงสีทองคือหัวสองคนที่คำสั่งนี้กำลังจะรวม ตัวเลขใต้ต้นไม้คือความลึกของคนที่ลึกที่สุดในก๊วนนั้น</p>
+  </div>
+
+  <p class="io-note">
+    ถ้าชุด ก กดแบบเดิมทุกครั้ง คือให้หัวของคนแรกไปขึ้นกับคนหลังเสมอ (ซึ่งเป็นสิ่งที่โค้ดข้างบนทำ)
+    จะได้ความลึก {dgNaiveA} จากคนแค่ {dgPuzzles[0].n} คน ส่วนชุด ข ทุกทางเลือกลึกไม่ต่ำกว่า {dgBestB} ลองดูว่าเพราะอะไร
+  </p>
+  <p class="ns-cue">พอเห็นแล้วว่าเลือกแบบไหนเตี้ย ลองหากฎที่ใช้ได้ทุกครั้งโดยไม่ต้องคิดเป็นกรณี แล้วค่อยเลื่อนลงไปดู</p>
+
+  <hr class="divider" />
+
+  <h2>กลที่ 1 · ให้ก๊วนเล็กไปขึ้นกับก๊วนใหญ่</h2>
+  <p>
+    ภาพข้างล่างคือคำสั่งชุดเดียวกัน <code>unite(1, 2)</code>, <code>unite(1, 3)</code> ไปจนถึง{' '}
+    <code>unite(1, {NB})</code> ทางซ้ายใช้กติกาของโค้ดข้างบน ทางขวาใช้กติกาเดียวที่เพิ่มเข้ามา
+    คือ<strong>ก๊วนที่คนน้อยกว่าเป็นฝ่ายไปขึ้นกับก๊วนที่คนมากกว่า</strong>
+  </p>
+
+  <ZoomableDiagram caption={`คำสั่งเดียวกันทุกตัว ทางซ้ายลึก ${chainH} ชั้น เพราะก๊วนที่โตขึ้นเรื่อย ๆ ถูกยกไปขึ้นกับคนที่เพิ่งมาใหม่ทุกครั้ง ทางขวาลึกแค่ ${starH} ชั้น เพราะคนใหม่แต่ละคนไปต่อใต้หัวคนเดิม`}>
+    <svg viewBox={bVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กติกาแบบซื่อได้โซ่ยาวแปดชั้น กติกาตามขนาดได้ต้นไม้ลึกหนึ่งชั้น">
+      <defs>
+        <marker id="dsuArrB" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8ea0c4" />
+        </marker>
+      </defs>
+      <text x="150" y="24" fill="#e05a5a" font-size="12.5" text-anchor="middle">หัวของคนแรกไปขึ้นกับคนหลัง · ลึก {chainH}</text>
+      <text x="500" y="24" fill="#4ade80" font-size="12.5" text-anchor="middle">ก๊วนเล็กไปขึ้นกับก๊วนใหญ่ · ลึก {starH}</text>
+      {[...bChain.edges, ...bStar.edges].map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#8ea0c4" stroke-width="1.6" marker-end="url(#dsuArrB)" />
+      ))}
+      {[...bChain.nodes, ...bStar.nodes].map((n) => (
+        <>
+          <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke={stroke(n.tone)} stroke-width="1.6" />
+          <text x={n.x} y={n.y + 4} fill={ink(n.tone)} font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    กติกานี้ชื่อ <strong>union by size</strong> (รวมตามขนาด) ต้องเก็บอาร์เรย์เพิ่มอีกแถวคือ <code>sz</code>{' '}
+    ไว้ที่หัวของแต่ละก๊วน ว่าก๊วนนี้มีกี่คน ทำไมมันถึงคุมความลึกได้ ดูจากมุมของคนคนเดียว
+  </p>
+  <p>
+    คนคนหนึ่งจะลึกลงหนึ่งชั้นก็ต่อเมื่อก๊วนของเขาเป็นฝ่ายไปขึ้นกับก๊วนอื่น และตามกติกา
+    ก๊วนที่เขาไปขึ้นด้วยใหญ่อย่างน้อยเท่าก๊วนของเขาเอง ก๊วนใหม่ที่เขาอยู่จึง<strong>ใหญ่ขึ้นอย่างน้อยเท่าตัว</strong>
+    ทุกครั้งที่เขาลึกลง ก๊วนเริ่มจากคนเดียว และใหญ่ได้ไม่เกิน <code>n</code> คน
+    จึงเพิ่มเท่าตัวได้ไม่เกิน <code>log₂ n</code> ครั้ง ความลึกของทุกคนจึงไม่เกิน <code>log₂ n</code>
+  </p>
+  <p>
+    ขอบนี้ไม่ได้หลวม ถ้าจับคู่ก๊วนขนาดเท่ากันรวมกันเป็นชั้น ๆ แบบชุด ข ในเกม คนที่ลึกสุดจะลึกพอดี{' '}
+    <code>log₂ n</code> ผมตรวจทั้งสองด้านตอนสร้างหน้านี้ ที่ <code>n = {DEPTH_N}</code> การจับคู่แบบนั้นลึก{' '}
+    {pairH} ชั้นพอดี ส่วนการรวมแบบสุ่ม {RAND_RUNS} รอบ ลึกสุดแค่ {randMax} ชั้น ไม่มีรอบไหนเกิน {DEPTH_LOG}
+  </p>
+  <p>
+    อีกแบบที่ใช้กันมากคือ <strong>union by rank</strong> ให้หัวจำ<strong>ความสูง</strong>ของต้นไม้แทนจำนวนคน
+    คำว่า <i>rank</i> อ่านว่า <strong>"แรงก์"</strong> แปลว่า <strong>"ยศ"</strong> หรืออันดับ
+    ยศใครต่ำกว่าคนนั้นไปขึ้นกับอีกฝ่าย ได้ขอบ <code>log₂ n</code> เท่ากัน
+    บทนี้ใช้ขนาดเพราะโจทย์ส่วนใหญ่อยากรู้ขนาดของก๊วนอยู่แล้ว เก็บครั้งเดียวได้ใช้สองต่อ
+  </p>
+
+  <hr class="divider" />
+
+  <h2>กลที่ 2 · บีบทางเดินให้สั้นลงระหว่างที่เดิน</h2>
+  <p>
+    กลแรกคุมความลึกไว้ที่ <code>log₂ n</code> กลที่สองใช้ประโยชน์จากงานที่ <code>find</code> ทำไปแล้ว
+    ตอนเดินขึ้นไปหาหัว เราผ่านคนหลายคน และได้รู้ว่าทุกคนบนทางนั้นมีหัวคนเดียวกัน
+    ก็ให้<strong>ทุกคนบนทางชี้ตรงไปที่หัวเลย</strong> ครั้งหน้าจะได้ไม่ต้องเดินซ้ำ
+  </p>
+  <p>
+    กลนี้ชื่อ <strong>path compression</strong> อ่านว่า <strong>"พาธ คอมเพรสชัน"</strong>{' '}
+    <i>path</i> คือทางเดิน <i>compression</i> คือการบีบอัด คำเดียวกับที่ใช้เรียกการบีบไฟล์ให้เป็น zip
+    ในโค้ดใช้แค่บรรทัดเดียว คือเปลี่ยนการเดินให้เป็นการเรียกตัวเอง แล้วเอาคำตอบที่ได้กลับมาเขียนทับ <code>par</code>{' '}
+    ของตัวเองระหว่างทางกลับ
+  </p>
+
+  <ZoomableDiagram caption={`find(${F_START}) เดินผ่าน ${fPath.join(', ')} คนบนทาง (สีทอง) ทุกคนมีหัวคนเดียวกันคือ ${fRoot} หลังบีบ มี ${fChanged.length} คนที่เปลี่ยนไปชี้ ${fRoot} ตรง ๆ (ลูกศรเขียว) คนนอกทางไม่ถูกแตะเลย`}>
+    <svg viewBox={fVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label={`ต้นไม้ก่อนและหลังบีบทางเดินของ find(${F_START})`}>
+      <defs>
+        <marker id="dsuArrF" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8ea0c4" />
+        </marker>
+        <marker id="dsuArrFg" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
+        </marker>
+        <marker id="dsuArrFh" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#e0b400" />
+        </marker>
+      </defs>
+      <text x="175" y="24" fill="#9aa7bd" font-size="12.5" text-anchor="middle">ก่อน find({F_START}) · {F_START} ลึก {depthOf(PAR_F, F_START)}</text>
+      <text x="530" y="24" fill="#9aa7bd" font-size="12.5" text-anchor="middle">หลัง find({F_START}) · {F_START} ลึก {depthOf(afterF, F_START)}</text>
+      {[...fBefore.edges, ...fAfter.edges].map((e) => (
+        <line
+          x1={e.x1}
+          y1={e.y1}
+          x2={e.x2}
+          y2={e.y2}
+          stroke={e.tone === 'new' ? '#4ade80' : e.tone === 'hot' ? '#e0b400' : '#8ea0c4'}
+          stroke-width={e.tone === 'base' ? 1.6 : 2.2}
+          marker-end={e.tone === 'new' ? 'url(#dsuArrFg)' : e.tone === 'hot' ? 'url(#dsuArrFh)' : 'url(#dsuArrF)'}
+        />
+      ))}
+      {[...fBefore.nodes, ...fAfter.nodes].map((n) => (
+        <>
+          <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke={stroke(n.tone)} stroke-width="1.6" />
+          <text x={n.x} y={n.y + 4} fill={ink(n.tone)} font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ตัวเดินข้างล่างคือต้นไม้เดียวกับในภาพ เดินตามลำดับที่โค้ดเรียกตัวเองทำจริง
+    ช่วงแรกลงไปถามทีละชั้นจนถึงหัว ช่วงหลังคำตอบถูกส่งกลับขึ้นมา แล้วแต่ละคนเขียนคำตอบนั้นทับ <code>par</code> ของตัวเอง
+  </p>
+
+  <CpStepPlayer hook="fdsim" steps={fSteps} label={`find(${F_START}) พร้อมบีบทางเดิน`}>
+    <table class="rec fdboard">
+      <caption>PAR · {NF} คน</caption>
+      <thead>
+        <tr>
+          <th>คน</th>
+          {range(1, NF).map((v) => <th class="num">{v}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="lbl">par</span></td>
+          {range(1, NF).map((v) => <td class="num" data-fd-par={String(v)}>{PAR_F[v]}</td>)}
+        </tr>
+        <tr>
+          <td><span class="lbl">ลึก</span></td>
+          {range(1, NF).map((v) => <td class="num" data-fd-dep={String(v)}>{depthOf(PAR_F, v)}</td>)}
+        </tr>
+      </tbody>
+    </table>
+  </CpStepPlayer>
+
+  <p>
+    สังเกตว่าบีบทางเดินไม่ได้ย้ายใครออกจากก๊วน หัวยังเป็นคนเดิม ขนาดของก๊วนก็เท่าเดิม
+    มันแก้แค่<strong>ทางเดิน</strong> ซึ่งไม่มีใครสนใจอยู่แล้วว่าเป็นทางไหน ขอแค่ไปถึงหัวคนเดิม
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ใช้สองกลพร้อมกัน เร็วแค่ไหน</h2>
+  <p>
+    ตารางนี้วัดสี่แบบบนอินพุตรูปเดียวกันทุกแถว คือรวมทุกคนเข้ากับคนที่ 1 ทีละคน
+    แล้วถาม <code>find</code> อีก <code>n</code> ครั้ง รูปนี้คือรูปที่ทำให้แบบซื่อกลายเป็นโซ่
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>วัดหัวต่อหัว · g++ 14.2 -O2 · เร็วสุดของสามรอบ</caption>
+      <thead>
+        <tr>
+          <th class="num">n</th>
+          <th class="num">แบบซื่อ</th>
+          <th class="num">ตามขนาด</th>
+          <th class="num">บีบทาง</th>
+          <th class="num">ทั้งสองกล</th>
+        </tr>
+      </thead>
+      <tbody>
+        {bench.map((r) => (
+          <tr>
+            <td class="num">{r.n.toLocaleString('en-US')}</td>
+            <td class="num">{r.naive}</td>
+            <td class="num">{r.size}</td>
+            <td class="num">{r.comp}</td>
+            <td class="num">{r.both}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      แบบซื่อโตตามกำลังสองของ n ขยับจากสองหมื่นเป็นห้าหมื่นก็ช้าลงราวหกเท่า แถวสองแสนจึงไม่ได้รอให้จบ
+      ส่วนสามแบบที่เหลือเร็วเกินกว่าที่นาฬิกาจะแยกออกจากกันได้บนอินพุตรูปนี้
+    </figcaption>
+  </figure>
+
+  <p>
+    ในทางทฤษฎี ถ้าใช้สองกลพร้อมกัน ต้นทุนเฉลี่ยต่อหนึ่งคำสั่งคือ <code>O(α(n))</code>{' '}
+    ตัว <code>α</code> คือฟังก์ชันผกผันของฟังก์ชันแอคเคอร์มันน์ ซึ่งโตช้าจนสำหรับ <code>n</code>{' '}
+    ทุกค่าที่เก็บลงหน่วยความจำของคอมพิวเตอร์ได้ มันมีค่าไม่เกิน 4 ในทางปฏิบัติจึงนับเป็นค่าคงที่ได้เลย
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      ชื่อ <i>Ackermann</i> อ่านว่า <strong>"อัคเคอร์มันน์"</strong> มาจาก Wilhelm Ackermann นักคณิตศาสตร์ชาวเยอรมัน
+      ที่ตีพิมพ์ฟังก์ชันนี้ในปี 1928 เพื่อแสดงว่ามีฟังก์ชันที่คำนวณได้แต่โตเร็วเกินกว่าจะเขียนด้วยลูปซ้อนจำนวนจำกัด
+      มันโตเร็วจนตัวผกผันของมันโตช้าที่สุดเท่าที่นักเรียนอัลกอริทึมจะได้เจอ ส่วนคนที่พิสูจน์ว่า DSU เร็วระดับนี้คือ
+      Robert Tarjan ในปี 1975
+    </p>
+  </div>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ขอบเขตสองแบบที่ต้องแยกให้ออก</p>
+    <p>
+      คำว่า "เฉลี่ย" ตรงนี้คือ <a href="/cp/knuth-optimization/">amortized</a> แบบเดียวกับที่บท Knuth อธิบายไว้
+      บางครั้ง <code>find</code> ครั้งหนึ่งแพง แต่มันจ่ายล่วงหน้าให้ครั้งต่อ ๆ ไปถูกลง
+      รวมทั้งชุดแล้วจึงถูก ส่วน<strong>รวมตามขนาดอย่างเดียว</strong>ให้ขอบ <code>O(log n)</code>{' '}
+      กับ<strong>ทุกครั้ง</strong> ไม่ต้องเฉลี่ย เพราะความลึกไม่เคยเกิน <code>log₂ n</code>
+    </p>
+    <p>
+      ความต่างนี้ดูเล็กจนเกือบไม่ต้องสนใจ จนกว่าจะต้อง<strong>ย้อน</strong>การรวมกลับ ซึ่งคือเรื่องทั้งหมดของ
+      <a href="/cp/offline-deletion/">บทต้นไม้บนแกนเวลา</a>
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>แม่แบบที่ลอกไปใช้ได้ทุกข้อ</h2>
+  <p>
+    ทุกข้อในบทนี้ใช้ชื่อชุดเดียวกัน <code>par</code>, <code>sz</code>, <code>find</code>, <code>unite</code>{' '}
+    และ <code>unite</code> คืน <code>bool</code> ว่ารวมจริงหรือเปล่า ค่านี้มีประโยชน์กว่าที่คิด
+    เพราะเกือบทุกโจทย์อยากรู้ว่าเส้นเชื่อมเส้นนี้<strong>เชื่อมอะไรใหม่หรือเปล่า</strong>
+  </p>
+  <CodeBlock code={codeTemplate} lang="cpp" title="dsu.cpp" />
+  <p>
+    ผมตรวจแม่แบบนี้กับตัวเดินกราฟใหม่ทุกคำถาม บนกราฟสุ่มขนาดไม่เกิน 40 จุด 20,000 รอบ
+    รวมคำถามว่าอยู่ก๊วนเดียวกันไหม 404,246 คำถาม ตรงกันทุกคำถาม และหลังจบแต่ละรอบ
+    ไม่มีใครลึกเกิน <code>log₂ n</code> เลย
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">เก็บข้อมูลของทั้งก๊วนไว้ที่หัว</p>
+    <p>
+      <code>sz</code> เป็นแค่ตัวอย่างแรก อะไรก็ตามที่รวมสองก๊วนแล้วคำนวณค่าของก๊วนใหม่ได้จากค่าของสองก๊วนเดิม
+      ก็เก็บไว้ที่หัวได้ ค่าน้อยสุด ค่ามากสุด ผลรวม จำนวนเส้นเชื่อม ตอน <code>unite</code> ให้หัวใหม่รวมค่าของหัวเก่าเข้ามา
+      แล้วค่าที่หัวเก่าถืออยู่ก็ไม่มีใครอ่านอีก
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ท่าที่งอกออกมาจาก DSU</h2>
+  <p>
+    แปดข้อนี้เรียงให้แต่ละข้อสอนมุมใหม่หนึ่งมุม ครึ่งแรกใช้แม่แบบตรง ๆ ครึ่งหลังเริ่มดัดมัน
+    ให้ถืออย่างอื่นนอกจากขนาด หรือใช้มันกับสิ่งที่ไม่ได้หน้าตาเหมือนกราฟ
+    สามข้อในนี้มาจากรายการท้ายหน้า DSU ของ cp-algorithms ส่วนที่เหลือผมเลือกเพิ่มให้ครบมุม
+  </p>
+
+  <h3>ฝึกข้อ 1 · สร้างถนนทีละเส้น (CSES 1676 Road Construction)</h3>
+  <p>
+    เมืองในประเทศหนึ่งยังไม่มีถนนเลย ทุกวันจะมีถนนใหม่หนึ่งเส้น
+    หลังจบแต่ละวันให้บอกว่าตอนนี้ประเทศแตกเป็นกี่ก๊วน และก๊วนที่ใหญ่ที่สุดมีกี่เมือง
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m</code> แล้วถนน <code>m</code> เส้น เส้นละ <code>a b</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 10⁵</code>, <code>m ≤ 2·10⁵</code> เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> <code>m</code> บรรทัด แต่ละบรรทัดคือจำนวนก๊วนกับขนาดของก๊วนใหญ่สุด</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P1_IN.map((l) => <>{l.join(' ')}<br /></>)}</td>
+        <td>{P1_OUT_STATEMENT.map((l) => <>{l}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      มี {P1_IN[0][0]} เมือง ถนน {P1_IN[0][1]} วัน เอาต์พุตบรรทัดละหนึ่งวัน ตัวเลขแรกคือจำนวนก๊วน ตัวที่สองคือขนาดก๊วนใหญ่สุด
+      {p1Days.map((d, t) => (
+        <> วันที่ {t + 1} ถนน {d.a}-{d.b} เหลือ {d.comps} ก๊วน ใหญ่สุด {d.best} เมือง{t < p1Days.length - 1 ? ' ·' : ''}</>
+      ))}
+    </p>
+  </div>
+  <ZoomableDiagram caption={`ป่าของ DSU หลังจบแต่ละวันของตัวอย่าง ใช้กติกาของแม่แบบ คือขนาดเท่ากันให้ตัวหลังไปขึ้นกับตัวแรก เมืองที่ยังเดี่ยวอยู่ก็คือก๊วนขนาดหนึ่ง`}>
+    <svg viewBox={p1VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ป่าของ DSU หลังแต่ละวันในตัวอย่างของ Road Construction">
+      <defs>
+        <marker id="dsuArrP1" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8ea0c4" />
+        </marker>
+      </defs>
+      {p1Panels.map((p, t) => (
+        <>
+          <text x={120 + t * 235} y="24" fill="#9aa7bd" font-size="12.5" text-anchor="middle">
+            หลังวันที่ {t + 1} · {p1Days[t].comps} ก๊วน ใหญ่สุด {p1Days[t].best}
+          </text>
+          {p.edges.map((e) => (
+            <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#8ea0c4" stroke-width="1.6" marker-end="url(#dsuArrP1)" />
+          ))}
+          {p.nodes.map((n) => (
+            <>
+              <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke={stroke(n.tone)} stroke-width="1.6" />
+              <text x={n.x} y={n.y + 4} fill={ink(n.tone)} font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+            </>
+          ))}
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      จำนวนก๊วนไม่ต้องนับใหม่ทุกวัน ถนนเส้นหนึ่งเปลี่ยนจำนวนก๊วนได้แค่สองแบบ ส่วนก๊วนใหญ่สุด
+      ลองถามว่ามันลดลงได้ไหม ถ้าไม่ได้ วันไหนบ้างที่มันมีโอกาสเปลี่ยน
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 1</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ไม่มีช่วงลองผิดลองถูก ถนนมีแต่เพิ่มไม่มีลบ และคำถามคือใครอยู่ก๊วนเดียวกับใคร
+        ซึ่งเป็นรูปของ DSU ตรงตัว สิ่งที่ต้องคิดจริงคือทางที่ตีราคาแล้วทิ้ง
+      </p>
+      <p>
+        ทางแรกคือเดินกราฟใหม่ทุกวัน วันละ <code>n + m</code> ก้าว คูณ <code>m</code> วันได้ <code>6·10¹⁰</code>
+        ทางที่สองคือใช้ DSU แต่หลังรวมเสร็จไล่ดู <code>sz</code> ของทุกหัวเพื่อหาค่ามากสุด
+        วันละ <code>n</code> คูณ <code>m</code> วันยังเป็น <code>2·10¹⁰</code> ตัวเลขนี้เองที่บังคับให้คิดต่อว่า
+        ค่ามากสุดเปลี่ยนได้ตอนไหนบ้าง
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ ก่อนจะคำนวณค่าใหม่ทั้งหมด ให้ถามว่าเหตุการณ์หนึ่งครั้งเปลี่ยนค่านั้นได้แค่ไหน
+      </p>
+    </div>
+    <p>
+      จำนวนก๊วนเริ่มที่ <code>n</code> ถนนที่ <code>unite</code> คืน <code>true</code> ลดมันลงหนึ่ง
+      ถนนที่คืน <code>false</code> คือถนนที่สองปลายถึงกันอยู่แล้ว ไม่ลดอะไร
+    </p>
+    <p>
+      ส่วนก๊วนใหญ่สุด ไม่มีการลบถนน ก๊วนจึงไม่เคยเล็กลง ค่ามากสุดไม่มีวันลด และจะเพิ่มได้ก็เฉพาะวันที่เกิดการรวม
+      ซึ่งก๊วนที่เพิ่งรวมเป็นก๊วนเดียวที่ขนาดเปลี่ยน จึงเทียบ <code>best</code> กับ <code>sz</code> ของหัวใหม่แค่ครั้งเดียว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 1</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP1} lang="cpp" title="road-construction.cpp" />
+        <p>
+          ตรวจกับตัวเดินกราฟใหม่ทุกวันซึ่งไม่มี DSU อยู่ข้างในเลย 5,000 รอบบวกตัวอย่างของโจทย์ ตรงกันทุกรอบ
+          เคสใหญ่สุด <code>n = 10⁵</code>, <code>m = 2·10⁵</code> ใช้ 89 ms รวมเวลาเปิดโปรแกรม
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 2 · ปิดถนนเกิน เอาไปต่อก๊วนที่ขาด (Codeforces 25D Roads not only in Berland)</h3>
+  <p>
+    ประเทศหนึ่งมี <code>n</code> เมือง ถนน <code>n - 1</code> เส้นพอดี แต่ถนนชุดนี้ยังไม่ได้ทำให้ทุกเมืองถึงกัน
+    รัฐบาลไม่มีงบสร้างถนนเพิ่มเฉย ๆ วันหนึ่งทำได้อย่างเดียว คือปิดถนนเดิมหนึ่งเส้นแล้วสร้างเส้นใหม่แทนทันที
+    ให้หาจำนวนวันที่น้อยที่สุด พร้อมแผนว่าแต่ละวันปิดเส้นไหน สร้างเส้นไหน
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n</code> แล้วถนน <code>n - 1</code> เส้น ไม่มีเส้นซ้ำ ไม่มีเส้นวนเข้าเมืองตัวเอง</li>
+      <li><strong>ขอบเขต:</strong> <code>2 ≤ n ≤ 1000</code></li>
+      <li><strong>เอาต์พุต:</strong> จำนวนวัน <code>t</code> แล้ว <code>t</code> บรรทัด <code>i j u v</code> คือปิดถนน <code>i-j</code> สร้าง <code>u-v</code> ถ้ามีหลายแผนตอบแผนไหนก็ได้</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P2_N}<br />{P2_ROADS.map(([a, b]) => <>{a} {b}<br /></>)}</td>
+        <td>1<br />3 1 3 7</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      เมือง 1, 2, 3 ต่อกันเป็นสามเหลี่ยม ส่วน 4 ถึง 7 ต่อกันเป็นเส้นตรง รวมเป็น {p2Groups} ก๊วน
+      คำตอบของโจทย์คือปิดถนน 3-1 แล้วสร้าง 3-7 แทน วันเดียวจบ
+      แผนที่ตอบนี้ไม่ได้มีแบบเดียว โค้ดของบทนี้ตอบ <code>{p2Plan.map((p) => p.join(' ')).join(' / ')}</code>{' '}
+      ซึ่งก็ถูกเหมือนกัน
+    </p>
+  </div>
+  <ZoomableDiagram caption={`ถนนสีแดงประคือเส้นที่ปิดได้โดยไม่มีใครขาดจากกัน เพราะสองปลายยังเดินอ้อมถึงกัน เส้นสีเขียวประคือถนนใหม่ที่โค้ดของบทนี้สร้าง ต่อหัวของสองก๊วนเข้าหากัน`}>
+    <svg viewBox={p2VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กราฟตัวอย่างของ Roads not only in Berland พร้อมถนนที่ปิดและถนนใหม่">
+      {p2Edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={e.extra ? '#e05a5a' : '#8ea0c4'} stroke-width={e.extra ? 2.2 : 1.6} stroke-dasharray={e.extra ? '6 4' : undefined} />
+      ))}
+      {p2New.map((e) => (
+        <path d={`M${e.x1} ${e.y1} Q ${(e.x1 + e.x2) / 2} ${Math.max(e.y1, e.y2) + 60} ${e.x2} ${e.y2}`} fill="none" stroke="#4ade80" stroke-width="2.2" stroke-dasharray="6 4" />
+      ))}
+      {range(1, P2_N).map((v) => (
+        <>
+          <circle cx={P2_POS[v].x} cy={P2_POS[v].y} r={R} fill="#1b2436" stroke={p2Heads.includes(v) ? '#4ade80' : '#4a5a7d'} stroke-width="1.6" />
+          <text x={P2_POS[v].x} y={P2_POS[v].y + 4} fill={p2Heads.includes(v) ? '#4ade80' : '#cdd6ea'} font-size="12" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เริ่มจากขอบล่าง ถ้าตอนนี้มี <code>k</code> ก๊วน วันหนึ่งสร้างถนนได้เส้นเดียว ต้องใช้อย่างน้อยกี่วัน
+      แล้วถามต่อว่าจะมีถนนให้ปิดโดยไม่ทำให้ก๊วนแตกพอหรือเปล่า ลองนับจากจำนวนถนน <code>n - 1</code> เส้น
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 2</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งแรกที่ผมคิดไม่ใช่ว่าจะปิดเส้นไหน แต่เป็นว่าอย่างน้อยต้องกี่วัน ถ้ามี <code>k</code> ก๊วน
+        ถนนใหม่หนึ่งเส้นลดจำนวนก๊วนได้มากสุดหนึ่ง การปิดถนนมีแต่ทำให้ก๊วนเท่าเดิมหรือเพิ่ม
+        จึงต้องใช้อย่างน้อย <code>k - 1</code> วัน
+      </p>
+      <p>
+        ข้อที่ทำให้มั่นใจว่า <code>k - 1</code> วันพอเสมอคือการนับ ก๊วน <code>k</code> ก๊วนที่มี <code>n</code> เมือง
+        ใช้ถนนที่เชื่อมจริงพอดี <code>n - k</code> เส้น ถนนที่เหลือซึ่งไม่ได้เชื่อมอะไรใหม่จึงมี{' '}
+        <code>(n - 1) - (n - k) = k - 1</code> เส้น เท่ากับจำนวนวันที่ต้องใช้พอดี
+      </p>
+      <p>
+        ทางที่ตีราคาแล้วไม่เอาคือหาวงรอบด้วย DFS แล้วเลือกเส้นย้อนกลับ ทำได้เหมือนกันและ <code>n ≤ 1000</code>{' '}
+        เล็กมาก ที่ไม่เอาเพราะต้องเขียนสองขั้น ส่วน DSU ได้ทั้งเส้นเกินและก๊วนจากการอ่านรอบเดียว
+        บทเรียนคือ ในโจทย์ที่ถามว่า "อย่างน้อยกี่ครั้ง" ลองหาขอบล่างก่อนหาวิธี บ่อยครั้งขอบล่างนั้นเองคือคำตอบ
+      </p>
+    </div>
+    <p>
+      อ่านถนนทีละเส้นแล้ว <code>unite</code> เส้นที่ได้ <code>false</code> คือเส้นที่สองปลายถึงกันแล้วด้วยเส้นก่อนหน้า
+      ปิดทิ้งได้ฟรี อ่านครบแล้วเก็บหัวของทุกก๊วน จากนั้นใช้เส้นเกินเส้นที่ <code>i</code>{' '}
+      ต่อหัวของก๊วนแรกเข้ากับหัวของก๊วนที่ <code>i + 1</code>
+    </p>
+    <p>
+      แต่ละก๊วนถูกต่อเข้ากับก๊วนแรกครั้งเดียว ก๊วนทั้งหมดจึงเรียงเป็นรูปดาวที่ไม่มีวงรอบ
+      และถนนใหม่ไม่มีทางซ้ำถนนเดิม เพราะสองปลายของมันอยู่คนละก๊วนตั้งแต่ต้น
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 2</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP2} lang="cpp" title="berland-roads.cpp" />
+        <p>
+          โจทย์นี้ยอมรับหลายคำตอบ จึงเทียบข้อความตรงตัวไม่ได้ ตัวตรวจทำสองชั้น ชั้นแรกหาจำนวนวันน้อยสุดด้วยการค้นทุกสถานะของชุดถนน
+          ซึ่งไม่ได้เชื่อข้ออ้าง <code>k - 1</code> เลย ใช้กับ <code>n ≤ 6</code> อีกชั้นเล่นแผนจริงทีละวัน
+          ว่าถนนที่ปิดมีอยู่จริง ถนนใหม่ไม่ซ้ำ และสุดท้ายถึงกันหมด รวม 6,000 รอบ ผ่านทุกรอบ
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 3 · ซ่อมถนนให้ถูกที่สุด (CSES 1675 Road Reparation)</h3>
+  <p>
+    ถนนทุกเส้นในประเทศพังหมด แต่ละเส้นมีค่าซ่อมของมันเอง ให้เลือกซ่อมบางเส้นให้ทุกเมืองเดินถึงกันได้
+    โดยจ่ายรวมน้อยที่สุด ถ้าซ่อมทุกเส้นแล้วยังไม่ถึงกันหมด ให้ตอบ <code>IMPOSSIBLE</code>
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m</code> แล้วถนน <code>m</code> เส้น เส้นละ <code>a b c</code> คือค่าซ่อม <code>c</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 10⁵</code>, <code>m ≤ 2·10⁵</code>, <code>c ≤ 10⁹</code> เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ค่าซ่อมรวมที่น้อยที่สุด หรือ <code>IMPOSSIBLE</code></li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P3_N} {P3_ROADS.length}<br />{P3_ROADS.map((r) => <>{r.join(' ')}<br /></>)}</td>
+        <td>{p3Total}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      ห้าเมือง ถนนหกเส้น ตัวเลขตัวที่สามของแต่ละบรรทัดคือค่าซ่อม ต้นไม้ที่เชื่อมห้าเมืองต้องใช้ถนนสี่เส้นพอดี
+      ชุดที่ถูกที่สุดคือ {p3Kept.filter((k) => k.used).map((k) => `${k.a}-${k.b} (${k.c})`).join(', ')} รวม {p3Total}
+    </p>
+  </div>
+  <ZoomableDiagram caption={`เส้นสีเขียวคือถนนที่ถูกซ่อม ถ้าไล่จากถูกไปแพง ถนน ${p3Kept.filter((k) => !k.used).map((k) => `${k.a}-${k.b}`).join(' กับ ')} ถูกข้ามเพราะตอนที่ไล่ถึง สองปลายถึงกันแล้วด้วยถนนที่ถูกกว่า`}>
+    <svg viewBox={p3VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กราฟตัวอย่างของ Road Reparation กับถนนที่ถูกซ่อม">
+      {p3Edges.map((e) => (
+        <>
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={e.used ? '#4ade80' : '#4a5a7d'} stroke-width={e.used ? 2.4 : 1.4} stroke-dasharray={e.used ? undefined : '5 4'} />
+          <text x={e.lx} y={e.ly} fill={e.used ? '#4ade80' : '#9aa7bd'} font-size="12" text-anchor="middle" font-family="monospace">{e.c}</text>
+        </>
+      ))}
+      {range(1, P3_N).map((v) => (
+        <>
+          <circle cx={P3_POS[v].x} cy={P3_POS[v].y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+          <text x={P3_POS[v].x} y={P3_POS[v].y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ลองเรียงถนนจากถูกไปแพงแล้วหยิบทีละเส้น ถนนเส้นไหนที่หยิบแล้วไม่ได้ช่วยให้ใครถึงกันเพิ่ม
+      และจะรู้ได้เร็วแค่ไหนว่าเส้นนั้นไม่ช่วย
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 3</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        เลือกเส้นให้ทุกจุดถึงกันด้วยราคารวมต่ำสุด คือโจทย์ต้นไม้แผ่ทั่วที่เบาที่สุด
+        (<i>minimum spanning tree</i>) ข้อนี้ผมไม่ได้ลองอะไรผิดก่อน ที่ต้องตัดสินใจจริงมีสองเรื่อง
+        คือจะใช้วิธีไหน กับผลรวมจะล้น <code>int</code> หรือเปล่า
+      </p>
+      <p>
+        เรื่องหลังคิดก่อนเขียน ต้นไม้มี <code>n - 1</code> เส้น เส้นละได้ถึง <code>10⁹</code>{' '}
+        รวมได้ราว <code>10¹⁴</code> จึงใช้ <code>long long</code> ตั้งแต่แรก แล้วทำเคสที่ทุกเส้นราคา{' '}
+        <code>10⁹</code> ไว้ยืนยัน ได้ 99999000000000 บทเรียนคือ คูณขอบบนของคำตอบให้เสร็จก่อนเลือกชนิดตัวแปร
+      </p>
+    </div>
+    <p>
+      วิธีนี้ชื่อ <strong>Kruskal</strong> อ่านว่า <strong>"ครัสคัล"</strong> ตามชื่อ Joseph Kruskal
+      ที่ตีพิมพ์ในปี 1956 เรียงถนนจากถูกไปแพง แล้วถาม DSU ทีละเส้นว่าสองปลายอยู่ก๊วนเดียวกันหรือยัง
+      ถ้ายัง ซ่อม ถ้าอยู่แล้ว ข้าม
+    </p>
+    <p>
+      เส้นที่ข้ามได้ปลอดภัย เพราะตอนที่ไล่มาถึง สองปลายถึงกันแล้วด้วยถนนที่ถูกกว่าหรือเท่ากันทั้งหมด
+      ซ่อมเพิ่มไม่ได้ทำให้ใครถึงกันเพิ่ม ส่วน <code>IMPOSSIBLE</code> ไม่ต้องเดินกราฟแยก
+      ถ้าไล่ครบแล้วซ่อมได้ไม่ถึง <code>n - 1</code> เส้น แปลว่ามีก๊วนเหลือมากกว่าหนึ่ง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 3</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP3} lang="cpp" title="road-reparation.cpp" />
+        <p>
+          ตัวตรวจไม่เรียงเส้นและไม่มี DSU ถ้ามีถนนไม่เกิน 16 เส้น มันไล่ทุกสับเซตของถนนแล้วดูว่าเชื่อมกันหมดไหม
+          ถ้ามากกว่านั้นใช้ Prim แบบตาราง และในรอบที่เล็กพอ สองวิธีนี้ถูกเทียบกันเองด้วย รวม 6,000 รอบ
+          ค่าซ่อมสุ่มในช่วงแคบให้ราคาชนกันบ่อย ผ่านทุกรอบ เคสใหญ่สุดใช้ 104 ms
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 4 · ใยแมงมุมที่ถูกฉีกทีละเส้น (Timus 1671 Anansi's Cobweb)</h3>
+  <p>
+    ใยแมงมุมมีปม <code>N</code> ปม เส้นใย <code>M</code> เส้น ศัตรูวางแผนไว้แล้วว่าจะฉีกเส้นไหนบ้างตามลำดับไหน
+    หลังการฉีกแต่ละครั้ง ให้บอกว่าใยขาดเป็นกี่ชิ้น
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>N M</code> แล้วเส้นใย <code>M</code> เส้น (เส้นที่ <code>i</code> คือบรรทัดที่ <code>i</code>) แล้ว <code>Q</code> กับหมายเลขเส้นที่ฉีกเรียงตามลำดับ ไม่ซ้ำกัน</li>
+      <li><strong>ขอบเขต:</strong> <code>N, M ≤ 10⁵</code>, <code>Q ≤ M</code> เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> <code>Q</code> จำนวนในบรรทัดเดียว คือจำนวนชิ้นหลังการฉีกแต่ละครั้ง</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P4_N} {P4_EDGES.length}<br />{P4_EDGES.map(([a, b]) => <>{a} {b}<br /></>)}{P4_TEARS.length}<br />{P4_TEARS.join(' ')}</td>
+        <td>{P4_OUT_STATEMENT.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      เส้นใยมีหมายเลขตามลำดับบรรทัด เส้นที่ 1 คือ 1-2 เส้นที่ 2 คือ 2-3 ไปจนเส้นที่ 4 คือ 3-4
+      บรรทัดสุดท้ายบอกว่าจะฉีกเส้นที่ {P4_TEARS.join(', ')} ตามลำดับ
+      ครั้งแรกฉีก 2-3 แต่ปม 2 กับ 3 ยังอ้อมผ่านปม 1 ได้ จึงยังเป็นชิ้นเดียว
+    </p>
+  </div>
+  <ZoomableDiagram caption={`ใยหลังการฉีกแต่ละครั้ง เส้นแดงประคือเส้นที่เพิ่งถูกฉีก เส้นที่ถูกฉีกไปก่อนหน้าหายไปแล้ว คำตอบคือ ${p4Forward.join(', ')} ชิ้น`}>
+    <svg viewBox={p4VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ใยแมงมุมตัวอย่างหลังการฉีกแต่ละครั้ง">
+      {p4Panels.map((p, t) => (
+        <>
+          <text x={p.ox + 67} y="26" fill="#9aa7bd" font-size="12.5" text-anchor="middle">หลังฉีกครั้งที่ {t + 1} · {p.comps} ชิ้น</text>
+          {p.edges.filter((e) => e.alive || e.justTorn).map((e) => (
+            <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={e.justTorn ? '#e05a5a' : '#8ea0c4'} stroke-width={e.justTorn ? 2.2 : 1.6} stroke-dasharray={e.justTorn ? '6 4' : undefined} />
+          ))}
+          {p.nodes.map((n) => (
+            <>
+              <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+              <text x={n.x} y={n.y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+            </>
+          ))}
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      DSU รวมได้อย่างเดียว แยกไม่ได้ แต่ข้อนี้ให้แผนการฉีกมาครบทั้งหมดก่อนต้องตอบอะไรเลย และไม่มีเส้นไหนถูกต่อกลับ
+      ลองดูภาพจากขวาไปซ้าย ถ้าเดินทางนั้น แต่ละก้าวเกิดอะไรขึ้นกับใย
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 4</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ทางแรกที่ตัดทิ้งก่อนเขียนคือฉีกแล้วนับชิ้นใหม่ด้วย BFS รอบละ <code>N + M = 2·10⁵</code> ก้าว
+        ทำ <code>10⁵</code> ครั้งเป็น <code>2·10¹⁰</code> ส่วน DSU ตรง ๆ ก็ใช้ไม่ได้ เพราะพอฉีกเส้นหนึ่ง
+        เราไม่รู้ด้วยซ้ำว่าก๊วนจะขาดหรือไม่ ขึ้นกับว่ามีทางอ้อมหรือเปล่า และข้อมูลนั้นไม่ได้อยู่ใน <code>par</code> เลย
+      </p>
+      <p>
+        จุดที่ทำให้ข้อนี้ง่ายคือสองประโยคในโจทย์ ลำดับการฉีกให้มาครบใน input และเส้นที่ฉีกแล้วไม่ถูกต่อกลับ
+        พอกลับทิศเวลา การฉีกทุกครั้งกลายเป็นการต่อ ซึ่งคือสิ่งเดียวที่ DSU ถนัด
+        บทเรียนคือ ถ้ารู้เหตุการณ์ทั้งหมดล่วงหน้า ลองอ่านมันจากท้ายมาหน้าก่อนจะสรุปว่าเครื่องมือทำไม่ได้
+      </p>
+    </div>
+    <p>
+      เริ่มจากสภาพหลังฉีกครบ ใส่เฉพาะเส้นที่ไม่อยู่ในรายการฉีก ได้คำตอบของครั้งสุดท้ายทันที
+      แล้วถอยทีละก้าว การถอยหนึ่งก้าวคือต่อเส้นที่ฉีกเป็นครั้งล่าสุดกลับเข้าไป ได้สภาพก่อนการฉีกครั้งนั้น
+      ซึ่งก็คือสภาพหลังการฉีกครั้งก่อนหน้า เก็บคำตอบลงอาร์เรย์แล้วพิมพ์ตามลำดับเดิม
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ท่านี้พึ่งสองอย่างพร้อมกัน</p>
+      <p>
+        อย่างแรกคือรู้ทุกเหตุการณ์ล่วงหน้า อย่างที่สองคือทุกเหตุการณ์ไปทางเดียว มีแต่ฉีก
+        ถ้าโจทย์ให้ฉีกแล้วต่อกลับได้ ท่านี้พังทันที ลองดูใยสามปม เส้น 1-2 กับ 2-3 แล้วมีเหตุการณ์
+        ฉีก 1-2, ต่อ 1-2 กลับ, ฉีก 2-3 พอเดินถอยหลัง ก้าวแรกคือต่อ 2-3 กลับ ทำได้
+        แต่ก้าวที่สองคือ<strong>ถอด</strong> 1-2 ออก ซึ่ง DSU ทำไม่ได้อีกแล้ว
+      </p>
+      <p>
+        โจทย์ที่มีทั้งเพิ่มและลบปนกันต้องใช้ DSU ที่ย้อนการรวมล่าสุดได้ บวกกับการจัดว่าเส้นแต่ละเส้นมีชีวิตอยู่ช่วงไหน
+        ซึ่งเป็นเรื่องทั้งบทของ<a href="/cp/offline-deletion/">ต้นไม้บนแกนเวลา</a>
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 4</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP4} lang="cpp" title="anansi.cpp" />
+        <p>
+          ตรวจกับตัวที่เดินไปข้างหน้าตามเรื่องจริงแล้ว BFS นับชิ้นใหม่ทุกครั้ง ซึ่งไม่รู้จักการย้อนเวลาเลย
+          5,000 รอบบวกตัวอย่างสองข้อของโจทย์ ตรงกันทุกรอบ เคสใหญ่สุดใช้ 76 ms
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 5 · จับโกหกเรื่องเลขคู่เลขคี่ (Timus 1003 Parity)</h3>
+  <p>
+    เพื่อนนึกสตริงของ 0 กับ 1 ไว้ในใจ เราถามได้ว่าตั้งแต่ตำแหน่ง <code>l</code> ถึง <code>r</code>{' '}
+    มีเลข 1 เป็นจำนวนคู่หรือคี่ เพื่อนตอบมาทีละข้อ แต่เราสงสัยว่าเพื่อนโกหก
+    ให้หาว่าคำตอบข้อไหนเป็นข้อแรกที่ขัดกับข้อก่อน ๆ จนไม่มีสตริงไหนเป็นไปได้
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> หลายชุดต่อกัน ชุดละความยาวสตริง จำนวนคำถาม แล้วคำถามบรรทัดละ <code>l r even</code> หรือ <code>l r odd</code> ไฟล์จบด้วย <code>-1</code></li>
+      <li><strong>ขอบเขต:</strong> ความยาวไม่เกิน <code>10⁹</code> คำถามไม่เกิน 5000 ข้อต่อชุด เวลา 2 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ชุดละหนึ่งบรรทัด คือจำนวนข้อแรกที่ยังเป็นไปได้ทั้งหมด</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P5_LEN}<br />{P5_Q.length}<br />{P5_Q.map((q) => <>{q.join(' ')}<br /></>)}-1</td>
+        <td>{p5Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      สตริงยาว {P5_LEN} ตัว มีคำถาม {P5_Q.length} ข้อ สามข้อแรกเป็นไปได้พร้อมกัน เช่นสตริงที่ขึ้นต้นด้วย <code>000100</code>
+      แต่ข้อที่สี่บอกว่าช่วง 1 ถึง 6 มีเลข 1 เป็นจำนวนคู่ ในขณะที่สามช่วงย่อยที่ต่อกันพอดีเป็น 1 ถึง 6 มีเลข 1 รวมกันเป็นคี่
+      คำตอบจึงเป็น {p5Answer} เอาต์พุตไม่ใช่หมายเลขข้อที่โกหก แต่เป็นจำนวนข้อที่ยังเชื่อได้
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      สตริงยาวพันล้านตัวเก็บทั้งหมดไม่ได้ ลองนึกถึงผลรวมสะสมของเลข 1 แล้วถามว่าคำว่า "ช่วง <code>l</code> ถึง{' '}
+      <code>r</code> เป็นคี่" พูดถึงค่าสะสมที่ตำแหน่งไหนบ้าง ถ้าแต่ละคำถามคือเส้นเชื่อมสองจุด การโกหกหน้าตาเป็นแบบไหน
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 5</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สองทางแรกทิ้งเพราะตัวเลข ลองทุกสตริงคือ <code>2</code> ยกกำลังพันล้าน ส่วนเก็บผลรวมสะสมของทุกตำแหน่ง
+        ต้องใช้อาร์เรย์พันล้านช่อง แค่ <code>int</code> ก็สี่กิกะไบต์ เทียบกับหน่วยความจำ 64 MB
+        แต่ตัวเลขที่สองนี้เองชี้ทางออก คำถามห้าพันข้อแตะตำแหน่งรวมกันไม่เกินหนึ่งหมื่นจุด ที่เหลือไม่มีใครพูดถึง
+      </p>
+      <p>
+        ทางถัดมาคือทุกครั้งที่เพิ่มคำถาม ระบายสองสีใหม่ทั้งกราฟ ต่อชุดราว <code>7.5·10⁷</code> ก้าว ยังพอไหว
+        แต่โจทย์ไม่ได้บอกว่ามีกี่ชุด และทุกครั้งที่เพิ่มเส้น มีแค่สองจุดที่ความสัมพันธ์เปลี่ยน
+        ซึ่งเป็นกลิ่นของ DSU บทเรียนคือ ถ้าโจทย์ถามว่า "เพิ่มข้อมูลทีละชิ้นแล้วเริ่มขัดกันเมื่อไร" ให้นึกถึง DSU ที่จำความต่างไว้ด้วย
+      </p>
+    </div>
+    <p>
+      ให้ <code>pre[i]</code> คือความเป็นคู่หรือคี่ของจำนวนเลข 1 ในตำแหน่ง 1 ถึง <code>i</code>
+      คำถาม "ช่วง <code>l</code> ถึง <code>r</code> เป็นคี่" เท่ากับ <code>pre[l-1] xor pre[r] = 1</code>
+      แต่ละคำถามจึงเป็น<strong>เส้นเชื่อมระหว่างสองจุดพร้อมป้าย 0 หรือ 1</strong> และชุดคำถามจะขัดกันก็ต่อเมื่อมีวงที่ xor ของป้ายรอบวงเป็น 1
+    </p>
+    <ZoomableDiagram caption={`จุดบนเส้นคือค่าสะสมที่คำถามพูดถึง ${p5Arcs.slice(0, p5Answer).map((a) => `${a.l - 1}-${a.r} ${a.s}`).join(', ')} ต่อกันเป็นทางจาก 0 ไปถึง 6 ที่ xor รวมเป็น 1 คำถามที่ ${p5Answer + 1} (เส้นแดง) ปิดวงนี้ด้วยป้าย 0 จึงขัด`}>
+      <svg viewBox={p5VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="คำถามของตัวอย่าง Parity เป็นเส้นเชื่อมระหว่างค่าสะสม">
+        {p5Points.slice(1).map((v, t) => (
+          <line x1={p5x(p5Points[t]) + R} y1={P5_Y} x2={p5x(v) - R} y2={P5_Y} stroke="#2a3350" stroke-width="1.4" />
+        ))}
+        {p5Arcs.map((a) => (
+          <>
+            <path
+              d={`M${a.x1} ${P5_Y - R} C ${a.x1} ${P5_Y - R - a.h}, ${a.x2} ${P5_Y - R - a.h}, ${a.x2} ${P5_Y - R}`}
+              fill="none"
+              stroke={a.lie ? '#e05a5a' : a.s === 'odd' ? '#e0b400' : '#8ea0c4'}
+              stroke-width={a.lie ? 2.2 : 1.6}
+              stroke-dasharray={a.lie ? '6 4' : undefined}
+            />
+            <text x={a.lx} y={a.ly} fill={a.lie ? '#e05a5a' : a.s === 'odd' ? '#e0b400' : '#9aa7bd'} font-size="12" text-anchor="middle" font-family="monospace">
+              ข้อ {a.i + 1} · {a.s === 'odd' ? 'คี่ (1)' : 'คู่ (0)'}
+            </text>
+          </>
+        ))}
+        {p5Points.map((v) => (
+          <>
+            <circle cx={p5x(v)} cy={P5_Y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+            <text x={p5x(v)} y={P5_Y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{v}</text>
+          </>
+        ))}
+        <text x={P5_X0 - 30} y={P5_Y + R + 22} fill="#7b8397" font-size="11.5" font-family="monospace">pre[ตำแหน่ง]</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      DSU ของข้อนี้เก็บเพิ่มอีกหนึ่งแถว <code>d[x]</code> คือ xor จาก <code>x</code> ไปถึงแม่ของมัน
+      ตอนบีบทางเดิน <code>d</code> ต้องสะสม xor ของแม่เข้ามาด้วย เพื่อให้ยังหมายถึง xor ถึงหัวคนใหม่ ตอนเพิ่มคำถาม <code>(a, b, w)</code> มีสองกรณี
+    </p>
+    <ul>
+      <li>
+        <strong>อยู่คนละก๊วน</strong> ความสัมพันธ์ระหว่างสองก๊วนยังไม่เคยถูกกำหนด เชื่อมได้เสมอ แค่ต้องตั้ง <code>d</code>{' '}
+        ของหัวที่ไปขึ้นกับอีกฝั่งให้ครบวง คือ <code>d[a] xor w xor d[b]</code>
+      </li>
+      <li>
+        <strong>อยู่ก๊วนเดียวกัน</strong> ความสัมพันธ์ถูกกำหนดไปแล้วโดยคำถามเก่า เทียบ <code>d[a] xor d[b]</code> กับ <code>w</code>{' '}
+        ตรงกันก็ผ่าน ไม่ตรงกันก็คือข้อแรกที่โกหก
+      </li>
+    </ul>
+    <p>
+      ข้อนี้ <code>unite</code> ยังคืน <code>bool</code> เหมือนแม่แบบ แต่ความหมายเปลี่ยน <code>false</code>{' '}
+      แปลว่า<strong>ประโยคนี้ขัดกับที่รู้แล้ว</strong> ไม่ใช่แค่ว่าอยู่ก๊วนเดียวกันแล้ว
+      ส่วนตำแหน่งที่ไกลถึงพันล้านถูกบีบให้เหลือเฉพาะจุดที่คำถามพูดถึง ด้วยการเรียงแล้วตัดตัวซ้ำ ท่านี้เรียกว่า{' '}
+      <strong>coordinate compression</strong> อ่านว่า <strong>"โคออร์ดิเนต คอมเพรสชัน"</strong> แปลว่า{' '}
+      <strong>"บีบพิกัด"</strong> คำว่า <i>compression</i> ตัวเดียวกับบีบทางเดิน แต่คราวนี้บีบเลขตำแหน่ง
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 5</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP5} lang="cpp" title="parity.cpp" />
+        <p>
+          ตัวตรวจไม่รู้จัก DSU เลย มันลองทุกสตริง 0/1 ความยาวไม่เกิน 8 แล้วหาข้อแรกที่ไม่มีสตริงไหนเข้ากับทุกข้อก่อนหน้า
+          สุ่ม 20,000 ไฟล์ ไฟล์ละหนึ่งถึงสามชุด เพื่อจับกรณีลืมล้างสถานะระหว่างชุด รวม 39,847 ชุด ตรงกันทุกชุด
+          ชุดใหญ่สุดหนึ่งชุดใช้ 59 ms
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 6 · อัศวินตกรอบ ใครชนะใคร (Codeforces 356A Knight Tournament)</h3>
+  <p>
+    ทัวร์นาเมนต์มีอัศวิน <code>n</code> คน สู้กัน <code>m</code> นัด นัดหนึ่งบอกช่วงหมายเลข <code>[l, r]</code>{' '}
+    กับผู้ชนะ <code>x</code> อัศวินทุกคนในช่วงนั้นที่<strong>ยังไม่ตกรอบ</strong>ลงสนาม แล้วทุกคนยกเว้น{' '}
+    <code>x</code> ตกรอบไป ให้บอกว่าอัศวินแต่ละคนแพ้ให้ใคร แชมป์ให้ตอบ 0
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m</code> แล้ว <code>m</code> นัด นัดละ <code>l r x</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n, m ≤ 3·10⁵</code> เวลา 3 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ตัวเลข <code>n</code> ตัว ตัวที่ <code>i</code> คือคนที่ชนะอัศวิน <code>i</code></li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P6_N} {P6_FIGHTS.length}<br />{P6_FIGHTS.map((f) => <>{f.join(' ')}<br /></>)}</td>
+        <td>{P6_OUT_STATEMENT.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      แต่ละแถวในภาพข้างล่างคือหนึ่งนัด ช่องสีเขียวคือผู้ชนะ ช่องสีแดงคือคนที่ตกรอบในนัดนั้น
+      ช่องสีทองคือคนที่หมายเลขอยู่ในช่วง แต่ตกรอบไปก่อนแล้ว จึงไม่ได้ลงสนาม เอาต์พุตตัวที่ 1 เป็น 0 เพราะอัศวิน 1 ชนะนัดสุดท้าย
+    </p>
+  </div>
+  <ZoomableDiagram caption={`ทั้งทัวร์นาเมนต์มีช่องสีทอง ${p6Skipped} ช่อง คือช่องที่วิธีตรง ๆ ต้องเดินผ่านทั้งที่ไม่มีอะไรให้ทำ ในเคสที่ช่วงกว้างทุกนัด ช่องแบบนี้คืองานเกือบทั้งหมด`}>
+    <svg viewBox={p6VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตารางผลแต่ละนัดของตัวอย่าง Knight Tournament">
+      {range(1, P6_N).map((i) => (
+        <text x={K_X0 + (i - 1) * K_CELL + (K_CELL - 6) / 2} y="26" fill="#9aa7bd" font-size="12" text-anchor="middle" font-family="monospace">{i}</text>
+      ))}
+      {p6Rows.map((row, t) => (
+        <>
+          <text x="22" y={K_Y0 + t * K_ROW + 22} fill="#9aa7bd" font-size="12" font-family="monospace">[{row.l},{row.r}] ชนะ {row.x}</text>
+          {row.cells.map((c, i) => (
+            <>
+              <rect x={K_X0 + i * K_CELL} y={K_Y0 + t * K_ROW} width={K_CELL - 6} height={K_ROW - 10} rx="4" fill={kFill(c)} stroke={kStroke(c)} />
+              <text x={K_X0 + i * K_CELL + (K_CELL - 6) / 2} y={K_Y0 + t * K_ROW + 22} fill={c === 'out' ? '#2a3350' : '#cdd6ea'} font-size="11" text-anchor="middle" font-family="monospace">
+                {c === 'win' ? 'ชนะ' : c === 'lose' ? `แพ้ ${row.x}` : c === 'skip' ? 'ข้าม' : c === 'alive' ? '·' : ''}
+              </text>
+            </>
+          ))}
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คนที่ตกรอบแล้วไม่กลับมาอีก การตกรอบจึงเกิดรวมกันไม่เกิน <code>n - 1</code> ครั้งทั้งทัวร์นาเมนต์
+      ที่ช้าจริงคือการเดินผ่านช่องสีทองซ้ำแล้วซ้ำอีก ถ้ามีอะไรสักอย่างบอกได้ทันทีว่า "คนที่ยังอยู่ถัดไปทางขวาคือใคร"
+      งานจะเหลือเท่าไร
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 6</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">ผมแก้ถูกตั้งแต่แรก แต่มันพังตอนวัดเวลา</p>
+      <p>
+        รุ่นแรกใช้ <code>find</code> แบบเรียกตัวเองบรรทัดเดียว เหมือนแม่แบบของบทนี้ ผ่านตัวอย่างของโจทย์ทั้งสองข้อ
+        และผ่านการเทียบกับตัวจำลองตรง ๆ 20,000 รอบบนอินพุตเล็ก ถ้าหยุดตรงนั้นก็คงส่งไปแล้ว
+      </p>
+      <p>
+        ตอนวัดเวลา ผมตั้งใจสร้างเคสที่โซ่ยาวที่สุดโดยไม่มีใครมาบีบ คือนัด <code>(k, k+1, k+1)</code>{' '}
+        สำหรับทุก <code>k</code> แต่ละนัดตั้ง <code>par[k] = k+1</code> แล้ว <code>find</code> ถัดไปก็เริ่มที่{' '}
+        <code>k+1</code> ไม่เคยย้อนมาบีบ <code>k</code> เลย พอนัดสุดท้ายเรียก <code>find(1)</code>{' '}
+        โค้ดต้องเรียกตัวเองซ้อนกันราวสามแสนชั้น บนเครื่องนี้โปรแกรมตายด้วยสแต็กล้นโดยไม่พิมพ์อะไรออกมาเลย
+        ไล่ขนาดดูแล้ว ที่ <code>n = 100,000</code> ยังรอด ส่วนที่ <code>110,000</code> ขึ้นไปพังทุกรอบ
+      </p>
+      <p>
+        ต้นเหตุคือแม่แบบเรียกตัวเองได้อย่างปลอดภัย<strong>เพราะรวมตามขนาดคุมความลึกไว้</strong> ข้อนี้รวมตามขนาดไม่ได้
+        จึงไม่มีอะไรคุมเลย บทเรียนคือ เมื่อถอดกลใดกลหนึ่งออกจากแม่แบบ ให้ถามว่าส่วนอื่นของแม่แบบพึ่งกลนั้นอยู่หรือเปล่า
+        ผมไม่ได้ลองส่งรุ่นแรกขึ้นระบบตรวจของ Codeforces จึงไม่รู้ว่าสแต็กที่นั่นพอหรือไม่
+      </p>
+    </div>
+    <p>
+      ให้ <code>find(i)</code> ตอบว่า <strong>"อัศวินที่ยังไม่ตกรอบซึ่งหมายเลขน้อยสุดที่ไม่น้อยกว่า i คือใคร"</strong>{' '}
+      ใครตกรอบก็ตั้ง <code>par[i] = i + 1</code> ส่งคำถามต่อไปทางขวา แล้วบีบทางเดินทำให้โซ่ของคนที่ตกรอบยุบเหลือก้าวเดียว
+      ต้องมีช่อง <code>n + 1</code> ไว้เป็นกำแพงท้ายแถว ให้ <code>find</code> มีที่หยุดเมื่อไม่เหลือใครทางขวา
+    </p>
+    <p>
+      ข้อนี้คือ DSU ที่<strong>ห้ามรวมตามขนาด</strong> เพราะทิศถูกบังคับ คนที่ตกรอบต้องชี้ไปทางขวาเสมอ
+      ไม่งั้น <code>find</code> จะหยุดเป็นคำตอบของ "คนถัดไปทางขวา" ทันที ขอบเวลาจึงมาจากบีบทางเดินอย่างเดียว
+      ซึ่งเป็น <code>O(log n)</code> แบบเฉลี่ย
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 6</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP6} lang="cpp" title="knight-tournament.cpp" />
+        <p>
+          ตรวจกับตัวจำลองตรง ๆ ที่เดินทุกช่องในช่วงทุกนัด 20,000 รอบบวกตัวอย่างสองข้อของโจทย์ ตรงกันทุกรอบ
+          เคสใหญ่สามแบบที่ <code>n = 3·10⁵</code> (โซ่ยาว, สุ่ม, ช่วงกว้าง) ใช้ไม่เกิน 98 ms
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูรุ่นที่สแต็กล้น</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP6Bug} lang="cpp" title="knight-tournament-stack-overflow.cpp" />
+        <p>
+          ต่างจากรุ่นที่ถูกแค่ฟังก์ชัน <code>find</code> รุ่นนี้ตอบถูกทุกเคสที่สแต็กไม่ล้น
+          จึงไม่มี "อินพุตเล็กที่สุดที่ทำให้ผิด" ให้โชว์ อินพุตที่ทำให้มันพังคือโซ่ที่ยาวราวแสนช่องขึ้นไป
+          และขอบนี้ขึ้นกับขนาดสแต็กของเครื่องที่รัน
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 7 · นับสีในทุกต้นย่อย (CSES 1139 Distinct Colors)</h3>
+  <p>
+    ต้นไม้มีราก <code>n</code> จุด จุด 1 เป็นราก ทุกจุดมีสีของตัวเอง ให้บอกว่าต้นย่อยของแต่ละจุดมีสีต่างกันกี่สี
+    ต้นย่อยของ <code>v</code> คือ <code>v</code> กับทุกจุดที่อยู่ใต้มัน
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n</code> สีของทุกจุด แล้วเส้นเชื่อม <code>n - 1</code> เส้นที่ไม่บอกทิศ</li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 2·10⁵</code>, สีไม่เกิน <code>10⁹</code> เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> <code>n</code> จำนวน ตัวที่ <code>v</code> คือจำนวนสีต่างกันในต้นย่อยของ <code>v</code></li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P7_N}<br />{P7_COL.slice(1).join(' ')}<br />{P7_EDGES.map(([a, b]) => <>{a} {b}<br /></>)}</td>
+        <td>{P7_OUT_STATEMENT.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดที่สองคือสีของจุด 1 ถึง {P7_N} ตามลำดับ ต้นย่อยของจุด 3 มีจุด 3, 4, 5 สีเป็น 2, 2, 1 จึงมีสองสี
+      ส่วนจุด 1 เป็นรากเห็นทั้งต้น มีสามสี จุดที่เป็นใบเห็นแค่สีของตัวเอง ได้ 1 เสมอ
+    </p>
+  </div>
+  <ZoomableDiagram caption={`ต้นไม้ของตัวอย่าง สีของวงคือสีของจุด ตัวเลขข้างวงคือคำตอบของต้นย่อยนั้น ต้นย่อยของจุด 3 มีสีซ้ำอยู่คู่หนึ่ง จึงได้ 2 ไม่ใช่ 3`}>
+    <svg viewBox={p7VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้ตัวอย่างของ Distinct Colors พร้อมสีและคำตอบของทุกต้นย่อย">
+      {p7Tree.edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#4a5a7d" stroke-width="1.6" />
+      ))}
+      {p7Tree.nodes.map((n) => (
+        <>
+          <circle cx={n.x} cy={n.y} r={R + 3} fill={P7_FILL[P7_COL[n.k]]} stroke={P7_EDGE_C[P7_COL[n.k]]} stroke-width="1.8" />
+          <text x={n.x} y={n.y + 4} fill="#eaf4ff" font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+          <text x={n.x + R + 10} y={n.y + 4} fill="#cdd6ea" font-size="11.5" font-family="monospace">สี {P7_COL[n.k]} · ตอบ {p7Ans[n.k - 1]}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เดินทั้งต้นย่อยใหม่ทุกจุดแพงเกินบนต้นไม้ที่เป็นโซ่ ถ้าเก็บเซตของสีไว้ที่ลูก แล้วเทขึ้นไปใส่พ่อ ก็ไม่ต้องเดินซ้ำ
+      แต่การเทแพงเท่าขนาดของสิ่งที่เท ลองนึกถึงกลที่ 1 ของบทนี้ ควรเทก้อนไหนใส่ก้อนไหน
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 7</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ท่าตรง ๆ คือทุกจุดเดินลงไปทั้งต้นย่อยแล้วนับสีด้วย <code>set</code> งานรวมคือผลรวมขนาดของทุกต้นย่อย
+        บนต้นไม้โซ่ได้ราว <code>n²/2 = 2·10¹⁰</code> ท่าถัดมาคือเทเซตของลูกขึ้นไปใส่พ่อ ซึ่งไม่ต้องเดินซ้ำ
+        แต่ถ้าเทตรง ๆ ทุกครั้ง บนโซ่ลูกที่ลึกกว่าถือสีเกือบทั้งหมด เทขึ้นหนึ่งชั้นก็ย้ายเกือบทั้งก้อนอีกรอบ กลับไปเป็น{' '}
+        <code>n²/2</code> เหมือนเดิม
+      </p>
+      <p>
+        ท่าที่ใช้ผมรู้จักอยู่ก่อนแล้ว จึงเขียนแบบสลับถังตั้งแต่แรก ตารางข้างล่างวัดทีหลังเพื่อให้เห็นเป็นตัวเลข
+        โดยแก้บรรทัดเดียวให้เทก้อนใหญ่ใส่ก้อนเล็กแทน บนโซ่ที่ทุกจุดสีต่างกัน
+        บทเรียนคือ เหตุผลของรวมตามขนาดไม่ได้ผูกกับ DSU มันใช้ได้กับการรวมอะไรก็ตามที่ต้นทุนเท่าขนาดของฝั่งที่ย้าย
+      </p>
+    </div>
+    <p>
+      กติกาคือ<strong>เทก้อนที่เล็กกว่าใส่ก้อนที่ใหญ่กว่าเสมอ</strong> ถ้าถังของพ่อเล็กกว่าถังของลูก ก็สลับถังกันก่อน
+      ซึ่ง <code>swap</code> ของ <code>std::set</code> แค่สลับตัวชี้ ใช้เวลาคงที่
+      ท่านี้ชื่อ <strong>small-to-large</strong> อ่านว่า <strong>"สมอล ทู ลาร์จ"</strong> แปลตรงตัวว่า{' '}
+      <strong>"เล็กเข้าใหญ่"</strong>
+    </p>
+    <p>
+      เหตุผลที่เร็วเป็นประโยคเดียวกับกลที่ 1 ทุกคำ สีหนึ่งค่าจะถูกหยิบย้ายก็ต่อเมื่ออยู่ในก้อนเล็ก
+      และหลังย้ายมันอยู่ในก้อนที่ใหญ่อย่างน้อยเท่าตัวของก้อนเดิม ขนาดเพิ่มเท่าตัวได้ไม่เกิน <code>log₂ n</code> ครั้ง
+      งานรวมจึงเป็น <code>O(n log n)</code> ครั้งของการใส่ แต่ละครั้ง <code>O(log n)</code>
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>บนต้นไม้โซ่ที่ทุกจุดสีต่างกัน · g++ 14.2 -O2</caption>
+        <thead>
+          <tr>
+            <th class="num">n</th>
+            <th class="num">เล็กเข้าใหญ่</th>
+            <th class="num">ใหญ่เข้าเล็ก</th>
+          </tr>
+        </thead>
+        <tbody>
+          {p7Slow.map((r) => (
+            <tr>
+              <td class="num">{r.n.toLocaleString('en-US')}</td>
+              <td class="num">{r.fast}</td>
+              <td class="num">{r.slow}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สองคอลัมน์ต่างกันแค่เครื่องหมายเทียบในบรรทัดเดียว และตอบเลขชุดเดียวกันทุกไฟล์ ใหญ่เข้าเล็กโตเป็นกำลังสอง
+        n เพิ่มสองเท่า เวลาเพิ่มราวสี่เท่า แถวสุดท้ายวัดครั้งเดียว
+      </figcaption>
+    </figure>
+    <p>
+      อีกจุดที่ต้องระวังคือโซ่ลึกสองแสนชั้น DFS แบบเรียกตัวเองเสี่ยงสแต็กล้นแบบเดียวกับข้อ 6
+      โค้ดจึงเรียงจุดแบบ BFS จากราก แล้วไล่จากท้ายแถว ลูกจึงถูกทำก่อนพ่อเสมอโดยไม่ต้องเรียกตัวเองเลย
+      และต้องอ่านคำตอบของ <code>v</code> ก่อนเทใส่พ่อ เพราะหลังสลับ ถังของ <code>v</code> อาจเป็นถังเดิมของพ่อไปแล้ว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 7</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP7} lang="cpp" title="distinct-colors.cpp" />
+        <p>
+          ตัวตรวจทำ DFS แยกให้ทุกจุด นับสีในต้นย่อยตรง ๆ โดยไม่ส่งข้อมูลระหว่างจุดเลย สุ่ม 5,000 รอบ
+          สลับเลขจุดและลำดับเส้นด้วย ตรงกันทุกรอบ ต้นไม้สุ่มขนาด <code>2·10⁵</code> ใช้ 331 ms
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 8 · ห่วงโซ่อาหารสามชนิด (SPOJ CHAIN Strange Food Chain)</h3>
+  <p>
+    สัตว์มีสามชนิด A กิน B, B กิน C และ C กิน A มีสัตว์ <code>n</code> ตัว แต่ละตัวเป็นหนึ่งในสามชนิดแต่เราไม่รู้ว่าตัวไหนชนิดอะไร
+    มีคนพูดประโยคมาทีละประโยค <code>1 x y</code> แปลว่า x กับ y ชนิดเดียวกัน <code>2 x y</code> แปลว่า x กิน y
+    ประโยคหนึ่งถือว่าโกหกถ้ามีสัตว์หมายเลขเกิน <code>n</code> ถ้าบอกว่าสัตว์กินตัวเอง
+    หรือถ้าขัดกับประโยค<strong>ที่จริง</strong>ก่อนหน้า ให้นับประโยคโกหก
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> จำนวนชุด <code>t</code> แต่ละชุดมี <code>n k</code> แล้ว <code>k</code> ประโยค บรรทัดละ <code>D X Y</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 50,000</code>, <code>k ≤ 10⁵</code> เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ชุดละหนึ่งบรรทัด คือจำนวนประโยคโกหก</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1<br />{P8_N} {P8_ST.length}<br />{P8_ST.map((s) => <>{s.join(' ')}<br /></>)}</td>
+        <td>{p8Lies.length}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนชุด ตัวอย่างนี้มีชุดเดียว สัตว์ {P8_N} ตัว {P8_ST.length} ประโยค
+      ประโยคโกหกเป็นประโยคที่มาจากคนละเหตุผลกัน ข้อ 1 มีสัตว์หมายเลข 101 ข้อ 4 บอกว่า 3 กินตัวเอง
+      ส่วนข้อ 5 ต้องอาศัยข้อ 2 กับ 3 ที่เชื่อไปแล้ว ถ้า 1 กิน 2 และ 2 กิน 3 แล้ว 1 กับ 3 จะเป็นชนิดเดียวกันไม่ได้
+    </p>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้คือข้อ 5 ที่ป้ายบนเส้นมีสามค่าแทนสองค่า ถ้าให้ชนิดเป็นเลข 0, 1, 2 ประโยค "x กิน y" พูดถึงความต่างของชนิดว่าอะไร
+      แล้ว xor ของข้อ 5 ต้องเปลี่ยนเป็นอะไร
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 8</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ก่อนคิดอะไร ต้องได้ข้อความโจทย์ก่อน หน้า SPOJ ปฏิเสธการดึงอัตโนมัติทุกทาง ผมจึงอ่านจากสำเนาหน้า SPOJ
+        ที่ archive.org เก็บไว้เมื่อปี 2022 แล้วเทียบกับโจทย์ต้นเรื่องคือ POJ 1182 กติกาตรงกัน
+        แต่รูปแบบอินพุตไม่ตรง SPOJ มีบรรทัดจำนวนชุดนำหน้า POJ ไม่มี ถ้าเขียนตาม POJ จะอ่านเลขจำนวนชุดเป็น <code>n</code>{' '}
+        แล้วพังตั้งแต่บรรทัดแรก
+      </p>
+      <p>
+        ท่าที่ทิ้งคือลองทุกวิธีแจกชนิด <code>3</code> ยกกำลังห้าหมื่น กับระบายสามสีใหม่ทุกประโยค ราว{' '}
+        <code>1.5·10¹⁰</code> ต่อชุด พอเห็นว่ามันคือข้อ 5 ที่ป้ายมีสามค่า เหลือแค่สองจุดที่ต้องคิดใหม่
+        บทเรียนคือ เมื่อยกท่าจาก xor ไปใช้กับมอดุโลอื่น ให้ถามทุกบรรทัดว่ามันพึ่งการที่ลบกับบวกเป็นเรื่องเดียวกันหรือเปล่า
+      </p>
+    </div>
+    <p>
+      ให้ชนิดเป็น 0, 1, 2 แล้ว "x กิน y" คือ <code>ชนิด(y) = ชนิด(x) + 1</code> มอดุโล 3 เพราะ A กิน B, B กิน C, C กิน A
+      เป็นการบวกหนึ่งวนรอบพอดี ประโยคทั้งสองแบบจึงเป็น "ความต่างของชนิดเท่ากับ <code>w</code>" โดย <code>w</code> เป็น 0 หรือ 1
+      และ <code>d[x]</code> คือชนิดของ <code>x</code> ลบชนิดของแม่ มอดุโล 3
+    </p>
+    <p>
+      ต่างจากข้อ 5 ตรงที่การลบไม่เท่ากับการบวกอีกต่อไป ใน xor สองอย่างนี้เป็นอันเดียวกัน จึงไม่เคยต้องคิด
+      มีสองจุดที่เปลี่ยน
+    </p>
+    <ul>
+      <li>ตอนเช็กก๊วนเดียวกัน ความต่างคือ <code>d[y] - d[x]</code> ถ้าสลับข้าง 1 จะกลายเป็น 2 และคำตอบผิดทันที</li>
+      <li>ตอนสลับให้ก๊วนใหญ่เป็นแม่ ความต่างที่คำนวณไว้ต้องกลับเครื่องหมาย เพราะมองจากอีกฝั่ง</li>
+    </ul>
+    <p>
+      และ <code>%</code> ของ C++ ให้ค่าติดลบได้ จึงบวก 3 ก่อนมอดทุกครั้งที่มีการลบ ประโยคที่โกหกไม่ถูกบันทึกโดยธรรมชาติ
+      เพราะกรณีที่ขัดคือกรณีที่สองตัวอยู่ก๊วนเดียวกัน ซึ่ง <code>unite</code> ไม่ได้แตะ <code>par</code> หรือ <code>d</code> เลย
+    </p>
+    <figure class="tbl">
+      <table class="rec wide">
+        <caption>ตัวอย่างทีละประโยค</caption>
+        <thead>
+          <tr>
+            <th class="num">ข้อ</th>
+            <th>ประโยค</th>
+            <th>ผล</th>
+            <th>เหตุผล</th>
+          </tr>
+        </thead>
+        <tbody>
+          {p8Rows.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td class="mono">{r.D} {r.x} {r.y}</td>
+              <td class={r.lie ? 'bad' : 'ok'}>{r.lie ? 'โกหก' : 'จริง'}</td>
+              <td>{r.why}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ตารางนี้มาจากตัวแปลความที่รันตอนสร้างหน้า ถ้าผลไม่ตรงกับคำใบ้ของโจทย์ว่าข้อ 1, 4, 5 โกหก หน้านี้จะบิลด์ไม่ผ่าน
+        ข้อ 7 บอกว่า 5 กับ 5 เป็นชนิดเดียวกัน ซึ่งไม่ติดกฎข้อไหน จึงนับเป็นจริง
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 8</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP8} lang="cpp" title="food-chain.cpp" />
+        <p>
+          ตัวตรวจเก็บทุกวิธีแจกชนิดที่ยังเข้ากับประโยคจริงทั้งหมด (สัตว์ไม่เกินหกตัว คือ 729 แบบ)
+          แล้วถือว่าประโยคใหม่จริงถ้ายังเหลือสักแบบที่เข้ากับมัน ตรงกับนิยามของโจทย์ทุกตัวอักษร
+          สุ่ม 20,000 ไฟล์ รวม 40,065 ชุด บางประโยคให้หมายเลขเกิน <code>n</code> ตรงกันทุกชุด
+          ชุดใหญ่สุดหนึ่งชุดใช้ 78 ms
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    DSU ถามแค่ว่าใครคือหัวหน้า รวมตามขนาดทำให้คำถามนี้เดินไม่เกิน <code>log₂ n</code> ชั้น
+    บีบทางเดินทำให้ครั้งต่อไปเดินแทบไม่ต้องเดิน และทุกอย่างที่คำนวณจากสองก๊วนได้ก็เก็บไว้ที่หัวได้
+  </p>
+  <p class="pull">
+    โครงสร้างนี้เก่งทางเดียว คือรวม ถ้าวันไหนโจทย์สั่งให้แยกก๊วนออกจากกัน มันทำไม่ได้เลย
+    และนั่นคือจุดเริ่มของบทถัดไป
+  </p>
+
+  <h2>ที่มาและอ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      cp-algorithms, "Disjoint Set Union" ต้นทางของบทนี้ ทั้งสองกล ท่าขยาย และรายการโจทย์ฝึกท้ายหน้า{' '}
+      <a href="https://cp-algorithms.com/data_structures/disjoint_set_union.html" rel="noopener noreferrer" target="_blank">cp-algorithms.com</a>
+    </li>
+    <li>B. A. Galler, M. J. Fischer, "An improved equivalence algorithm", Communications of the ACM 7(5), 1964 งานแรกที่เก็บก๊วนเป็นป่าของต้นไม้</li>
+    <li>R. E. Tarjan, "Efficiency of a Good But Not Linear Set Union Algorithm", Journal of the ACM 22(2), 1975 ที่มาของขอบ α(n)</li>
+    <li>M. L. Fredman, M. E. Saks, "The cell probe complexity of dynamic data structures", STOC 1989 ขอบล่างที่บอกว่าเร็วกว่านี้ไม่ได้แล้ว</li>
+    <li>J. B. Kruskal, "On the shortest spanning subtree of a graph and the traveling salesman problem", Proceedings of the AMS, 1956</li>
+    <li>โจทย์: CSES 1676, 1675, 1139 · Codeforces 25D, 356A · Timus 1003, 1671 · SPOJ CHAIN (สืบค้น 10 กันยายน 2026)</li>
+    <li>
+      ในคลังนี้: <a href="/cp/state-graph-bfs/">BFS บนกราฟสถานะ</a> คือทางที่ DSU มาแทนเมื่อคำถามมีมาก และ{' '}
+      <a href="/cp/offline-deletion/">ต้นไม้บนแกนเวลา</a> คือบทที่ทำให้ DSU ลบได้
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของ DivineLoreLayout (1rem) และใช้ margin auto ซ้ายขวา
+     ไม่งั้นมันจะทับกฎจัดกลางของ CpProblemLayout */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาวจะถ่างการ์ด fit-content ให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  /* ตารางที่มีคอลัมน์เป็นประโยคไทย: ให้ขึ้นบรรทัดได้ และกันไม่ให้แคบจนอ่านไม่ออก */
+  table.rec.wide td{white-space:normal;min-width:5rem;}
+  table.rec.wide td:last-child{min-width:14rem;}
+  table.rec td.mono{font-family:"Fira Code","Fira Mono",monospace;white-space:nowrap;}
+  table.rec td.bad{color:#f08c8c;font-weight:700;white-space:nowrap;}
+  table.rec td.ok{color:#4ade80;white-space:nowrap;}
+
+  /* ---------- กระดานของตัวเดิน find ----------
+     !important สู้กับ body .panel .dpsim table.rec{width:100%} ของ layout
+     width:0 + min-width:100% ให้ตารางเต็มการ์ดโดยไม่ไปถ่างการ์ด */
+  table.rec.fdboard{
+    table-layout:fixed;
+    width:0 !important;
+    min-width:100%;
+  }
+  table.rec.fdboard th:first-child,
+  table.rec.fdboard td:first-child{width:4.4rem;}
+  table.rec.fdboard th.num,
+  table.rec.fdboard td.num{width:3.2rem;text-align:center;}
+  table.rec.fdboard .lbl{display:block;width:0;min-width:100%;}
+  /* คลาสสถานะต้องมี .num ด้วย ไม่งั้นแพ้ table.rec td.num ที่ตั้งสีไว้ */
+  table.rec.fdboard td.num.is-cur{background:rgba(224,180,0,0.18);color:#ffe9a8;font-weight:700;}
+  table.rec.fdboard td.num.is-path{color:#ffe9a8;}
+  table.rec.fdboard td.num.is-changed{background:rgba(74,222,128,0.2);color:#eaf4ff;font-weight:700;}
+
+  /* ---------- มินิเกมรวมก๊วน ---------- */
+  .dg-choices{display:flex;flex-wrap:wrap;gap:0.5rem;justify-content:center;margin:0.4rem 0 0.2rem;}
+  .dg-forest{display:flex;gap:1.6rem;align-items:flex-start;width:max-content;padding:0.7rem 0.4rem 0.3rem;}
+  .dg-forest :global(.dg-tree){flex:0 0 auto;display:flex;flex-direction:column;align-items:center;}
+  .dg-forest :global(.dg-n){flex:0 0 auto;display:flex;flex-direction:column;align-items:center;}
+  .dg-forest :global(.dg-k){
+    width:2rem;height:2rem;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    border:1.5px solid #4a5a7d;background:#1b2436;color:#cdd6ea;
+    font-family:"Fira Code","Fira Mono",monospace;font-size:0.8rem;
+  }
+  .dg-forest :global(.dg-k.root){border-color:#4ade80;color:#4ade80;}
+  .dg-forest :global(.dg-k.live){border-color:#e0b400;color:#ffe9a8;box-shadow:0 0 0 3px rgba(224,180,0,0.18);}
+  .dg-forest :global(.dg-c){display:flex;gap:0.4rem;align-items:flex-start;border-top:1.5px solid #4a5a7d;margin-top:0.35rem;}
+  .dg-forest :global(.dg-c > .dg-n::before){content:"";display:block;width:1.5px;height:0.55rem;background:#4a5a7d;}
+  .dg-forest :global(.dg-h){margin-top:0.35rem;font-size:0.72rem;color:#7b8397;font-family:"Fira Code","Fira Mono",monospace;}
+  @media (prefers-reduced-motion: no-preference){
+    .dg-forest :global(.dg-k){transition:border-color .15s, box-shadow .15s;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type DgPuzzle = { id: string; label: string; tease: string; n: number; ops: [number, number][]; best: number };
+
+  function isDgPuzzle(x: unknown): x is DgPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.n === 'number' && typeof o.best === 'number' && typeof o.tease === 'string' && Array.isArray(o.ops);
+  }
+
+  function initDgGame(): void {
+    const maybeUi = cpGameUi('[data-dggame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isDgPuzzle);
+    if (puzzles.length === 0) return;
+    const forestEl = ui.root.querySelector<HTMLElement>('[data-dg-forest]');
+    const choicesEl = ui.root.querySelector<HTMLElement>('[data-dg-choices]');
+    const askEl = ui.root.querySelector<HTMLElement>('[data-dg-ask]');
+    if (!forestEl || !choicesEl || !askEl) return;
+    const forest: HTMLElement = forestEl;
+    const choices: HTMLElement = choicesEl;
+    const ask: HTMLElement = askEl;
+
+    let pi = 0;
+    let at = 0;
+    let par: number[] = [];
+
+    const pz = (): DgPuzzle => puzzles[pi];
+    const root = (x: number): number => {
+      let r = x;
+      while (par[r] !== r) r = par[r];
+      return r;
+    };
+    const depth = (x: number): number => {
+      let d = 0;
+      for (let r = x; par[r] !== r; r = par[r]) d++;
+      return d;
+    };
+    const members = (r: number): number[] => {
+      const out: number[] = [];
+      for (let x = 1; x <= pz().n; x++) if (root(x) === r) out.push(x);
+      return out;
+    };
+    const heightOfGroup = (r: number): number => Math.max(...members(r).map(depth));
+    const heightAll = (): number => {
+      let h = 0;
+      for (let x = 1; x <= pz().n; x++) h = Math.max(h, depth(x));
+      return h;
+    };
+
+    function nodeEl(v: number, live: Set<number>): HTMLElement {
+      const box = document.createElement('div');
+      box.className = 'dg-n';
+      const k = document.createElement('span');
+      k.className = 'dg-k' + (par[v] === v ? ' root' : '') + (live.has(v) ? ' live' : '');
+      k.textContent = String(v);
+      box.appendChild(k);
+      const kids: number[] = [];
+      for (let x = 1; x <= pz().n; x++) if (x !== v && par[x] === v) kids.push(x);
+      if (kids.length > 0) {
+        const row = document.createElement('div');
+        row.className = 'dg-c';
+        for (const c of kids) row.appendChild(nodeEl(c, live));
+        box.appendChild(row);
+      }
+      return box;
+    }
+
+    function render(): void {
+      const p = pz();
+      const live = new Set<number>();
+      if (at < p.ops.length) {
+        live.add(root(p.ops[at][0]));
+        live.add(root(p.ops[at][1]));
+      }
+      forest.textContent = '';
+      for (let r = 1; r <= p.n; r++) {
+        if (par[r] !== r) continue;
+        const tree = document.createElement('div');
+        tree.className = 'dg-tree';
+        tree.appendChild(nodeEl(r, live));
+        const h = document.createElement('span');
+        h.className = 'dg-h';
+        h.textContent = `ลึก ${heightOfGroup(r)}`;
+        tree.appendChild(h);
+        forest.appendChild(tree);
+      }
+      choices.textContent = '';
+      if (at < p.ops.length) {
+        const [x, y] = p.ops[at];
+        const a = root(x);
+        const b = root(y);
+        ask.textContent = `คำสั่งที่ ${at + 1} จาก ${p.ops.length}: รวมก๊วนของ ${x} กับ ${y} หัวของสองก๊วนคือ ${a} (${members(a).length} คน) กับ ${b} (${members(b).length} คน)`;
+        for (const [child, parent] of [[a, b], [b, a]]) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'cpg-btn';
+          btn.dataset.child = String(child);
+          btn.dataset.parent = String(parent);
+          btn.textContent = `หัว ${child} ไปขึ้นกับหัว ${parent}`;
+          choices.appendChild(btn);
+        }
+      } else {
+        ask.textContent = `รวมครบ ${p.ops.length} คำสั่งแล้ว`;
+      }
+      ui.setScore(at === 0 ? 'ยังไม่ได้รวมเลย' : `รวมไปแล้ว ${at} ครั้ง ตอนนี้คนที่ลึกที่สุดลึก ${heightAll()} ชั้น`);
+    }
+
+    function finish(): void {
+      const p = pz();
+      const h = heightAll();
+      if (h === p.best) ui.setStatus(`ได้ความลึก ${h} ซึ่งเป็นค่าต่ำที่สุดที่ชุดนี้ทำได้แล้ว`, 'good');
+      else ui.setStatus(`ได้ความลึก ${h} แต่ชุดนี้ทำได้ต่ำสุด ${p.best} ลองดูว่าครั้งไหนที่ก๊วนใหญ่ถูกยกไปขึ้นกับก๊วนเล็ก`, 'bad');
+    }
+
+    function selectPuzzle(t: number): void {
+      pi = t;
+      at = 0;
+      par = Array.from({ length: pz().n + 1 }, (_, i) => i);
+      ui.selectTab(t);
+      ui.setTease(pz().tease);
+      ui.setStatus('เลือกว่าหัวไหนจะไปขึ้นกับหัวไหน');
+      render();
+    }
+
+    choices.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('button');
+      if (!(btn instanceof HTMLButtonElement)) return;
+      const child = Number(btn.dataset.child);
+      const parent = Number(btn.dataset.parent);
+      par[child] = parent;
+      at++;
+      ui.setStatus(`หัว ${child} ไปขึ้นกับ ${parent} แล้ว ทั้งก๊วนของ ${child} ย้ายตามไปด้วย`);
+      render();
+      if (at === pz().ops.length) finish();
+    });
+
+    ui.onClick('data-dg-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initDgGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  /* หนึ่งก้าวคือหนึ่งจังหวะของการเรียกตัวเอง ไม่ใช่หนึ่งแถวของตาราง
+     จึงใช้ initCpRowPlayers ไม่ได้ ต้องส่ง draw ของตัวเองเข้ามา */
+  type FStep = { note: string; par: number[]; depth: number[]; cur: number; path: number[]; changed: number };
+
+  function isFStep(x: unknown): x is FStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.note === 'string' &&
+      Array.isArray(o.par) &&
+      Array.isArray(o.depth) &&
+      typeof o.cur === 'number' &&
+      Array.isArray(o.path) &&
+      typeof o.changed === 'number'
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<FStep>('[data-fdsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isFStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const onPath = new Set(st.path);
+        let live: HTMLTableCellElement | null = null;
+        for (const td of Array.from(root.querySelectorAll<HTMLTableCellElement>('td[data-fd-par]'))) {
+          const v = Number(td.dataset.fdPar);
+          td.textContent = String(st.par[v]);
+          td.classList.toggle('is-cur', v === st.cur);
+          td.classList.toggle('is-path', onPath.has(v) && v !== st.cur);
+          td.classList.toggle('is-changed', v === st.changed);
+          if (v === st.cur) live = td;
+        }
+        for (const td of Array.from(root.querySelectorAll<HTMLTableCellElement>('td[data-fd-dep]'))) {
+          const v = Number(td.dataset.fdDep);
+          td.textContent = String(st.depth[v - 1]);
+          td.classList.toggle('is-changed', v === st.changed);
+        }
+        ctx.keepInView(live);
+      },
+    });
+  });
+</script>
