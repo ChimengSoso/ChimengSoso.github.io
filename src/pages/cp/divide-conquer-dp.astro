@@ -1,0 +1,1720 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import { texCode, mc } from '../../lib/math';
+
+const href = 'divide-conquer-dp/';
+
+/* ============================================================================
+   ตัวเลขทุกตัวในหน้านี้งอกจากโมเดลข้างล่าง ไม่มีเลขไหนพิมพ์ด้วยมือ
+   และโมเดลถูกกันด้วย throw ตอนบิลด์ ถ้าคำตอบของท่าเร็วไม่ตรงกับตัวไล่ทุกกรณี
+   หน้านี้จะสร้างไม่ผ่านเลย
+   ========================================================================== */
+
+const INF = Number.POSITIVE_INFINITY;
+type CostFn = (l: number, r: number) => number;
+
+/** ดีพีสองลูปตรงไปตรงมา ไล่จุดตัดทุกจุดจริง ใช้เป็นตัวตรวจอิสระ */
+function bruteLayers(n: number, k: number, C: CostFn): { dp: number[][]; opt: number[][] } {
+  const dp: number[][] = Array.from({ length: k + 1 }, () => Array<number>(n + 1).fill(INF));
+  const opt: number[][] = Array.from({ length: k + 1 }, () => Array<number>(n + 1).fill(0));
+  dp[0][0] = 0;
+  for (let j = 1; j <= k; j++) {
+    for (let i = 1; i <= n; i++) {
+      let best = INF;
+      let bm = -1;
+      for (let m = 1; m <= i; m++) {
+        if (dp[j - 1][m - 1] === INF) continue;
+        const v = dp[j - 1][m - 1] + C(m, i);
+        if (v < best) {
+          best = v;
+          bm = m;
+        }
+      }
+      dp[j][i] = best;
+      opt[j][i] = bm;
+    }
+  }
+  return { dp, opt };
+}
+
+/** ท่าแบ่งครึ่ง keepZero = จงใจปล่อยบักปล่อยกลุ่มว่าง ไว้ใช้เล่าตอนท้าย */
+function dcLayers(n: number, k: number, C: CostFn, keepZero = false): { ans: number; scans: number } {
+  let before = Array<number>(n + 1).fill(INF);
+  before[0] = 0;
+  let scans = 0;
+  for (let j = 1; j <= k; j++) {
+    const cur = Array<number>(n + 1).fill(INF);
+    const compute = (l: number, r: number, ol: number, or_: number): void => {
+      if (l > r) return;
+      const mid = (l + r) >> 1;
+      let best = INF;
+      let bm = ol;
+      const hi = Math.min(mid, or_);
+      for (let m = ol; m <= hi; m++) {
+        scans++;
+        const v = before[m - 1] + C(m, mid);
+        if (v < best) {
+          best = v;
+          bm = m;
+        }
+      }
+      cur[mid] = best;
+      compute(l, mid - 1, ol, bm);
+      compute(mid + 1, r, bm, or_);
+    };
+    compute(1, n, 1, n);
+    if (keepZero) cur[0] = 0;
+    before = cur;
+  }
+  return { ans: before[n], scans };
+}
+
+/* ---------- โจทย์ตัวอย่างที่เดินให้ดูทั้งบท: ม้าแปดตัว สามคอก ---------- */
+const HORSES = [1, 1, 0, 1, 0, 1, 1, 0]; // 1 = ดำ, 0 = ขาว
+const HN = HORSES.length;
+const HK = 3;
+const hpb = [0];
+for (const v of HORSES) hpb.push(hpb[hpb.length - 1] + v);
+const horseCost: CostFn = (l, r) => {
+  const b = hpb[r] - hpb[l - 1];
+  const w = r - l + 1 - b;
+  return b * w;
+};
+const hBrute = bruteLayers(HN, HK, horseCost);
+const hAnswer = hBrute.dp[HK][HN];
+const hDc = dcLayers(HN, HK, horseCost);
+if (hDc.ans !== hAnswer) {
+  throw new Error(`divide-conquer-dp: ท่าแบ่งครึ่งตอบ ${hDc.ans} แต่ตัวไล่ทุกกรณีตอบ ${hAnswer}`);
+}
+/** จำนวนช่องที่ดีพีสองลูปต้องไล่ต่อหนึ่งชั้น */
+const naiveScansPerLayer = (HN * (HN + 1)) / 2;
+
+/** แถว opt ของแต่ละชั้น ใช้โชว์ว่ามันไม่ถอยหลัง */
+const optRows = [1, 2, 3].map((j) => ({
+  j,
+  cells: Array.from({ length: HN }, (_, t) => {
+    const i = t + 1;
+    return { i, v: hBrute.opt[j][i], dead: hBrute.dp[j][i] === INF };
+  }),
+}));
+
+/* ---------- สเต็ปของเครื่องเดิน: การเรียกซ้ำของ compute() ในชั้นที่ 2 ---------- */
+type DcStep = {
+  note: string;
+  mid: number;
+  lo: number;
+  hi: number;
+  done: number[];
+};
+const PLAY_LAYER = 2;
+const dpPrev = Array.from({ length: HN + 1 }, (_, i) => hBrute.dp[PLAY_LAYER - 1][i]);
+const dpNow = Array.from({ length: HN + 1 }, (_, i) => hBrute.dp[PLAY_LAYER][i]);
+const optNow = Array.from({ length: HN + 1 }, (_, i) => hBrute.opt[PLAY_LAYER][i]);
+
+const fmt = (v: number): string => (v === INF ? '∞' : String(v));
+
+const dcSteps: DcStep[] = [];
+{
+  const done: number[] = [];
+  const walk = (l: number, r: number, ol: number, or_: number): void => {
+    if (l > r) return;
+    const mid = (l + r) >> 1;
+    const hi = Math.min(mid, or_);
+    let best = INF;
+    let bm = ol;
+    for (let m = ol; m <= hi; m++) {
+      const v = dpPrev[m - 1] + horseCost(m, mid);
+      if (v < best) {
+        best = v;
+        bm = m;
+      }
+    }
+    done.push(mid);
+    const scanned = hi - ol + 1;
+    const full = mid;
+    const chosen =
+      best === INF
+        ? 'ไม่มีทางที่ใช้ได้เลย ' + fmt(best) + ' เพราะคอกแรกต้องมีม้าอย่างน้อยหนึ่งตัว'
+        : 'ได้ค่าน้อยสุด <b>' + fmt(best) + '</b> ตอนตัดที่ <b>' + bm + '</b>';
+    dcSteps.push({
+      note:
+        'ช่วงที่กำลังเติมคือ <b>' +
+        l +
+        '..' +
+        r +
+        '</b> หยิบตรงกลางคือ <b>i = ' +
+        mid +
+        '</b> ก่อน ' +
+        'หน้าต่างที่ต้องส่องมีแค่ <em>' +
+        ol +
+        '..' +
+        hi +
+        '</em> คือ ' +
+        scanned +
+        ' ช่อง แทนที่จะเป็น ' +
+        full +
+        ' ช่อง ' +
+        chosen +
+        ' จากนี้ครึ่งซ้ายจะส่องได้ไม่เกิน ' +
+        bm +
+        ' และครึ่งขวาจะเริ่มที่ ' +
+        bm +
+        ' พอดี',
+      mid,
+      lo: ol,
+      hi,
+      done: [...done],
+    });
+    walk(l, mid - 1, ol, bm);
+    walk(mid + 1, r, bm, or_);
+  };
+  walk(1, HN, 1, HN);
+}
+const dcScansLayer = dcSteps.reduce((s, st) => s + (st.hi - st.lo + 1), 0);
+
+/* ---------- มินิเกม: วางที่กั้นคอกเอง ----------
+   เฉลยมาจากการไล่ทุกวิธีวางที่กั้นจริง ๆ ไม่ได้มาจากดีพีที่บทนี้กำลังสอน
+   แล้วยังเทียบกับดีพีอีกชั้นก่อนปล่อยขึ้นหน้า */
+function bestByEnumeration(xs: number[], k: number): { cost: number; cuts: number[] } {
+  const n = xs.length;
+  const pb = [0];
+  for (const v of xs) pb.push(pb[pb.length - 1] + v);
+  const cost = (l: number, r: number): number => {
+    const b = pb[r] - pb[l - 1];
+    return b * (r - l + 1 - b);
+  };
+  let best = INF;
+  let bestCuts: number[] = [];
+  const rec = (start: number, left: number, cuts: number[], acc: number): void => {
+    if (left === 1) {
+      const total = acc + cost(start, n);
+      if (total < best) {
+        best = total;
+        bestCuts = [...cuts];
+      }
+      return;
+    }
+    for (let end = start; end <= n - (left - 1); end++) {
+      rec(end + 1, left - 1, [...cuts, end], acc + cost(start, end));
+    }
+  };
+  rec(1, k, [], 0);
+  return { cost: best, cuts: bestCuts };
+}
+
+type DcPuzzleSeed = { id: string; label: string; tease: string; xs: number[]; k: number };
+const DC_SEEDS: DcPuzzleSeed[] = [
+  {
+    id: 'g1',
+    label: 'ชุดที่ 1 · ตัวอย่างของโจทย์จริง',
+    tease: 'ม้าหกตัว สามคอก ชุดนี้คือตัวอย่างที่ติดมากับโจทย์ Timus เอง',
+    xs: [1, 1, 0, 1, 0, 1],
+    k: 3,
+  },
+  {
+    id: 'g2',
+    label: 'ชุดที่ 2 · ชุดที่บทนี้เดินให้ดู',
+    tease: 'ม้าแปดตัว สามคอก ชุดเดียวกับตารางที่จะเดินให้ดูทีหลัง จำคำตอบไว้แล้วไปเทียบกันได้',
+    xs: HORSES,
+    k: HK,
+  },
+  {
+    id: 'g3',
+    label: 'ชุดที่ 3 · กับดักของการรีบตัด',
+    tease: 'ม้าสิบสองตัว สี่คอก ชุดนี้ลงโทษคนที่รีบวางที่กั้นตรงรอยต่อสีแรก ๆ',
+    xs: [1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+    k: 4,
+  },
+];
+
+/** กฎโลภที่คนคิดออกก่อนเสมอ คือตัดตรงรอยต่อสีที่เจอก่อน จนครบจำนวนที่กั้น */
+function greedyFirstBoundaries(xs: number[], k: number): number {
+  const marks: number[] = [];
+  for (let i = 1; i < xs.length; i++) if (xs[i] !== xs[i - 1]) marks.push(i);
+  const cuts = marks.slice(0, k - 1);
+  const bounds = [0, ...cuts, xs.length];
+  let sum = 0;
+  for (let t = 0; t + 1 < bounds.length; t++) {
+    const seg = xs.slice(bounds[t], bounds[t + 1]);
+    const b = seg.filter((v) => v === 1).length;
+    sum += b * (seg.length - b);
+  }
+  return sum;
+}
+
+type DcPuzzle = DcPuzzleSeed & { best: number; bestCuts: number[] };
+const dcPuzzles: DcPuzzle[] = DC_SEEDS.map((s) => {
+  const enumerated = bestByEnumeration(s.xs, s.k);
+  const pb = [0];
+  for (const v of s.xs) pb.push(pb[pb.length - 1] + v);
+  const C: CostFn = (l, r) => {
+    const b = pb[r] - pb[l - 1];
+    return b * (r - l + 1 - b);
+  };
+  const viaDp = bruteLayers(s.xs.length, s.k, C).dp[s.k][s.xs.length];
+  const viaDc = dcLayers(s.xs.length, s.k, C).ans;
+  if (enumerated.cost !== viaDp || viaDp !== viaDc) {
+    throw new Error(
+      `มินิเกมของ divide-conquer-dp: ชุด ${s.id} ไล่ทุกวิธีได้ ${enumerated.cost} ดีพีได้ ${viaDp} ท่าแบ่งครึ่งได้ ${viaDc}`,
+    );
+  }
+  return { ...s, best: enumerated.cost, bestCuts: enumerated.cuts };
+});
+const trapSeed = DC_SEEDS[2];
+const trapGreedy = greedyFirstBoundaries(trapSeed.xs, trapSeed.k);
+const trapBest = dcPuzzles[2].best;
+if (trapGreedy <= trapBest) {
+  throw new Error(`divide-conquer-dp: ชุดที่ 3 ควรเป็นกับดักของกฎโลภ แต่กฎโลภได้ ${trapGreedy} ส่วนคำตอบจริง ${trapBest}`);
+}
+
+const dcJson = JSON.stringify(
+  dcPuzzles.map((p) => ({ id: p.id, label: p.label, tease: p.tease, xs: p.xs, k: p.k, best: p.best })),
+);
+
+/* ---------- ตัวอย่างค้าน: ค่าใช้จ่ายที่ทำให้ opt ถอยหลัง แล้วท่าแบ่งครึ่งตอบผิด ---------- */
+const CE: Record<string, number> = {
+  '1,1': 7,
+  '1,2': 6,
+  '1,3': 6,
+  '1,4': 3,
+  '2,2': 4,
+  '2,3': 4,
+  '2,4': 0,
+  '3,3': 0,
+  '3,4': 2,
+  '4,4': 9,
+};
+const ceCost: CostFn = (l, r) => CE[`${l},${r}`];
+const CE_N = 4;
+const CE_K = 2;
+const ceBrute = bruteLayers(CE_N, CE_K, ceCost);
+const ceTruth = ceBrute.dp[CE_K][CE_N];
+const ceGot = dcLayers(CE_N, CE_K, ceCost).ans;
+const ceOptRow = Array.from({ length: CE_N }, (_, t) => ceBrute.opt[CE_K][t + 1]);
+if (ceGot === ceTruth) {
+  throw new Error('divide-conquer-dp: ตัวอย่างค้านไม่ค้านแล้ว ท่าแบ่งครึ่งดันตอบถูก');
+}
+/** คู่ที่ทำให้อสมการสี่เหลี่ยมพัง หาโดยไล่ทุก a<=b<=c<=d */
+function firstQiBreak(n: number, C: CostFn): { a: number; b: number; c: number; d: number } | null {
+  for (let a = 1; a <= n; a++)
+    for (let b = a; b <= n; b++)
+      for (let c = b; c <= n; c++)
+        for (let d = c; d <= n; d++) if (C(a, c) + C(b, d) > C(a, d) + C(b, c)) return { a, b, c, d };
+  return null;
+}
+const ceBreak = firstQiBreak(CE_N, ceCost);
+if (ceBreak === null) throw new Error('divide-conquer-dp: ตัวอย่างค้านควรทำให้อสมการสี่เหลี่ยมพัง');
+const horseQiBreak = firstQiBreak(HN, horseCost);
+if (horseQiBreak !== null) throw new Error('divide-conquer-dp: ค่าใช้จ่ายของม้าสองสีควรผ่านอสมการสี่เหลี่ยม');
+
+/* ---------- บักปล่อยกลุ่มว่าง: ค่าใช้จ่ายที่มีค่าเปิดกลุ่ม ---------- */
+const FEE = 10;
+const FEE_N = 6;
+const FEE_K = 3;
+const feeCost: CostFn = (l, r) => FEE + (r - l + 1);
+const feeTruth = bruteLayers(FEE_N, FEE_K, feeCost).dp[FEE_K][FEE_N];
+const feeBuggy = dcLayers(FEE_N, FEE_K, feeCost, true).ans;
+const feeFixed = dcLayers(FEE_N, FEE_K, feeCost, false).ans;
+if (feeFixed !== feeTruth || feeBuggy === feeTruth) {
+  throw new Error('divide-conquer-dp: ตัวอย่างบักปล่อยกลุ่มว่างไม่แสดงอาการตามที่เล่า');
+}
+if (firstQiBreak(FEE_N, feeCost) !== null) {
+  throw new Error('divide-conquer-dp: ค่าใช้จ่ายแบบมีค่าเปิดกลุ่มควรผ่านอสมการสี่เหลี่ยม');
+}
+
+/* ---------- ภาพที่ 1: แบ่งของที่เรียงอยู่แล้วเป็นกอง ---------- */
+const CW = 96;
+const CGAP = 10;
+const cellX = (i: number): number => 18 + i * (CW + CGAP);
+const D1_RIGHT = cellX(HN - 1) + CW;
+const D1_BOTTOM = 188;
+const d1Cuts = [3, 5]; // ตัดหลังตัวที่ 3 และตัวที่ 5 เพื่อให้เห็นสามกอง
+const d1Groups = [
+  { l: 1, r: 3 },
+  { l: 4, r: 5 },
+  { l: 6, r: HN },
+];
+const d1Total = d1Groups.reduce((s, g) => s + horseCost(g.l, g.r), 0);
+const d1VB = `0 0 ${D1_RIGHT + 12} ${D1_BOTTOM + 34}`;
+
+/* ---------- ภาพที่ 2: ต้นไม้การเรียกซ้ำของ compute() ----------
+   วาง x ตามลำดับการเดินแบบ in-order เพื่อให้ลูกอยู่ใต้พ่อจริง ๆ ไม่ใช่แค่เรียงเป็นแถว */
+type TreeNode = {
+  id: number;
+  parent: number;
+  l: number;
+  r: number;
+  ol: number;
+  or_: number;
+  mid: number;
+  depth: number;
+  x: number;
+};
+const TREE_BW = 92;
+const TREE_SLOT = 100;
+const TREE_BH = 50;
+const TREE_GAPY = 74;
+const treeNodes: TreeNode[] = [];
+{
+  let slot = 0;
+  const build = (l: number, r: number, ol: number, or_: number, depth: number, parent: number): void => {
+    if (l > r) return;
+    const mid = (l + r) >> 1;
+    const hi = Math.min(mid, or_);
+    let best = INF;
+    let bm = ol;
+    for (let m = ol; m <= hi; m++) {
+      const v = dpPrev[m - 1] + horseCost(m, mid);
+      if (v < best) {
+        best = v;
+        bm = m;
+      }
+    }
+    const id = treeNodes.length;
+    const node: TreeNode = { id, parent, l, r, ol, or_: hi, mid, depth, x: 0 };
+    treeNodes.push(node);
+    build(l, mid - 1, ol, bm, depth + 1, id);
+    node.x = 14 + slot * TREE_SLOT;
+    slot++;
+    build(mid + 1, r, bm, or_, depth + 1, id);
+  };
+  build(1, HN, 1, HN, 0, -1);
+}
+const treeDepth = Math.max(...treeNodes.map((nd) => nd.depth));
+const treeRight = Math.max(...treeNodes.map((nd) => nd.x + TREE_BW));
+const treeBottom = 16 + treeDepth * TREE_GAPY + TREE_BH;
+const d2VB = `0 0 ${treeRight + 12} ${treeBottom + 34}`;
+const treeY = (d: number): number => 16 + d * TREE_GAPY;
+const treeEdges = treeNodes
+  .filter((nd) => nd.parent >= 0)
+  .map((nd) => ({ from: treeNodes[nd.parent], to: nd }));
+
+/* ---------- สูตร ---------- */
+const MIN_OP = '\\mathop{\\textcolor{#50FA7B}{\\min}}\\limits';
+const DP = mc.fn('dp');
+const CC = mc.fn('C');
+const OPT = mc.fn('opt');
+const ONE = mc.num('1');
+const EQ = mc.op('=');
+const PLUS = mc.op('+');
+const MINUS = mc.op('-');
+const LE = mc.op('\\le');
+
+const texRec = texCode(
+  DP + '[j][i] ' + EQ + ' ' + MIN_OP + '_{m ' + LE + ' i} \\Big( ' +
+    DP + '[j' + MINUS + ONE + '][m' + MINUS + ONE + '] ' + PLUS + ' ' + CC + '(m,\\, i) \\Big)',
+);
+const texOpt = texCode(
+  OPT + '(j, i) ' + EQ + ' \\text{ค่า } m \\text{ ที่ทำให้วงเล็บข้างบนน้อยที่สุด}',
+);
+const texMono = texCode(OPT + '(j, i) \\; ' + LE + ' \\; ' + OPT + '(j, i' + PLUS + ONE + ')');
+const texQi = texCode(
+  CC + '(a, c) ' + PLUS + ' ' + CC + '(b, d) \\;' + LE + '\\; ' + CC + '(a, d) ' + PLUS + ' ' + CC + '(b, c)',
+);
+
+/* ---------- โค้ด ----------
+   ทุกชิ้นคอมไพล์ด้วย g++ 11.4 แล้วสุ่มเทียบกับตัวไล่ทุกกรณี 600 รอบ ตรงกันหมด */
+const codeTemplate = `// แม่แบบท่าแบ่งครึ่ง ใช้ได้ทุกข้อที่ dp[j][i] = min ของ dp[j-1][m-1] + C(m, i)
+// เปลี่ยนแค่ฟังก์ชัน C กับการอ่านอินพุต ที่เหลือลอกทั้งก้อน
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, k;
+vector<ll> dpBefore, dpCur;
+
+ll C(int l, int r);              // ค่าใช้จ่ายของกลุ่มที่รับตัวที่ l..r
+
+const ll INF = LLONG_MAX / 4;
+
+// เติม dpCur[l..r] โดยรู้ว่าจุดตัดที่ดีที่สุดของช่วงนี้อยู่ใน [optl, optr]
+void compute(int l, int r, int optl, int optr) {
+    if (l > r) return;
+    int mid = (l + r) / 2;
+    pair<ll, int> best = {INF * 2, -1};
+    for (int m = optl; m <= min(mid, optr); m++)
+        best = min(best, {dpBefore[m - 1] + C(m, mid), m});
+    dpCur[mid] = best.first;
+    int opt = best.second;
+    compute(l, mid - 1, optl, opt);      // ครึ่งซ้าย จุดตัดไม่เกิน opt
+    compute(mid + 1, r, opt, optr);      // ครึ่งขวา จุดตัดไม่น้อยกว่า opt
+}
+
+ll solve() {
+    dpBefore.assign(n + 1, INF);
+    dpCur.assign(n + 1, INF);
+    dpBefore[0] = 0;                 // ชั้นที่ 0 ครอบได้แค่ของศูนย์ตัว
+
+    for (int j = 1; j <= k; j++) {
+        fill(dpCur.begin(), dpCur.end(), INF);
+        compute(1, n, 1, n);
+        swap(dpBefore, dpCur);       // dpCur[0] ยังเป็น INF ซึ่งถูกแล้ว เพราะกลุ่มว่างไม่ได้
+    }
+    return dpBefore[n];
+}`;
+
+const codeHorses = `// ม้าสองสี: แบ่งม้า n ตัวที่เรียงอยู่แล้วเป็น k คอก ให้ผลรวม (ดำ x ขาว) ของทุกคอกน้อยที่สุด
+// อินพุต: n k แล้วตามด้วย n บรรทัด บรรทัดละ 1 (ดำ) หรือ 0 (ขาว)
+// เอาต์พุต: ค่าความไม่พอใจรวมที่น้อยที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, k;
+vector<int> pb;                 // pb[i] = จำนวนม้าดำในตัวที่ 1..i
+vector<ll> dpBefore, dpCur;
+
+// ค่าใช้จ่ายของคอกที่รับม้าตัวที่ l..r (นับจาก 1)
+ll C(int l, int r) {
+    ll b = pb[r] - pb[l - 1];
+    ll w = (r - l + 1) - b;
+    return b * w;
+}
+
+const ll INF = LLONG_MAX / 4;
+
+// เติม dpCur[l..r] โดยรู้ว่าจุดตัดที่ดีที่สุดของช่วงนี้อยู่ใน [optl, optr]
+void compute(int l, int r, int optl, int optr) {
+    if (l > r) return;
+    int mid = (l + r) / 2;
+    pair<ll, int> best = {INF * 2, -1};
+    for (int m = optl; m <= min(mid, optr); m++)     // คอกสุดท้ายรับม้าตัวที่ m..mid
+        best = min(best, {dpBefore[m - 1] + C(m, mid), m});
+    dpCur[mid] = best.first;
+    int opt = best.second;
+    compute(l, mid - 1, optl, opt);
+    compute(mid + 1, r, opt, optr);
+}
+
+int main() {
+    if (scanf("%d %d", &n, &k) != 2) return 0;
+    pb.assign(n + 1, 0);
+    for (int i = 1; i <= n; i++) { int c; scanf("%d", &c); pb[i] = pb[i - 1] + c; }
+
+    dpBefore.assign(n + 1, INF);
+    dpCur.assign(n + 1, INF);
+    dpBefore[0] = 0;                 // ชั้นที่ 0 คือยังไม่เปิดคอกเลย ครอบได้แค่ของศูนย์ตัว
+
+    for (int j = 1; j <= k; j++) {
+        fill(dpCur.begin(), dpCur.end(), INF);
+        compute(1, n, 1, n);
+        swap(dpBefore, dpCur);       // dpCur[0] ยังเป็น INF ซึ่งถูกแล้ว เพราะคอกว่างไม่ได้
+    }
+    printf("%lld\\n", dpBefore[n]);
+    return 0;
+}`;
+
+const codeGondolas = `// Ciel and Gondolas: แบ่งคิว n คนเป็น k กลุ่มติดกัน ให้ผลรวมความไม่คุ้นเคยในกลุ่มน้อยที่สุด
+// อินพุต: n k แล้วตารางความไม่คุ้นเคย n x n   เอาต์พุต: ผลรวมที่น้อยที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, k;
+vector<vector<int>> S;          // S[i][j] = ผลรวมสี่เหลี่ยมมุมบนซ้าย (1,1) ถึง (i,j)
+vector<ll> dpBefore, dpCur;
+
+// ความไม่คุ้นเคยรวมของกลุ่มที่รับคนที่ l..r  คือครึ่งหนึ่งของสี่เหลี่ยม เพราะตารางสมมาตร
+ll C(int l, int r) {
+    return (ll)(S[r][r] - S[l - 1][r] - S[r][l - 1] + S[l - 1][l - 1]) / 2;
+}
+
+const ll INF = LLONG_MAX / 4;
+
+// เติม dpCur[l..r] โดยรู้ว่าจุดตัดที่ดีที่สุดของช่วงนี้อยู่ใน [optl, optr]
+void compute(int l, int r, int optl, int optr) {
+    if (l > r) return;
+    int mid = (l + r) / 2;
+    pair<ll, int> best = {INF * 2, -1};
+    for (int m = optl; m <= min(mid, optr); m++)
+        best = min(best, {dpBefore[m - 1] + C(m, mid), m});
+    dpCur[mid] = best.first;
+    int opt = best.second;
+    compute(l, mid - 1, optl, opt);
+    compute(mid + 1, r, opt, optr);
+}
+
+int main() {
+    if (scanf("%d %d", &n, &k) != 2) return 0;
+    S.assign(n + 1, vector<int>(n + 1, 0));
+    for (int i = 1; i <= n; i++)
+        for (int j = 1; j <= n; j++) {
+            int v; scanf("%d", &v);
+            S[i][j] = v + S[i - 1][j] + S[i][j - 1] - S[i - 1][j - 1];
+        }
+
+    dpBefore.assign(n + 1, INF);
+    dpCur.assign(n + 1, INF);
+    dpBefore[0] = 0;                 // ชั้นที่ 0 คือยังไม่เปิดกลุ่มเลย ครอบได้แค่ของศูนย์ตัว
+
+    for (int j = 1; j <= k; j++) {
+        fill(dpCur.begin(), dpCur.end(), INF);
+        compute(1, n, 1, n);
+        swap(dpBefore, dpCur);       // dpCur[0] ยังเป็น INF ซึ่งถูกแล้ว เพราะกลุ่มว่างไม่ได้
+    }
+    printf("%lld\\n", dpBefore[n]);
+    return 0;
+}`;
+
+const codeYamp = `// Yet Another Minimization Problem: แบ่งอาเรย์ n ตัวเป็น k ช่วงติดกัน
+// ค่าใช้จ่ายของช่วงคือจำนวนคู่ตำแหน่งในช่วงนั้นที่ค่าเท่ากัน ให้ผลรวมน้อยที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, k;
+vector<int> a, cnt;
+vector<ll> dpBefore, dpCur;
+int curL = 1, curR = 0;
+ll curCost = 0;
+
+void addAt(int i) { curCost += cnt[a[i]]++; }      // ตัวใหม่จับคู่กับตัวที่ค่าเดียวกันซึ่งอยู่ในหน้าต่างแล้ว
+void remAt(int i) { curCost -= --cnt[a[i]]; }
+
+// ค่าใช้จ่ายของช่วง l..r ได้จากการเลื่อนขอบหน้าต่างเดิม ขยายก่อนแล้วค่อยหด
+ll C(int l, int r) {
+    while (curR < r) addAt(++curR);
+    while (curL > l) addAt(--curL);
+    while (curR > r) remAt(curR--);
+    while (curL < l) remAt(curL++);
+    return curCost;
+}
+
+const ll INF = LLONG_MAX / 4;
+
+// เติม dpCur[l..r] โดยรู้ว่าจุดตัดที่ดีที่สุดของช่วงนี้อยู่ใน [optl, optr]
+void compute(int l, int r, int optl, int optr) {
+    if (l > r) return;
+    int mid = (l + r) / 2;
+    pair<ll, int> best = {INF * 2, -1};
+    for (int m = optl; m <= min(mid, optr); m++)
+        best = min(best, {dpBefore[m - 1] + C(m, mid), m});
+    dpCur[mid] = best.first;
+    int opt = best.second;
+    compute(l, mid - 1, optl, opt);
+    compute(mid + 1, r, opt, optr);
+}
+
+int main() {
+    if (scanf("%d %d", &n, &k) != 2) return 0;
+    a.assign(n + 1, 0);
+    for (int i = 1; i <= n; i++) scanf("%d", &a[i]);
+    cnt.assign(n + 2, 0);
+
+    dpBefore.assign(n + 1, INF);
+    dpCur.assign(n + 1, INF);
+    dpBefore[0] = 0;                 // ชั้นที่ 0 คือยังไม่เปิดช่วงเลย ครอบได้แค่ของศูนย์ตัว
+
+    for (int j = 1; j <= k; j++) {
+        fill(dpCur.begin(), dpCur.end(), INF);
+        compute(1, n, 1, n);
+        swap(dpBefore, dpCur);       // dpCur[0] ยังเป็น INF ซึ่งถูกแล้ว เพราะช่วงว่างไม่ได้
+    }
+    printf("%lld\\n", dpBefore[n]);
+    return 0;
+}`;
+
+const codeBrute = `// ตัวตรวจอิสระ: ดีพีสองลูปตรงไปตรงมา ไล่จุดตัดทุกจุดจริง
+// ไม่มีการแบ่งครึ่ง ไม่มีข้ออ้างว่า opt ไม่ถอยหลัง จึงไม่ได้ทดสอบข้ออ้างของตัวจริงเลย
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+ll C(int l, int r);              // ใส่ค่าใช้จ่ายของโจทย์ที่กำลังตรวจ
+
+int main() {
+    int n, k; if (scanf("%d %d", &n, &k) != 2) return 0;
+    // ... อ่านอินพุตของโจทย์นั้น ...
+    const ll INF = LLONG_MAX / 4;
+    vector<vector<ll>> dp(k + 1, vector<ll>(n + 1, INF));
+    dp[0][0] = 0;
+    for (int j = 1; j <= k; j++)
+        for (int i = 1; i <= n; i++)
+            for (int m = 1; m <= i; m++)
+                if (dp[j - 1][m - 1] < INF)
+                    dp[j][i] = min(dp[j][i], dp[j - 1][m - 1] + C(m, i));
+    printf("%lld\\n", dp[k][n]);
+    return 0;
+}`;
+
+const codeOptPrint = `// เครื่องมือที่ควรเขียนก่อนเชื่อว่าใช้ท่านี้ได้: พิมพ์แถว opt ออกมาดูเลย
+// ถ้าเลขในแถวไหนลดลงแม้แต่ครั้งเดียว แปลว่าท่าแบ่งครึ่งใช้กับโจทย์นี้ไม่ได้
+for (int j = 1; j <= k; j++) {
+    printf("opt ชั้น %d:", j);
+    int last = 0;
+    for (int i = 1; i <= n; i++) {
+        printf(" %d", opt[j][i]);
+        if (opt[j][i] < last) printf("(ถอยหลัง!)");
+        last = opt[j][i];
+    }
+    printf("\\n");
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    โจทย์ตระกูลนี้หน้าตาเหมือนกันหมด มีของ <code>n</code> ชิ้นเรียงกันอยู่แล้ว
+    <strong>ห้ามสลับที่</strong> ให้แบ่งเป็น <code>k</code> กองที่ติดกัน แต่ละกองมีค่าใช้จ่ายของมันเอง
+    แล้วขอผลรวมที่น้อยที่สุด
+  </p>
+  <p>
+    เปลี่ยนคำว่า "ของ" เป็นอย่างอื่นได้เรื่อย ๆ แต่โครงไม่เปลี่ยน แบ่งม้าเข้าคอก
+    แบ่งคิวคนขึ้นกระเช้า แบ่งข้อมูลเป็นช่วง ๆ ก่อนบีบอัด ทั้งหมดเป็นโจทย์เดียวกัน
+  </p>
+
+  <ZoomableDiagram caption="ม้าแปดตัวเรียงกันอยู่ ที่กั้นสองอันทำให้เกิดสามคอก ค่าของแต่ละคอกคือจำนวนม้าดำคูณจำนวนม้าขาว ชุดนี้รวมได้ตามที่เขียนไว้ ซึ่งยังไม่ใช่ค่าน้อยที่สุด">
+    <svg viewBox={d1VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ภาพม้าแปดตัวถูกแบ่งเป็นสามคอกด้วยที่กั้นสองอัน">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ของ 8 ชิ้นที่เรียงอยู่แล้ว ห้ามสลับที่</text>
+      {HORSES.map((v, t) => (
+        <>
+          <rect
+            x={cellX(t)}
+            y={34}
+            width={CW}
+            height={40}
+            rx="6"
+            fill={v === 1 ? '#1b2436' : '#0d1626'}
+            stroke={v === 1 ? '#4a5a7d' : '#2a3350'}
+          />
+          <text x={cellX(t) + CW / 2} y={59} fill={v === 1 ? '#cdd6ea' : '#7b8397'} font-size="15" text-anchor="middle" font-family="monospace">
+            {v === 1 ? '●' : '○'}
+          </text>
+          <text x={cellX(t) + CW / 2} y={90} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">
+            {t + 1}
+          </text>
+        </>
+      ))}
+      {d1Cuts.map((c) => (
+        <line x1={cellX(c) - CGAP / 2} y1={28} x2={cellX(c) - CGAP / 2} y2={80} stroke="#e0b400" stroke-width="3" />
+      ))}
+      {d1Groups.map((g, t) => (
+        <>
+          <line
+            x1={cellX(g.l - 1) + 2}
+            y1={112}
+            x2={cellX(g.r - 1) + CW - 2}
+            y2={112}
+            stroke="#4ade80"
+            stroke-width="2"
+          />
+          <text
+            x={(cellX(g.l - 1) + cellX(g.r - 1) + CW) / 2}
+            y={134}
+            fill="#4ade80"
+            font-size="12"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            กอง {t + 1}
+          </text>
+          <text
+            x={(cellX(g.l - 1) + cellX(g.r - 1) + CW) / 2}
+            y={152}
+            fill="#cdd6ea"
+            font-size="11.5"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {hpb[g.r] - hpb[g.l - 1]} x {g.r - g.l + 1 - (hpb[g.r] - hpb[g.l - 1])} = {horseCost(g.l, g.r)}
+          </text>
+        </>
+      ))}
+      <text x="18" y="184" fill="#e0b400" font-size="12.5" font-family="monospace" font-weight="700">
+        รวม {d1Total} ส่วนคำตอบที่ดีที่สุดของกองนี้คือ {hAnswer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>สูตรที่ทุกคนเขียนได้ กับตัวเลขที่ทำให้มันตกรอบ</h2>
+  <p>
+    ให้ <code>dp[j][i]</code> แปลว่า <strong>เอาของ <code>i</code> ชิ้นแรกไปจัดเป็น <code>j</code> กอง
+    ถูกที่สุดได้เท่าไร</strong> กองสุดท้ายต้องรับของตั้งแต่ชิ้นที่ <code>m</code> ถึงชิ้นที่ <code>i</code>
+    เราไม่รู้ว่า <code>m</code> ควรเป็นเท่าไร ก็ลองทุกค่า
+  </p>
+  <Fragment set:html={texRec} />
+  <p>
+    ตรงนี้ <code>C(m, i)</code> คือค่าใช้จ่ายของกองที่รับของชิ้นที่ <code>m</code> ถึง <code>i</code>
+    ส่วน <code>dp[j-1][m-1]</code> คือของที่เหลือข้างหน้าซึ่งจัดไปแล้ว <code>j-1</code> กอง
+  </p>
+  <p>
+    สูตรนี้ถูกต้องแน่นอน ปัญหาคือราคา มันมี <code>k</code> ชั้น ชั้นละ <code>n</code> ช่อง
+    และแต่ละช่องต้องไล่ <code>m</code> ได้ถึง <code>n</code> ค่า รวมเป็น <code>k</code> คูณ <code>n</code>
+    คูณ <code>n</code> ถ้า <code>n</code> เป็นแสนและ <code>k</code> เป็นยี่สิบ ก็คือสองแสนล้านครั้ง
+    ซึ่งไม่มีทางทันในเวลาที่โจทย์ให้
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ชื่อเรียกของท่าที่จะแก้เรื่องนี้</p>
+    <p>
+      ท่านี้ชื่อ <i>Divide and Conquer DP</i> อ่านว่า <strong>"ดิไวด์ แอนด์ คองเคอร์ ดีพี"</strong>
+      แปลตรงตัวว่า <strong>"แบ่งแล้วพิชิต"</strong> ซึ่งเป็นชื่อเดียวกับท่าที่ใช้ในการเรียงข้อมูล
+      คำว่า <i>conquer</i> มาจากภาษาละติน <i>conquirere</i> ที่แปลว่า "ไล่ล่ามาให้ครบ"
+      ในที่นี้ของที่เราไล่ล่าคือ <strong>จุดตัดที่ดีที่สุด</strong> ของทุกช่องในหนึ่งชั้น
+      ส่วนคำว่า <strong>ดีพี</strong> ย่อมาจาก <i>dynamic programming</i> ซึ่งบทอื่นในคลังนี้ใช้กันจนคุ้นแล้ว
+    </p>
+  </div>
+
+  <h2>ลองเอง · วางที่กั้นคอกด้วยมือ</h2>
+  <p>
+    ก่อนไปดูสูตรเร่งความเร็ว ลองวางที่กั้นเองก่อน กติกาคือคลิกที่ช่องว่างระหว่างม้าสองตัวเพื่อวางหรือถอนที่กั้น
+    ต้องวางให้ครบตามจำนวนที่บอก แล้วกดตรวจ ค่าของแต่ละคอกคือ <strong>จำนวนม้าดำคูณจำนวนม้าขาว</strong>
+    ในคอกนั้น
+  </p>
+  <div class="cpgame dcgame" data-dcgame data-puzzles={dcJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {dcPuzzles.map((p, t) => (
+        <button
+          type="button"
+          class="cpg-tab"
+          role="tab"
+          data-cpg-tab={String(t)}
+          aria-selected={t === 0 ? 'true' : 'false'}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{dcPuzzles[0].tease}</p>
+    <p class="fg-sub">
+      ม้า <b data-dc-n>{dcPuzzles[0].xs.length}</b> ตัว ต้องแบ่งเป็น <b data-dc-k>{dcPuzzles[0].k}</b> คอก
+      จึงต้องวางที่กั้น <b data-dc-cuts>{dcPuzzles[0].k - 1}</b> อัน
+    </p>
+
+    <div class="cpg-scroll"><div class="dc-row" data-dc-row></div></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-dc-clear>ถอนที่กั้นทั้งหมด</button>
+      <button type="button" class="cpg-btn main" data-dc-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกช่องว่างระหว่างม้าเพื่อวางที่กั้น</p>
+    <p class="cpg-score" data-cpg-score>ตอนนี้ยังไม่ได้วางที่กั้น</p>
+    <p class="cpg-hint">ม้าทึบคือดำ ม้ากลวงคือขาว คอกที่มีสีเดียวล้วนมีค่าเป็นศูนย์</p>
+  </div>
+  <p class="io-note">
+    ชุดที่สามมีรอยต่อสีให้เลือกมากกว่าจำนวนที่กั้นที่มี ถ้าไล่ตัดตรงรอยต่อแรก ๆ จนหมดที่กั้น
+    จะได้ {trapGreedy} ขณะที่คำตอบจริงคือ {trapBest} ที่กั้นมีจำกัด จึงต้องเก็บไว้ใช้กับรอยต่อที่คุ้มที่สุด
+    ไม่ใช่รอยต่อที่มาถึงก่อน
+  </p>
+  <p class="ns-cue">
+    พอมีคำตอบในใจแล้ว มาดูกันว่าถ้าต้องทำแบบนี้กับม้าหนึ่งแสนตัว เครื่องจะเลือกยังไง
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ของชิ้นเดียวที่เปลี่ยนทุกอย่าง คือจุดตัดที่ดีที่สุด</h2>
+  <p>
+    ตั้งชื่อให้มันก่อน เรียกว่า <code>opt(j, i)</code>
+  </p>
+  <Fragment set:html={texOpt} />
+  <p>
+    ชื่อ <code>opt</code> ย่อมาจาก <i>optimal</i> อ่านว่า <strong>"ออปทิมัล"</strong> แปลว่า
+    <strong>"ดีที่สุด"</strong> มันไม่ใช่คำตอบของโจทย์ มันคือ <strong>ตำแหน่งที่ทำให้ได้คำตอบนั้น</strong>
+    ต่างกันเหมือนคะแนนสอบกับเลขที่นั่งของคนที่ได้คะแนนนั้น
+  </p>
+  <p>
+    ทีนี้ลองพิมพ์ <code>opt</code> ของทุกช่องออกมาดู นี่คือของจริงจากม้าแปดตัวข้างบน
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>OPT ของแต่ละชั้น</caption>
+      <thead>
+        <tr>
+          <th>ชั้น</th>
+          {Array.from({ length: HN }, (_, t) => <th class="num">i={t + 1}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {optRows.map((row) => (
+          <tr>
+            <td>{row.j} คอก</td>
+            {row.cells.map((c) => (
+              <td class="num">{c.dead ? <span class="dim">·</span> : c.v}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      จุดตัดที่ดีที่สุดของแต่ละช่อง จุดที่เป็นจุดคือช่องที่เป็นไปไม่ได้ เช่นเอาของสองชิ้นไปใส่สามคอก
+      สังเกตว่าอ่านจากซ้ายไปขวาในแถวเดียวกัน ตัวเลข<strong>ไม่เคยลดลงเลย</strong>
+    </figcaption>
+  </figure>
+
+  <p>
+    นั่นคือข้อเท็จจริงทั้งหมดที่ท่านี้ต้องการ เขียนเป็นสัญลักษณ์ได้แบบนี้
+  </p>
+  <Fragment set:html={texMono} />
+  <p>
+    อ่านเป็นภาษาคน <strong>ถ้าของกองใหญ่ขึ้นหนึ่งชิ้น จุดตัดสุดท้ายจะไม่ถอยกลับไปทางซ้าย</strong>
+    มันอยู่ที่เดิม หรือขยับไปทางขวา
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">เทียบกับของจริง</p>
+    <p>
+      ลองนึกว่ากำลังตัดขนมปังก้อนยาวแจกคนสามคน ถ้าจู่ ๆ ขนมปังยาวขึ้นอีกนิดหนึ่งทางขวา
+      รอยมีดสุดท้ายควรจะเลื่อนไปทางขวาหรือถอยกลับมาทางซ้าย สามัญสำนึกตอบว่าเลื่อนไปทางขวา
+      เพราะของที่เพิ่มมาอยู่ทางขวา และคนสุดท้ายก็ควรรับภาระที่เพิ่มมานั้นบางส่วน
+      ความรู้สึกนี้ถูกในโจทย์ส่วนใหญ่ แต่<strong>ไม่ได้ถูกเสมอ</strong> ซึ่งเป็นเรื่องที่จะเถียงกันตอนท้ายบท
+    </p>
+  </div>
+
+  <h2>ทำไมรู้แค่นี้แล้วเร็วขึ้นได้</h2>
+  <p>
+    นี่คือสะพานที่คนอ่านมักตกลงไป รู้ว่า <code>opt</code> ไม่ถอยหลัง แล้วยังไงต่อ
+    มันไม่ได้ช่วยตอนไล่จากซ้ายไปขวาเลย เพราะพอเดินถึงช่อง <code>i</code> เราก็รู้แค่ว่า
+    <code>opt</code> ของช่องนี้ไม่น้อยกว่าของช่องก่อนหน้า ซึ่งตัดงานออกได้นิดเดียว
+  </p>
+  <p>
+    กุญแจอยู่ที่การ<strong>เลิกเดินจากซ้ายไปขวา</strong> แล้วหันไปทำช่องตรงกลางก่อน
+  </p>
+  <ul>
+    <li>สมมติจะเติมช่วง <code>1..8</code> เริ่มที่ช่องกลางคือ <code>i = 4</code> ก่อน</li>
+    <li>ตอนนี้ยังไม่รู้อะไรเลย ก็ต้องไล่ <code>m</code> ทั้ง 4 ค่า สมมติว่าได้ <code>opt = 3</code></li>
+    <li>
+      ทันทีที่รู้ว่า <code>opt(4) = 3</code> ช่อง <code>1..3</code> ทั้งหมดมี <code>opt</code>
+      <strong>ไม่เกิน 3</strong> และช่อง <code>5..8</code> ทั้งหมดมี <code>opt</code>
+      <strong>ไม่น้อยกว่า 3</strong> ค่าเดียวที่เพิ่งคำนวณไป ตัดพื้นที่ค้นหาของอีกเจ็ดช่องพร้อมกัน
+    </li>
+    <li>แล้วก็ทำแบบเดิมกับแต่ละครึ่ง ครึ่งซ้ายมีหน้าต่างของตัวเอง ครึ่งขวาก็มีของตัวเอง</li>
+  </ul>
+  <p>
+    เขียนเป็นฟังก์ชันได้หน้าตานี้ พารามิเตอร์สองตัวหลังคือ<strong>หน้าต่างของจุดตัด</strong>
+    ที่ยังต้องส่อง ไม่ใช่ช่วงของช่องที่ต้องเติม
+  </p>
+
+  <ZoomableDiagram caption="ต้นไม้การเรียกซ้ำจริงของชั้นที่ 2 ในตัวอย่างม้าแปดตัว กล่องบนบอกช่วงที่กำลังเติม กล่องล่างบอกหน้าต่างของจุดตัดที่เหลือให้ส่อง ยิ่งลงลึกหน้าต่างยิ่งแคบ">
+    <svg viewBox={d2VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้การเรียกซ้ำของฟังก์ชัน compute">
+      {treeEdges.map((e) => (
+        <line
+          x1={e.from.x + TREE_BW / 2}
+          y1={treeY(e.from.depth) + TREE_BH}
+          x2={e.to.x + TREE_BW / 2}
+          y2={treeY(e.to.depth)}
+          stroke="#2a3350"
+          stroke-width="1.5"
+        />
+      ))}
+      {treeNodes.map((nd) => (
+        <>
+          <rect
+            x={nd.x}
+            y={treeY(nd.depth)}
+            width={TREE_BW}
+            height={TREE_BH}
+            rx="6"
+            fill="#101827"
+            stroke="#2f9e5c"
+          />
+          <text x={nd.x + TREE_BW / 2} y={treeY(nd.depth) + 16} fill="#9aa7bd" font-size="10.5" text-anchor="middle" font-family="monospace">
+            เติม {nd.l}..{nd.r}
+          </text>
+          <text x={nd.x + TREE_BW / 2} y={treeY(nd.depth) + 30} fill="#cdd6ea" font-size="10.5" text-anchor="middle" font-family="monospace">
+            กลาง {nd.mid}
+          </text>
+          <text x={nd.x + TREE_BW / 2} y={treeY(nd.depth) + 44} fill="#e0b400" font-size="10.5" text-anchor="middle" font-family="monospace">
+            m {nd.ol}..{nd.or_}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <h2>เดินให้ดูทีละขั้น</h2>
+  <p>
+    ตารางข้างล่างคือชั้นที่ 2 ของม้าแปดตัวจริง ๆ แถวบนคือชั้นที่ 1 ซึ่งคำนวณเสร็จแล้ว
+    แถวกลางคือช่องที่กำลังเติม แถวล่างคือจุดตัดที่เลือกได้ กดถัดไปเพื่อดูว่าหน้าต่างแคบลงยังไง
+  </p>
+  <CpStepPlayer hook="dcsim" steps={dcSteps} label="การเรียก compute() ตามลำดับจริง ในชั้นที่ 2">
+    <table class="rec dcboard">
+      <thead>
+        <tr>
+          <th>แถว</th>
+          {Array.from({ length: HN + 1 }, (_, i) => <th class="num">{i}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-dc-prev>
+          <td>dp ชั้นที่ 1</td>
+          {Array.from({ length: HN + 1 }, (_, i) => <td class="num">{fmt(dpPrev[i])}</td>)}
+        </tr>
+        <tr data-dc-now>
+          <td>dp ชั้นที่ 2</td>
+          {Array.from({ length: HN + 1 }, (_, i) => (
+            <td class="num" data-v={i === 0 ? '∞' : fmt(dpNow[i])}>·</td>
+          ))}
+        </tr>
+        <tr data-dc-opt>
+          <td>จุดตัดที่เลือก</td>
+          {Array.from({ length: HN + 1 }, (_, i) => (
+            <td class="num" data-v={i === 0 || optNow[i] < 0 ? '·' : String(optNow[i])}>·</td>
+          ))}
+        </tr>
+      </tbody>
+    </table>
+  </CpStepPlayer>
+  <p class="io-note">
+    ช่องสีทองในแถวบนคือช่องที่กำลังถูกส่องในขั้นนั้น รวมทั้งชั้นแล้วส่องไป {dcScansLayer} ช่อง
+    ขณะที่ดีพีสองลูปต้องส่อง {naiveScansPerLayer} ช่อง ที่ <code>n</code> แค่แปดยังต่างกันไม่มาก
+    แต่ตัวเลขนี้โตคนละแบบ ซึ่งเป็นเรื่องของหัวข้อถัดไป
+  </p>
+
+  <h2>ทำไมถึงเหลือแค่ n log n ต่อชั้น</h2>
+  <p>
+    การเรียกซ้ำแบ่งครึ่งไปเรื่อย ๆ จึงลึกประมาณ <code>log n</code> ชั้น
+    คำถามที่เหลือคือ<strong>ในหนึ่งชั้นความลึก งานรวมเป็นเท่าไร</strong>
+  </p>
+  <p>
+    ช่วงที่อยู่ในชั้นความลึกเดียวกัน<strong>ไม่ทับกัน</strong> และหน้าต่างจุดตัดของพวกมันก็เรียงต่อกันไป
+    โดยเหลื่อมกันได้แค่ที่ปลายข้างละหนึ่ง เพราะครึ่งซ้ายจบที่ <code>opt</code> พอดี
+    และครึ่งขวาเริ่มที่ <code>opt</code> พอดี ค่าเดียวกันนั้นจึงถูกนับซ้ำหนึ่งครั้ง
+  </p>
+  <p>
+    รวมความยาวหน้าต่างทั้งชั้นจึงไม่เกิน <code>n</code> บวกจำนวนช่วงในชั้นนั้น
+    ซึ่งชั้นที่ลึก <code>d</code> มีช่วงไม่เกิน <code>2^d</code> ช่วง แต่ก็ไม่เกิน <code>n</code> อยู่ดี
+    งานต่อชั้นความลึกจึงเป็น <code>O(n)</code> คูณด้วยความลึก <code>log n</code>
+    และคูณด้วยจำนวนชั้นของดีพี <code>k</code> ได้เป็น <strong><code>O(k · n log n)</code></strong>
+  </p>
+  <div class="callout callout-warn">
+    <p class="callout-label">ที่คนคิดเวลาผิดบ่อย</p>
+    <p>
+      สังเกตว่าราคานี้<strong>ไม่ได้รวมราคาของ <code>C(m, i)</code></strong>
+      สูตรข้างบนคิดจากสมมติฐานว่าถามค่าใช้จ่ายของกองหนึ่งได้ในเวลาคงที่
+      ถ้า <code>C</code> ต้องวนลูปเองอีกรอบ ทุกอย่างต้องคูณเพิ่มเข้าไป
+      ซึ่งเป็นเหตุผลที่โจทย์ข้อที่สามในบทนี้ต้องออกแรงกับ <code>C</code> มากกว่าตัวดีพีเสียอีก
+    </p>
+  </div>
+
+  <h2>แม่แบบที่ลอกไปใช้ได้ทุกข้อ</h2>
+  <p>
+    ทั้งบทเหลือโค้ดชุดเดียว เปลี่ยนแค่ <code>C</code> กับการอ่านอินพุต
+  </p>
+  <CodeBlock code={codeTemplate} lang="cpp" title="dcdp.cpp" />
+  <div class="callout callout-warn">
+    <p class="callout-label">สามจุดที่ต้องระวังในแม่แบบนี้</p>
+    <p>
+      <strong>หนึ่ง</strong> ตอนเรียกซ้ำครึ่งซ้ายต้องส่ง <code>opt</code> เป็นขอบขวา ไม่ใช่
+      <code>opt - 1</code> เพราะช่องซ้ายมีสิทธิ์ใช้จุดตัดเดียวกันได้ ถ้าเผลอลบหนึ่ง
+      คำตอบจะสูงกว่าความจริงในบางเคสโดยไม่มีอะไรฟ้อง
+    </p>
+    <p>
+      <strong>สอง</strong> ค่าอนันต์ต้องเลือกให้บวกกับ <code>C</code> แล้วไม่ล้น
+      ที่นี่ใช้ <code>LLONG_MAX / 4</code> ไม่ใช่ <code>LLONG_MAX</code>
+      เพราะบรรทัดที่บวกไม่ได้เช็กก่อนว่าต้นทางเป็นอนันต์หรือเปล่า
+    </p>
+    <p>
+      <strong>สาม</strong> <code>dpCur[0]</code> ต้องเป็นอนันต์ ไม่ใช่ศูนย์
+      อันนี้เป็นบักที่ตัวโค้ดต้นแบบซึ่งเจอได้ทั่วไปในเน็ตมีติดอยู่ และมีหัวข้อของมันเองอยู่ท้ายบท
+    </p>
+  </div>
+
+  <h2>ก่อนใช้ท่านี้ ต้องรู้ได้ยังไงว่าใช้ได้</h2>
+  <p>
+    นี่คือส่วนที่ยากที่สุดจริง ๆ ของท่านี้ ไม่ใช่โค้ด เพราะโค้ดลอกได้
+    สิ่งที่ลอกไม่ได้คือคำตอบของคำถามว่า <strong>โจทย์ตรงหน้ามี <code>opt</code> ที่ไม่ถอยหลังจริงไหม</strong>
+  </p>
+  <p>
+    เงื่อนไขที่พิสูจน์ได้และใช้ได้กว้างที่สุดชื่อ <strong>อสมการสี่เหลี่ยม</strong>
+    (<i>quadrangle inequality</i> อ่านว่า <strong>"ควอดแรงเกิล อิเนอควอลิตี"</strong>) สำหรับทุก
+    <code>a ≤ b ≤ c ≤ d</code> ต้องได้ว่า
+  </p>
+  <Fragment set:html={texQi} />
+  <p>
+    อ่านเป็นภาษาคน ฝั่งซ้ายคือช่วงสองช่วงที่<strong>เหลื่อมกัน</strong> ฝั่งขวาคือช่วงหนึ่งกว้างมาก
+    กับอีกช่วงแคบ ๆ ซ้อนอยู่ข้างใน อสมการนี้บอกว่า <strong>การกางออกให้กว้างมีราคาแพงกว่าเสมอ</strong>
+    ค่าใช้จ่ายที่มีนิสัยแบบนี้คือค่าใช้จ่ายที่ลงโทษกองใหญ่ ซึ่งพอดีกับสามัญสำนึกเรื่องรอยมีดที่เลื่อนไปทางขวา
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ท่าที่ผมใช้จริงเวลาแข่ง</p>
+    <p>
+      พิสูจน์อสมการสี่เหลี่ยมกลางสนามแข่งเป็นเรื่องที่ทำไม่ทัน สิ่งที่ทำได้จริงคือ
+      <strong>เขียนดีพีสองลูปธรรมดาให้ถูกก่อน แล้วสั่งพิมพ์แถว <code>opt</code> ออกมาดู</strong>
+      ที่ <code>n</code> สัก 30 กับอินพุตสุ่มสักร้อยชุด ถ้าไม่มีแถวไหนถอยหลังเลย ก็กล้าพอที่จะส่ง
+    </p>
+    <p>
+      นี่ไม่ใช่การพิสูจน์ และผมพูดตรง ๆ ว่ามันคือการเดาที่มีหลักฐาน แต่มันจับกรณีที่ใช้ไม่ได้จริง ๆ
+      ได้เกือบทุกครั้ง เพราะโจทย์ที่ <code>opt</code> ถอยหลัง มักถอยตั้งแต่ <code>n</code> เล็ก ๆ
+    </p>
+  </div>
+  <CodeBlock code={codeOptPrint} lang="cpp" title="ตรวจก่อนเชื่อ" />
+
+  <h2>ถ้าฝืนใช้กับโจทย์ที่ไม่เข้าเงื่อนไข จะพังยังไง</h2>
+  <p>
+    ตัวอย่างข้างล่างเล็กมาก มีของแค่ {CE_N} ชิ้น แบ่ง {CE_K} กอง และค่าใช้จ่ายของทุกช่วงกำหนดมาตรง ๆ
+    เป็นตัวเลข ไม่ได้มาจากสูตรอะไรเลย
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>C ของทุกช่วง</caption>
+      <thead>
+        <tr>
+          <th>ช่วง</th>
+          {Object.keys(CE).map((key) => <th class="num">{key.replace(',', '..')}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ค่าใช้จ่าย</td>
+          {Object.keys(CE).map((key) => <td class="num">{CE[key]}</td>)}
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ค่าใช้จ่ายชุดนี้ทำให้อสมการสี่เหลี่ยมพังที่ a={ceBreak.a} b={ceBreak.b} c={ceBreak.c} d={ceBreak.d}
+      คือ {ceCost(ceBreak.a, ceBreak.c)} บวก {ceCost(ceBreak.b, ceBreak.d)} มากกว่า
+      {' '}{ceCost(ceBreak.a, ceBreak.d)} บวก {ceCost(ceBreak.b, ceBreak.c)}
+    </figcaption>
+  </figure>
+  <p>
+    แถว <code>opt</code> ของชั้นที่ {CE_K} ออกมาเป็น <code>{ceOptRow.map((v) => (v < 0 ? '·' : v)).join(', ')}</code>
+    ซึ่ง<strong>ถอยหลังที่ช่องสุดท้าย</strong> ผลคือดีพีสองลูปตอบ <strong>{ceTruth}</strong>
+    แต่ท่าแบ่งครึ่งตอบ <strong>{ceGot}</strong>
+  </p>
+  <p>
+    จุดที่น่ากลัวคือมันตอบ<strong>สูงกว่า</strong>ความจริง ไม่ใช่ตอบเป็นค่าประหลาดหรือโปรแกรมพัง
+    คำตอบที่ได้ยังเป็นการแบ่งที่ถูกกติกาทุกอย่าง แค่ไม่ใช่การแบ่งที่ดีที่สุด
+    ซึ่งเป็นอาการที่มองด้วยตาไม่มีทางเห็น
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึกข้อที่ 1 · ม้าสองสี</h2>
+  <p>
+    ฟาร์มมีม้า <code>N</code> ตัวยืนเรียงกันอยู่ ตัวหนึ่งเป็นดำหรือขาว
+    ต้องต้อนเข้าคอก <code>K</code> คอกโดย<strong>ห้ามสลับลำดับ</strong> แต่ละคอกต้องมีม้าอย่างน้อยหนึ่งตัว
+    ความไม่พอใจของคอกหนึ่งคือ<strong>จำนวนม้าดำคูณจำนวนม้าขาว</strong>ในคอกนั้น
+    ขอผลรวมความไม่พอใจที่น้อยที่สุด
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> และ <code>K</code> จากนั้น <code>N</code> บรรทัด บรรทัดละ 1 (ดำ) หรือ 0 (ขาว)</li>
+      <li><strong>ขอบเขต:</strong> 1 ≤ K ≤ N ≤ 500</li>
+      <li><strong>เอาต์พุต:</strong> จำนวนเต็มหนึ่งตัว คือผลรวมที่น้อยที่สุด</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>6 3<br />1<br />1<br />0<br />1<br />0<br />1</td><td>2</td></tr></tbody>
+  </table>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คอกที่มีม้าสีเดียวล้วนมีค่าเป็นศูนย์ ดังนั้นถ้าตัดได้พอดีตามแถบสีก็จบ
+      แต่จำนวนคอกมักน้อยกว่าจำนวนแถบสี จึงต้องเลือกว่าจะยอมให้แถบไหนมาปนกัน
+      คำถามที่ควรถามตอนนี้คือ ค่าใช้จ่ายของคอกหนึ่งขึ้นกับอะไรบ้าง แล้วถามซ้ำ ๆ ให้เร็วได้ไหม
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 1</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ไม่ได้เริ่มจากท่าแบ่งครึ่ง มันเริ่มจากการยอมรับว่าไม่มีวิธีเลือกจุดตัดแบบโลภที่ถูก
+        ผมลองกฎ "ตัดตรงที่สีเปลี่ยนที่เจอก่อนเสมอ" กับกองม้าสิบสองตัวในมินิเกมข้างบน
+        แล้วมันได้ {trapGreedy} ขณะที่คำตอบจริงคือ {trapBest} เพราะที่กั้นสามอันถูกใช้หมดไปกับแถบสั้น ๆ
+        ตรงหัวแถว แล้วไม่เหลือให้แยกแถบยาวสองแถบท้ายแถวออกจากกัน
+      </p>
+      <p>
+        พอโลภไม่ได้ก็เหลือดีพี และดีพีของโจทย์แบ่งกองมีรูปเดียวคือ "กองสุดท้ายเริ่มตรงไหน"
+        เขียนแล้วได้ <code>O(K·N²)</code> ซึ่งที่ <code>N</code> เท่ากับ 500 คือ 125 ล้าน
+        พอผ่านอยู่แล้ว จริง ๆ ข้อนี้ไม่ต้องใช้ท่าแบ่งครึ่งเลยด้วยซ้ำ
+      </p>
+      <p>
+        ที่ยกมาเป็นข้อแรกเพราะค่าใช้จ่ายของมันเป็นที่ที่<strong>เห็นอสมการสี่เหลี่ยมได้ง่ายที่สุด</strong>
+        ค่าคือดำคูณขาว ซึ่งเป็นฟังก์ชันที่โตแบบผลคูณ พอกางช่วงให้กว้างขึ้น
+        ม้าที่เพิ่มเข้ามาจะจับคู่กับม้าคนละสีทุกตัวที่อยู่ในคอกอยู่แล้ว ราคาจึงพุ่งเร็วกว่าการกางทีละนิด
+      </p>
+    </div>
+    <p>
+      ให้ <code>black[i]</code> เป็นจำนวนม้าดำในตัวที่ 1 ถึง <code>i</code> แล้วค่าของคอกที่รับตัวที่
+      <code>l</code> ถึง <code>r</code> คิดได้ในเวลาคงที่ทันที
+    </p>
+    <ul>
+      <li>จำนวนดำคือ <code>black[r] - black[l-1]</code></li>
+      <li>จำนวนขาวคือ <code>(r - l + 1)</code> ลบจำนวนดำ</li>
+      <li>ค่าใช้จ่ายคือสองอันนั้นคูณกัน</li>
+    </ul>
+    <p>
+      เมื่อ <code>C</code> ตอบได้ในเวลาคงที่ ก็เสียบเข้าแม่แบบได้ตรง ๆ ไม่ต้องแก้อะไรอีก
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดข้อที่ 1</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeHorses} lang="cpp" title="horses.cpp" />
+      </div>
+    </details>
+    <p class="io-note">
+      โค้ดนี้คอมไพล์ด้วย g++ 11.4 แล้วสุ่มเทียบกับดีพีสองลูป 600 รอบที่ N ไม่เกิน 9 ตรงกันทุกรอบ
+      และตอบตัวอย่างของโจทย์ได้ 2 ที่ขอบเขตเต็ม N=500 K=250 ใช้เวลา 0.004 วินาที
+    </p>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึกข้อที่ 2 · คิวขึ้นกระเช้า</h2>
+  <p>
+    มีคน <code>n</code> คนต่อคิวอยู่ กระเช้ามาทีละคัน รวม <code>k</code> คัน
+    คันแรกรับคนหัวคิวไป <code>q1</code> คน คันต่อไปรับหัวคิวที่เหลือไป <code>q2</code> คน ไปเรื่อย ๆ
+    ทุกคันต้องมีคนอย่างน้อยหนึ่งคน โจทย์ให้ตาราง <code>u</code> ขนาด <code>n × n</code> มาด้วย
+    โดย <code>u[i][j]</code> คือความไม่คุ้นเคยระหว่างคนที่ <code>i</code> กับคนที่ <code>j</code>
+    ความไม่คุ้นเคยของกระเช้าคันหนึ่งคือ<strong>ผลรวมของทุกคู่คนที่นั่งคันเดียวกัน</strong>
+    ขอผลรวมของทุกคันที่น้อยที่สุด
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n</code> และ <code>k</code> แล้วตาราง <code>u</code> ขนาด <code>n × n</code></li>
+      <li><strong>ขอบเขต:</strong> 1 ≤ n ≤ 4000, 1 ≤ k ≤ min(n, 800), 0 ≤ u[i][j] ≤ 9, ตารางสมมาตรและแนวทแยงเป็นศูนย์</li>
+      <li><strong>เอาต์พุต:</strong> ผลรวมความไม่คุ้นเคยที่น้อยที่สุด</li>
+    </ul>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ตัวดีพีเหมือนข้อแรกทุกอย่าง ของใหม่อยู่ที่ <code>C</code> เท่านั้น
+      ผลรวมของทุกคู่ในกลุ่มคือ<strong>ผลรวมของสี่เหลี่ยมจัตุรัสในตาราง</strong>
+      ที่มีมุมบนซ้ายและมุมล่างขวาอยู่บนแนวทแยง คำถามคือถามค่าสี่เหลี่ยมนั้นให้ได้ในเวลาคงที่ได้ไหม
+      และเมื่อได้แล้ว ทำไมต้องหารสอง
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 2</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ตัวเลขเป็นตัวบอกเองว่าต้องใช้ท่าอะไร <code>n</code> เท่ากับ 4000 และ <code>k</code> เท่ากับ 800
+        ดีพีสองลูปคือ 800 คูณ 4000 คูณ 4000 ซึ่งคูณออกมาแล้วเป็นหมื่นสองพันล้าน ไม่ต้องคิดต่อ
+        พอเปลี่ยนเป็นท่าแบ่งครึ่ง ตัวคูณตัวสุดท้ายเหลือ <code>log 4000</code> ประมาณ 12
+        กลายเป็นสามสิบแปดล้าน ซึ่งเป็นคนละโลกกัน
+      </p>
+      <p>
+        สิ่งที่ผมพลาดรอบแรกคือลืมว่าตารางสมมาตร แล้วนับทุกคู่สองครั้ง คำตอบจึงเป็นสองเท่าพอดี
+        อาการนี้จับง่ายกว่าที่คิด เพราะพอเทียบกับตัวไล่ทุกกรณีแล้วอัตราส่วนคงที่เป๊ะทุกเคส
+        ซึ่งเป็นสัญญาณว่าไม่ได้ผิดตรรกะ แต่ผิดตัวคูณ
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ เวลาผลต่างระหว่างของเรากับตัวตรวจเป็น<strong>อัตราส่วนคงที่</strong>
+        ให้มองหาการนับซ้ำก่อนเสมอ ก่อนจะไปรื้อสูตร
+      </p>
+    </div>
+    <p>
+      สร้างผลรวมสะสมสองมิติ <code>S[i][j]</code> เท่ากับผลรวมของสี่เหลี่ยมตั้งแต่ช่อง (1,1) ถึง (i,j)
+      แล้วผลรวมของสี่เหลี่ยมที่มุมอยู่ที่ <code>l</code> ถึง <code>r</code> คือ
+    </p>
+    <p>
+      <code>S[r][r] - S[l-1][r] - S[r][l-1] + S[l-1][l-1]</code>
+    </p>
+    <p>
+      สี่เหลี่ยมนั้นนับทุกคู่<strong>สองครั้ง</strong> เพราะทั้ง <code>u[i][j]</code> และ
+      <code>u[j][i]</code> อยู่ในนั้น ส่วนแนวทแยงเป็นศูนย์อยู่แล้วจึงไม่กวน หารสองก็ได้ค่าที่ต้องการ
+    </p>
+    <p>
+      เรื่องหน่วยความจำ ตาราง <code>S</code> เป็น <code>int</code> ขนาด 4001 คูณ 4001
+      คือประมาณ 64 เมกะไบต์ ค่าสูงสุดที่มันเก็บคือ 4000 คูณ 4000 คูณ 9 ซึ่งยังอยู่ในช่วงของ
+      <code>int</code> พอดี ส่วนตัวดีพีต้องเป็น <code>long long</code>
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดข้อที่ 2</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeGondolas} lang="cpp" title="gondolas.cpp" />
+      </div>
+    </details>
+    <p class="io-note">
+      สุ่มเทียบกับดีพีสองลูปที่คิดค่ากลุ่มด้วยการบวกทีละคู่จริง 600 รอบ ตรงกันหมด
+      ที่ขอบเขตเต็ม n=4000 k=800 บนเครื่องผมใช้เวลา 1.5 วินาทีรวมเวลาอ่านตัวเลข 16 ล้านตัว
+      ซึ่งแปลว่าถ้าเวลาที่โจทย์ให้ตึง ตัวอ่านอินพุตคือสิ่งแรกที่ต้องเปลี่ยน ไม่ใช่ตัวดีพี
+    </p>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึกข้อที่ 3 · ตัดอาเรย์ให้คู่ซ้ำน้อยที่สุด</h2>
+  <p>
+    ให้อาเรย์ยาว <code>n</code> ตัด<strong>ให้ติดกัน</strong>เป็น <code>k</code> ช่วง
+    ค่าใช้จ่ายของช่วงหนึ่งคือ<strong>จำนวนคู่ตำแหน่งในช่วงนั้นที่ค่าเท่ากัน</strong>
+    ขอผลรวมที่น้อยที่สุด
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n</code> และ <code>k</code> แล้วอาเรย์ <code>n</code> ตัว</li>
+      <li><strong>ขอบเขต:</strong> 2 ≤ n ≤ 100000, 2 ≤ k ≤ min(n, 20), ค่าในอาเรย์อยู่ระหว่าง 1 ถึง n</li>
+      <li><strong>เอาต์พุต:</strong> ผลรวมที่น้อยที่สุด</li>
+    </ul>
+  </div>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้ผลรวมสะสมช่วยไม่ได้ เพราะจำนวนคู่ซ้ำในช่วงหนึ่ง<strong>ไม่ได้เป็นผลต่างของอะไรทั้งนั้น</strong>
+      แต่สังเกตว่าถ้ารู้ค่าของช่วง <code>l..r</code> แล้ว การหาค่าของ <code>l..r+1</code> ราคาถูกมาก
+      คำถามคือ ระหว่างที่การเรียกซ้ำเดินไปเรื่อย ๆ มันขอค่าของช่วงที่ใกล้เคียงกันหรือกระโดดไปมา
+    </p>
+  </div>
+
+  <h2>เฉลยข้อที่ 3</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">ทางที่ผมลองก่อน แล้วทิ้ง</p>
+      <p>
+        ทางแรกคือหาสูตรปิดของ <code>C(l, r)</code> ให้ได้ ผมนั่งอยู่พักหนึ่งกับความคิดว่าน่าจะเก็บ
+        "จำนวนคู่ซ้ำที่จบก่อนตำแหน่ง i" ไว้แล้วลบกัน แต่มันไม่จริง เพราะคู่ซ้ำที่ขาหนึ่งอยู่ก่อน
+        <code>l</code> และอีกขาอยู่ใน <code>l..r</code> ต้องถูกตัดทิ้ง ซึ่งจำนวนนั้นขึ้นกับ
+        <strong>ทั้งสองปลาย</strong> พร้อมกัน ไม่ใช่ปลายเดียว จึงยุบเป็นผลต่างไม่ได้
+      </p>
+      <p>
+        ทางที่สองคือยอมจ่ายให้ <code>C</code> เป็น <code>O(r - l)</code> ซึ่งทำให้ทั้งอัลกอริทึม
+        กลายเป็น <code>O(k·n²·log n)</code> แย่กว่าดีพีธรรมดาเสียอีก จุดที่คิดออกคือตอนที่ยอมมองว่า
+        <code>C</code> <strong>ไม่จำเป็นต้องตอบจากศูนย์ทุกครั้ง</strong> มันจำค่าของช่วงล่าสุดไว้ได้
+        แล้วขยับขอบทีละหนึ่ง ซึ่งเป็นท่าเดียวกับหน้าต่างเลื่อนที่บทก่อนหน้าสอนไว้
+      </p>
+      <p>
+        บทเรียนที่ติดตัวมาจากข้อนี้คือ เวลาเจอค่าใช้จ่ายที่ยุบเป็นผลต่างไม่ได้ อย่าเพิ่งทิ้งดีพี
+        ให้ถามก่อนว่าลำดับการถามของอัลกอริทึมมันเรียงตัวดีพอที่จะใช้หน้าต่างเลื่อนไหม
+      </p>
+    </div>
+    <p>
+      เก็บหน้าต่างปัจจุบัน <code>[curL, curR]</code> กับตัวนับว่าค่าแต่ละค่าโผล่กี่ครั้งในหน้าต่างนั้น
+      เวลาเติมตัวใหม่เข้ามา จำนวนคู่ซ้ำเพิ่มขึ้นเท่ากับ<strong>จำนวนตัวที่ค่าเดียวกันซึ่งอยู่ในหน้าต่างอยู่แล้ว</strong>
+      เวลาถอดออกก็ลบกลับด้วยตรรกะเดียวกัน
+    </p>
+    <p>
+      ลำดับการขยับสำคัญมาก ต้อง<strong>ขยายก่อนแล้วค่อยหด</strong> ถ้าหดก่อน หน้าต่างอาจกลายเป็นช่วงกลับด้าน
+      กลางคัน แล้วตัวนับจะติดลบ
+    </p>
+    <p>
+      ทำไมถึงคุ้ม เพราะการเรียกซ้ำของท่าแบ่งครึ่งขอค่าของช่วงที่<strong>ปลายขวาเปลี่ยนช้า</strong>
+      ในหนึ่งกิ่งของการเรียกซ้ำ ปลายขวาคือ <code>mid</code> ซึ่งคงที่ตลอดลูป
+      และปลายซ้ายก็เดินไปข้างหน้าอย่างเดียวในลูปนั้น ระยะที่ขอบขยับรวมกันจึงเป็น
+      <code>O(n log n)</code> ต่อชั้น เท่ากับจำนวนช่องที่ส่องพอดี
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดข้อที่ 3</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeYamp} lang="cpp" title="yamp.cpp" />
+      </div>
+    </details>
+    <p class="io-note">
+      สุ่มเทียบกับดีพีสองลูปที่นับคู่ซ้ำด้วยสองลูปตรง ๆ 600 รอบ ตรงกันหมด
+      ที่ขอบเขตเต็ม n=100000 k=20 ใช้เวลา 0.27 วินาที ทั้งกรณีค่ากระจายและกรณีค่าซ้ำเยอะ
+    </p>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>บักที่ติดมากับโค้ดต้นแบบที่ทุกคนลอก</h2>
+  <p>
+    โค้ดต้นแบบที่หาเจอทั่วไปเขียนชั้นแรกด้วยมือ แล้วปล่อยให้ <code>dp_before[0]</code> เป็นศูนย์ค้างไว้
+    ทุกชั้น ความหมายของมันคือ <strong>"เอาของศูนย์ชิ้นไปจัดเป็นหลายกอง ได้ค่าศูนย์"</strong>
+    ซึ่งแปลว่า<strong>ยอมให้กองว่าง</strong>
+  </p>
+  <p>
+    สำหรับสามข้อในบทนี้ มันไม่มีผลอะไรเลย เพราะค่าใช้จ่ายของทั้งสามข้อไม่เคยลดลงเมื่อเอาของมารวมกัน
+    การใช้กองน้อยลงจึงไม่มีทางถูกกว่า ตัวเลขที่ออกมาจึงเหมือนกันเป๊ะ นี่คือเหตุผลที่บักนี้อยู่รอดมานาน
+  </p>
+  <p>
+    แต่พอค่าใช้จ่ายมี<strong>ค่าเปิดกอง</strong> เรื่องเปลี่ยนทันที ลองให้
+    <code>C(l, r)</code> เท่ากับ {FEE} บวกจำนวนสมาชิก แล้วสั่งแบ่งของ {FEE_N} ชิ้นเป็น {FEE_K} กอง
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ผลของบักปล่อยกองว่าง</caption>
+      <thead>
+        <tr><th>วิธีคิด</th><th class="num">คำตอบ</th><th>เกิดอะไรขึ้น</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ดีพีสองลูป (ถูกต้อง)</td>
+          <td class="num">{feeTruth}</td>
+          <td>เปิดสามกองจริง จ่ายค่าเปิด {FEE} สามครั้ง บวกสมาชิกอีก {FEE_N}</td>
+        </tr>
+        <tr>
+          <td>แบ่งครึ่งที่ปล่อย <code>dp_before[0] = 0</code></td>
+          <td class="num">{feeBuggy}</td>
+          <td>แอบใช้กองเดียวแล้วปล่อยอีกสองกองว่าง จ่ายค่าเปิดครั้งเดียว</td>
+        </tr>
+        <tr>
+          <td>แบ่งครึ่งที่แก้แล้ว</td>
+          <td class="num">{feeFixed}</td>
+          <td>ตรงกับดีพีสองลูป</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ค่าใช้จ่ายชุดนี้ผ่านอสมการสี่เหลี่ยมทุกกรณี ความผิดจึงไม่ได้มาจากเรื่อง <code>opt</code> ถอยหลัง
+      แต่มาจากบรรทัดเดียวที่ปล่อยให้กองว่างได้
+    </figcaption>
+  </figure>
+  <p>
+    ทางแก้คือให้ชั้นที่ศูนย์เป็นชั้นเดียวที่ <code>dp[0]</code> เป็นศูนย์ แล้ววนตั้งแต่ชั้นที่ 1
+    ไม่ใช่เขียนชั้นที่ 1 ด้วยมือ ซึ่งเป็นสิ่งที่แม่แบบข้างบนทำอยู่แล้ว
+  </p>
+
+  <h2>ตัวตรวจที่ควรเขียนคู่กันทุกครั้ง</h2>
+  <p>
+    ทุกข้อในบทนี้ถูกตรวจด้วยโปรแกรมตัวที่สองที่<strong>ไม่รู้จักท่าแบ่งครึ่งเลย</strong>
+    นี่คือโครงของมัน สั้นมากและเขียนได้ในสองนาที
+  </p>
+  <details class="expander">
+    <summary>ดูโค้ดตัวตรวจ</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeBrute} lang="cpp" title="brute.cpp" />
+    </div>
+  </details>
+  <p>
+    เหตุผลที่มันมีค่าคือมันไม่ได้ใช้ข้ออ้างเดียวกับตัวจริง ถ้าเขียนตัวตรวจที่ยังเชื่อว่า
+    <code>opt</code> ไม่ถอยหลัง มันจะเห็นด้วยกับตัวจริงเสมอ แม้ตอนที่ทั้งคู่ผิด
+  </p>
+  <p class="pull">
+    ตัวอย่างที่โจทย์ให้มา ไม่เคยเป็นหลักฐานว่าโค้ดถูก มันถูกเขียนมาเพื่ออธิบายโจทย์ ไม่ใช่เพื่อหักโค้ด
+  </p>
+
+  <h2>ที่มาและอ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      cp-algorithms, "Divide and Conquer DP" ต้นทางของสูตร โค้ดแม่แบบ และรายชื่อโจทย์ฝึกทั้งหมดในบทนี้
+      <a href="https://cp-algorithms.com/dynamic_programming/divide-and-conquer-dp.html" target="_blank" rel="noopener">cp-algorithms.com</a>
+    </li>
+    <li>
+      Timus Online Judge ปัญหา 1167 Bicolored Horses คือโจทย์ข้อที่ 1
+      <a href="https://acm.timus.ru/problem.aspx?space=1&num=1167" target="_blank" rel="noopener">acm.timus.ru</a>
+    </li>
+    <li>
+      Codeforces 321E Ciel and Gondolas คือโจทย์ข้อที่ 2
+      <a href="https://codeforces.com/problemset/problem/321/E" target="_blank" rel="noopener">codeforces.com</a>
+    </li>
+    <li>
+      Codeforces 868F Yet Another Minimization Problem คือโจทย์ข้อที่ 3
+      <a href="https://codeforces.com/problemset/problem/868/F" target="_blank" rel="noopener">codeforces.com</a>
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  .dim{color:#7b8397;}
+
+  /* ---------- กระดานของเครื่องเดิน ----------
+     ล็อกความกว้างคอลัมน์ไว้ ไม่งั้นช่องที่เปลี่ยนจาก · เป็นตัวเลขจะดันตารางทั้งใบ */
+  table.rec.dcboard{
+    table-layout:fixed;
+    width:0;
+    min-width:100%;
+  }
+  table.rec.dcboard th:first-child,
+  table.rec.dcboard td:first-child{width:8.2rem;}
+  table.rec.dcboard th.num,
+  table.rec.dcboard td.num{width:3.1rem;}
+  /* คลาสสถานะต้องมี .num ด้วย ไม่งั้นแพ้ table.rec td.num ที่ตั้งสีไว้แล้ว */
+  table.rec.dcboard td.num.is-mid{
+    background:rgba(74,222,128,0.18);
+    color:#eaf4ff;
+    font-weight:700;
+  }
+  table.rec.dcboard td.num.is-src{
+    background:rgba(224,180,0,0.16);
+    color:#ffe9a8;
+  }
+
+  /* ---------- แถวม้าของมินิเกม ---------- */
+  .dc-row{display:flex;align-items:stretch;width:max-content;padding:0.2rem 0;}
+  .dc-row :global(.dc-h){
+    flex:0 0 auto;
+    width:2.2rem;height:2.6rem;
+    display:flex;align-items:center;justify-content:center;
+    font-size:1.05rem;
+    border:1px solid #2a3350;border-radius:6px;
+    background:#101827;color:#7b8397;
+  }
+  .dc-row :global(.dc-h.black){background:#1b2436;color:#cdd6ea;border-color:#4a5a7d;}
+  .dc-row :global(.dc-gap){
+    flex:0 0 auto;
+    width:1.1rem;
+    border:none;background:none;padding:0;margin:0;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .dc-row :global(.dc-gap::before){
+    content:"";
+    display:block;
+    width:3px;height:2.2rem;
+    border-radius:2px;
+    background:#1c2540;
+  }
+  .dc-row :global(.dc-gap:hover::before){background:#3a4a72;}
+  .dc-row :global(.dc-gap.on::before){background:#e0b400;}
+  .dc-row :global(.dc-edge){flex:0 0 auto;width:0.4rem;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type DcPuzzle = { id: string; label: string; tease: string; xs: number[]; k: number; best: number };
+
+  function initDcGame(): void {
+    const maybeUi = cpGameUi('[data-dcgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as DcPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const rowEl = ui.root.querySelector<HTMLElement>('[data-dc-row]');
+    const nEl = ui.root.querySelector<HTMLElement>('[data-dc-n]');
+    const kEl = ui.root.querySelector<HTMLElement>('[data-dc-k]');
+    const cutsEl = ui.root.querySelector<HTMLElement>('[data-dc-cuts]');
+    if (!rowEl || !nEl || !kEl || !cutsEl) return;
+    const row: HTMLElement = rowEl;
+    const nOut: HTMLElement = nEl;
+    const kOut: HTMLElement = kEl;
+    const cutsOut: HTMLElement = cutsEl;
+
+    let pi = 0;
+    let cuts = new Set<number>();
+
+    const pz = (): DcPuzzle => puzzles[pi];
+
+    /** ค่าของการแบ่งปัจจุบัน คือผลรวมของ (ดำ x ขาว) ทุกคอก */
+    function totalCost(): number {
+      const p = pz();
+      const marks = [...cuts].sort((a, b) => a - b);
+      const bounds = [0, ...marks, p.xs.length];
+      let sum = 0;
+      for (let t = 0; t + 1 < bounds.length; t++) {
+        const seg = p.xs.slice(bounds[t], bounds[t + 1]);
+        const b = seg.filter((v) => v === 1).length;
+        sum += b * (seg.length - b);
+      }
+      return sum;
+    }
+
+    function build(): void {
+      const p = pz();
+      row.textContent = '';
+      const edge = document.createElement('span');
+      edge.className = 'dc-edge';
+      row.appendChild(edge);
+      p.xs.forEach((v, t) => {
+        const cell = document.createElement('span');
+        cell.className = v === 1 ? 'dc-h black' : 'dc-h';
+        cell.textContent = v === 1 ? '●' : '○';
+        row.appendChild(cell);
+        if (t < p.xs.length - 1) {
+          const gap = document.createElement('button');
+          gap.type = 'button';
+          gap.className = 'dc-gap';
+          gap.dataset.gap = String(t + 1);
+          gap.setAttribute('aria-label', `วางที่กั้นหลังม้าตัวที่ ${t + 1}`);
+          row.appendChild(gap);
+        }
+      });
+      const edge2 = document.createElement('span');
+      edge2.className = 'dc-edge';
+      row.appendChild(edge2);
+    }
+
+    function render(): void {
+      const p = pz();
+      for (const g of Array.from(row.querySelectorAll<HTMLElement>('.dc-gap'))) {
+        g.classList.toggle('on', cuts.has(Number(g.dataset.gap)));
+      }
+      nOut.textContent = String(p.xs.length);
+      kOut.textContent = String(p.k);
+      cutsOut.textContent = String(p.k - 1);
+      if (cuts.size === 0) {
+        ui.setScore('ตอนนี้ยังไม่ได้วางที่กั้น');
+        return;
+      }
+      ui.setScore(`วางที่กั้นแล้ว ${cuts.size} จาก ${p.k - 1} อัน ค่าตอนนี้รวม ${totalCost()}`);
+    }
+
+    function check(): void {
+      const p = pz();
+      if (cuts.size !== p.k - 1) {
+        ui.setStatus(`ต้องวางที่กั้นให้ครบ ${p.k - 1} อันก่อนครับ ตอนนี้วางไป ${cuts.size} อัน`, 'bad');
+        return;
+      }
+      const got = totalCost();
+      if (got === p.best) {
+        ui.setStatus(`ถูกต้องครับ ${got} คือค่าที่น้อยที่สุดของกองนี้`, 'good');
+        return;
+      }
+      ui.setStatus(
+        `การแบ่งนี้ได้ ${got} ซึ่งยังมากกว่าคำตอบที่ดีที่สุดอยู่ ${got - p.best} ลองขยับที่กั้นดูอีกที`,
+        'bad',
+      );
+    }
+
+    function selectPuzzle(t: number): void {
+      pi = t;
+      cuts = new Set<number>();
+      ui.selectTab(t);
+      ui.setTease(pz().tease);
+      build();
+      ui.setStatus('คลิกช่องว่างระหว่างม้าเพื่อวางที่กั้น');
+      render();
+    }
+
+    row.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('.dc-gap');
+      if (!(btn instanceof HTMLElement)) return;
+      const at = Number(btn.dataset.gap);
+      if (cuts.has(at)) cuts.delete(at);
+      else cuts.add(at);
+      ui.setStatus('คลิกช่องว่างระหว่างม้าเพื่อวางที่กั้น');
+      render();
+    });
+
+    ui.onClick('data-dc-clear', () => selectPuzzle(pi));
+    ui.onClick('data-dc-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initDcGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  /* ตัวเล่นของหน้านี้เดินไปตาม "คอลัมน์" ไม่ใช่ตามแถว เพราะหนึ่งก้าวคือการเรียก compute() หนึ่งครั้ง
+     ซึ่งเติมช่องกลางของช่วง ไม่ได้ไล่จากซ้ายไปขวา จึงใช้ initCpRowPlayers ไม่ได้ */
+  type DcStep = { note: string; mid: number; lo: number; hi: number; done: number[] };
+
+  function isDcStep(x: unknown): x is DcStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.note === 'string' &&
+      typeof o.mid === 'number' &&
+      typeof o.lo === 'number' &&
+      typeof o.hi === 'number' &&
+      Array.isArray(o.done)
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<DcStep>('[data-dcsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isDcStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const prevRow = root.querySelector<HTMLTableRowElement>('[data-dc-prev]');
+        const nowRow = root.querySelector<HTMLTableRowElement>('[data-dc-now]');
+        const optRow = root.querySelector<HTMLTableRowElement>('[data-dc-opt]');
+        if (!prevRow || !nowRow || !optRow) return;
+
+        /* แถวบนคือชั้นที่คำนวณเสร็จแล้ว โชว์ครบตลอด แค่ไฮไลต์ช่องที่กำลังถูกส่อง
+           ต้นทางของจุดตัด m คือช่อง m-1 ของแถวบน */
+        const prevCells = Array.from(prevRow.querySelectorAll<HTMLTableCellElement>('td.num'));
+        prevCells.forEach((td, i) => {
+          td.classList.toggle('is-src', i >= st.lo - 1 && i <= st.hi - 1);
+        });
+
+        for (const tr of [nowRow, optRow]) {
+          const cells = Array.from(tr.querySelectorAll<HTMLTableCellElement>('td.num'));
+          cells.forEach((td, i) => {
+            const shown = st.done.includes(i);
+            td.textContent = shown ? (td.dataset.v ?? '·') : '·';
+            td.classList.toggle('is-mid', i === st.mid);
+          });
+        }
+        const live = nowRow.querySelectorAll<HTMLTableCellElement>('td.num')[st.mid];
+        ctx.keepInView(live ?? null);
+      },
+    });
+  });
+</script>
