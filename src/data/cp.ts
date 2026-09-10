@@ -224,7 +224,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['segment tree', 'binary search', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
-    readingMinutes: 10,
+    readingMinutes: 31,
   },
   {
     href: 'pick-books/',
