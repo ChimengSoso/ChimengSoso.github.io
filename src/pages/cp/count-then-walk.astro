@@ -219,6 +219,65 @@ int main() {
 }`;
 const BS_N = 200000;
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกสองข้อ
+   คำตอบมาจากการสร้างของทุกชิ้นจริงแล้วเรียง ซึ่งเป็นวิธีที่บทนี้บอกว่าใช้ไม่ได้กับของจริง
+   จึงเป็นตัวตรวจที่ไม่ได้ใช้ข้ออ้างเดียวกับท่าที่สอน
+   ========================================================================== */
+
+/* ---------- ข้อ 1: ใช้ชุดเดียวกับตัวอย่างที่มีอยู่แล้ว แค่กางให้เห็นทั้งรายการ ---------- */
+const exListRows = listed.map((w, i) => ({ rank: i + 1, text: w }));
+const exListCols = 7;
+
+/* ---------- ข้อ 2: อันดับของการเรียงสับเปลี่ยน ---------- */
+const exPerm = [2, 3, 1, 4];
+const exPermN = exPerm.length;
+/** ไล่สร้างการเรียงสับเปลี่ยนทุกชุดแล้วเรียง เพื่อหาอันดับจริง */
+const exPermAll = (() => {
+  const out: number[][] = [];
+  const rec = (cur: number[], left: number[]): void => {
+    if (left.length === 0) {
+      out.push([...cur]);
+      return;
+    }
+    for (const v of left) rec([...cur, v], left.filter((x) => x !== v));
+  };
+  rec([], Array.from({ length: exPermN }, (_, i) => i + 1));
+  return out;
+})();
+const exPermAnswer = exPermAll.findIndex((w) => w.join(',') === exPerm.join(',')) + 1;
+/** ท่าที่บทนี้สอน: ทีละตำแหน่ง นับตัวที่ยังไม่ถูกใช้และเล็กกว่า คูณด้วยแฟกทอเรียลของที่เหลือ */
+const exPermFact = Array.from({ length: exPermN + 1 }, (_, i) => {
+  let r = 1;
+  for (let t = 2; t <= i; t++) r *= t;
+  return r;
+});
+const exPermSteps = (() => {
+  const used = new Set<number>();
+  return exPerm.map((v, i) => {
+    let smaller = 0;
+    for (let x = 1; x < v; x++) if (!used.has(x)) smaller++;
+    used.add(v);
+    const rest = exPermN - i - 1;
+    return { at: i + 1, v, smaller, rest, add: smaller * exPermFact[rest] };
+  });
+})();
+const exPermByFormula = 1 + exPermSteps.reduce((a, x) => a + x.add, 0);
+if (exPermByFormula !== exPermAnswer) {
+  throw new Error(`count-then-walk: ตัวอย่างข้อ 2 สูตรได้ ${exPermByFormula} แต่ไล่จริงได้ ${exPermAnswer}`);
+}
+/** ชุดที่มาก่อนหน้าไม่กี่ชุด ใช้ให้ผู้อ่านเห็นว่าอันดับนับยังไง */
+const exPermNeighbours = exPermAll.slice(Math.max(0, exPermAnswer - 4), exPermAnswer + 1).map((w, t) => ({
+  rank: Math.max(1, exPermAnswer - 3) + t,
+  text: w.join(' '),
+}));
+
+/* ---------- เรขาคณิตของภาพตัวอย่าง ---------- */
+const EX_COLW = 92;
+const EX_PW = 118;
+const exPermX = (t: number): number => 18 + t * (EX_PW + 10);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -358,6 +417,40 @@ const BS_N = 200000;
     <thead><tr><th>Input</th><th>Output</th></tr></thead>
     <tbody><tr><td>{N} {R}</td><td>{target}</td></tr></tbody>
   </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตมีสองเลขคือความยาวกับอันดับที่ขอ เอาต์พุตคือ<strong>ตัวสตริงเอง</strong> ไม่ใช่จำนวนแบบ
+      คำว่า "ตามลำดับพจนานุกรม" ในที่นี้แปลว่าเทียบทีละตัวจากซ้าย โดย <code>0</code> มาก่อน
+      <code>1</code> เหมือนที่ <code>a</code> มาก่อน <code>b</code>
+    </p>
+    <p>
+      สตริงยาว {N} ที่ถูกกติกามีทั้งหมด {listed.length} แบบ เรียงแล้วหยิบตัวที่ {R} ได้
+      <code>{target}</code> ซึ่งคือเอาต์พุต ที่โจทย์นี้ยากขึ้นตอนของจริงคือ <code>n</code> ใหญ่พอที่จะ
+      ทำให้ {listed.length} กลายเป็นตัวเลขที่ไล่สร้างไม่ไหว
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="รายการทั้งหมดของตัวอย่างนี้ เรียงตามพจนานุกรมจริง ตัวสีเขียวคืออันดับที่โจทย์ขอ ของจริงจะไล่แบบนี้ไม่ได้ เพราะรายการโตเร็วเกินไป">
+    <svg viewBox={`0 0 ${exListCols * EX_COLW + 12} ${44 + Math.ceil(exListRows.length / exListCols) * 26 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:700px" role="img" aria-label="รายการสตริงที่ถูกกติกาทั้งหมด">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">
+        สตริงยาว {N} ที่ไม่มีเลขหนึ่งติดกัน ทั้งหมด {listed.length} แบบ
+      </text>
+      {exListRows.map((row, t) => (
+        <text
+          x={18 + (t % exListCols) * EX_COLW}
+          y={58 + Math.floor(t / exListCols) * 26}
+          fill={row.rank === R ? '#4ade80' : '#3d4761'}
+          font-size="12"
+          font-family="monospace"
+          font-weight={row.rank === R ? 700 : 400}
+        >
+          {row.rank}. {row.text}
+        </text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -445,6 +538,68 @@ const BS_N = 200000;
     ให้การเรียงสับเปลี่ยนของ <code>1</code> ถึง <code>n</code> มาหนึ่งชุด ตอบว่ามันอยู่อันดับที่เท่าไร
     ตามลำดับพจนานุกรม โดยชุดแรกคืออันดับ 1
   </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exPermN}<br />{exPerm.join(' ')}</td><td>{exPermAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือ <code>n</code> แล้วตามด้วยการเรียงสับเปลี่ยนหนึ่งชุด เอาต์พุตคือ<strong>อันดับ</strong>
+      ซึ่งเป็นตัวเลข ไม่ใช่ชุดตัวเลข และอันดับ<strong>เริ่มนับที่ 1</strong> ไม่ใช่ 0
+    </p>
+    <p>
+      ของ {exPermN} ตัวเรียงได้ {exPermAll.length} ชุด ชุดที่โจทย์ให้มาอยู่อันดับที่ {exPermAnswer}
+      ตารางข้างล่างคือชุดที่อยู่รอบ ๆ อันดับนั้น จะเห็นว่าลำดับพจนานุกรมคือการเทียบตัวหน้าก่อน
+      ตัวหน้าเท่ากันแล้วค่อยดูตัวถัดไป
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ชุดที่อยู่รอบ ๆ อันดับที่ถาม</caption>
+      <thead><tr><th class="num">อันดับ</th><th>การเรียงสับเปลี่ยน</th></tr></thead>
+      <tbody>
+        {exPermNeighbours.map((row) => (
+          <tr>
+            <td class="num">{row.rank}</td>
+            <td>{row.rank === exPermAnswer ? <strong>{row.text}</strong> : <span class="dim">{row.text}</span>}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ของจริง <code>n</code> ใหญ่จนไล่แบบนี้ไม่ได้ ท่าที่ใช้จริงคือเดินทีละตำแหน่งแล้วนับว่ามีชุดกี่ชุด
+      ที่ถูกข้ามไป ซึ่งคือภาพถัดไป
+    </figcaption>
+  </figure>
+
+  <ZoomableDiagram caption="เดินทีละตำแหน่ง ที่ตำแหน่งหนึ่ง ๆ ชุดที่ขึ้นต้นเหมือนกันแต่ตัวนี้เล็กกว่า จะมาก่อนทั้งหมด จำนวนนั้นคือตัวที่ยังไม่ถูกใช้และเล็กกว่า คูณด้วยจำนวนวิธีเรียงของที่เหลือ">
+    <svg viewBox={`0 0 ${exPermX(exPermN - 1) + EX_PW + 12} 210`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:640px" role="img" aria-label="การนับชุดที่ถูกข้ามในแต่ละตำแหน่ง">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">นับชุดที่มาก่อน ทีละตำแหน่ง</text>
+      {exPermSteps.map((st, t) => (
+        <>
+          <rect x={exPermX(t)} y={38} width={EX_PW} height={44} rx="6" fill={st.add > 0 ? '#3a2f08' : '#101827'} stroke={st.add > 0 ? '#e0b400' : '#2a3350'} />
+          <text x={exPermX(t) + EX_PW / 2} y={66} fill={st.add > 0 ? '#e0b400' : '#7b8397'} font-size="16" text-anchor="middle" font-family="monospace">{st.v}</text>
+          <text x={exPermX(t) + EX_PW / 2} y={104} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">
+            เล็กกว่าและยังไม่ใช้ {st.smaller}
+          </text>
+          <text x={exPermX(t) + EX_PW / 2} y={124} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">
+            ที่เหลือเรียงได้ {exPermFact[st.rest]}
+          </text>
+          <text x={exPermX(t) + EX_PW / 2} y={148} fill={st.add > 0 ? '#e0b400' : '#3d4761'} font-size="12" text-anchor="middle" font-family="monospace">
+            ข้ามไป {st.add}
+          </text>
+        </>
+      ))}
+      <text x="18" y="184" fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        ข้ามรวม {exPermSteps.map((x) => x.add).join(' + ')} แล้วบวกหนึ่ง ได้ {exPermAnswer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
