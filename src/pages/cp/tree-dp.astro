@@ -466,6 +466,159 @@ int main() {
 }`;
 const RR_N = 200000;
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกสามข้อ ใช้ต้นไม้เล็ก ๆ ต้นเดียวกันทั้งสามข้อ
+   คำตอบมาจากการไล่ทุกความเป็นไปได้ตรง ๆ ไม่ได้ใช้สูตรที่บทนี้กำลังจะสอน
+   ========================================================================== */
+const exEdges: [number, number][] = [
+  [1, 2],
+  [1, 3],
+  [2, 4],
+  [2, 5],
+  [3, 6],
+  [5, 7],
+];
+const exN = exEdges.length + 1;
+const exAdj: number[][] = Array.from({ length: exN + 1 }, () => []);
+for (const [a, b] of exEdges) {
+  exAdj[a].push(b);
+  exAdj[b].push(a);
+}
+/** ลูกของแต่ละโหนดเมื่อรากคือโหนด 1 */
+const exParent = Array<number>(exN + 1).fill(0);
+const exOrder: number[] = [];
+{
+  const st = [1];
+  exParent[1] = -1;
+  while (st.length > 0) {
+    const u = st.pop() as number;
+    exOrder.push(u);
+    for (const v of exAdj[u]) if (v !== exParent[u]) {
+      exParent[v] = u;
+      st.push(v);
+    }
+  }
+}
+const exKids: number[][] = Array.from({ length: exN + 1 }, () => []);
+for (let v = 2; v <= exN; v++) exKids[exParent[v]].push(v);
+
+/* ---------- ข้อ 1: ขนาดของทุกกิ่ง ---------- */
+/** นับตรง ๆ โดยไล่ดูว่าโหนดไหนอยู่ใต้โหนดไหน ไม่ได้ใช้การไล่ย้อนลำดับที่บทนี้สอน */
+const exSize = Array.from({ length: exN + 1 }, (_, u) => {
+  if (u === 0) return 0;
+  let c = 0;
+  for (let v = 1; v <= exN; v++) {
+    let cur = v;
+    while (cur !== -1) {
+      if (cur === u) {
+        c++;
+        break;
+      }
+      cur = exParent[cur];
+    }
+  }
+  return c;
+});
+const exSizeAnswer = Array.from({ length: exN }, (_, t) => exSize[t + 1]);
+
+/* ---------- ข้อ 2: ทางที่ยาวที่สุด ---------- */
+/** ระยะระหว่างทุกคู่ ด้วยการค้นตามความกว้างจากทุกโหนด แล้วหยิบคู่ที่ไกลที่สุด */
+const exDiam = (() => {
+  let best = { a: 1, b: 1, d: 0 };
+  for (let s = 1; s <= exN; s++) {
+    const dist = Array<number>(exN + 1).fill(-1);
+    dist[s] = 0;
+    const q = [s];
+    for (let h = 0; h < q.length; h++)
+      for (const v of exAdj[q[h]]) if (dist[v] === -1) {
+        dist[v] = dist[q[h]] + 1;
+        q.push(v);
+      }
+    for (let t = 1; t <= exN; t++) if (dist[t] > best.d) best = { a: s, b: t, d: dist[t] };
+  }
+  return best;
+})();
+const exDiamAnswer = exDiam.d;
+/** เส้นทางที่ยาวที่สุดหนึ่งเส้น ใช้ระบายสีในภาพ */
+const exDiamPath = (() => {
+  const prev = Array<number>(exN + 1).fill(0);
+  const dist = Array<number>(exN + 1).fill(-1);
+  dist[exDiam.a] = 0;
+  const q = [exDiam.a];
+  for (let h = 0; h < q.length; h++)
+    for (const v of exAdj[q[h]]) if (dist[v] === -1) {
+      dist[v] = dist[q[h]] + 1;
+      prev[v] = q[h];
+      q.push(v);
+    }
+  const path: number[] = [];
+  let cur = exDiam.b;
+  while (cur !== exDiam.a) {
+    path.push(cur);
+    cur = prev[cur];
+  }
+  path.push(exDiam.a);
+  return path.reverse();
+})();
+
+/* ---------- ข้อ 3: เลือกโหนดที่ห้ามติดกัน ---------- */
+const exW = [0, 4, -3, 5, 2, 6, -1, 7];
+/** ไล่ทุกกลุ่มย่อยจริง 2^n กลุ่ม แล้วคัดเฉพาะกลุ่มที่ไม่มีสองตัวติดกัน */
+const exPickBest = (() => {
+  let bestSum = 0;
+  let bestSet: number[] = [];
+  for (let mask = 0; mask < 1 << exN; mask++) {
+    const chosen: number[] = [];
+    for (let i = 0; i < exN; i++) if ((mask >> i) & 1) chosen.push(i + 1);
+    if (exEdges.some(([a, b]) => chosen.includes(a) && chosen.includes(b))) continue;
+    const sum = chosen.reduce((acc, u) => acc + exW[u], 0);
+    if (sum > bestSum) {
+      bestSum = sum;
+      bestSet = chosen;
+    }
+  }
+  return { sum: bestSum, set: bestSet };
+})();
+const exPickAnswer = exPickBest.sum;
+const exPicked: boolean[] = Array.from({ length: exN + 1 }, (_, u) => exPickBest.set.includes(u));
+/** ผลรวมของโหนดบวกทุกตัว ใช้ชี้ว่าทำไมกฎ "เอาทุกตัวที่เป็นบวก" ใช้ไม่ได้ */
+const exPickAllPositive = Array.from({ length: exN }, (_, t) => exW[t + 1]).filter((w) => w > 0).reduce((a, b) => a + b, 0);
+
+/* ---------- เรขาคณิตของภาพต้นไม้ตัวอย่าง ---------- */
+const EX_SLOT = 140;
+const EX_ROW = 100;
+const exDepth = Array.from({ length: exN + 1 }, (_, u) => {
+  let d = 0;
+  let cur = u;
+  while (cur > 1) {
+    cur = exParent[cur];
+    d++;
+  }
+  return d;
+});
+/** วาง x ตามลำดับใบ เพื่อให้ลูกอยู่ใต้พ่อจริง ๆ */
+const exPos: Record<number, { x: number; y: number }> = {};
+{
+  let slot = 0;
+  const place = (u: number): number => {
+    if (exKids[u].length === 0) {
+      const x = 34 + slot * EX_SLOT;
+      slot++;
+      exPos[u] = { x, y: 34 + exDepth[u] * EX_ROW };
+      return x;
+    }
+    const xs = exKids[u].map(place);
+    const x = (Math.min(...xs) + Math.max(...xs)) / 2;
+    exPos[u] = { x, y: 34 + exDepth[u] * EX_ROW };
+    return x;
+  };
+  place(1);
+}
+const exTreeW = Math.max(...Object.values(exPos).map((q) => q.x)) + 52;
+const exTreeH = Math.max(...Object.values(exPos).map((q) => q.y)) + 40;
+const exOnDiam = (u: number): boolean => exDiamPath.includes(u);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -670,6 +823,46 @@ const RR_N = 200000;
       ให้พิมพ์ขนาดของกิ่งที่ห้อยอยู่ใต้ทุกโหนด (นับตัวมันเองด้วย) เรียงตามหมายเลขโหนด
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{exN}{exEdges.map((e) => <><br />{e[0]} {e[1]}</>)}</td>
+        <td>{exSizeAnswer.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนโหนด จากนั้นคือเส้นเชื่อม <code>n − 1</code> บรรทัด บรรทัดละคู่
+      เส้นเชื่อม<strong>ไม่มีทิศทาง</strong> คู่ <code>2 4</code> กับ <code>4 2</code> จึงมีความหมายเดียวกัน
+      ความเป็นพ่อลูกเกิดจากการที่โจทย์บอกว่ารากคือโหนด 1 ไม่ได้มาจากลำดับที่พิมพ์ในอินพุต
+    </p>
+    <p>
+      เอาต์พุตคือขนาดของกิ่งของโหนดที่ 1 ถึง {exN} เรียงตามหมายเลข ใบทุกใบได้ 1 เพราะนับตัวเองด้วย
+      และรากได้ {exSize[1]} เสมอ เพราะกิ่งของรากคือทั้งต้น ตัวเลขพวกนี้จึงเป็นที่ตรวจงานง่าย ๆ
+      ว่าโค้ดถูกหรือยัง
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ต้นไม้ของตัวอย่างนี้ เลขในวงกลมคือหมายเลขโหนด เลขข้าง ๆ คือขนาดของกิ่งที่ห้อยอยู่ใต้โหนดนั้น ซึ่งคือเอาต์พุตของข้อนี้">
+    <svg viewBox={`0 0 ${exTreeW + 12} ${exTreeH + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:460px" role="img" aria-label="ต้นไม้ตัวอย่างพร้อมขนาดของแต่ละกิ่ง">
+      {exEdges.map((e) => (
+        <line x1={exPos[e[0]].x} y1={exPos[e[0]].y} x2={exPos[e[1]].x} y2={exPos[e[1]].y} stroke="#2a3350" stroke-width="2" />
+      ))}
+      {exOrder.map((u) => (
+        <>
+          <circle cx={exPos[u].x} cy={exPos[u].y} r="24" fill="#101827" stroke="#2f9e5c" stroke-width="1.5" />
+          <text x={exPos[u].x} y={exPos[u].y + 5} fill="#cdd6ea" font-size="17" text-anchor="middle" font-family="monospace">{u}</text>
+          <text x={exPos[u].x + 32} y={exPos[u].y + 5} fill="#e0b400" font-size="14" font-family="monospace">{exSize[u]}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -721,6 +914,47 @@ const RR_N = 200000;
       ค่านี้เรียกว่า<strong>เส้นผ่านศูนย์กลาง</strong>ของต้นไม้ (diameter)
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{exN}{exEdges.map((e) => <><br />{e[0]} {e[1]}</>)}</td>
+        <td>{exDiamAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตหน้าตาเดียวกับข้อที่แล้วเป๊ะ เอาต์พุตคือ<strong>จำนวนเส้นเชื่อม</strong>บนทางที่ยาวที่สุด
+      ไม่ใช่จำนวนโหนด ซึ่งต่างกันหนึ่งเสมอ
+    </p>
+    <p>
+      ต้นไม้ต้นนี้ทางที่ยาวที่สุดคือจากโหนด {exDiamPath[0]} ไปโหนด {exDiamPath[exDiamPath.length - 1]}
+      ผ่าน {exDiamPath.length} โหนด จึงนับได้ {exDiamAnswer} เส้น สังเกตว่าทางนี้
+      {exOnDiam(1) ? 'บังเอิญผ่านราก' : 'ไม่ได้ผ่านรากเลย'} ซึ่งเป็นเหตุผลที่คิดแค่ "ความลึกที่สุด"
+      อย่างเดียวไม่พอ
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="เส้นสีทองคือทางที่ยาวที่สุดของต้นไม้ต้นนี้ นับเส้นเชื่อมบนทางนี้ได้เท่ากับเอาต์พุต">
+    <svg viewBox={`0 0 ${exTreeW + 12} ${exTreeH + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:460px" role="img" aria-label="ทางที่ยาวที่สุดในต้นไม้ตัวอย่าง">
+      {exEdges.map((e) => (
+        <line x1={exPos[e[0]].x} y1={exPos[e[0]].y} x2={exPos[e[1]].x} y2={exPos[e[1]].y}
+          stroke={exOnDiam(e[0]) && exOnDiam(e[1]) ? '#e0b400' : '#2a3350'}
+          stroke-width={exOnDiam(e[0]) && exOnDiam(e[1]) ? 3 : 2} />
+      ))}
+      {exOrder.map((u) => (
+        <>
+          <circle cx={exPos[u].x} cy={exPos[u].y} r="24" fill={exOnDiam(u) ? '#3a2f08' : '#101827'} stroke={exOnDiam(u) ? '#e0b400' : '#2a3350'} stroke-width="1.5" />
+          <text x={exPos[u].x} y={exPos[u].y + 5} fill={exOnDiam(u) ? '#e0b400' : '#7b8397'} font-size="17" text-anchor="middle" font-family="monospace">{u}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -756,6 +990,52 @@ const RR_N = 200000;
       เลือกกลุ่มโหนดที่ไม่มีสองตัวไหนเชื่อมกันด้วยเส้นเดียว ให้ผลรวมน้ำหนักมากที่สุด เลือกกลุ่มว่างก็ได้
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {exN}<br />{exSizeAnswer.map((_, t) => exW[t + 1]).join(' ')}
+          {exEdges.map((e) => <><br />{e[0]} {e[1]}</>)}
+        </td>
+        <td>{exPickAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตเพิ่มมาหนึ่งบรรทัดคือน้ำหนักของโหนดที่ 1 ถึง {exN} เรียงตามหมายเลข แล้วตามด้วยเส้นเชื่อมเหมือนเดิม
+      เอาต์พุตคือ<strong>ผลรวมน้ำหนัก</strong> ไม่ใช่รายชื่อโหนดที่เลือก
+    </p>
+    <p>
+      คำว่า "ห้ามติดกัน" หมายถึงห้ามเลือกสองโหนดที่มีเส้นเชื่อมถึงกันโดยตรง โหนดที่ห่างกันสองเส้นเลือกพร้อมกันได้
+      ชุดนี้เลือกโหนด {exPickBest.set.join(', ')} ได้ผลรวม {exPickAnswer}
+    </p>
+    <p>
+      กฎง่าย ๆ ที่คนคิดออกก่อนคือ "เอาทุกตัวที่น้ำหนักเป็นบวก" ซึ่งชุดนี้จะได้ {exPickAllPositive}
+      แต่ใช้ไม่ได้จริง เพราะโหนดบวกบางคู่ติดกันอยู่ เลือกพร้อมกันไม่ได้ และน้ำหนักติดลบก็ทำให้
+      บางครั้งการเลือกโหนดที่ติดลบยังคุ้ม ถ้ามันเปิดทางให้เลือกลูกที่บวกกว่าได้
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="เลขในวงกลมคือหมายเลขโหนด เลขข้าง ๆ คือน้ำหนัก วงสีเขียวคือโหนดที่ถูกเลือกในคำตอบที่ดีที่สุด สังเกตว่าไม่มีวงเขียวสองวงที่มีเส้นเชื่อมถึงกันโดยตรง">
+    <svg viewBox={`0 0 ${exTreeW + 12} ${exTreeH + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:460px" role="img" aria-label="โหนดที่ถูกเลือกโดยห้ามเลือกโหนดที่ติดกัน">
+      {exEdges.map((e) => (
+        <line x1={exPos[e[0]].x} y1={exPos[e[0]].y} x2={exPos[e[1]].x} y2={exPos[e[1]].y} stroke="#2a3350" stroke-width="2" />
+      ))}
+      {exOrder.map((u) => (
+        <>
+          <circle cx={exPos[u].x} cy={exPos[u].y} r="24" fill={exPicked[u] ? '#14351f' : '#101827'} stroke={exPicked[u] ? '#2f9e5c' : '#2a3350'} stroke-width="1.5" />
+          <text x={exPos[u].x} y={exPos[u].y + 5} fill={exPicked[u] ? '#4ade80' : '#7b8397'} font-size="17" text-anchor="middle" font-family="monospace">{u}</text>
+          <text x={exPos[u].x + 32} y={exPos[u].y + 5} fill={exW[u] > 0 ? '#e0b400' : '#6b7690'} font-size="14" font-family="monospace">{exW[u]}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
