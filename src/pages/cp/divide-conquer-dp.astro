@@ -326,6 +326,156 @@ if (firstQiBreak(FEE_N, feeCost) !== null) {
   throw new Error('divide-conquer-dp: ค่าใช้จ่ายแบบมีค่าเปิดกลุ่มควรผ่านอสมการสี่เหลี่ยม');
 }
 
+/* ============================================================================
+   ตัวอย่างของโจทย์ฝึกทั้งสามข้อ ทุกตัวเลขมาจากการไล่ทุกวิธีแบ่งจริง
+   ไม่ใช่ตัวเลขที่พิมพ์ไว้ แล้วภาพกับตารางก็อ่านจากโมเดลชุดเดียวกันนี้
+   ========================================================================== */
+
+/** ทุกวิธีแบ่งของ n ชิ้นเป็น k กอง คืนมาเป็นรายการจุดตัด */
+function allSplits(n: number, k: number): number[][] {
+  const out: number[][] = [];
+  const rec = (start: number, left: number, cuts: number[]): void => {
+    if (left === 1) {
+      out.push([...cuts]);
+      return;
+    }
+    for (let end = start; end <= n - (left - 1); end++) rec(end + 1, left - 1, [...cuts, end]);
+  };
+  rec(1, k, []);
+  return out;
+}
+/** แปลงจุดตัดเป็นช่วง [l, r] ของแต่ละกอง */
+function segmentsOf(cuts: number[], n: number): { l: number; r: number }[] {
+  const bounds = [0, ...cuts, n];
+  return bounds.slice(0, -1).map((b, t) => ({ l: b + 1, r: bounds[t + 1] }));
+}
+
+/* ---------- ตัวอย่างข้อที่ 1: ม้าหกตัว สามคอก ---------- */
+const EX1 = [1, 1, 0, 1, 0, 1];
+const EX1_K = 3;
+const ex1pb = [0];
+for (const v of EX1) ex1pb.push(ex1pb[ex1pb.length - 1] + v);
+const ex1Cost = (l: number, r: number): { b: number; w: number; c: number } => {
+  const b = ex1pb[r] - ex1pb[l - 1];
+  const w = r - l + 1 - b;
+  return { b, w, c: b * w };
+};
+const ex1Rows = allSplits(EX1.length, EX1_K).map((cuts) => {
+  const segs = segmentsOf(cuts, EX1.length);
+  const parts = segs.map((g) => ex1Cost(g.l, g.r));
+  return { cuts, segs, parts, total: parts.reduce((a, x) => a + x.c, 0) };
+});
+const ex1Best = ex1Rows.reduce((a, b) => (b.total < a.total ? b : a));
+/** มีหลายวิธีที่ได้ค่าต่ำสุดเท่ากัน ต้องบอกผู้อ่าน ไม่งั้นเขาจะงงว่าทำไมภาพตัดคนละที่กับที่เขาคิด */
+const ex1TieCount = ex1Rows.filter((r) => r.total === ex1Rows.reduce((a, b) => (b.total < a.total ? b : a)).total).length;
+const ex1Answer = ex1Best.total;
+/** คอกที่แพงที่สุดในภาพ ใช้เล่าว่าค่าของคอกมาจากไหน */
+const ex1CostlyAt = ex1Best.parts.reduce((best, x, t) => (x.c > ex1Best.parts[best].c ? t : best), 0);
+const ex1Costly = ex1Best.parts[ex1CostlyAt];
+if (ex1Answer !== bestByEnumeration(EX1, EX1_K).cost) {
+  throw new Error('divide-conquer-dp: ตัวอย่างข้อที่ 1 คิดได้ไม่ตรงกับตัวไล่ทุกกรณี');
+}
+
+/* ---------- ตัวอย่างข้อที่ 2: คิวสี่คน กระเช้าสองคัน ---------- */
+const EX2_U = [
+  [0, 3, 1, 0],
+  [3, 0, 2, 1],
+  [1, 2, 0, 4],
+  [0, 1, 4, 0],
+];
+const EX2_N = EX2_U.length;
+const EX2_K = 2;
+/** ผลรวมของทุกคู่ในกลุ่ม l..r นับคู่ละครั้ง (ครึ่งบนของตารางเท่านั้น) */
+const ex2Pairs = (l: number, r: number): { i: number; j: number; v: number }[] => {
+  const out: { i: number; j: number; v: number }[] = [];
+  for (let i = l; i <= r; i++) for (let j = i + 1; j <= r; j++) out.push({ i, j, v: EX2_U[i - 1][j - 1] });
+  return out;
+};
+const ex2Rows = allSplits(EX2_N, EX2_K).map((cuts) => {
+  const segs = segmentsOf(cuts, EX2_N);
+  const parts = segs.map((g) => ({ ...g, pairs: ex2Pairs(g.l, g.r) }));
+  return {
+    cuts,
+    segs,
+    parts,
+    total: parts.reduce((a, x) => a + x.pairs.reduce((b, y) => b + y.v, 0), 0),
+  };
+});
+const ex2Best = ex2Rows.reduce((a, b) => (b.total < a.total ? b : a));
+const ex2Answer = ex2Best.total;
+
+/** บทบาทของแต่ละช่องในตาราง u ตามการแบ่งที่ดีที่สุด
+ *  counted = ช่องที่ถูกนับจริง (ครึ่งบน), mirror = เงาสมมาตร (ครึ่งล่าง), plain = คนละคัน */
+type Ex2Role = 'counted' | 'mirror' | 'plain';
+const ex2CellRole: Ex2Role[][] = EX2_U.map((row, r) =>
+  row.map((_, c) => {
+    const i = r + 1;
+    const j = c + 1;
+    const same = ex2Best.parts.some((g) => g.l <= i && i <= g.r && g.l <= j && j <= g.r);
+    if (!same || i === j) return 'plain';
+    return j > i ? 'counted' : 'mirror';
+  }),
+);
+
+/* ---------- ตัวอย่างข้อที่ 3: อาเรย์เจ็ดตัว สามช่วง ---------- */
+const EX3 = [1, 1, 3, 3, 3, 2, 1];
+const EX3_K = 3;
+/** คู่ตำแหน่งที่ค่าเท่ากันทั้งหมดในอาเรย์ ยังไม่สนว่าถูกที่กั้นคั่นหรือยัง */
+const ex3AllPairs = (() => {
+  const out: { i: number; j: number }[] = [];
+  for (let i = 1; i <= EX3.length; i++)
+    for (let j = i + 1; j <= EX3.length; j++) if (EX3[i - 1] === EX3[j - 1]) out.push({ i, j });
+  return out;
+})();
+const ex3Rows = allSplits(EX3.length, EX3_K).map((cuts) => {
+  const inside = ex3AllPairs.filter((pr) => cuts.every((c) => !(pr.i <= c && c < pr.j)));
+  return { cuts, total: inside.length, inside };
+});
+const ex3Best = ex3Rows.reduce((a, b) => (b.total < a.total ? b : a));
+const ex3Answer = ex3Best.total;
+const ex3SecondBest = Math.min(...ex3Rows.filter((r) => r.total > ex3Answer).map((r) => r.total));
+const ex3TieCount = ex3Rows.filter((r) => r.total === ex3Answer).length;
+const ex3Segs = segmentsOf(ex3Best.cuts, EX3.length);
+/** จำนวนคู่ที่แต่ละช่วงต้องจ่าย คิดที่นี่ ไม่ใช่ในเทมเพลต
+ *  เพราะตัวเปรียบเทียบ <= ที่เขียนในเทมเพลต ทำให้ตัวแปลของ Astro อ่านเป็นแท็ก JSX แล้วพัง */
+const ex3SegCosts = ex3Segs.map((g) => ex3Best.inside.filter((q) => q.i >= g.l && q.j <= g.r).length);
+
+/** คู่ที่รอดเพราะถูกที่กั้นคั่น ไม่ต้องจ่าย */
+const ex3CutPairs = ex3AllPairs.filter((pr) => !ex3Best.inside.some((q) => q.i === pr.i && q.j === pr.j));
+
+/* ---------- เรขาคณิตของภาพประกอบตัวอย่างทั้งสามข้อ ---------- */
+const E1_CW = 96;
+const E1_GAP = 10;
+const e1x = (t: number): number => 18 + t * (E1_CW + E1_GAP);
+const e1VB = `0 0 ${e1x(EX1.length - 1) + E1_CW + 12} 230`;
+
+const E2_CELL = 62;
+const E2_HEAD = 42;
+const e2gx = (c: number): number => 18 + E2_HEAD + c * E2_CELL;
+const e2gy = (r: number): number => 52 + r * E2_CELL;
+const E2_PANEL_X = 372;
+/* ความกว้างของแผงข้อความขวามือวัดจากที่เรนเดอร์จริง (ขวาสุดอยู่ที่ 543)
+   เผื่อไว้อีกนิดกันฟอนต์เพี้ยน ถ้าตั้งกว้างกว่านี้ ภาพจะเหลือที่ว่างขวามือจนอ่านว่าเบี้ยวไปทางซ้าย */
+const e2VB = `0 0 ${E2_PANEL_X + 185 + 12} ${e2gy(EX2_N) + 34}`;
+
+const E3_CW = 88;
+const E3_GAP = 8;
+const e3x = (t: number): number => 18 + t * (E3_CW + E3_GAP);
+const E3_ROW_Y = 170;
+const E3_ROW_H = 44;
+/** ส่วนโค้งของคู่ที่ค่าเท่ากัน ยิ่งคู่ห่างกันมาก ส่วนโค้งยิ่งสูง จะได้ไม่ทับกัน */
+const e3Arc = (i: number, j: number): string => {
+  const x1 = e3x(i - 1) + E3_CW / 2;
+  const x2 = e3x(j - 1) + E3_CW / 2;
+  const top = E3_ROW_Y - 2 - (20 * (j - i) + 12);
+  return `M ${x1} ${E3_ROW_Y - 2} C ${x1} ${top}, ${x2} ${top}, ${x2} ${E3_ROW_Y - 2}`;
+};
+const e3VB = `0 0 ${e3x(EX3.length - 1) + E3_CW + 12} 330`;
+
+/** ข้อความอินพุตของตัวอย่าง สร้างจากโมเดล จะได้ไม่หลุดจากตัวเลขในภาพ */
+const ex2InputLines = [`${EX2_N} ${EX2_K}`, ...EX2_U.map((row) => row.join(' '))];
+const ex3InputLines = [`${EX3.length} ${EX3_K}`, EX3.join(' ')];
+
 /* ---------- ภาพที่ 1: แบ่งของที่เรียงอยู่แล้วเป็นกอง ---------- */
 const CW = 96;
 const CGAP = 10;
@@ -1102,8 +1252,91 @@ for (int j = 1; j <= k; j++) {
   <table class="io">
     <caption>EXAMPLE</caption>
     <thead><tr><th>Input</th><th>Output</th></tr></thead>
-    <tbody><tr><td>6 3<br />1<br />1<br />0<br />1<br />0<br />1</td><td>2</td></tr></tbody>
+    <tbody>
+      <tr>
+        <td>{EX1.length} {EX1_K}{EX1.map((v) => <><br />{v}</>)}</td>
+        <td>{ex1Answer}</td>
+      </tr>
+    </tbody>
   </table>
+
+  <h3>อ่านตัวอย่างนี้ยังไง</h3>
+  <p>
+    บรรทัดแรกบอกว่ามีม้า {EX1.length} ตัว และมีคอกให้ {EX1_K} คอก อีก {EX1.length} บรรทัดที่เหลือคือสีของม้า
+    <strong>เรียงจากตัวซ้ายสุดไปขวาสุด</strong> ตัวเลข 1 คือดำ 0 คือขาว ชุดนี้จึงอ่านได้ว่า
+    ดำ ดำ ขาว ดำ ขาว ดำ
+  </p>
+  <p>
+    สิ่งที่เราเลือกได้มีอย่างเดียวคือ<strong>จะวางที่กั้นตรงไหน</strong> ม้า {EX1.length} ตัวมีช่องว่างระหว่างตัวอยู่
+    {EX1.length - 1} ช่อง และต้องวางที่กั้น {EX1_K - 1} อัน แบ่งได้ทั้งหมด {ex1Rows.length} แบบ
+    เอาต์พุตคือค่าที่ต่ำที่สุดในบรรดา {ex1Rows.length} แบบนั้น ซึ่งชุดนี้คือ {ex1Answer}
+  </p>
+
+  <ZoomableDiagram caption="วิธีแบ่งที่ให้ค่าต่ำที่สุดของตัวอย่างนี้ แต่ละคอกคิดแยกกัน คือนับม้าดำคูณม้าขาวในคอกนั้น แล้วเอาทุกคอกมาบวกกัน">
+    <svg viewBox={e1VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตัวอย่างข้อที่หนึ่ง ม้าหกตัวแบ่งเป็นสามคอก">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">อินพุต 1 1 0 1 0 1 อ่านว่า ดำ ดำ ขาว ดำ ขาว ดำ</text>
+      {EX1.map((v, t) => (
+        <>
+          <rect x={e1x(t)} y={40} width={E1_CW} height={44} rx="6" fill={v === 1 ? '#1b2436' : '#0d1626'} stroke={v === 1 ? '#4a5a7d' : '#2a3350'} />
+          <text x={e1x(t) + E1_CW / 2} y={68} fill={v === 1 ? '#cdd6ea' : '#7b8397'} font-size="17" text-anchor="middle" font-family="monospace">
+            {v === 1 ? '●' : '○'}
+          </text>
+          <text x={e1x(t) + E1_CW / 2} y={102} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">ตัวที่ {t + 1}</text>
+        </>
+      ))}
+      {ex1Best.cuts.map((c) => (
+        <line x1={e1x(c) - E1_GAP / 2} y1={32} x2={e1x(c) - E1_GAP / 2} y2={92} stroke="#e0b400" stroke-width="3" />
+      ))}
+      {ex1Best.segs.map((g, t) => (
+        <>
+          <line x1={e1x(g.l - 1) + 2} y1={124} x2={e1x(g.r - 1) + E1_CW - 2} y2={124} stroke="#4ade80" stroke-width="2" />
+          <text x={(e1x(g.l - 1) + e1x(g.r - 1) + E1_CW) / 2} y={146} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">
+            คอกที่ {t + 1}
+          </text>
+          <text x={(e1x(g.l - 1) + e1x(g.r - 1) + E1_CW) / 2} y={166} fill="#cdd6ea" font-size="11.5" text-anchor="middle" font-family="monospace">
+            ดำ {ex1Best.parts[t].b} x ขาว {ex1Best.parts[t].w} = {ex1Best.parts[t].c}
+          </text>
+        </>
+      ))}
+      <text x="18" y="198" fill="#e0b400" font-size="12.5" font-family="monospace" font-weight="700">
+        รวม {ex1Best.parts.map((x) => x.c).join(' + ')} = {ex1Answer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    คอกที่ {ex1CostlyAt + 1} เป็นคอกเดียวที่ต้องจ่าย เพราะในคอกนั้นมีม้าดำ {ex1Costly.b} ตัว
+    และม้าขาว {ex1Costly.w} ตัว จับคู่ข้ามสีกันได้ {ex1Costly.b} คูณ {ex1Costly.w} เท่ากับ {ex1Costly.c} คู่
+    ส่วนอีกสองคอกมีสีเดียวล้วน จึงไม่มีคู่ต่างสีให้จับเลย ค่าเป็นศูนย์
+  </p>
+  <p>
+    และนี่คือทั้ง {ex1Rows.length} แบบที่แบ่งได้ ไล่ดูแล้วจะเห็นว่า {ex1Answer} คือค่าต่ำสุดจริง
+    และมี {ex1TieCount} แบบที่ได้ {ex1Answer} เท่ากัน โจทย์ถามแค่ตัวเลข ไม่ได้ถามว่าตัดตรงไหน
+    ภาพข้างบนจึงเลือกมาแสดงแบบเดียว
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ทุกวิธีแบ่งของตัวอย่างข้อที่ 1</caption>
+      <thead>
+        <tr><th>วางที่กั้นหลังตัวที่</th><th>สามคอกได้ม้าตัวไหนบ้าง</th><th>ค่าของแต่ละคอก</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {ex1Rows.map((r) => (
+          <tr>
+            <td>{r.cuts.join(' และ ')}</td>
+            <td>{r.segs.map((g) => (g.l === g.r ? `[${g.l}]` : `[${g.l}-${g.r}]`)).join(' ')}</td>
+            <td>{r.parts.map((x) => `${x.b}x${x.w}`).join(' + ')}</td>
+            <td class="num">{r.total === ex1Answer ? <strong>{r.total}</strong> : r.total}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ตารางนี้ไล่ทุกแบบได้เพราะม้ามีแค่ {EX1.length} ตัว พอ N เป็นห้าร้อยและ K เป็นสองร้อยห้าสิบ
+      จำนวนแบบจะใหญ่เกินกว่าจะไล่ไหว ซึ่งเป็นเหตุผลที่ต้องมีดีพี
+    </figcaption>
+  </figure>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -1181,6 +1414,113 @@ for (int j = 1; j <= k; j++) {
       <li><strong>เอาต์พุต:</strong> ผลรวมความไม่คุ้นเคยที่น้อยที่สุด</li>
     </ul>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{ex2InputLines.map((line, t) => (t === 0 ? line : <><br />{line}</>))}</td>
+        <td>{ex2Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>อ่านตัวอย่างนี้ยังไง</h3>
+  <p>
+    บรรทัดแรกบอกว่ามีคนต่อคิว {EX2_N} คน และมีกระเช้า {EX2_K} คัน อีก {EX2_N} บรรทัดคือตาราง
+    <code>u</code> ซึ่งอ่านแบบเดียวกับตารางระยะทางในแผนที่ ช่องแถวที่ <code>i</code> คอลัมน์ที่
+    <code>j</code> คือความไม่คุ้นเคยระหว่างคนคู่นั้น ตารางจึงสมมาตร (ช่องแถว 1 คอลัมน์ 2
+    กับช่องแถว 2 คอลัมน์ 1 เป็นเลขเดียวกัน) และแนวทแยงเป็นศูนย์ เพราะคนคนเดียวกันไม่ได้จับคู่กับตัวเอง
+  </p>
+  <p>
+    ที่ต้องระวังคือ<strong>คิวสลับที่ไม่ได้</strong> กระเช้าคันแรกรับคนหัวคิวติดกันไปเท่านั้น
+    เราจึงเลือกได้แค่ว่า<strong>คันแรกจะรับไปกี่คน</strong> ที่เหลือตามมาเอง สำหรับ {EX2_N} คน
+    {EX2_K} คัน จึงมีทางเลือกแค่ {ex2Rows.length} แบบ
+  </p>
+
+  <ZoomableDiagram caption="วิธีแบ่งที่ให้ค่าต่ำที่สุดของตัวอย่างนี้ กระเช้าคันหนึ่งจ่ายเฉพาะช่องที่เป็นคู่ของคนที่นั่งคันเดียวกัน ซึ่งบนตารางคือสามเหลี่ยมเหนือแนวทแยงของกลุ่มนั้น">
+    <svg viewBox={e2VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตัวอย่างข้อที่สอง ตารางความไม่คุ้นเคยขนาดสี่คูณสี่">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ตาราง u และช่องที่แต่ละคันต้องจ่าย</text>
+      {EX2_U[0].map((_, c) => (
+        <text x={e2gx(c) + E2_CELL / 2} y={44} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">คน {c + 1}</text>
+      ))}
+      {EX2_U.map((row, r) => (
+        <>
+          <text x={18 + E2_HEAD - 8} y={e2gy(r) + E2_CELL / 2 + 4} fill="#6b7690" font-size="11.5" text-anchor="end" font-family="monospace">คน {r + 1}</text>
+          {row.map((v, c) => (
+            <>
+              <rect
+                x={e2gx(c)}
+                y={e2gy(r)}
+                width={E2_CELL}
+                height={E2_CELL}
+                fill={ex2CellRole[r][c] === 'counted' ? '#14351f' : ex2CellRole[r][c] === 'mirror' ? '#151d2f' : '#0d1626'}
+                stroke={ex2CellRole[r][c] === 'counted' ? '#2f9e5c' : '#2a3350'}
+              />
+              <text
+                x={e2gx(c) + E2_CELL / 2}
+                y={e2gy(r) + E2_CELL / 2 + 5}
+                fill={ex2CellRole[r][c] === 'counted' ? '#4ade80' : r === c ? '#3d4761' : '#7b8397'}
+                font-size="14"
+                text-anchor="middle"
+                font-family="monospace"
+              >
+                {v}
+              </text>
+            </>
+          ))}
+        </>
+      ))}
+      <text x={E2_PANEL_X} y={70} fill="#e0b400" font-size="12" font-family="monospace">
+        ที่กั้นอยู่หลังคนที่ {ex2Best.cuts.join(' และ ')}
+      </text>
+      {ex2Best.parts.map((g, t) => (
+        <>
+          <text x={E2_PANEL_X} y={100 + t * 74} fill="#4ade80" font-size="12" font-family="monospace">
+            คันที่ {t + 1} รับคนที่ {g.l === g.r ? g.l : `${g.l} ถึง ${g.r}`}
+          </text>
+          <text x={E2_PANEL_X} y={122 + t * 74} fill="#cdd6ea" font-size="11.5" font-family="monospace">
+            {g.pairs.length === 0 ? 'ไม่มีคู่เลย จ่าย 0' : `${g.pairs.map((q) => `u[${q.i}][${q.j}]`).join(' + ')}`}
+          </text>
+          <text x={E2_PANEL_X} y={142 + t * 74} fill="#cdd6ea" font-size="11.5" font-family="monospace">
+            {g.pairs.length === 0 ? '' : `= ${g.pairs.map((q) => q.v).join(' + ')} = ${g.pairs.reduce((a, q) => a + q.v, 0)}`}
+          </text>
+        </>
+      ))}
+      <text x={E2_PANEL_X} y={258} fill="#e0b400" font-size="12.5" font-family="monospace" font-weight="700">
+        รวม {ex2Answer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ช่องสีเขียวคือช่องที่ถูกนับจริง ช่องสีจาง ๆ ที่อยู่ใต้แนวทแยงคือ<strong>เงาของช่องเดียวกัน</strong>
+    เพราะตารางสมมาตร คู่หนึ่งคู่จึงปรากฏสองที่ และเราต้องนับมันครั้งเดียว
+    จุดนี้คือที่มาของการหารสองในเฉลย
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ทุกวิธีแบ่งของตัวอย่างข้อที่ 2</caption>
+      <thead>
+        <tr><th>คันแรกรับไปกี่คน</th><th>สองคันได้ใครบ้าง</th><th>ค่าของแต่ละคัน</th><th class="num">รวม</th></tr>
+      </thead>
+      <tbody>
+        {ex2Rows.map((r) => (
+          <tr>
+            <td>{r.cuts[0]} คน</td>
+            <td>{r.segs.map((g) => (g.l === g.r ? `[${g.l}]` : `[${g.l}-${g.r}]`)).join(' ')}</td>
+            <td>{r.parts.map((g) => g.pairs.reduce((a, q) => a + q.v, 0)).join(' + ')}</td>
+            <td class="num">{r.total === ex2Answer ? <strong>{r.total}</strong> : r.total}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สังเกตว่าการแบ่งครึ่งเท่า ๆ กันไม่ใช่คำตอบ ตัวที่ชนะคือการยอมให้คันแรกแน่นแล้วปล่อยคันหลังโล่ง
+      เพราะคู่ที่แพงที่สุดในตารางนี้อยู่ระหว่างคนที่ 3 กับคนที่ 4
+    </figcaption>
+  </figure>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -1260,6 +1600,75 @@ for (int j = 1; j <= k; j++) {
       <li><strong>เอาต์พุต:</strong> ผลรวมที่น้อยที่สุด</li>
     </ul>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{ex3InputLines.map((line, t) => (t === 0 ? line : <><br />{line}</>))}</td>
+        <td>{ex3Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>อ่านตัวอย่างนี้ยังไง</h3>
+  <p>
+    บรรทัดแรกบอกว่าอาเรย์ยาว {EX3.length} ตัว และต้องตัดเป็น {EX3_K} ช่วง บรรทัดที่สองคือตัวเลขในอาเรย์
+    ตัวเลขพวกนี้<strong>ไม่ได้มีความหมายเป็นปริมาณ</strong> มันเป็นแค่ป้ายชื่อ สิ่งเดียวที่โจทย์สนใจคือ
+    สองตำแหน่งไหน<strong>ป้ายชื่อตรงกัน</strong>
+  </p>
+  <p>
+    ค่าใช้จ่ายนับเป็น<strong>คู่</strong> ไม่ใช่นับตัว ถ้าช่วงหนึ่งมีเลข 3 อยู่สามตัว
+    มันจ่ายสาม เพราะเลข 3 สามตัวจับคู่กันเองได้สามคู่ ไม่ใช่จ่ายสาม เพราะมีสามตัว
+    ชุดนี้มีคู่ที่ค่าตรงกันทั้งหมด {ex3AllPairs.length} คู่ ถ้าไม่ตัดเลยก็ต้องจ่ายครบ {ex3AllPairs.length}
+  </p>
+  <p>
+    ที่กั้นทำหน้าที่เดียวคือ<strong>ตัดคู่ให้ขาดจากกัน</strong> คู่ไหนมีที่กั้นคั่นอยู่ตรงกลาง คู่นั้นไม่ต้องจ่าย
+    งานของเราคือวางที่กั้น {EX3_K - 1} อันให้ตัดคู่ได้มากที่สุด
+  </p>
+
+  <ZoomableDiagram caption="เส้นโค้งหนึ่งเส้นคือหนึ่งคู่ที่ค่าตรงกัน เส้นสีทองคือคู่ที่ยังอยู่ในช่วงเดียวกัน จึงต้องจ่าย เส้นจาง ๆ คือคู่ที่ถูกที่กั้นคั่นไปแล้ว จึงไม่ต้องจ่าย">
+    <svg viewBox={e3VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตัวอย่างข้อที่สาม อาเรย์เจ็ดตัวกับคู่ที่ค่าเท่ากัน">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">
+        คู่ที่ค่าตรงกันมี {ex3AllPairs.length} คู่ ที่กั้น {EX3_K - 1} อันตัดไปได้ {ex3CutPairs.length} คู่
+      </text>
+      {ex3CutPairs.map((pr) => (
+        <path d={e3Arc(pr.i, pr.j)} fill="none" stroke="#2a3350" stroke-width="1.6" stroke-dasharray="5 4" />
+      ))}
+      {ex3Best.inside.map((pr) => (
+        <path d={e3Arc(pr.i, pr.j)} fill="none" stroke="#e0b400" stroke-width="2.2" />
+      ))}
+      {EX3.map((v, t) => (
+        <>
+          <rect x={e3x(t)} y={E3_ROW_Y} width={E3_CW} height={E3_ROW_H} rx="6" fill="#101827" stroke="#2a3350" />
+          <text x={e3x(t) + E3_CW / 2} y={E3_ROW_Y + 29} fill="#cdd6ea" font-size="16" text-anchor="middle" font-family="monospace">{v}</text>
+          <text x={e3x(t) + E3_CW / 2} y={E3_ROW_Y + 62} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">ตำแหน่ง {t + 1}</text>
+        </>
+      ))}
+      {ex3Best.cuts.map((c) => (
+        <line x1={e3x(c) - E3_GAP / 2} y1={E3_ROW_Y - 10} x2={e3x(c) - E3_GAP / 2} y2={E3_ROW_Y + E3_ROW_H + 8} stroke="#e0b400" stroke-width="3" />
+      ))}
+      {ex3Segs.map((g, t) => (
+        <>
+          <line x1={e3x(g.l - 1) + 2} y1={E3_ROW_Y + 78} x2={e3x(g.r - 1) + E3_CW - 2} y2={E3_ROW_Y + 78} stroke="#4ade80" stroke-width="2" />
+          <text x={(e3x(g.l - 1) + e3x(g.r - 1) + E3_CW) / 2} y={E3_ROW_Y + 98} fill="#4ade80" font-size="11.5" text-anchor="middle" font-family="monospace">
+            ช่วงที่ {t + 1} จ่าย {ex3SegCosts[t]}
+          </text>
+        </>
+      ))}
+      <text x="18" y={E3_ROW_Y + 128} fill="#e0b400" font-size="12.5" font-family="monospace" font-weight="700">
+        รวม {ex3Answer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เส้นสีทองที่เหลืออยู่เส้นเดียวคือเลข 3 ที่ตำแหน่ง {ex3Best.inside.map((q) => q.i).join(' และ ')}
+    กับตำแหน่ง {ex3Best.inside.map((q) => q.j).join(' และ ')} ซึ่งอยู่ในช่วงเดียวกันและแยกไม่ออก
+    เพราะที่กั้นหมดไปก่อน จากทั้งหมด {ex3Rows.length} แบบที่แบ่งได้ มี {ex3TieCount} แบบที่ได้
+    {ex3Answer} เท่ากัน ส่วนที่เหลือถูกกว่านี้ไม่ได้ อย่างดีที่สุดก็ {ex3SecondBest}
+  </p>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -1412,6 +1821,16 @@ for (int j = 1; j <= k; j++) {
 </CpProblemLayout>
 
 <style>
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของ DivineLoreLayout (1rem) ไม่ใช่ใหญ่กว่า
+     และใช้ margin แบบ auto ซ้ายขวา ไม่งั้นมันจะทับกฎจัดกลางของ CpProblemLayout */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+
   /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
   figure.tbl{
     margin:1.2rem 0 0.4rem;

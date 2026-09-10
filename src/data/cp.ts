@@ -236,7 +236,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'divide and conquer', 'พื้นฐาน'],
     difficulty: 3,
     dateISO: '2026-09-10',
-    readingMinutes: 16,
+    readingMinutes: 20,
   },
   {
     href: 'pick-books/',
