@@ -754,6 +754,27 @@ const texQi = texCode(
   CC + '(a, c) ' + PLUS + ' ' + CC + '(b, d) \\;' + LE + '\\; ' + CC + '(a, d) ' + PLUS + ' ' + CC + '(b, c)',
 );
 const texMonoC = texCode(CC + '(b, c) \\;' + LE + '\\; ' + CC + '(a, d)');
+/* สูตรของบทพิสูจน์ ไล่ตามลำดับที่มันถูกใช้ในเนื้อหา */
+const SUB = (base: string, k: string): string => base + '_{' + k + '}';
+const texDpQi = texCode(
+  DP + '(a, c) ' + PLUS + ' ' + DP + '(b, d) \\;' + LE + '\\; ' + DP + '(a, d) ' + PLUS + ' ' + DP + '(b, c)',
+);
+const texDpK = texCode(
+  SUB(DP, 'k') + '(i, j) ' + EQ + ' ' + DP + '(i, k) ' + PLUS + ' ' + DP + '(k' + PLUS + ONE + ', j) ' + PLUS + ' ' + CC + '(i,\\, j)',
+);
+const texFour = texCode(
+  DP + '(p' + PLUS + ONE + ', j' + MINUS + ONE + ') ' + PLUS + ' ' + DP + '(q' + PLUS + ONE + ', j) \\;' + LE +
+    '\\; ' + DP + '(p' + PLUS + ONE + ', j) ' + PLUS + ' ' + DP + '(q' + PLUS + ONE + ', j' + MINUS + ONE + ')',
+);
+const texShift = texCode(
+  SUB(DP, 'p') + '(i, j' + MINUS + ONE + ') ' + MINUS + ' ' + SUB(DP, 'q') + '(i, j' + MINUS + ONE + ') \\;' + LE +
+    '\\; ' + SUB(DP, 'p') + '(i, j) ' + MINUS + ' ' + SUB(DP, 'q') + '(i, j)',
+);
+const texTele = texCode(
+  '\\sum_{i,\\, j} \\Big( ' + OPT + '(i' + PLUS + ONE + ', j) ' + MINUS + ' ' + OPT + '(i, j' + MINUS + ONE + ') \\Big) ' +
+    EQ + ' ' + mc.fn('O') + '(n^{' + mc.num('2') + '})',
+);
+
 const texObst = texCode(
   GG +
     '[i][j] ' +
@@ -1524,6 +1545,84 @@ int main() {
     </p>
   </div>
 
+  <details class="expander">
+    <summary>ดูบทพิสูจน์ว่าทำไมสองเงื่อนไขนั้นทำให้ opt ไม่ถอยหลัง</summary>
+    <div class="expander-body">
+      <p>
+        ส่วนนี้ไม่ต้องอ่านก็เขียนโค้ดได้ แต่ถ้าอยากรู้ว่าข้ออ้างมาจากไหน มันเดินสองก้าว
+        ก้าวแรกยกสมบัติจาก <code>C</code> ขึ้นไปให้ <code>dp</code> ก้าวที่สองใช้สมบัติของ{' '}
+        <code>dp</code> มาบีบ <code>opt</code>
+      </p>
+
+      <h3>ก้าวที่ 1 · dp เองก็เข้าอสมการสี่เหลี่ยมด้วย</h3>
+      <p>
+        ข้อความที่ต้องพิสูจน์คือ ถ้า <code>C</code> เข้าทั้งสองเงื่อนไข แล้วสำหรับ{' '}
+        <code>a</code> ถึง <code>b</code> ถึง <code>c</code> ถึง <code>d</code> ที่เรียงกัน
+      </p>
+      <Fragment set:html={texDpQi} />
+      <p>
+        พิสูจน์ด้วย<strong>อุปนัยเชิงเข้ม</strong> (<i>strong induction</i> อ่านว่า{' '}
+        <strong>"สตรอง อินดักชัน"</strong> แปลว่า <strong>"การอุปนัยที่ยืมผลของทุกกรณีที่เล็กกว่า
+        ไม่ใช่แค่กรณีก่อนหน้าอันเดียว"</strong>) บนความยาวช่วง แล้วแยกเป็นสองกรณี
+      </p>
+      <p>
+        <strong>กรณี <code>b = c</code></strong> ให้ <code>z</code> เป็นจุดตัดที่ดีที่สุดของช่วง{' '}
+        <code>[a..d]</code> ถ้า <code>z</code> น้อยกว่า <code>b</code> ก็ใช้ได้ว่า{' '}
+        <code>dp(a,b)</code> ไม่แพ้การตัดที่ <code>z</code> คือ{' '}
+        <code>dp(a,b) ≤ dp(a,z) + dp(z+1,b) + C(a,b)</code> เอามาประกบกับสมมติฐานอุปนัยที่บอกว่า{' '}
+        <code>dp(z+1,b) + dp(b,d) ≤ dp(z+1,d)</code> และเงื่อนไขข้อแรกที่บอกว่า{' '}
+        <code>C(a,b) ≤ C(a,d)</code> ก็ได้ผลที่ต้องการ ส่วนกรณี <code>z ≥ b</code> ทำแบบเดียวกันโดยกลับข้าง
+      </p>
+      <p>
+        <strong>กรณี <code>b</code> น้อยกว่า <code>c</code></strong> รูปเหมือนกัน
+        แต่ต้องแตกเป็นหลายกรณีย่อยตามว่า <code>opt(b,c)</code> อยู่ก่อนหรือหลัง <code>opt(a,d)</code>{' '}
+        แล้วใช้อสมการสี่เหลี่ยมของ <code>C</code> กับสมมติฐานอุปนัยบนช่วงดัชนีที่เหมาะกับกรณีนั้น
+        ตรงนี้ผมยกมาเป็นโครง ไม่ได้กางทุกกรณีย่อย ถ้าอยากได้ครบไปดูที่ต้นทางหรือที่บทความของ Yao
+        ในรายการอ้างอิงท้ายหน้า
+      </p>
+
+      <h3>ก้าวที่ 2 · จาก dp ไปหา opt</h3>
+      <p>
+        ตั้งชื่อค่าที่ได้เมื่อ<strong>บังคับ</strong>ให้ตัดที่ <code>k</code> ว่า <code>dp_k(i, j)</code>
+      </p>
+      <Fragment set:html={texDpK} />
+      <p>
+        เอาอสมการของก้าวที่ 1 มาใช้กับสี่จุด <code>p+1</code> ถึง <code>q+1</code> ถึง{' '}
+        <code>j-1</code> ถึง <code>j</code> โดยที่ <code>p</code> ไม่เกิน <code>q</code> จะได้
+      </p>
+      <Fragment set:html={texFour} />
+      <p>
+        ย้ายข้างแล้วบวก <code>dp(i,p) - dp(i,q)</code> เข้าไปทั้งสองฝั่ง ส่วน <code>C(i, ·)</code>{' '}
+        ตัดกันเองเพราะเหมือนกันทั้งสองฝั่งอยู่แล้ว ผลคือ
+      </p>
+      <Fragment set:html={texShift} />
+      <p>
+        อ่านบรรทัดนี้เป็นภาษาคน ให้ <code>p</code> เป็นจุดตัดที่อยู่ซ้ายกว่า <code>q</code>{' '}
+        ถ้าที่ช่วงสั้น <code>[i..j-1]</code> ตัวขวา <code>q</code> ชนะ <code>p</code> อยู่แล้ว
+        (ฝั่งซ้ายเป็นบวก) ฝั่งขวาก็ต้องเป็นบวกด้วย แปลว่าที่ช่วงยาว <code>[i..j]</code>{' '}
+        ตัวขวา <code>q</code> ก็ยัง<strong>ชนะอยู่เหมือนเดิม</strong>
+      </p>
+      <p>
+        พูดกลับกันคือ <strong>จุดตัดที่แพ้ไปแล้วตอนช่วงสั้น ไม่มีวันกลับมาชนะตอนช่วงยาว</strong>{' '}
+        จุดที่ชนะจึงเลื่อนไปทางขวาหรืออยู่ที่เดิมเท่านั้น ซึ่งก็คือ <code>opt(i, j-1) ≤ opt(i, j)</code>{' '}
+        ส่วนอีกครึ่งคือ <code>opt(i, j) ≤ opt(i+1, j)</code> พิสูจน์ด้วยรูปเดียวกันเป๊ะ
+        เปลี่ยนจากขยับขอบขวาเป็นขยับขอบซ้ายแทน
+      </p>
+
+      <h3>ก้าวที่ 3 · ทำไมรวมทั้งตารางแล้วเป็น O(n²)</h3>
+      <p>
+        ในเนื้อหาข้างบนผมนับทีละเส้นทแยง เพราะมันเห็นภาพกว่า ส่วนต้นทางนับทั้งตารางทีเดียว
+        ด้วยผลรวมที่หักล้างกันเอง คืองานทั้งหมดมีเพดานเท่ากับ
+      </p>
+      <Fragment set:html={texTele} />
+      <p>
+        พจน์ส่วนใหญ่หักล้างกันหมด เหลือแค่พจน์บวกที่ <code>j</code> เป็นตัวขวาสุด
+        กับพจน์ลบที่ <code>i</code> เป็นตัวซ้ายสุด ซึ่งรวมกันแล้วเป็น <code>O(n²)</code>
+        สองวิธีนับให้ผลเท่ากัน ต่างกันแค่ว่าจะจับกลุ่มพจน์ยังไง
+      </p>
+    </div>
+  </details>
+
   <hr class="divider" />
 
   <h2>ถ้าฝืนใช้กับค่าใช้จ่ายที่ไม่เข้าเงื่อนไข จะพังยังไง</h2>
@@ -2194,9 +2293,14 @@ int main() {
 
   /* ---------- กระดานของเครื่องเดิน ----------
      ล็อกความกว้างคอลัมน์ไว้ ไม่งั้นช่องที่เปลี่ยนจาก · เป็นตัวเลขจะดันตารางทั้งใบ */
+  /* !important สู้กับกฎของ CpProblemLayout คือ body .panel .dpsim table.rec{width:100%}
+     ซึ่ง selector ยาวกว่ากฎคลาสของหน้านี้ จึงชนะถ้าไม่ใส่
+     ถ้าปล่อยให้ width:100% ชนะ ตารางจะยกความกว้าง max-content ของตัวเองเข้าไปคิดด้วย
+     กล่อง .dps-scroll เลยมี max-content เป็นล้านพิกเซล การ์ดก็ถูกดันไปชนเพดาน 66rem
+     แล้วทั้งบทความก็กว้างตาม เหลือที่ว่างซ้ายขวาโดยไม่จำเป็น */
   table.rec.knboard{
     table-layout:fixed;
-    width:0;
+    width:0 !important;
     min-width:100%;
   }
   table.rec.knboard th:first-child,
