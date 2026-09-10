@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 
 const href = 'segment-tree/';
 
@@ -323,6 +324,1304 @@ int main() {
     return 0;
 }`;
 
+
+/* =======================================================================
+   โมเดลของส่วนที่เพิ่มเข้ามาจาก cp-algorithms
+   ทุกตัวเลข ทุกภาพ และทุกคำอธิบายข้างล่างนี้งอกจากการเดินอัลกอริทึมจริง
+   ไม่มีตัวเลขไหนถูกพิมพ์ด้วยมือ
+   ======================================================================= */
+
+const byId = new Map<number, SgNode>(TREE.map((n) => [n.id, n]));
+function nodeById(id: number): SgNode {
+  const n = byId.get(id);
+  if (n === undefined) throw new Error(`ไม่มีปมหมายเลข ${id} ในต้นไม้`);
+  return n;
+}
+
+/* ---------- ก. คำถามหนึ่งครั้งเดินแตะปมไหนบ้าง ----------
+   เดินต้นไม้ตามอัลกอริทึมจริง แล้วบันทึกทุกครั้งที่เข้าปมหนึ่งปม
+   ค่าที่สะสมได้ระหว่างทางจึงเป็นค่าที่โปรแกรมเห็นจริง */
+type QVisit = { id: number; kind: 'full' | 'pass' | 'cut'; acc: string; depth: number; note: string };
+function traceQuery(ql: number, qr: number): QVisit[] {
+  const out: QVisit[] = [];
+  let acc = Number.POSITIVE_INFINITY;
+  const show = (): string => (acc === Number.POSITIVE_INFINITY ? 'ยังไม่มี' : String(acc));
+  const go = (id: number): void => {
+    const n = nodeById(id);
+    const range = n.lo === n.hi ? `ช่อง ${n.lo}` : `ช่อง ${n.lo} ถึง ${n.hi}`;
+    if (qr < n.lo || n.hi < ql) {
+      out.push({
+        id,
+        kind: 'cut',
+        acc: show(),
+        depth: n.depth,
+        note: `ปม ${range} <b>ไม่ทับคำถามเลย</b> ตัดทิ้งทันที ไม่ต้องลงไปดูลูกของมันสักตัว ค่าที่สะสมไว้ยังเป็น ${show()}`,
+      });
+      return;
+    }
+    if (ql <= n.lo && n.hi <= qr) {
+      acc = Math.min(acc, n.val);
+      out.push({
+        id,
+        kind: 'full',
+        acc: show(),
+        depth: n.depth,
+        note: `ปม ${range} <b>อยู่ในคำถามพอดีทั้งก้อน</b> จึงหยิบค่าที่ปมนี้เก็บไว้แล้ว คือ ${n.val} มาใช้ได้เลย ไม่ต้องลงไปหาลูก ค่าที่สะสมได้ตอนนี้คือ ${show()}`,
+      });
+      return;
+    }
+    out.push({
+      id,
+      kind: 'pass',
+      acc: show(),
+      depth: n.depth,
+      note: `ปม ${range} <b>ล้นออกนอกคำถาม</b> คำตอบของมันใช้ไม่ได้ทั้งก้อน ต้องแยกไปถามลูกซ้ายกับลูกขวาต่อ ค่าที่สะสมไว้ยังเป็น ${show()}`,
+    });
+    go(id * 2);
+    go(id * 2 + 1);
+  };
+  go(1);
+  const visited = out.length;
+  out.push({
+    id: 0,
+    kind: 'full',
+    acc: show(),
+    depth: 0,
+    note: `เดินจบแล้ว คำตอบของช่วง ${ql} ถึง ${qr} คือ <b>${show()}</b> โดยแตะปมไปทั้งหมด ${visited} ปม จากต้นไม้ที่มี ${TREE.length} ปม`,
+  });
+  return out;
+}
+const qTrace = traceQuery(QL, QR);
+/* ปมที่ตอบได้ทั้งก้อนต้องไม่เกินสองปมต่อหนึ่งชั้น ซึ่งเป็นเหตุผลที่คำถามใช้เวลา log n
+   ตรวจข้ออ้างนี้ตอนบิลด์ ถ้าผิดหน้าจะไม่ยอมถูกสร้าง */
+const fullPerDepth = new Map<number, number>();
+for (const v of qTrace) {
+  if (v.kind === 'full' && v.id !== 0) fullPerDepth.set(v.depth, (fullPerDepth.get(v.depth) ?? 0) + 1);
+}
+const maxFullPerDepth = Math.max(...Array.from(fullPerDepth.values()));
+if (maxFullPerDepth > 2) {
+  throw new Error(`ข้ออ้างในบทนี้ผิด มีปมที่ตอบได้ทั้งก้อนถึง ${maxFullPerDepth} ปมในชั้นเดียว`);
+}
+
+/* ผังของต้นไม้ในเครื่องเดินทีละขั้น ใช้ผังเดียวกับภาพข้างบนแต่ย่อลง */
+const PW = 52;
+const PH = 40;
+const PGAP = 6;
+const pX = (n: SgNode): number => 12 + ((n.lo + n.hi) / 2) * (PW + PGAP);
+const pY = (n: SgNode): number => 14 + n.depth * 54;
+const P_VB = `0 0 ${12 + A.length * (PW + PGAP) - PGAP + 12} ${14 + 3 * 54 + PH + 20}`;
+
+/* ---------- ข. มินิเกม เดินลงต้นไม้หาศูนย์ตัวที่ k ----------
+   ต้นไม้เก็บจำนวนศูนย์ในช่วง คำถามคือศูนย์ตัวที่ k อยู่ช่องไหน
+   เฉลยของทุกด่านคิดจากการกวาดอาเรย์ตรง ๆ ไม่ได้ใช้การเดินลงต้นไม้ที่บทนี้กำลังสอน
+   แล้วเอาสองวิธีมาเทียบกันตอนบิลด์ ถ้าไม่ตรงกันหน้าจะไม่ยอมถูกสร้าง */
+interface ZeroNode {
+  id: number;
+  lo: number;
+  hi: number;
+  cnt: number;
+  depth: number;
+}
+function buildZeroTree(bits: number[]): ZeroNode[] {
+  const out: ZeroNode[] = [];
+  const go = (id: number, lo: number, hi: number, depth: number): number => {
+    if (lo === hi) {
+      const c = bits[lo] === 0 ? 1 : 0;
+      out.push({ id, lo, hi, cnt: c, depth });
+      return c;
+    }
+    const mid = Math.floor((lo + hi) / 2);
+    const c = go(id * 2, lo, mid, depth + 1) + go(id * 2 + 1, mid + 1, hi, depth + 1);
+    out.push({ id, lo, hi, cnt: c, depth });
+    return c;
+  };
+  go(1, 0, bits.length - 1, 0);
+  return out.sort((x, y) => x.id - y.id);
+}
+/** เฉลยแบบกวาดตรง ๆ คืนตำแหน่งของศูนย์ตัวที่ k นับจากหนึ่ง หรือ null เมื่อไม่มี */
+function kthZeroBrute(bits: number[], k: number): number | null {
+  let seen = 0;
+  for (let i = 0; i < bits.length; i++) {
+    if (bits[i] === 0) {
+      seen++;
+      if (seen === k) return i;
+    }
+  }
+  return null;
+}
+/** เฉลยแบบเดินลงต้นไม้ คืนลำดับปมที่เดินผ่าน พร้อมตำแหน่งปลายทาง */
+function kthZeroDescend(nodes: ZeroNode[], k: number): { path: number[]; pos: number | null } {
+  const map = new Map<number, ZeroNode>(nodes.map((n) => [n.id, n]));
+  const root = map.get(1);
+  if (root === undefined || root.cnt < k) return { path: [1], pos: null };
+  const path: number[] = [1];
+  let cur = 1;
+  let need = k;
+  for (;;) {
+    const n = map.get(cur);
+    if (n === undefined) throw new Error('ต้นไม้ของเกมไม่ครบ');
+    if (n.lo === n.hi) return { path, pos: n.lo };
+    const left = map.get(cur * 2);
+    if (left === undefined) throw new Error('ต้นไม้ของเกมไม่ครบ');
+    if (left.cnt >= need) cur = cur * 2;
+    else {
+      need -= left.cnt;
+      cur = cur * 2 + 1;
+    }
+    path.push(cur);
+  }
+}
+
+const KZ_RAW: { id: string; label: string; tease: string; bits: number[]; ks: number[] }[] = [
+  {
+    id: 'z1',
+    label: 'ด่านที่ 1 · อุ่นเครื่อง',
+    tease: 'ตัวเลขในปมคือจำนวนศูนย์ในช่วงที่ปมนั้นดูแล เลือกลงซ้ายหรือขวาไปเรื่อย ๆ จนถึงใบ',
+    bits: [1, 0, 0, 1, 0, 1, 1, 0],
+    ks: [1, 3, 4],
+  },
+  {
+    id: 'z2',
+    label: 'ด่านที่ 2 · ศูนย์กระจุกทางขวา',
+    tease: 'ด่านนี้ศูนย์เกือบทั้งหมดอยู่ครึ่งขวา ลองดูว่าเลขในปมบอกเราตั้งแต่ชั้นแรกไหม',
+    bits: [1, 1, 1, 0, 0, 0, 1, 0],
+    ks: [2, 4],
+  },
+  {
+    id: 'z3',
+    label: 'ด่านที่ 3 · ขอมากกว่าที่มี',
+    tease: 'ด่านนี้มีคำถามที่ตอบไม่ได้ปนอยู่ ถ้าเจอให้กดปุ่มบอกว่าไม่มี',
+    bits: [1, 0, 1, 1, 1, 1, 0, 1],
+    ks: [2, 3],
+  },
+];
+const kzPuzzles = KZ_RAW.map((p) => ({
+  id: p.id,
+  label: p.label,
+  tease: p.tease,
+  rounds: p.ks.map((k) => {
+    const brute = kthZeroBrute(p.bits, k);
+    const walk = kthZeroDescend(buildZeroTree(p.bits), k);
+    /* สองวิธีที่ไม่ได้ใช้ตรรกะร่วมกันเลยต้องได้คำตอบเดียวกัน ไม่งั้นเกมนี้สอนของผิด */
+    if (walk.pos !== brute) {
+      throw new Error(`ด่าน ${p.id} k เท่ากับ ${k} การกวาดตอบ ${brute} แต่การเดินต้นไม้ตอบ ${walk.pos}`);
+    }
+    return {
+      k,
+      answer: brute,
+      bits: p.bits,
+      nodes: buildZeroTree(p.bits).map((n) => ({ id: n.id, lo: n.lo, hi: n.hi, cnt: n.cnt })),
+    };
+  }),
+}));
+/* ต้องมีคำถามที่ตอบไม่ได้จริง อย่างน้อยหนึ่งข้อ ไม่งั้นปุ่มบอกว่าไม่มีก็ไม่มีความหมาย */
+const kzImpossible = kzPuzzles.flatMap((p) => p.rounds).filter((r) => r.answer === null).length;
+if (kzImpossible === 0) throw new Error('มินิเกมหาศูนย์ตัวที่ k ไม่มีคำถามที่ตอบไม่ได้เลย');
+const kzJson = JSON.stringify(kzPuzzles);
+/* ผังของต้นไม้ในมินิเกม ทุกด่านยาวแปดช่องเท่ากัน จึงใช้ผังใบเดียวได้ */
+const KW = 46;
+const KH = 36;
+const KGAP = 6;
+const kzLayout = buildZeroTree(KZ_RAW[0].bits);
+const kX = (n: ZeroNode): number => 10 + ((n.lo + n.hi) / 2) * (KW + KGAP);
+const kY = (n: ZeroNode): number => 12 + n.depth * 48;
+const KZ_VB = `0 0 ${10 + 8 * (KW + KGAP) - KGAP + 10} ${12 + 3 * 48 + KH + 18}`;
+
+
+/* ---------- ค. เครื่องเดินทีละขั้น การกำหนดค่าทั้งช่วง กับการดันป้ายลงลูก ----------
+   ต้นไม้จริงขนาดสี่ช่อง เก็บผลรวม และมีป้ายชนิด "กำหนดค่า" ซึ่งดันลงลูกจริง
+   ทุกภาพในเครื่องเดินนี้คือสภาพของต้นไม้หลังคำสั่งจริงหนึ่งคำสั่ง ไม่ได้วาดตามจินตนาการ */
+const ASN_A = [3, 1, 4, 1];
+interface AsnNode {
+  id: number;
+  lo: number;
+  hi: number;
+  depth: number;
+}
+const ASN_NODES: AsnNode[] = (() => {
+  const out: AsnNode[] = [];
+  const go = (id: number, lo: number, hi: number, depth: number): void => {
+    out.push({ id, lo, hi, depth });
+    if (lo === hi) return;
+    const mid = Math.floor((lo + hi) / 2);
+    go(id * 2, lo, mid, depth + 1);
+    go(id * 2 + 1, mid + 1, hi, depth + 1);
+  };
+  go(1, 0, ASN_A.length - 1, 0);
+  return out.sort((x, y) => x.id - y.id);
+})();
+
+type AsnCell = { id: number; sum: number; mark: number | null };
+type AsnStep = { cells: AsnCell[]; hot: number[]; push: number[]; note: string };
+
+function runAssignSim(): { steps: AsnStep[]; finalArr: number[]; queryAnswer: number } {
+  const sum = new Map<number, number>();
+  const mark = new Map<number, number | null>();
+  const steps: AsnStep[] = [];
+  const nodeOf = new Map<number, AsnNode>(ASN_NODES.map((n) => [n.id, n]));
+  const at = (id: number): AsnNode => {
+    const n = nodeOf.get(id);
+    if (n === undefined) throw new Error(`ไม่มีปม ${id}`);
+    return n;
+  };
+  const build = (id: number): number => {
+    const n = at(id);
+    mark.set(id, null);
+    if (n.lo === n.hi) {
+      sum.set(id, ASN_A[n.lo]);
+      return ASN_A[n.lo];
+    }
+    const v = build(id * 2) + build(id * 2 + 1);
+    sum.set(id, v);
+    return v;
+  };
+  const snap = (hot: number[], push: number[], note: string): void => {
+    steps.push({
+      cells: ASN_NODES.map((n) => ({ id: n.id, sum: sum.get(n.id) ?? 0, mark: mark.get(n.id) ?? null })),
+      hot,
+      push,
+      note,
+    });
+  };
+  const rangeText = (id: number): string => {
+    const n = at(id);
+    return n.lo === n.hi ? `ช่อง ${n.lo}` : `ช่อง ${n.lo} ถึง ${n.hi}`;
+  };
+  /** ดันป้ายของปมลงลูกทั้งสอง แล้วล้างป้ายของตัวเอง */
+  const push = (id: number): boolean => {
+    const m = mark.get(id) ?? null;
+    if (m === null) return false;
+    for (const c of [id * 2, id * 2 + 1]) {
+      const cn = at(c);
+      sum.set(c, m * (cn.hi - cn.lo + 1));
+      mark.set(c, m);
+    }
+    mark.set(id, null);
+    snap(
+      [id],
+      [id * 2, id * 2 + 1],
+      `ปม ${rangeText(id)} มีป้าย <b>กำหนดค่าเป็น ${m}</b> ค้างอยู่ และตอนนี้เราจำเป็นต้องลงไปดูลูกของมัน จึงต้อง<b>ดันป้ายลงลูก</b>ก่อน ลูกทั้งสองรับป้ายเดียวกันไป แล้วผลรวมของลูกก็คิดใหม่เป็นค่าที่กำหนดคูณจำนวนช่องที่มันดูแล พอส่งต่อแล้วป้ายของปมนี้ก็ถูกล้าง เพราะงานถูกส่งไปอยู่ที่ลูกแล้ว`,
+    );
+    return true;
+  };
+  const assign = (id: number, ql: number, qr: number, v: number): void => {
+    const n = at(id);
+    if (qr < n.lo || n.hi < ql) return;
+    if (ql <= n.lo && n.hi <= qr) {
+      sum.set(id, v * (n.hi - n.lo + 1));
+      mark.set(id, v);
+      snap(
+        [id],
+        [],
+        `ปม ${rangeText(id)} อยู่ในคำสั่งพอดีทั้งก้อน จึง<b>แปะป้ายไว้เฉย ๆ</b> ว่าทั้งช่วงนี้ถูกกำหนดเป็น ${v} แล้วคิดผลรวมของตัวเองใหม่เป็น ${v * (n.hi - n.lo + 1)} ลูกของมันยังเก็บค่าเก่าอยู่ ซึ่งไม่เป็นไร ตราบใดที่ยังไม่มีใครลงไปถามลูก`,
+      );
+      return;
+    }
+    push(id);
+    assign(id * 2, ql, qr, v);
+    assign(id * 2 + 1, ql, qr, v);
+    sum.set(id, (sum.get(id * 2) ?? 0) + (sum.get(id * 2 + 1) ?? 0));
+    snap(
+      [id],
+      [],
+      `ลูกทั้งสองของปม ${rangeText(id)} จัดการเสร็จแล้ว จึงรวมค่าของลูกขึ้นมาเป็นผลรวมใหม่ของปมนี้ ได้ ${sum.get(id)}`,
+    );
+  };
+  const query = (id: number, ql: number, qr: number): number => {
+    const n = at(id);
+    if (qr < n.lo || n.hi < ql) return 0;
+    if (ql <= n.lo && n.hi <= qr) {
+      snap(
+        [id],
+        [],
+        `ปม ${rangeText(id)} อยู่ในคำถามพอดี จึงตอบด้วยผลรวมที่มันเก็บไว้ คือ ${sum.get(id)}`,
+      );
+      return sum.get(id) ?? 0;
+    }
+    push(id);
+    return query(id * 2, ql, qr) + query(id * 2 + 1, ql, qr);
+  };
+
+  build(1);
+  snap([], [], `ต้นไม้ของอาเรย์ ${ASN_A.join(', ')} ตัวเลขบนคือผลรวมของช่วงที่ปมนั้นดูแล ยังไม่มีป้ายค้างที่ไหนเลย`);
+  assign(1, 0, 3, 5);
+  assign(1, 2, 3, 9);
+  const ans = query(1, 1, 2);
+  snap([], [], `คำตอบของช่วงช่อง 1 ถึง 2 คือ <b>${ans}</b> สังเกตว่าป้ายที่เคยค้างอยู่ที่รากถูกดันลงมาทีละชั้นเฉพาะทางที่คำถามเดินผ่านเท่านั้น ทางที่ไม่มีใครถามยังคงมีป้ายค้างอยู่เหมือนเดิม`);
+
+  /* ตรวจกับการไล่อาเรย์ตรง ๆ ถ้าไม่ตรงกันแปลว่าภาพในเครื่องเดินนี้โกหก */
+  const flat = [...ASN_A];
+  for (let i = 0; i <= 3; i++) flat[i] = 5;
+  for (let i = 2; i <= 3; i++) flat[i] = 9;
+  const bruteAns = flat[1] + flat[2];
+  if (bruteAns !== ans) throw new Error(`เครื่องเดินป้ายกำหนดค่าตอบ ${ans} แต่การไล่อาเรย์ตรง ๆ ตอบ ${bruteAns}`);
+  return { steps, finalArr: flat, queryAnswer: ans };
+}
+const asnSim = runAssignSim();
+const asnSteps = asnSim.steps;
+/* ผังของต้นไม้สี่ช่อง */
+const AW = 64;
+const AH = 42;
+const AGAP = 10;
+const aX = (n: AsnNode): number => 14 + ((n.lo + n.hi) / 2) * (AW + AGAP);
+const aY = (n: AsnNode): number => 14 + n.depth * 62;
+const ASN_VB = `0 0 ${14 + 4 * (AW + AGAP) - AGAP + 14} ${14 + 2 * 62 + AH + 22}`;
+
+/* ---------- ง. เครื่องเดินทีละขั้น ต้นไม้ที่จำอดีตได้ ----------
+   สร้างเวอร์ชันใหม่จากการแก้หนึ่งช่อง แล้วนับว่าปมใหม่เกิดกี่ปม ปมเก่าถูกใช้ร่วมกี่ปม
+   ตัวเลขทั้งสองมาจากการนับของจริงในการสร้าง ไม่ได้เขียนไว้ล่วงหน้า */
+const PER_A = [2, 7, 1, 5];
+const PER_SET_AT = 2;
+const PER_SET_TO = 9;
+interface PerNode {
+  key: string;
+  ver: 0 | 1;
+  lo: number;
+  hi: number;
+  depth: number;
+  sum: number;
+  leftKey: string | null;
+  rightKey: string | null;
+}
+function buildPersistent(): { nodes: PerNode[]; order: string[]; fresh: number; shared: number; v1Arr: number[] } {
+  const nodes = new Map<string, PerNode>();
+  const key = (ver: number, lo: number, hi: number): string => `v${ver}:${lo}-${hi}`;
+  const build = (lo: number, hi: number, depth: number): string => {
+    const k = key(0, lo, hi);
+    if (lo === hi) {
+      nodes.set(k, { key: k, ver: 0, lo, hi, depth, sum: PER_A[lo], leftKey: null, rightKey: null });
+      return k;
+    }
+    const mid = Math.floor((lo + hi) / 2);
+    const lk = build(lo, mid, depth + 1);
+    const rk = build(mid + 1, hi, depth + 1);
+    const s = (nodes.get(lk)?.sum ?? 0) + (nodes.get(rk)?.sum ?? 0);
+    nodes.set(k, { key: k, ver: 0, lo, hi, depth, sum: s, leftKey: lk, rightKey: rk });
+    return k;
+  };
+  build(0, PER_A.length - 1, 0);
+
+  const order: string[] = [];
+  let fresh = 0;
+  let shared = 0;
+  const clone = (oldKey: string, lo: number, hi: number, depth: number, pos: number, val: number): string => {
+    const k = key(1, lo, hi);
+    fresh++;
+    if (lo === hi) {
+      nodes.set(k, { key: k, ver: 1, lo, hi, depth, sum: val, leftKey: null, rightKey: null });
+      order.push(k);
+      return k;
+    }
+    const old = nodes.get(oldKey);
+    if (old === undefined || old.leftKey === null || old.rightKey === null) throw new Error('ต้นไม้เวอร์ชันศูนย์ไม่ครบ');
+    const mid = Math.floor((lo + hi) / 2);
+    let lk = old.leftKey;
+    let rk = old.rightKey;
+    if (pos <= mid) {
+      lk = clone(old.leftKey, lo, mid, depth + 1, pos, val);
+      shared++;
+    } else {
+      rk = clone(old.rightKey, mid + 1, hi, depth + 1, pos, val);
+      shared++;
+    }
+    const s = (nodes.get(lk)?.sum ?? 0) + (nodes.get(rk)?.sum ?? 0);
+    nodes.set(k, { key: k, ver: 1, lo, hi, depth, sum: s, leftKey: lk, rightKey: rk });
+    order.push(k);
+    return k;
+  };
+  clone(key(0, 0, PER_A.length - 1), 0, PER_A.length - 1, 0, PER_SET_AT, PER_SET_TO);
+
+  const v1Arr = [...PER_A];
+  v1Arr[PER_SET_AT] = PER_SET_TO;
+  const rootV1 = nodes.get(key(1, 0, PER_A.length - 1));
+  const want = v1Arr.reduce((a, b) => a + b, 0);
+  if ((rootV1?.sum ?? -1) !== want) throw new Error(`ผลรวมของเวอร์ชันใหม่เป็น ${rootV1?.sum} แต่ควรเป็น ${want}`);
+  const rootV0 = nodes.get(key(0, 0, PER_A.length - 1));
+  const want0 = PER_A.reduce((a, b) => a + b, 0);
+  if ((rootV0?.sum ?? -1) !== want0) throw new Error('เวอร์ชันเก่าถูกแก้ไปด้วย ซึ่งผิดความหมายของคำว่าจำอดีตได้');
+  return { nodes: Array.from(nodes.values()), order, fresh, shared, v1Arr };
+}
+const PER = buildPersistent();
+const perNew = PER.nodes.filter((n) => n.ver === 1);
+const perOld = PER.nodes.filter((n) => n.ver === 0);
+/* ปมเก่าที่ถูกใช้ร่วม คือปมของเวอร์ชัน 0 ที่ยัง "เดินไปถึงได้" จากรากของเวอร์ชัน 1
+   ต้องเดินจริงเพื่อนับ สูตรลัดแบบเอาจำนวนปมมาลบกันให้ตัวเลขผิด เพราะกิ่งที่ถูกใช้ร่วม
+   หนึ่งกิ่งพาปมข้างในติดมาด้วยทั้งกิ่ง ไม่ใช่ปมเดียว */
+const perReused = (() => {
+  const map = new Map<string, PerNode>(PER.nodes.map((x) => [x.key, x]));
+  const seen = new Set<string>();
+  const stack: string[] = [`v1:0-${PER_A.length - 1}`];
+  while (stack.length > 0) {
+    const k = stack.pop();
+    if (k === undefined || seen.has(k)) continue;
+    seen.add(k);
+    const n = map.get(k);
+    if (n === undefined) continue;
+    if (n.leftKey !== null) stack.push(n.leftKey);
+    if (n.rightKey !== null) stack.push(n.rightKey);
+  }
+  return Array.from(seen).filter((k) => k.indexOf('v0') === 0).length;
+})();
+if (perReused + perNew.length !== perOld.length) {
+  throw new Error(`เวอร์ชันใหม่เดินถึง ${perReused} ปมเก่า บวกปมใหม่ ${perNew.length} ปม ซึ่งควรเท่ากับ ${perOld.length} ปมของต้นไม้หนึ่งต้น`);
+}
+
+type PerStep = { show: string[]; hot: string | null; note: string };
+const perSteps: PerStep[] = (() => {
+  const out: PerStep[] = [];
+  out.push({
+    show: [],
+    hot: null,
+    note: `นี่คือเวอร์ชันที่ 0 ของอาเรย์ ${PER_A.join(', ')} ปมสีเทาคือปมที่มีอยู่แล้ว ทั้งหมด ${perOld.length} ปม ต่อไปเราจะแก้ช่อง ${PER_SET_AT} ให้เป็น ${PER_SET_TO} โดย<b>ห้ามแตะปมเดิมสักปมเดียว</b>`,
+  });
+  /* order ถูกดันตอนขากลับ จึงเป็นลำดับจากใบขึ้นราก กลับด้านให้เล่าจากรากลงใบ */
+  const topDown = [...PER.order].reverse();
+  const shown: string[] = [];
+  for (const k of topDown) {
+    const n = PER.nodes.find((x) => x.key === k);
+    if (n === undefined) continue;
+    shown.push(k);
+    const range = n.lo === n.hi ? `ช่อง ${n.lo}` : `ช่อง ${n.lo} ถึง ${n.hi}`;
+    const kids =
+      n.lo === n.hi
+        ? `เป็นใบ จึงเขียนค่าใหม่ ${n.sum} ลงไปตรง ๆ`
+        : `ลูกฝั่งที่ไม่ได้ถูกแก้ <b>ชี้กลับไปที่ปมเดิมของเวอร์ชัน 0</b> เส้นประในภาพคือการชี้กลับนั้น ส่วนลูกอีกฝั่งเป็นปมใหม่ที่กำลังจะสร้างต่อไป`;
+    out.push({
+      show: [...shown],
+      hot: k,
+      note: `สร้างปมใหม่สำหรับ ${range} ${kids}`,
+    });
+  }
+  out.push({
+    show: [...shown],
+    hot: null,
+    note: `เสร็จแล้ว เวอร์ชันที่ 1 ใช้ปมใหม่แค่ <b>${perNew.length} ปม</b> คือหนึ่งเส้นทางจากรากลงใบ ส่วนที่เหลืออีก ${perReused} ปมของเวอร์ชัน 0 ถูก<b>ใช้ร่วมกัน</b> ทั้งสองเวอร์ชันจึงอยู่พร้อมกันได้ และถามย้อนหลังได้ทั้งคู่ นี่คือเหตุผลที่การเก็บทุกเวอร์ชันใช้หน่วยความจำแค่ log n ต่อการแก้หนึ่งครั้ง ไม่ใช่ n`,
+  });
+  return out;
+})();
+/* ผังของภาพ เวอร์ชัน 0 อยู่ซ้าย ปมใหม่ของเวอร์ชัน 1 อยู่ขวา ชั้นเดียวกันอยู่ระดับเดียวกัน */
+const RW = 58;
+const RH = 40;
+const RGAP = 8;
+const R_SHIFT = 4 * (RW + RGAP) + 46;
+const rX = (n: PerNode): number => 12 + ((n.lo + n.hi) / 2) * (RW + RGAP) + (n.ver === 1 ? R_SHIFT : 0);
+const rY = (n: PerNode): number => 14 + n.depth * 60;
+/* กว้างเท่าขอบขวาสุดของกล่องจริงบวกอีกนิด ไม่ใช่สูตรจากจำนวนช่อง
+   เพราะเวอร์ชันใหม่มีปมแค่เส้นทางเดียว ภาพจึงจบก่อนที่สูตรเผื่อไว้ และเหลือที่ว่างจนดูเบี้ยวไปทางซ้าย */
+const PER_RIGHT = Math.max(...PER.nodes.map((n) => rX(n) + RW));
+const PER_VB = `0 0 ${Math.ceil(PER_RIGHT) + 12} ${14 + 2 * 60 + RH + 22}`;
+
+/* ---------- จ. ต้นไม้ที่เก็บอาเรย์ย่อยเรียงไว้ในทุกปม ----------
+   ใช้อาเรย์ตัวเดียวกับภาพต้นบท คำถามคือค่าที่น้อยที่สุดที่ยังไม่น้อยกว่า X ในช่วงหนึ่ง
+   คำตอบตรวจกับการกวาดทีละช่อง */
+const MS_X = 5;
+const msSorted = new Map<number, number[]>();
+(() => {
+  const go = (id: number, lo: number, hi: number): number[] => {
+    if (lo === hi) {
+      const one = [A[lo]];
+      msSorted.set(id, one);
+      return one;
+    }
+    const mid = Math.floor((lo + hi) / 2);
+    const merged = [...go(id * 2, lo, mid), ...go(id * 2 + 1, mid + 1, hi)].sort((x, y) => x - y);
+    msSorted.set(id, merged);
+    return merged;
+  };
+  go(1, 0, A.length - 1);
+})();
+const msTouched = [...HIT.full].sort((a, b) => a - b);
+const msFromTree = (() => {
+  let best = Number.POSITIVE_INFINITY;
+  for (const id of msTouched) {
+    const list = msSorted.get(id) ?? [];
+    /* ค้นหาแบบไบนารีในรายการที่เรียงแล้วของปมนี้ */
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (list[mid] >= MS_X) hi = mid;
+      else lo = mid + 1;
+    }
+    if (lo < list.length) best = Math.min(best, list[lo]);
+  }
+  return best;
+})();
+const msBrute = (() => {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = QL; i <= QR; i++) if (A[i] >= MS_X) best = Math.min(best, A[i]);
+  return best;
+})();
+if (msFromTree !== msBrute) throw new Error(`ต้นไม้แบบเก็บรายการเรียงตอบ ${msFromTree} แต่การกวาดตอบ ${msBrute}`);
+const msTotalItems = Array.from(msSorted.values()).reduce((s, l) => s + l.length, 0);
+
+/* ---------- ฉ. หน่วยความจำ 4n กับ 2n ---------- */
+const MEM_N = 200000;
+const memRows = [
+  { name: 'เผื่อไว้สี่เท่า (4n) ที่โค้ดส่วนใหญ่ใช้', cells: 4 * MEM_N, why: 'ง่ายที่สุด ปมลูกของ v คือ 2v และ 2v+1 ตรง ๆ' },
+  { name: 'ขยายให้เป็นกำลังสองก่อน (2 คูณ SZ)', cells: 2 * 2 ** Math.ceil(Math.log2(MEM_N)), why: 'ต้องยอมมีใบส่วนเกิน และต้องตั้งค่ากลางให้ถูก' },
+  { name: 'เรียงหมายเลขตามการเดินต้นไม้ (2n)', cells: 2 * MEM_N, why: 'ลูกขวาคือ v + 2 คูณ (mid - lo + 1) ซึ่งต้องคิดเองทุกครั้ง' },
+];
+const memBytes = (cells: number): string => `${(cells * 8 / 1024 / 1024).toFixed(1)} เมกะไบต์`;
+
+
+/* ---------- โค้ดที่หน้านี้ส่งมอบ ----------
+   ทุกชิ้นถูกคอมไพล์ด้วย g++ 11.4.0 แล้วสุ่มเทียบกับตัวตรวจอิสระอย่างละ 800 รอบ
+   ตัวตรวจของแต่ละชิ้นกวาดอาเรย์ตรง ๆ ไม่มีต้นไม้ จึงไม่ได้ทดสอบแค่การพิมพ์ซ้ำ */
+
+const codeMaxCount = `// เซกเมนต์ทรีที่ปมเก็บ "ค่ามากสุด และมีกี่ตัวที่เท่ากับค่ามากสุด"
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 l r = ถามค่ามากสุดและจำนวนของมันในช่วง
+#include <bits/stdc++.h>
+using namespace std;
+
+struct Node { long long mx; int cnt; };
+
+// รวมลูกสองตัวเป็นพ่อ ถ้าค่ามากสุดเท่ากันต้องบวกจำนวนของทั้งสองฝั่ง
+Node join(const Node& a, const Node& b) {
+    if (a.mx > b.mx) return a;
+    if (b.mx > a.mx) return b;
+    return { a.mx, a.cnt + b.cnt };
+}
+
+int n;
+vector<Node> t;
+
+void build(const vector<long long>& a, int v, int l, int r) {
+    if (l == r) { t[v] = { a[l], 1 }; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+void update(int v, int l, int r, int pos, long long val) {
+    if (l == r) { t[v] = { val, 1 }; return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(2 * v, l, m, pos, val);
+    else update(2 * v + 1, m + 1, r, pos, val);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+Node query(int v, int l, int r, int ql, int qr) {
+    if (ql <= l && r <= qr) return t[v];
+    int m = (l + r) / 2;
+    if (qr <= m) return query(2 * v, l, m, ql, qr);
+    if (ql > m) return query(2 * v + 1, m + 1, r, ql, qr);
+    return join(query(2 * v, l, m, ql, qr), query(2 * v + 1, m + 1, r, ql, qr));
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<long long> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    t.assign(4 * n, { LLONG_MIN, 0 });
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; long long v; scanf("%d %lld", &i, &v);
+            update(1, 0, n - 1, i, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            Node res = query(1, 0, n - 1, l, r);
+            printf("%lld %d\\n", res.mx, res.cnt);
+        }
+    }
+    return 0;
+}`;
+const codeGcd = `// ห.ร.ม. ของช่วง ต่างจากผลรวมแค่ฟังก์ชันที่ใช้รวมลูกสองตัวเท่านั้น
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 l r = ถาม ห.ร.ม. ของช่วง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+// ค่ากลางของ ห.ร.ม. คือศูนย์ เพราะ gcd(x, 0) เท่ากับ x
+// ถ้าเผลอใช้หนึ่งเป็นค่ากลางแบบเดียวกับการคูณ คำตอบจะกลายเป็นหนึ่งทั้งหมด
+const ll NEUTRAL = 0;
+ll join(ll a, ll b) { return __gcd(a, b); }
+
+int n;
+vector<ll> t;
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    if (l == r) { t[v] = a[l]; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+void update(int v, int l, int r, int pos, ll val) {
+    if (l == r) { t[v] = val; return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(2 * v, l, m, pos, val);
+    else update(2 * v + 1, m + 1, r, pos, val);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+ll query(int v, int l, int r, int ql, int qr) {
+    if (qr < l || r < ql) return NEUTRAL;
+    if (ql <= l && r <= qr) return t[v];
+    int m = (l + r) / 2;
+    return join(query(2 * v, l, m, ql, qr), query(2 * v + 1, m + 1, r, ql, qr));
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    t.assign(4 * n, NEUTRAL);
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; ll v; scanf("%d %lld", &i, &v);
+            update(1, 0, n - 1, i, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(1, 0, n - 1, l, r));
+        }
+    }
+    return 0;
+}`;
+const codeMaxSub = `// เซกเมนต์ทรีที่ปมเก็บสี่ค่า เพื่อตอบ "ผลรวมของช่วงย่อยที่มากที่สุด" ในช่วงที่ถาม
+// สี่ค่านั้นคือ ผลรวมทั้งก้อน, ผลรวมที่ดีที่สุดเมื่อเริ่มจากขอบซ้าย, เมื่อจบที่ขอบขวา, และที่ดีที่สุดโดยรวม
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 l r = ถามผลรวมช่วงย่อยที่มากที่สุด (ห้ามว่าง)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+struct Node { ll sum, pre, suf, best; };
+
+// หัวใจอยู่ตรงนี้ ช่วงย่อยที่ดีที่สุดของพ่อ มีได้แค่สามแบบ
+// อยู่ในลูกซ้ายล้วน อยู่ในลูกขวาล้วน หรือคร่อมรอยต่อ ซึ่งคือหางขวาของซ้าย บวกหัวซ้ายของขวา
+Node join(const Node& a, const Node& b) {
+    Node c;
+    c.sum  = a.sum + b.sum;
+    c.pre  = max(a.pre, a.sum + b.pre);
+    c.suf  = max(b.suf, b.sum + a.suf);
+    c.best = max(max(a.best, b.best), a.suf + b.pre);
+    return c;
+}
+Node leafOf(ll v) { return { v, v, v, v }; }
+
+int n;
+vector<Node> t;
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    if (l == r) { t[v] = leafOf(a[l]); return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+void update(int v, int l, int r, int pos, ll val) {
+    if (l == r) { t[v] = leafOf(val); return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(2 * v, l, m, pos, val);
+    else update(2 * v + 1, m + 1, r, pos, val);
+    t[v] = join(t[2 * v], t[2 * v + 1]);
+}
+Node query(int v, int l, int r, int ql, int qr) {
+    if (ql <= l && r <= qr) return t[v];
+    int m = (l + r) / 2;
+    if (qr <= m) return query(2 * v, l, m, ql, qr);
+    if (ql > m) return query(2 * v + 1, m + 1, r, ql, qr);
+    return join(query(2 * v, l, m, ql, qr), query(2 * v + 1, m + 1, r, ql, qr));
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    t.assign(4 * n, leafOf(0));
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; ll v; scanf("%d %lld", &i, &v);
+            update(1, 0, n - 1, i, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(1, 0, n - 1, l, r).best);
+        }
+    }
+    return 0;
+}`;
+const codeKthZero = `// เดินลงต้นไม้เพื่อหา "ศูนย์ตัวที่ k" ในเวลา log n ครั้งเดียว ไม่ใช่ log n ยกกำลังสอง
+// ปมเก็บจำนวนศูนย์ในช่วงของมัน
+// อินพุต: n q, อาเรย์ที่มีแต่ 0 กับ 1, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 k = ถามตำแหน่งของศูนย์ตัวที่ k
+#include <bits/stdc++.h>
+using namespace std;
+
+int n;
+vector<int> t;
+
+void build(const vector<int>& a, int v, int l, int r) {
+    if (l == r) { t[v] = (a[l] == 0); return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    t[v] = t[2 * v] + t[2 * v + 1];
+}
+void update(int v, int l, int r, int pos, int val) {
+    if (l == r) { t[v] = (val == 0); return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(2 * v, l, m, pos, val);
+    else update(2 * v + 1, m + 1, r, pos, val);
+    t[v] = t[2 * v] + t[2 * v + 1];
+}
+// ยืนที่ปมหนึ่งแล้วถามลูกซ้ายว่ามีศูนย์พอ k ตัวไหม
+// ถ้าพอก็ลงซ้ายด้วย k เท่าเดิม ถ้าไม่พอก็ลงขวาโดยหักจำนวนที่ซ้ายมีออกจาก k
+int kthZero(int v, int l, int r, int k) {
+    if (l == r) return l;
+    int m = (l + r) / 2;
+    if (t[2 * v] >= k) return kthZero(2 * v, l, m, k);
+    return kthZero(2 * v + 1, m + 1, r, k - t[2 * v]);
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<int> a(n);
+    for (auto& x : a) scanf("%d", &x);
+    t.assign(4 * n, 0);
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i, v; scanf("%d %d", &i, &v);
+            update(1, 0, n - 1, i, v);
+        } else {
+            int k; scanf("%d", &k);
+            // ถามที่รากก่อนว่ามีศูนย์ทั้งหมดพอ k ตัวไหม ถ้าไม่พอต้องตอบว่าไม่มี
+            // ถ้าข้ามการตรวจนี้ การเดินลงจะไปจบที่ใบสักใบแล้วตอบเป็นตำแหน่งที่ไม่ใช่ศูนย์
+            printf("%d\\n", t[1] < k ? -1 : kthZero(1, 0, n - 1, k));
+        }
+    }
+    return 0;
+}`;
+const codeFirstGe = `// หา "ช่องแรกตั้งแต่ตำแหน่ง l เป็นต้นไป ที่มีค่าไม่น้อยกว่า x" ในเวลา log n
+// ปมเก็บค่ามากสุดของช่วง ถ้าค่ามากสุดของกิ่งไหนยังน้อยกว่า x ก็ไม่ต้องลงไปดูกิ่งนั้นเลย
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 l x = ถามช่องแรกตั้งแต่ l ที่ค่า >= x
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n;
+vector<ll> mx;
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    if (l == r) { mx[v] = a[l]; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    mx[v] = max(mx[2 * v], mx[2 * v + 1]);
+}
+void update(int v, int l, int r, int pos, ll val) {
+    if (l == r) { mx[v] = val; return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(2 * v, l, m, pos, val);
+    else update(2 * v + 1, m + 1, r, pos, val);
+    mx[v] = max(mx[2 * v], mx[2 * v + 1]);
+}
+// คืน -1 เมื่อกิ่งนี้ไม่มีคำตอบ
+// เงื่อนไขตัดกิ่งอยู่ที่บรรทัดเดียว คือค่ามากสุดของกิ่งน้อยกว่า x แปลว่าทั้งกิ่งไม่มีทางใช้ได้
+int firstGe(int v, int l, int r, int from, ll x) {
+    if (r < from || mx[v] < x) return -1;
+    if (l == r) return l;
+    int m = (l + r) / 2;
+    int got = firstGe(2 * v, l, m, from, x);
+    if (got != -1) return got;
+    return firstGe(2 * v + 1, m + 1, r, from, x);
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& v : a) scanf("%lld", &v);
+    mx.assign(4 * n, LLONG_MIN);
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; ll v; scanf("%d %lld", &i, &v);
+            update(1, 0, n - 1, i, v);
+        } else {
+            int l; ll x; scanf("%d %lld", &l, &x);
+            printf("%d\\n", firstGe(1, 0, n - 1, l, x));
+        }
+    }
+    return 0;
+}`;
+const codeAssign = `// ป้ายค้างชนิด "กำหนดค่าทั้งช่วง" ซึ่งต่างจากชนิดบวก ตรงที่มันทับของเดิมทิ้ง
+// จึงต้องดันป้ายลงลูกจริงก่อนลงไปแตะลูกทุกครั้ง
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 l r v = กำหนดทุกช่องในช่วงเป็น v, 2 l r = ถามผลรวมของช่วง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n;
+vector<ll> sum;
+vector<ll> mark;      // ค่าที่ถูกกำหนดไว้ทั้งช่วง
+vector<char> marked;  // ปมนี้มีป้ายค้างอยู่หรือไม่
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    marked[v] = 0;
+    if (l == r) { sum[v] = a[l]; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    sum[v] = sum[2 * v] + sum[2 * v + 1];
+}
+// ให้ปมรับป้ายค่า val ทั้งช่วง len ช่อง
+void apply(int v, int len, ll val) {
+    sum[v] = val * (ll)len;
+    mark[v] = val;
+    marked[v] = 1;
+}
+// ดันป้ายของ v ลงลูกทั้งสอง แล้วล้างป้ายของตัวเอง
+// ถ้าลืมเรียกอันนี้ก่อนลงไปแตะลูก ลูกจะยังถือค่าเก่าที่ถูกทับไปแล้ว
+void push(int v, int l, int r) {
+    if (!marked[v]) return;
+    int m = (l + r) / 2;
+    apply(2 * v, m - l + 1, mark[v]);
+    apply(2 * v + 1, r - m, mark[v]);
+    marked[v] = 0;
+}
+void assign(int v, int l, int r, int ql, int qr, ll val) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { apply(v, r - l + 1, val); return; }
+    push(v, l, r);
+    int m = (l + r) / 2;
+    assign(2 * v, l, m, ql, qr, val);
+    assign(2 * v + 1, m + 1, r, ql, qr, val);
+    sum[v] = sum[2 * v] + sum[2 * v + 1];
+}
+ll query(int v, int l, int r, int ql, int qr) {
+    if (qr < l || r < ql) return 0;
+    if (ql <= l && r <= qr) return sum[v];
+    push(v, l, r);
+    int m = (l + r) / 2;
+    return query(2 * v, l, m, ql, qr) + query(2 * v + 1, m + 1, r, ql, qr);
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    sum.assign(4 * n, 0); mark.assign(4 * n, 0); marked.assign(4 * n, 0);
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int l, r; ll v; scanf("%d %d %lld", &l, &r, &v);
+            assign(1, 0, n - 1, l, r, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(1, 0, n - 1, l, r));
+        }
+    }
+    return 0;
+}`;
+const codeAddMax = `// บวกทั้งช่วง ถามค่ามากสุดของช่วง เขียนแบบดันป้ายลงลูกจริง เพื่อให้เห็นรูปมาตรฐาน
+// (โค้ดหลักของบทนี้ใช้อีกรูปหนึ่งคือไม่ดันป้าย แต่บวกป้ายสะสมระหว่างทางแทน)
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 l r v = บวก v ทั้งช่วง, 2 l r = ถามค่ามากสุดของช่วง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n;
+vector<ll> mx, lz;
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    lz[v] = 0;
+    if (l == r) { mx[v] = a[l]; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    mx[v] = max(mx[2 * v], mx[2 * v + 1]);
+}
+void apply(int v, ll val) { mx[v] += val; lz[v] += val; }
+void push(int v) {
+    if (lz[v] == 0) return;
+    apply(2 * v, lz[v]);
+    apply(2 * v + 1, lz[v]);
+    lz[v] = 0;
+}
+void add(int v, int l, int r, int ql, int qr, ll val) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { apply(v, val); return; }
+    push(v);
+    int m = (l + r) / 2;
+    add(2 * v, l, m, ql, qr, val);
+    add(2 * v + 1, m + 1, r, ql, qr, val);
+    mx[v] = max(mx[2 * v], mx[2 * v + 1]);
+}
+ll query(int v, int l, int r, int ql, int qr) {
+    if (qr < l || r < ql) return LLONG_MIN;
+    if (ql <= l && r <= qr) return mx[v];
+    push(v);
+    int m = (l + r) / 2;
+    return max(query(2 * v, l, m, ql, qr), query(2 * v + 1, m + 1, r, ql, qr));
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    mx.assign(4 * n, 0); lz.assign(4 * n, 0);
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int l, r; ll v; scanf("%d %d %lld", &l, &r, &v);
+            add(1, 0, n - 1, l, r, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(1, 0, n - 1, l, r));
+        }
+    }
+    return 0;
+}`;
+const codeMergeSortTree = `// ต้นไม้ที่ทุกปมเก็บ "อาเรย์ย่อยของช่วงนั้น เรียงจากน้อยไปมาก"
+// ตอบคำถาม "ค่าที่น้อยที่สุดที่ยังไม่น้อยกว่า x ในช่วง l ถึง r" ได้ในเวลา log n ยกกำลังสอง
+// ตัวอาเรย์แก้ไม่ได้ แลกกับความง่าย
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  l r x
+#include <bits/stdc++.h>
+using namespace std;
+
+int n;
+vector<vector<int>> t;   // t[v] คือรายการที่เรียงแล้วของช่วงที่ปม v ดูแล
+
+void build(const vector<int>& a, int v, int l, int r) {
+    if (l == r) { t[v] = { a[l] }; return; }
+    int m = (l + r) / 2;
+    build(a, 2 * v, l, m);
+    build(a, 2 * v + 1, m + 1, r);
+    // รวมสองรายการที่เรียงแล้วเข้าด้วยกัน คือขั้นตอน merge ของการเรียงแบบแบ่งครึ่ง
+    t[v].resize(t[2 * v].size() + t[2 * v + 1].size());
+    merge(t[2 * v].begin(), t[2 * v].end(), t[2 * v + 1].begin(), t[2 * v + 1].end(), t[v].begin());
+}
+const int NONE = INT_MAX;
+int query(int v, int l, int r, int ql, int qr, int x) {
+    if (qr < l || r < ql) return NONE;
+    if (ql <= l && r <= qr) {
+        // ในรายการที่เรียงแล้ว ตัวแรกที่ไม่น้อยกว่า x หาได้ด้วยการค้นหาแบบไบนารีครั้งเดียว
+        auto it = lower_bound(t[v].begin(), t[v].end(), x);
+        return it == t[v].end() ? NONE : *it;
+    }
+    int m = (l + r) / 2;
+    return min(query(2 * v, l, m, ql, qr, x), query(2 * v + 1, m + 1, r, ql, qr, x));
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<int> a(n);
+    for (auto& x : a) scanf("%d", &x);
+    t.assign(4 * n, {});
+    build(a, 1, 0, n - 1);
+    while (q--) {
+        int l, r, x; scanf("%d %d %d", &l, &r, &x);
+        int got = query(1, 0, n - 1, l, r, x);
+        printf("%d\\n", got == NONE ? -1 : got);
+    }
+    return 0;
+}`;
+const codePersistent = `// ต้นไม้ที่จำอดีตได้ ใช้ตอบ "ค่าที่เล็กเป็นอันดับที่ k ในช่วง l ถึง r"
+// แนวคิด: สร้างต้นไม้นับจำนวนของค่าทีละช่อง เก็บไว้ทุกเวอร์ชัน
+// จำนวนของค่าในช่วง l ถึง r ก็คือ เวอร์ชันที่ r ลบเวอร์ชันที่ l-1 ทีละปม
+// แล้วเดินลงต้นไม้ด้วยผลต่างนั้น
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  l r k
+#include <bits/stdc++.h>
+using namespace std;
+
+struct Node { int left, right, cnt; };
+vector<Node> t;
+vector<int> root;
+
+int newNode(int left, int right, int cnt) {
+    t.push_back({ left, right, cnt });
+    return (int)t.size() - 1;
+}
+int buildEmpty(int l, int r) {
+    if (l == r) return newNode(0, 0, 0);
+    int m = (l + r) / 2;
+    int a = buildEmpty(l, m), b = buildEmpty(m + 1, r);
+    return newNode(a, b, 0);
+}
+// เพิ่มหนึ่งที่ตำแหน่ง pos โดยไม่แก้ปมเดิมเลย สร้างปมใหม่แค่เส้นทางเดียวจากรากลงใบ
+int insert(int prev, int l, int r, int pos) {
+    if (l == r) return newNode(0, 0, t[prev].cnt + 1);
+    int m = (l + r) / 2;
+    if (pos <= m) {
+        int nl = insert(t[prev].left, l, m, pos);
+        return newNode(nl, t[prev].right, t[nl].cnt + t[t[prev].right].cnt);
+    }
+    int nr = insert(t[prev].right, m + 1, r, pos);
+    return newNode(t[prev].left, nr, t[t[prev].left].cnt + t[nr].cnt);
+}
+// เดินลงพร้อมกันสองเวอร์ชัน ผลต่างของจำนวนคือจำนวนที่อยู่ในช่วงที่ถามจริง
+int kth(int lo, int hi, int l, int r, int k) {
+    if (l == r) return l;
+    int m = (l + r) / 2;
+    int leftCnt = t[t[hi].left].cnt - t[t[lo].left].cnt;
+    if (leftCnt >= k) return kth(t[lo].left, t[hi].left, l, m, k);
+    return kth(t[lo].right, t[hi].right, m + 1, r, k - leftCnt);
+}
+
+int main() {
+    int n, q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<int> a(n);
+    for (auto& x : a) scanf("%d", &x);
+    // บีบค่าให้เป็นลำดับที่ เพราะต้นไม้นับจำนวนต้องมีขนาดเท่ากับจำนวนค่าที่ต่างกัน
+    vector<int> vals = a;
+    sort(vals.begin(), vals.end());
+    vals.erase(unique(vals.begin(), vals.end()), vals.end());
+    int V = (int)vals.size();
+
+    t.clear(); t.push_back({ 0, 0, 0 });
+    root.assign(n + 1, 0);
+    root[0] = buildEmpty(0, V - 1);
+    for (int i = 0; i < n; i++) {
+        int id = (int)(lower_bound(vals.begin(), vals.end(), a[i]) - vals.begin());
+        root[i + 1] = insert(root[i], 0, V - 1, id);
+    }
+    while (q--) {
+        int l, r, k; scanf("%d %d %d", &l, &r, &k);
+        printf("%d\\n", vals[kth(root[l], root[r + 1], 0, V - 1, k)]);
+    }
+    return 0;
+}`;
+const codeDynamic = `// ต้นไม้ที่งอกเฉพาะกิ่งที่ถูกใช้ ใช้กับช่วงดัชนีที่ใหญ่จนสร้างทั้งต้นไม่ไหว เช่นถึงหนึ่งพันล้าน
+// ปมลูกไม่ได้อยู่ที่ 2v กับ 2v+1 อีกแล้ว แต่เก็บเป็นหมายเลขปมที่สร้างเมื่อถูกเรียกใช้ครั้งแรก
+// อินพุต: q แล้ว q บรรทัด  1 i v = บวก v ที่ตำแหน่ง i, 2 l r = ถามผลรวมช่วง  (0 <= i < 1e9)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const int LIMIT = 1000000000;
+struct Node { int left = 0, right = 0; ll sum = 0; };
+vector<Node> t(1);   // ปมหมายเลข 0 คือปมว่าง ใช้แทน "ยังไม่มีลูก"
+
+int makeNode() { t.push_back(Node()); return (int)t.size() - 1; }
+
+// คืนหมายเลขปมกลับไปให้พ่อเก็บ ห้ามรับเป็น int& ที่ชี้เข้าไปใน t
+// เพราะ makeNode ทำให้ t ขยายตัวและย้ายที่ อ้างอิงเดิมจะชี้ไปที่หน่วยความจำที่ไม่ใช่ของมันแล้ว
+int update(int v, int l, int r, int pos, ll val) {
+    if (v == 0) v = makeNode();       // งอกตรงนี้ เฉพาะตอนที่จำเป็นจริง
+    t[v].sum += val;
+    if (l == r) return v;
+    int m = l + (r - l) / 2;
+    if (pos <= m) { int c = update(t[v].left, l, m, pos, val); t[v].left = c; }
+    else { int c = update(t[v].right, m + 1, r, pos, val); t[v].right = c; }
+    return v;
+}
+ll query(int v, int l, int r, int ql, int qr) {
+    if (v == 0 || qr < l || r < ql) return 0;   // กิ่งที่ไม่เคยงอก แปลว่าไม่มีค่าอะไรอยู่เลย
+    if (ql <= l && r <= qr) return t[v].sum;
+    int m = l + (r - l) / 2;
+    return query(t[v].left, l, m, ql, qr) + query(t[v].right, m + 1, r, ql, qr);
+}
+
+int main() {
+    int q;
+    if (scanf("%d", &q) != 1) return 0;
+    int root = 0;
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; ll v; scanf("%d %lld", &i, &v);
+            root = update(root, 0, LIMIT, i, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(root, 0, LIMIT, l, r));
+        }
+    }
+    return 0;
+}`;
+const code2D = `// ต้นไม้สองมิติ ต้นนอกแบ่งตามแถว ทุกปมของต้นนอกมีต้นไม้ของตัวเองที่แบ่งตามคอลัมน์
+// ตอบผลรวมของสี่เหลี่ยมได้ในเวลา log n คูณ log m
+// อินพุต: n m q, ตาราง n แถว m หลัก, แล้ว q บรรทัด
+//   1 r c v = ตั้งช่อง (r,c) เป็น v, 2 r1 c1 r2 c2 = ถามผลรวมของสี่เหลี่ยม
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, m;
+vector<vector<ll>> t;   // t[vx][vy]
+
+void buildY(const vector<vector<ll>>& g, int vx, int lx, int rx, int vy, int ly, int ry) {
+    if (ly == ry) {
+        if (lx == rx) t[vx][vy] = g[lx][ly];
+        else t[vx][vy] = t[2 * vx][vy] + t[2 * vx + 1][vy];
+        return;
+    }
+    int my = (ly + ry) / 2;
+    buildY(g, vx, lx, rx, 2 * vy, ly, my);
+    buildY(g, vx, lx, rx, 2 * vy + 1, my + 1, ry);
+    t[vx][vy] = t[vx][2 * vy] + t[vx][2 * vy + 1];
+}
+void buildX(const vector<vector<ll>>& g, int vx, int lx, int rx) {
+    if (lx != rx) {
+        int mx = (lx + rx) / 2;
+        buildX(g, 2 * vx, lx, mx);
+        buildX(g, 2 * vx + 1, mx + 1, rx);
+    }
+    buildY(g, vx, lx, rx, 1, 0, m - 1);
+}
+void updateY(int vx, int lx, int rx, int vy, int ly, int ry, int y, ll val) {
+    if (ly == ry) {
+        if (lx == rx) t[vx][vy] = val;
+        else t[vx][vy] = t[2 * vx][vy] + t[2 * vx + 1][vy];
+        return;
+    }
+    int my = (ly + ry) / 2;
+    if (y <= my) updateY(vx, lx, rx, 2 * vy, ly, my, y, val);
+    else updateY(vx, lx, rx, 2 * vy + 1, my + 1, ry, y, val);
+    t[vx][vy] = t[vx][2 * vy] + t[vx][2 * vy + 1];
+}
+void updateX(int vx, int lx, int rx, int x, int y, ll val) {
+    if (lx != rx) {
+        int mx = (lx + rx) / 2;
+        if (x <= mx) updateX(2 * vx, lx, mx, x, y, val);
+        else updateX(2 * vx + 1, mx + 1, rx, x, y, val);
+    }
+    updateY(vx, lx, rx, 1, 0, m - 1, y, val);
+}
+ll queryY(int vx, int vy, int ly, int ry, int qy1, int qy2) {
+    if (qy2 < ly || ry < qy1) return 0;
+    if (qy1 <= ly && ry <= qy2) return t[vx][vy];
+    int my = (ly + ry) / 2;
+    return queryY(vx, 2 * vy, ly, my, qy1, qy2) + queryY(vx, 2 * vy + 1, my + 1, ry, qy1, qy2);
+}
+ll queryX(int vx, int lx, int rx, int qx1, int qx2, int qy1, int qy2) {
+    if (qx2 < lx || rx < qx1) return 0;
+    if (qx1 <= lx && rx <= qx2) return queryY(vx, 1, 0, m - 1, qy1, qy2);
+    int mx = (lx + rx) / 2;
+    return queryX(2 * vx, lx, mx, qx1, qx2, qy1, qy2)
+         + queryX(2 * vx + 1, mx + 1, rx, qx1, qx2, qy1, qy2);
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d %d", &n, &m, &q) != 3) return 0;
+    vector<vector<ll>> g(n, vector<ll>(m));
+    for (int i = 0; i < n; i++) for (int j = 0; j < m; j++) scanf("%lld", &g[i][j]);
+    t.assign(4 * n, vector<ll>(4 * m, 0));
+    buildX(g, 1, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int r, c; ll v; scanf("%d %d %lld", &r, &c, &v);
+            updateX(1, 0, n - 1, r, c, v);
+        } else {
+            int r1, c1, r2, c2; scanf("%d %d %d %d", &r1, &c1, &r2, &c2);
+            printf("%lld\\n", queryX(1, 0, n - 1, r1, r2, c1, c2));
+        }
+    }
+    return 0;
+}`;
+const codeMem2n = `// เซกเมนต์ทรีที่ใช้หน่วยความจำแค่ 2n แทนที่จะเผื่อไว้ 4n
+// เคล็ดอยู่ที่การเรียงหมายเลขปมตามลำดับที่เดินต้นไม้ ปมซ้ายคือ v+1 เสมอ
+// ส่วนปมขวาคือ v + 2 คูณ (จำนวนช่องของฝั่งซ้าย) เพราะฝั่งซ้ายกินหมายเลขไปเท่านั้นพอดี
+// อินพุต: n q, อาเรย์, แล้ว q บรรทัด  1 i v = ตั้ง a[i]=v, 2 l r = ถามผลรวมช่วง
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n;
+vector<ll> t;
+
+void build(const vector<ll>& a, int v, int l, int r) {
+    if (l == r) { t[v] = a[l]; return; }
+    int m = (l + r) / 2;
+    build(a, v + 1, l, m);
+    build(a, v + 2 * (m - l + 1), m + 1, r);
+    t[v] = t[v + 1] + t[v + 2 * (m - l + 1)];
+}
+void update(int v, int l, int r, int pos, ll val) {
+    if (l == r) { t[v] = val; return; }
+    int m = (l + r) / 2;
+    if (pos <= m) update(v + 1, l, m, pos, val);
+    else update(v + 2 * (m - l + 1), m + 1, r, pos, val);
+    t[v] = t[v + 1] + t[v + 2 * (m - l + 1)];
+}
+ll query(int v, int l, int r, int ql, int qr) {
+    if (qr < l || r < ql) return 0;
+    if (ql <= l && r <= qr) return t[v];
+    int m = (l + r) / 2;
+    return query(v + 1, l, m, ql, qr) + query(v + 2 * (m - l + 1), m + 1, r, ql, qr);
+}
+
+int main() {
+    int q;
+    if (scanf("%d %d", &n, &q) != 2) return 0;
+    vector<ll> a(n);
+    for (auto& x : a) scanf("%lld", &x);
+    t.assign(2 * n, 0);            // สองเท่าพอดี ไม่ต้องเผื่อสี่เท่า
+    build(a, 0, 0, n - 1);
+    while (q--) {
+        int op; scanf("%d", &op);
+        if (op == 1) {
+            int i; ll v; scanf("%d %lld", &i, &v);
+            update(0, 0, n - 1, i, v);
+        } else {
+            int l, r; scanf("%d %d", &l, &r);
+            printf("%lld\\n", query(0, 0, n - 1, l, r));
+        }
+    }
+    return 0;
+}`;
+const codeKthZeroBrute = `#include <bits/stdc++.h>
+using namespace std;
+int main(){int n,q;if(scanf("%d %d",&n,&q)!=2)return 0;vector<int>a(n);
+for(auto&x:a)scanf("%d",&x);
+while(q--){int op;scanf("%d",&op);
+ if(op==1){int i,v;scanf("%d %d",&i,&v);a[i]=v;}
+ else{int k;scanf("%d",&k);int seen=0,ans=-1;
+  for(int i=0;i<n;i++)if(a[i]==0){seen++;if(seen==k){ans=i;break;}}
+  printf("%d\\n",ans);}}
+return 0;}`;
+const codeAssignBrute = `#include <bits/stdc++.h>
+using namespace std;
+int main(){int n,q;if(scanf("%d %d",&n,&q)!=2)return 0;vector<long long>a(n);
+for(auto&x:a)scanf("%lld",&x);
+while(q--){int op;scanf("%d",&op);
+ if(op==1){int l,r;long long v;scanf("%d %d %lld",&l,&r,&v);for(int i=l;i<=r;i++)a[i]=v;}
+ else{int l,r;scanf("%d %d",&l,&r);long long s=0;for(int i=l;i<=r;i++)s+=a[i];
+  printf("%lld\\n",s);}}
+return 0;}`;
+
+
+/* ผังของภาพต้นไม้ที่ทุกปมเก็บรายการเรียง กล่องกว้างตามจำนวนตัวเลขที่ปมนั้นถือ
+   ความกว้างของ viewBox คิดจากขอบขวาสุดของกล่องจริง ไม่ได้ปัดเป็นเลขกลม
+   ไม่งั้นภาพจะดูเหมือนถูกดันไปทางซ้าย */
+const MS_DRAW = TREE;
+const MSH = 28;
+const MS_SLOT = 78;
+const msItems = (n: SgNode): number => (msSorted.get(n.id) ?? []).length;
+const msW = (n: SgNode): number => 16 + msItems(n) * 15;
+const msCx = (n: SgNode): number => 12 + ((n.lo + n.hi) / 2 + 0.5) * MS_SLOT;
+const msX = (n: SgNode): number => msCx(n) - msW(n) / 2;
+const msY = (n: SgNode): number => 10 + n.depth * 46;
+const MS_RIGHT = Math.max(...MS_DRAW.map((n) => msX(n) + msW(n)));
+const MS_BOTTOM = Math.max(...MS_DRAW.map((n) => msY(n) + MSH));
+const MS_VB = `0 0 ${Math.ceil(MS_RIGHT) + 12} ${Math.ceil(MS_BOTTOM) + 34}`;
+
+/* บรรทัดที่พังของการเดินลงต้นไม้ ตัดมาจากไฟล์จริงที่คอมไพล์แล้วเทียบกับตัวตรวจ */
+const kzBadSnippet = `// รูปที่พัง ต่างจากของจริงแค่ตรงที่ไม่ได้ถามรากก่อนว่ามีศูนย์พอ k ตัวไหม
+int k; scanf("%d", &k);
+printf("%d\\n", kthZero(1, 0, n - 1, k));
+
+// รูปที่ถูก ถ้าทั้งอาเรย์มีศูนย์ไม่ถึง k ตัว ต้องตอบว่าไม่มี ก่อนจะเริ่มเดินลง
+int k; scanf("%d", &k);
+printf("%d\\n", t[1] < k ? -1 : kthZero(1, 0, n - 1, k));`;
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -331,14 +1630,28 @@ int main() {
   </p>
   <ul>
     <li>
-      <strong>เซกเมนต์ทรี</strong> ตอบคำถามเกี่ยวกับ<strong>ช่วง</strong> ในขณะที่ข้อมูลยังถูกแก้ไปเรื่อย ๆ
-      โดยแก้ได้ทั้งช่วง ไม่ใช่ทีละช่อง
+      <strong>เซกเมนต์ทรี</strong> (<i>segment tree</i>) ตอบคำถามเกี่ยวกับ<strong>ช่วง</strong>
+      ในขณะที่ข้อมูลยังถูกแก้ไปเรื่อย ๆ โดยแก้ได้ทั้งช่วง ไม่ใช่ทีละช่อง
     </li>
     <li>
-      <strong>การค้นหาคำตอบแบบไบนารี</strong> เปลี่ยนคำถามว่า "คำตอบที่ดีที่สุดคือเท่าไร" ให้เป็นคำถามว่า
-      "ค่านี้ทำได้ไหม" ซึ่งมักง่ายกว่ามาก
+      <strong>การค้นหาคำตอบแบบไบนารี</strong> (<i>binary search on the answer</i>) เปลี่ยนคำถามว่า
+      "คำตอบที่ดีที่สุดคือเท่าไร" ให้เป็นคำถามว่า "ค่านี้ทำได้ไหม" ซึ่งมักง่ายกว่ามาก
     </li>
   </ul>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <i>segment</i> อ่านว่า <strong>"เซกเมนต์"</strong> แปลว่า <strong>ท่อน</strong> หรือ
+      <strong>ช่วงที่ถูกตัดออกมา</strong> มาจากคำละตินที่แปลว่า "ชิ้นที่ถูกเฉือน" ส่วน <i>tree</i>
+      คือ <strong>ต้นไม้</strong> รวมกันจึงแปลตรงตัวว่า <strong>ต้นไม้ของท่อน</strong> ซึ่งตรงกับหน้าตาของมันพอดี
+      คือทุกปมในต้นไม้ดูแลข้อมูลอยู่หนึ่งท่อน และท่อนของพ่อคือท่อนของลูกสองตัวต่อกัน
+    </p>
+    <p>
+      ชื่อไทยที่ใช้กันมีหลายแบบ ทั้งต้นไม้ช่วง ต้นไม้เซกเมนต์ และทับศัพท์ไปเลย บทนี้ใช้คำว่า
+      <strong>เซกเมนต์ทรี</strong> เพราะเป็นคำที่คนแข่งเขียนโปรแกรมพูดกันจริงเวลาคุยกัน
+    </p>
+  </div>
   <p>
     ที่เอามาไว้ด้วยกันเพราะโจทย์หนักหลายข้อใช้ทั้งคู่พร้อมกัน คือค้นหาคำตอบแบบไบนารีอยู่ชั้นนอก
     แล้วชั้นในใช้เซกเมนต์ทรีตอบว่า "ค่านี้ทำได้ไหม"
@@ -426,6 +1739,52 @@ int main() {
     </svg>
   </ZoomableDiagram>
 
+  <p>
+    ภาพข้างบนบอกว่าคำถามหนึ่งครั้งแตะปมกี่ปม แต่ยังไม่ได้บอกว่ามัน<strong>เดินยังไง</strong>
+    เครื่องข้างล่างนี้เดินให้ดูทีละปม ตามลำดับที่โปรแกรมเดินจริง ลองกดถัดไปไปเรื่อย ๆ
+    แล้วสังเกตว่าปมที่ถูกตัดทิ้งนั้นตัดทั้งกิ่ง ไม่ใช่ตัดทีละใบ
+  </p>
+  <CpStepPlayer hook="qsim" steps={qTrace} label="กดถัดไปเพื่อเดินคำถามทีละปม">
+    <svg class="qtree" viewBox={P_VB} style={`width:${P_VB.split(' ')[2]}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ต้นไม้สี่ชั้นของอาเรย์แปดช่อง ใช้เดินให้เห็นว่าการถามช่วงช่องที่ ${QL} ถึง ${QR} แตะปมไหนบ้างตามลำดับ`}>
+      {TREE.filter((n) => n.id !== 1).map((n) => {
+        const p = nodeById(Math.floor(n.id / 2));
+        return (
+          <line
+            class="qedge"
+            data-id={n.id}
+            x1={pX(n) + PW / 2}
+            y1={pY(n)}
+            x2={pX(p) + PW / 2}
+            y2={pY(p) + PH}
+            stroke="#2a3350"
+            stroke-width="1.2"
+          />
+        );
+      })}
+      {TREE.map((n) => (
+        <g class="qnode" data-id={n.id}>
+          <rect x={pX(n)} y={pY(n)} width={PW} height={PH} rx="6" fill="#101827" stroke="#2a3350" stroke-width="1.4" />
+          <text x={pX(n) + PW / 2} y={pY(n) + 18} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace" fill="#5b6478">
+            {n.val}
+          </text>
+          <text x={pX(n) + PW / 2} y={pY(n) + 32} font-size="9.5" text-anchor="middle" font-family="monospace" fill="#5b6478">
+            {n.lo === n.hi ? `[${n.lo}]` : `${n.lo}..${n.hi}`}
+          </text>
+        </g>
+      ))}
+    </svg>
+    <p class="fg-sub">
+      คำถามคือค่าน้อยสุดของช่อง {QL} ถึง {QR} · เขียวคือปมที่ตอบได้ทั้งก้อน ทองคือปมที่ต้องเดินผ่านลงไป
+      เทาเข้มคือปมที่ถูกตัดทิ้งทั้งกิ่ง
+    </p>
+  </CpStepPlayer>
+  <p>
+    สิ่งที่ควรเห็นจากการเดินคือ ในแต่ละชั้นของต้นไม้ มีปมที่ตอบได้ทั้งก้อน<strong>อย่างมากสองปม</strong>
+    เพราะช่วงที่ถามมีขอบแค่สองข้าง ซ้ายกับขวา แต่ละชั้นจึงมีปมที่ถูกขอบเฉือนได้แค่สองปมเท่านั้น
+    ต้นไม้สูง <code>log n</code> ชั้น งานทั้งหมดต่อหนึ่งคำถามจึงอยู่ในระดับ <code>log n</code>
+    ข้ออ้างนี้ถูกตรวจตอนสร้างหน้านี้ด้วยการนับจากการเดินจริง ถ้ามีชั้นไหนเกินสองปมขึ้นมา หน้านี้จะไม่ถูกสร้าง
+  </p>
+
   <div class="callout callout-note">
     <p class="callout-label">แกะคำศัพท์</p>
     <p>
@@ -490,6 +1849,19 @@ int main() {
       </tr>
     </tbody>
   </table>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คำสั่งบวกหนึ่งครั้งกินช่วงกว้างแค่ไหนก็ได้ แต่<strong>ปมที่ครอบคลุมพอดี</strong>มีไม่กี่ปม
+      ลองถามตัวเองว่า ถ้าคำสั่งกินช่วงของปมนั้นครบทั้งก้อนแล้ว เรายังจำเป็นต้องลงไปแก้ลูกของมันไหม
+      หรือแค่จดไว้ที่ปมนั้นก็พอ
+    </p>
+    <p>
+      แล้วถ้าเลือกจดไว้เฉย ๆ คำถามต่อไปคือ ตอนที่มีคนถามค่าน้อยสุดลงไปถึงลูก
+      เราจะรู้ได้ยังไงว่าค่าที่ลูกเก็บไว้ยังขาดอะไรอยู่บ้าง
+    </p>
+  </div>
 
   <h2>เฉลยข้อที่ 1</h2>
   <Spoiler>
@@ -583,6 +1955,26 @@ int main() {
 
   <h2>เฉลยข้อที่ 2</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ท่าแรกที่ผมลองคือคิดตรง ๆ ว่าเครื่องแต่ละเครื่องผลิตเสร็จตอนไหนบ้าง แล้วเอาเวลาทั้งหมดมาเรียง
+        เพื่อหาว่าชิ้นที่ <code>m</code> เกิดขึ้นตอนไหน ท่านี้ถูกต้อง แต่พอแทนขอบเขตจริงลงไปแล้วตาย
+        เพราะจำนวนชิ้นที่ต้องผลิตมีได้ถึงหลักล้าน และแต่ละชิ้นต้องคำนวณเวลาของตัวเอง
+      </p>
+      <p>
+        จุดที่ทำให้เปลี่ยนแนวคิดคือตอนที่ผมเขียนคำถามใหม่เป็นประโยคว่า "ภายในเวลา <code>T</code>
+        เราผลิตได้กี่ชิ้น" แล้วพบว่าคำถามรูปนี้ตอบได้ด้วยการวนเครื่องรอบเดียว คือ <code>n</code> ครั้ง
+        ซึ่งเร็วมาก ปัญหาจึงเหลือแค่ว่าต้องลอง <code>T</code> กี่ค่า และตรงนี้เองที่สังเกตได้ว่า
+        <strong>ยิ่งเวลามาก จำนวนชิ้นยิ่งไม่มีทางลดลง</strong> เมื่อคำตอบเรียงไปทางเดียวแบบนี้
+        การค้นหาแบบไบนารีก็ใช้ได้ทันที เหลือแค่ราว 60 ครั้งแทนที่จะเป็นล้านครั้ง
+      </p>
+      <p>
+        บทเรียนที่เอาไปใช้ต่อได้คือ เวลาที่คำถามว่า "น้อยที่สุดเท่าไร" ตอบยาก
+        ให้ลองเขียนคำถามใหม่เป็น "ค่านี้ทำได้ไหม" ก่อนเสมอ ถ้ารูปใหม่ตอบง่ายและคำตอบเรียงไปทางเดียว
+        แปลว่าเจอทางแล้ว
+      </p>
+    </div>
     <p>
       ภายในเวลา <code>T</code> เครื่องที่ <code>i</code> ผลิตได้ <code>T หารด้วย t</code> ชิ้น (ปัดลง)
       รวมทุกเครื่องก็ได้จำนวนชิ้น ซึ่งไม่มีทางลดลงเมื่อ <code>T</code> เพิ่ม จึงค้นหาแบบไบนารีได้
@@ -672,6 +2064,599 @@ int main() {
     </div>
   </details>
 
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 3 เปลี่ยนของที่เก็บในปม แล้วต้นไม้ต้นเดิมตอบคำถามใหม่ได้</h2>
+  <p>
+    จนถึงตรงนี้ต้นไม้ของเราเก็บค่าน้อยสุด แต่ถ้าดูโครงสร้างจริง ๆ จะเห็นว่าโค้ดทั้งหมดพูดถึงค่าน้อยสุด
+    อยู่แค่บรรทัดเดียว คือบรรทัดที่<strong>รวมลูกสองตัวขึ้นมาเป็นพ่อ</strong> ถ้าเปลี่ยนบรรทัดนั้น
+    ต้นไม้ต้นเดิมก็ตอบคำถามใหม่ได้ทันที
+  </p>
+  <p>
+    เงื่อนไขมีข้อเดียว คือวิธีรวมต้อง<strong>จับกลุ่มยังไงก็ได้ผลเท่ากัน</strong> เพราะต้นไม้จะรวม
+    ก แล้วค่อยรวมกับ ข หรือรวม ข ก่อนก็ได้ ขึ้นกับว่าช่วงที่ถามถูกหั่นตรงไหน คุณสมบัตินี้มีชื่อว่า
+    <strong>การเปลี่ยนหมู่</strong> (<i>associativity</i> อ่านว่า <strong>"แอสโซซิเอทิวิตี"</strong>)
+    ผลรวม ค่ามากสุด ค่าน้อยสุด และ ห.ร.ม. มีคุณสมบัตินี้หมด ส่วนการลบไม่มี จึงเก็บผลต่างของช่วงไว้ในปมไม่ได้
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>เปลี่ยนวิธีรวมลูก แล้วได้คำถามใหม่</caption>
+      <thead>
+        <tr><th>คำถามที่อยากตอบ</th><th>ปมเก็บอะไร</th><th>วิธีรวมลูกสองตัว</th><th>ค่ากลาง</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ผลรวมของช่วง</td><td>ผลรวม</td><td>บวกกัน</td><td class="num">0</td></tr>
+        <tr><td>ค่าน้อยสุด หรือมากสุดของช่วง</td><td>ค่านั้น</td><td>เลือกตัวที่น้อยกว่า หรือมากกว่า</td><td class="num">อนันต์</td></tr>
+        <tr><td>ค่ามากสุด <strong>และมีกี่ตัว</strong></td><td>คู่ของค่ามากสุดกับจำนวน</td><td>ถ้าเท่ากันให้บวกจำนวน ถ้าไม่เท่าให้เอาฝั่งที่มากกว่า</td><td class="num">อนันต์ลบ กับ 0</td></tr>
+        <tr><td>ห.ร.ม. ของช่วง</td><td>ห.ร.ม.</td><td>หา ห.ร.ม. ของสองค่า</td><td class="num">0</td></tr>
+        <tr><td>ผลรวมช่วงย่อยที่มากที่สุด</td><td>สี่ค่า ดูหัวข้อถัดไป</td><td>สูตรสี่บรรทัด</td><td class="dim">ไม่มีรูปง่าย</td></tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ช่องค่ากลางคือค่าที่ต้องคืนเมื่อช่วงที่ถามไม่ทับปมนั้นเลย เลือกผิดคือกับดักที่เจอบ่อยที่สุดของตารางนี้
+      ค่ากลางของ ห.ร.ม. คือศูนย์ ไม่ใช่หนึ่ง เพราะ ห.ร.ม. ของ x กับ 0 เท่ากับ x พอดี
+      ถ้าเผลอใช้หนึ่งแบบเดียวกับการคูณ ทุกคำตอบจะกลายเป็นหนึ่งหมด
+    </figcaption>
+  </figure>
+
+  <h3>ค่ามากสุด และจำนวนของมัน</h3>
+  <p>
+    คำถามแบบ "ค่ามากสุดคือเท่าไร และมีกี่ตัวที่เท่ากับค่านั้น" ตอบได้ด้วยการให้ปมเก็บสองอย่างพร้อมกัน
+    ตอนรวมลูก ถ้าค่ามากสุดของสองฝั่งเท่ากันต้องบวกจำนวนของทั้งคู่ ถ้าไม่เท่ากันก็ทิ้งฝั่งที่น้อยกว่าไปทั้งก้อน
+  </p>
+  <CodeBlock code={codeMaxCount} lang="cpp" title="max_count.cpp" />
+
+  <h3>ห.ร.ม. ของช่วง</h3>
+  <p>
+    ต่างจากผลรวมแค่ฟังก์ชันรวมลูกกับค่ากลางเท่านั้น ที่ยกมาเพราะมันเป็นตัวอย่างที่ชัดที่สุดว่า
+    โครงต้นไม้ไม่เกี่ยวกับคำถามเลย
+  </p>
+  <CodeBlock code={codeGcd} lang="cpp" title="gcd_seg.cpp" />
+
+  <h3>ผลรวมของช่วงย่อยที่มากที่สุด</h3>
+  <p>
+    อันนี้คือตัวอย่างที่สวยที่สุดของหัวข้อนี้ คำถามคือในช่วงที่ให้มา ให้เลือกช่วงย่อยต่อเนื่องหนึ่งช่วง
+    ที่ผลรวมมากที่สุด ปมเดียวเก็บคำตอบอย่างเดียวไม่พอ เพราะช่วงย่อยที่ดีที่สุดของพ่ออาจ<strong>คร่อมรอยต่อ</strong>
+    ของลูกสองตัวอยู่ ซึ่งลูกทั้งสองไม่มีใครรู้เรื่องนั้นเลย
+  </p>
+  <p>
+    ทางออกคือให้ปมเก็บสี่ค่า คือผลรวมทั้งก้อน ผลรวมที่ดีที่สุดเมื่อ<strong>เริ่มจากขอบซ้าย</strong>
+    ผลรวมที่ดีที่สุดเมื่อ<strong>จบที่ขอบขวา</strong> และคำตอบของช่วงนั้น พอมีสี่ค่านี้แล้ว
+    ช่วงที่คร่อมรอยต่อก็คิดได้ตรง ๆ คือหางขวาที่ดีที่สุดของลูกซ้าย บวกหัวซ้ายที่ดีที่สุดของลูกขวา
+  </p>
+  <CodeBlock code={codeMaxSub} lang="cpp" title="maxsub.cpp" />
+  <p class="io-note">
+    วิธีเลือกว่าปมควรเก็บอะไรเพิ่ม มีคำถามนำอยู่ข้อเดียว คือ "ถ้าฉันรู้แค่คำตอบของลูกสองตัว
+    ฉันตอบของพ่อได้ไหม" ถ้าตอบไม่ได้ ให้ถามต่อว่าขาดข้อมูลอะไร แล้วเก็บสิ่งนั้นเพิ่มเข้าไปในปม
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 4 เดินลงต้นไม้ครั้งเดียว แทนการค้นหาแบบไบนารีทับต้นไม้</h2>
+  <p>
+    ส่วนที่ 2 บอกว่าคำถามยาก ๆ แปลงเป็นคำถามใช่หรือไม่แล้วค้นหาแบบไบนารีได้ ถ้าเอาท่านั้นมาทับเซกเมนต์ทรี
+    ตรง ๆ จะได้เวลา <code>log n</code> ยกกำลังสอง เพราะทุกครั้งที่เดาค่าหนึ่งค่า ต้องถามต้นไม้ใหม่ทั้งรอบ
+  </p>
+  <p>
+    แต่ในหลายกรณีเราทำได้ดีกว่านั้น เพราะต้นไม้<strong>เองก็เป็นการแบ่งครึ่งอยู่แล้ว</strong>
+    แทนที่จะเดาค่าจากข้างนอกแล้วถามเข้าไป เรายืนที่รากแล้วถามลูกซ้ายว่า "คำตอบอยู่ในฝั่งเธอไหม"
+    ถ้าอยู่ก็ลงซ้าย ถ้าไม่อยู่ก็ลงขวา ทำแบบนี้ไปจนถึงใบ ได้คำตอบใน <code>log n</code> ครั้งเดียว
+    ท่านี้เรียกว่า<strong>การเดินลงต้นไม้</strong> (<i>descent</i> อ่านว่า <strong>"ดีเซนต์"</strong>
+    แปลว่า <strong>การไต่ลง</strong>)
+  </p>
+
+  <h2>ลองเอง · เดินลงต้นไม้หาศูนย์ตัวที่ k</h2>
+  <p>
+    อาเรย์ข้างล่างมีแต่ 0 กับ 1 ตัวเลขในปมคือ<strong>จำนวนศูนย์</strong>ในช่วงที่ปมนั้นดูแล
+    โจทย์คือหาว่าศูนย์ตัวที่ k อยู่ช่องไหน โดยห้ามไล่ดูทีละช่อง ให้เลือกลงซ้ายหรือขวาทีละชั้นเท่านั้น
+  </p>
+  <div class="cpgame kzgame" data-kzgame data-puzzles={kzJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกด่าน">
+      {kzPuzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{kzPuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <svg class="kztree" viewBox={KZ_VB} style={`width:${KZ_VB.split(' ')[2]}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้สี่ชั้นของอาเรย์แปดช่อง ตัวเลขในปมคือจำนวนศูนย์ในช่วงที่ปมนั้นดูแล">
+        {kzLayout.filter((n) => n.id !== 1).map((n) => {
+          const parent = kzLayout.filter((x) => x.id === Math.floor(n.id / 2))[0];
+          return (
+            <line
+              class="kzedge"
+              data-id={n.id}
+              x1={kX(n) + KW / 2}
+              y1={kY(n)}
+              x2={kX(parent) + KW / 2}
+              y2={kY(parent) + KH}
+              stroke="#2a3350"
+              stroke-width="1.2"
+            />
+          );
+        })}
+        {kzLayout.map((n) => (
+          <g class="kznode" data-id={n.id}>
+            <rect x={kX(n)} y={kY(n)} width={KW} height={KH} rx="6" fill="#101827" stroke="#2a3350" stroke-width="1.4" />
+            <text class="kzcnt" x={kX(n) + KW / 2} y={kY(n) + 17} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace" fill="#cdd6ea">0</text>
+            <text x={kX(n) + KW / 2} y={kY(n) + 29} font-size="9.5" text-anchor="middle" font-family="monospace" fill="#98a3ba">
+              {n.lo === n.hi ? `[${n.lo}]` : `${n.lo}..${n.hi}`}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+
+    <p class="fg-sub">ค่าจริงในอาเรย์ <b data-kz-bits></b></p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn main" data-kz-left>ลงซ้าย</button>
+      <button type="button" class="cpg-btn main" data-kz-right>ลงขวา</button>
+      <button type="button" class="cpg-btn" data-kz-none>ชุดนี้ไม่มีคำตอบ</button>
+      <button type="button" class="cpg-btn" data-kz-reset>เริ่มข้อนี้ใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเลือกด่านแล้วเริ่มเดินจากราก</p>
+    <p class="cpg-score" data-cpg-score>ผ่านแล้ว <b data-kz-right-count>0</b> จาก <b data-kz-total>0</b> ข้อ</p>
+    <p class="cpg-hint">
+      ที่ปมหนึ่ง ให้ดูจำนวนศูนย์ของ<strong>ลูกซ้าย</strong> ถ้ามันมีศูนย์พอที่ k ตัวก็ลงซ้าย
+      ถ้าไม่พอ ศูนย์ตัวที่ต้องการอยู่ทางขวา และ k ที่เหลือต้องหักจำนวนที่ซ้ายมีออกไป
+    </p>
+  </div>
+
+  <h2>เฉลย การเดินลงต้นไม้</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ตอนแรกผมเขียนท่านี้แบบตรงไปตรงมาที่สุด คือค้นหาแบบไบนารีบนตำแหน่ง แล้วในแต่ละรอบถามต้นไม้ว่า
+        "ตั้งแต่ต้นถึงตำแหน่งนี้มีศูนย์กี่ตัว" ท่านี้ถูก และเขียนเสร็จภายในไม่กี่นาที
+        เวลาที่ได้คือ <code>log n</code> ยกกำลังสอง ซึ่งกับ n สองแสนและคำสั่งสองแสนครั้ง
+        คูณออกมาแล้วราว 60 ล้านครั้ง ยังผ่าน จึงไม่มีแรงกดดันให้คิดต่อ
+      </p>
+      <p>
+        สิ่งที่ทำให้เปลี่ยนใจคือตอนที่ผมพิมพ์ตำแหน่งที่การค้นหาแบบไบนารีไปเยี่ยมออกมาดู
+        แล้วเห็นว่ามันคือ<strong>ครึ่งซ้ายครึ่งขวาซ้ำ ๆ</strong> ซึ่งเป็นรูปเดียวกับที่ต้นไม้แบ่งไว้อยู่แล้วเป๊ะ
+        แปลว่าผมกำลังจ่ายค่าเดินต้นไม้ทั้งรอบ เพื่อถามคำถามที่ปมในเส้นทางเดียวนั้นตอบได้อยู่แล้ว
+        การถามซ้อนออกไปข้างนอกจึงเป็นงานที่ซ้ำกับสิ่งที่ต้นไม้ทำอยู่
+      </p>
+      <p>
+        บทเรียนที่ติดตัวมาจากตรงนี้คือ ถ้ากำลังจะเอาการค้นหาแบบไบนารีไปครอบโครงสร้างที่<strong>ตัวมันเองก็แบ่งครึ่ง</strong>
+        ให้หยุดคิดสักครู่ก่อนเสมอ ส่วนใหญ่แล้วสองชั้นนั้นยุบเป็นชั้นเดียวได้
+      </p>
+    </div>
+    <p>
+      ท่านี้ใช้ได้เมื่อคำถามอยู่ในรูป "หาตำแหน่งแรกที่เงื่อนไขเป็นจริง" และ<strong>ปมบอกได้ว่าคำตอบอยู่ในกิ่งของมันไหม</strong>
+      โดยไม่ต้องลงไปดูข้างใน ในกรณีศูนย์ตัวที่ k ปมบอกได้ทันที เพราะมันเก็บจำนวนศูนย์ของทั้งช่วงไว้แล้ว
+    </p>
+    <CodeBlock code={codeKthZero} lang="cpp" title="kth_zero.cpp" />
+    <details class="expander">
+      <summary>ตัวตรวจอิสระของโค้ดชิ้นนี้</summary>
+      <div class="expander-body">
+        <p>
+          ตัวตรวจไม่มีต้นไม้เลย มันนับศูนย์ทีละช่องจากซ้ายไปขวาแล้วหยุดตอนนับครบ
+          ซึ่งเป็นคนละวิธีกับการเดินลงต้นไม้โดยสิ้นเชิง ไม่ได้ใช้ข้ออ้างเดียวกัน
+          สองโปรแกรมนี้ถูกสุ่มเทียบกัน 800 รอบ ตรงกันทุกรอบ
+        </p>
+        <CodeBlock code={codeKthZeroBrute} lang="cpp" title="kth_zero_brute.cpp" />
+        <p class="io-note">
+          นิสัยที่อยากให้ติดไปคือ เขียนตัวตรวจก่อนเขียนเฉลย เพราะตัวอย่างในโจทย์เขียนไว้เพื่ออธิบายโจทย์
+          ไม่ได้เขียนไว้เพื่อหักโปรแกรมของเรา บักตัวที่เล่าไว้ข้างบนก็เจอด้วยวิธีนี้
+        </p>
+      </div>
+    </details>
+
+    <div class="callout callout-warn">
+      <p class="callout-label">ผมแก้ถูกตั้งแต่แรก แต่เข้าใจเหตุผลผิดอยู่นาน</p>
+      <p>
+        บรรทัดที่ตรวจว่า <code>t[1]</code> น้อยกว่า <code>k</code> ไหมก่อนเดินลง ผมใส่ไว้ตั้งแต่ต้น
+        เพราะคิดว่าเป็นการกันพลาดเฉย ๆ แล้วตอนเขียนบทนี้ผมลองลบมันออกเพื่อดูว่ามันจำเป็นจริงไหม
+        ปรากฏว่าโปรแกรมยัง<strong>ตอบตัวอย่างถูกหมด</strong> และผ่านการสุ่มเทียบไปหลายสิบรอบด้วย
+      </p>
+      <p>
+        มันพังก็ต่อเมื่อมีคนขอศูนย์<strong>มากกว่าที่มีอยู่จริง</strong> ซึ่งการสุ่มธรรมดาแทบไม่เจอ
+        พอไล่ทุกกรณีเล็ก ๆ ทั้งหมดถึงเจอว่าเคสที่เล็กที่สุดที่ต่างกันคืออาเรย์ยาวช่องเดียวที่มีค่า 0
+        แล้วถามหาศูนย์ตัวที่ 2 ตัวที่ไม่มีการตรวจตอบว่าอยู่ที่ช่อง 0 ส่วนคำตอบจริงคือไม่มี
+      </p>
+      <p>
+        สาเหตุคือการเดินลงไม่เคยล้มเหลว มันเดินลงเรื่อย ๆ จนถึงใบสักใบเสมอ แล้วรายงานใบนั้นออกมา
+        โดยไม่เคยตรวจว่าใบนั้นเป็นศูนย์จริงไหม การตรวจที่รากจึงไม่ใช่การกันพลาด แต่เป็น<strong>เงื่อนไขที่ทำให้ท่านี้ถูกต้อง</strong>
+      </p>
+      <details class="expander">
+        <summary>ดูบรรทัดที่พังกับเคสที่เล็กที่สุด</summary>
+        <div class="expander-body">
+          <CodeBlock code={kzBadSnippet} lang="cpp" title="บรรทัดที่พัง" />
+          <table class="io">
+            <caption>เคสเล็กที่สุดที่ต่างกัน</caption>
+            <thead><tr><th>Input</th><th>ตัวที่ไม่มีการตรวจตอบ</th><th>คำตอบจริง</th></tr></thead>
+            <tbody>
+              <tr><td>1 1<br />0<br />2 2</td><td class="num">0</td><td class="num">-1</td></tr>
+            </tbody>
+          </table>
+          <p class="io-note">
+            หาเจอด้วยการไล่ทุกอาเรย์ที่ยาวไม่เกินสี่ช่อง และทุกค่า k ที่เป็นไปได้ เทียบกับตัวตรวจ
+            ไม่ได้ใช้การสุ่ม จึงยืนยันได้ว่าเป็นเคสที่เล็กที่สุดจริง
+          </p>
+        </div>
+      </details>
+    </div>
+
+    <h3>รูปอื่นของท่าเดียวกัน</h3>
+    <p>
+      พอเข้าใจรูปนี้แล้ว คำถามอีกหลายแบบก็เป็นท่าเดียวกันหมด ต่างกันแค่ว่าปมเก็บอะไร
+      และคำถามที่ถามลูกซ้ายคืออะไร
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>คำถามที่เดินลงต้นไม้ได้</caption>
+        <thead>
+          <tr><th>คำถาม</th><th>ปมเก็บ</th><th>ถามลูกซ้ายว่า</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ศูนย์ตัวที่ k อยู่ตรงไหน</td><td>จำนวนศูนย์</td><td>มีศูนย์ครบ k ตัวไหม</td></tr>
+          <tr><td>ช่องแรกที่ค่าไม่น้อยกว่า x</td><td>ค่ามากสุด</td><td>ค่ามากสุดถึง x ไหม</td></tr>
+          <tr><td>ตำแหน่งแรกที่ผลรวมสะสมถึง x</td><td>ผลรวม</td><td>ผลรวมของฉันถึง x ไหม</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ทั้งสามแถวคือโครงเดียวกันคำต่อคำ ถ้าลูกซ้ายตอบว่าใช่ก็ลงซ้ายด้วยค่าที่ขอเท่าเดิม
+        ถ้าตอบว่าไม่ใช่ก็ลงขวาโดยหักสิ่งที่ซ้ายมีออกจากค่าที่ขอ
+      </figcaption>
+    </figure>
+    <CodeBlock code={codeFirstGe} lang="cpp" title="first_ge.cpp" />
+    <p class="io-note">
+      โค้ดข้างบนตัดกิ่งด้วยเงื่อนไขบรรทัดเดียว คือค่ามากสุดของกิ่งยังไม่ถึง x
+      แม้หน้าตาจะเหมือนการเดินหาทั้งต้น แต่กิ่งที่ถูกตัดออกไปทำให้เวลาที่ใช้จริงยังเป็น <code>log n</code>
+    </p>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 5 ป้ายค้างรูปอื่น และการดันป้ายลงลูก</h2>
+  <p>
+    ป้ายที่ส่วนที่ 1 ใช้เป็นชนิด<strong>บวก</strong> ซึ่งมีคุณสมบัติพิเศษที่ทำให้ชีวิตง่ายมาก คือป้ายสองใบ
+    ที่ค้างซ้อนกันรวมเป็นใบเดียวได้ด้วยการบวก และไม่ว่าจะบวกก่อนหรือหลังก็ได้ผลเท่ากัน โค้ดของบทนี้จึง
+    <strong>ไม่ต้องดันป้ายลงลูก</strong>เลย แค่บวกป้ายที่เจอระหว่างทางสะสมลงมาก็พอ
+  </p>
+  <p>
+    แต่ป้ายชนิด<strong>กำหนดค่าทั้งช่วง</strong> ไม่ใช่แบบนั้น เพราะมันทับของเดิมทิ้ง ค่าที่ลูกเก็บไว้
+    กลายเป็นค่าที่ใช้ไม่ได้แล้ว ไม่ใช่แค่ค่าที่ยังขาดอะไรไปนิดหน่อย เราจึงต้อง<strong>ดันป้ายลงลูกจริง</strong>
+    ก่อนลงไปแตะลูกทุกครั้ง ท่านี้คือ <i>push</i> ซึ่งอ่านว่า <strong>"พุช"</strong> แปลว่า <strong>ผลัก</strong>
+  </p>
+  <CpStepPlayer hook="asnsim" steps={asnSteps} label="กดถัดไปเพื่อดูป้ายเดินลงลูกทีละชั้น">
+    <svg class="asntree" viewBox={ASN_VB} style={`width:${ASN_VB.split(' ')[2]}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้สามชั้นของอาเรย์สี่ช่อง แสดงผลรวมของแต่ละปม และป้ายกำหนดค่าที่ค้างอยู่">
+      {ASN_NODES.filter((n) => n.id !== 1).map((n) => {
+        const parent = ASN_NODES.filter((x) => x.id === Math.floor(n.id / 2))[0];
+        return (
+          <line
+            class="asnedge"
+            data-id={n.id}
+            x1={aX(n) + AW / 2}
+            y1={aY(n)}
+            x2={aX(parent) + AW / 2}
+            y2={aY(parent) + AH}
+            stroke="#2a3350"
+            stroke-width="1.2"
+          />
+        );
+      })}
+      {ASN_NODES.map((n) => (
+        <g class="asnnode" data-id={n.id}>
+          <rect x={aX(n)} y={aY(n)} width={AW} height={AH} rx="6" fill="#101827" stroke="#2a3350" stroke-width="1.4" />
+          <text class="asnsum" x={aX(n) + AW / 2} y={aY(n) + 17} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace" fill="#cdd6ea">0</text>
+          <text class="asnmark" x={aX(n) + AW / 2} y={aY(n) + 31} font-size="9.5" text-anchor="middle" font-family="monospace" fill="#7b8397">
+            {n.lo === n.hi ? `[${n.lo}]` : `${n.lo}..${n.hi}`}
+          </text>
+        </g>
+      ))}
+    </svg>
+    <p class="fg-sub">
+      ตัวเลขบนคือผลรวมของช่วงที่ปมนั้นดูแล บรรทัดล่างคือช่วง หรือป้ายที่ค้างอยู่ถ้ามี ·
+      ปมทองคือปมที่กำลังทำงาน ปมเขียวคือลูกที่เพิ่งรับป้ายมา
+    </p>
+  </CpStepPlayer>
+  <CodeBlock code={codeAssign} lang="cpp" title="assign_sum.cpp" />
+  <details class="expander">
+    <summary>ตัวตรวจอิสระของโค้ดชิ้นนี้</summary>
+    <div class="expander-body">
+      <p>
+        ตัวตรวจไม่มีต้นไม้ ไม่มีป้าย มันเขียนทับอาเรย์ทีละช่องแล้วบวกทีละช่อง ซึ่งช้ามาก
+        แต่ถูกแน่นอน สองโปรแกรมนี้ถูกสุ่มเทียบกัน 800 รอบ ตรงกันทุกรอบ
+      </p>
+      <CodeBlock code={codeAssignBrute} lang="cpp" title="assign_sum_brute.cpp" />
+    </div>
+  </details>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">ระวัง</p>
+    <p>
+      ป้ายชนิดกำหนดค่าต้องแยก "ป้ายที่มีค่าเป็นศูนย์" ออกจาก "ไม่มีป้าย" ให้ได้
+      โค้ดข้างบนจึงมีตัวแปร <code>marked</code> แยกต่างหาก ถ้าใช้เลขศูนย์แทนคำว่าไม่มีป้ายเหมือนที่ทำได้กับป้ายชนิดบวก
+      คำสั่งกำหนดค่าทั้งช่วงให้เป็นศูนย์จะหายไปเงียบ ๆ และอาการของบักนี้คือตอบตัวอย่างถูก แต่ตกเทสที่มีเลขศูนย์
+    </p>
+  </div>
+
+  <h3>บวกทั้งช่วง ถามค่ามากสุดของช่วง</h3>
+  <p>
+    รูปนี้เป็นลูกผสมที่เจอบ่อยที่สุดในการแข่ง และเขียนแบบดันป้ายลงลูกได้ตรง ๆ
+    ยกมาเพราะมันคือรูปมาตรฐานที่โจทย์ส่วนใหญ่ใช้ ต่างจากรูปที่บทนี้ใช้ในเฉลยข้อที่ 1 ซึ่งเลือกไม่ดันป้าย
+  </p>
+  <CodeBlock code={codeAddMax} lang="cpp" title="add_max.cpp" />
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 6 เก็บทั้งอาเรย์ย่อยไว้ในปม</h2>
+  <p>
+    จนถึงตอนนี้ปมเก็บ<strong>ค่าสรุป</strong>ค่าเดียวหรือไม่กี่ค่า แต่ไม่มีกฎอะไรห้ามให้ปมเก็บของหนักกว่านั้น
+    ถ้าให้ทุกปมเก็บ<strong>ตัวเลขทั้งหมดในช่วงของมัน เรียงจากน้อยไปมาก</strong> เราจะตอบคำถามอย่าง
+    "ค่าที่น้อยที่สุดที่ยังไม่น้อยกว่า x ในช่วงนี้" ได้ ซึ่งเป็นคำถามที่ค่าสรุปค่าเดียวตอบไม่ได้เลย
+  </p>
+  <p>
+    โครงนี้เรียกว่า <i>merge sort tree</i> อ่านว่า <strong>"เมิร์จ ซอร์ต ทรี"</strong> แปลว่า
+    <strong>ต้นไม้ของการเรียงแบบผสาน</strong> ชื่อมาจากการที่รายการของพ่อคือการผสานรายการของลูกสองตัวเข้าด้วยกัน
+    ซึ่งเป็นขั้นตอนเดียวกับการเรียงแบบแบ่งครึ่งพอดี
+  </p>
+  <ZoomableDiagram caption={`ต้นไม้ของอาเรย์ ${A.join(', ')} ที่ทุกปมเก็บรายการเรียงของช่วงตัวเอง จำนวนตัวเลขที่ถูกเก็บทั้งต้นคือ ${msTotalItems} ตัว ซึ่งเท่ากับ ${A.length} คูณจำนวนชั้น พอดี เมื่อถามหาค่าที่น้อยที่สุดที่ยังไม่น้อยกว่า ${MS_X} ในช่วงช่อง ${QL} ถึง ${QR} คำถามแตะปมสีเขียว ${msTouched.length} ปม แล้วค้นหาแบบไบนารีในรายการของแต่ละปม ได้คำตอบ ${msFromTree} ซึ่งตรงกับการกวาดทีละช่อง (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={MS_VB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้ที่ทุกปมเก็บรายการตัวเลขที่เรียงแล้วของช่วงตัวเอง">
+      {MS_DRAW.filter((n) => n.id !== 1).map((n) => {
+        const parent = MS_DRAW.filter((x) => x.id === Math.floor(n.id / 2))[0];
+        return (
+          <line
+            x1={msX(n) + msW(n) / 2}
+            y1={msY(n)}
+            x2={msX(parent) + msW(parent) / 2}
+            y2={msY(parent) + MSH}
+            stroke={msTouched.indexOf(n.id) !== -1 ? '#4ade80' : '#2a3350'}
+            stroke-width="1.3"
+          />
+        );
+      })}
+      {MS_DRAW.map((n) => (
+        <>
+          <rect
+            x={msX(n)}
+            y={msY(n)}
+            width={msW(n)}
+            height={MSH}
+            rx="6"
+            fill={msTouched.indexOf(n.id) !== -1 ? '#12291c' : '#141b2b'}
+            stroke={msTouched.indexOf(n.id) !== -1 ? '#4ade80' : '#2a3350'}
+            stroke-width={msTouched.indexOf(n.id) !== -1 ? '2' : '1.3'}
+          />
+          <text
+            x={msX(n) + msW(n) / 2}
+            y={msY(n) + 19}
+            font-size="12"
+            text-anchor="middle"
+            font-family="monospace"
+            fill={msTouched.indexOf(n.id) !== -1 ? '#d7ffe4' : '#98a3ba'}
+          >
+            {(msSorted.get(n.id) ?? []).join(' ')}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <CodeBlock code={codeMergeSortTree} lang="cpp" title="merge_sort_tree.cpp" />
+  <p>
+    ราคาที่จ่ายคือหน่วยความจำ <code>n log n</code> และเวลาต่อคำถาม <code>log n</code> ยกกำลังสอง
+    เพราะแตะปมราว <code>log n</code> ปม แล้วในแต่ละปมยังต้องค้นหาแบบไบนารีอีกรอบ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">ถ้าอยากแก้ค่าด้วย และถ้าอยากเร็วกว่านี้</p>
+    <p>
+      <strong>อยากแก้ค่าได้</strong> ให้เปลี่ยนรายการเรียงเป็น <code>multiset</code>
+      ซึ่งลบและใส่ได้โดยยังเรียงอยู่ การแก้หนึ่งช่องต้องไปแก้ทุกปมบนเส้นทางจากใบขึ้นราก จึงเสียเวลา
+      <code>log n</code> ยกกำลังสองต่อการแก้หนึ่งครั้ง
+    </p>
+    <p>
+      <strong>อยากตัดเวลาลงเหลือ <code>log n</code></strong> มีเทคนิคชื่อ <i>fractional cascading</i>
+      อ่านว่า <strong>"แฟรกชันนัล แคสเคดดิง"</strong> แปลว่า <strong>การไหลต่อกันเป็นชั้น ๆ</strong>
+      แนวคิดคือในรายการของพ่อ ให้จำไว้ล่วงหน้าว่าแต่ละตำแหน่งตรงกับตำแหน่งไหนในรายการของลูกทั้งสอง
+      พอค้นหาแบบไบนารีที่รากเสร็จครั้งเดียว ชั้นถัด ๆ ไปก็แค่<strong>อ่านตำแหน่งที่จำไว้</strong>
+      ไม่ต้องค้นหาใหม่ทุกชั้น เทคนิคนี้เขียนยากและใช้ในการแข่งไม่บ่อย จึงยกมาให้รู้ว่ามีอยู่เป็นหลัก
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 7 ต้นไม้ที่จำอดีตได้</h2>
+  <p>
+    ปกติเวลาเราแก้ค่าในต้นไม้ สภาพเดิมก็หายไป แต่ถ้าเราตั้งกฎใหม่ว่า<strong>ห้ามแก้ปมเดิมเด็ดขาด</strong>
+    เวลาจะแก้ให้สร้างปมใหม่แทน ผลที่ได้คือทุกเวอร์ชันของอาเรย์ยังอยู่ครบ และถามย้อนหลังได้ทั้งหมด
+    โครงนี้เรียกว่า <i>persistent segment tree</i> โดย <i>persistent</i> อ่านว่า <strong>"เพอร์ซิสเทนต์"</strong>
+    แปลว่า <strong>คงอยู่ ไม่หายไป</strong>
+  </p>
+  <p>
+    คำถามแรกที่ทุกคนถามคือ ถ้าห้ามแก้ของเดิมแล้วต้องก๊อปทั้งต้นทุกครั้งหรือเปล่า คำตอบคือไม่ต้อง
+    เพราะการแก้หนึ่งช่องกระทบแค่<strong>เส้นทางเดียวจากรากลงใบ</strong> ปมที่เหลือทั้งหมดไม่เปลี่ยนค่า
+    จึงชี้กลับไปใช้ปมเดิมได้เลย เครื่องข้างล่างเดินให้ดูทีละปม
+  </p>
+  <CpStepPlayer hook="persim" steps={perSteps} label="กดถัดไปเพื่อสร้างเวอร์ชันใหม่ทีละปม">
+    <svg class="pertree" viewBox={PER_VB} style={`width:${PER_VB.split(' ')[2]}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้สองเวอร์ชันวางคู่กัน เวอร์ชันเก่าอยู่ซ้าย ปมใหม่ของเวอร์ชันใหม่อยู่ขวา และมีเส้นประชี้กลับไปยังปมเก่าที่ถูกใช้ร่วมกัน">
+      {PER.nodes.filter((n) => n.ver === 0 && n.lo !== n.hi).map((n) => (
+        <>
+          <line
+            x1={rX(n) + RW / 2}
+            y1={rY(n) + RH}
+            x2={rX(PER.nodes.filter((x) => x.key === n.leftKey)[0]) + RW / 2}
+            y2={rY(PER.nodes.filter((x) => x.key === n.leftKey)[0])}
+            stroke="#2a3350"
+            stroke-width="1.2"
+          />
+          <line
+            x1={rX(n) + RW / 2}
+            y1={rY(n) + RH}
+            x2={rX(PER.nodes.filter((x) => x.key === n.rightKey)[0]) + RW / 2}
+            y2={rY(PER.nodes.filter((x) => x.key === n.rightKey)[0])}
+            stroke="#2a3350"
+            stroke-width="1.2"
+          />
+        </>
+      ))}
+      {PER.nodes.filter((n) => n.ver === 1 && n.lo !== n.hi).map((n) => (
+        <>
+          <line
+            class="peredge"
+            data-from={n.key}
+            data-to={n.leftKey}
+            x1={rX(n) + RW / 2}
+            y1={rY(n) + RH}
+            x2={rX(PER.nodes.filter((x) => x.key === n.leftKey)[0]) + RW / 2}
+            y2={rY(PER.nodes.filter((x) => x.key === n.leftKey)[0])}
+            stroke="#4ade80"
+            stroke-width="1.6"
+            stroke-dasharray={(n.leftKey ?? '').indexOf('v0') === 0 ? '5 4' : 'none'}
+            opacity="0"
+          />
+          <line
+            class="peredge"
+            data-from={n.key}
+            data-to={n.rightKey}
+            x1={rX(n) + RW / 2}
+            y1={rY(n) + RH}
+            x2={rX(PER.nodes.filter((x) => x.key === n.rightKey)[0]) + RW / 2}
+            y2={rY(PER.nodes.filter((x) => x.key === n.rightKey)[0])}
+            stroke="#4ade80"
+            stroke-width="1.6"
+            stroke-dasharray={(n.rightKey ?? '').indexOf('v0') === 0 ? '5 4' : 'none'}
+            opacity="0"
+          />
+        </>
+      ))}
+      {PER.nodes.map((n) => (
+        <g class="pernode" data-key={n.key} opacity={n.ver === 0 ? '1' : '0'}>
+          <rect
+            x={rX(n)}
+            y={rY(n)}
+            width={RW}
+            height={RH}
+            rx="6"
+            fill={n.ver === 0 ? '#141b2b' : '#12291c'}
+            stroke={n.ver === 0 ? '#2a3350' : '#4ade80'}
+            stroke-width={n.ver === 0 ? '1.3' : '2'}
+          />
+          <text x={rX(n) + RW / 2} y={rY(n) + 17} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace" fill={n.ver === 0 ? '#98a3ba' : '#d7ffe4'}>
+            {n.sum}
+          </text>
+          <text x={rX(n) + RW / 2} y={rY(n) + 31} font-size="9" text-anchor="middle" font-family="monospace" fill={n.ver === 0 ? '#5b6478' : '#7fd6a0'}>
+            {n.lo === n.hi ? `[${n.lo}]` : `${n.lo}..${n.hi}`}
+          </text>
+        </g>
+      ))}
+      <text x={rX(PER.nodes.filter((x) => x.ver === 0 && x.depth === 0)[0]) + RW / 2} y="10" font-size="10" text-anchor="middle" font-family="monospace" fill="#7b8397">เวอร์ชัน 0</text>
+      <text x={rX(PER.nodes.filter((x) => x.ver === 1 && x.depth === 0)[0]) + RW / 2} y="10" font-size="10" text-anchor="middle" font-family="monospace" fill="#4ade80">เวอร์ชัน 1</text>
+    </svg>
+    <p class="fg-sub">
+      ตัวเลขบนคือผลรวมของช่วงที่ปมนั้นดูแล · เส้นประคือการชี้กลับไปใช้ปมของเวอร์ชันเก่าโดยไม่ก๊อป
+    </p>
+  </CpStepPlayer>
+  <p>
+    การแก้หนึ่งครั้งจึงกินหน่วยความจำแค่ <code>log n</code> ปม ถ้าแก้ <code>q</code> ครั้ง
+    ก็เก็บทุกเวอร์ชันไว้ได้ด้วยหน่วยความจำ <code>q log n</code> ซึ่งรับได้สบายในขอบเขตการแข่งทั่วไป
+  </p>
+
+  <h3>ค่าที่เล็กเป็นอันดับที่ k ในช่วง</h3>
+  <p>
+    นี่คือโจทย์ที่ทำให้ต้นไม้แบบจำอดีตได้ดังที่สุด และวิธีคิดสวยมาก ให้สร้างต้นไม้ที่<strong>นับจำนวนของแต่ละค่า</strong>
+    แล้วใส่ตัวเลขทีละตัวจากซ้ายไปขวา เก็บเวอร์ชันไว้ทุกครั้ง เวอร์ชันที่ <code>i</code> จึงเป็นการนับของ
+    <strong>ช่องแรกถึงช่องที่ i</strong>
+  </p>
+  <p>
+    ทีนี้จำนวนของค่าแต่ละตัวในช่วง <code>l</code> ถึง <code>r</code> ก็คือ เวอร์ชันที่ <code>r</code>
+    ลบเวอร์ชันที่ <code>l</code> ลบหนึ่ง ทีละปม แล้วเราก็เดินลงต้นไม้ด้วยผลต่างนั้น เหมือนส่วนที่ 4 เป๊ะ
+    ได้คำตอบใน <code>log n</code>
+  </p>
+  <CodeBlock code={codePersistent} lang="cpp" title="persistent_kth.cpp" />
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 8 ต้นไม้ที่งอกเฉพาะกิ่งที่ถูกใช้</h2>
+  <p>
+    ถ้าดัชนีของโจทย์ใหญ่ถึงหนึ่งพันล้าน เราสร้างต้นไม้ทั้งต้นไม่ไหวแน่ แต่สังเกตว่าถ้ามีคำสั่งแค่สองแสนครั้ง
+    ปมที่<strong>ถูกแตะจริง</strong>ก็มีแค่ราวสองแสนคูณ <code>log</code> ปมเท่านั้น ที่เหลือคือความว่างเปล่า
+    ซึ่งตอบได้ด้วยค่ากลางอยู่แล้ว
+  </p>
+  <p>
+    ท่านี้เรียกว่า <i>dynamic segment tree</i> หรือ <i>implicit segment tree</i> โดย <i>implicit</i>
+    อ่านว่า <strong>"อิมพลิซิต"</strong> แปลว่า <strong>มีอยู่โดยไม่ต้องเขียนออกมา</strong> คือกิ่งทั้งต้นมีอยู่ในความคิด
+    แต่ในหน่วยความจำมีเฉพาะกิ่งที่เคยถูกใช้ ความต่างจากเดิมคือลูกไม่ได้อยู่ที่ <code>2v</code> กับ
+    <code>2v+1</code> อีกแล้ว ต้องเก็บหมายเลขลูกไว้ในปมเอง
+  </p>
+  <CodeBlock code={codeDynamic} lang="cpp" title="dynamic_seg.cpp" />
+  <div class="callout callout-warn">
+    <p class="callout-label">กับดักของภาษา ไม่ใช่ของอัลกอริทึม</p>
+    <p>
+      รูปที่เขียนกันบ่อยคือให้ฟังก์ชันรับหมายเลขปมเป็น <code>int&amp;</code> เพื่อให้เขียนกลับเข้าไปในพ่อได้เลย
+      รูปนั้น<strong>พังใน C++</strong> เมื่อเก็บปมไว้ใน <code>vector</code> เพราะการสร้างปมใหม่ทำให้
+      <code>vector</code> ขยายตัวและย้ายที่ อ้างอิงที่ถืออยู่ก็ชี้ไปยังหน่วยความจำที่ไม่ใช่ของมันแล้ว
+      อาการคือค่าหายเป็นบางครั้ง ซึ่งดูเหมือนอัลกอริทึมผิดทั้งที่ผิดที่ภาษา โค้ดข้างบนจึง<strong>คืนหมายเลขปมกลับไป</strong>
+      ให้พ่อเก็บแทน
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 9 ต้นไม้สองมิติ</h2>
+  <p>
+    ถ้าข้อมูลเป็นตารางแล้วอยากถามผลรวมของสี่เหลี่ยม แนวคิดคือทำต้นไม้ซ้อนต้นไม้ ต้นนอกแบ่งตาม<strong>แถว</strong>
+    แล้วทุกปมของต้นนอกมีต้นไม้ของตัวเองที่แบ่งตาม<strong>คอลัมน์</strong> คำถามหนึ่งครั้งจึงแตะปมของต้นนอกราว
+    <code>log n</code> ปม และในแต่ละปมยังต้องถามต้นในอีก <code>log m</code> รวมเป็น <code>log n</code>
+    คูณ <code>log m</code>
+  </p>
+  <CodeBlock code={code2D} lang="cpp" title="seg2d.cpp" />
+  <p>
+    หน่วยความจำคือ <code>4n</code> คูณ <code>4m</code> ซึ่งโตเร็วมาก ถ้าตารางใหญ่แต่ช่องที่มีค่าจริงมีน้อย
+    มีรูปที่<strong>บีบให้เก็บเฉพาะคอลัมน์ที่ใช้จริง</strong>ในแต่ละปมของต้นนอก ทำให้หน่วยความจำเหลือ
+    <code>n log n</code> แต่แลกกับการที่<strong>แก้ค่าไม่ได้อีกแล้ว</strong> เพราะรายชื่อคอลัมน์ถูกตรึงไว้ตั้งแต่ตอนสร้าง
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ส่วนที่ 10 หน่วยความจำ ทำไมต้องเผื่อสี่เท่า</h2>
+  <p>
+    โค้ดเซกเมนต์ทรีเกือบทุกที่จองอาเรย์ขนาด <code>4n</code> ทั้งที่ต้นไม้มีปมจริงแค่ <code>2n-1</code> ปม
+    เหตุผลคือเมื่อ <code>n</code> ไม่ใช่กำลังสองพอดี ต้นไม้จะไม่สมดุล และหมายเลขปมที่ใหญ่ที่สุด
+    อาจโตเกิน <code>2n</code> ไปได้ การเผื่อสี่เท่าคือการเลิกคิดเรื่องนี้ทั้งหมด ซึ่งคุ้มในสนามแข่ง
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>อาเรย์ {fmt(MEM_N)} ช่อง เก็บค่าละแปดไบต์</caption>
+      <thead>
+        <tr><th>วิธีจอง</th><th class="num">จำนวนช่อง</th><th class="num">หน่วยความจำ</th><th>ราคาที่ต้องจ่าย</th></tr>
+      </thead>
+      <tbody>
+        {memRows.map((r) => (
+          <tr>
+            <td>{r.name}</td>
+            <td class="num">{fmt(r.cells)}</td>
+            <td class="num">{memBytes(r.cells)}</td>
+            <td>{r.why}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ทั้งสามแถวนับด้วยหน่วยเดียวกัน คือจำนวนช่องคูณแปดไบต์ ตามชนิดข้อมูลที่โค้ดในหน้านี้ใช้จริง
+      ต่างกันมากที่สุดราว {fmt(Math.round((memRows[0].cells / memRows[2].cells) * 10) / 10)} เท่า
+      ซึ่งมีความหมายก็ต่อเมื่อโจทย์จำกัดหน่วยความจำแน่นจริง ๆ
+    </figcaption>
+  </figure>
+  <p>
+    วิธีลดเหลือ <code>2n</code> พอดีคือเลิกใช้หมายเลข <code>2v</code> กับ <code>2v+1</code>
+    แล้วเปลี่ยนไปเรียงหมายเลขปม<strong>ตามลำดับที่เดินต้นไม้</strong> ลูกซ้ายคือ <code>v+1</code> เสมอ
+    ส่วนลูกขวาอยู่ถัดจากที่ฝั่งซ้ายกินไปทั้งหมด ซึ่งคือ <code>v + 2(mid - lo + 1)</code>
+  </p>
+  <CodeBlock code={codeMem2n} lang="cpp" title="mem2n.cpp" />
+  <p class="io-note">
+    ข้อเสียคือสูตรของลูกขวาต้องคิดใหม่ทุกครั้งที่เรียก และอ่านยากกว่าเดิมพอสมควร
+    ในสนามแข่งจึงยังแนะนำให้เผื่อสี่เท่าไปก่อน แล้วค่อยงัดรูปนี้มาใช้ตอนที่หน่วยความจำไม่พอจริง ๆ
+  </p>
+
   <h2>เอาไปใช้ที่ไหนในคลังนี้</h2>
   <ul>
     <li>
@@ -685,13 +2670,37 @@ int main() {
     <li>
       <a href="/cp/sails/">ใบเรือโจรสลัด</a> ใช้ต้นไม้เฟนวิกกับการค้นหาแบบไบนารี ในรูปที่เบากว่านี้
     </li>
+    <li>
+      <a href="/cp/prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> คือบทก่อนหน้า ที่ทำให้เห็นว่าทำไม
+      เฟนวิกถึงไม่พอเมื่อคำถามเปลี่ยนเป็นค่าน้อยสุด และเมื่อการแก้เปลี่ยนเป็นทั้งช่วง
+    </li>
   </ul>
+
+
+  <h2>อ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      cp-algorithms, <i>Segment Tree</i> ·
+      <a href="https://cp-algorithms.com/data_structures/segment_tree.html" target="_blank" rel="noopener noreferrer">cp-algorithms.com/data_structures/segment_tree.html</a> ·
+      เป็นแหล่งที่ส่วนที่ 3 ถึง 10 ของบทนี้เดินตามหัวข้อ ที่นั่นมีรายละเอียดเชิงพิสูจน์และรูปแบบอื่นเพิ่มอีก
+    </li>
+    <li>
+      cp-algorithms, <i>Fenwick Tree</i> ·
+      <a href="https://cp-algorithms.com/data_structures/fenwick.html" target="_blank" rel="noopener noreferrer">cp-algorithms.com/data_structures/fenwick.html</a> ·
+      สำหรับเทียบว่าเมื่อไรควรใช้เฟนวิกซึ่งเขียนสั้นกว่ามาก
+    </li>
+  </ol>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
     เซกเมนต์ทรีคือการเก็บคำตอบของช่วงไว้ล่วงหน้า พร้อมป้ายที่ผัดงานของลูกไว้จนกว่าจะมีคนถาม
     ส่วนการค้นหาคำตอบแบบไบนารีคือการเปลี่ยนคำถามที่ตอบยากให้เป็นคำถามใช่หรือไม่ที่ตอบง่าย
     และเงื่อนไขเดียวที่มันต้องการคือคำตอบต้องเรียงไปทางเดียว ซึ่งเป็นข้อที่ต้องตรวจจริง ไม่ใช่เดา
+  </p>
+  <p>
+    ส่วนเทคนิคทั้งแปดที่ตามมาหลังจากนั้นเป็นเรื่องเดียวกันหมด คือ<strong>โครงต้นไม้ไม่เคยเปลี่ยน</strong>
+    สิ่งที่เปลี่ยนมีแค่สามอย่าง คือปมเก็บอะไร ป้ายที่ค้างอยู่มีความหมายว่าอะไร และเราเดินต้นไม้จากบนลงล่าง
+    หรือจากล่างขึ้นบน เวลาเจอโจทย์ใหม่ให้ถามสามข้อนี้ก่อนเสมอ แทนที่จะไปหาโครงสร้างใหม่มาทั้งอัน
   </p>
 </CpProblemLayout>
 
@@ -767,19 +2776,39 @@ int main() {
 
   .dim{color:#7b8397;}
 
-  /* ---------- แถบอาเรย์ของมินิเกมเซกเมนต์ทรี ---------- */
-  .ps-strip{display:flex;gap:5px;width:max-content;}
-  .ps-strip :global(.sg-cell){
-    min-width:2.4rem;padding:0.25rem 0.35rem;
-    display:flex;flex-direction:column;align-items:center;gap:0.1rem;
-    border:1px solid #2a3350;border-radius:6px;background:#101827;
+  /* แถบอาเรย์ .ps-strip กับปุ่ม .ps-key ย้ายไปนิยามที่ CpProblemLayout แล้ว
+     เพราะมีสามหน้าที่ใช้คลาสชุดนี้ ที่นี่จึงไม่ต้องมีอะไรอีก */
+
+  /* ---------- ภาพต้นไม้ในเครื่องเดินทีละขั้น กับในมินิเกม ----------
+     ความกว้างจริงตั้งจาก viewBox ในมาร์กอัป ที่นี่คุมแค่การย่อบนจอแคบ
+     ไม่เขียนเป็น .dps-scroll svg เพราะ .dps-scroll เป็นของ CpStepPlayer คนละ cid กับหน้านี้
+     ตัวเลือกที่ลอดผ่านกล่องของคอมโพเนนต์จะไม่ตรงกับอะไรเลย โดยไม่มีอะไรฟ้อง */
+  .qtree, .kztree, .asntree, .pertree{
+    display:block;
+    max-width:100%;
+    height:auto;
+    margin:0 auto;
   }
-  .ps-strip :global(.sg-cell small){font-size:0.65rem;color:#7b8397;}
-  .ps-strip :global(.sg-cell b){font-family:var(--dl-mono,monospace);font-size:0.9rem;color:#cdd6ea;}
-  .ps-strip :global(.sg-cell.in){background:#14351f;border-color:#2f9e5c;}
-  .ps-strip :global(.sg-cell.in b){color:#4ade80;}
-  .ps-strip :global(.sg-cell.touched){background:#132235;border-color:#3d5a80;}
-  .cpg-controls :global(.ps-key){min-width:2.1rem;font-family:var(--dl-mono,monospace);}
+  /* บนจอแคบ ห้ามย่อภาพลงตามการ์ด เพราะป้ายในปมมีขนาด 9 ถึง 13 พิกเซลอยู่แล้ว
+     ย่อเหลือครึ่งหนึ่งเมื่อไรก็อ่านไม่ออกทันที ให้กล่องที่ครอบมันเลื่อนแนวนอนแทน
+     ซึ่งทั้ง .dps-scroll และ .cpg-scroll ทำได้อยู่แล้ว หน้าเว็บจึงไม่เลื่อนตาม */
+  @media (max-width:720px){
+    .qtree, .kztree, .asntree, .pertree{max-width:none;}
+  }
+
+  /* ปุ่มลงซ้ายกับลงขวาต้องกว้างเท่ากันเสมอ ไม่งั้นแถบปุ่มขยับตอนข้อความสถานะเปลี่ยน */
+  .kzgame .cpg-btn.main{min-width:6.2rem;}
+  .kzbits{font-family:var(--dl-mono,monospace);letter-spacing:0.16em;color:#cdd6ea;}
+
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของเลย์เอาต์ ซึ่งอยู่ที่ 1rem
+     และมีระยะห่างด้านบนน้อยกว่า h2 เพื่อให้อ่านเป็นหัวข้อลูก ไม่ใช่หัวข้อพี่น้อง */
+  h3{
+    font-size:0.92rem;
+    margin:1.5rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-ink);
+    letter-spacing:0.02em;
+  }
 </style>
 
 <script>
@@ -838,7 +2867,7 @@ int main() {
       strip.textContent = '';
       arr.forEach((v, i) => {
         const cell = document.createElement('span');
-        cell.className = 'sg-cell';
+        cell.className = 'ps-cell';
         const idx = document.createElement('small');
         idx.textContent = String(i + 1);
         const val = document.createElement('b');
@@ -921,4 +2950,313 @@ int main() {
   }
 
   document.addEventListener('astro:page-load', initSegGame);
+</script>
+
+<script>
+  /* เครื่องเดินทั้งสามตัวของหน้านี้ ทาสีปมตามสถานะที่สเต็ปบอก
+     สเต็ปทุกตัวถูกสร้างตอนบิลด์จากการเดินอัลกอริทึมจริง สคริปต์นี้จึงมีหน้าที่วาดอย่างเดียว */
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  const INK = {
+    full: { fill: '#12291c', stroke: '#4ade80', text: '#d7ffe4', sub: '#7fd6a0', w: '2.2' },
+    pass: { fill: '#2e2510', stroke: '#e0b400', text: '#ffe58a', sub: '#c9a83a', w: '2' },
+    cut: { fill: '#1a1420', stroke: '#5b3a5f', text: '#8a6f92', sub: '#6b5570', w: '1.4' },
+    idle: { fill: '#101827', stroke: '#2a3350', text: '#5b6478', sub: '#4a5468', w: '1.4' },
+    now: { fill: '#2e2510', stroke: '#e0b400', text: '#ffe58a', sub: '#c9a83a', w: '2.4' },
+    got: { fill: '#12291c', stroke: '#4ade80', text: '#d7ffe4', sub: '#7fd6a0', w: '2.2' },
+    seen: { fill: '#101827', stroke: '#2f9e5c', text: '#cdd6ea', sub: '#7b8397', w: '1.6' },
+  };
+  type InkKind = keyof typeof INK;
+
+  function paint(g: SVGGElement, kind: InkKind): void {
+    const ink = INK[kind];
+    const rect = g.querySelector('rect');
+    const texts = g.querySelectorAll('text');
+    if (rect) {
+      rect.setAttribute('fill', ink.fill);
+      rect.setAttribute('stroke', ink.stroke);
+      rect.setAttribute('stroke-width', ink.w);
+    }
+    if (texts[0]) texts[0].setAttribute('fill', ink.text);
+    if (texts[1]) texts[1].setAttribute('fill', ink.sub);
+  }
+
+  /* ---------- ก. คำถามหนึ่งครั้งเดินแตะปมไหนบ้าง ---------- */
+  interface QVisitClient {
+    id: number;
+    kind: 'full' | 'pass' | 'cut';
+    acc: string;
+    depth: number;
+    note: string;
+  }
+  function isQVisit(x: unknown): x is QVisitClient {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.id === 'number' && typeof o.kind === 'string' && typeof o.note === 'string';
+  }
+
+  /* ---------- ค. ป้ายกำหนดค่า และการดันป้ายลงลูก ---------- */
+  interface AsnCellClient { id: number; sum: number; mark: number | null }
+  interface AsnStepClient { cells: AsnCellClient[]; hot: number[]; push: number[]; note: string }
+  function isAsnStep(x: unknown): x is AsnStepClient {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return Array.isArray(o.cells) && Array.isArray(o.hot) && Array.isArray(o.push) && typeof o.note === 'string';
+  }
+
+  /* ---------- ง. ต้นไม้ที่จำอดีตได้ ---------- */
+  interface PerStepClient { show: string[]; hot: string | null; note: string }
+  function isPerStep(x: unknown): x is PerStepClient {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return Array.isArray(o.show) && typeof o.note === 'string';
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<QVisitClient>('[data-qsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isQVisit);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        /* ปมที่ถูกแตะไปแล้วในก้าวก่อนหน้ายังคงสีไว้ ผู้อ่านจะได้เห็นเส้นทางสะสม
+           ไม่ใช่เห็นทีละปมแล้วลืมว่าเพิ่งผ่านอะไรมา จึงวาดใหม่จากต้นทุกครั้ง */
+        const nodes = new Map<number, SVGGElement>();
+        ctx.parts.root.querySelectorAll<SVGGElement>('g.qnode').forEach((g) => {
+          paint(g, 'idle');
+          nodes.set(Number(g.dataset.id), g);
+        });
+        const parsed: unknown = JSON.parse(ctx.parts.root.dataset.steps ?? '[]');
+        if (Array.isArray(parsed)) {
+          for (let i = 0; i <= ctx.at; i++) {
+            const v: unknown = parsed[i];
+            if (!isQVisit(v) || v.id === 0) continue;
+            const g = nodes.get(v.id);
+            if (g) paint(g, v.kind);
+          }
+        }
+        const cur = nodes.get(st.id);
+        if (cur) {
+          ctx.keepInView(cur);
+          const rect = cur.querySelector('rect');
+          if (rect) rect.setAttribute('stroke-width', '3');
+        }
+      },
+    });
+
+    initCpPlayers<AsnStepClient>('[data-asnsim]', {
+      playMs: 1500,
+      narrow: (raw) => {
+        const ok = raw.filter(isAsnStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        ctx.parts.root.querySelectorAll<SVGGElement>('g.asnnode').forEach((g) => {
+          const id = Number(g.dataset.id);
+          const cell = st.cells.filter((c) => c.id === id)[0];
+          const sumEl = g.querySelector('text.asnsum');
+          const markEl = g.querySelector('text.asnmark');
+          if (!cell || !sumEl || !markEl) return;
+          sumEl.textContent = String(cell.sum);
+          markEl.textContent = cell.mark === null ? '' : `ป้าย ${cell.mark}`;
+          const kind: InkKind = st.hot.indexOf(id) !== -1 ? 'now' : st.push.indexOf(id) !== -1 ? 'got' : cell.mark !== null ? 'seen' : 'idle';
+          paint(g, kind);
+          if (cell.mark === null) markEl.setAttribute('fill', '#5b6478');
+        });
+      },
+    });
+
+    initCpPlayers<PerStepClient>('[data-persim]', {
+      playMs: 1400,
+      narrow: (raw) => {
+        const ok = raw.filter(isPerStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        ctx.parts.root.querySelectorAll<SVGGElement>('g.pernode').forEach((g) => {
+          const key = g.dataset.key ?? '';
+          if (key.indexOf('v0') === 0) {
+            g.setAttribute('opacity', '1');
+            return;
+          }
+          const on = st.show.indexOf(key) !== -1;
+          g.setAttribute('opacity', on ? '1' : '0');
+          if (on && key === st.hot) {
+            const rect = g.querySelector('rect');
+            if (rect) rect.setAttribute('stroke-width', '3');
+          } else {
+            const rect = g.querySelector('rect');
+            if (rect) rect.setAttribute('stroke-width', '2');
+          }
+        });
+        ctx.parts.root.querySelectorAll<SVGLineElement>('line.peredge').forEach((ln) => {
+          const from = ln.dataset.from ?? '';
+          ln.setAttribute('opacity', st.show.indexOf(from) !== -1 ? '1' : '0');
+        });
+      },
+    });
+  });
+</script>
+
+<script>
+  /* มินิเกม เดินลงต้นไม้หาศูนย์ตัวที่ k
+     ผู้เล่นเลือกลงซ้ายหรือลงขวาทีละชั้น เกมไม่ได้ตรวจว่าเดินตรงกับอัลกอริทึมไหม
+     แต่ตรวจว่าใบที่ไปจบเป็นคำตอบจริงหรือเปล่า ซึ่งคำนวณไว้ตอนบิลด์ด้วยการกวาดอาเรย์ */
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  interface KzNode { id: number; lo: number; hi: number; cnt: number }
+  interface KzRound { k: number; answer: number | null; bits: number[]; nodes: KzNode[] }
+  interface KzPuzzle { id: string; label: string; tease: string; rounds: KzRound[] }
+
+  function initKzGame(): void {
+    const maybeUi = cpGameUi('[data-kzgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as KzPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const bitsEl = ui.root.querySelector<HTMLElement>('[data-kz-bits]');
+    const rightEl = ui.root.querySelector<HTMLElement>('[data-kz-right-count]');
+    const totalEl = ui.root.querySelector<HTMLElement>('[data-kz-total]');
+    const svgEl = ui.root.querySelector<SVGSVGElement>('svg.kztree');
+    if (!bitsEl || !rightEl || !totalEl || !svgEl) return;
+    const bitsOut: HTMLElement = bitsEl;
+    const rightOut: HTMLElement = rightEl;
+    const totalOut: HTMLElement = totalEl;
+    const svg: SVGSVGElement = svgEl;
+    bitsOut.classList.add('kzbits');
+
+    let pi = 0;
+    let ri = 0;
+    let cur = 1;
+    let need = 0;
+    let solved = 0;
+    let done = false;
+
+    const pz = (): KzPuzzle => puzzles[pi];
+    const round = (): KzRound | undefined => pz().rounds[ri];
+    const nodeOf = (id: number): KzNode | undefined => round()?.nodes.filter((n) => n.id === id)[0];
+
+    function render(): void {
+      const r = round();
+      const path: number[] = [];
+      for (let v = cur; v >= 1; v = Math.floor(v / 2)) path.push(v);
+      svg.querySelectorAll<SVGGElement>('g.kznode').forEach((g) => {
+        const id = Number(g.dataset.id);
+        const n = r ? nodeOf(id) : undefined;
+        const cnt = g.querySelector('text.kzcnt');
+        if (cnt) cnt.textContent = n ? String(n.cnt) : '·';
+        const rect = g.querySelector('rect');
+        const onPath = path.indexOf(id) !== -1;
+        const isCur = id === cur;
+        if (rect) {
+          rect.setAttribute('fill', isCur ? '#2e2510' : onPath ? '#12291c' : '#101827');
+          rect.setAttribute('stroke', isCur ? '#e0b400' : onPath ? '#2f9e5c' : '#2a3350');
+          rect.setAttribute('stroke-width', isCur ? '2.6' : onPath ? '1.8' : '1.4');
+        }
+        if (cnt) cnt.setAttribute('fill', isCur ? '#ffe58a' : onPath ? '#d7ffe4' : '#cdd6ea');
+      });
+      bitsOut.textContent = r ? r.bits.join(' ') : '-';
+      rightOut.textContent = String(solved);
+      totalOut.textContent = String(pz().rounds.length);
+    }
+
+    function ask(): void {
+      const r = round();
+      if (r === undefined) {
+        done = true;
+        ui.setStatus(`จบด่านนี้แล้ว ผ่าน ${solved} จาก ${pz().rounds.length} ข้อ`, solved === pz().rounds.length ? 'good' : 'bad');
+        render();
+        return;
+      }
+      done = false;
+      cur = 1;
+      need = r.k;
+      ui.setStatus(`หาศูนย์ตัวที่ ${r.k} ตอนนี้ยืนอยู่ที่รากซึ่งดูแลทั้งอาเรย์ จะลงซ้ายหรือลงขวา`, 'plain');
+      render();
+    }
+
+    function finishLeaf(): void {
+      const r = round();
+      const n = nodeOf(cur);
+      if (r === undefined || n === undefined) return;
+      const ok = r.answer !== null && n.lo === r.answer;
+      if (ok) {
+        solved++;
+        ui.setStatus(`ถูกต้อง ศูนย์ตัวที่ ${r.k} อยู่ที่ช่อง ${n.lo}`, 'good');
+      } else if (r.answer === null) {
+        ui.setStatus(`ยังไม่ใช่ ชุดนี้มีศูนย์ไม่ถึง ${r.k} ตัว คำตอบคือไม่มี ไม่ใช่ช่องใดช่องหนึ่ง`, 'bad');
+      } else {
+        ui.setStatus(`ยังไม่ใช่ ช่อง ${n.lo} ไม่ใช่ศูนย์ตัวที่ ${r.k} คำตอบคือช่อง ${r.answer}`, 'bad');
+      }
+      done = true;
+      ri++;
+      render();
+      window.setTimeout(ask, 1400);
+    }
+
+    function go(dir: 'left' | 'right'): void {
+      if (done) return;
+      const n = nodeOf(cur);
+      if (n === undefined) return;
+      if (n.lo === n.hi) return;
+      const left = nodeOf(cur * 2);
+      if (left === undefined) return;
+      if (dir === 'right') need -= left.cnt;
+      cur = dir === 'left' ? cur * 2 : cur * 2 + 1;
+      const nn = nodeOf(cur);
+      if (nn === undefined) return;
+      if (nn.lo === nn.hi) {
+        finishLeaf();
+        return;
+      }
+      ui.setStatus(
+        `ตอนนี้อยู่ที่ปมที่ดูแลช่อง ${nn.lo} ถึง ${nn.hi} และกำลังตามหาศูนย์ตัวที่ ${need} ของปมนี้`,
+        'plain',
+      );
+      render();
+    }
+
+    function claimNone(): void {
+      if (done) return;
+      const r = round();
+      if (r === undefined) return;
+      if (r.answer === null) {
+        solved++;
+        ui.setStatus(`ถูกต้อง ชุดนี้มีศูนย์ไม่ถึง ${r.k} ตัว จึงไม่มีคำตอบ`, 'good');
+      } else {
+        ui.setStatus(`ยังไม่ใช่ ชุดนี้มีคำตอบอยู่ คือช่อง ${r.answer}`, 'bad');
+      }
+      done = true;
+      ri++;
+      render();
+      window.setTimeout(ask, 1400);
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      ri = 0;
+      solved = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ask();
+    }
+
+    ui.onClick('data-kz-left', () => go('left'));
+    ui.onClick('data-kz-right', () => go('right'));
+    ui.onClick('data-kz-none', claimNone);
+    ui.onClick('data-kz-reset', () => {
+      if (ri >= pz().rounds.length) return;
+      ask();
+    });
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initKzGame);
 </script>
