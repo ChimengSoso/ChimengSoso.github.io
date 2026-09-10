@@ -31,6 +31,7 @@ export const CP_TOPICS = [
   // เทคนิคหลัก
   'dp',
   'interval dp',
+  'divide and conquer',
   'state compression',
   'greedy',
   'constructive',
@@ -225,6 +226,17 @@ export const cpProblems: CpProblem[] = [
     difficulty: 2,
     dateISO: '2026-09-07',
     readingMinutes: 31,
+  },
+  {
+    href: 'divide-conquer-dp/',
+    setId: 'basics',
+    kind: 'lesson',
+    title: 'แบ่งครึ่งเร่งดีพี: ตัดงานของทั้งแถวทิ้ง ด้วยคำตอบของช่องเดียวตรงกลาง',
+    desc: 'โจทย์ "แบ่งของที่เรียงอยู่แล้วเป็น k กอง" เขียนสูตรได้ทุกคน แต่ตกรอบเพราะช้าเกินไป บทนี้ปูสะพานที่ต้นทางข้ามไป คือทำไมรู้จุดตัดที่ดีที่สุดของช่องกลางแล้วถึงเร่งได้ พร้อมเกมวางที่กั้นคอก ตัวเล่นที่เดินการเรียกซ้ำจริง ตัวอย่างค้านที่ทำให้ท่านี้ตอบผิดแบบเงียบ ๆ และโจทย์ฝึกสามข้อจากคลังอ้างอิงของต้นทาง',
+    topics: ['dp', 'divide and conquer', 'พื้นฐาน'],
+    difficulty: 3,
+    dateISO: '2026-09-10',
+    readingMinutes: 16,
   },
   {
     href: 'pick-books/',
