@@ -181,7 +181,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-07',
-    readingMinutes: 8,
+    readingMinutes: 13,
   },
   {
     href: 'trie/',
@@ -192,7 +192,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['trie', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
-    readingMinutes: 9,
+    readingMinutes: 10,
   },
   {
     href: 'count-then-walk/',
@@ -203,7 +203,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
-    readingMinutes: 9,
+    readingMinutes: 11,
   },
   {
     href: 'functional-graph/',
@@ -214,7 +214,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'tree', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
-    readingMinutes: 9,
+    readingMinutes: 10,
   },
   {
     href: 'segment-tree/',

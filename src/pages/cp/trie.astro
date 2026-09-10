@@ -224,6 +224,61 @@ int main() {
 const TR_N = 100000;
 const TR_L = 30;
 
+
+/* ============================================================================
+   ตัวอย่างของโจทย์ฝึกสองข้อ คำตอบมาจากการเทียบตรง ๆ ทุกคู่
+   ซึ่งไม่ได้ใช้ไทรเลย จึงไม่ได้ทดสอบข้ออ้างของท่าที่บทนี้สอน
+   ========================================================================== */
+
+/* ---------- ข้อ 1: เดินตามตัวอักษรของคำถาม แล้วนับคำที่จบระหว่างทาง ---------- */
+type ExStep = { at: number; ch: string; prefix: string; isWord: boolean; running: number };
+const exWalk: ExStep[] = (() => {
+  const out: ExStep[] = [];
+  let running = 0;
+  for (let i = 0; i < QUERY.length; i++) {
+    const prefix = QUERY.slice(0, i + 1);
+    const isWord = WORDS.includes(prefix);
+    if (isWord) running++;
+    out.push({ at: i + 1, ch: QUERY[i], prefix, isWord, running });
+  }
+  return out;
+})();
+const exWalkAnswer = exWalk.length === 0 ? 0 : exWalk[exWalk.length - 1].running;
+if (exWalkAnswer !== hits.length) {
+  throw new Error(`trie: ตัวอย่างข้อ 1 เดินได้ ${exWalkAnswer} แต่กรองตรง ๆ ได้ ${hits.length}`);
+}
+
+/* ---------- ข้อ 2: คู่ที่ให้ค่า XOR มากที่สุด ---------- */
+const exXorA = [3, 10, 5, 25, 2, 8];
+const EX_BITS = 5;
+const exBin = (v: number): string => v.toString(2).padStart(EX_BITS, '0');
+/** ไล่ทุกคู่จริง ไม่ได้ใช้ไทรเลย */
+const exXorBest = (() => {
+  let best = { a: exXorA[0], b: exXorA[1], v: -1 };
+  for (let i = 0; i < exXorA.length; i++)
+    for (let j = i + 1; j < exXorA.length; j++) {
+      const v = exXorA[i] ^ exXorA[j];
+      if (v > best.v) best = { a: exXorA[i], b: exXorA[j], v };
+    }
+  return best;
+})();
+const exXorAnswer = exXorBest.v;
+/** บิตของคู่ที่ชนะ เทียบทีละหลัก ใช้วาดภาพ */
+const exXorBits = Array.from({ length: EX_BITS }, (_, t) => ({
+  at: t,
+  a: exBin(exXorBest.a)[t],
+  b: exBin(exXorBest.b)[t],
+  out: exBin(exXorBest.v)[t],
+}));
+/** ท่าโลภที่คนคิดออกก่อน: หยิบตัวมากสุดคู่กับตัวน้อยสุด ซึ่งใช้ไม่ได้ */
+const exXorGreedy = Math.max(...exXorA) ^ Math.min(...exXorA);
+
+/* ---------- เรขาคณิตของภาพตัวอย่าง ---------- */
+const EXTW = 96;
+const exTrX = (t: number): number => 18 + t * (EXTW + 10);
+const EXBW2 = 74;
+const exBitX = (t: number): number => 150 + t * (EXBW2 + 8);
+
 ---
 <CpProblemLayout href={href}>
   <h2>ปัญหาที่บทนี้แก้</h2>
@@ -386,6 +441,44 @@ const TR_L = 30;
       </tr>
     </tbody>
   </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนคำในคลังกับจำนวนคำถาม จากนั้นคือคำในคลังบรรทัดละคำ แล้วคำถามบรรทัดละคำ
+      เอาต์พุตคือ<strong>จำนวนคำ</strong> ไม่ใช่ตัวคำ
+    </p>
+    <p>
+      คำว่า "ส่วนหัว" หมายถึงคำที่ตรงกับตัวอักษรต้น ๆ ของคำถามพอดี และ<strong>ตัวคำถามเองก็นับ</strong>
+      ถ้ามันอยู่ในคลัง ชุดนี้คำถามคือ <code>{QUERY}</code> คำในคลังที่เป็นส่วนหัวของมันคือ
+      {hits.map((w) => <code>{w}</code>).map((el, t) => (t === 0 ? el : <>, {el}</>))} รวม {hits.length} คำ
+    </p>
+    <p>
+      วิธีอ่านที่ตรงกับโครงสร้างไทรที่สุดคือเดินตามตัวอักษรของคำถามทีละตัว แล้วถามที่ทุกจุดว่า
+      "ตรงนี้มีคำในคลังจบพอดีไหม" ซึ่งเป็นการเดินครั้งเดียว ไม่ใช่ไล่เทียบทีละคำในคลัง
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="เดินตามตัวอักษรของคำถามทีละตัว จุดสีเขียวคือจุดที่มีคำในคลังจบพอดี ตัวเลขล่างคือจำนวนที่นับได้จนถึงตรงนั้น ตัวสุดท้ายคือเอาต์พุต">
+    <svg viewBox={`0 0 ${exTrX(QUERY.length - 1) + EXTW + 12} 208`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:600px" role="img" aria-label="การเดินตามตัวอักษรของคำถาม">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">คลังมี {WORDS.join(' ')}</text>
+      {exWalk.map((st, t) => (
+        <>
+          {t > 0 && <line x1={exTrX(t - 1) + EXTW} y1={64} x2={exTrX(t)} y2={64} stroke="#3d4761" stroke-width="2" />}
+          <rect x={exTrX(t)} y={42} width={EXTW} height={44} rx="6" fill={st.isWord ? '#14351f' : '#101827'} stroke={st.isWord ? '#2f9e5c' : '#2a3350'} />
+          <text x={exTrX(t) + EXTW / 2} y={70} fill={st.isWord ? '#4ade80' : '#cdd6ea'} font-size="17" text-anchor="middle" font-family="monospace">{st.ch}</text>
+          <text x={exTrX(t) + EXTW / 2} y={106} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">{st.prefix}</text>
+          <text x={exTrX(t) + EXTW / 2} y={130} fill={st.isWord ? '#4ade80' : '#3d4761'} font-size="11" text-anchor="middle" font-family="monospace">
+            {st.isWord ? 'มีคำจบตรงนี้' : 'ไม่มีคำจบ'}
+          </text>
+          <text x={exTrX(t) + EXTW / 2} y={158} fill="#e0b400" font-size="13" text-anchor="middle" font-family="monospace">{st.running}</text>
+        </>
+      ))}
+      <text x="18" y="192" fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        เดินจบได้ {exWalkAnswer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
@@ -439,6 +532,46 @@ const TR_L = 30;
     ให้จำนวนเต็มไม่ติดลบ <code>n</code> ตัว หาคู่ที่ <code>a XOR b</code> มากที่สุด
     (<code>XOR</code> อ่านว่า "เอ็กซ์ออร์" คือการเทียบทีละบิต ได้ 1 เมื่อสองบิตต่างกัน)
   </p>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exXorA.length}<br />{exXorA.join(' ')}</td><td>{exXorAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือจำนวนตัวเลขแล้วตามด้วยตัวเลข เอาต์พุตคือ<strong>ค่า XOR ที่มากที่สุด</strong>
+      ไม่ใช่คู่ที่ให้ค่านั้น และคู่ต้องเป็นเลขคนละตัวในรายการ
+    </p>
+    <p>
+      ชุดนี้คู่ที่ชนะคือ {exXorBest.a} กับ {exXorBest.b} ได้ {exXorAnswer}
+      กฎง่าย ๆ ที่คนคิดออกก่อนคือ "จับตัวมากสุดกับตัวน้อยสุด" ซึ่งชุดนี้ได้แค่ {exXorGreedy}
+      เพราะ XOR ไม่ได้สนใจว่าเลขไหนใหญ่ มันสนใจว่าบิตไหน<strong>ต่างกัน</strong>
+    </p>
+    <p>
+      พอเขียนทุกตัวเป็นเลขฐานสองความยาวเท่ากัน โจทย์นี้ก็กลายเป็นโจทย์สตริงทันที
+      และคำถามกลายเป็น "หาคำที่ต่างจากคำนี้ให้ได้มากที่สุดตั้งแต่ตัวหน้า ๆ"
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="คู่ที่ชนะเขียนเป็นเลขฐานสอง เทียบทีละหลัก หลักที่สองบิตต่างกันจะได้ 1 ยิ่งได้ 1 ที่หลักซ้ายเร็วเท่าไร ค่ายิ่งมาก">
+    <svg viewBox={`0 0 ${exBitX(EX_BITS - 1) + EXBW2 + 12} 200`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:620px" role="img" aria-label="การเทียบบิตของคู่ที่ให้ค่า XOR มากที่สุด">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">เทียบทีละหลัก ต่างกันได้ 1 เหมือนกันได้ 0</text>
+      <text x="18" y={66} fill="#7b8397" font-size="13" font-family="monospace">{exXorBest.a}</text>
+      <text x="18" y={112} fill="#7b8397" font-size="13" font-family="monospace">{exXorBest.b}</text>
+      <text x="18" y={162} fill="#4ade80" font-size="13" font-family="monospace">ได้ {exXorAnswer}</text>
+      {exXorBits.map((bt, t) => (
+        <>
+          <text x={exBitX(t) + EXBW2 / 2} y={66} fill="#cdd6ea" font-size="16" text-anchor="middle" font-family="monospace">{bt.a}</text>
+          <text x={exBitX(t) + EXBW2 / 2} y={112} fill="#cdd6ea" font-size="16" text-anchor="middle" font-family="monospace">{bt.b}</text>
+          <line x1={exBitX(t) + 8} y1={128} x2={exBitX(t) + EXBW2 - 8} y2={128} stroke="#2a3350" stroke-width="1.5" />
+          <text x={exBitX(t) + EXBW2 / 2} y={162} fill={bt.out === '1' ? '#4ade80' : '#3d4761'} font-size="17" text-anchor="middle" font-family="monospace">{bt.out}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
