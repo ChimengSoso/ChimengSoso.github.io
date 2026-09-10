@@ -1,0 +1,3187 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+
+const href = 'offline-deletion/';
+const R = 15;
+const range = (a: number, b: number): number[] => Array.from({ length: Math.max(0, b - a + 1) }, (_, i) => a + i);
+
+/* ================================================================
+ * ตัวอย่างเดียวที่ใช้ทั้งบท: 4 จุด เส้นตั้งต้น 1-2, 1-4, 2-3 แล้วเพิ่ม 1-3 และลบ 1-2
+ * ช่วงอายุ ต้นไม้ ตัวเดิน และเวอร์ชันที่บีบทางเดิน ทุกชิ้นคำนวณจากตัวจำลองข้างล่าง
+ * ================================================================ */
+type Ev = [1 | 2, number, number];
+const EX_N = 4;
+const EX_INIT: [number, number][] = [[1, 2], [1, 4], [2, 3]];
+const EX_EVENTS: Ev[] = [[1, 1, 3], [2, 1, 2]];
+const EX_Q = EX_EVENTS.length + 1; // จุดเวลา 0 คือก่อนเหตุการณ์แรก
+const key = (a: number, b: number): string => `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+type Life = { e: string; a: number; b: number; l: number; r: number };
+/** แปลงเหตุการณ์เป็นช่วงอายุ ลำดับเดียวกับโค้ด C++: เส้นที่ถูกลบออกก่อน แล้วค่อยเส้นที่เหลือเรียงตามคู่จุด */
+function lifetimes(init: [number, number][], events: Ev[], q: number): Life[] {
+  const born = new Map<string, number>();
+  const out: Life[] = [];
+  for (const [a, b] of init) born.set(key(a, b), 0);
+  events.forEach(([t, a, b], i) => {
+    const k = key(a, b);
+    if (t === 1) born.set(k, i + 1);
+    else {
+      out.push({ e: k, a: Math.min(a, b), b: Math.max(a, b), l: born.get(k) ?? 0, r: i });
+      born.delete(k);
+    }
+  });
+  [...born.entries()]
+    .sort((p, s) => (p[0] < s[0] ? -1 : 1))
+    .forEach(([k, l]) => {
+      const [a, b] = k.split('-').map(Number);
+      out.push({ e: k, a, b, l, r: q - 1 });
+    });
+  return out;
+}
+const exLives = lifetimes(EX_INIT, EX_EVENTS, EX_Q);
+
+/** ตัวตรวจอิสระ: นับก๊วนใหม่ด้วยการเดินกราฟทุกจุดเวลา ไม่มี DSU ไม่มีต้นไม้ */
+function compsAt(n: number, edges: [number, number][]): number {
+  const adj = Array.from({ length: n + 1 }, () => [] as number[]);
+  for (const [a, b] of edges) {
+    adj[a].push(b);
+    adj[b].push(a);
+  }
+  const seen = new Set<number>();
+  let c = 0;
+  for (let s = 1; s <= n; s++) {
+    if (seen.has(s)) continue;
+    c++;
+    const st = [s];
+    seen.add(s);
+    while (st.length > 0) {
+      const u = st.pop() ?? s;
+      for (const v of adj[u]) {
+        if (seen.has(v)) continue;
+        seen.add(v);
+        st.push(v);
+      }
+    }
+  }
+  return c;
+}
+const exTruth = range(0, EX_Q - 1).map((t) =>
+  compsAt(EX_N, exLives.filter((L) => L.l <= t && t <= L.r).map((L) => [L.a, L.b] as [number, number])),
+);
+
+/* ---------- ต้นไม้ช่วงบนแกนเวลา + DSU ย้อนกลับได้ ในแบบที่สร้างขั้นให้ตัวเดิน ---------- */
+type TNode = { id: number; l: number; r: number; items: Life[] };
+function buildTree(q: number, lives: Life[]): Map<number, TNode> {
+  const tree = new Map<number, TNode>();
+  const make = (v: number, l: number, r: number): void => {
+    tree.set(v, { id: v, l, r, items: [] });
+    if (l === r) return;
+    const m = Math.floor((l + r) / 2);
+    make(2 * v, l, m);
+    make(2 * v + 1, m + 1, r);
+  };
+  make(1, 0, q - 1);
+  const add = (v: number, l: number, r: number, L: Life): void => {
+    if (L.r < l || r < L.l) return;
+    if (L.l <= l && r <= L.r) {
+      tree.get(v)?.items.push(L);
+      return;
+    }
+    const m = Math.floor((l + r) / 2);
+    add(2 * v, l, m, L);
+    add(2 * v + 1, m + 1, r, L);
+  };
+  for (const L of lives) add(1, 0, q - 1, L);
+  return tree;
+}
+const exTree = buildTree(EX_Q, exLives);
+const exNodes = [...exTree.values()].sort((a, b) => a.id - b.id);
+
+type DStep = {
+  note: string;
+  at: number; // ปมที่กำลังอยู่
+  path: number[]; // ปมจากรากถึงปมปัจจุบัน
+  par: number[];
+  sz: number[];
+  stk: number[];
+  comps: number;
+  answers: (number | null)[];
+  hot: number; // ช่อง par ที่เพิ่งเปลี่ยน (0 = ไม่มี)
+};
+/** เดิน dfs(v, l, r) แบบเดียวกับ C++ แล้วจดทุกจังหวะ ถ้า compress เป็นจริงจะบีบทางเดินใน find ด้วย (รุ่นที่ผิด) */
+function simulate(n: number, q: number, tree: Map<number, TNode>, compress: boolean): { steps: DStep[]; answers: number[] } {
+  const par = range(0, n);
+  const sz = Array<number>(n + 1).fill(1);
+  const stk: number[] = [];
+  let comps = n;
+  const answers: (number | null)[] = Array<number | null>(q).fill(null);
+  const steps: DStep[] = [];
+  const snap = (note: string, at: number, path: number[], hot = 0): void => {
+    steps.push({ note, at, path: [...path], par: [...par], sz: [...sz], stk: [...stk], comps, answers: [...answers], hot });
+  };
+  const find = (x: number): number => {
+    let r = x;
+    while (par[r] !== r) r = par[r];
+    if (compress)
+      for (let y = x; par[y] !== r && y !== r; ) {
+        const nx = par[y];
+        par[y] = r;
+        y = nx;
+      }
+    return r;
+  };
+  const dfs = (v: number, path: number[]): void => {
+    const node = tree.get(v);
+    if (!node) return;
+    const here = [...path, v];
+    const keep = stk.length;
+    const span = node.l === node.r ? `ใบ t=${node.l}` : `ช่วง [${node.l},${node.r}]`;
+    snap(
+      `เข้าปม ${v} (${span}) จด keep = ${keep} ${node.items.length === 0 ? 'ปมนี้ไม่มีเส้นให้ใส่' : `ปมนี้มีเส้น ${node.items.map((L) => L.e).join(', ')}`}`,
+      v,
+      here,
+    );
+    for (const L of node.items) {
+      const before = [...par];
+      let a = find(L.a);
+      let b = find(L.b);
+      const silent = before.some((p, i) => p !== par[i]);
+      if (a === b) {
+        snap(
+          `unite(${L.a}, ${L.b}): หัวของทั้งคู่คือ ${a} อยู่ก๊วนเดียวกันแล้ว ไม่รวม ไม่มีอะไรลงสแต็ก${silent ? ` <b>แต่ find เพิ่งบีบทางเดิน แก้ par ไปโดยไม่จดลงสแต็ก</b>` : ''}`,
+          v,
+          here,
+          silent ? before.findIndex((p, i) => p !== par[i]) : 0,
+        );
+        continue;
+      }
+      if (sz[a] < sz[b]) [a, b] = [b, a];
+      par[b] = a;
+      sz[a] += sz[b];
+      stk.push(b);
+      comps--;
+      snap(`unite(${L.a}, ${L.b}): ${b} ไปขึ้นกับ ${a} ผลักลูก ${b} ลงสแต็ก เหลือ ${comps} ก๊วน`, v, here, b);
+    }
+    if (node.l === node.r) {
+      answers[node.l] = comps;
+      snap(`ถึงใบ t=${node.l} เส้นที่มีชีวิตตอนนี้คือทุกเส้นบนทางจากรากถึงใบนี้พอดี ตอบ <b>${comps}</b> ก๊วน`, v, here);
+    } else {
+      dfs(2 * v, here);
+      dfs(2 * v + 1, here);
+    }
+    if (stk.length === keep) {
+      snap(`ออกจากปม ${v} สแต็กยาว ${keep} เท่า keep อยู่แล้ว ไม่ต้องย้อนอะไร`, v, here);
+      return;
+    }
+    while (stk.length > keep) {
+      const b = stk.pop() ?? 0;
+      const a = par[b];
+      sz[a] -= sz[b];
+      par[b] = b;
+      comps++;
+      snap(`ออกจากปม ${v}: rollback ถอด ${b} ออกจากใต้ ${a} คืน sz[${a}] เป็น ${sz[a]} กลับเป็น ${comps} ก๊วน`, v, here, b);
+    }
+  };
+  snap(`เริ่ม ทุกคนเป็นหัวก๊วนของตัวเอง ${n} ก๊วน สแต็กว่าง`, 0, []);
+  dfs(1, []);
+  return { steps, answers: answers.map((x) => x ?? -1) };
+}
+const exGood = simulate(EX_N, EX_Q, exTree, false);
+const exBad = simulate(EX_N, EX_Q, exTree, true);
+if (exGood.answers.join(' ') !== exTruth.join(' ')) throw new Error('offline-deletion: ตัวเดินตอบไม่ตรงกับการเดินกราฟใหม่ทุกจุดเวลา');
+if (exBad.answers.join(' ') === exTruth.join(' ')) throw new Error('offline-deletion: ตัวอย่างนี้ไม่ได้ทำให้รุ่นบีบทางเดินผิดแล้ว');
+const exBadLeaf = exBad.answers.findIndex((x, i) => x !== exTruth[i]);
+const exSilent = exBad.steps.find((s) => s.note.includes('แก้ par ไปโดยไม่จดลงสแต็ก'));
+const exSilentNode = exSilent ? exSilent.hot : 0;
+
+/* ---------- ภาพที่ 1: ช่วงอายุบนแกนเวลาของตัวอย่าง ---------- */
+const L_X0 = 150;
+const L_CELL = 170;
+const L_Y0 = 58;
+const L_ROW = 40;
+const lx = (t: number): number => L_X0 + t * L_CELL;
+const lifeVB = `0 0 ${lx(EX_Q) + 12} ${L_Y0 + exLives.length * L_ROW + 34 + 30}`;
+
+/* ---------- ภาพที่ 2 + เกม: หั่นช่วงลงต้นไม้บนแกนเวลา 16 ใบ ---------- */
+const G_LEAVES = 16;
+const G_DEPTH = Math.log2(G_LEAVES);
+type Block = { d: number; k: number; l: number; r: number };
+const blocks: Block[] = [];
+for (let d = 0; d <= G_DEPTH; d++) {
+  const w = G_LEAVES >> d;
+  for (let k = 0; k < 1 << d; k++) blocks.push({ d, k, l: k * w, r: k * w + w - 1 });
+}
+/** จำนวนปมน้อยสุดที่คลุม [l, r] พอดี หาด้วยทางลัดบนตำแหน่ง (ขั้นละหนึ่งบล็อกที่เริ่มตรงนั้น)
+ *  ไม่ได้ใช้การแตกช่วงแบบ segment tree ที่บทสอน */
+function minCover(l: number, r: number): number {
+  const dist = Array<number>(G_LEAVES + 1).fill(Infinity);
+  dist[l] = 0;
+  for (let p = l; p <= r; p++)
+    for (const b of blocks) if (b.l === p && b.r <= r) dist[b.r + 1] = Math.min(dist[b.r + 1], dist[p] + 1);
+  return dist[r + 1];
+}
+/** การแตกช่วงแบบที่บทสอน ใช้วาดภาพที่ 2 */
+function decompose(l: number, r: number): Block[] {
+  const out: Block[] = [];
+  const go = (d: number, k: number): void => {
+    const w = G_LEAVES >> d;
+    const bl = k * w;
+    const br = bl + w - 1;
+    if (r < bl || br < l) return;
+    if (l <= bl && br <= r) {
+      out.push({ d, k, l: bl, r: br });
+      return;
+    }
+    go(d + 1, 2 * k);
+    go(d + 1, 2 * k + 1);
+  };
+  go(0, 0);
+  return out;
+}
+const D2 = { l: 3, r: 12 };
+const d2Blocks = decompose(D2.l, D2.r);
+if (d2Blocks.length !== minCover(D2.l, D2.r)) throw new Error('offline-deletion: การแตกช่วงไม่ได้จำนวนปมน้อยสุด');
+let worstCover = 0;
+for (let l = 0; l < G_LEAVES; l++) for (let r = l; r < G_LEAVES; r++) worstCover = Math.max(worstCover, minCover(l, r));
+for (let l = 0; l < G_LEAVES; l++)
+  for (let r = l; r < G_LEAVES; r++)
+    if (decompose(l, r).length !== minCover(l, r)) throw new Error(`offline-deletion: การแตกช่วง [${l},${r}] ไม่น้อยสุด`);
+const T_X0 = 40;
+const T_CELL = 40;
+const T_Y0 = 40;
+const T_ROW = 40;
+const tx = (p: number): number => T_X0 + p * T_CELL;
+const treeVB = `0 0 ${tx(G_LEAVES) + 12} ${T_Y0 + (G_DEPTH + 1) * T_ROW + 26 + 34}`;
+const inD2 = (b: Block): boolean => d2Blocks.some((x) => x.d === b.d && x.k === b.k);
+
+type CutPuzzle = { id: string; label: string; tease: string; l: number; r: number; best: number };
+const cutRaw: Omit<CutPuzzle, 'best'>[] = [
+  { id: 'a', label: 'ชุด ก', tease: 'ช่วงอายุยาวแปดจุดเวลา', l: 8, r: 15 },
+  { id: 'b', label: 'ชุด ข', tease: 'ช่วงอายุยาวแค่สองจุดเวลา', l: 7, r: 8 },
+  { id: 'c', label: 'ชุด ค', tease: 'ช่วงอายุยาวเกือบทั้งแกน', l: 1, r: 14 },
+  { id: 'd', label: 'ชุด ง', tease: 'ช่วงอายุยาวหกจุดเวลา', l: 5, r: 10 },
+];
+const cutPuzzles: CutPuzzle[] = cutRaw.map((p) => ({ ...p, best: minCover(p.l, p.r) }));
+const cutJson = JSON.stringify(cutPuzzles);
+
+/* ---------- ตัวเดินหลัก ---------- */
+const exStepsGood = exGood.steps;
+const walkRows = exNodes.map((n) => ({ id: n.id, span: n.l === n.r ? `t=${n.l}` : `[${n.l},${n.r}]`, items: n.items.map((L) => L.e) }));
+
+/* ---------- โค้ด ---------- */
+const codeCore = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 100005, MAXQ = 100005;   // จุดเวลามี k+1 จุด
+int n, m, k, Q, comps;
+int par[MAXN], sz[MAXN];
+vector<int> stk;                  // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+vector<pair<int,int>> node[4 * MAXQ];
+int ans[MAXQ];
+
+// ไม่บีบทางเดิน เพราะการบีบแก้ par หลายช่องที่สแต็กไม่ได้จดไว้ ย้อนกลับไม่ได้
+int find(int x) {
+    while (par[x] != x) x = par[x];
+    return x;
+}
+
+// รวมตามขนาดอย่างเดียว ความลึกจึงไม่เกิน log2(n) และ find เป็น O(log n) จริงทุกครั้ง
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a;
+    sz[a] += sz[b];
+    stk.push_back(b);
+    comps--;
+    return true;
+}
+
+// การรวมหนึ่งครั้งแก้แค่ par[b] กับ sz[a] และ a ยังเป็น par[b] อยู่ จึงถอดคืนได้จากลูกตัวเดียว
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(); stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;
+        comps++;
+    }
+}
+
+// แตกช่วงอายุ [ql, qr] ลงปมที่คลุมพอดี แบบเดียวกับการอัปเดตช่วงของ segment tree
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int mid = (l + r) / 2;
+    addRange(2 * v, l, mid, ql, qr, item);
+    addRange(2 * v + 1, mid + 1, r, ql, qr, item);
+}
+
+// เส้นบนปม v มีชีวิตตลอดช่วง [l, r] จึงใส่ครั้งเดียวแล้วใช้ได้กับทุกใบข้างใต้
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    for (auto [a, b] : node[v]) unite(a, b);
+    if (l == r) ans[l] = comps;
+    else {
+        int mid = (l + r) / 2;
+        dfs(2 * v, l, mid);
+        dfs(2 * v + 1, mid + 1, r);
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false); cin.tie(nullptr);
+    cin >> n >> m >> k;
+    Q = k + 1;                    // จุดเวลา 0 คือก่อนเหตุการณ์แรก จุด i คือหลังเหตุการณ์ที่ i
+    map<pair<int,int>, int> born; // เส้นที่ยังอยู่ -> จุดเวลาที่เกิด
+    for (int i = 0; i < m; i++) {
+        int a, b; cin >> a >> b;
+        born[{min(a, b), max(a, b)}] = 0;
+    }
+    for (int i = 1; i <= k; i++) {
+        int t, a, b; cin >> t >> a >> b;
+        pair<int,int> e = {min(a, b), max(a, b)};   // ลบอาจเขียนสลับข้างกับตอนเพิ่ม
+        if (t == 1) born[e] = i;
+        else {
+            addRange(1, 0, Q - 1, born[e], i - 1, e); // ถูกลบที่ i จึงอยู่ถึง i-1
+            born.erase(e);
+        }
+    }
+    for (auto [e, s] : born) addRange(1, 0, Q - 1, s, Q - 1, e);
+
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+    comps = n;
+    dfs(1, 0, Q - 1);
+    for (int i = 0; i < Q; i++) cout << ans[i] << (i + 1 < Q ? ' ' : '\\n');
+    return 0;
+}`;
+const codeCoreBug = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 100005, MAXQ = 100005;   // จุดเวลามี k+1 จุด
+int n, m, k, Q, comps;
+int par[MAXN], sz[MAXN];
+vector<int> stk;                  // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+vector<pair<int,int>> node[4 * MAXQ];
+int ans[MAXQ];
+
+// เวอร์ชันที่ผิด: บีบทางเดินเหมือน DSU ธรรมดา
+// ช่อง par ที่ถูกบีบไม่มีใครจดลงสแต็ก rollback จึงคืนไม่ครบ
+int find(int x) {
+    if (par[x] == x) return x;
+    return par[x] = find(par[x]);   // บรรทัดที่ผิด
+}
+
+// รวมตามขนาดอย่างเดียว ความลึกจึงไม่เกิน log2(n) และ find เป็น O(log n) จริงทุกครั้ง
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a;
+    sz[a] += sz[b];
+    stk.push_back(b);
+    comps--;
+    return true;
+}
+
+// การรวมหนึ่งครั้งแก้แค่ par[b] กับ sz[a] และ a ยังเป็น par[b] อยู่ จึงถอดคืนได้จากลูกตัวเดียว
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(); stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;
+        comps++;
+    }
+}
+
+// แตกช่วงอายุ [ql, qr] ลงปมที่คลุมพอดี แบบเดียวกับการอัปเดตช่วงของ segment tree
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int mid = (l + r) / 2;
+    addRange(2 * v, l, mid, ql, qr, item);
+    addRange(2 * v + 1, mid + 1, r, ql, qr, item);
+}
+
+// เส้นบนปม v มีชีวิตตลอดช่วง [l, r] จึงใส่ครั้งเดียวแล้วใช้ได้กับทุกใบข้างใต้
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    for (auto [a, b] : node[v]) unite(a, b);
+    if (l == r) ans[l] = comps;
+    else {
+        int mid = (l + r) / 2;
+        dfs(2 * v, l, mid);
+        dfs(2 * v + 1, mid + 1, r);
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false); cin.tie(nullptr);
+    cin >> n >> m >> k;
+    Q = k + 1;                    // จุดเวลา 0 คือก่อนเหตุการณ์แรก จุด i คือหลังเหตุการณ์ที่ i
+    map<pair<int,int>, int> born; // เส้นที่ยังอยู่ -> จุดเวลาที่เกิด
+    for (int i = 0; i < m; i++) {
+        int a, b; cin >> a >> b;
+        born[{min(a, b), max(a, b)}] = 0;
+    }
+    for (int i = 1; i <= k; i++) {
+        int t, a, b; cin >> t >> a >> b;
+        pair<int,int> e = {min(a, b), max(a, b)};   // ลบอาจเขียนสลับข้างกับตอนเพิ่ม
+        if (t == 1) born[e] = i;
+        else {
+            addRange(1, 0, Q - 1, born[e], i - 1, e); // ถูกลบที่ i จึงอยู่ถึง i-1
+            born.erase(e);
+        }
+    }
+    for (auto [e, s] : born) addRange(1, 0, Q - 1, s, Q - 1, e);
+
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+    comps = n;
+    dfs(1, 0, Q - 1);
+    for (int i = 0; i < Q; i++) cout << ans[i] << (i + 1 < Q ? ' ' : '\\n');
+    return 0;
+}`;
+
+/* ================================================================
+ * โจทย์ฝึก: ทุกตัวอย่างถูกตรวจตอนบิลด์ด้วยวิธีที่ไม่ใช่วิธีของบท
+ * ================================================================ */
+type Pt = { x: number; y: number };
+const seg = (a: Pt, b: Pt, pad = R) => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  return { x1: a.x + (dx / len) * pad, y1: a.y + (dy / len) * pad, x2: b.x - (dx / len) * pad, y2: b.y - (dy / len) * pad };
+};
+/** ป้ายน้ำหนักเยื้องตามเส้นตั้งฉาก ให้อยู่ด้านบนของเส้นเสมอ
+ *  เส้นที่เกือบตั้งจะดันป้ายออกด้านข้าง จึงต้องเยื้องเพิ่มอีกครึ่งความกว้างของป้าย (halfW) ไม่งั้นเส้นลากทับตัวหนังสือ */
+const edgeLabel = (a: Pt, b: Pt, off = 13, halfW = 0): Pt => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (ny > 0 || (ny === 0 && nx < 0)) [nx, ny] = [-nx, -ny];
+  const k = off + halfW * Math.abs(nx);
+  return { x: (a.x + b.x) / 2 + nx * k, y: (a.y + b.y) / 2 + ny * k + 4 };
+};
+const lines = (s: string): string[] => s.trim().split('\n');
+
+/* ---------- ฝึกข้อ 1 · CSES 2133 Dynamic Connectivity ---------- */
+const P1_N = 5;
+const P1_INIT: [number, number][] = [[1, 4], [2, 3], [3, 5]];
+const P1_EV: Ev[] = [[1, 2, 5], [2, 3, 5], [1, 1, 2]];
+const P1_Q = P1_EV.length + 1;
+const p1Lives = lifetimes(P1_INIT, P1_EV, P1_Q);
+const p1Truth = range(0, P1_Q - 1).map((t) =>
+  compsAt(P1_N, p1Lives.filter((L) => L.l <= t && t <= L.r).map((L) => [L.a, L.b] as [number, number])),
+);
+if (p1Truth.join(' ') !== '2 2 2 1') throw new Error('offline-deletion p1: ไม่ตรงกับตัวอย่างของโจทย์');
+const p1Sim = simulate(P1_N, P1_Q, buildTree(P1_Q, p1Lives), false);
+if (p1Sim.answers.join(' ') !== p1Truth.join(' ')) throw new Error('offline-deletion p1: ตัวจำลองต้นไม้ไม่ตรง');
+
+/* ---------- ฝึกข้อ 2 · Gym 100551A Connect and Disconnect ---------- */
+const P2_IN = `5 11
+?
++ 1 2
++ 2 3
++ 3 4
++ 4 5
++ 5 1
+?
+- 2 3
+?
+- 4 5
+?`;
+const P2_OUT = [5, 1, 1, 2];
+const p2Rows: { cmd: string; qi: number | null; comps: number | null }[] = [];
+{
+  const [hd, ...cmds] = lines(P2_IN);
+  const n = Number(hd.split(' ')[0]);
+  const alive = new Map<string, [number, number]>();
+  let qi = 0;
+  for (const c of cmds) {
+    const [op, u, v] = c.split(' ');
+    if (op === '?') {
+      p2Rows.push({ cmd: c, qi, comps: compsAt(n, [...alive.values()]) });
+      qi++;
+    } else {
+      const a = Number(u);
+      const b = Number(v);
+      if (op === '+') alive.set(key(a, b), [a, b]);
+      else alive.delete(key(a, b));
+      p2Rows.push({ cmd: c, qi: null, comps: null });
+    }
+  }
+}
+if (p2Rows.filter((r) => r.comps !== null).map((r) => r.comps).join(' ') !== P2_OUT.join(' '))
+  throw new Error('offline-deletion p2: ไม่ตรงกับตัวอย่างของโจทย์');
+const p2QCount = P2_OUT.length;
+const p2Cmds = p2Rows.length;
+const codeP2 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 300005, MAXQ = 300005;   // จุดเวลา = คำถาม ? ซึ่งมีไม่เกิน K
+int n, K, Q, comps;
+int par[MAXN], sz[MAXN];
+vector<int> stk;                  // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+vector<pair<int,int>> node[4 * MAXQ];
+int ans[MAXQ];
+
+// ไม่บีบทางเดิน เพราะการบีบแก้ par หลายช่องที่สแต็กไม่ได้จดไว้ ย้อนกลับไม่ได้
+int find(int x) {
+    while (par[x] != x) x = par[x];
+    return x;
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a;
+    sz[a] += sz[b];
+    stk.push_back(b);
+    comps--;
+    return true;
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(); stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;
+        comps++;
+    }
+}
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int mid = (l + r) / 2;
+    addRange(2 * v, l, mid, ql, qr, item);
+    addRange(2 * v + 1, mid + 1, r, ql, qr, item);
+}
+
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    for (auto [a, b] : node[v]) unite(a, b);
+    if (l == r) ans[l] = comps;
+    else {
+        int mid = (l + r) / 2;
+        dfs(2 * v, l, mid);
+        dfs(2 * v + 1, mid + 1, r);
+    }
+    rollback(keep);
+}
+
+int main() {
+    freopen("connect.in", "r", stdin);
+    freopen("connect.out", "w", stdout);
+    ios::sync_with_stdio(false); cin.tie(nullptr);
+    cin >> n >> K;
+    // แกนเวลานับเฉพาะคำถาม ? เพราะเป็นจุดเดียวที่ต้องรู้คำตอบ
+    // เส้นที่เกิดตอนถามไปแล้ว c ข้อ จะเห็นได้ตั้งแต่คำถามที่ c
+    vector<tuple<int,int,pair<int,int>>> lives;   // (คำถามแรก, คำถามสุดท้าย, เส้น)
+    map<pair<int,int>, int> born;                 // เส้นที่ยังอยู่ -> คำถามแรกที่เห็นมัน
+    Q = 0;
+    for (int i = 0; i < K; i++) {
+        char c; cin >> c;
+        if (c == '?') { Q++; continue; }
+        int u, v; cin >> u >> v;
+        pair<int,int> e = {min(u, v), max(u, v)};   // ไม่มีทิศ: "- 2 1" คือเส้นเดียวกับ "+ 1 2"
+        if (c == '+') born[e] = Q;
+        else {
+            lives.push_back({born[e], Q - 1, e});    // ช่วงว่างได้ ถ้าไม่มีคำถามคั่นระหว่างเกิดกับตาย
+            born.erase(e);
+        }
+    }
+    if (Q == 0) return 0;
+    for (auto [e, s] : born) lives.push_back({s, Q - 1, e});
+    for (auto [l, r, e] : lives) if (l <= r) addRange(1, 0, Q - 1, l, r, e);
+
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+    comps = n;
+    dfs(1, 0, Q - 1);
+    for (int i = 0; i < Q; i++) cout << ans[i] << '\\n';
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 3 · Codeforces 813F Bipartite Checking ---------- */
+const P3_N = 3;
+const P3_T: [number, number][] = [[2, 3], [1, 3], [1, 2], [1, 2], [1, 2]];
+const P3_OUT = ['YES', 'YES', 'NO', 'YES', 'NO'];
+/** ตัวตรวจอิสระ: ระบายสองสีด้วย BFS บนเส้นที่มีอยู่ ณ ตอนนั้น */
+function twoColorable(n: number, edges: [number, number][]): boolean {
+  const col = Array<number>(n + 1).fill(-1);
+  for (let s = 1; s <= n; s++) {
+    if (col[s] !== -1) continue;
+    col[s] = 0;
+    const qu = [s];
+    while (qu.length > 0) {
+      const u = qu.shift() ?? s;
+      for (const [a, b] of edges) {
+        const v = a === u ? b : b === u ? a : 0;
+        if (!v) continue;
+        if (col[v] === -1) {
+          col[v] = 1 - col[u];
+          qu.push(v);
+        }
+        else if (col[v] === col[u]) return false;
+      }
+    }
+  }
+  return true;
+}
+const p3Snaps: { edges: [number, number][]; ok: boolean; flip: [number, number] }[] = [];
+{
+  const on = new Map<string, [number, number]>();
+  for (const [x, y] of P3_T) {
+    const k = key(x, y);
+    if (on.has(k)) on.delete(k);
+    else on.set(k, [x, y]);
+    const edges = [...on.values()];
+    p3Snaps.push({ edges, ok: twoColorable(P3_N, edges), flip: [x, y] });
+  }
+}
+if (p3Snaps.map((s) => (s.ok ? 'YES' : 'NO')).join(' ') !== P3_OUT.join(' ')) throw new Error('offline-deletion p3: ไม่ตรงกับตัวอย่างของโจทย์');
+const P3_POS: Record<number, Pt> = { 1: { x: 0, y: 0 }, 2: { x: -34, y: 58 }, 3: { x: 34, y: 58 } };
+const P3_PANEL = 134;
+const p3Panels = p3Snaps.map((s, i) => {
+  const ox = 62 + i * P3_PANEL;
+  const oy = 66;
+  const at = (v: number): Pt => ({ x: ox + P3_POS[v].x, y: oy + P3_POS[v].y });
+  return {
+    ox,
+    ok: s.ok,
+    flip: s.flip,
+    edges: s.edges.map(([a, b]) => seg(at(a), at(b))),
+    nodes: range(1, P3_N).map((v) => ({ k: v, ...at(v) })),
+  };
+});
+const p3VB = `0 0 ${62 + 4 * P3_PANEL + 34 + R + 12} ${66 + 58 + R + 34 + 26}`;
+const codeP3 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int MAXN = 100005, MAXQ = 100005;
+int n, q;
+int par[MAXN], sz[MAXN], d[MAXN];   // d[x] = x กับ par[x] ต่างสีกันไหม (0 สีเดียวกัน, 1 ต่างสี)
+vector<int> stk;                     // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+vector<pair<int,int>> node[4 * MAXQ];
+bool ans[MAXQ];                      // ใบที่ DFS ไปไม่ถึงคือใบที่มีวงคี่แล้ว ค่าเริ่มต้น false จึงถูกอยู่แล้ว
+
+// ไม่บีบทางเดิน คืนราก และสีของ x เทียบกับราก (xor ของ d ตลอดทาง)
+pair<int,int> find(int x) {
+    int c = 0;
+    while (par[x] != x) c ^= d[x], x = par[x];
+    return {x, c};
+}
+
+// คืน false เมื่อเส้น a-b ปิดวงคี่ (a กับ b อยู่ก๊วนเดียวกันและสีเดียวกันอยู่แล้ว)
+bool unite(int a, int b) {
+    auto [ra, ca] = find(a);
+    auto [rb, cb] = find(b);
+    if (ra == rb) return ca != cb;
+    if (sz[ra] < sz[rb]) swap(ra, rb);
+    par[rb] = ra;
+    d[rb] = ca ^ cb ^ 1;   // ให้ a กับ b ต่างสีกัน: ca ^ (d[rb] ^ cb) = 1
+    sz[ra] += sz[rb];
+    stk.push_back(rb);
+    return true;
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(); stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;   // d[b] ไม่ต้องคืน: รากไม่มีใครอ่าน d และจะถูกเขียนทับเมื่อ b ถูกรวมอีกครั้ง
+    }
+}
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int mid = (l + r) / 2;
+    addRange(2 * v, l, mid, ql, qr, item);
+    addRange(2 * v + 1, mid + 1, r, ql, qr, item);
+}
+
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    bool odd = false;
+    for (auto [a, b] : node[v]) if (!unite(a, b)) { odd = true; break; }
+    // เส้นบนปมนี้อยู่ครบทุกใบข้างใต้ วงคี่จึงอยู่ในทุกใบ ไม่ต้องลงไปต่อ
+    if (!odd) {
+        if (l == r) ans[l] = true;
+        else {
+            int mid = (l + r) / 2;
+            dfs(2 * v, l, mid);
+            dfs(2 * v + 1, mid + 1, r);
+        }
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false); cin.tie(nullptr);
+    cin >> n >> q;
+    map<pair<int,int>, int> born;    // เส้นที่ยังอยู่ -> คำถามแรกที่มีมัน
+    for (int i = 0; i < q; i++) {
+        int x, y; cin >> x >> y;     // โจทย์รับประกัน x < y จึงใช้เป็นกุญแจได้ตรง ๆ
+        auto it = born.find({x, y});
+        if (it == born.end()) born[{x, y}] = i;
+        else {
+            addRange(1, 0, q - 1, it->second, i - 1, it->first);   // ถูกลบที่คำถาม i
+            born.erase(it);
+        }
+    }
+    for (auto [e, s] : born) addRange(1, 0, q - 1, s, q - 1, e);
+
+    for (int i = 1; i <= n; i++) par[i] = i, sz[i] = 1;
+    dfs(1, 0, q - 1);
+    for (int i = 0; i < q; i++) cout << (ans[i] ? "YES" : "NO") << '\\n';
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 4 · Codeforces 1140F Extending Set of Points ---------- */
+const P4_Q: [number, number][] = [[1, 1], [1, 2], [2, 1], [2, 2], [1, 2], [1, 3], [2, 1]];
+const P4_OUT = [1, 2, 4, 4, 4, 6, 3];
+/** ตัวตรวจอิสระ: เติมมุมที่สี่ตามนิยามของโจทย์จนนิ่ง ไม่รู้เรื่องแถว หลัก หรือก๊วน */
+function extend(pts: [number, number][]): Set<string> {
+  const S = new Set(pts.map(([x, y]) => `${x},${y}`));
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const arr = [...S].map((s) => s.split(',').map(Number));
+    for (const [x1, y1] of arr)
+      for (const [, y2] of arr.filter(([x]) => x === x1))
+        for (const [x2] of arr.filter(([, y]) => y === y1))
+          if (!S.has(`${x2},${y2}`)) {
+            S.add(`${x2},${y2}`);
+            grew = true;
+          }
+  }
+  return S;
+}
+const p4States: { S: [number, number][]; E: Set<string> }[] = [];
+{
+  const cur = new Map<string, [number, number]>();
+  for (const [x, y] of P4_Q) {
+    const k = `${x},${y}`;
+    if (cur.has(k)) cur.delete(k);
+    else cur.set(k, [x, y]);
+    const S = [...cur.values()];
+    p4States.push({ S, E: extend(S) });
+  }
+}
+if (p4States.map((s) => s.E.size).join(' ') !== P4_OUT.join(' ')) throw new Error('offline-deletion p4: ไม่ตรงกับตัวอย่างของโจทย์');
+const P4_SHOW = [5, 6];
+const G4_CELL = 72;
+const p4Panels = P4_SHOW.map((i, t) => {
+  const ox = 90 + t * 380;
+  return {
+    i,
+    ox,
+    size: p4States[i].E.size,
+    cells: range(1, 2).flatMap((x) =>
+      range(1, 3).map((y) => {
+        const k = `${x},${y}`;
+        const inS = p4States[i].S.some(([a, b]) => a === x && b === y);
+        const inE = p4States[i].E.has(k);
+        return { x, y, cx: ox + (y - 1) * G4_CELL, cy: 70 + (x - 1) * G4_CELL, kind: inS ? 'S' : inE ? 'E' : 'none' };
+      }),
+    ),
+  };
+});
+const p4VB = `0 0 ${90 + 380 + 2 * G4_CELL + R + 12} ${70 + G4_CELL + R + 34 + 30}`;
+const codeP4 = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+// ปม 1..C คือ "แถว x" ปม C+1..2C คือ "หลัก y" จุด (x, y) คือเส้นเชื่อมแถว x กับหลัก y
+const int C = 300000;
+vector<int> par, sz, cx, cy;   // cx, cy = จำนวนแถว / หลักในก๊วนที่ปมนี้เป็นหัว
+vector<int> stk;               // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+ll ans;                        // ผลรวม cx*cy ของทุกก๊วน = ขนาดของ E(S)
+
+int find(int x) {              // ไม่บีบทางเดิน เพราะต้อง rollback ได้
+    while (par[x] != x) x = par[x];
+    return x;
+}
+
+void unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return;
+    if (sz[a] < sz[b]) swap(a, b);
+    ans -= (ll)cx[a] * cy[a] + (ll)cx[b] * cy[b];
+    par[b] = a, sz[a] += sz[b], cx[a] += cx[b], cy[a] += cy[b];
+    ans += (ll)cx[a] * cy[a];
+    stk.push_back(b);
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(), a = par[b];
+        stk.pop_back();
+        // แยกก๊วนกลับเป็นสองก้อน แล้วคิดผลคูณของทั้งสองก้อนใหม่
+        ans -= (ll)cx[a] * cy[a];
+        sz[a] -= sz[b], cx[a] -= cx[b], cy[a] -= cy[b];
+        par[b] = b;
+        ans += (ll)cx[a] * cy[a] + (ll)cx[b] * cy[b];
+    }
+}
+
+int Q;
+vector<vector<pair<int,int>>> node;   // node[v] = จุดที่มีชีวิตตลอดช่วงของปม v
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+vector<ll> res;
+
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    for (auto [x, y] : node[v]) unite(x, C + y);
+    if (l == r) res[l] = ans;
+    else {
+        int m = (l + r) / 2;
+        dfs(2 * v, l, m);
+        dfs(2 * v + 1, m + 1, r);
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cin >> Q;
+    par.resize(2 * C + 1), sz.assign(2 * C + 1, 1);
+    cx.assign(2 * C + 1, 0), cy.assign(2 * C + 1, 0);
+    for (int i = 1; i <= 2 * C; i++) par[i] = i;
+    for (int i = 1; i <= C; i++) cx[i] = 1, cy[C + i] = 1;
+    stk.clear(), ans = 0;
+    node.assign(4 * Q, {}), res.assign(Q, 0);
+
+    map<pair<int,int>, int> since;   // จุดที่อยู่ใน S ตอนนี้ -> คำถามที่มันถูกเติมเข้ามา
+    for (int i = 0; i < Q; i++) {
+        int x, y;
+        cin >> x >> y;
+        auto it = since.find({x, y});
+        if (it == since.end()) since[{x, y}] = i;
+        else {
+            addRange(1, 0, Q - 1, it->second, i - 1, {x, y});
+            since.erase(it);
+        }
+    }
+    for (auto [p, t] : since) addRange(1, 0, Q - 1, t, Q - 1, p);
+
+    dfs(1, 0, Q - 1);
+    for (int i = 0; i < Q; i++) cout << res[i] << (i + 1 < Q ? ' ' : '\\n');
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 5 · Codeforces 1423H Virus ---------- */
+const P5_IN = `5 12 1
+1 1 2
+1 1 3
+1 3 4
+2 4
+2 5
+3
+2 1
+1 1 2
+1 3 2
+2 1
+3
+2 1`;
+const P5_OUT = [4, 1, 1, 3, 1];
+const p5Meet: { x: number; y: number; i: number; day: number; end: number }[] = [];
+const p5Ans: number[] = [];
+{
+  const [hd, ...cmds] = lines(P5_IN);
+  const [n, q, k] = hd.split(' ').map(Number);
+  let day = 0;
+  const dayStart = [0];
+  const log: { x: number; y: number; day: number }[] = [];
+  cmds.forEach((c, i) => {
+    const w = c.split(' ').map(Number);
+    if (w[0] === 1) {
+      log.push({ x: w[1], y: w[2], day });
+      p5Meet.push({ x: w[1], y: w[2], i, day, end: -1 });
+    } else if (w[0] === 2) {
+      /* ตัวตรวจ: เอาเฉพาะการพบที่ยังไม่หมดอายุ แล้วเดินกราฟนับคน */
+      const live = log.filter((m) => day - m.day < k).map((m) => [m.x, m.y] as [number, number]);
+      const adj = Array.from({ length: n + 1 }, () => [] as number[]);
+      for (const [a, b] of live) {
+        adj[a].push(b);
+        adj[b].push(a);
+      }
+      const seen = new Set([w[1]]);
+      const st = [w[1]];
+      while (st.length > 0)
+        for (const v of adj[st.pop() ?? 0]) {
+          if (seen.has(v)) continue;
+          seen.add(v);
+          st.push(v);
+        }
+      p5Ans.push(seen.size);
+    } else {
+      day++;
+      dayStart.push(i + 1);
+    }
+  });
+  for (const m of p5Meet) m.end = m.day + k < dayStart.length ? dayStart[m.day + k] - 1 : q - 1;
+}
+if (p5Ans.join(' ') !== P5_OUT.join(' ')) throw new Error('offline-deletion p5: ไม่ตรงกับตัวอย่างของโจทย์');
+const codeP5 = `#include <bits/stdc++.h>
+using namespace std;
+
+vector<int> par, sz;
+vector<int> stk;   // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+
+int find(int x) {  // ไม่บีบทางเดิน เพราะต้อง rollback ได้
+    while (par[x] != x) x = par[x];
+    return x;
+}
+
+void unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a, sz[a] += sz[b];
+    stk.push_back(b);
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back();
+        stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;
+    }
+}
+
+int Q;
+vector<vector<pair<int,int>>> node;   // node[v] = การพบกันที่ยังนับอยู่ตลอดช่วงของปม v
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int,int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+vector<int> type, who, res;
+
+void dfs(int v, int l, int r) {
+    int keep = stk.size();
+    for (auto [x, y] : node[v]) unite(x, y);
+    if (l == r) {
+        if (type[l] == 2) res[l] = sz[find(who[l])];
+    } else {
+        int m = (l + r) / 2;
+        dfs(2 * v, l, m);
+        dfs(2 * v + 1, m + 1, r);
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, k;
+    cin >> n >> Q >> k;
+    par.resize(n + 1), sz.assign(n + 1, 1);
+    for (int i = 1; i <= n; i++) par[i] = i;
+    stk.clear();
+    node.assign(4 * Q, {});
+    type.assign(Q, 0), who.assign(Q, 0), res.assign(Q, 0);
+
+    // dayStart[d] = คำถามแรกของวันที่ d (วันแรกคือวันที่ 0 และขึ้นวันใหม่หลังคำสั่งแบบ 3)
+    vector<int> dayStart = {0};
+    vector<array<int,4>> meet;   // x, y, คำถามที่พบ, วันที่พบ
+    for (int i = 0; i < Q; i++) {
+        cin >> type[i];
+        if (type[i] == 1) {
+            int x, y;
+            cin >> x >> y;
+            meet.push_back({x, y, i, (int)dayStart.size() - 1});
+        } else if (type[i] == 2) {
+            cin >> who[i];
+        } else {
+            dayStart.push_back(i + 1);
+        }
+    }
+    // พบกันวันที่ d ยังนับอยู่ถึงวันที่ d+k-1 จึงหมดอายุตอนเริ่มวันที่ d+k
+    for (auto [x, y, i, d] : meet) {
+        int end = d + k < (int)dayStart.size() ? dayStart[d + k] - 1 : Q - 1;
+        addRange(1, 0, Q - 1, i, end, {x, y});
+    }
+
+    dfs(1, 0, Q - 1);
+    for (int i = 0; i < Q; i++)
+        if (type[i] == 2) cout << res[i] << '\\n';
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 6 · Codeforces 981E Addition on Segments ---------- */
+const P6_N = 4;
+const P6_OPS: [number, number, number][] = [[1, 3, 1], [2, 4, 2], [3, 4, 4]];
+/** ตัวตรวจอิสระ: ลองทุกชุดคำสั่ง ทำจริงลงอาร์เรย์ แล้วดูค่าสูงสุด */
+const p6All = new Set<number>();
+for (let mask = 1; mask < 1 << P6_OPS.length; mask++) {
+  const arr = Array<number>(P6_N + 1).fill(0);
+  P6_OPS.forEach(([l, r, x], i) => {
+    if (mask >> i & 1) for (let p = l; p <= r; p++) arr[p] += x;
+  });
+  const mx = Math.max(...arr);
+  if (mx <= P6_N) p6All.add(mx);
+}
+const p6Ys = [...p6All].sort((a, b) => a - b);
+if (p6Ys.join(' ') !== '1 2 3 4') throw new Error('offline-deletion p6: ไม่ตรงกับตัวอย่างของโจทย์');
+const p6PerPos = range(1, P6_N).map((p) => {
+  const cov = P6_OPS.filter(([l, r]) => l <= p && p <= r).map(([, , x]) => x);
+  const sums = new Set<number>([0]);
+  for (const x of cov) for (const s of [...sums]) if (s + x <= P6_N) sums.add(s + x);
+  sums.delete(0);
+  return { p, cov, sums: [...sums].sort((a, b) => a - b) };
+});
+const A6_CELL = 120;
+const A6_X0 = 110;
+const p6VB = `0 0 ${A6_X0 + P6_N * A6_CELL + 12} ${40 + P6_OPS.length * 34 + 46 + 34}`;
+const codeP6 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int N = 10005;  // n สูงสุด 10^4 บวกช่องสำหรับค่า 0
+const int LOG = 16;   // ต้นไม้ช่วงบน 10^4 ตำแหน่งลึกไม่เกิน 14 ชั้น
+
+int n, q;
+vector<int> node[4 * N];     // คำสั่งที่ครอบช่วงของปมนี้ทั้งช่วง เก็บแค่ค่า x
+bitset<N> reach[LOG];        // reach[dep] = ผลรวมที่ทำได้ ณ ความลึก dep (บิต s เปิด = ทำผลรวม s ได้)
+bitset<N> ans;
+
+// แกนของต้นไม้คือ "ตำแหน่ง" ในอาร์เรย์ ไม่ใช่เวลา
+void addRange(int v, int l, int r, int ql, int qr, int item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+// reach[dep] ถูกเตรียมจากแม่ไว้แล้ว ปมนี้เติมของตัวเองลงไป แล้วส่งสำเนาต่อให้ลูก
+// ไม่ต้องลบอะไรเลย เพราะสำเนาของแม่ที่ reach[dep-1] ยังอยู่ครบ
+void dfs(int v, int l, int r, int dep) {
+    for (int x : node[v]) reach[dep] |= reach[dep] << x;  // บิตที่เลื่อนเกิน n หลุดทิ้งเอง
+    if (l == r) { ans |= reach[dep]; return; }
+    int m = (l + r) / 2;
+    reach[dep + 1] = reach[dep];
+    dfs(2 * v, l, m, dep + 1);
+    reach[dep + 1] = reach[dep];
+    dfs(2 * v + 1, m + 1, r, dep + 1);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cin >> n >> q;
+    for (int i = 0; i < q; i++) {
+        int l, r, x;
+        cin >> l >> r >> x;
+        addRange(1, 1, n, l, r, x);
+    }
+    reach[0][0] = 1;  // ไม่เลือกคำสั่งใดเลย ผลรวมเป็น 0
+    dfs(1, 1, n, 0);
+    // ถ้าตำแหน่ง p ทำผลรวม y ได้ด้วยคำสั่งชุดที่คลุม p ทุกตัว ตำแหน่งอื่นได้แค่บางตัวในชุดนั้น
+    // จึงไม่เกิน y ค่าสูงสุดของอาร์เรย์เลยเท่ากับ y พอดี
+    vector<int> out;
+    for (int y = 1; y <= n; y++)
+        if (ans[y]) out.push_back(y);
+    cout << out.size() << "\\n";
+    for (int y : out) cout << y << " ";
+    cout << "\\n";
+}`;
+
+/* ---------- ฝึกข้อ 7 · Codeforces 601E A Museum Robbery ---------- */
+const P7_IN = `3 10
+30 4
+60 6
+5 1
+9
+3
+1 42 5
+1 20 3
+3
+2 2
+2 4
+3
+1 40 6
+3`;
+const P7_OUT = ['556674384', '168191145', '947033915', '181541912'];
+type P7Item = { id: number; v: number; w: number; from: number; to: number | null };
+const p7Items: P7Item[] = [];
+const p7Hash: string[] = [];
+{
+  const [hd, ...rest] = lines(P7_IN);
+  const [n, k] = hd.split(' ').map(Number);
+  for (let i = 0; i < n; i++) {
+    const [v, w] = rest[i].split(' ').map(Number);
+    p7Items.push({ id: i + 1, v, w, from: 0, to: null });
+  }
+  const evs = rest.slice(n + 1);
+  let T = 0;
+  const shown = new Set(p7Items.map((it) => it.id));
+  /* ตัวตรวจ: knapsack ใหม่ทั้งชุดทุกคำถาม แล้วคิด hash ด้วย BigInt เพราะผลคูณเกิน 2^53 */
+  const P = 10000019n;
+  const MOD = 1000000007n;
+  for (const e of evs) {
+    const w = e.split(' ').map(Number);
+    if (w[0] === 1) {
+      const id = p7Items.length + 1;
+      p7Items.push({ id, v: w[1], w: w[2], from: T, to: null });
+      shown.add(id);
+    } else if (w[0] === 2) {
+      shown.delete(w[1]);
+      const it = p7Items[w[1] - 1];
+      it.to = T - 1;
+    } else {
+      const f = Array<number>(k + 1).fill(0);
+      for (const it of p7Items) if (shown.has(it.id)) for (let m = k; m >= it.w; m--) f[m] = Math.max(f[m], f[m - it.w] + it.v);
+      let h = 0n;
+      let pw = 1n;
+      for (let m = 1; m <= k; m++) {
+        h = (h + (BigInt(f[m]) % MOD) * pw) % MOD;
+        pw = (pw * P) % MOD;
+      }
+      p7Hash.push(h.toString());
+      T++;
+    }
+  }
+}
+if (p7Hash.join(' ') !== P7_OUT.join(' ')) throw new Error('offline-deletion p7: ไม่ตรงกับตัวอย่างของโจทย์');
+const p7T = P7_OUT.length;
+const codeP7 = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const int Q = 30005;        // จำนวนเหตุการณ์ประเภท 3 มากสุด 30000
+const int K = 1005;         // มวลที่สนใจมากสุด 1000
+const int LOG = 17;         // ต้นไม้ช่วงบน 30000 ใบลึกไม่เกิน 15 ชั้น
+const ll P = 10000019, MOD = 1000000007;
+
+int k;
+vector<pair<int, int>> node[4 * Q];  // ของ (ราคา, มวล) ที่อยู่ในตู้ตลอดช่วงของปมนี้
+ll dp[LOG][K];              // dp[dep][m] = ราคารวมสูงสุดเมื่อมวลรวมไม่เกิน m ณ ความลึก dep
+ll ans[Q];
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int, int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+// knapsack ถอดของออกไม่ได้ จึงไม่ถอด: ลูกทำงานบนสำเนา dp[dep+1]
+// พอกลับขึ้นมา dp[dep] ของแม่ยังไม่ถูกแตะ นี่คือ "ย้อนกลับ" ด้วยการเก็บสำเนา
+void dfs(int v, int l, int r, int dep) {
+    ll* f = dp[dep];
+    for (auto [val, w] : node[v])
+        for (int m = k; m >= w; m--) f[m] = max(f[m], f[m - w] + val);
+    if (l == r) {
+        ll h = 0, pw = 1;
+        for (int m = 1; m <= k; m++) {
+            h = (h + f[m] % MOD * pw) % MOD;
+            pw = pw * P % MOD;
+        }
+        ans[l] = h;
+        return;
+    }
+    int m = (l + r) / 2;
+    copy(f, f + k + 1, dp[dep + 1]);
+    dfs(2 * v, l, m, dep + 1);
+    copy(f, f + k + 1, dp[dep + 1]);
+    dfs(2 * v + 1, m + 1, r, dep + 1);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> k;
+    // from = คำถามแรกที่เห็นของชิ้นนี้, to = คำถามสุดท้ายที่ยังเห็น
+    // ของที่ไม่เคยถูกเก็บเข้าห้องนิรภัยใช้ค่า ALIVE ห้ามใช้ -1 เพราะของที่ถูกเก็บก่อนคำถามแรกได้ to = -1 จริง
+    const int ALIVE = INT_MAX;
+    vector<int> v(n), w(n), from(n, 0), to(n, ALIVE);
+    for (int i = 0; i < n; i++) cin >> v[i] >> w[i];
+    cin >> q;
+    int T = 0;  // จำนวนคำถาม (เหตุการณ์ประเภท 3) ใบของต้นไม้คือคำถามลำดับ 0..T-1
+    for (int e = 0; e < q; e++) {
+        int type;
+        cin >> type;
+        if (type == 1) {
+            int a, b;
+            cin >> a >> b;
+            v.push_back(a); w.push_back(b);
+            from.push_back(T); to.push_back(ALIVE);
+        } else if (type == 2) {
+            int x;
+            cin >> x;
+            to[x - 1] = T - 1;
+        } else {
+            T++;
+        }
+    }
+    for (int i = 0; i < (int)v.size(); i++) {
+        int r = to[i] == ALIVE ? T - 1 : to[i];
+        if (from[i] <= r) addRange(1, 0, T - 1, from[i], r, {v[i], w[i]});
+    }
+    dfs(1, 0, T - 1, 0);  // dp[0] เป็นศูนย์ทั้งแถว (ยังไม่มีของ)
+    for (int i = 0; i < T; i++) cout << ans[i] << "\\n";
+}`;
+const codeP7Bug = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const int Q = 30005;        // จำนวนเหตุการณ์ประเภท 3 มากสุด 30000
+const int K = 1005;         // มวลที่สนใจมากสุด 1000
+const int LOG = 17;         // ต้นไม้ช่วงบน 30000 ใบลึกไม่เกิน 16 ชั้น
+const ll P = 10000019, MOD = 1000000007;
+
+int k, T;                   // T = จำนวนคำถาม (เหตุการณ์ประเภท 3) ใบของต้นไม้คือคำถามลำดับ 0..T-1
+vector<pair<int, int>> node[4 * Q];  // ของ (ราคา, มวล) ที่อยู่ในตู้ตลอดช่วงของปมนี้
+ll dp[LOG][K];              // dp[dep][m] = ราคารวมสูงสุดเมื่อมวลรวมไม่เกิน m ณ ความลึก dep
+ll ans[Q];
+
+void addRange(int v, int l, int r, int ql, int qr, pair<int, int> item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+// knapsack ถอดของออกไม่ได้ จึงไม่ถอด: ลูกทำงานบนสำเนา dp[dep+1]
+// พอกลับขึ้นมา dp[dep] ของแม่ยังไม่ถูกแตะ นี่คือ "ย้อนกลับ" ด้วยการเก็บสำเนา
+void dfs(int v, int l, int r, int dep) {
+    ll* f = dp[dep];
+    for (auto [val, w] : node[v])
+        for (int m = k; m >= w; m--) f[m] = max(f[m], f[m - w] + val);
+    if (l == r) {
+        ll h = 0, pw = 1;
+        for (int m = 1; m <= k; m++) {
+            h = (h + f[m] % MOD * pw) % MOD;
+            pw = pw * P % MOD;
+        }
+        ans[l] = h;
+        return;
+    }
+    int m = (l + r) / 2;
+    copy(f, f + k + 1, dp[dep + 1]);
+    dfs(2 * v, l, m, dep + 1);
+    copy(f, f + k + 1, dp[dep + 1]);
+    dfs(2 * v + 1, m + 1, r, dep + 1);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, q;
+    cin >> n >> k;
+    // ของแต่ละชิ้น: ราคา, มวล, คำถามแรกที่เห็นมัน (นับจำนวนคำถามก่อนหน้าตอนที่ของเข้าตู้)
+    vector<int> v(n), w(n), from(n, 0), to(n, -1);
+    for (int i = 0; i < n; i++) cin >> v[i] >> w[i];
+    cin >> q;
+    T = 0;
+    for (int e = 0; e < q; e++) {
+        int type;
+        cin >> type;
+        if (type == 1) {
+            int a, b;
+            cin >> a >> b;
+            v.push_back(a); w.push_back(b);
+            from.push_back(T); to.push_back(-1);
+        } else if (type == 2) {
+            int x;
+            cin >> x;
+            to[x - 1] = T - 1;  // คำถามสุดท้ายที่ยังเห็นของชิ้นนี้
+        } else {
+            T++;
+        }
+    }
+    for (int i = 0; i < (int)v.size(); i++) {
+        int r = to[i] == -1 ? T - 1 : to[i];
+        if (from[i] <= r) addRange(1, 0, T - 1, from[i], r, {v[i], w[i]});
+    }
+    dfs(1, 0, T - 1, 0);  // dp[0] เป็นศูนย์ทั้งแถว (ยังไม่มีของ)
+    for (int i = 0; i < T; i++) cout << ans[i] << "\\n";
+}`;
+
+/* ---------- ฝึกข้อ 8 · Codeforces 891C Envy ---------- */
+const P8_N = 5;
+const P8_E: [number, number, number][] = [[1, 2, 2], [1, 3, 2], [2, 3, 1], [2, 4, 1], [3, 4, 1], [3, 5, 2], [4, 5, 2]];
+const P8_QS: number[][] = [[3, 4], [3, 4, 5], [1, 7], [1, 2]];
+const P8_OUT = ['YES', 'NO', 'YES', 'NO'];
+/** ตัวตรวจอิสระ: ไล่ทุกชุดเส้น n-1 เส้น เก็บต้นไม้แผ่ทั่วที่เบาที่สุด แล้วดูว่ามีต้นไหนมีเส้นของคำถามครบ */
+const p8Msts: number[][] = [];
+{
+  const m = P8_E.length;
+  let best = Infinity;
+  const trees: { set: number[]; w: number }[] = [];
+  for (let mask = 0; mask < 1 << m; mask++) {
+    const idx = range(1, m).filter((i) => mask >> (i - 1) & 1);
+    if (idx.length !== P8_N - 1) continue;
+    if (compsAt(P8_N, idx.map((i) => [P8_E[i - 1][0], P8_E[i - 1][1]] as [number, number])) !== 1) continue;
+    const w = idx.reduce((s, i) => s + P8_E[i - 1][2], 0);
+    trees.push({ set: idx, w });
+    best = Math.min(best, w);
+  }
+  for (const t of trees) if (t.w === best) p8Msts.push(t.set);
+}
+const p8Weight = P8_E.filter((_, i) => p8Msts[0].includes(i + 1)).reduce((s, e) => s + e[2], 0);
+const p8Ans = P8_QS.map((qs) => (p8Msts.some((t) => qs.every((i) => t.includes(i))) ? 'YES' : 'NO'));
+if (p8Ans.join(' ') !== P8_OUT.join(' ')) throw new Error('offline-deletion p8: ไม่ตรงกับตัวอย่างของโจทย์');
+const P8_POS: Record<number, Pt> = { 1: { x: 90, y: 110 }, 2: { x: 250, y: 40 }, 3: { x: 250, y: 190 }, 4: { x: 440, y: 40 }, 5: { x: 600, y: 120 } };
+const p8Edges = P8_E.map(([a, b, w], i) => ({ id: i + 1, w, ...seg(P8_POS[a], P8_POS[b]), lab: edgeLabel(P8_POS[a], P8_POS[b], 12, 24) }));
+const p8VB = `0 0 ${600 + R + 12} ${190 + R + 34}`;
+const codeP8 = `#include <bits/stdc++.h>
+using namespace std;
+
+vector<int> par, sz;
+vector<int> stk;   // ลูกที่ถูกย้ายไปขึ้นกับแม่ เรียงตามลำดับที่รวม
+
+int find(int x) {  // ไม่บีบทางเดิน เพราะต้อง rollback ได้
+    while (par[x] != x) x = par[x];
+    return x;
+}
+
+bool unite(int a, int b) {
+    a = find(a), b = find(b);
+    if (a == b) return false;
+    if (sz[a] < sz[b]) swap(a, b);
+    par[b] = a, sz[a] += sz[b];
+    stk.push_back(b);
+    return true;
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back();
+        stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m;
+    cin >> n >> m;
+    vector<int> U(m + 1), V(m + 1), W(m + 1);
+    for (int i = 1; i <= m; i++) cin >> U[i] >> V[i] >> W[i];
+    par.resize(n + 1), sz.assign(n + 1, 1);
+    for (int i = 1; i <= n; i++) par[i] = i;
+    stk.clear();
+
+    int q;
+    cin >> q;
+    // แตกแต่ละคำถามเป็นกลุ่มย่อยตามน้ำหนัก: (น้ำหนัก, คำถาม, เส้นในกลุ่ม)
+    vector<tuple<int,int,vector<int>>> groups;
+    for (int j = 0; j < q; j++) {
+        int k;
+        cin >> k;
+        vector<int> e(k);
+        for (int& x : e) cin >> x;
+        sort(e.begin(), e.end(), [&](int a, int b) { return W[a] < W[b]; });
+        for (int s = 0, t; s < k; s = t) {
+            for (t = s; t < k && W[e[t]] == W[e[s]]; t++) {}
+            groups.emplace_back(W[e[s]], j, vector<int>(e.begin() + s, e.begin() + t));
+        }
+    }
+    sort(groups.begin(), groups.end(),
+         [](const auto& a, const auto& b) { return get<0>(a) < get<0>(b); });
+
+    vector<int> order(m);
+    iota(order.begin(), order.end(), 1);
+    sort(order.begin(), order.end(), [&](int a, int b) { return W[a] < W[b]; });
+
+    vector<bool> ok(q, true);
+    int p = 0;   // เส้นใน order[0..p) ถูกรวมถาวรแล้ว (Kruskal ที่เดินไปถึงก่อนน้ำหนักปัจจุบัน)
+    for (auto& [w, j, e] : groups) {
+        // เส้นที่เบากว่า w ทุกเส้นต้องรวมแล้ว ส่วนเส้นน้ำหนัก w เองยังห้ามรวม
+        while (p < m && W[order[p]] < w) unite(U[order[p]], V[order[p]]), p++;
+        if (!ok[j]) continue;
+        int keep = stk.size();
+        for (int x : e)
+            if (!unite(U[x], V[x])) { ok[j] = false; break; }
+        rollback(keep);   // ของที่ลองรวมเป็นของคำถามนี้คนเดียว คำถามอื่นต้องไม่เห็น
+    }
+    for (int j = 0; j < q; j++) cout << (ok[j] ? "YES" : "NO") << '\\n';
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 9 · Codeforces 707D Persistent Bookcase ---------- */
+const P9_IN = `4 2 6
+3 2
+2 2 2
+3 3
+3 2
+2 2 2
+3 2`;
+const P9_OUT = [2, 1, 3, 3, 2, 4];
+const P9_CMDS = lines(P9_IN).slice(1).map((l) => l.split(' ').map(Number));
+const p9Res: number[] = [];
+const p9Parent: number[] = [];
+{
+  const [n, m] = lines(P9_IN)[0].split(' ').map(Number);
+  /* ตัวตรวจ: เก็บสำเนาตู้ทั้งตู้ทุกเวอร์ชัน */
+  const ver: number[][][] = [Array.from({ length: n + 1 }, () => Array<number>(m + 1).fill(0))];
+  P9_CMDS.forEach((c, i) => {
+    const v = i + 1;
+    const from = c[0] === 4 ? c[1] : v - 1;
+    p9Parent[v] = from;
+    const box = ver[from].map((row) => [...row]);
+    if (c[0] === 1) box[c[1]][c[2]] = 1;
+    else if (c[0] === 2) box[c[1]][c[2]] = 0;
+    else if (c[0] === 3) for (let j = 1; j <= m; j++) box[c[1]][j] ^= 1;
+    ver.push(box);
+    p9Res.push(box.reduce((s, row) => s + row.reduce((a, b) => a + b, 0), 0));
+  });
+}
+if (p9Res.join(' ') !== P9_OUT.join(' ')) throw new Error('offline-deletion p9: ไม่ตรงกับตัวอย่างของโจทย์');
+const P9_SAMPLE1 = [[1, 1, 1], [3, 2], [4, 0]];
+const p9s1Parent = P9_SAMPLE1.map((c, i) => (c[0] === 4 ? c[1] : i));
+const p9Kids = new Map<number, number[]>();
+p9s1Parent.forEach((p, i) => p9Kids.set(p, [...(p9Kids.get(p) ?? []), i + 1]));
+const p9Pos = new Map<number, Pt>();
+{
+  let cursor = 0;
+  const place = (v: number, d: number): number => {
+    const ch = p9Kids.get(v) ?? [];
+    let x: number;
+    if (ch.length === 0) x = cursor++;
+    else {
+      const xs = ch.map((c) => place(c, d + 1));
+      x = (xs[0] + xs[xs.length - 1]) / 2;
+    }
+    p9Pos.set(v, { x: 90 + x * 380, y: 60 + d * 90 });
+    return x;
+  };
+  place(0, 0);
+}
+const p9Label = (v: number): string => (v === 0 ? 'ตู้ว่าง' : P9_SAMPLE1[v - 1].join(' '));
+const p9Edges = [...p9Kids.entries()].flatMap(([p, ch]) =>
+  ch.map((c) => {
+    /* ออกจากขอบล่างของกล่องแม่ เข้าขอบบนของกล่องลูก เส้นจะได้ไม่เฉียงผ่านป้ายในกล่อง */
+    const a = p9Pos.get(p) ?? { x: 0, y: 0 };
+    const z = p9Pos.get(c) ?? { x: 0, y: 0 };
+    return { x1: a.x, y1: a.y + 21, x2: z.x, y2: z.y - 21 };
+  }),
+);
+const p9Right = Math.max(...[...p9Pos.values()].map((p) => p.x)) + 60;
+const p9VB = `0 0 ${p9Right + 12} ${Math.max(...[...p9Pos.values()].map((p) => p.y)) + 22 + 34 + 20}`;
+const codeP9 = `#include <bits/stdc++.h>
+using namespace std;
+
+int n, m, q;
+vector<vector<char>> a;       // a[i][j] ก่อนกลับด้าน: มีหนังสือจริงเมื่อ a[i][j] != inv[i]
+vector<int> inv, cnt;         // inv[i] = ชั้น i ถูกกลับด้านอยู่ไหม, cnt[i] = จำนวนหนังสือบนชั้น i
+int total;
+vector<int> t, x, y, res;
+vector<vector<int>> child;    // child[v] = คำสั่งที่ต่อจากเวอร์ชัน v
+
+// กลับด้านชั้น i ทำซ้ำอีกครั้งก็คือการย้อน
+void flipShelf(int i) {
+    inv[i] ^= 1;
+    total += m - 2 * cnt[i];
+    cnt[i] = m - cnt[i];
+}
+
+// ทำคำสั่ง v คืนว่าตู้เปลี่ยนจริงไหม วางบนช่องที่มีหนังสือหรือหยิบจากช่องว่างไม่เปลี่ยนอะไร
+bool apply(int v) {
+    if (t[v] == 3) { flipShelf(x[v]); return true; }
+    if (t[v] != 1 && t[v] != 2) return false;   // เวอร์ชัน 0 กับคำสั่งแบบ 4 ไม่แตะตู้
+    int i = x[v], j = y[v], d = t[v] == 1 ? 1 : -1;
+    bool has = a[i][j] != inv[i];
+    if (has == (t[v] == 1)) return false;
+    a[i][j] ^= 1, cnt[i] += d, total += d;
+    return true;
+}
+
+// rollback คำสั่ง v ที่เปลี่ยนตู้จริง
+void undo(int v) {
+    if (t[v] == 3) { flipShelf(x[v]); return; }
+    int i = x[v], j = y[v], d = t[v] == 1 ? 1 : -1;
+    a[i][j] ^= 1, cnt[i] -= d, total -= d;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    cin >> n >> m >> q;
+    a.assign(n + 1, vector<char>(m + 1, 0));
+    inv.assign(n + 1, 0), cnt.assign(n + 1, 0), total = 0;
+    t.assign(q + 1, 0), x.assign(q + 1, 0), y.assign(q + 1, 0), res.assign(q + 1, 0);
+    child.assign(q + 1, {});
+    // เวอร์ชัน 0 คือตู้ว่าง คำสั่ง v ต่อจากเวอร์ชัน v-1 ยกเว้นแบบ 4 ที่ต่อจากเวอร์ชัน k
+    for (int v = 1; v <= q; v++) {
+        cin >> t[v] >> x[v];
+        if (t[v] <= 2) cin >> y[v];
+        child[t[v] == 4 ? x[v] : v - 1].push_back(v);
+    }
+
+    // เดินต้นไม้เวอร์ชันด้วยสแต็กของตัวเอง ต้นไม้ลึกได้ถึง q ชั้น (ถ้าไม่มีแบบ 4 เลย)
+    // ถ้าเรียกตัวเองลึกขนาดนั้น สแต็กของโปรแกรมอาจล้น
+    vector<char> changed(q + 1, 0);
+    vector<pair<int, int>> st = {{0, 0}};   // (เวอร์ชัน, ลูกคนถัดไปที่ต้องลงไป)
+    while (!st.empty()) {
+        int v = st.back().first;
+        int& next = st.back().second;
+        if (next < (int)child[v].size()) {
+            int c = child[v][next++];
+            changed[c] = apply(c);
+            res[c] = total;                    // ตู้ในหน่วยความจำตอนนี้คือเวอร์ชัน c พอดี
+            st.push_back({c, 0});
+        } else {
+            if (changed[v]) undo(v);           // ออกจากเวอร์ชัน v ย้อนตู้กลับเป็นเวอร์ชันแม่
+            st.pop_back();
+        }
+    }
+    for (int v = 1; v <= q; v++) cout << res[v] << '\\n';
+    return 0;
+}`;
+
+/* ---------- ฝึกข้อ 10 · Codeforces 938G Shortest Path Queries ---------- */
+const P10_N = 5;
+const P10_E: [number, number, number][] = [[1, 2, 3], [2, 3, 4], [3, 4, 5], [4, 5, 6], [1, 5, 1]];
+const P10_CMD: number[][] = [[3, 1, 5], [1, 1, 3, 1], [3, 1, 5], [2, 1, 5], [3, 1, 5]];
+const P10_OUT = [1, 1, 2];
+/** ตัวตรวจอิสระ: BFS บนสถานะ (จุด, xor สะสม) ซึ่งคือนิยามของโจทย์ตรง ๆ ใช้ได้เพราะน้ำหนักในตัวอย่างไม่เกิน 3 บิต */
+function xorShortest(edges: [number, number, number][], s: number, t: number): number {
+  const seen = new Set<string>([`${s},0`]);
+  const qu: [number, number][] = [[s, 0]];
+  let best = Infinity;
+  while (qu.length > 0) {
+    const [u, x] = qu.shift() ?? [s, 0];
+    if (u === t) best = Math.min(best, x);
+    for (const [a, b, w] of edges) {
+      const v = a === u ? b : b === u ? a : 0;
+      if (!v) continue;
+      const k2 = `${v},${x ^ w}`;
+      if (seen.has(k2)) continue;
+      seen.add(k2);
+      qu.push([v, x ^ w]);
+    }
+  }
+  return best;
+}
+const p10Ans: number[] = [];
+const p10Snap: [number, number, number][][] = [];
+{
+  let edges = [...P10_E];
+  for (const c of P10_CMD) {
+    if (c[0] === 1) edges.push([c[1], c[2], c[3]]);
+    else if (c[0] === 2) edges = edges.filter(([a, b]) => !(a === c[1] && b === c[2]));
+    else {
+      p10Ans.push(xorShortest(edges, c[1], c[2]));
+      p10Snap.push([...edges]);
+    }
+  }
+}
+if (p10Ans.join(' ') !== P10_OUT.join(' ')) throw new Error('offline-deletion p10: ไม่ตรงกับตัวอย่างของโจทย์');
+const P10_POS: Record<number, Pt> = { 1: { x: 100, y: 60 }, 2: { x: 370, y: 40 }, 3: { x: 640, y: 90 }, 4: { x: 500, y: 210 }, 5: { x: 170, y: 200 } };
+const p10All = [...P10_E, [1, 3, 1] as [number, number, number]];
+const p10Edges = p10All.map(([a, b, w]) => ({ a, b, w, ...seg(P10_POS[a], P10_POS[b]), lab: edgeLabel(P10_POS[a], P10_POS[b], 12, 6), added: a === 1 && b === 3, removed: a === 1 && b === 5 }));
+const p10VB = `0 0 ${640 + R + 12} ${210 + R + 34 + 10}`;
+const codeP10 = `#include <bits/stdc++.h>
+using namespace std;
+
+const int N = 200005;
+const int Q = 200005;
+const int B = 30;          // น้ำหนักมีไม่เกิน 30 บิต
+const int LOG = 20;        // ต้นไม้ช่วงบน 2·10^5 ใบลึกไม่เกิน 18 ชั้น
+
+struct Edge { int x, y, w; };
+
+int par[N], sz[N], d[N];   // d[v] = xor ของเส้นจาก v ขึ้นไปถึง par[v]
+vector<int> stk;           // ลูกที่ถูกย้ายไปขึ้นกับแม่ ตามลำดับการรวม
+vector<Edge> node[4 * Q];
+int basis[LOG][B];         // basis[dep][b] = ตัวในฐาน xor ที่บิตสูงสุดคือ b (0 = ว่าง)
+int qx[Q], qy[Q];          // คำถามที่เวลา t (qx = 0 ถ้าเวลานั้นไม่ใช่คำถาม)
+
+// ไม่บีบทางเดิน เพื่อให้การรวมหนึ่งครั้งแก้แค่ par, sz, d ของรากเดียว ย้อนกลับได้
+// คืนราก และเขียน xor จาก x ถึงรากลงใน dist
+int find(int x, int& dist) {
+    dist = 0;
+    while (par[x] != x) { dist ^= d[x]; x = par[x]; }
+    return x;
+}
+
+void insertBasis(int* bs, int val) {
+    for (int b = B - 1; b >= 0 && val; b--) {
+        if (!(val >> b & 1)) continue;
+        if (!bs[b]) { bs[b] = val; return; }
+        val ^= bs[b];
+    }
+}
+
+// เส้น x-y น้ำหนัก w: ถ้าอยู่คนละก๊วน ต่อราก ถ้าอยู่ก๊วนเดียวกัน เกิดวงใหม่ ส่ง xor ของวงเข้าฐาน
+bool unite(int x, int y, int w, int* bs) {
+    int dx, dy;
+    int a = find(x, dx), b = find(y, dy);
+    if (a == b) { insertBasis(bs, dx ^ dy ^ w); return false; }
+    if (sz[a] < sz[b]) swap(a, b);
+    // เลือก d[b] ให้ xor จาก x ไป y ผ่านต้นไม้เท่ากับ w พอดี: dx ^ d[b] ^ dy = w
+    // สลับ a กับ b แล้วสูตรเดิมยังถูก เพราะ xor สลับที่ได้
+    par[b] = a; d[b] = dx ^ dy ^ w; sz[a] += sz[b];
+    stk.push_back(b);
+    return true;
+}
+
+void rollback(int keep) {
+    while ((int)stk.size() > keep) {
+        int b = stk.back(); stk.pop_back();
+        sz[par[b]] -= sz[b];
+        par[b] = b;   // d[b] ไม่ต้องคืน: รากไม่มีใครอ่าน d และจะถูกเขียนทับเมื่อ b ถูกรวมอีกครั้ง
+    }
+}
+
+void addRange(int v, int l, int r, int ql, int qr, Edge item) {
+    if (qr < l || r < ql) return;
+    if (ql <= l && r <= qr) { node[v].push_back(item); return; }
+    int m = (l + r) / 2;
+    addRange(2 * v, l, m, ql, qr, item);
+    addRange(2 * v + 1, m + 1, r, ql, qr, item);
+}
+
+// DSU ย้อนด้วยสแต็ก ส่วนฐาน xor ย้อนด้วยสำเนาตามความลึก (ฐานมีแค่ 30 ช่อง คัดลอกถูกกว่าจดทุกการแก้)
+void dfs(int v, int l, int r, int dep) {
+    int keep = stk.size();
+    int* bs = basis[dep];
+    for (auto& e : node[v]) unite(e.x, e.y, e.w, bs);
+    if (l == r) {
+        if (qx[l]) {
+            int dx, dy;
+            find(qx[l], dx); find(qy[l], dy);
+            int val = dx ^ dy;
+            // ลดค่าจากบิตสูงลงต่ำ: ถ้า xor กับตัวในฐานแล้วเล็กลงก็เอา
+            for (int b = B - 1; b >= 0; b--) val = min(val, val ^ bs[b]);
+            cout << val << "\\n";
+        }
+    } else {
+        int m = (l + r) / 2;
+        copy(bs, bs + B, basis[dep + 1]);
+        dfs(2 * v, l, m, dep + 1);
+        copy(bs, bs + B, basis[dep + 1]);
+        dfs(2 * v + 1, m + 1, r, dep + 1);
+    }
+    rollback(keep);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    int n, m, q;
+    cin >> n >> m;
+    map<pair<int, int>, pair<int, int>> open;  // (x, y) -> (น้ำหนัก, เวลาที่เริ่มมี)
+    for (int i = 0; i < m; i++) {
+        int x, y, w;
+        cin >> x >> y >> w;
+        open[{x, y}] = {w, 0};
+    }
+    cin >> q;
+    // เวลา t = 0..q-1 คือคำสั่งลำดับที่ t เส้นที่ถูกเพิ่มที่เวลา t มีผลตั้งแต่ t
+    // เส้นที่ถูกลบที่เวลา t มีผลถึง t-1
+    for (int t = 0; t < q; t++) {
+        int type, x, y;
+        cin >> type >> x >> y;
+        if (type == 1) {
+            int w;
+            cin >> w;
+            open[{x, y}] = {w, t};
+        } else if (type == 2) {
+            auto it = open.find({x, y});
+            if (it->second.second <= t - 1)
+                addRange(1, 0, q - 1, it->second.second, t - 1, {x, y, it->second.first});
+            open.erase(it);
+        } else {
+            qx[t] = x; qy[t] = y;
+        }
+    }
+    for (auto& [key, val] : open)
+        addRange(1, 0, q - 1, val.second, q - 1, {key.first, key.second, val.first});
+    for (int i = 1; i <= n; i++) { par[i] = i; sz[i] = 1; }
+    dfs(1, 0, q - 1, 0);  // basis[0] เริ่มว่างทั้งแถว
+}`;
+---
+
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    เมืองหนึ่งมีถนนที่เปิดและปิดซ่อมสลับกันทุกวัน วันนี้ถนนเลียบคลองปิด พรุ่งนี้สะพานใหม่เปิด มะรืนสะพานเก่าปิดซ่อม
+    หลังทุกการเปลี่ยนแปลงมีคนถามว่า ตอนนี้เมืองแยกเป็นกี่ส่วนที่ขับรถถึงกันไม่ได้
+  </p>
+  <p>
+    ถ้าถนนมีแต่เปิด นี่คือ<a href="/cp/dsu/">บท DSU</a>ตรงตัว เปิดถนนหนึ่งเส้นก็ <code>unite</code> ครั้งเดียว
+    ปัญหาอยู่ที่วันที่ถนนปิด DSU ไม่มีคำสั่งแยกก๊วน และจะแยกก็ไม่รู้ด้วยซ้ำว่าก๊วนขาดจริงไหม
+    เพราะอาจมีทางอ้อมอยู่ ส่วนการนับใหม่ทั้งเมืองทุกครั้ง ถ้าเมืองมี <code>10⁵</code> จุด ถนน <code>10⁵</code>{' '}
+    เส้น และการเปลี่ยนแปลง <code>10⁵</code> ครั้ง ก็เป็นราว <code>2·10¹⁰</code> ก้าว
+  </p>
+  <p>
+    บทนี้แก้เรื่องนั้นได้ ภายใต้เงื่อนไขเดียว คือ<strong>รู้การเปลี่ยนแปลงทั้งหมดล่วงหน้า</strong> และตอบทีเดียวตอนจบได้
+    โจทย์แข่งส่วนใหญ่เป็นแบบนี้ เพราะ input ถูกอ่านจนหมดก่อนที่โปรแกรมจะต้องพิมพ์อะไรออกมา
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      โจทย์ที่ให้ตอบหลังอ่านครบได้เรียกว่า <strong>offline</strong> อ่านว่า <strong>"ออฟไลน์"</strong>{' '}
+      ส่วนโจทย์ที่ต้องตอบคำถามเดิมให้เสร็จก่อนถึงจะได้เห็นคำถามถัดไปเรียกว่า <strong>online</strong>{' '}
+      สองคำนี้ยืมมาจากความหมายเดิมตรง ๆ แบบออนไลน์คือต้องตอบสดขณะที่ของไหลเข้ามา แบบออฟไลน์คือเอางานกลับไปทำเงียบ ๆ
+      แล้วค่อยส่งทีเดียว ท่าในบทนี้ใช้ได้เฉพาะแบบออฟไลน์
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>ถ้ามีแต่ลบ ย้อนเวลาก็จบ แต่ถ้าปนกันล่ะ</h2>
+  <p>
+    บท DSU มีข้อหนึ่งที่มีแต่การฉีกเส้นใย (<a href="/cp/dsu/">Anansi's Cobweb</a>) ข้อนั้นแก้ด้วยการอ่านเหตุการณ์จากท้ายมาหน้า
+    พอกลับทิศ การลบทุกครั้งกลายเป็นการเพิ่ม ซึ่ง DSU ถนัด
+  </p>
+  <p>
+    ท่านั้นพังทันทีเมื่อมีทั้งเพิ่มและลบปนกัน เพราะกลับทิศแล้วการเพิ่มก็กลายเป็นการลบ ปัญหาเดิมแค่ย้ายไปอยู่อีกฝั่ง
+    ต้องหาทางที่ไม่ต้องลบเลยไม่ว่าจะเดินทิศไหน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>สิ่งที่ต้องการจริงคือย้อนกลับ ไม่ใช่ลบ</h2>
+  <p>
+    ลองแยกสองคำนี้ออกจากกัน <strong>ลบ</strong>คือถอดของชิ้นไหนก็ได้ที่อยู่ข้างใน ส่วน<strong>ย้อนกลับ</strong>คือถอดของชิ้นที่ใส่ล่าสุดเท่านั้น
+    เหมือนจานที่ซ้อนบนชั้น หยิบได้แค่ใบบนสุด หรือปุ่ม Ctrl+Z ที่ย้อนได้ตามลำดับที่ทำไป ข้ามไปย้อนขั้นที่สามจากท้ายโดยไม่ย้อนสองขั้นหลังไม่ได้
+  </p>
+  <p>
+    DSU ลบไม่ได้ แต่<strong>ย้อนกลับได้</strong> ถ้าแลกกับการยอมทิ้งกลบีบทางเดิน การรวมหนึ่งครั้งแก้ของแค่สองช่อง
+    คือ <code>par[b]</code> ของหัวฝั่งที่ไปขึ้นกับอีกฝั่ง กับ <code>sz[a]</code> ของหัวที่รับไว้ จดตัว <code>b</code> ลงสแต็ก
+    ตอนย้อนก็หยิบ <code>b</code> ออกมา อ่านแม่จาก <code>par[b]</code> คืนขนาด แล้วตั้ง <code>par[b] = b</code>
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      การย้อนแบบนี้เรียกว่า <strong>rollback</strong> อ่านว่า <strong>"โรลแบ็ก"</strong> แปลตรงตัวว่า{' '}
+      <strong>"ม้วนกลับ"</strong> คำเดียวกับที่ฐานข้อมูลใช้เมื่อธุรกรรมล้มกลางทาง แล้วต้องคืนทุกอย่างให้เหมือนก่อนเริ่ม
+      และในบทนี้ก็หมายถึงแบบนั้นจริง ๆ คืนให้เหมือนก่อนเริ่ม ไม่ใช่ถอดชิ้นที่เลือกเอง
+    </p>
+  </div>
+  <p>
+    เหลือคำถามเดียว ถ้าเครื่องมือย้อนได้แค่ตามลำดับ จะจัดลำดับการใส่เส้นยังไงให้ทุกครั้งที่เส้นหนึ่งต้องหายไป
+    มันคือเส้นที่ใส่ล่าสุดพอดี
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ทุกเส้นมีช่วงอายุ</h2>
+  <p>
+    เปลี่ยนมุมมองจาก "เหตุการณ์ทีละครั้ง" เป็น "เส้นทีละเส้น" เส้นแต่ละเส้นเกิดตอนถูกเพิ่มและตายตอนถูกลบ
+    ระหว่างนั้นมันมีชีวิตอยู่ต่อเนื่อง เรียกช่วงนี้ว่า<strong>ช่วงอายุ</strong>ของเส้น (<i>lifetime</i>) บนแกนเวลาที่นับจุดเวลาที่ต้องตอบ
+    เส้นที่ถูกลบตอนเหตุการณ์ที่ <code>i</code> อยู่ถึงจุดเวลา <code>i - 1</code> ส่วนเส้นที่ไม่ถูกลบเลยอยู่จนจุดสุดท้าย
+  </p>
+  <p>
+    ตัวอย่างที่ใช้ทั้งบทมี {EX_N} จุด เส้นตั้งต้น {EX_INIT.map(([a, b]) => `${a}-${b}`).join(', ')} แล้วมีสองเหตุการณ์
+    คือเพิ่ม 1-3 แล้วลบ 1-2 จุดเวลาจึงมี {EX_Q} จุด คือก่อนเหตุการณ์แรก หลังเหตุการณ์ที่หนึ่ง และหลังเหตุการณ์ที่สอง
+  </p>
+
+  <ZoomableDiagram caption={`แต่ละแถบคือช่วงอายุของหนึ่งเส้น จำนวนก๊วนที่จุดเวลา t ขึ้นกับแค่แถบที่ทับจุด t คำตอบของตัวอย่างนี้คือ ${exTruth.join(', ')} ก๊วน`}>
+    <svg viewBox={lifeVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ช่วงอายุของเส้นสี่เส้นบนแกนเวลาสามจุด">
+      {range(0, EX_Q - 1).map((t) => (
+        <>
+          <line x1={lx(t) + L_CELL / 2} y1="34" x2={lx(t) + L_CELL / 2} y2={L_Y0 + exLives.length * L_ROW} stroke="#2a3350" stroke-dasharray="3 4" />
+          <text x={lx(t) + L_CELL / 2} y="24" fill="#9aa7bd" font-size="12.5" text-anchor="middle" font-family="monospace">t = {t}</text>
+          <text x={lx(t) + L_CELL / 2} y={L_Y0 + exLives.length * L_ROW + 26} fill="#4ade80" font-size="12.5" text-anchor="middle">{exTruth[t]} ก๊วน</text>
+        </>
+      ))}
+      {exLives.map((L, i) => (
+        <>
+          <text x="22" y={L_Y0 + i * L_ROW + 18} fill="#cdd6ea" font-size="12.5" font-family="monospace">เส้น {L.e}</text>
+          <rect x={lx(L.l) + 10} y={L_Y0 + i * L_ROW + 2} width={(L.r - L.l + 1) * L_CELL - 20} height="24" rx="6" fill="rgba(74,222,128,0.16)" stroke="#4ade80" />
+          <text x={lx(L.l) + 22} y={L_Y0 + i * L_ROW + 18} fill="#cdd6ea" font-size="11.5" font-family="monospace">[{L.l}, {L.r}]</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ถ้าจับเส้นทุกเส้นที่มีช่วงอายุคลุมทั้งแกนใส่ไว้ก่อน ก็ไม่ต้องย้อนมันเลย ส่วนเส้นที่อยู่แค่ครึ่งหน้า
+    ใส่ตอนเริ่มครึ่งหน้า ย้อนตอนจบครึ่งหน้า แล้วแบ่งครึ่งต่อไปเรื่อย ๆ การแบ่งครึ่งซ้ำ ๆ แบบนี้ก็คือ
+    <a href="/cp/segment-tree/">ต้นไม้ช่วง</a>บนแกนเวลานั่นเอง
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ลองเอง · หั่นช่วงอายุลงปมของต้นไม้</h2>
+  <p>
+    แถวล่างสุดคือจุดเวลา {G_LEAVES} จุด ปมแต่ละปมของต้นไม้คลุมช่วงของจุดเวลาที่อยู่ใต้มัน
+    คลิกเลือกปมให้คลุมช่วงอายุที่แถบสีทองบอก<strong>พอดี</strong> ไม่ขาดไม่เกิน และห้ามซ้อนกัน โดยใช้ปมให้น้อยที่สุด
+    ยิ่งใช้ปมน้อย ยิ่งต้องใส่เส้นนั้นน้อยครั้ง
+  </p>
+
+  <div class="cpgame cutgame" data-cutgame data-puzzles={cutJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {cutPuzzles.map((p, t) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(t)} aria-selected={t === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+    <p class="cpg-tease" data-cpg-tease>{cutPuzzles[0].tease}</p>
+    <p class="fg-sub">ช่วงอายุ <b data-cut-range>[{cutPuzzles[0].l}, {cutPuzzles[0].r}]</b> คลิกปมเพื่อเลือกหรือยกเลิก</p>
+    <div class="cpg-scroll"><div class="cut-board" data-cut-board></div></div>
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-cut-reset>ล้าง</button>
+      <button type="button" class="cpg-btn main" data-cut-check>ตรวจคำตอบ</button>
+    </div>
+    <p class="cpg-status" data-cpg-status>เลือกปมที่คลุมช่วงสีทองให้พอดี</p>
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้เลือกปม</p>
+    <p class="cpg-hint">แถวบนสุดคือราก คลุมทั้งแกน แถวล่างสุดคือใบ คลุมจุดเวลาเดียว ปมที่เลือกแล้วเป็นสีเขียว</p>
+  </div>
+
+  <p class="io-note">
+    ลองเทียบชุด ข กับชุด ก ช่วงที่สั้นกว่าไม่ได้แปลว่าใช้ปมน้อยกว่า สิ่งที่ตัดสินคือขอบของช่วงไปตรงกับขอบของปมหรือเปล่า
+  </p>
+  <p class="ns-cue">ถ้ามีกฎที่หั่นช่วงไหนก็ได้ด้วยปมน้อยสุดโดยไม่ต้องลอง มันหน้าตาเป็นยังไง ลองคิดก่อนแล้วค่อยเลื่อนลงไป</p>
+
+  <hr class="divider" />
+
+  <h2>หั่นช่วงลงต้นไม้ แบบเดียวกับอัปเดตช่วงของ segment tree</h2>
+  <p>
+    กฎคือการอัปเดตช่วงของ<a href="/cp/segment-tree/">ต้นไม้ช่วง</a>ทุกตัวอักษร เริ่มที่ราก ถ้าช่วงของปมอยู่ในช่วงอายุทั้งปม ก็วางเส้นไว้ที่ปมนั้นแล้วหยุด
+    ถ้าไม่ทับกันเลยก็หยุด ที่เหลือก็ลงไปถามลูกทั้งสอง ในบทนี้ฟังก์ชันนี้ชื่อ <code>addRange</code> ช่วงหนึ่งช่วงถูกวางไม่เกินชั้นละสองปม
+    จึงไม่เกินราว <code>2 log₂ q</code> ปม
+  </p>
+  <ZoomableDiagram caption={`ช่วงอายุ [${D2.l}, ${D2.r}] บนแกน ${G_LEAVES} จุดเวลา ถูกวางลงปม ${d2Blocks.length} ปม (สีเขียว) ผมตรวจทุกช่วงบนแกนนี้ตอนสร้างหน้า กฎนี้ได้จำนวนปมน้อยสุดทุกช่วง และช่วงที่แย่ที่สุดใช้ ${worstCover} ปม`}>
+    <svg viewBox={treeVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label={`ต้นไม้ช่วงบนแกนเวลา ${G_LEAVES} จุดกับปมที่ช่วง [${D2.l}, ${D2.r}] ถูกวางลงไป`}>
+      {blocks.map((b) => (
+        <rect
+          x={tx(b.l) + 2}
+          y={T_Y0 + b.d * T_ROW}
+          width={(b.r - b.l + 1) * T_CELL - 4}
+          height={T_ROW - 8}
+          rx="5"
+          fill={inD2(b) ? 'rgba(74,222,128,0.22)' : '#101827'}
+          stroke={inD2(b) ? '#4ade80' : '#2a3350'}
+        />
+      ))}
+      {blocks.filter((b) => b.d === G_DEPTH).map((b) => (
+        <text x={tx(b.l) + T_CELL / 2} y={T_Y0 + b.d * T_ROW + 20} fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">{b.l}</text>
+      ))}
+      <rect x={tx(D2.l) + 2} y={T_Y0 + (G_DEPTH + 1) * T_ROW} width={(D2.r - D2.l + 1) * T_CELL - 4} height="10" rx="4" fill="#e0b400" />
+      <text x={T_X0} y="24" fill="#9aa7bd" font-size="12.5">ราก คลุมทั้งแกน</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    สิ่งที่ทำให้วิธีนี้ถูกคือประโยคเดียว <strong>เส้นที่อยู่บนปมใดปมหนึ่ง มีชีวิตตลอดทุกจุดเวลาที่อยู่ใต้ปมนั้น</strong>{' '}
+    เพราะช่วงของปมอยู่ในช่วงอายุของเส้นทั้งช่วง กลับกัน สำหรับใบ <code>t</code> ใดก็ตาม เส้นที่มีชีวิตที่ <code>t</code>{' '}
+    ถูกวางไว้บนปมใดปมหนึ่งบนทางจากรากลงมาถึงใบ <code>t</code> พอดีหนึ่งปม
+    เส้นที่ต้องใส่เพื่อตอบใบ <code>t</code> จึงคือเส้นบนทางจากรากถึงใบนั้นพอดี ไม่ขาดไม่เกิน
+  </p>
+
+  <hr class="divider" />
+
+  <h2>เดินลงต้นไม้ เข้าปมก็ใส่ ออกจากปมก็ย้อน</h2>
+  <p>
+    ตอนนี้ลำดับที่ต้องการก็มาเอง เดินต้นไม้แบบ DFS จากราก เข้าปมไหนก็ <code>unite</code> ทุกเส้นบนปมนั้น
+    ถึงใบก็อ่านคำตอบ แล้วตอนออกจากปมก็ <code>rollback</code> จนสแต็กสั้นเท่าตอนที่เข้ามา
+    เส้นที่ต้องหายไปตอนออกจากปม คือเส้นของปมนั้นเอง ซึ่งเป็นเส้นที่ใส่ล่าสุด เพราะเส้นของปมลูกทุกปมถูกย้อนไปก่อนแล้วตอนออกจากลูก
+  </p>
+  <p>
+    ตัวเดินข้างล่างใช้ตัวอย่างเดิม ต้นไม้บน {EX_Q} จุดเวลามี {exNodes.length} ปม ของบนแต่ละปมคือ
+    {walkRows.map((w, i) => <> ปม {w.id} {w.span}: {w.items.length ? w.items.join(', ') : 'ว่าง'}{i < walkRows.length - 1 ? ' ·' : ''}</>)}
+  </p>
+
+  <CpStepPlayer hook="odsim" steps={exStepsGood} label="dfs บนต้นไม้ช่วง พร้อม rollback">
+    <table class="rec odboard">
+      <caption>DSU · {EX_N} จุด</caption>
+      <thead>
+        <tr>
+          <th>จุด</th>
+          {range(1, EX_N).map((v) => <th class="num">{v}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="lbl">par</span></td>
+          {range(1, EX_N).map((v) => <td class="num" data-od-par={String(v)}>{v}</td>)}
+        </tr>
+        <tr>
+          <td><span class="lbl">sz</span></td>
+          {range(1, EX_N).map((v) => <td class="num" data-od-sz={String(v)}>1</td>)}
+        </tr>
+        <tr>
+          <td><span class="lbl">stk</span></td>
+          <td class="num wide" colspan={EX_N} data-od-stk>[ ]</td>
+        </tr>
+        <tr>
+          <td><span class="lbl">ปม</span></td>
+          <td class="num wide" colspan={EX_N} data-od-path>ยังไม่เข้า</td>
+        </tr>
+        <tr>
+          <td><span class="lbl">คำตอบ</span></td>
+          <td class="num wide" colspan={EX_N} data-od-ans>· · ·</td>
+        </tr>
+      </tbody>
+    </table>
+  </CpStepPlayer>
+
+  <p>
+    ตรงขั้นที่เส้น 1-3 ถูกใส่ที่ใบ t=1 ให้สังเกตว่ามันไม่ได้รวมอะไรเลย เพราะ 1 กับ 3 ต่อกันผ่าน 1-2 กับ 2-3 อยู่แล้ว
+    แต่เส้นเดียวกันนี้ถูกวางอีกครั้งที่ใบ t=2 และคราวนี้มันรวมจริง เพราะ 1-2 ถูกย้อนออกไปก่อนแล้วตอนออกจากปม [0,1]
+    เส้นเดียวกันทำงานต่างกันในสองปม ตามว่าตอนนั้นมีเส้นอื่นอยู่ด้วยหรือเปล่า
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ทำไมบีบทางเดินไม่ได้ ทั้งที่มันคือกลที่ดีที่สุดของ DSU</h2>
+  <p>
+    สแต็กของเราจดแค่การรวม ส่วนการบีบทางเดินแก้ <code>par</code> ของทุกคนบนทางเดิน<strong>โดยไม่มีใครจด</strong>
+    พอย้อนการรวมกลับ ช่องที่ถูกบีบยังชี้ไปที่หัวคนที่ไม่ใช่หัวของมันแล้ว ผลคือคำตอบผิด ไม่ใช่แค่ช้า
+  </p>
+  <p>
+    ตัวอย่างของบทนี้เล็กพอที่จะเห็นเรื่องนี้ครบ มันคืออินพุตที่เล็กที่สุดที่ทำให้รุ่นบีบทางเดินตอบผิด
+    ซึ่งหาได้จากการไล่ทุกกรณีเรียงตามจำนวนเหตุการณ์ แล้วจำนวนจุด แล้วจำนวนเส้นตั้งต้น
+    ในรุ่นที่บีบ ตอนตอบใบ t=1 การเรียก <code>find(3)</code> บีบ <code>par[{exSilentNode}]</code> ให้ชี้ข้ามไปที่หัวทันที
+    แล้วไม่มีอะไรลงสแต็ก พอออกจากปม [0,1] และถอด 2 ออก 3 ก็ยังชี้ค้างไปที่ 1 อยู่ ใบ t=2 จึงเห็น 1 กับ 3 อยู่ก๊วนเดียวกันแล้วไม่รวม
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>คำตอบรายจุดเวลา · ตัวอย่างของบท</caption>
+      <thead>
+        <tr>
+          <th>รุ่น</th>
+          {range(0, EX_Q - 1).map((t) => <th class="num">t = {t}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>เดินกราฟใหม่ทุกจุดเวลา</td>
+          {exTruth.map((x) => <td class="num">{x}</td>)}
+        </tr>
+        <tr>
+          <td>ต้นไม้ + rollback</td>
+          {exGood.answers.map((x) => <td class="num">{x}</td>)}
+        </tr>
+        <tr>
+          <td>ต้นไม้ + rollback + บีบทางเดิน</td>
+          {exBad.answers.map((x, t) => <td class={t === exBadLeaf ? 'num bad' : 'num'}>{x}</td>)}
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      สามแถวนี้มาจากตัวจำลองที่รันตอนสร้างหน้า ถ้ารุ่นบีบทางเดินกลับมาตอบถูก หน้านี้จะบิลด์ไม่ผ่าน
+      เพราะนั่นแปลว่าย่อหน้าข้างบนไม่จริงอีกต่อไป
+    </figcaption>
+  </figure>
+  <p>
+    ต่อให้จดทุกช่องที่ถูกบีบลงสแต็กด้วย ก็ยังเสียประโยชน์ของมันอยู่ดี บีบทางเดินเร็วเพราะ<strong>งานที่จ่ายไปครั้งหนึ่งช่วยครั้งถัดไป</strong>
+    ซึ่งเป็นการนับแบบเฉลี่ย (<i>amortized</i>) พอย้อนกลับได้ ทางเดินยาว ๆ ถูกคืนกลับมาครบ แล้วครั้งถัดไปก็ต้องเดินใหม่ทั้งทาง
+    หน้า cp-algorithms สรุปเรื่องนี้ไว้ประโยคเดียวว่าการย้อนกลับทำลายการนับแบบเฉลี่ย
+  </p>
+  <p>
+    ทางออกคือกลับไปใช้<strong>รวมตามขนาดอย่างเดียว</strong> ซึ่ง<a href="/cp/dsu/">บท DSU</a>ปูไว้แล้วว่าให้ความลึกไม่เกิน{' '}
+    <code>log₂ n</code> กับ<strong>ทุกครั้ง</strong> ไม่ต้องเฉลี่ย ย้อนกลับกี่ครั้งขอบนี้ก็ยังจริง เพราะมันเป็นเรื่องของรูปต้นไม้ ไม่ใช่เรื่องของประวัติ
+  </p>
+
+  <details class="expander">
+    <summary>ดูรุ่นที่บีบทางเดิน กับอินพุตที่ทำให้มันผิด</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeCoreBug} lang="cpp" title="dynamic-connectivity-pathcomp.cpp" />
+      <p>
+        ต่างจากแม่แบบข้างล่างแค่ฟังก์ชัน <code>find</code> รุ่นนี้ผ่านตัวอย่างของโจทย์ CSES 2133 (ตอบ 2 2 2 1 ถูก)
+        แต่ตอบอินพุตของบทนี้เป็น {exBad.answers.join(' ')} แทน {exTruth.join(' ')} การไล่ทุกกรณีต้องลองไป 11,524 อินพุตก่อนเจอตัวนี้
+        ส่วนอินพุตที่มีเหตุการณ์เดียวไม่มีตัวไหนผิดเลยเมื่อจุดไม่เกินหกจุด (ไล่ครบ 502,135 อินพุต)
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider" />
+
+  <h2>แม่แบบ กับต้นทุนของมัน</h2>
+  <p>
+    โค้ดนี้คือคำตอบของโจทย์ฝึกข้อแรก และเป็นแม่แบบของทุกข้อที่เหลือ ชื่อทุกตัวเหมือนบท DSU เพิ่มแค่ <code>stk</code>{' '}
+    กับ <code>rollback</code> ส่วน <code>find</code> ไม่บีบทางเดินด้วยเหตุผลของหัวข้อที่แล้ว
+  </p>
+  <CodeBlock code={codeCore} lang="cpp" title="dynamic-connectivity.cpp" />
+  <p>
+    นับต้นทุนจากข้างในออกมา <code>find</code> หนึ่งครั้งเดินไม่เกิน <code>log₂ n</code> ชั้น เส้นแต่ละเส้นถูกวางไม่เกินราว{' '}
+    <code>2 log₂ q</code> ปม และทุกครั้งที่วางก็ถูก <code>unite</code> หนึ่งครั้งตอนเข้าปมนั้น รวมเป็น{' '}
+    <code>O((m + k) · log q · log n)</code> ถ้าเขียนแบบทั่วไป โครงสร้างที่เพิ่มของได้ในเวลา <code>T(n)</code> และย้อนได้
+    จะรองรับการลบแบบออฟไลน์ได้ในเวลา <code>O(T(n) · log q)</code> ต่อหนึ่งช่วงอายุ ซึ่งคือชื่อของหน้าต้นฉบับ
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">สิ่งที่แม่แบบนี้ไม่สนเลย</p>
+    <p>
+      โครงต้นไม้บนแกนเวลาไม่รู้ว่าข้างในเป็น DSU มันต้องการแค่สองอย่าง คือใส่ของได้ และย้อนการใส่ล่าสุดได้
+      โจทย์ฝึกครึ่งหลังของบทนี้เปลี่ยนของข้างในเป็นอย่างอื่นทั้งหมด ทั้งกระเป๋าเป้ (<i>knapsack</i>) ฐานของ xor และ bitset
+      และบางข้อใช้แค่ครึ่งเดียวของท่านี้
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · หนึ่งท่า สิบหน้าตา</h2>
+  <p>
+    สิบข้อนี้เรียงเป็นสามกลุ่ม ข้อ 1 ถึง 5 ใช้ท่าเต็มกับ DSU แต่ละข้อเปลี่ยนสิ่งที่ DSU ต้องจำ หรือเปลี่ยนวิธีได้ช่วงอายุมา
+    ข้อ 6 กับ 7 เปลี่ยนของข้างในเป็นอย่างอื่นที่ไม่ใช่ DSU เลย ข้อ 8 กับ 9 ใช้แค่ครึ่งหลังของท่า คือย้อนกลับโดยไม่มีต้นไม้ช่วง
+    และข้อ 10 รวมทุกอย่างเข้าด้วยกัน สามข้อในนี้มาจากหน้าต้นฉบับของ cp-algorithms ส่วนที่เหลือผมเลือกเพิ่มให้ครบมุม
+  </p>
+
+  <h3>ฝึกข้อ 1 · นับก๊วนเมื่อถนนเปิดปิดได้ (CSES 2133 Dynamic Connectivity)</h3>
+  <p>
+    กราฟมี <code>n</code> จุด เส้นตั้งต้น <code>m</code> เส้น แล้วมีเหตุการณ์ <code>k</code> ครั้ง แต่ละครั้งสร้างเส้นใหม่หรือตัดเส้นเดิมทิ้ง
+    ให้บอกจำนวนก๊วนก่อนเหตุการณ์แรก และหลังเหตุการณ์ทุกครั้ง
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m k</code> เส้นตั้งต้น <code>m</code> เส้น แล้วเหตุการณ์ <code>t a b</code> โดย <code>t = 1</code> คือสร้าง <code>t = 2</code> คือตัด</li>
+      <li><strong>ขอบเขต:</strong> <code>n, m, k ≤ 10⁵</code> สร้างเฉพาะคู่ที่ยังไม่มีเส้น ตัดเฉพาะเส้นที่มีอยู่ เวลา 1 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ตัวเลข <code>k + 1</code> ตัว</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P1_N} {P1_INIT.length} {P1_EV.length}<br />{P1_INIT.map(([a, b]) => <>{a} {b}<br /></>)}{P1_EV.map((e) => <>{e.join(' ')}<br /></>)}</td>
+        <td>{p1Truth.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      ตัวเลขแรกของเอาต์พุตคือก่อนเหตุการณ์แรก ตอนนั้นมีก๊วน {'{1, 4}'} กับ {'{2, 3, 5}'} จึงได้ {p1Truth[0]}
+      เหตุการณ์แรกเพิ่ม 2-5 ซึ่งอยู่ก๊วนเดียวกันอยู่แล้ว เหตุการณ์ที่สองตัด 3-5 แต่ 5 ยังถึง 3 ผ่าน 2 ได้ ก๊วนจึงไม่ขาด
+      เหตุการณ์สุดท้ายเพิ่ม 1-2 สองก๊วนรวมเป็นหนึ่ง
+    </p>
+  </div>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ช่วงอายุของตัวอย่าง · จุดเวลา 0 ถึง {P1_Q - 1}</caption>
+      <thead><tr><th>เส้น</th><th class="num">เกิด</th><th class="num">อยู่ถึง</th></tr></thead>
+      <tbody>
+        {p1Lives.map((L) => (
+          <tr><td class="mono">{L.e}</td><td class="num">{L.l}</td><td class="num">{L.r}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>เส้น 3-5 ถูกตัดที่เหตุการณ์ที่ 2 จึงอยู่ถึงจุดเวลา 1 ส่วนเส้นที่เกิดจากเหตุการณ์ที่ i เริ่มมีชีวิตที่จุดเวลา i</figcaption>
+  </figure>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ข้อนี้คือโจทย์ของหัวข้อข้างบนทุกประการ ที่ต้องระวังมีเรื่องเดียว คือเส้นถูกระบุด้วยคู่จุด โจทย์ไม่ได้สัญญาว่าตอนตัดจะเขียนคู่จุดเรียงเหมือนตอนสร้าง
+      จะจับคู่ "สร้าง" กับ "ตัด" ของเส้นเดียวกันยังไง
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 1</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมรู้จักท่านี้อยู่แล้วก่อนเปิดโจทย์ สิ่งที่ทำจริงคือเช็กว่าตัวเลขบังคับให้ใช้มันหรือเปล่า
+        นับใหม่ทุกจุดเวลาคือ <code>10⁵</code> ครั้ง ครั้งละ <code>2·10⁵</code> ได้ <code>2·10¹⁰</code> ส่วนย้อนเวลาอย่างเดียวใช้ไม่ได้
+        เพราะมีทั้งสร้างและตัดปนกัน ที่เหลือคือเงื่อนไขที่ทำให้ท่านี้ใช้ได้ คือโจทย์ให้ input ทั้งหมดก่อนต้องตอบ
+      </p>
+      <p>
+        ประมาณต้นทุนแบบหยาบที่สุด เส้นไม่เกิน <code>2·10⁵</code> ช่วง ช่วงละไม่เกินราว 34 ปม ปมละ <code>find</code> สองครั้ง ครั้งละไม่เกิน 17 ชั้น
+        ได้ราว <code>2·10⁸</code> ครั้งของการเดินขึ้นหนึ่งชั้นในกรณีแย่สุด ซึ่งพอสำหรับหนึ่งวินาที วัดจริงช้าสุด 0.2 วินาที
+        บทเรียนคือ ท่าที่มีสอง log คูณกันดูน่ากลัวบนกระดาษ ให้คูณตัวเลขจริงก่อนตัดสิน
+      </p>
+    </div>
+    <p>
+      เก็บ <code>map</code> จากคู่ <code>(min, max)</code> ไปยังจุดเวลาที่เส้นนั้นเกิด เจอการตัดก็ดึงออกมาปิดช่วงแล้ววางลงต้นไม้
+      อ่านครบแล้ว เส้นที่ยังเหลือใน <code>map</code> คือเส้นที่อยู่ถึงจุดสุดท้าย คู่จุดต้องเรียงเองทุกครั้ง
+      เพราะถ้าตอนสร้างเขียน <code>2 1</code> แต่ตอนตัดเขียน <code>1 2</code> แล้วเราใช้คู่ตามที่อ่านมาเป็นกุญแจ
+      จะหาเส้นไม่เจอ แล้วเส้นนั้นจะถูกนับว่าไม่เคยตาย
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 1</h2>
+  <Spoiler>
+    <p class="io-note">โค้ดของข้อนี้คือแม่แบบในหัวข้อ "แม่แบบ กับต้นทุนของมัน" ข้างบนทุกบรรทัด</p>
+    <p class="io-note">
+      ตรวจกับตัวที่เดินกราฟใหม่ทุกจุดเวลา 20,000 รอบ สุ่มสลับข้างของคู่จุดทั้งตอนสร้างและตอนตัด ตรงกันทุกรอบ
+      เคสใหญ่สามแบบที่ <code>n, m, k = 10⁵</code> ใช้ไม่เกิน 0.2 วินาที
+    </p>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 2 · ตอบเฉพาะตอนถูกถาม (Codeforces Gym 100551A Connect and Disconnect)</h3>
+  <p>
+    กราฟเริ่มว่าง มี <code>N</code> จุด แล้วมีคำสั่ง <code>K</code> ข้อ <code>+ u v</code> เพิ่มเส้น <code>- u v</code> ลบเส้น
+    และ <code>?</code> ถามจำนวนก๊วน ณ ตอนนั้น โจทย์นี้คือตัวอย่างหลักในหน้าต้นฉบับของ cp-algorithms
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>N K</code> แล้วคำสั่งบรรทัดละข้อ อ่านจากไฟล์ <code>connect.in</code> เขียนลง <code>connect.out</code></li>
+      <li><strong>ขอบเขต:</strong> <code>N, K ≤ 3·10⁵</code> เวลา 3 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ทุก <code>?</code> พิมพ์จำนวนก๊วนหนึ่งบรรทัด</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{lines(P2_IN).map((l) => <>{l}<br /></>)}</td>
+        <td>{P2_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>คำสั่ง {p2Cmds} ข้อ มีคำถาม {p2QCount} ข้อ</caption>
+      <thead><tr><th>คำสั่ง</th><th class="num">คำถามที่</th><th class="num">ก๊วน</th></tr></thead>
+      <tbody>
+        {p2Rows.map((r) => (
+          <tr><td class="mono">{r.cmd}</td><td class="num">{r.qi === null ? '' : r.qi}</td><td class="num">{r.comps === null ? '' : r.comps}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ห้าเส้นแรกต่อกันเป็นวง ลบ 2-3 ออกหนึ่งเส้นวงยังไม่ขาด ลบ 4-5 อีกเส้นถึงขาดเป็นสองก๊วน</figcaption>
+  </figure>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ต่างจากข้อ 1 ตรงที่ไม่ต้องตอบทุกจุดเวลา ตอบเฉพาะตอนเจอ <code>?</code> ถ้าให้ใบของต้นไม้เป็นทุกคำสั่ง ต้นไม้ยาว <code>K</code> เสมอ
+      แม้ทั้งไฟล์จะมีคำถามข้อเดียว แกนเวลาควรนับอะไร
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 2</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ทำหลังข้อ 1 จึงเริ่มจากโค้ดของข้อนั้นทั้งก้อน แล้วถามว่าอะไรต่าง ได้สี่ข้อ กราฟเริ่มว่าง ตอบเฉพาะตอนถูกถาม
+        ต้องจับคู่เพิ่มกับลบเอง และอ่านเขียนไฟล์ ข้อที่เปลี่ยนความคิดจริงมีข้อเดียวคือข้อที่สอง
+      </p>
+      <p>
+        บทเรียนคือ ท่าเดิมไม่ต้องแก้ ที่ต้องคิดใหม่คือแกนเวลาคืออะไร เลือกแกนให้ตรงกับจุดที่ต้องตอบ
+      </p>
+    </div>
+    <p>
+      ให้แกนเวลาเป็น "คำถามลำดับที่ 0, 1, 2, ..." ตัวนับ <code>Q</code> คือจำนวน <code>?</code> ที่อ่านมาแล้ว
+      เส้นที่เกิดตอน <code>Q = c</code> เห็นได้ตั้งแต่คำถามที่ <code>c</code> และเส้นที่ตายตอน <code>Q = d</code> เห็นได้ถึงคำถามที่ <code>d - 1</code>
+      ของที่ได้ตามมาเองคือ เส้นที่เกิดแล้วตายโดยไม่มีคำถามคั่นจะได้ช่วง <code>[c, c - 1]</code> ซึ่งว่าง ข้ามได้เลย
+    </p>
+    <p>
+      ต้องระวังกรณีที่ไม่มี <code>?</code> เลย ถ้าเรียก <code>dfs(1, 0, -1)</code> การแบ่งครึ่ง <code>(0 + (-1)) / 2</code> ได้ 0
+      แล้วโค้ดจะเรียกตัวเองไม่รู้จบ จึงหยุดตั้งแต่ก่อนสร้างต้นไม้
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 2</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP2} lang="cpp" title="connect-disconnect.cpp" />
+        <p>
+          ตรวจกับตัวที่เดินกราฟใหม่ทุกคำถาม 30,000 รอบ สุ่มจำนวนคำสั่งตั้งแต่ศูนย์ และสุ่มกราฟจุดเดียวที่มีได้แค่คำถาม ตรงกันทุกรอบ
+          ผมลองถอดการเรียงคู่จุดออกโดยตั้งใจเพื่อดูว่าตัวตรวจจับได้ไหม รุ่นนั้นยังผ่านตัวอย่างของโจทย์ เพราะตัวอย่างลบด้วยคู่ที่เรียงเหมือนตอนเพิ่มทุกครั้ง
+          แต่อินพุต <code>2 3 / + 2 1 / - 1 2 / ?</code> ทำให้มันตอบ 1 แทน 2
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 3 · ยังระบายสองสีได้ไหม (Codeforces 813F Bipartite Checking)</h3>
+  <p>
+    กราฟ <code>n</code> จุด เริ่มไม่มีเส้น คำสั่งแต่ละข้อให้คู่จุด <code>x y</code> ถ้ามีเส้นนี้อยู่แล้วให้ลบ ถ้ายังไม่มีให้เพิ่ม
+    หลังทุกคำสั่งให้ตอบว่ากราฟตอนนั้นระบายสองสีได้หรือเปล่า คือไม่มีเส้นไหนเชื่อมจุดสีเดียวกัน
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n q</code> แล้ว <code>q</code> คู่ <code>x y</code> โดย <code>x &lt; y</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n, q ≤ 10⁵</code> เวลา 6 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> <code>YES</code> หรือ <code>NO</code> หลังทุกคำสั่ง</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P3_N} {P3_T.length}<br />{P3_T.map(([a, b]) => <>{a} {b}<br /></>)}</td>
+        <td>{P3_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`กราฟหลังแต่ละคำสั่ง คำสั่งที่ 3 ปิดสามเหลี่ยม ซึ่งเป็นวงยาวคี่ ระบายสองสีไม่ได้ คำสั่งที่ 4 เป็นคู่เดิมจึงลบเส้นนั้นออก และคำสั่งที่ 5 ใส่กลับเข้ามา`}>
+    <svg viewBox={p3VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กราฟตัวอย่างของ Bipartite Checking หลังแต่ละคำสั่ง">
+      {p3Panels.map((p, i) => (
+        <>
+          <text x={p.ox} y="24" fill={p.ok ? '#4ade80' : '#f08c8c'} font-size="12.5" text-anchor="middle">หลังคำสั่ง {i + 1} · {p.ok ? 'YES' : 'NO'}</text>
+          {p.edges.map((e) => (
+            <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={p.ok ? '#8ea0c4' : '#e05a5a'} stroke-width="1.8" />
+          ))}
+          {p.nodes.map((n) => (
+            <>
+              <circle cx={n.x} cy={n.y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+              <text x={n.x} y={n.y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{n.k}</text>
+            </>
+          ))}
+          <text x={p.ox} y={66 + 58 + R + 22} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">สลับ {p.flip[0]}-{p.flip[1]}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คำสั่งแบบสลับเปิดปิดแปลงเป็นช่วงอายุได้ตรง ๆ ส่วน DSU ต้องรู้มากกว่าว่าใครอยู่ก๊วนไหน มันต้องรู้สีด้วย
+      ลองนึกถึงข้อ Parity ใน<a href="/cp/dsu/">บท DSU</a> แล้วถามต่อว่า ถ้าที่ปมหนึ่งเจอวงคี่แล้ว ใบข้างใต้ปมนั้นยังต้องลงไปดูอีกไหม
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 3</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ระบายสองสีใหม่ทุกคำสั่งคือ <code>10⁵</code> ครั้ง ครั้งละราว <code>2·10⁵</code> ต่อให้เวลาหกวินาทีก็ไม่พอ
+        โครงต้นไม้บนแกนเวลาไม่ต้องแก้เลย เปลี่ยนแค่ของที่ DSU ต้องจำ ซึ่งคือท่าเดียวกับข้อ Parity ของบท DSU
+      </p>
+      <p>
+        ระหว่างเขียนมีบรรทัดเดียวที่ผมเอาออก รุ่นแรกของ <code>rollback</code> ตั้ง <code>d[b] = 0</code> คืนด้วย
+        ทั้งที่ <code>find</code> หยุดที่หัวโดยไม่อ่าน <code>d</code> ของหัว และ <code>unite</code> เขียน <code>d</code> ทับทุกครั้งที่หัวถูกย้าย
+        บรรทัดนั้นจึงไม่มีผลกับอะไรเลย ลบแล้วรันตัวตรวจซ้ำก็ผ่านเหมือนเดิม บทเรียนคือ ของที่ไม่มีใครอ่านอีก ไม่ต้องจดและไม่ต้องคืน
+      </p>
+    </div>
+    <p>
+      <code>d[x]</code> บอกว่า <code>x</code> ต่างสีกับแม่หรือเปล่า สีของ <code>x</code> เทียบหัวคือ xor ของ <code>d</code> ตลอดทางขึ้น
+      ตอนรวมสองหัว ตั้ง <code>d</code> ของหัวที่ไปขึ้นกับอีกฝั่งให้ปลายทั้งสองของเส้นต่างสีกัน คือ <code>ca xor cb xor 1</code>
+      ข้อนี้ <code>unite</code> คืน <code>false</code> เมื่อเส้นปิด<strong>วงคี่</strong> ไม่ใช่เมื่อไม่ได้รวม
+      เพราะสิ่งที่ DFS ต้องรู้คือกราฟยังระบายสองสีได้ไหม
+    </p>
+    <p>
+      และเพราะเส้นบนปมหนึ่งมีชีวิตครบทุกใบข้างใต้ ถ้าใส่แล้วเจอวงคี่ ทุกใบข้างใต้ก็มีวงคี่นั้นด้วย
+      ไม่ต้องลงไปต่อ ใบที่ไม่ถูกเยี่ยมคือใบที่ตอบ <code>NO</code> ซึ่งเป็นค่าเริ่มต้นของอาร์เรย์คำตอบอยู่แล้ว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 3</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP3} lang="cpp" title="bipartite-checking.cpp" />
+        <p>
+          ตรวจกับตัวที่ระบายสองสีด้วย BFS ใหม่ทุกคำสั่ง 30,000 รอบ ในนั้นมีคำตอบ NO 102,375 บรรทัด ตรงกันทุกบรรทัด เคสใหญ่สุดใช้ 0.13 วินาที
+          ผมลองลืม <code>xor 1</code> โดยตั้งใจ รุ่นนั้นยังผ่านตัวอย่างของโจทย์ แต่อินพุต <code>4 4 / 3 4 / 2 4 / 1 3 / 1 2</code>{' '}
+          ทำให้มันตอบ NO ที่คำสั่งสุดท้าย ทั้งที่กราฟเป็นวงยาวสี่ ซึ่งระบายสองสีได้
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 4 · มุมที่สี่งอกเอง (Codeforces 1140F Extending Set of Points)</h3>
+  <p>
+    มีเซตของจุดบนระนาบ ถ้ามีสามมุมของสี่เหลี่ยมที่ด้านขนานแกน มุมที่สี่จะงอกขึ้นมาเอง งอกไปเรื่อย ๆ จนไม่มีมุมไหนงอกได้อีก
+    เซตที่ได้เรียกว่าส่วนขยาย แต่ละคำถามให้จุดมาหนึ่งจุด ถ้าอยู่ในเซตแล้วให้เอาออก ถ้ายังไม่อยู่ให้ใส่ แล้วตอบขนาดของส่วนขยาย
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>q</code> แล้วจุด <code>x y</code> อีก <code>q</code> บรรทัด</li>
+      <li><strong>ขอบเขต:</strong> <code>q, x, y ≤ 3·10⁵</code> เวลา 3.5 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ขนาดของส่วนขยายหลังทุกคำถาม</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P4_Q.length}<br />{P4_Q.map(([x, y]) => <>{x} {y}<br /></>)}</td>
+        <td>{P4_OUT.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`วงทึบคือจุดในเซต วงโปร่งคือจุดที่งอกขึ้นมาเอง หลังคำถามที่ 6 เซตมีสี่จุด ส่วนขยายมี ${p4States[5].E.size} จุด พอคำถามที่ 7 เอาจุด (2, 1) ออก สองแถวก็ขาดจากกัน เหลือ ${p4States[6].E.size}`}>
+    <svg viewBox={p4VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="จุดในเซตกับจุดที่งอกขึ้นมาเอง หลังคำถามที่ 6 และ 7">
+      {p4Panels.map((p) => (
+        <>
+          <text x={p.ox + G4_CELL} y="26" fill="#9aa7bd" font-size="12.5" text-anchor="middle">หลังคำถาม {p.i + 1} · ขนาด {p.size}</text>
+          {range(1, 3).map((y) => (
+            <text x={p.ox + (y - 1) * G4_CELL} y={70 + G4_CELL + R + 20} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">y={y}</text>
+          ))}
+          {range(1, 2).map((x) => (
+            <text x={p.ox - 38} y={70 + (x - 1) * G4_CELL + 4} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">x={x}</text>
+          ))}
+          {p.cells.map((c) => (
+            <circle cx={c.cx} cy={c.cy} r={c.kind === 'none' ? 4 : 12} fill={c.kind === 'S' ? '#4ade80' : c.kind === 'E' ? 'none' : '#2a3350'} stroke={c.kind === 'E' ? '#4ade80' : 'none'} stroke-width="2" stroke-dasharray={c.kind === 'E' ? '4 3' : undefined} />
+          ))}
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      กฎงอกไม่สนค่าพิกัดเลย สนแค่ว่าจุดไหนแชร์แถวหรือแชร์หลักกัน ลองมองแถวกับหลักเป็นจุดของกราฟ แล้วมองแต่ละจุดในเซตเป็นเส้นเชื่อมแถวกับหลัก
+      สามมุมของสี่เหลี่ยมกลายเป็นอะไรในกราฟนั้น
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 4</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สามจุด <code>(x1,y1) (x1,y2) (x2,y1)</code> คือทางเดิน <code>x2 → y1 → x1 → y2</code> ในกราฟแถวกับหลัก
+        และจุดที่งอกคือเส้นลัด <code>x2 → y2</code> พอเห็นเป็นทางเดิน ก็เดาต่อได้ว่าก๊วนที่มี <code>a</code> แถวกับ <code>b</code> หลัก
+        จะงอกจนเต็มเป็น <code>a × b</code> จุดพอดี คำตอบคือผลรวมของ <code>a × b</code> ทุกก๊วน
+      </p>
+      <p>
+        ผมไม่เชื่อข้อสรุปนี้จนกว่าตัวตรวจจะยืนยัน ตัวตรวจจึงไม่รู้เรื่องแถว หลัก หรือก๊วนเลย มันวนหาสามมุมตามนิยามแล้วเติมจุดจนนิ่ง
+        ถ้าข้อสรุปผิด สองโปรแกรมจะตอบไม่ตรงกัน ตัวอย่างบนหน้านี้ก็ถูกตรวจด้วยวิธีเดียวกันตอนสร้างหน้า
+        บทเรียนคือ ข้อสรุปที่ทำให้โจทย์ง่ายลงมาก ๆ ต้องมีตัวตรวจที่ไม่เชื่อข้อสรุปนั้น
+      </p>
+    </div>
+    <p>
+      ถ้ามีแต่ใส่จุด นี่คือ DSU ธรรมดาที่หัวจำ <code>cx</code> (จำนวนแถว) กับ <code>cy</code> (จำนวนหลัก) และเก็บผลรวมไว้ในตัวแปรเดียว
+      ตอนรวม ลบผลคูณของสองก้อนเก่าออก บวกผลคูณของก้อนใหม่เข้า การเอาจุดออกคือส่วนที่ต้องใช้ท่าของบทนี้ จุดแต่ละจุดเข้าออกได้หลายรอบ แต่ละรอบเป็นช่วงอายุแยกกัน
+    </p>
+    <p>
+      จุดเดียวที่ต่างจากแม่แบบคือ <code>rollback</code> ต้องคืนผลรวมด้วย ลำดับที่ถูกคือลบผลคูณของก้อนรวมออกก่อน
+      แล้วค่อยหัก <code>cx</code>, <code>cy</code> ของลูกออกจากแม่ แล้วบวกผลคูณของทั้งสองก้อนกลับเข้าไป
+      ถ้าสลับลำดับ จะลบผลคูณของก้อนที่ถูกหักไปแล้วแทนก้อนรวม
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 4</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP4} lang="cpp" title="extending-points.cpp" />
+        <p>
+          ตรวจกับตัวที่เติมจุดตามนิยามจนนิ่ง 5,000 รอบบนพิกัดไม่เกินห้า ตรงกันทุกรอบ ซึ่งยืนยันข้อสรุปเรื่อง <code>a × b</code> ไปด้วย
+          เคสใหญ่สุดใช้ 0.51 วินาที จากเวลาที่ให้ 3.5 วินาที
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 5 · ไวรัสที่มีวันหมดอายุ (Codeforces 1423H Virus)</h3>
+  <p>
+    เมืองหนึ่งมี <code>n</code> คน ทุกวันมีข่าวว่าใครพบใคร ไวรัสมีระยะฟักตัว <code>k</code> วัน ใครที่สัมผัสกันทางตรงหรือทางอ้อมภายใน{' '}
+    <code>k</code> วันล่าสุด นับเป็นกลุ่มเสี่ยงเดียวกัน คำสั่ง <code>1 x y</code> คือวันนี้ x พบ y
+    <code>2 z</code> ถามว่าตอนนี้ z อยู่กลุ่มเดียวกับกี่คน และ <code>3</code> คือขึ้นวันใหม่
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n q k</code> แล้วคำสั่ง <code>q</code> บรรทัด</li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 10⁵</code>, <code>q ≤ 5·10⁵</code>, <code>k ≤ 10⁵</code> เวลา 5 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ทุกคำสั่งแบบ 2 พิมพ์ขนาดของกลุ่ม นับตัวเองด้วย</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{lines(P5_IN).map((l) => <>{l}<br /></>)}</td>
+        <td>{P5_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>การพบกันในตัวอย่าง · k = 1</caption>
+      <thead><tr><th>พบกัน</th><th class="num">วันที่</th><th class="num">คำสั่งที่</th><th class="num">นับอยู่ถึงคำสั่งที่</th></tr></thead>
+      <tbody>
+        {p5Meet.map((m) => (
+          <tr><td class="mono">{m.x}-{m.y}</td><td class="num">{m.day}</td><td class="num">{m.i}</td><td class="num">{m.end}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      ตัวอย่างนี้ <code>k = 1</code> การพบกันจึงนับอยู่แค่วันเดียว หมดอายุตอนเริ่มวันถัดไป คำถาม <code>2 1</code> หลังขึ้นวันใหม่จึงได้ 1
+      เพราะทุกคนที่ 1 เคยพบหมดอายุไปแล้ว
+    </figcaption>
+  </figure>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      การพบกันแต่ละครั้งคือเส้นที่หายไปเอง แต่เงื่อนไขหมดอายุพูดเป็น "วัน" ในขณะที่แกนเวลาที่ต้องตอบคือ "คำสั่ง"
+      จะแปลงวันหมดอายุเป็นเลขคำสั่งได้ตั้งแต่ตอนอ่านหรือเปล่า
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 5</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">ส่วนที่ยากที่สุดคือการอ่านว่านับวันยังไง</p>
+      <p>
+        ตัวโจทย์ไม่ได้บอกตรง ๆ ว่าการพบวันนี้นับอยู่ถึงวันไหน มีแค่โน้ตหนึ่งบรรทัดกับตัวอย่างสามชุด ผมตั้งสมมติฐานว่า
+        การพบในวันที่ <code>d</code> นับอยู่ตลอดวัน <code>d</code> ถึง <code>d + k - 1</code> แล้วเช็กกับตัวอย่าง ผ่านทั้งสามชุด
+      </p>
+      <p>
+        เพื่อให้แน่ใจว่าตัวอย่างล็อกการตีความไว้จริง ไม่ใช่ผ่านเพราะบังเอิญ ผมลองขยับช่วงอายุยาวขึ้นหนึ่งวันและสั้นลงหนึ่งวัน
+        ทั้งสองแบบตอบตัวอย่างผิดทุกชุด ตัวอย่างที่ 1 กับ 2 ต่างกันแค่ <code>k</code> และคู่นี้พอจะจับการคลาดหนึ่งวันได้ทั้งสองทิศ
+        บทเรียนคือ ถ้ากฎนับวันกำกวม ให้ลองขยับหนึ่งวันทั้งสองทิศแล้วดูว่าตัวอย่างล้มไหม
+      </p>
+    </div>
+    <p>
+      ระหว่างอ่าน จด <code>dayStart[d]</code> คือคำสั่งแรกของวันที่ <code>d</code> ไว้ การพบในวันที่ <code>d</code> ที่คำสั่งที่ <code>i</code>{' '}
+      จึงมีช่วงอายุ <code>[i, dayStart[d + k] - 1]</code> ถ้าวันที่ <code>d + k</code> ไม่มีจริงก็ยาวถึงคำสั่งสุดท้าย ที่เหลือคือแม่แบบทุกบรรทัด
+      ถึงใบที่เป็นคำถามก็ตอบ <code>sz[find(z)]</code>
+    </p>
+    <p>
+      มีอีกทางที่รู้จักกัน เพราะการพบเรียงตามวัน การหมดอายุจึงเป็นแบบเข้าก่อนออกก่อน และมีเทคนิคเฉพาะสำหรับ DSU แบบคิว
+      แต่ท่าทั่วไปของบทนี้ก็เร็วพออยู่แล้ว ผมจึงไม่ได้เขียนทางนั้น
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 5</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP5} lang="cpp" title="virus.cpp" />
+        <p>
+          ตัวตรวจเก็บการพบทุกครั้งพร้อมวัน แล้วเดินกราฟใหม่ทุกคำถามโดยคัดเฉพาะการพบที่ <code>วันนี้ - d &lt; k</code>
+          20,000 รอบบวกตัวอย่างสามชุด ตรงกันทุกรอบ เคสใหญ่สุดใช้ 0.22 วินาทีจากเวลาที่ให้ 5 วินาที
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 6 · ค่าสูงสุดที่เป็นไปได้ (Codeforces 981E Addition on Segments)</h3>
+  <p>
+    อาร์เรย์ยาว <code>n</code> เริ่มเป็นศูนย์ มีคำสั่ง <code>q</code> ข้อ ข้อหนึ่งคือบวก <code>x</code> ให้ทุกช่องตั้งแต่ <code>l</code> ถึง <code>r</code>
+    เลือกคำสั่งมาทำเป็นชุดใดก็ได้ แล้วดูค่าสูงสุดของอาร์เรย์ ให้หาว่าจำนวน <code>y</code> ตัวไหนบ้างในช่วง 1 ถึง <code>n</code>{' '}
+    ที่เป็นค่าสูงสุดนั้นได้
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n q</code> แล้วคำสั่ง <code>l r x</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n, q ≤ 10⁴</code>, <code>x ≤ n</code> เวลา 2 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> จำนวนค่า <code>y</code> ที่เป็นไปได้ แล้วค่าเหล่านั้นเรียงจากน้อยไปมาก</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P6_N} {P6_OPS.length}<br />{P6_OPS.map((o) => <>{o.join(' ')}<br /></>)}</td>
+        <td>{p6Ys.length}<br />{p6Ys.join(' ')}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`แถบแต่ละแถวคือหนึ่งคำสั่ง ตัวเลขใต้ช่องคือผลรวมที่ช่องนั้นทำได้จากคำสั่งที่คลุมมัน โดยไม่เกิน ${P6_N} รวมทุกช่องได้ ${p6Ys.join(', ')} ครบทุกค่า`}>
+    <svg viewBox={p6VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="คำสั่งบวกช่วงของตัวอย่างและผลรวมที่แต่ละช่องทำได้">
+      {range(1, P6_N).map((p) => (
+        <text x={A6_X0 + (p - 0.5) * A6_CELL} y="26" fill="#9aa7bd" font-size="12" text-anchor="middle" font-family="monospace">ช่อง {p}</text>
+      ))}
+      {P6_OPS.map(([l, r, x], i) => (
+        <>
+          <text x="22" y={40 + i * 34 + 17} fill="#cdd6ea" font-size="12" font-family="monospace">บวก {x}</text>
+          <rect x={A6_X0 + (l - 1) * A6_CELL + 6} y={40 + i * 34} width={(r - l + 1) * A6_CELL - 12} height="24" rx="5" fill="rgba(224,180,0,0.16)" stroke="#e0b400" />
+        </>
+      ))}
+      {p6PerPos.map((c) => (
+        <text x={A6_X0 + (c.p - 0.5) * A6_CELL} y={40 + P6_OPS.length * 34 + 26} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">{`{${c.sums.join(', ')}}`}</text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถ้าค่าสูงสุดเป็น <code>y</code> และเกิดที่ช่อง <code>p</code> คำสั่งที่ไม่คลุม <code>p</code> มีประโยชน์อะไรไหม
+      ถ้าไม่มี คำถามทั้งข้อก็เหลือแค่เรื่องของช่องเดียว แล้วช่องที่อยู่ติดกันใช้งานร่วมกันได้แค่ไหน
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 6</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ทางแรกคือทำ subset sum ด้วย bitset ใหม่ที่ทุกช่อง ได้ราว <code>n · q · n / 64 ≈ 1.6·10¹⁰</code> ช้าเกินหลายร้อยเท่า
+        สิ่งที่ซ้ำคือช่องที่อยู่ติดกันถูกคลุมด้วยคำสั่งชุดเกือบเดียวกัน ทางที่สองคือกวาดจากซ้ายไปขวา คำสั่งไหนเริ่มก็ใส่ คำสั่งไหนจบก็ถอด
+        ติดตรงการถอด เพราะ <code>reach |= reach &lt;&lt; x</code> ย้อนไม่ได้ OR ไม่จำว่าบิตเปิดมาจากคำสั่งไหน
+      </p>
+      <p>
+        สองทางนี้บอกรูปของคำตอบว่า ต้องแบ่งกันใช้ส่วนที่ร่วมกัน และต้องไม่ถอดเลย ต้นไม้ช่วงให้ทั้งสองอย่าง
+        ส่วนโครงที่ใช้ ผมรู้จักอยู่ก่อนแล้ว บทเรียนคือ ของที่ย้อนไม่ได้เลยก็ยังใช้ท่านี้ได้ ถ้าไม่ต้องย้อน
+      </p>
+    </div>
+    <p>
+      ข้อสังเกตแรก ถ้าเลือกเฉพาะคำสั่งที่คลุมช่อง <code>p</code> ช่องอื่นได้แค่บางตัวในชุดนั้น เพราะ <code>x</code> เป็นบวกทุกตัว
+      จึงไม่มีช่องไหนเกินค่าที่ <code>p</code> ค่า <code>y</code> จึงเป็นไปได้ก็ต่อเมื่อมีสักช่องที่ทำผลรวม <code>y</code> ได้จากคำสั่งที่คลุมมัน
+    </p>
+    <p>
+      ข้อนี้ใช้<strong>ครึ่งแรกของท่าเท่านั้น</strong> แกนของต้นไม้เป็นตำแหน่ง ไม่ใช่เวลา แจกคำสั่งลงปมด้วย <code>addRange</code>{' '}
+      แล้ว DFS ด้วย bitset หนึ่งแถวต่อความลึก ลูกทำงานบนสำเนา แม่ยังถืออันเดิมไว้ การ "ย้อน" จึงเกิดเองโดยไม่ต้องถอดอะไร
+      ต้นไม้บนหนึ่งหมื่นตำแหน่งลึกไม่เกิน 14 ชั้น จึงใช้ bitset แค่ 16 แถว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 6</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP6} lang="cpp" title="addition-on-segments.cpp" />
+        <p>
+          ตัวตรวจลองทุกชุดคำสั่ง ทำจริงลงอาร์เรย์ แล้วดูค่าสูงสุด 5,000 รอบบวกตัวอย่างสามชุด ตรงกันทุกรอบ
+          เคสที่หั่นปมมากที่สุดใช้ 0.06 วินาที
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 7 · ขโมยของในพิพิธภัณฑ์ (Codeforces 601E A Museum Robbery)</h3>
+  <p>
+    พิพิธภัณฑ์มีของจัดแสดง แต่ละชิ้นมีราคาและมวล มีเหตุการณ์สามแบบ ของใหม่เข้าตู้ ของเลข <code>x</code> ถูกเก็บเข้าห้องนิรภัย
+    และคำถามว่า ถ้าขโมยของที่จัดแสดงอยู่ได้มวลรวมไม่เกิน <code>m</code> จะได้ราคาสูงสุดเท่าไร ต้องตอบทุก <code>m</code> ตั้งแต่ 1 ถึง <code>k</code>{' '}
+    แล้วรวมเป็นตัวเลขตัวเดียวด้วยสูตร hash ของโจทย์
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n k</code> ของตั้งต้น <code>n</code> ชิ้น แล้ว <code>q</code> เหตุการณ์ <code>1 v w</code>, <code>2 x</code> หรือ <code>3</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n ≤ 5000</code>, <code>k ≤ 1000</code>, <code>q ≤ 30,000</code> ของใหม่ไม่เกินหนึ่งหมื่นชิ้น เวลา 2 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> ทุกคำถามพิมพ์ผลรวมของ <code>s(m) · p^(m-1)</code> มอดุโล <code>10⁹ + 7</code> โดย <code>p = 10⁷ + 19</code></li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{lines(P7_IN).map((l) => <>{l}<br /></>)}</td>
+        <td>{P7_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ของทุกชิ้นในตัวอย่าง · คำถามที่ 0 ถึง {p7T - 1}</caption>
+      <thead><tr><th class="num">เลข</th><th class="num">ราคา</th><th class="num">มวล</th><th class="num">เห็นตั้งแต่คำถาม</th><th class="num">ถึงคำถาม</th></tr></thead>
+      <tbody>
+        {p7Items.map((it) => (
+          <tr><td class="num">{it.id}</td><td class="num">{it.v}</td><td class="num">{it.w}</td><td class="num">{it.from}</td><td class="num">{it.to === null ? p7T - 1 : it.to}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ช่วงอายุนับบนแกนของคำถามเท่านั้น ของที่ถูกเก็บก่อนมีคำถามใดเลยจะได้ช่วงว่าง ซึ่งคือจุดที่ข้อนี้มีบั๊กจริงให้เล่า</figcaption>
+  </figure>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ใส่ของหนึ่งชิ้นลง knapsack ใช้ <code>O(k)</code> แต่ถอดออกไม่ได้ เพราะ <code>max</code> ไม่จำว่าได้ค่ามาจากทางไหน
+      ถ้าจะใช้ท่าของบทนี้ ต้องย้อนกลับได้ การใส่ของหนึ่งชิ้นแก้ได้ถึง <code>k</code> ช่อง จะย้อนด้วยอะไรถึงจะคุ้ม
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 7</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
+      <p>
+        รุ่นแรกใช้ <code>-1</code> แทน "ของชิ้นนี้ยังไม่ถูกเก็บ" แล้วตอนเก็บของก็เขียนคำถามสุดท้ายที่ยังเห็นมัน ซึ่งคือ <code>T - 1</code>
+        ปัญหาคือถ้าของถูกเก็บก่อนมีคำถามแรก <code>T - 1</code> ก็เท่ากับ <code>-1</code> พอดี ของที่ถูกเก็บไปแล้วจึงถูกนับว่าอยู่ตลอดไป
+      </p>
+      <p>
+        รุ่นนั้นผ่านตัวอย่างที่ 1 เพราะไม่มีของชิ้นไหนถูกเก็บก่อนคำถามแรก แต่ตัวอย่างที่ 2 ของโจทย์เองก็ล้ม
+        มันตอบ 516052772 แทน 0 ตัวตรวจจับได้ตั้งแต่รอบแรก อินพุตที่เล็กที่สุดที่ทำให้ผิด หาได้จากการไล่ทุกกรณีเรียงตามจำนวนเหตุการณ์
+        คือของหนึ่งชิ้น เก็บมันทิ้ง แล้วถาม รุ่นผิดตอบ 1 ที่ถูกคือ 0
+      </p>
+      <p>
+        แก้ด้วยค่าคงที่ <code>ALIVE = INT_MAX</code> บทเรียนคือ ค่าพิเศษที่แทน "ไม่มี" ต้องอยู่นอกช่วงของค่าจริงทั้งหมด
+        <code>-1</code> ดูเหมือนอยู่นอกช่วงเลขคำถาม จนกว่าจะเจอกรณีที่ยังไม่มีคำถามเลย
+      </p>
+    </div>
+    <p>
+      ย้อนด้วย<strong>สำเนา</strong> ไม่ใช่สแต็ก การใส่ของหนึ่งชิ้นแก้ได้ถึง <code>k + 1</code> ช่อง จดทุกช่องลงสแต็กก็ได้ แต่งานเท่ากับคัดลอกทั้งแถวอยู่แล้ว
+      เก็บอาร์เรย์ <code>dp</code> หนึ่งแถวต่อความลึก ลูกทำงานบนแถวของตัวเอง แม่ยังถืออันเดิม ต้นไม้บนสามหมื่นใบลึก 15 ชั้น ใช้ไม่ถึง 140 KB
+    </p>
+    <p>
+      และเลือกแกนเวลาเป็นคำถาม เหมือนข้อ 2 ของบทนี้ ทุกใบจึงเป็นคำถามจริง ค่า <code>s(m)</code> สูงได้ราว <code>1.5·10¹⁰</code>
+      ต้องมอดก่อนคูณกับกำลังของ <code>p</code> ไม่งั้น <code>long long</code> ล้น
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 7</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP7} lang="cpp" title="museum-robbery.cpp" />
+        <p>
+          ตัวตรวจทำ knapsack ใหม่ทั้งชุดทุกคำถาม 5,000 รอบเล็ก บวก 30 รอบขนาดกลางที่ของเยอะและราคาใกล้ล้าน เพื่อให้ค่าเกินมอดุโลจริง ตรงกันทุกรอบ
+          เคสที่หั่นปมมากที่สุดใช้ 0.12 วินาที
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูรุ่นที่ใช้ -1 แทน "ยังไม่ถูกเก็บ"</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP7Bug} lang="cpp" title="museum-robbery-minus-one.cpp" />
+        <p>อินพุต <code>1 1 / 1 1 / 2 / 2 1 / 3</code> รุ่นนี้ตอบ 1 ที่ถูกคือ 0 เพราะของที่ถูกเก็บก่อนคำถามแรกยังถูกวางลงต้นไม้ทั้งแกน</p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 8 · เส้นที่อิจฉา (Codeforces 891C Envy)</h3>
+  <p>
+    กราฟมีน้ำหนักต่อกันครบ ต้นไม้แผ่ทั่วที่เบาที่สุด (ย่อว่า MST) อาจมีได้หลายต้น แต่ละคำถามให้ชุดของเส้นมา
+    ให้ตอบว่ามี MST สักต้นที่มีเส้นในชุดนั้นครบทุกเส้นไหม
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m</code> เส้น <code>u v w</code> แล้ว <code>q</code> คำถาม แต่ละคำถามคือ <code>k</code> กับเลขเส้น <code>k</code> ตัว</li>
+      <li><strong>ขอบเขต:</strong> <code>n, m, q ≤ 5·10⁵</code> ผลรวมของ <code>k</code> ทุกคำถามไม่เกิน <code>5·10⁵</code> เวลา 2 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> <code>YES</code> หรือ <code>NO</code> ต่อคำถาม</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P8_N} {P8_E.length}<br />{P8_E.map((e) => <>{e.join(' ')}<br /></>)}{P8_QS.length}<br />{P8_QS.map((qs) => <>{qs.length} {qs.join(' ')}<br /></>)}</td>
+        <td>{P8_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`ตัวเลขสีทองคือเลขเส้น ตัวเลขข้างมันคือน้ำหนัก MST ของกราฟนี้หนัก ${p8Weight} และมีทั้งหมด ${p8Msts.length} ต้น เส้น 3, 4, 5 น้ำหนัก 1 ทุกเส้น แต่ละเส้นอยู่ใน MST ได้ แต่สามเส้นเป็นสามเหลี่ยม อยู่พร้อมกันไม่ได้`}>
+    <svg viewBox={p8VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กราฟตัวอย่างของ Envy พร้อมเลขเส้นและน้ำหนัก">
+      {p8Edges.map((e) => (
+        <>
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={e.w === 1 ? '#8ea0c4' : '#4a5a7d'} stroke-width={e.w === 1 ? 2 : 1.4} />
+          <text x={e.lab.x} y={e.lab.y} fill="#cdd6ea" font-size="11.5" text-anchor="middle" font-family="monospace"><tspan fill="#e0b400">#{e.id}</tspan> w{e.w}</text>
+        </>
+      ))}
+      {range(1, P8_N).map((v) => (
+        <>
+          <circle cx={P8_POS[v].x} cy={P8_POS[v].y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+          <text x={P8_POS[v].x} y={P8_POS[v].y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คิดทีละเส้นไม่ได้ ตัวอย่างข้อสองหักความคิดนั้นอยู่แล้ว ลองนึกว่า Kruskal เดินถึงน้ำหนัก <code>w</code> ตอนนั้นก๊วนที่เกิดจากเส้นที่เบากว่า <code>w</code>{' '}
+      ขึ้นกับว่าเลือกเส้นไหนมาก่อนหรือเปล่า แล้วถ้าต้องลองเส้นของคำถามหนึ่งบนก๊วนแบบนั้น จะคืนก๊วนให้คำถามถัดไปยังไง
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 8</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">สองทางที่ผมลองก่อน แล้วทิ้ง</p>
+      <p>
+        ทางแรกคือบังคับเส้นของคำถามเข้าไปก่อนแล้วรัน Kruskal ต่อจนได้ต้นไม้ แล้วเทียบน้ำหนัก ถูกแต่ช้า Kruskal หนึ่งรอบแตะห้าแสนเส้น
+        คูณห้าแสนคำถามเป็น <code>2.5·10¹¹</code> ทางที่สองคือหาว่าเส้นแต่ละเส้นอยู่ใน MST ได้ไหม ซึ่งคำถามที่สองของตัวอย่างหักทิ้งทันที
+        เส้น 3, 4, 5 อยู่ใน MST ได้ทุกเส้น แต่อยู่พร้อมกันไม่ได้
+      </p>
+      <p>
+        ข้อสรุปที่ใช้ ผมเชื่อจากการคิดแต่ไม่ได้พิสูจน์ละเอียด ตัวตรวจจึงไม่ใช้มันเลย มันไล่ทุกชุดเส้น <code>n - 1</code> เส้น
+        เก็บต้นไม้แผ่ทั่วที่เบาที่สุดทั้งหมด แล้วดูตรง ๆ ว่ามีต้นไหนมีเส้นของคำถามครบ บทเรียนคือ rollback ไม่ได้มีไว้คู่กับต้นไม้ช่วงอย่างเดียว
+        เมื่อไรที่ต้องลองของบนสถานะร่วมแล้วคืนสถานะให้คนถัดไป ก็ใช้ได้ทันที
+      </p>
+    </div>
+    <p>
+      ตอน Kruskal เดินถึงน้ำหนัก <code>w</code> ก๊วนที่เกิดจากเส้นที่เบากว่า <code>w</code> เป็นแบบเดียวกันเสมอ ไม่ว่าจะเลือกเส้นไหนมาก่อน
+      ชุดเส้นน้ำหนัก <code>w</code> ของคำถามหนึ่งจะอยู่ใน MST ด้วยกันได้ ก็ต่อเมื่อบนก๊วนแบบนั้นมันไม่สร้างวง
+      แตกทุกคำถามเป็นกลุ่มย่อยตามน้ำหนัก เรียงทุกกลุ่มตามน้ำหนัก แล้วเดิน Kruskal ไปพร้อมกัน
+    </p>
+    <p>
+      ก่อนลองกลุ่มน้ำหนัก <code>w</code> รวมถาวรทุกเส้นที่เบากว่า <code>w</code> จด <code>keep</code> ลองเส้นของกลุ่ม แล้ว <code>rollback(keep)</code>{' '}
+      การรวมถาวรของ Kruskal อยู่ใต้ <code>keep</code> เสมอจึงไม่ถูกย้อนไปด้วย ข้อนี้จึงใช้ครึ่งหลังของท่าโดยไม่มีต้นไม้ช่วงเลย
+      เพราะการย้อนมีแค่ชั้นเดียว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 8</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP8} lang="cpp" title="envy.cpp" />
+        <p>
+          ตัวตรวจไล่ทุกต้นไม้แผ่ทั่ว 20,000 รอบบนกราฟไม่เกินหกจุด น้ำหนัก 1 ถึง 3 ให้เท่ากันบ่อย รวม 69,598 คำถาม ตอบ YES 41,256 ข้อ
+          ตรงกันทุกข้อ เคสใหญ่สุดใช้ 0.31 วินาที
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 9 · ตู้หนังสือย้อนเวอร์ชันได้ (Codeforces 707D Persistent Bookcase)</h3>
+  <p>
+    ตู้หนังสือ <code>n</code> ชั้น ชั้นละ <code>m</code> ช่อง คำสั่งมีสี่แบบ วางหนังสือ หยิบหนังสือ กลับด้านทั้งชั้น
+    และ <code>4 k</code> ทำให้ตู้กลับไปเหมือนหลังคำสั่งที่ <code>k</code> หลังทุกคำสั่งให้ตอบว่าตู้มีหนังสือกี่เล่ม
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m q</code> แล้วคำสั่ง <code>1 i j</code>, <code>2 i j</code>, <code>3 i</code> หรือ <code>4 k</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n, m ≤ 1000</code>, <code>q ≤ 10⁵</code> เวลา 2 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> จำนวนหนังสือหลังทุกคำสั่ง</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{lines(P9_IN).map((l) => <>{l}<br /></>)}</td>
+        <td>{P9_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`ต้นไม้เวอร์ชันของตัวอย่างแรกในโจทย์ (2 ชั้น 3 ช่อง) คำสั่ง 4 0 ไม่ได้ต่อจากเวอร์ชัน 2 แต่ต่อจากตู้ว่าง จึงเป็นกิ่งใหม่จากราก คำตอบของเวอร์ชันไหนก็ขึ้นกับคำสั่งบนทางจากรากถึงเวอร์ชันนั้นเท่านั้น`}>
+    <svg viewBox={p9VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้เวอร์ชันของตู้หนังสือ">
+      {p9Edges.map((e) => (
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#8ea0c4" stroke-width="1.6" />
+      ))}
+      {[...p9Pos.entries()].map(([v, p]) => (
+        <>
+          <rect x={p.x - 52} y={p.y - 20} width="104" height="40" rx="8" fill="#1b2436" stroke={v === 0 ? '#4ade80' : '#4a5a7d'} />
+          <text x={p.x} y={p.y - 3} fill="#9aa7bd" font-size="10.5" text-anchor="middle" font-family="monospace">เวอร์ชัน {v}</text>
+          <text x={p.x} y={p.y + 12} fill="#cdd6ea" font-size="11.5" text-anchor="middle" font-family="monospace">{p9Label(v)}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เก็บตู้ทั้งตู้ทุกเวอร์ชันคือล้านช่องคูณแสนเวอร์ชัน ลองดูรูปของเวอร์ชันแทน ทุกเวอร์ชันเกิดจากเวอร์ชันเดียวก่อนหน้าด้วยคำสั่งเดียว
+      นั่นคือต้นไม้ แล้วถ้าเดินต้นไม้นี้ด้วยท่าเข้าปมก็ทำ ออกจากปมก็ย้อน ตู้ในหน่วยความจำจะเป็นเวอร์ชันไหนตอนอยู่ที่ปมไหน
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 9</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">ถูกตั้งแต่แรก แต่พังบนเครื่องที่สแต็กเล็ก</p>
+      <p>
+        รุ่นแรกเดินต้นไม้เวอร์ชันด้วย <code>dfs</code> ที่เรียกตัวเอง ผ่านตัวอย่างและตัวตรวจทุกรอบ แต่ต้นไม้เวอร์ชันลึกได้ถึงแสนชั้น
+        เมื่อไม่มีคำสั่งแบบ 4 เลย บนเครื่องที่ผมใช้ ถ้าคอมไพล์แบบปกติ รุ่นนั้นไม่พิมพ์อะไรออกมาเลยบนเคสแบบนี้
+        ต้องสั่งขยายสแต็กตอนลิงก์ถึงจะรันได้ ผมไม่ได้ส่งขึ้นระบบตรวจของ Codeforces จึงไม่รู้ว่าที่นั่นสแต็กพอหรือไม่
+      </p>
+      <p>
+        นี่คือเรื่องเดียวกับข้อ Knight Tournament ใน<a href="/cp/dsu/">บท DSU</a> ความลึกที่ไม่มีใครคุม
+        โค้ดบนหน้านี้จึงเดินต้นไม้ด้วยสแต็กของตัวเอง ผลลัพธ์ตรงกับรุ่นเรียกตัวเองที่ขยายสแต็กแล้วทุกบรรทัดบนเคสใหญ่ทั้งสี่แบบ
+      </p>
+    </div>
+    <p>
+      คำสั่ง <code>v</code> ต่อจากเวอร์ชัน <code>v - 1</code> ส่วน <code>4 k</code> ต่อจากเวอร์ชัน <code>k</code> แล้วไม่ทำอะไร
+      เวอร์ชันทั้งหมดจึงเป็นต้นไม้ที่มีตู้ว่างเป็นราก เดินจากราก เข้าปมก็ทำคำสั่งของปมนั้นแล้วอ่านคำตอบ ออกจากปมก็ย้อนคำสั่งนั้น
+      นี่คือ<strong>ครึ่งหลังของท่าเดียวกัน</strong> บนต้นไม้ที่โจทย์ให้มา แทนต้นไม้ช่วงที่เราสร้างเอง
+    </p>
+    <p>
+      คำสั่งทุกแบบย้อนได้ด้วยการทำซ้ำอีกครั้ง แต่ต้องย้อนเฉพาะคำสั่งที่เปลี่ยนตู้จริง วางบนช่องที่มีหนังสือแล้วหรือหยิบจากช่องว่างไม่เปลี่ยนอะไร
+      จึงเก็บ <code>changed</code> ของแต่ละเวอร์ชันไว้ ส่วนการกลับด้านทั้งชั้นเก็บเป็นธงหนึ่งตัวต่อชั้น ช่องจะมีหนังสือจริงเมื่อค่าในช่องไม่เท่ากับธงของชั้น
+      การกลับด้านจึงเหลือ <code>O(1)</code>
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 9</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP9} lang="cpp" title="persistent-bookcase.cpp" />
+        <p>
+          ตัวตรวจเก็บสำเนาตู้ทั้งตู้ของทุกเวอร์ชัน 20,000 รอบบวกตัวอย่างสามชุด ตรงกันทุกรอบ
+          เคสใหญ่สุดใช้ไม่ถึง 0.07 วินาทีโดยคอมไพล์แบบปกติ รวมเคสโซ่ลึกแสนชั้นที่ทำให้รุ่นเรียกตัวเองพัง
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h3>ฝึกข้อ 10 · ทางเดิน xor ที่สั้นที่สุด (Codeforces 938G Shortest Path Queries)</h3>
+  <p>
+    กราฟต่อกันเป็นก้อนเดียว ความยาวของทางเดินคือ xor ของน้ำหนักทุกเส้นที่เดินผ่าน เดินซ้ำเส้นก็ xor ซ้ำ
+    คำสั่งมีสามแบบ เพิ่มเส้น ลบเส้น (ลบแล้วกราฟยังต่อกัน) และถามความยาวที่สั้นที่สุดจาก <code>x</code> ไป <code>y</code>
+  </p>
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n m</code> เส้น <code>x y d</code> แล้ว <code>q</code> คำสั่ง <code>1 x y d</code>, <code>2 x y</code> หรือ <code>3 x y</code></li>
+      <li><strong>ขอบเขต:</strong> <code>n, m, q ≤ 2·10⁵</code>, <code>d &lt; 2³⁰</code> เวลา 3.5 วินาที</li>
+      <li><strong>เอาต์พุต:</strong> คำตอบของทุกคำสั่งแบบ 3</li>
+    </ul>
+  </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P10_N} {P10_E.length}<br />{P10_E.map((e) => <>{e.join(' ')}<br /></>)}{P10_CMD.length}<br />{P10_CMD.map((c) => <>{c.join(' ')}<br /></>)}</td>
+        <td>{P10_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ZoomableDiagram caption={`เส้นประสีเขียวคือ 1-3 ที่ถูกเพิ่มทีหลัง เส้นประสีแดงคือ 1-5 ที่ถูกลบก่อนคำถามสุดท้าย พอไม่มีทางลัด 1-5 ทางที่ดีที่สุดจาก 1 ไป 5 คือ 1-3-4-5 ได้ 1 xor 5 xor 6 = ${1 ^ 5 ^ 6}`}>
+    <svg viewBox={p10VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="กราฟตัวอย่างของ Shortest Path Queries">
+      {p10Edges.map((e) => (
+        <>
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={e.added ? '#4ade80' : e.removed ? '#e05a5a' : '#8ea0c4'} stroke-width="1.8" stroke-dasharray={e.added || e.removed ? '6 4' : undefined} />
+          <text x={e.lab.x} y={e.lab.y} fill={e.added ? '#4ade80' : e.removed ? '#f08c8c' : '#cdd6ea'} font-size="12" text-anchor="middle" font-family="monospace">{e.w}</text>
+        </>
+      ))}
+      {range(1, P10_N).map((v) => (
+        <>
+          <circle cx={P10_POS[v].x} cy={P10_POS[v].y} r={R} fill="#1b2436" stroke="#4a5a7d" stroke-width="1.6" />
+          <text x={P10_POS[v].x} y={P10_POS[v].y + 4} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถ้าเดินไปวนวงหนึ่งแล้วเดินกลับทางเดิม ขาไปกับขากลับหักล้างกัน เหลือแค่ค่าของวง ทางเดินไหนก็ได้จาก x ไป y
+      จึงเท่ากับทางใดทางหนึ่งบนต้นไม้ xor กับวงบางชุด บนกราฟที่ไม่เปลี่ยน โจทย์นี้ใช้ของสองอย่าง แล้วเมื่อกราฟเปลี่ยนได้ ของสองอย่างนั้นย้อนกลับได้หรือเปล่า
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 10</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ประกอบจากสองท่าที่รู้จักอยู่แล้ว ไม่ได้ค้นพบระหว่างทำ ท่าแรกคือเวอร์ชันกราฟคงที่ คำตอบคือ xor ของระยะจากรากถึงสองจุด
+        แล้วลดให้เล็กที่สุดด้วยฐานของ xor (<i>linear basis</i>) ของค่าวงทั้งหมด ท่าที่สองคือทั้งบทนี้ งานจริงคือเลือกว่าแต่ละส่วนย้อนด้วยวิธีไหน
+      </p>
+      <p>
+        ตัวตรวจต้องไม่ใช้ฐาน xor ไม่งั้นมันก็เชื่อสิ่งเดียวกับตัวจริง จึงให้ BFS บนสถานะ (จุด, xor ที่สะสม) ซึ่งคือนิยามของโจทย์ตรง ๆ
+        ใช้ได้เมื่อน้ำหนักเล็ก บิตสูงตรวจแยกด้วยการคูณน้ำหนักทุกเส้นด้วย <code>2²⁷</code> บทเรียนคือ โครงสร้างหลายตัวในโปรแกรมเดียวย้อนกลับคนละวิธีได้
+        ขอแค่ทุกตัวถูกย้อนที่จุดเดียวกัน คือตอนออกจากปม
+      </p>
+    </div>
+    <p>
+      DSU เก็บ <code>d[x]</code> คือ xor จาก <code>x</code> ถึงแม่ ท่าเดียวกับข้อ 3 แต่เป็นตัวเลขเต็มแทนบิตเดียว ตอนรวม ตั้ง <code>d</code>{' '}
+      ของหัวที่ไปขึ้นกับอีกฝั่งให้ทางในต้นไม้จาก x ไป y มีค่าเท่ากับน้ำหนักเส้นจริงพอดี ถ้าสองจุดอยู่ก๊วนเดียวกันแล้ว เส้นนี้ไม่ต่อก๊วนแต่ปิดวง
+      ค่าของวงคือ <code>dx xor dy xor w</code> ส่งเข้าฐาน
+    </p>
+    <p>
+      DSU ย้อนด้วยสแต็กเพราะแต่ละการรวมแก้ไม่กี่ช่องในอาร์เรย์ขนาด <code>n</code> ส่วนฐานมีแค่ 30 ช่อง จึงย้อนด้วยสำเนาหนึ่งแถวต่อความลึก
+      แบบเดียวกับ knapsack ในข้อ 7 สองวิธีอยู่ในโปรแกรมเดียวกันได้โดยไม่ต้องรักษาลำดับให้ตรงกัน
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 10</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeP10} lang="cpp" title="shortest-path-queries.cpp" />
+        <p>
+          ตัวตรวจทำ BFS บนสถานะ 20,000 รอบบนน้ำหนักไม่เกินสามบิต 40 รอบขนาดกลาง และ 5,000 รอบที่คูณน้ำหนักด้วย <code>2²⁷</code>
+          เพื่อทดสอบบิตบนสุด ตรงกันทุกรอบ เคสใหญ่สุดใช้ 0.33 วินาทีจากเวลาที่ให้ 3.5 วินาที
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้ารู้เหตุการณ์ทั้งหมดล่วงหน้า เปลี่ยนการเพิ่มและลบเป็นช่วงอายุ วางแต่ละช่วงลงต้นไม้บนแกนเวลา แล้วเดินต้นไม้โดยใส่ตอนเข้าปมและย้อนตอนออก
+    เครื่องมือข้างในต้องย้อนได้ ซึ่งสำหรับ DSU แปลว่ารวมตามขนาดอย่างเดียว ห้ามบีบทางเดิน
+  </p>
+  <p class="pull">
+    ทั้งบทไม่มีการลบเกิดขึ้นเลยสักครั้ง เราแค่จัดลำดับการใส่ใหม่ จนทุกครั้งที่ของชิ้นหนึ่งต้องหายไป มันคือชิ้นที่ใส่ล่าสุดพอดี
+  </p>
+
+  <h2>ที่มาและอ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      cp-algorithms, "Deleting from a data structure in O(T(n) log n)" ต้นทางของบทนี้และสามโจทย์ฝึก (ข้อ 2, 4, 6){' '}
+      <a href="https://cp-algorithms.com/data_structures/deleting_in_log_n.html" rel="noopener noreferrer" target="_blank">cp-algorithms.com</a>
+    </li>
+    <li>โจทย์: CSES 2133 · Codeforces Gym 100551A, 813F, 1140F, 1423H, 981E, 601E, 891C, 707D, 938G (สืบค้น 10 กันยายน 2026)</li>
+    <li>
+      ในคลังนี้: <a href="/cp/dsu/">ดิสจอยต์เซต</a> คือบทที่ต้องอ่านก่อน และ <a href="/cp/segment-tree/">ต้นไม้ช่วง</a>{' '}
+      คือที่มาของ <code>addRange</code>
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{width:100%;border-collapse:separate;border-spacing:0;font-size:0.84rem;}
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;font-weight:700;letter-spacing:0.18em;font-size:0.68rem;
+    color:var(--dl-gold);background:#070c17;padding:0.5rem 0.85rem;border-bottom:1px solid var(--dl-border);white-space:nowrap;
+  }
+  table.rec th, table.rec td{padding:0.5rem 0.8rem;text-align:left;vertical-align:middle;border-bottom:1px solid var(--dl-border);}
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{background:#141b2b;color:var(--dl-muted);font-weight:600;font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;white-space:nowrap;}
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{text-align:right;font-family:"Fira Code","Fira Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;color:#cdd6ea;}
+  table.rec th.num{text-align:right;}
+  table.rec td.num.bad{color:#f08c8c;font-weight:700;}
+  table.rec.wide td{white-space:normal;min-width:5rem;}
+  table.rec.wide td:last-child{min-width:14rem;}
+  table.rec td.mono{font-family:"Fira Code","Fira Mono",monospace;white-space:nowrap;}
+  table.rec td.ok{color:#4ade80;white-space:nowrap;}
+  table.rec td.no{color:#f08c8c;white-space:nowrap;}
+
+  /* ---------- กระดานของตัวเดิน ----------
+     !important สู้กับ body .panel .dpsim table.rec{width:100%} ของ layout */
+  table.rec.odboard{table-layout:fixed;width:0 !important;min-width:100%;}
+  table.rec.odboard th:first-child, table.rec.odboard td:first-child{width:5rem;}
+  table.rec.odboard th.num, table.rec.odboard td.num{width:4rem;text-align:center;}
+  table.rec.odboard td.num.wide{text-align:left;}
+  table.rec.odboard .lbl{display:block;width:0;min-width:100%;}
+  table.rec.odboard td.num.is-hot{background:rgba(74,222,128,0.2);color:#eaf4ff;font-weight:700;}
+  table.rec.odboard td.num.is-root{color:#4ade80;}
+
+  /* ---------- มินิเกมหั่นช่วง ---------- */
+  .cut-board{display:grid;grid-template-columns:repeat(16, 2.3rem);gap:0.25rem;width:max-content;padding:0.5rem 0.2rem;}
+  .cut-board :global(.cut-n){
+    height:2rem;border-radius:5px;border:1px solid #2a3350;background:#101827;color:#7b8397;
+    font-family:"Fira Code","Fira Mono",monospace;font-size:0.72rem;cursor:pointer;padding:0;
+  }
+  .cut-board :global(.cut-n:hover){border-color:#4a5a7d;color:#cdd6ea;}
+  .cut-board :global(.cut-n.on){background:rgba(74,222,128,0.22);border-color:#4ade80;color:#eaf4ff;}
+  .cut-board :global(.cut-bar){height:0.6rem;border-radius:3px;background:#2a3350;}
+  .cut-board :global(.cut-bar.want){background:#e0b400;}
+  .cut-board :global(.cut-bar.got){background:#4ade80;}
+  .cut-board :global(.cut-bar.want.got){background:linear-gradient(90deg,#e0b400 50%,#4ade80 50%);}
+  .cut-board :global(.cut-bar.over){background:#e05a5a;}
+  @media (prefers-reduced-motion: no-preference){
+    .cut-board :global(.cut-n){transition:background .12s, border-color .12s;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type CutPuzzle = { id: string; label: string; tease: string; l: number; r: number; best: number };
+  const LEAVES = 16;
+
+  function isCut(x: unknown): x is CutPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.l === 'number' && typeof o.r === 'number' && typeof o.best === 'number' && typeof o.tease === 'string';
+  }
+
+  function initCutGame(): void {
+    const maybeUi = cpGameUi('[data-cutgame]');
+    if (!maybeUi) return;
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isCut);
+    const boardEl = ui.root.querySelector<HTMLElement>('[data-cut-board]');
+    const rangeEl = ui.root.querySelector<HTMLElement>('[data-cut-range]');
+    if (puzzles.length === 0 || !boardEl || !rangeEl) return;
+    const board: HTMLElement = boardEl;
+    const rangeOut: HTMLElement = rangeEl;
+
+    let pi = 0;
+    let picked = new Set<string>();
+    const depth = Math.log2(LEAVES);
+
+    const span = (id: string): [number, number] => {
+      const [d, k] = id.split('.').map(Number);
+      const w = LEAVES >> d;
+      return [k * w, k * w + w - 1];
+    };
+    const cover = (): number[] => {
+      const c = Array<number>(LEAVES).fill(0);
+      for (const id of picked) {
+        const [l, r] = span(id);
+        for (let p = l; p <= r; p++) c[p]++;
+      }
+      return c;
+    };
+
+    function build(): void {
+      board.textContent = '';
+      for (let d = 0; d <= depth; d++) {
+        const w = LEAVES >> d;
+        for (let k = 0; k < 1 << d; k++) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'cut-n';
+          b.dataset.id = `${d}.${k}`;
+          b.style.gridColumn = `${k * w + 1} / span ${w}`;
+          b.textContent = w === 1 ? String(k) : `${k * w}-${k * w + w - 1}`;
+          b.setAttribute('aria-label', `ปมที่คลุมจุดเวลา ${k * w} ถึง ${k * w + w - 1}`);
+          board.appendChild(b);
+        }
+      }
+      for (let p = 0; p < LEAVES; p++) {
+        const bar = document.createElement('span');
+        bar.className = 'cut-bar';
+        bar.dataset.p = String(p);
+        board.appendChild(bar);
+      }
+    }
+
+    function render(): void {
+      const p = puzzles[pi];
+      const c = cover();
+      for (const b of Array.from(board.querySelectorAll<HTMLElement>('.cut-n'))) b.classList.toggle('on', picked.has(b.dataset.id ?? ''));
+      for (const bar of Array.from(board.querySelectorAll<HTMLElement>('.cut-bar'))) {
+        const q = Number(bar.dataset.p);
+        const want = q >= p.l && q <= p.r;
+        bar.classList.toggle('want', want && c[q] === 0);
+        bar.classList.toggle('got', want && c[q] === 1);
+        bar.classList.toggle('over', c[q] > 1 || (!want && c[q] > 0));
+      }
+      rangeOut.textContent = `[${p.l}, ${p.r}]`;
+      ui.setScore(picked.size === 0 ? 'ยังไม่ได้เลือกปม' : `เลือกไปแล้ว ${picked.size} ปม`);
+    }
+
+    function check(): void {
+      const p = puzzles[pi];
+      const c = cover();
+      const extra = c.some((x, q) => x > 0 && (q < p.l || q > p.r));
+      const twice = c.some((x) => x > 1);
+      const gap = range().some((q) => c[q] === 0);
+      if (twice) return ui.setStatus('มีจุดเวลาที่ถูกคลุมสองครั้ง (แถบแดง) เส้นจะถูกใส่ซ้ำ ลองเอาปมที่ซ้อนออก', 'bad');
+      if (extra) return ui.setStatus('มีปมที่คลุมเลยช่วงอายุออกไป (แถบแดง) เส้นจะไปมีชีวิตในจุดเวลาที่มันตายแล้ว', 'bad');
+      if (gap) return ui.setStatus('ยังมีจุดเวลาในช่วงที่ไม่มีปมไหนคลุม (แถบทอง) เส้นจะหายไปตรงนั้น', 'bad');
+      if (picked.size === p.best) return ui.setStatus(`คลุมพอดีด้วย ${picked.size} ปม ซึ่งน้อยที่สุดที่ช่วงนี้ทำได้แล้ว`, 'good');
+      ui.setStatus(`คลุมพอดีแล้ว แต่ใช้ ${picked.size} ปม ช่วงนี้ทำได้ด้วย ${p.best} ปม ลองรวมปมพี่น้องที่เลือกทั้งคู่ขึ้นไปเป็นแม่`, 'bad');
+    }
+    const range = (): number[] => {
+      const p = puzzles[pi];
+      return Array.from({ length: p.r - p.l + 1 }, (_, i) => p.l + i);
+    };
+
+    function selectPuzzle(t: number): void {
+      pi = t;
+      picked = new Set<string>();
+      ui.selectTab(t);
+      ui.setTease(puzzles[t].tease);
+      ui.setStatus('เลือกปมที่คลุมช่วงสีทองให้พอดี');
+      render();
+    }
+
+    board.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const b = e.target.closest('.cut-n');
+      if (!(b instanceof HTMLElement)) return;
+      const id = b.dataset.id ?? '';
+      if (picked.has(id)) picked.delete(id);
+      else picked.add(id);
+      ui.setStatus('เลือกต่อ แล้วกดตรวจคำตอบเมื่อพร้อม');
+      render();
+    });
+
+    build();
+    ui.onClick('data-cut-reset', () => selectPuzzle(pi));
+    ui.onClick('data-cut-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initCutGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  type DStep = { note: string; at: number; path: number[]; par: number[]; sz: number[]; stk: number[]; comps: number; answers: (number | null)[]; hot: number };
+
+  function isDStep(x: unknown): x is DStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.note === 'string' && Array.isArray(o.par) && Array.isArray(o.sz) && Array.isArray(o.stk) && Array.isArray(o.answers) && typeof o.hot === 'number';
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<DStep>('[data-odsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isDStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        let live: HTMLTableCellElement | null = null;
+        for (const td of Array.from(root.querySelectorAll<HTMLTableCellElement>('td[data-od-par]'))) {
+          const v = Number(td.dataset.odPar);
+          td.textContent = String(st.par[v]);
+          td.classList.toggle('is-hot', v === st.hot);
+          td.classList.toggle('is-root', st.par[v] === v);
+          if (v === st.hot) live = td;
+        }
+        for (const td of Array.from(root.querySelectorAll<HTMLTableCellElement>('td[data-od-sz]'))) {
+          td.textContent = String(st.sz[Number(td.dataset.odSz)]);
+        }
+        const stk = root.querySelector<HTMLElement>('[data-od-stk]');
+        if (stk) stk.textContent = `[${st.stk.join(', ')}]  ·  ${st.comps} ก๊วน`;
+        const path = root.querySelector<HTMLElement>('[data-od-path]');
+        if (path) path.textContent = st.path.length ? st.path.map((v) => `ปม ${v}`).join(' → ') : 'ยังไม่เข้า';
+        const ans = root.querySelector<HTMLElement>('[data-od-ans]');
+        if (ans) ans.textContent = st.answers.map((a, t) => `t${t}: ${a === null ? '·' : a}`).join('   ');
+        ctx.keepInView(live);
+      },
+    });
+  });
+</script>
