@@ -623,6 +623,86 @@ int main() {
     return 0;
 }`;
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกสามข้อ ทุกคำตอบมาจากการนับตรง ๆ ในนี้
+   แล้วเทียบกับท่าเร็วที่บทนี้สอน ถ้าไม่ตรงกัน หน้านี้จะบิลด์ไม่ผ่าน
+   ========================================================================== */
+
+/* ---------- ข้อ 1: ผลรวมของสี่เหลี่ยมในตาราง ---------- */
+const exGrid = [
+  [3, 1, 4, 2],
+  [5, 9, 2, 6],
+  [1, 8, 7, 3],
+];
+const exGR = exGrid.length;
+const exGC = exGrid[0].length;
+const exQuery = { r1: 2, c1: 2, r2: 3, c2: 3 };
+/** นับตรง ๆ ทีละช่อง ใช้เป็นคำตอบจริง */
+function exGridBrute(q: { r1: number; c1: number; r2: number; c2: number }): number {
+  let s = 0;
+  for (let r = q.r1; r <= q.r2; r++) for (let c = q.c1; c <= q.c2; c++) s += exGrid[r - 1][c - 1];
+  return s;
+}
+/** ผลรวมสะสมสองมิติ S[r][c] = ผลรวมตั้งแต่มุมซ้ายบนถึงช่อง (r, c) */
+const exS: number[][] = Array.from({ length: exGR + 1 }, () => Array<number>(exGC + 1).fill(0));
+for (let r = 1; r <= exGR; r++)
+  for (let c = 1; c <= exGC; c++)
+    exS[r][c] = exGrid[r - 1][c - 1] + exS[r - 1][c] + exS[r][c - 1] - exS[r - 1][c - 1];
+const exQCorners = {
+  big: exS[exQuery.r2][exQuery.c2],
+  up: exS[exQuery.r1 - 1][exQuery.c2],
+  left: exS[exQuery.r2][exQuery.c1 - 1],
+  back: exS[exQuery.r1 - 1][exQuery.c1 - 1],
+};
+const exQAnswer = exQCorners.big - exQCorners.up - exQCorners.left + exQCorners.back;
+if (exQAnswer !== exGridBrute(exQuery)) throw new Error('prefix-sums: ตัวอย่างข้อ 1 สูตรสี่มุมไม่ตรงกับการนับตรง ๆ');
+
+/** ช่องไหนอยู่ในสี่เหลี่ยมที่ถูกถาม คิดที่นี่ ไม่ใช่ในเทมเพลต
+ *  เพราะตัวเปรียบเทียบ <= ที่เขียนในเทมเพลต ทำให้ตัวแปลของ Astro อ่านเป็นแท็ก JSX แล้วพัง */
+const exBoxMask: boolean[][] = exGrid.map((row, r) =>
+  row.map((_, c) => r + 1 >= exQuery.r1 && r + 1 <= exQuery.r2 && c + 1 >= exQuery.c1 && c + 1 <= exQuery.c2),
+);
+
+/* ---------- ข้อ 2: นับคู่ที่สลับที่กันอยู่ ---------- */
+const exInv = [5, 2, 6, 1, 4, 3];
+/** คู่ (i, j) ที่ i อยู่ก่อน j แต่ค่ามากกว่า นับตรง ๆ ทุกคู่ */
+const exInvPairs = (() => {
+  const out: { i: number; j: number }[] = [];
+  for (let i = 0; i < exInv.length; i++)
+    for (let j = i + 1; j < exInv.length; j++) if (exInv[i] > exInv[j]) out.push({ i: i + 1, j: j + 1 });
+  return out;
+})();
+const exInvAnswer = exInvPairs.length;
+/** จำนวนคู่ที่ตัวขวาเป็นตัวที่ j คือ "มีตัวก่อนหน้าที่ค่ามากกว่ากี่ตัว" ซึ่งคือสิ่งที่ต้นไม้เฟนวิกตอบให้ */
+const exInvPerRight = exInv.map((_, j) => exInvPairs.filter((pr) => pr.j === j + 1).length);
+
+/* ---------- ข้อ 3: คู่ที่ค่าต่างกันไม่เกิน D ---------- */
+const exNear = [8, 1, 4, 7, 3, 9];
+const exNearD = 2;
+const exNearSorted = [...exNear].sort((a, b) => a - b);
+const exNearPairs = (() => {
+  const out: { a: number; b: number }[] = [];
+  for (let i = 0; i < exNearSorted.length; i++)
+    for (let j = i + 1; j < exNearSorted.length; j++)
+      if (exNearSorted[j] - exNearSorted[i] <= exNearD) out.push({ a: exNearSorted[i], b: exNearSorted[j] });
+  return out;
+})();
+const exNearAnswer = exNearPairs.length;
+/** ท่าสองตัวชี้บนอาเรย์ที่เรียงแล้ว: สำหรับตัวขวาแต่ละตัว ตัวซ้ายสุดที่ยังเข้าคู่ได้อยู่ตรงไหน */
+const exNearWindow = exNearSorted.map((v, j) => {
+  let i = 0;
+  while (v - exNearSorted[i] > exNearD) i++;
+  return { j, from: i, count: j - i };
+});
+const exNearViaWindow = exNearWindow.reduce((a, x) => a + x.count, 0);
+if (exNearViaWindow !== exNearAnswer) throw new Error('prefix-sums: ตัวอย่างข้อ 3 ท่าหน้าต่างเลื่อนไม่ตรงกับการนับตรง ๆ');
+
+/* ---------- เรขาคณิตของภาพตัวอย่างสามภาพนี้ ---------- */
+const EXCELL = 96;
+const EXGAP = 8;
+const exCellX = (t: number): number => 18 + t * (EXCELL + EXGAP);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -1178,6 +1258,64 @@ int main() {
       ไม่มีการแก้ค่าระหว่างทาง โดย <code>R, C ≤ 1 000</code> และ <code>q ≤ 200 000</code>
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {exGR} {exGC} 1
+          {exGrid.map((row) => <><br />{row.join(' ')}</>)}
+          <br />{exQuery.r1} {exQuery.c1} {exQuery.r2} {exQuery.c2}
+        </td>
+        <td>{exQAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนแถว จำนวนคอลัมน์ และจำนวนคำถาม จากนั้นคือตารางทีละแถว
+      แล้วคำถามบรรทัดละหนึ่งข้อ ในรูป <code>r₁ c₁ r₂ c₂</code> เลขแถวและคอลัมน์<strong>เริ่มนับที่ 1</strong>
+      และสี่เหลี่ยมนี้<strong>รวมขอบทั้งสองด้าน</strong>
+    </p>
+    <p>
+      คำถามข้อนี้ขอสี่เหลี่ยมตั้งแต่แถว {exQuery.r1} คอลัมน์ {exQuery.c1} ถึงแถว {exQuery.r2}
+      คอลัมน์ {exQuery.c2} ซึ่งครอบ {(exQuery.r2 - exQuery.r1 + 1) * (exQuery.c2 - exQuery.c1 + 1)} ช่อง
+      บวกกันตรง ๆ ได้ {exQAnswer} นั่นคือเอาต์พุต ส่วนที่โจทย์กำลังท้าคือ ถ้ามีคำถามสองแสนข้อ
+      จะบวกทีละช่องแบบนี้ไม่ไหว
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ช่องสีเขียวคือสี่เหลี่ยมที่คำถามขอ ตัวเลขทางขวาคือวิธีได้ผลรวมนั้นจากตารางสะสมด้วยการอ่านแค่สี่ช่อง ไม่ว่าสี่เหลี่ยมจะใหญ่แค่ไหน">
+    <svg viewBox={`0 0 ${exCellX(exGC - 1) + EXCELL + 216} ${44 + exGR * 52 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ตารางตัวเลขกับสี่เหลี่ยมที่คำถามขอ">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ตาราง {exGR} คูณ {exGC} และสี่เหลี่ยมที่ถูกถาม</text>
+      {exGrid.map((row, r) => row.map((v, c) => {
+        const inBox = exBoxMask[r][c];
+        return (
+          <>
+            <rect x={exCellX(c)} y={44 + r * 52} width={EXCELL} height={44} rx="6" fill={inBox ? '#14351f' : '#101827'} stroke={inBox ? '#2f9e5c' : '#2a3350'} />
+            <text x={exCellX(c) + EXCELL / 2} y={44 + r * 52 + 28} fill={inBox ? '#4ade80' : '#cdd6ea'} font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+          </>
+        );
+      }))}
+      <text x={exCellX(exGC - 1) + EXCELL + 24} y={62} fill="#e0b400" font-size="11.5" font-family="monospace">อ่านตารางสะสมสี่ช่อง</text>
+      <text x={exCellX(exGC - 1) + EXCELL + 24} y={84} fill="#cdd6ea" font-size="11.5" font-family="monospace">
+        {exQCorners.big} ลบ {exQCorners.up} ลบ {exQCorners.left}
+      </text>
+      <text x={exCellX(exGC - 1) + EXCELL + 24} y={104} fill="#cdd6ea" font-size="11.5" font-family="monospace">
+        บวกคืน {exQCorners.back}
+      </text>
+      <text x={exCellX(exGC - 1) + EXCELL + 24} y={128} fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        = {exQAnswer} ซึ่งคือเอาต์พุต
+      </text>
+      <text x={exCellX(exGC - 1) + EXCELL + 24} y={152} fill="#6b7690" font-size="11" font-family="monospace">
+        ที่ต้องบวกคืน เพราะมุมนั้นถูกลบสองครั้ง
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -1232,6 +1370,49 @@ int main() {
       แต่ <code>a[i] &gt; a[j]</code> ค่าในอาเรย์เป็นจำนวนเต็มอะไรก็ได้ ซ้ำกันได้
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exInv.length}<br />{exInv.join(' ')}</td><td>{exInvAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือความยาวแล้วตามด้วยอาเรย์ เอาต์พุตคือ<strong>จำนวนคู่</strong> ไม่ใช่จำนวนครั้งที่ต้องสลับ
+      แม้ว่าสองอย่างนี้จะเท่ากันพอดีก็ตาม
+    </p>
+    <p>
+      คู่ที่นับคือคู่ที่<strong>เรียงผิดคิว</strong> คือตัวที่อยู่ทางซ้ายมีค่ามากกว่าตัวที่อยู่ทางขวา
+      ชุดนี้มีอยู่ {exInvAnswer} คู่ วิธีนับที่ต่อยอดเป็นโค้ดได้คือ ไล่ทีละตำแหน่งจากซ้ายไปขวา
+      แล้วถามว่า<strong>ตัวที่ผ่านมาแล้วมีกี่ตัวที่ค่ามากกว่าตัวนี้</strong> เอาทุกคำตอบมาบวกกัน
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="เส้นโค้งหนึ่งเส้นคือหนึ่งคู่ที่เรียงผิดคิว เลขใต้ช่องคือจำนวนตัวก่อนหน้าที่ค่ามากกว่าตัวนั้น ซึ่งคือค่าที่ต้นไม้เฟนวิกจะตอบให้ตอนเดินถึงตำแหน่งนั้น">
+    <svg viewBox={`0 0 ${exCellX(exInv.length - 1) + EXCELL + 12} 250`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="คู่ที่เรียงผิดคิวในอาเรย์">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">คู่ที่ตัวซ้ายมากกว่าตัวขวา มีทั้งหมด {exInvAnswer} คู่</text>
+      {exInvPairs.map((pr) => {
+        const x1 = exCellX(pr.i - 1) + EXCELL / 2;
+        const x2 = exCellX(pr.j - 1) + EXCELL / 2;
+        const top = 148 - (14 * (pr.j - pr.i) + 14);
+        return <path d={`M ${x1} 148 C ${x1} ${top}, ${x2} ${top}, ${x2} 148`} fill="none" stroke="#e0b400" stroke-width="1.8" />;
+      })}
+      {exInv.map((v, t) => (
+        <>
+          <rect x={exCellX(t)} y={150} width={EXCELL} height={44} rx="6" fill="#101827" stroke="#2a3350" />
+          <text x={exCellX(t) + EXCELL / 2} y={178} fill="#cdd6ea" font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+          <text x={exCellX(t) + EXCELL / 2} y={214} fill={exInvPerRight[t] > 0 ? '#e0b400' : '#6b7690'} font-size="11.5" text-anchor="middle" font-family="monospace">
+            {exInvPerRight[t]}
+          </text>
+        </>
+      ))}
+      <text x="18" y="240" fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        {exInvPerRight.join(' + ')} = {exInvAnswer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -1286,6 +1467,56 @@ int main() {
       ตำแหน่งในอาเรย์ไม่มีความหมาย สนใจแค่ค่า
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exNear.length} {exNearD}<br />{exNear.join(' ')}</td><td>{exNearAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือความยาวกับค่า <code>D</code> บรรทัดที่สองคืออาเรย์ เอาต์พุตคือจำนวนคู่ที่ค่าต่างกัน
+      <strong>ไม่เกิน</strong> <code>D</code> คือเท่ากับ <code>D</code> พอดีก็นับ
+    </p>
+    <p>
+      ประโยคสำคัญของโจทย์คือตำแหน่งในอาเรย์ไม่มีความหมาย แปลว่า<strong>เรียงใหม่ได้</strong>
+      พอเรียงแล้วชุดนี้กลายเป็น {exNearSorted.join(' ')} และคำว่า "ต่างกันไม่เกิน {exNearD}"
+      ก็กลายเป็น "อยู่ในหน้าต่างเดียวกัน" ซึ่งเลื่อนหน้าต่างรอบเดียวก็นับครบ ได้ {exNearAnswer} คู่
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="แถวบนคืออินพุตตามที่ให้มา แถวล่างคือชุดเดิมหลังเรียง เส้นโค้งคือคู่ที่ค่าต่างกันไม่เกิน D ซึ่งหลังเรียงแล้วจะกลายเป็นคู่ที่อยู่ใกล้กันเสมอ">
+    <svg viewBox={`0 0 ${exCellX(exNear.length - 1) + EXCELL + 12} 290`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="อาเรย์ก่อนและหลังเรียง กับคู่ที่ค่าต่างกันไม่เกิน D">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">อินพุตตามที่ให้มา</text>
+      {exNear.map((v, t) => (
+        <>
+          <rect x={exCellX(t)} y={34} width={EXCELL} height={40} rx="6" fill="#101827" stroke="#2a3350" />
+          <text x={exCellX(t) + EXCELL / 2} y={60} fill="#7b8397" font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+      <text x="18" y="104" fill="#9aa7bd" font-size="12" font-family="monospace">เรียงแล้ว คู่ที่เข้าเงื่อนไขมากองอยู่ติดกัน</text>
+      {exNearPairs.map((pr) => {
+        const i = exNearSorted.indexOf(pr.a);
+        const j = exNearSorted.lastIndexOf(pr.b);
+        const x1 = exCellX(i) + EXCELL / 2;
+        const x2 = exCellX(j) + EXCELL / 2;
+        const top = 196 - (18 * (j - i) + 16);
+        return <path d={`M ${x1} 196 C ${x1} ${top}, ${x2} ${top}, ${x2} 196`} fill="none" stroke="#e0b400" stroke-width="1.8" />;
+      })}
+      {exNearSorted.map((v, t) => (
+        <>
+          <rect x={exCellX(t)} y={198} width={EXCELL} height={40} rx="6" fill="#14351f" stroke="#2f9e5c" />
+          <text x={exCellX(t) + EXCELL / 2} y={224} fill="#4ade80" font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+          <text x={exCellX(t) + EXCELL / 2} y={256} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">{exNearWindow[t].count}</text>
+        </>
+      ))}
+      <text x="18" y="280" fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        {exNearWindow.map((w) => w.count).join(' + ')} = {exNearAnswer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>

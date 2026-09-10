@@ -369,6 +369,115 @@ int main() {
     return 0;
 }`;
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกสามข้อ
+   คำตอบทุกตัวมาจากการไล่ทุกความเป็นไปได้ตรง ๆ ในนี้ ไม่ได้พิมพ์เอง
+   ========================================================================== */
+
+/* ---------- ข้อ 1: ห้ามเว้นสามชิ้นติดกัน ---------- */
+const exBuy = [7, 2, 9, 4, 1, 8, 3, 6];
+/** ไล่ทุกชุดการซื้อ (2^n ชุด) แล้วเก็บชุดที่ถูกกติกาและถูกที่สุด */
+const exBuyBest = (() => {
+  const n = exBuy.length;
+  let bestCost = Number.POSITIVE_INFINITY;
+  let bestPick: boolean[] = [];
+  for (let mask = 0; mask < 1 << n; mask++) {
+    const pick = Array.from({ length: n }, (_, i) => ((mask >> i) & 1) === 1);
+    let ok = true;
+    let run = 0;
+    for (const taken of pick) {
+      run = taken ? 0 : run + 1;
+      if (run === 3) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    const cost = pick.reduce((a, taken, i) => a + (taken ? exBuy[i] : 0), 0);
+    if (cost < bestCost) {
+      bestCost = cost;
+      bestPick = pick;
+    }
+  }
+  return { cost: bestCost, pick: bestPick };
+})();
+const exBuyAnswer = exBuyBest.cost;
+/** ท่าโลภที่คนลองก่อน: เว้นให้ครบสองชิ้นเสมอ แล้วค่อยซื้อชิ้นที่สาม */
+const exBuyGreedy = exBuy.reduce((a, c, i) => a + ((i + 1) % 3 === 0 ? c : 0), 0);
+
+/* ---------- ข้อ 2: ทาสีห้ามซ้ำสามช่องติดกัน ---------- */
+const exPaintN: number = 4;
+const exPaintK: number = 3;
+/** ไล่ทาทุกแบบจริง k^n แบบ แล้วนับแบบที่ไม่มีสามช่องติดกันเป็นสีเดียว */
+const exPaintAll = (() => {
+  const out: number[][] = [];
+  const rec = (cur: number[]): void => {
+    if (cur.length === exPaintN) {
+      out.push([...cur]);
+      return;
+    }
+    for (let c = 0; c < exPaintK; c++) rec([...cur, c]);
+  };
+  rec([]);
+  return out;
+})();
+const exPaintOk = exPaintAll.filter((w) =>
+  w.every((_, i) => i < 2 || !(w[i] === w[i - 1] && w[i - 1] === w[i - 2])),
+);
+const exPaintAnswer = exPaintOk.length;
+/** สูตรที่บทนี้จะพาไปหา: same = ต่างกับตัวก่อนหน้าไหม */
+const exPaintByFormula = (() => {
+  let diff = exPaintK * (exPaintK - 1); // สองช่องแรกสีต่างกัน
+  let same = exPaintK; // สองช่องแรกสีเดียวกัน
+  for (let i = 3; i <= exPaintN; i++) {
+    const nd = (diff + same) * (exPaintK - 1);
+    const ns = diff;
+    diff = nd;
+    same = ns;
+  }
+  return exPaintN === 1 ? exPaintK : diff + same;
+})();
+if (exPaintByFormula !== exPaintAnswer) throw new Error('rolling-state-dp: ตัวอย่างข้อ 2 สูตรไม่ตรงกับการไล่ทุกแบบ');
+const exPaintBadSample = exPaintAll.find((w) => !exPaintOk.includes(w)) ?? [];
+const exPaintLetters = ['แดง', 'เขียว', 'ฟ้า'];
+
+/* ---------- ข้อ 3: สตริง abc ที่ห้ามซ้ำสามตัวและห้ามมีคำว่า abc ---------- */
+const exStrN = 4;
+const exStrAll = (() => {
+  const out: string[] = [];
+  const rec = (cur: string): void => {
+    if (cur.length === exStrN) {
+      out.push(cur);
+      return;
+    }
+    for (const ch of 'abc') rec(cur + ch);
+  };
+  rec('');
+  return out;
+})();
+const exStrBadTriple = (w: string): boolean =>
+  [...w].some((_, i) => i >= 2 && w[i] === w[i - 1] && w[i - 1] === w[i - 2]);
+const exStrBadAbc = (w: string): boolean => w.includes('abc');
+const exStrOk = exStrAll.filter((w) => !exStrBadTriple(w) && !exStrBadAbc(w));
+const exStrAnswer = exStrOk.length;
+/** ถ้าจำแค่ "สองตัวล่าสุดเหมือนกันไหม" จะนับเกิน เพราะกติกา abc ต้องรู้ว่าตัวไหนจริง ๆ */
+const exStrTripleOnly = exStrAll.filter((w) => !exStrBadTriple(w)).length;
+const exStrAbcOnly = exStrAll.filter((w) => !exStrBadTriple(w) && exStrBadAbc(w));
+
+/** ตัวช่วยของภาพสองภาพนี้ คิดที่นี่เพราะเทมเพลตทำ includes/เปรียบเทียบซ้ำ ๆ แล้วอ่านยาก */
+const exPaintCols = 9;
+const EX_TXT_PITCH = 96;
+/** ความกว้างของภาพที่เป็นรายการข้อความ คิดจากคอลัมน์สุดท้ายจริง ไม่ใช่จำนวนคอลัมน์คูณระยะ */
+const exListVb = (cols: number): number => 18 + (cols - 1) * EX_TXT_PITCH + 40 + 12;
+const exPaintOkSet: boolean[] = exPaintAll.map((w) => exPaintOk.includes(w));
+const exStrCols = 6;
+
+/* ---------- เรขาคณิตของภาพตัวอย่างสามภาพนี้ ---------- */
+const EXW2 = 74;
+const EXG2 = 8;
+const exX2 = (t: number): number => 18 + t * (EXW2 + EXG2);
+
 ---
 
 <CpProblemLayout href={href}>
@@ -657,6 +766,49 @@ int main() {
       ให้จ่ายน้อยที่สุด
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exBuy.length}<br />{exBuy.join(' ')}</td><td>{exBuyAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือจำนวนชิ้นแล้วตามด้วยราคาของแต่ละชิ้นเรียงตามแถว เอาต์พุตคือ<strong>เงินที่จ่าย</strong>
+      ไม่ใช่จำนวนชิ้นที่ซื้อ ราคาทุกชิ้นเป็นบวก การซื้อเพิ่มจึงไม่มีวันถูกลง
+      งานคือซื้อให้น้อยที่สุดเท่าที่กติกายอม
+    </p>
+    <p>
+      กติกา "ห้ามเว้นสามชิ้นติดกัน" อ่านง่ายที่สุดโดยไล่หน้าต่างยาวสามชิ้นทุกหน้าต่าง
+      ทุกหน้าต่างต้องมีของที่ซื้ออย่างน้อยหนึ่งชิ้น ชุดนี้จ่ายน้อยที่สุดได้ {exBuyAnswer}
+      โดยซื้อชิ้นที่ {exBuyBest.pick.map((t, i) => (t ? i + 1 : 0)).filter(Boolean).join(', ')}
+    </p>
+    <p>
+      ท่าที่คนคิดออกก่อนคือ "เว้นให้ครบสองชิ้นเสมอแล้วซื้อชิ้นที่สาม" ซึ่งชุดนี้จ่าย {exBuyGreedy}
+      แพงกว่าคำตอบจริง เพราะมันไม่สนใจว่าชิ้นที่มันบังคับให้ซื้อจะแพงแค่ไหน
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ช่องสีเขียวคือชิ้นที่ซื้อ แถบใต้ภาพคือหน้าต่างยาวสามชิ้นทุกหน้าต่าง ซึ่งทุกอันต้องมีสีเขียวอย่างน้อยหนึ่งช่อง">
+    <svg viewBox={`0 0 ${exX2(exBuy.length - 1) + EXW2 + 12} ${120 + (exBuy.length - 2) * 16 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="แถวของที่ซื้อกับหน้าต่างยาวสามชิ้น">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ราคาของแต่ละชิ้น ช่องเขียวคือชิ้นที่ซื้อ</text>
+      {exBuy.map((c, t) => (
+        <>
+          <rect x={exX2(t)} y={36} width={EXW2} height={44} rx="6" fill={exBuyBest.pick[t] ? '#14351f' : '#101827'} stroke={exBuyBest.pick[t] ? '#2f9e5c' : '#2a3350'} />
+          <text x={exX2(t) + EXW2 / 2} y={64} fill={exBuyBest.pick[t] ? '#4ade80' : '#7b8397'} font-size="15" text-anchor="middle" font-family="monospace">{c}</text>
+          <text x={exX2(t) + EXW2 / 2} y={98} fill="#6b7690" font-size="11" text-anchor="middle" font-family="monospace">{t + 1}</text>
+        </>
+      ))}
+      {exBuy.slice(0, exBuy.length - 2).map((_, t) => (
+        <line x1={exX2(t) + 4} y1={116 + t * 16} x2={exX2(t + 2) + EXW2 - 4} y2={116 + t * 16} stroke="#3d4761" stroke-width="2" />
+      ))}
+      <text x="18" y={120 + (exBuy.length - 2) * 16 + 22} fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        จ่ายรวม {exBuyAnswer} ซึ่งคือเอาต์พุต ส่วนท่าโลภซื้อทุกชิ้นที่สามจ่าย {exBuyGreedy}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -716,6 +868,46 @@ int main() {
       <code>k ≤ 10^9</code>
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exPaintN} {exPaintK}</td><td>{exPaintAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตมีแค่สองเลขคือจำนวนช่องกับจำนวนสี ไม่มีอาเรย์อะไรเลย เอาต์พุตคือ<strong>จำนวนวิธีทา</strong>
+      ที่ถูกกติกา ตัวอย่างนี้เล็กพอที่จะไล่ด้วยมือได้ ทาได้ทั้งหมด {exPaintK} ยกกำลัง {exPaintN}
+      เท่ากับ {exPaintAll.length} แบบ ในนั้นถูกกติกา {exPaintAnswer} แบบ ที่เหลือ
+      {exPaintAll.length - exPaintAnswer} แบบมีสามช่องติดกันเป็นสีเดียว เช่น
+      {exPaintBadSample.map((c) => exPaintLetters[c]).join(' ')}
+    </p>
+    <p>
+      ที่ต้องระวังคือ <code>n</code> ของจริงใหญ่ถึงสิบยกกำลังสิบแปด แปลว่าห้ามวนทีละช่องด้วยซ้ำ
+      ตัวอย่างเล็ก ๆ นี้มีไว้ให้เห็นว่าโจทย์นับอะไร ไม่ได้มีไว้ให้เห็นวิธีทำ
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ทุกแบบที่ทาได้เมื่อมีสี่ช่องสามสี แบบสีเขียวคือแบบที่ถูกกติกา แบบสีจางคือแบบที่มีสามช่องติดกันเป็นสีเดียว ซึ่งถูกตัดทิ้ง">
+    <svg viewBox={`0 0 ${exListVb(exPaintCols)} ${44 + Math.ceil(exPaintAll.length / exPaintCols) * 22 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ทุกแบบการทาสีสี่ช่องด้วยสามสี">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">
+        ทั้งหมด {exPaintAll.length} แบบ ผ่านกติกา {exPaintAnswer} แบบ
+      </text>
+      {exPaintAll.map((w, t) => (
+        <text
+          x={18 + (t % exPaintCols) * 96}
+          y={56 + Math.floor(t / exPaintCols) * 22}
+          fill={exPaintOkSet[t] ? '#4ade80' : '#3d4761'}
+          font-size="12"
+          font-family="monospace"
+        >
+          {w.map((c) => 'RGB'[c]).join('')}
+        </text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -770,6 +962,40 @@ int main() {
       เอาเศษจากการหารด้วย <code>10^9 + 7</code>
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exStrN}</td><td>{exStrAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือความยาวอย่างเดียว เอาต์พุตคือจำนวนสตริงที่ถูกกติกา<strong>ทั้งสองข้อพร้อมกัน</strong>
+      สตริงยาว {exStrN} สร้างได้ {exStrAll.length} แบบ ถ้าตัดเฉพาะแบบที่มีตัวเดียวกันสามตัวติดกัน
+      จะเหลือ {exStrTripleOnly} แบบ แล้วในนั้นยังมีอีก {exStrAbcOnly.length} แบบที่มีคำว่า
+      <code>abc</code> โผล่อยู่ ต้องตัดทิ้งอีกชั้น เหลือ {exStrAnswer} แบบ
+    </p>
+    <p>
+      ตรงนี้คือจุดที่ข้อนี้ต่างจากข้อ 2 กติกาข้อแรกสนใจแค่ว่า "เหมือนตัวก่อนหน้าไหม"
+      แต่กติกาข้อสองสนใจว่า<strong>ตัวก่อนหน้าคือตัวอะไรจริง ๆ</strong> เพราะ <code>abc</code>
+      เป็นสามตัวที่ต่างกันหมด สถานะแบบเดิมจึงมองไม่เห็น
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="สตริงที่ถูกตัดเพราะกติกา abc โดยเฉพาะ ทุกตัวในกลุ่มนี้ไม่มีตัวซ้ำสามตัวติดกันเลย จึงรอดกติกาข้อแรก แล้วมาตายที่กติกาข้อสอง ซึ่งเป็นเหตุผลที่ต้องจำตัวอักษรจริง">
+    <svg viewBox={`0 0 ${exListVb(exStrCols)} ${44 + Math.ceil(exStrAbcOnly.length / exStrCols) * 24 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="สตริงที่ถูกตัดเพราะมีคำว่า abc">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">
+        รอดกติกาข้อแรก {exStrTripleOnly} แบบ แต่มี {exStrAbcOnly.length} แบบที่มีคำว่า abc
+      </text>
+      {exStrAbcOnly.map((w, t) => (
+        <text x={18 + (t % exStrCols) * 96} y={58 + Math.floor(t / exStrCols) * 24} fill="#e0b400" font-size="13" font-family="monospace">
+          {w}
+        </text>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>

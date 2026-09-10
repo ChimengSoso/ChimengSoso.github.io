@@ -396,6 +396,61 @@ int main() {
     return 0;
 }`;
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกสามข้อ ทุกคำตอบมาจากการเทียบสตริงตรง ๆ ในนี้
+   ซึ่งเป็นวิธีที่ไม่ได้ใช้แฮชเลย จึงไม่ได้ทดสอบข้ออ้างของท่าที่บทนี้สอน
+   ========================================================================== */
+
+/* ---------- ข้อ 1: นับหน้าต่างที่ไม่ซ้ำกัน ---------- */
+const exWinS = 'abcabcbb';
+const exWinK = 3;
+const exWinAll = Array.from({ length: exWinS.length - exWinK + 1 }, (_, i) => ({
+  at: i + 1,
+  text: exWinS.slice(i, i + exWinK),
+}));
+const exWinFirstAt = new Map<string, number>();
+for (const w of exWinAll) if (!exWinFirstAt.has(w.text)) exWinFirstAt.set(w.text, w.at);
+const exWinIsNew = exWinAll.map((w) => exWinFirstAt.get(w.text) === w.at);
+const exWinAnswer = exWinFirstAt.size;
+
+/* ---------- ข้อ 2: ช่วงนี้เป็นพาลินโดรมไหม ---------- */
+const exPalS = 'abacaba';
+const exPalAsks = [
+  { l: 1, r: 7 },
+  { l: 2, r: 4 },
+  { l: 1, r: 4 },
+  { l: 4, r: 4 },
+];
+const exPalRows = exPalAsks.map((q) => {
+  const text = exPalS.slice(q.l - 1, q.r);
+  const rev = [...text].reverse().join('');
+  return { ...q, text, rev, yes: text === rev };
+});
+
+/* ---------- ข้อ 3: ท่อนที่ยาวที่สุดที่โผล่ซ้ำ ---------- */
+const exRepS = 'banana';
+/** ไล่ทุกความยาวจากยาวไปสั้น แล้วเทียบสตริงตรง ๆ ว่ามีท่อนไหนโผล่สองครั้งไหม */
+const exRepRows = Array.from({ length: exRepS.length }, (_, t) => {
+  const len = exRepS.length - t;
+  const seen = new Map<string, number[]>();
+  for (let i = 0; i + len <= exRepS.length; i++) {
+    const w = exRepS.slice(i, i + len);
+    seen.set(w, [...(seen.get(w) ?? []), i + 1]);
+  }
+  const dup = [...seen.entries()].find((e) => e[1].length > 1);
+  return { len, dup: dup === undefined ? null : { text: dup[0], at: dup[1] } };
+});
+const exRepHit = exRepRows.find((r) => r.dup !== null);
+const exRepAnswer = exRepHit === undefined ? 0 : exRepHit.len;
+/** ข้ออ้างที่ทำให้ค้นหาคำตอบแบบไบนารีใช้ได้: ถ้าความยาวนี้มีของซ้ำ ความยาวที่สั้นกว่าก็มีเสมอ */
+const exRepMonotone = exRepRows.every((r, t) => r.dup === null || exRepRows.slice(t + 1).every((q) => q.dup !== null));
+if (!exRepMonotone) throw new Error('string-hashing: ตัวอย่างข้อ 3 ควรเป็นแบบที่สั้นกว่าแล้วยังซ้ำอยู่เสมอ');
+
+/* ---------- เรขาคณิตของภาพตัวอย่างสามภาพนี้ ---------- */
+const EXCH = 46;
+const exChX = (t: number): number => 18 + t * EXCH;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -689,6 +744,55 @@ int main() {
       แต่มี {new Set(demoWindows.map((w) => w.text)).size} แบบ
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exWinS}<br />{exWinK}</td><td>{exWinAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือข้อความหนึ่งบรรทัดแล้วค่า <code>k</code> เอาต์พุตคือ<strong>จำนวนแบบที่ไม่ซ้ำกัน</strong>
+      ไม่ใช่จำนวนชิ้นที่ตัดได้ ข้อความย่อยในที่นี้คือ<strong>ตัวอักษรที่ติดกัน</strong>เท่านั้น
+      ไม่ใช่การหยิบข้ามตัว
+    </p>
+    <p>
+      ข้อความยาว {exWinS.length} ตัวกับ <code>k</code> เท่ากับ {exWinK} จะเลื่อนหน้าต่างได้
+      {exWinAll.length} ตำแหน่ง แต่บางตำแหน่งได้ข้อความซ้ำกับที่เคยเจอแล้ว จึงเหลือ {exWinAnswer} แบบ
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="หน้าต่างทุกตำแหน่งที่ตัดได้ แถวสีเขียวคือแบบที่เพิ่งเจอครั้งแรก แถวสีจางคือแบบที่เคยเจอแล้ว จำนวนแถวสีเขียวคือเอาต์พุต">
+    <svg viewBox={`0 0 ${exChX(exWinS.length) + 111} ${44 + exWinAll.length * 30 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:620px" role="img" aria-label="หน้าต่างทุกตำแหน่งของข้อความ">
+      {[...exWinS].map((ch, t) => (
+        <text x={exChX(t) + EXCH / 2} y={26} fill="#6b7690" font-size="13" text-anchor="middle" font-family="monospace">{ch}</text>
+      ))}
+      {exWinAll.map((w, r) => (
+        <>
+          {[...exWinS].map((ch, t) => (
+            <text
+              x={exChX(t) + EXCH / 2}
+              y={64 + r * 30}
+              fill={t >= w.at - 1 && t < w.at - 1 + exWinK ? (exWinIsNew[r] ? '#4ade80' : '#7b8397') : '#232c42'}
+              font-size="14"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {ch}
+            </text>
+          ))}
+          <text x={exChX(exWinS.length) + 16} y={64 + r * 30} fill={exWinIsNew[r] ? '#4ade80' : '#3d4761'} font-size="12" font-family="monospace">
+            {w.text} {exWinIsNew[r] ? 'แบบใหม่' : 'เคยเจอแล้ว'}
+          </text>
+        </>
+      ))}
+      <text x="18" y={44 + exWinAll.length * 30 + 22} fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        นับแบบใหม่ได้ {exWinAnswer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -743,6 +847,60 @@ int main() {
       <code>q</code> ใหญ่ได้ถึงสองแสน
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{exPalS}<br />{exPalAsks.length}{exPalAsks.map((q) => <><br />{q.l} {q.r}</>)}</td>
+        <td>{exPalRows.map((q, t) => (t === 0 ? (q.yes ? 'YES' : 'NO') : <><br />{q.yes ? 'YES' : 'NO'}</>))}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือข้อความ แล้วจำนวนคำถาม แล้วคำถามบรรทัดละหนึ่งข้อในรูป <code>l r</code>
+      ตำแหน่ง<strong>เริ่มนับที่ 1</strong> และช่วงนี้รวมทั้งตัวที่ <code>l</code> และตัวที่ <code>r</code>
+      เอาต์พุตคือคำตอบของแต่ละคำถาม บรรทัดละหนึ่งคำตอบ
+    </p>
+    <p>
+      ช่วงที่มีตัวอักษรตัวเดียวเป็นพาลินโดรมเสมอ ซึ่งเป็นเคสที่คนลืมบ่อยที่สุด
+      และคำถามที่สองในตัวอย่างนี้แสดงให้เห็นว่าช่วงย่อยของพาลินโดรมไม่จำเป็นต้องเป็นพาลินโดรมด้วย
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="แต่ละแถวคือหนึ่งคำถาม ตัวอักษรสีเข้มคือช่วงที่ถูกถาม ทางขวาคือช่วงนั้นเขียนกลับด้าน ถ้าสองอันตรงกันคำตอบคือ YES">
+    <svg viewBox={`0 0 ${exChX(exPalS.length) + 221} ${44 + exPalRows.length * 34 + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:700px" role="img" aria-label="คำถามพาลินโดรมแต่ละข้อ">
+      {[...exPalS].map((ch, t) => (
+        <>
+          <text x={exChX(t) + EXCH / 2} y={26} fill="#6b7690" font-size="13" text-anchor="middle" font-family="monospace">{ch}</text>
+          <text x={exChX(t) + EXCH / 2} y={40} fill="#3d4761" font-size="10" text-anchor="middle" font-family="monospace">{t + 1}</text>
+        </>
+      ))}
+      {exPalRows.map((q, r) => (
+        <>
+          {[...exPalS].map((ch, t) => (
+            <text
+              x={exChX(t) + EXCH / 2}
+              y={72 + r * 34}
+              fill={t >= q.l - 1 && t <= q.r - 1 ? (q.yes ? '#4ade80' : '#e0b400') : '#232c42'}
+              font-size="14"
+              text-anchor="middle"
+              font-family="monospace"
+            >
+              {ch}
+            </text>
+          ))}
+          <text x={exChX(exPalS.length) + 16} y={72 + r * 34} fill={q.yes ? '#4ade80' : '#e0b400'} font-size="12" font-family="monospace">
+            {q.text} กลับด้านเป็น {q.rev} {q.yes ? 'YES' : 'NO'}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -776,6 +934,49 @@ int main() {
       ซึ่งปรากฏในข้อความอย่างน้อยสองครั้ง สองครั้งนั้นซ้อนทับกันได้ ถ้าไม่มีเลยให้ตอบ 0
     </p>
   </div>
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exRepS}</td><td>{exRepAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือข้อความบรรทัดเดียว เอาต์พุตคือ<strong>ความยาว</strong> ไม่ใช่ตัวข้อความย่อย
+      และคำว่า "ซ้อนทับกันได้" แปลว่าสองครั้งที่โผล่นั้นใช้ตัวอักษรร่วมกันได้
+    </p>
+    <p>
+      ชุดนี้ท่อนที่ยาวที่สุดที่โผล่สองครั้งคือ <code>{exRepHit?.dup?.text}</code>
+      ซึ่งเริ่มที่ตำแหน่ง {exRepHit?.dup?.at.join(' และ ')} ยาว {exRepAnswer} ตัว
+    </p>
+    <p>
+      ตารางข้างล่างคือสิ่งที่ทำให้ข้อนี้ใช้การค้นหาคำตอบแบบไบนารีได้ ไล่ความยาวจากยาวไปสั้น
+      พอเจอความยาวแรกที่มีของซ้ำแล้ว ความยาวที่สั้นกว่านั้น<strong>มีของซ้ำทุกอัน</strong>
+      คำตอบจึงแบ่งครึ่งหาได้
+    </p>
+  </div>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>มีท่อนซ้ำไหมในแต่ละความยาว</caption>
+      <thead><tr><th class="num">ความยาว</th><th>ท่อนที่โผล่ซ้ำ</th><th>โผล่ที่ตำแหน่ง</th></tr></thead>
+      <tbody>
+        {exRepRows.map((r) => (
+          <tr>
+            <td class="num">{r.len}</td>
+            <td>{r.dup === null ? <span class="dim">ไม่มี</span> : <strong>{r.dup.text}</strong>}</td>
+            <td>{r.dup === null ? <span class="dim">-</span> : r.dup.at.join(', ')}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      อ่านจากบนลงล่างจะเห็นว่าพอเริ่มมีของซ้ำแล้วก็มีตลอด ไม่มีสลับไปมา
+      คำตอบคือความยาวมากที่สุดที่ยังมีของซ้ำ ซึ่งคือ {exRepAnswer}
+    </figcaption>
+  </figure>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>

@@ -438,6 +438,164 @@ const knRows = [
   { name: 'เติม Knuth optimization', big: 'O(n²)', total: KN_N * KN_N, time: '0.08 วินาที' },
 ];
 
+
+/* ============================================================================
+   ตัวอย่างอินพุต/เอาต์พุตของโจทย์ฝึกทั้งสามข้อ
+   คำตอบทุกตัวมาจากตัวไล่ทุกทางที่เขียนไว้ตรงนี้ ไม่ใช่ตัวเลขที่พิมพ์เอง
+   และมี throw กันไว้ ถ้าท่าที่บทนี้สอนตอบไม่ตรงกับตัวไล่ทุกทาง หน้านี้จะบิลด์ไม่ผ่าน
+   ========================================================================== */
+
+/* ---------- ข้อ 1: ยกคู่ที่ค่าเท่ากันเป๊ะออก แล้วช่องปิด ---------- */
+const exA = [4, 1, 1, 2, 3, 3, 2, 5];
+/** ท่าสแต็ก: เจอตัวที่เท่ากับตัวบนสุดก็ยกออกทั้งคู่ */
+function exaStack(a: number[]): number[] {
+  const st: number[] = [];
+  for (const x of a) {
+    if (st.length > 0 && st[st.length - 1] === x) st.pop();
+    else st.push(x);
+  }
+  return st;
+}
+/** ตัวตรวจอิสระ: ไล่ทุกลำดับการยกที่เป็นไปได้ ไม่ได้ใช้สแต็กเลย */
+function exaBrute(a: number[]): number {
+  const seen = new Set<string>();
+  let best = a.length;
+  const rec = (cur: number[]): void => {
+    const key = cur.join(',');
+    if (seen.has(key)) return;
+    seen.add(key);
+    best = Math.min(best, cur.length);
+    for (let i = 0; i + 1 < cur.length; i++)
+      if (cur[i] === cur[i + 1]) rec([...cur.slice(0, i), ...cur.slice(i + 2)]);
+  };
+  rec(a);
+  return best;
+}
+/** ลำดับการยกทีละคู่ ใช้วาดภาพลูกโซ่ */
+type ExaStep = { before: number[]; at: number; value: number };
+const exaSteps: ExaStep[] = (() => {
+  const out: ExaStep[] = [];
+  let cur = [...exA];
+  for (;;) {
+    const at = cur.findIndex((v, i) => i + 1 < cur.length && cur[i + 1] === v);
+    if (at === -1) break;
+    out.push({ before: [...cur], at, value: cur[at] });
+    cur = [...cur.slice(0, at), ...cur.slice(at + 2)];
+  }
+  return out;
+})();
+const exaFinal = exaStack(exA);
+const exaAnswer = exaFinal.length;
+if (exaAnswer !== exaBrute(exA)) throw new Error('interval-dp: ตัวอย่างข้อ 1 ท่าสแต็กไม่ตรงกับตัวไล่ทุกทาง');
+
+/* ---------- ข้อ 2: เติมวงเล็บให้ครบ ---------- */
+const exB = '())(';
+/** เดินซ้ายไปขวา นับตัวเปิดที่ยังไม่มีคู่ ตัวปิดที่หาคู่ไม่ได้ต้องเติมตัวเปิดให้ */
+type ExbStep = { ch: string; open: number; needOpen: boolean };
+const exbSteps: ExbStep[] = (() => {
+  const out: ExbStep[] = [];
+  let open = 0;
+  for (const ch of exB) {
+    if (ch === '(') open++;
+    else if (open > 0) open--;
+    else {
+      out.push({ ch, open, needOpen: true });
+      continue;
+    }
+    out.push({ ch, open, needOpen: false });
+  }
+  return out;
+})();
+const exbNeedOpen = exbSteps.filter((x) => x.needOpen).length;
+const exbNeedClose = exbSteps.length > 0 ? exbSteps[exbSteps.length - 1].open : 0;
+const exbAnswer = exbNeedOpen + exbNeedClose;
+/** ตัวตรวจอิสระ: ลองแทรกวงเล็บทุกแบบที่ยาวไม่เกิน k ตัว แล้วดูว่าน้อยสุดกี่ตัวถึงจะถูกกติกา */
+function exbBrute(src: string, cap: number): number {
+  const ok = (t: string): boolean => {
+    let d = 0;
+    for (const c of t) {
+      d += c === '(' ? 1 : -1;
+      if (d < 0) return false;
+    }
+    return d === 0;
+  };
+  for (let k = 0; k <= cap; k++) {
+    const rec = (t: string, left: number): boolean => {
+      if (left === 0) return ok(t);
+      for (let pos = 0; pos <= t.length; pos++)
+        for (const c of ['(', ')'])
+          if (rec(t.slice(0, pos) + c + t.slice(pos), left - 1)) return true;
+      return false;
+    };
+    if (rec(src, k)) return k;
+  }
+  return cap + 1;
+}
+if (exbAnswer !== exbBrute(exB, 4)) throw new Error('interval-dp: ตัวอย่างข้อ 2 สูตรไม่ตรงกับตัวไล่ทุกทาง');
+
+/* ---------- ข้อ 3: ยกคู่ที่ขนาดต่างกันไม่เกิน 1 เอาแต้มรวมมากที่สุด ---------- */
+const exC = [9, 4, 5, 5, 3, 9];
+/** ไล่ทุกลำดับการยกจริง จำผลไว้ตามสภาพกองที่เหลือ */
+const excMemo = new Map<string, number>();
+function excBest(cur: number[]): number {
+  const key = cur.join(',');
+  const hit = excMemo.get(key);
+  if (hit !== undefined) return hit;
+  let best = 0;
+  for (let i = 0; i + 1 < cur.length; i++) {
+    if (!canPair(cur[i], cur[i + 1])) continue;
+    const rest = [...cur.slice(0, i), ...cur.slice(i + 2)];
+    best = Math.max(best, cur[i] + cur[i + 1] + excBest(rest));
+  }
+  excMemo.set(key, best);
+  return best;
+}
+const excAnswer = excBest(exC);
+/** ลำดับการยกที่ให้แต้มสูงสุด ใช้วาดภาพ */
+type ExcStep = { before: number[]; at: number; gain: number; after: number[] };
+const excSteps: ExcStep[] = (() => {
+  const out: ExcStep[] = [];
+  let cur = [...exC];
+  while (excBest(cur) > 0) {
+    for (let i = 0; i + 1 < cur.length; i++) {
+      if (!canPair(cur[i], cur[i + 1])) continue;
+      const rest = [...cur.slice(0, i), ...cur.slice(i + 2)];
+      if (cur[i] + cur[i + 1] + excBest(rest) === excBest(cur)) {
+        out.push({ before: [...cur], at: i, gain: cur[i] + cur[i + 1], after: rest });
+        cur = rest;
+        break;
+      }
+    }
+  }
+  return out;
+})();
+/** ท่าโลภที่คนลองก่อน: เจอคู่ที่ยกได้ทางซ้ายสุดก็ยกเลย
+ *  กองตัวอย่างถูกเลือกมาให้ท่านี้แพ้ ถ้าวันหนึ่งมันไม่แพ้แล้ว ประโยคในหน้าจะโกหก จึง throw ทิ้ง */
+const excGreedy = (() => {
+  let cur = [...exC];
+  let score = 0;
+  for (;;) {
+    const at = cur.findIndex((_, i) => i + 1 < cur.length && canPair(cur[i], cur[i + 1]));
+    if (at === -1) break;
+    score += cur[at] + cur[at + 1];
+    cur = [...cur.slice(0, at), ...cur.slice(at + 2)];
+  }
+  return score;
+})();
+
+if (excGreedy >= excAnswer) throw new Error('interval-dp: กองตัวอย่างข้อ 3 ต้องเป็นกองที่ท่าโลภแพ้');
+
+/* ---------- เรขาคณิตของภาพตัวอย่างสามภาพนี้ ---------- */
+const EXW = 74;
+const EXG = 8;
+const EXH = 40;
+const exx = (t: number): number => 18 + t * (EXW + EXG);
+/* ภาพวงเล็บมีแค่สี่ช่อง ถ้าใช้ความกว้างเดียวกับภาพอื่น viewBox จะแคบราว 350
+   แล้วบล็อกที่จัดกลางจะยืดภาพเกือบสองเท่า ตัวอักษรโป่งหมด จึงใช้ช่องกว้างกว่าเฉพาะภาพนี้ */
+const EXBW = 150;
+const exbX = (t: number): number => 18 + t * (EXBW + EXG);
+const exy = (r: number): number => 44 + r * 62;
+
 ---
 
 <CpProblemLayout href={href}>
@@ -862,6 +1020,48 @@ const knRows = [
     </p>
   </div>
 
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exA.length}<br />{exA.join(' ')}</td><td>{exaAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนตัวเลข บรรทัดที่สองคือแถวจริง เอาต์พุตคือ<strong>จำนวนตัวที่เหลือ</strong>
+      หลังยกออกจนยกต่อไม่ได้แล้ว ไม่ใช่จำนวนครั้งที่ยก
+    </p>
+    <p>
+      คำว่า "ช่องปิด" คือหัวใจของข้อนี้ ตอนเริ่มต้นมีคู่ที่ยกได้อยู่คู่เดียวคือเลข
+      {exaSteps[0].value} สองตัวที่ติดกัน พอยกคู่นั้นออก ตัวที่เดิมอยู่คนละฝั่งก็ขยับมาชนกัน
+      แล้วกลายเป็นคู่ใหม่ที่ยกได้อีก เกิดเป็นลูกโซ่ {exaSteps.length} ครั้ง จนเหลือ {exaAnswer} ตัว
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ลูกโซ่ของตัวอย่างนี้ แถวบนสุดคืออินพุต คู่สีทองคือคู่ที่กำลังจะถูกยกในรอบนั้น แถวล่างสุดคือสิ่งที่เหลือ ซึ่งความยาวของมันคือเอาต์พุต">
+    <svg viewBox={`0 0 ${exx(exA.length - 1) + EXW + 12} ${exy(exaSteps.length) + EXH + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ลูกโซ่การยกคู่ที่ค่าเท่ากันออก">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ยกคู่ที่ค่าเท่ากันออก แล้วช่องปิดเข้าหากัน</text>
+      {exaSteps.map((st, r) => st.before.map((v, t) => (
+        <>
+          <rect x={exx(t)} y={exy(r)} width={EXW} height={EXH} rx="6"
+            fill={t === st.at || t === st.at + 1 ? '#3a2f08' : '#101827'}
+            stroke={t === st.at || t === st.at + 1 ? '#e0b400' : '#2a3350'} />
+          <text x={exx(t) + EXW / 2} y={exy(r) + 26} fill={t === st.at || t === st.at + 1 ? '#e0b400' : '#cdd6ea'} font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      )))}
+      {exaFinal.map((v, t) => (
+        <>
+          <rect x={exx(t)} y={exy(exaSteps.length)} width={EXW} height={EXH} rx="6" fill="#14351f" stroke="#2f9e5c" />
+          <text x={exx(t) + EXW / 2} y={exy(exaSteps.length) + 26} fill="#4ade80" font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+      <text x={exx(exaFinal.length) + 8} y={exy(exaSteps.length) + 26} fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        เหลือ {exaAnswer} ตัว ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -931,6 +1131,45 @@ const knRows = [
     </p>
   </div>
 
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exB}</td><td>{exbAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือสตริงบรรทัดเดียว เอาต์พุตคือ<strong>จำนวนวงเล็บที่ต้องเติม</strong>
+      ไม่ใช่สตริงที่แก้แล้ว และเติมแทรกตรงไหนก็ได้ ไม่จำเป็นต้องต่อท้าย
+    </p>
+    <p>
+      วิธีอ่านที่เห็นภาพที่สุดคือเดินจากซ้ายไปขวาแล้วนับว่ามีตัวเปิดกี่ตัวที่ยังรอคู่อยู่
+      ตัวปิดตัวไหนมาถึงตอนที่ไม่มีตัวเปิดรออยู่เลย ตัวนั้นหาคู่ไม่ได้ ต้องเติมตัวเปิดให้มัน
+      ชุดนี้มีตัวปิดแบบนั้น {exbNeedOpen} ตัว และเดินจบแล้วยังเหลือตัวเปิดค้างอีก {exbNeedClose} ตัว
+      รวมต้องเติม {exbAnswer} ตัว
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="เลขใต้ช่องคือจำนวนตัวเปิดที่ยังรอคู่อยู่หลังอ่านตัวนั้นแล้ว ช่องสีทองคือตัวที่หาคู่ในสตริงเดิมไม่ได้ ทุกช่องสีทองบวกกับตัวเปิดที่ค้างอยู่ตอนจบ คือคำตอบ">
+    <svg viewBox={`0 0 ${exbX(exB.length - 1) + EXBW + 12} 190`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="การเดินนับวงเล็บที่ยังไม่มีคู่">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">เดินซ้ายไปขวา นับตัวเปิดที่ยังรอคู่</text>
+      {exbSteps.map((st, t) => (
+        <>
+          <rect x={exbX(t)} y={40} width={EXBW} height={EXH} rx="6" fill={st.needOpen ? '#3a2f08' : '#101827'} stroke={st.needOpen ? '#e0b400' : '#2a3350'} />
+          <text x={exbX(t) + EXBW / 2} y={66} fill={st.needOpen ? '#e0b400' : '#cdd6ea'} font-size="17" text-anchor="middle" font-family="monospace">{st.ch}</text>
+          <text x={exbX(t) + EXBW / 2} y={100} fill="#6b7690" font-size="11.5" text-anchor="middle" font-family="monospace">รอคู่ {st.open}</text>
+          {st.needOpen && (
+            <text x={exbX(t) + EXBW / 2} y={122} fill="#e0b400" font-size="11" text-anchor="middle" font-family="monospace">ไม่มีคู่</text>
+          )}
+        </>
+      ))}
+      <text x="18" y="158" fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        เติมตัวเปิด {exbNeedOpen} บวกเติมตัวปิด {exbNeedClose} รวม {exbAnswer} ซึ่งคือเอาต์พุต
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>
     <p>
@@ -980,6 +1219,55 @@ const knRows = [
       ไม่ได้สนใจแล้วว่าจะเหลือกี่ใบ
     </p>
   </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody><tr><td>{exC.length}<br />{exC.join(' ')}</td><td>{excAnswer}</td></tr></tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      อินพุตคือขนาดจานเรียงจากบนลงล่าง เอาต์พุตคือ<strong>แต้มรวมที่มากที่สุด</strong>
+      ซึ่งเป็นผลรวมขนาดของจานทุกใบที่ยกออกได้ ไม่ใช่จำนวนใบ
+    </p>
+    <p>
+      ตรงนี้คือจุดที่โจทย์เปลี่ยนนิสัยไปจากโจทย์ประจำบท เมื่อก่อนจานทุกใบมีค่าเท่ากันหมด
+      ยกได้มากใบก็ดีกว่าเสมอ คราวนี้จานใบใหญ่มีค่ามากกว่า การยอมยกน้อยใบแต่เป็นใบใหญ่จึงอาจดีกว่า
+      ชุดนี้ท่าโลภที่เจอคู่ทางซ้ายสุดแล้วยกทันทีได้แค่ {excGreedy} แต้ม ขณะที่ลำดับที่ดีที่สุดได้ {excAnswer} แต้ม
+    </p>
+  </div>
+
+  <ZoomableDiagram caption="ลำดับการยกที่ให้แต้มมากที่สุดของตัวอย่างนี้ คู่สีทองคือคู่ที่ยกในรอบนั้น ตัวเลขทางขวาคือแต้มที่ได้จากรอบนั้นและแต้มสะสม">
+    <svg viewBox={`0 0 ${exx(exC.length - 1) + EXW + 111} ${exy(excSteps.length) + EXH + 34}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ลำดับการยกจานที่ให้แต้มมากที่สุด">
+      <text x="18" y="22" fill="#9aa7bd" font-size="12" font-family="monospace">ยกได้เฉพาะคู่ที่ติดกันและขนาดต่างกันไม่เกิน 1</text>
+      {excSteps.map((st, r) => (
+        <>
+          {st.before.map((v, t) => (
+            <>
+              <rect x={exx(t)} y={exy(r)} width={EXW} height={EXH} rx="6"
+                fill={t === st.at || t === st.at + 1 ? '#3a2f08' : '#101827'}
+                stroke={t === st.at || t === st.at + 1 ? '#e0b400' : '#2a3350'} />
+              <text x={exx(t) + EXW / 2} y={exy(r) + 26} fill={t === st.at || t === st.at + 1 ? '#e0b400' : '#cdd6ea'} font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+            </>
+          ))}
+          <text x={exx(exC.length - 1) + EXW + 16} y={exy(r) + 26} fill="#cdd6ea" font-size="11.5" font-family="monospace">
+            ได้ {st.gain} สะสม {excSteps.slice(0, r + 1).reduce((a, x) => a + x.gain, 0)}
+          </text>
+        </>
+      ))}
+      {excSteps.length > 0 && excSteps[excSteps.length - 1].after.map((v, t) => (
+        <>
+          <rect x={exx(t)} y={exy(excSteps.length)} width={EXW} height={EXH} rx="6" fill="#14351f" stroke="#2f9e5c" />
+          <text x={exx(t) + EXW / 2} y={exy(excSteps.length) + 26} fill="#4ade80" font-size="15" text-anchor="middle" font-family="monospace">{v}</text>
+        </>
+      ))}
+      <text x={exx(exC.length - 1) + EXW + 16} y={exy(excSteps.length) + 26} fill="#4ade80" font-size="12.5" font-family="monospace" font-weight="700">
+        รวม {excAnswer} แต้ม
+      </text>
+    </svg>
+  </ZoomableDiagram>
 
   <div class="callout callout-tip">
     <p class="callout-label">คำใบ้</p>

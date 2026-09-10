@@ -115,7 +115,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['prefix sum', 'BIT', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-06',
-    readingMinutes: 19,
+    readingMinutes: 25,
   },
   {
     href: 'state-graph-bfs/',
@@ -126,7 +126,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['bfs', 'state space', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
-    readingMinutes: 11,
+    readingMinutes: 14,
   },
   {
     href: 'tree-dp/',
@@ -137,7 +137,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
-    readingMinutes: 10,
+    readingMinutes: 13,
   },
   {
     href: 'string-hashing/',
@@ -148,7 +148,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['hashing', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
-    readingMinutes: 11,
+    readingMinutes: 13,
   },
   {
     href: 'interval-dp/',
@@ -159,7 +159,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'interval dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-08-27',
-    readingMinutes: 12,
+    readingMinutes: 22,
   },
   {
     href: 'rolling-state-dp/',
@@ -170,7 +170,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'state compression', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
-    readingMinutes: 11,
+    readingMinutes: 17,
   },
   {
     href: 'sliding-window/',
