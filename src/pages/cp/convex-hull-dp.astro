@@ -1,0 +1,3946 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import { texCode, mc } from '../../lib/math';
+
+const href = 'convex-hull-dp/';
+
+/* ============================================================================
+   ตัวเลขทุกตัวในหน้านี้งอกจากโมเดลข้างล่าง ไม่มีเลขไหนพิมพ์ด้วยมือ
+   ยกเว้นเวลาที่วัดจากการรันจริง ซึ่งเป็นผลการวัด ไม่ใช่ผลการคำนวณ
+   และมี throw กันไว้ทุกข้ออ้าง ถ้าข้ออ้างไหนไม่จริง หน้านี้จะบิลด์ไม่ผ่านเลย
+   ========================================================================== */
+
+const INF = Number.POSITIVE_INFINITY;
+
+/** เส้นตรง y = m*x + b */
+type Ln = { m: number; b: number };
+const lnAt = (L: Ln, x: number): number => L.m * x + L.b;
+
+/** ความจริงที่ทุกอย่างต้องตรงกับมัน คือไล่ดูทุกเส้นทุกครั้ง ไม่มีเปลือก ไม่มีตัวชี้ */
+const naiveMin = (lines: Ln[], x: number): number =>
+  lines.reduce((best, L) => Math.min(best, lnAt(L, x)), INF);
+
+/* ---------------------------------------------------------------------------
+   ตัวตรวจอิสระ: เส้นไหนอยู่บนเปลือกล่างจริง โดยไม่สร้างเปลือกเลย
+
+   เหตุผลที่ต้องอิสระ: ทั้งบทนี้กำลังจะอ้างว่า "เส้นที่ถูกเปลือกทิ้ง คือเส้นที่ไม่มีวันชนะ"
+   ถ้าตัวตรวจสร้างเปลือกด้วยวิธีเดียวกัน มันก็แค่ตรวจว่าพิมพ์โค้ดถูก ไม่ได้ตรวจข้ออ้าง
+
+   วิธีที่ใช้: ลำดับของค่าทุกเส้นเปลี่ยนได้เฉพาะที่จุดตัดของเส้นคู่ใดคู่หนึ่ง
+   จึงเก็บจุดตัดทุกคู่เป็นเศษส่วนแท้ ๆ แล้วทดสอบที่ตัวจุดตัดเอง ที่กลางช่วงระหว่างจุดตัด
+   และที่ปลายซ้าย/ขวานอกจุดตัดทั้งหมด เทียบด้วยการคูณไขว้ ไม่แตะทศนิยมเลย
+   เส้นไหน "เคยเป็นตัวที่ต่ำที่สุดเพียงตัวเดียว" ที่จุดทดสอบใดก็ตาม คือเส้นที่มีประโยชน์
+   --------------------------------------------------------------------------- */
+type Frac = { p: number; q: number };
+const fracCmp = (a: Frac, b: Frac): number => a.p * b.q - b.p * a.q;
+/** ค่าของเส้นที่ x = p/q คูณด้วย q ไว้ เทียบกันได้เพราะ q เท่ากันและเป็นบวก */
+const lnAtFrac = (L: Ln, f: Frac): number => L.m * f.p + L.b * f.q;
+
+function usefulByRationalScan(lines: Ln[]): boolean[] {
+  const cuts: Frac[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const dm = lines[i].m - lines[j].m;
+      if (dm === 0) continue;
+      const q = dm > 0 ? dm : -dm;
+      const p = dm > 0 ? lines[j].b - lines[i].b : lines[i].b - lines[j].b;
+      cuts.push({ p, q });
+    }
+  }
+  cuts.sort(fracCmp);
+  const tests: Frac[] = [];
+  if (cuts.length === 0) {
+    tests.push({ p: 0, q: 1 });
+  } else {
+    tests.push({ p: cuts[0].p - cuts[0].q, q: cuts[0].q });
+    for (let t = 0; t < cuts.length; t++) {
+      tests.push(cuts[t]);
+      const nx = t + 1 < cuts.length ? cuts[t + 1] : null;
+      if (nx !== null && fracCmp(cuts[t], nx) !== 0) {
+        tests.push({ p: cuts[t].p * nx.q + nx.p * cuts[t].q, q: 2 * cuts[t].q * nx.q });
+      }
+    }
+    const last = cuts[cuts.length - 1];
+    tests.push({ p: last.p + last.q, q: last.q });
+  }
+  const useful = lines.map(() => false);
+  for (const f of tests) {
+    const vals = lines.map((L) => lnAtFrac(L, f));
+    const lo = Math.min(...vals);
+    const winners = vals.reduce((acc: number[], v, idx) => (v === lo ? [...acc, idx] : acc), []);
+    if (winners.length === 1) useful[winners[0]] = true;
+  }
+  return useful;
+}
+
+/* ---------------------------------------------------------------------------
+   เปลือกล่างแบบสแต็กกับตัวชี้ คือท่าที่บทนี้สอน (ระดับ 1)
+   ใช้ได้เมื่อความชันใส่เข้ามาแบบลดลง และตำแหน่งที่ถามเรียงเพิ่มขึ้น
+   --------------------------------------------------------------------------- */
+type HullEvent = { kind: 'pop' | 'push' | 'skip'; line: Ln };
+
+class LowerHull {
+  st: Ln[] = [];
+  ptr = 0;
+  lastEvents: HullEvent[] = [];
+
+  /** เส้นกลาง b ไม่จำเป็น ถ้าจุดตัดของ a กับเส้นใหม่ c อยู่ซ้ายกว่าหรือตรงกับจุดตัดของ a กับ b */
+  static useless(a: Ln, b: Ln, c: Ln): boolean {
+    return (c.b - a.b) * (a.m - b.m) <= (b.b - a.b) * (a.m - c.m);
+  }
+  private clampPtr(): void {
+    if (this.ptr >= this.st.length) this.ptr = this.st.length - 1;
+    if (this.ptr < 0) this.ptr = 0;
+  }
+  add(L: Ln): void {
+    this.lastEvents = [];
+    if (this.st.length > 0 && this.st[this.st.length - 1].m === L.m) {
+      if (this.st[this.st.length - 1].b <= L.b) {
+        this.lastEvents.push({ kind: 'skip', line: L });
+        return;
+      }
+      this.lastEvents.push({ kind: 'pop', line: this.st[this.st.length - 1] });
+      this.st.pop();
+    }
+    while (this.st.length >= 2 && LowerHull.useless(this.st[this.st.length - 2], this.st[this.st.length - 1], L)) {
+      this.lastEvents.push({ kind: 'pop', line: this.st[this.st.length - 1] });
+      this.st.pop();
+    }
+    this.st.push(L);
+    this.lastEvents.push({ kind: 'push', line: L });
+    this.clampPtr();
+  }
+  /** ถามค่าน้อยสุดที่ x โดยให้ตัวชี้เดินไปข้างหน้าทางเดียว */
+  query(x: number): number {
+    this.clampPtr();
+    while (this.ptr + 1 < this.st.length && lnAt(this.st[this.ptr + 1], x) <= lnAt(this.st[this.ptr], x)) this.ptr++;
+    return lnAt(this.st[this.ptr], x);
+  }
+  /** ถามแบบไม่ใช้ตัวชี้ ใช้ตอนตำแหน่งที่ถามไม่เรียง (ระดับ 2 ย่อ ๆ) */
+  queryScan(x: number): number {
+    return naiveMin(this.st, x);
+  }
+}
+
+/* ============================================================================
+   โจทย์ที่บทนี้เดินให้ดูทั้งบท: ทางเดินมีหลังคา (Covered Walkway)
+   จุดที่ต้องคลุมเรียงอยู่บนเส้นตรง หลังคาหนึ่งผืนคลุมจาก x ถึง y ราคา c + (x-y)^2
+   ========================================================================== */
+
+const RUN_C = 5000;
+const RUN_X = [1, 23, 45, 67, 101, 124, 560, 789, 990, 1019];
+const RN = RUN_X.length;
+
+type WalkResult = { dp: number[]; cut: number[]; scans: number };
+
+/** ไล่ทุกจุดตัดทุกครั้ง O(n^2) นี่คือความจริง */
+function walkNaive(x: number[], c: number): WalkResult {
+  const n = x.length;
+  const dp = Array<number>(n + 1).fill(INF);
+  const cut = Array<number>(n + 1).fill(0);
+  let scans = 0;
+  dp[0] = 0;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 0; j < i; j++) {
+      scans++;
+      const d = x[i - 1] - x[j];
+      const v = dp[j] + c + d * d;
+      if (v < dp[i]) {
+        dp[i] = v;
+        cut[i] = j;
+      }
+    }
+  }
+  return { dp, cut, scans };
+}
+
+/** ท่าเดียวกัน แต่ยัดทางเลือกทุกทางเป็นเส้นตรงแล้วถามเปลือกล่าง O(n) */
+function walkHull(x: number[], c: number): { dp: number[]; probes: number } {
+  const n = x.length;
+  const dp = Array<number>(n + 1).fill(0);
+  const h = new LowerHull();
+  let probes = 0;
+  for (let i = 1; i <= n; i++) {
+    const j = i - 1;
+    h.add({ m: -2 * x[j], b: dp[j] + x[j] * x[j] });
+    probes++;
+    dp[i] = h.query(x[i - 1]) + x[i - 1] * x[i - 1] + c;
+  }
+  return { dp, probes };
+}
+
+const runNaive = walkNaive(RUN_X, RUN_C);
+const runHull = walkHull(RUN_X, RUN_C);
+const runAnswer = runNaive.dp[RN];
+if (runHull.dp[RN] !== runAnswer) {
+  throw new Error(
+    `convex-hull-dp: ทางเดินตัวอย่างตอบไม่ตรงกัน ไล่ทุกเส้น ${runAnswer} เปลือกนูน ${runHull.dp[RN]}`,
+  );
+}
+if (runAnswer !== 30726) {
+  throw new Error(`convex-hull-dp: ตัวอย่างของโจทย์ต้นทางตอบ 30726 แต่โมเดลได้ ${runAnswer}`);
+}
+
+/** หลังคาแต่ละผืนของคำตอบที่ดีที่สุด อ่านย้อนจากตาราง cut */
+type Roof = { from: number; to: number; span: number; price: number };
+const runRoofs: Roof[] = (() => {
+  const out: Roof[] = [];
+  let i = RN;
+  while (i > 0) {
+    const j = runNaive.cut[i];
+    const span = RUN_X[i - 1] - RUN_X[j];
+    out.push({ from: RUN_X[j], to: RUN_X[i - 1], span, price: RUN_C + span * span });
+    i = j;
+  }
+  out.reverse();
+  return out;
+})();
+const runRoofTotal = runRoofs.reduce((s, r) => s + r.price, 0);
+if (runRoofTotal !== runAnswer) throw new Error('convex-hull-dp: หลังคาที่วาดรวมได้ไม่ตรงคำตอบ');
+/** ผืนที่แพงที่สุดกับผืนที่คลุมจุดเดียว ใช้เขียนคำอธิบายภาพโดยไม่ต้องพิมพ์เลขมือ */
+const runWidest = runRoofs.reduce((best, r) => (r.span > best.span ? r : best));
+const runSingles = runRoofs.filter((r) => r.span === 0).length;
+
+/** ถ้าคลุมทุกจุดด้วยผืนเดียว กับถ้าคลุมจุดละผืน สองอย่างนี้แพงกว่าคำตอบจริงทั้งคู่ */
+const runOneRoof = RUN_C + (RUN_X[RN - 1] - RUN_X[0]) ** 2;
+const runAllSingles = RUN_C * RN;
+if (runOneRoof <= runAnswer || runAllSingles <= runAnswer) {
+  throw new Error('convex-hull-dp: สองทางสุดขั้วควรแพงกว่าคำตอบจริงทั้งคู่');
+}
+
+/* ---------- เส้นตรงของแต่ละทางเลือกในรอบที่เอาไปวาดภาพ ----------
+   เลือกรอบที่มีเส้นในสแต็กมากที่สุด จะได้เห็นเปลือกเป็นรูปเป็นร่าง */
+type PickRound = { i: number; x: number; stack: Ln[]; all: Ln[]; useful: boolean[] };
+const runRounds: PickRound[] = (() => {
+  const out: PickRound[] = [];
+  const dp = Array<number>(RN + 1).fill(0);
+  const h = new LowerHull();
+  const all: Ln[] = [];
+  for (let i = 1; i <= RN; i++) {
+    const j = i - 1;
+    const L = { m: -2 * RUN_X[j], b: dp[j] + RUN_X[j] * RUN_X[j] };
+    h.add(L);
+    all.push(L);
+    dp[i] = h.query(RUN_X[i - 1]) + RUN_X[i - 1] * RUN_X[i - 1] + RUN_C;
+    out.push({ i, x: RUN_X[i - 1], stack: [...h.st], all: [...all], useful: usefulByRationalScan([...all]) });
+  }
+  return out;
+})();
+/** ทุกรอบ เส้นที่เปลือกทิ้งต้องเป็นเส้นที่ตัวตรวจอิสระบอกว่าไม่มีวันชนะจริง */
+for (const rd of runRounds) {
+  const kept = new Set(rd.stack.map((L) => L.m + ':' + L.b));
+  for (let t = 0; t < rd.all.length; t++) {
+    const inStack = kept.has(rd.all[t].m + ':' + rd.all[t].b);
+    if (!inStack && rd.useful[t]) {
+      throw new Error(`convex-hull-dp: รอบที่ ${rd.i} เปลือกทิ้งเส้นที่ยังมีประโยชน์`);
+    }
+  }
+}
+
+/* ---------- สเต็ปของเครื่องเดิน: เติม dp ของทางเดินมีหลังคาทีละจุด ---------- */
+type RowStep = { note: string };
+type BoardRow = {
+  i: number;
+  x: number;
+  added: string;
+  dropped: string;
+  stackSize: number;
+  ptrSlope: string;
+  dp: number;
+};
+const boardRows: BoardRow[] = [];
+const rowSteps: RowStep[] = [];
+{
+  const dp = Array<number>(RN + 1).fill(0);
+  const h = new LowerHull();
+  for (let i = 1; i <= RN; i++) {
+    const j = i - 1;
+    const L: Ln = { m: -2 * RUN_X[j], b: dp[j] + RUN_X[j] * RUN_X[j] };
+    h.add(L);
+    const popped = h.lastEvents.filter((e) => e.kind === 'pop');
+    const skipped = h.lastEvents.some((e) => e.kind === 'skip');
+    const before = h.ptr;
+    dp[i] = h.query(RUN_X[i - 1]) + RUN_X[i - 1] * RUN_X[i - 1] + RUN_C;
+    const moved = h.ptr - before;
+    const chosen = h.st[h.ptr];
+    boardRows.push({
+      i,
+      x: RUN_X[i - 1],
+      added: skipped ? 'ไม่ใส่' : `${L.m}x ${L.b >= 0 ? '+' : '-'} ${Math.abs(L.b)}`,
+      dropped: popped.length === 0 ? '' : String(popped.length),
+      stackSize: h.st.length,
+      ptrSlope: String(chosen.m),
+      dp: dp[i],
+    });
+    const dropText =
+      popped.length === 0
+        ? 'ไม่มีเส้นไหนถูกทิ้ง'
+        : `เส้นเก่า <em>${popped.length}</em> เส้นถูกทิ้ง เพราะเส้นใหม่ตัดหน้าไปก่อนที่เส้นพวกนั้นจะได้ชนะ`;
+    const moveText =
+      moved === 0
+        ? 'ตัวชี้อยู่ที่เดิม เส้นที่ชนะรอบก่อนยังชนะอยู่'
+        : `ตัวชี้เดินไปข้างหน้า <em>${moved}</em> ช่อง`;
+    rowSteps.push({
+      note:
+        `จุดที่ต้องคลุมคือ <b>x = ${RUN_X[i - 1]}</b> ก่อนถาม ต้องใส่เส้นของทางเลือก "หลังคาผืนสุดท้ายเริ่มที่จุดที่ ${i}" ` +
+        `ซึ่งมีความชัน <b>${L.m}</b> และจุดตัดแกน <b>${L.b}</b> ` +
+        dropText +
+        ' ' +
+        moveText +
+        ` เส้นที่ต่ำที่สุดที่ x นี้คือเส้นชัน <b>${chosen.m}</b> จึงได้ <b>dp[${i}] = ${dp[i]}</b>`,
+    });
+  }
+  if (dp[RN] !== runAnswer) throw new Error('convex-hull-dp: เครื่องเดินคิดได้ไม่ตรงคำตอบ');
+}
+if (rowSteps.length !== boardRows.length) {
+  throw new Error('convex-hull-dp: จำนวนก้าวของเครื่องเดินไม่เท่าจำนวนแถวของตาราง');
+}
+
+/* ============================================================================
+   มินิเกม: เส้นไหนไม่มีวันชนะ
+   เฉลยของทุกชุดมาจาก usefulByRationalScan ซึ่งไม่สร้างเปลือกเลย
+   แล้วยังเทียบกับเปลือกที่บทนี้สอนอีกชั้นก่อนปล่อยขึ้นหน้า
+   ========================================================================== */
+type GameSeed = { id: string; label: string; tease: string; lines: Ln[] };
+const GAME_SEEDS: GameSeed[] = [
+  {
+    id: 'g1',
+    label: 'ชุดที่ 1 · อุ่นเครื่อง',
+    tease: 'สี่เส้น มีเส้นหนึ่งที่ดูออกได้ตั้งแต่ยังไม่ต้องคิด ใช้ชินกับกติกาก่อน',
+    lines: [
+      { m: -2, b: 0 },
+      { m: 0, b: -1 },
+      { m: 2, b: 0 },
+      { m: 0, b: 6 },
+    ],
+  },
+  {
+    id: 'g2',
+    label: 'ชุดที่ 2 · ชันเท่ากัน',
+    tease: 'ห้าเส้น มีสองคู่ที่ชันเท่ากัน เส้นที่ชันเท่ากันไม่มีวันตัดกัน จึงตัดสินได้ทันที',
+    lines: [
+      { m: -2, b: 0 },
+      { m: -2, b: 5 },
+      { m: 1, b: 0 },
+      { m: 1, b: 4 },
+      { m: 0, b: -1 },
+    ],
+  },
+  {
+    id: 'g3',
+    label: 'ชุดที่ 3 · เส้นที่ถูกบีบจากสองข้าง',
+    tease: 'ห้าเส้น ทุกเส้นดูมีที่ทางของตัวเอง แต่มีหนึ่งเส้นที่ถูกเพื่อนบ้านสองข้างบีบจนไม่เหลือช่วงของตัวเอง',
+    lines: [
+      { m: -5, b: 40 },
+      { m: -3, b: 30 },
+      { m: -1, b: 2 },
+      { m: 0, b: 0 },
+      { m: 2, b: 3 },
+    ],
+  },
+  {
+    id: 'g4',
+    label: 'ชุดที่ 4 · ชุดที่ไม่มีอะไรให้ทิ้ง',
+    tease: 'สี่เส้น ชุดนี้อาจไม่มีเส้นไหนที่ทิ้งได้เลย ถ้าคิดว่าเป็นอย่างนั้นก็กดปุ่มบอกได้',
+    lines: [
+      { m: -5, b: 40 },
+      { m: -1, b: 2 },
+      { m: 0, b: 0 },
+      { m: 2, b: 3 },
+    ],
+  },
+];
+
+type GamePuzzle = GameSeed & { useless: number[] };
+const gamePuzzles: GamePuzzle[] = GAME_SEEDS.map((s) => {
+  const useful = usefulByRationalScan(s.lines);
+  const useless = useful.reduce((acc: number[], ok, idx) => (ok ? acc : [...acc, idx]), []);
+  /* ชั้นที่สอง: เรียงตามความชันจากมากไปน้อยแล้วสร้างเปลือกด้วยท่าที่บทนี้สอน
+     เส้นที่เหลือในสแต็กต้องเป็นชุดเดียวกับเส้นที่ตัวตรวจอิสระบอกว่ามีประโยชน์ */
+  const sorted = [...s.lines].sort((a, b) => b.m - a.m || a.b - b.b);
+  const h = new LowerHull();
+  for (const L of sorted) h.add(L);
+  const keptKeys = new Set(h.st.map((L) => L.m + ':' + L.b));
+  const usefulKeys = new Set(s.lines.filter((_, t) => useful[t]).map((L) => L.m + ':' + L.b));
+  const same =
+    keptKeys.size === usefulKeys.size && [...keptKeys].every((k) => usefulKeys.has(k));
+  if (!same) {
+    throw new Error(
+      `มินิเกมของ convex-hull-dp: ชุด ${s.id} เปลือกเก็บ {${[...keptKeys].join(' ')}} แต่ตัวตรวจอิสระบอกว่ามีประโยชน์คือ {${[...usefulKeys].join(' ')}}`,
+    );
+  }
+  return { ...s, useless };
+});
+/** ชุดที่ 4 ต้องไม่มีเส้นที่ทิ้งได้เลย ไม่งั้นปุ่ม "ทุกเส้นใช้ได้" กลายเป็นคำตอบผิด */
+if (gamePuzzles[3].useless.length !== 0) {
+  throw new Error('convex-hull-dp: ชุดที่ 4 ควรไม่มีเส้นที่ทิ้งได้ แต่มี');
+}
+/** อีกสามชุดต้องมีของให้ทิ้งจริง ไม่งั้นเกมสอนไม่ได้ */
+for (let t = 0; t < 3; t++) {
+  if (gamePuzzles[t].useless.length === 0) {
+    throw new Error(`convex-hull-dp: ชุดที่ ${t + 1} ควรมีเส้นที่ทิ้งได้ แต่ไม่มี`);
+  }
+}
+const gameJson = JSON.stringify(
+  gamePuzzles.map((p) => ({ id: p.id, label: p.label, tease: p.tease, lines: p.lines, useless: p.useless })),
+);
+
+/* ============================================================================
+   ตัวอย่างค้าน: ฝืนใช้ท่าระดับ 1 ในสถานการณ์ที่มันใช้ไม่ได้
+   ทั้งสองตัวหามาจากการไล่ทุกกรณีเล็ก ๆ ตามลำดับจากเล็กไปใหญ่
+   ตัวแรกที่เจอจึงเป็นตัวที่เล็กที่สุดจริง ไม่ใช่ตัวที่สุ่มมาได้
+   ========================================================================== */
+
+/* ---------- ค้านที่ 1: ตำแหน่งที่ถามไม่เรียง ตัวชี้เดินหน้าทางเดียวจึงถอยกลับไปดูไม่ได้ ---------- */
+type QueryTrap = { lines: Ln[]; queries: number[]; at: number; got: number; want: number };
+const queryTrap: QueryTrap = (() => {
+  const SL = [2, 1, 0, -1, -2];
+  const BS = [-1, 0, 1];
+  for (let nl = 2; nl <= 3; nl++) {
+    for (const combo of pickSlopes(SL, nl)) {
+      for (const bs of pickWithRepeat(BS, nl)) {
+        const lines: Ln[] = combo.map((m, t) => ({ m, b: bs[t] }));
+        for (const qs of pickWithRepeat([-1, 0, 1], 2)) {
+          if (qs[1] >= qs[0]) continue;                 // สนใจแค่กรณีที่คำถามถอยหลัง
+          const h = new LowerHull();
+          for (const L of lines) h.add(L);
+          for (let t = 0; t < qs.length; t++) {
+            const got = h.query(qs[t]);
+            const want = naiveMin(lines, qs[t]);
+            if (got !== want) return { lines, queries: qs, at: qs[t], got, want };
+          }
+        }
+      }
+    }
+  }
+  throw new Error('convex-hull-dp: หาตัวค้านของคำถามที่ไม่เรียงไม่เจอ ซึ่งไม่ควรเกิด');
+})();
+
+/* ---------- ค้านที่ 2: ความชันใส่เข้ามาแบบไม่เรียง สแต็กจึงทิ้งเส้นที่ยังมีประโยชน์ ---------- */
+type SlopeTrap = { lines: Ln[]; lost: Ln; at: number; got: number; want: number };
+const slopeTrap: SlopeTrap = (() => {
+  const MS = [-2, -1, 0, 1, 2];
+  const BS = [-2, -1, 0, 1, 2];
+  for (const ms of pickWithRepeat(MS, 3)) {
+    const descending = ms[0] > ms[1] && ms[1] > ms[2];
+    if (descending) continue;                           // ต้องเป็นลำดับที่ผิดกติกาเท่านั้น
+    if (ms[0] === ms[1] || ms[1] === ms[2] || ms[0] === ms[2]) continue;
+    for (const bs of pickWithRepeat(BS, 3)) {
+      const lines: Ln[] = ms.map((m, t) => ({ m, b: bs[t] }));
+      const h = new LowerHull();
+      for (const L of lines) h.add(L);
+      const kept = new Set(h.st.map((L) => L.m + ':' + L.b));
+      const useful = usefulByRationalScan(lines);
+      for (let t = 0; t < lines.length; t++) {
+        if (!useful[t]) continue;
+        if (kept.has(lines[t].m + ':' + lines[t].b)) continue;
+        for (let x = -4; x <= 4; x++) {
+          const got = naiveMin(h.st, x);
+          const want = naiveMin(lines, x);
+          if (got !== want) return { lines, lost: lines[t], at: x, got, want };
+        }
+      }
+    }
+  }
+  throw new Error('convex-hull-dp: หาตัวค้านของความชันที่ไม่เรียงไม่เจอ ซึ่งไม่ควรเกิด');
+})();
+
+/** เลือก nl ค่าจาก pool โดยเรียงจากมากไปน้อยและไม่ซ้ำ */
+function pickSlopes(pool: number[], nl: number): number[][] {
+  if (nl === 0) return [[]];
+  const out: number[][] = [];
+  for (let i = 0; i + nl <= pool.length; i++) {
+    for (const rest of pickSlopes(pool.slice(i + 1), nl - 1)) out.push([pool[i], ...rest]);
+  }
+  return out;
+}
+/** ทุกลำดับความยาว k จาก pool ซ้ำได้ */
+function pickWithRepeat(pool: number[], k: number): number[][] {
+  if (k === 0) return [[]];
+  const out: number[][] = [];
+  for (const head of pool) for (const rest of pickWithRepeat(pool, k - 1)) out.push([head, ...rest]);
+  return out;
+}
+
+/* ============================================================================
+   ตัวช่วยวาดกราฟเส้นตรง ใช้ร่วมกันสามที่ คือภาพเปลือกล่าง ภาพเส้นที่ถูกบีบ และกระดานของเกม
+   ทุก viewBox กว้างเท่าเนื้อหาบวก 12 สูงเท่าเนื้อหาบวก 34 เพื่อเว้นมุมขวาล่างให้ปุ่ม "ขยาย"
+   ========================================================================== */
+type Plot = {
+  w: number;
+  h: number;
+  padL: number;
+  padT: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  sx: (x: number) => number;
+  sy: (y: number) => number;
+};
+
+function makePlot(x0: number, x1: number, y0: number, y1: number, w: number, h: number): Plot {
+  const padL = 46;
+  const padT = 16;
+  return {
+    w,
+    h,
+    padL,
+    padT,
+    x0,
+    x1,
+    y0,
+    y1,
+    sx: (x) => padL + ((x - x0) / (x1 - x0)) * w,
+    sy: (y) => padT + ((y1 - y) / (y1 - y0)) * h,
+  };
+}
+
+/** ตัดเส้นตรงให้พอดีกรอบ คืน null ถ้าเส้นไม่โผล่ในกรอบเลย */
+function clipLine(L: Ln, p: Plot): { ax: number; ay: number; bx: number; by: number } | null {
+  const pts: { x: number; y: number }[] = [];
+  const push = (x: number, y: number): void => {
+    const inX = x >= p.x0 - 1e-9 && x <= p.x1 + 1e-9;
+    const inY = y >= p.y0 - 1e-9 && y <= p.y1 + 1e-9;
+    if (inX && inY) pts.push({ x, y });
+  };
+  push(p.x0, lnAt(L, p.x0));
+  push(p.x1, lnAt(L, p.x1));
+  if (L.m !== 0) {
+    push((p.y0 - L.b) / L.m, p.y0);
+    push((p.y1 - L.b) / L.m, p.y1);
+  }
+  if (pts.length < 2) return null;
+  pts.sort((a, b) => a.x - b.x);
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  if (Math.abs(a.x - b.x) < 1e-9) return null;
+  return { ax: p.sx(a.x), ay: p.sy(a.y), bx: p.sx(b.x), by: p.sy(b.y) };
+}
+
+/** เส้นทางของเปลือกล่างในกรอบ คิดจากจุดตัดของเส้นที่อยู่บนเปลือกเรียงตามความชัน */
+function envelopePath(lines: Ln[], p: Plot): string {
+  const hull = new LowerHull();
+  for (const L of [...lines].sort((a, b) => b.m - a.m || a.b - b.b)) hull.add(L);
+  const st = hull.st;
+  const xs: number[] = [p.x0];
+  for (let t = 0; t + 1 < st.length; t++) {
+    const dm = st[t].m - st[t + 1].m;
+    if (dm !== 0) xs.push((st[t + 1].b - st[t].b) / dm);
+  }
+  xs.push(p.x1);
+  const pieces: string[] = [];
+  for (let t = 0; t < st.length; t++) {
+    const a = Math.max(p.x0, xs[t]);
+    const b = Math.min(p.x1, xs[t + 1]);
+    if (b - a <= 1e-9) continue;
+    const ya = lnAt(st[t], a);
+    const yb = lnAt(st[t], b);
+    pieces.push(`${pieces.length === 0 ? 'M' : 'L'}${p.sx(a).toFixed(1)} ${p.sy(ya).toFixed(1)}`);
+    pieces.push(`L${p.sx(b).toFixed(1)} ${p.sy(yb).toFixed(1)}`);
+  }
+  return pieces.join(' ');
+}
+
+/** สีของเส้นแต่ละเส้น วนซ้ำได้ถ้าเส้นเยอะกว่าสี */
+const LINE_COLORS = ['#4ade80', '#e0b400', '#7dd3fc', '#f472b6', '#c084fc', '#fb923c'];
+const colorOf = (t: number): string => LINE_COLORS[t % LINE_COLORS.length];
+
+/* ---------- ภาพที่ 2: เปลือกล่างของชุดที่ 3 ในเกม ---------- */
+const HULL_SET = gamePuzzles[2].lines;
+const hullUseless = new Set(gamePuzzles[2].useless);
+const P2 = makePlot(-6, 12, -14, 42, 600, 300);
+const p2Segs = HULL_SET.map((L, t) => ({ t, L, seg: clipLine(L, P2), dead: hullUseless.has(t) }));
+const p2Env = envelopePath(HULL_SET, P2);
+const P2_BOT = P2.padT + P2.h;
+const p2VB = `0 0 ${P2.padL + P2.w + 62 + 12} ${P2_BOT + 40 + 34}`;
+/** ช่วงที่แต่ละเส้นบนเปลือกเป็นเจ้าของ ใช้เขียนคำอธิบายว่าเส้นหนึ่งชนะเป็นช่วงติดกัน */
+const hullOrder = (() => {
+  const h = new LowerHull();
+  for (const L of [...HULL_SET].sort((a, b) => b.m - a.m || a.b - b.b)) h.add(L);
+  return h.st;
+})();
+const hullBreaks = (() => {
+  const out: number[] = [];
+  for (let t = 0; t + 1 < hullOrder.length; t++) {
+    const dm = hullOrder[t].m - hullOrder[t + 1].m;
+    if (dm !== 0) out.push((hullOrder[t + 1].b - hullOrder[t].b) / dm);
+  }
+  return out;
+})();
+
+/* ---------- ภาพที่ 3: เส้นที่ถูกบีบจากสองข้าง ---------- */
+const squeezeIdx = gamePuzzles[2].useless[0];
+const squeezeLine = HULL_SET[squeezeIdx];
+/** เพื่อนบ้านสองข้างที่บีบมันไว้ คือเส้นบนเปลือกที่ชันมากกว่าและน้อยกว่าที่ใกล้ที่สุด */
+const squeezeHi = hullOrder.filter((L) => L.m > squeezeLine.m).reduce((a, b) => (a.m < b.m ? a : b));
+const squeezeLo = hullOrder.filter((L) => L.m < squeezeLine.m).reduce((a, b) => (a.m > b.m ? a : b));
+/** จุดตัดของเส้นที่ถูกทิ้งกับเพื่อนบ้านแต่ละข้าง เขียนเป็นเศษส่วนไว้เลี่ยงทศนิยมในเนื้อหา */
+const sqCutHi = (squeezeHi.b - squeezeLine.b) / (squeezeLine.m - squeezeHi.m);
+const sqCutLo = (squeezeLo.b - squeezeLine.b) / (squeezeLine.m - squeezeLo.m);
+const sqNeighboursCross = (squeezeLo.b - squeezeHi.b) / (squeezeHi.m - squeezeLo.m);
+/** ข้ออ้างของภาพนี้: จุดตัดของเพื่อนบ้านสองข้างอยู่ต่ำกว่าเส้นที่ถูกทิ้งตรงตำแหน่งนั้น */
+const sqCrossY = lnAt(squeezeHi, sqNeighboursCross);
+const sqDeadY = lnAt(squeezeLine, sqNeighboursCross);
+if (sqCrossY >= sqDeadY) {
+  throw new Error('convex-hull-dp: ภาพเส้นที่ถูกบีบ จุดตัดของเพื่อนบ้านควรอยู่ต่ำกว่าเส้นที่ถูกทิ้ง');
+}
+const P3 = makePlot(-6, 12, -14, 42, 560, 290);
+const p3Trio = [squeezeHi, squeezeLine, squeezeLo].map((L, t) => ({ t, L, seg: clipLine(L, P3) }));
+const P3_BOT = P3.padT + P3.h;
+const p3VB = `0 0 ${P3.padL + P3.w + 62 + 24} ${P3_BOT + 40 + 34}`;
+
+/* ---------- ภาพที่ 1: ทางเดินกับหลังคาที่ถูกที่สุด ---------- */
+const D1_X0 = 26;
+const D1_W = 620;
+const d1x = (pos: number): number => D1_X0 + ((pos - RUN_X[0]) / (RUN_X[RN - 1] - RUN_X[0])) * D1_W;
+const D1_ROW_Y = 92;
+const D1_ROW_H = 32;
+const d1Bottom = D1_ROW_Y + runRoofs.length * D1_ROW_H + 22;
+const D1_LBL = 104;   /* วัดจากที่เรนเดอร์จริง ป้ายท้ายแถบยาวถึง x=750 */
+const d1VB = `0 0 ${D1_X0 + D1_W + D1_LBL + 12} ${d1Bottom + 34}`;
+
+/* ---------- ภาพที่ 4: ต้นไม้ลีเชา เก็บเส้นหนึ่งเส้นต่อหนึ่งปม ---------- */
+const LC_LO = 0;
+const LC_HI = 7;
+type LcNode = { l: number; r: number; line: Ln | null; depth: number; pos: number };
+const lcNodes: LcNode[] = [];
+const LC_LINES: Ln[] = [
+  { m: 3, b: 2 },
+  { m: -2, b: 20 },
+  { m: 0, b: 7 },
+  { m: 1, b: 1 },
+];
+{
+  /* ต้นไม้เต็มรูป สร้างทุกปมไว้ก่อนเพื่อวาดง่าย แล้วค่อยหย่อนเส้นลงไปตามกติกาของลีเชา */
+  const idx = new Map<string, number>();
+  const build = (l: number, r: number, depth: number, pos: number): void => {
+    idx.set(l + ':' + r, lcNodes.length);
+    lcNodes.push({ l, r, line: null, depth, pos });
+    if (l === r) return;
+    const mid = l + Math.floor((r - l) / 2);
+    build(l, mid, depth + 1, pos * 2);
+    build(mid + 1, r, depth + 1, pos * 2 + 1);
+  };
+  build(LC_LO, LC_HI, 0, 0);
+  const put = (l: number, r: number, nw: Ln): void => {
+    const at = idx.get(l + ':' + r);
+    if (at === undefined) return;
+    const node = lcNodes[at];
+    let cur = node.line;
+    let add = nw;
+    if (cur === null) {
+      node.line = add;
+      return;
+    }
+    const mid = l + Math.floor((r - l) / 2);
+    const leftBetter = lnAt(add, l) < lnAt(cur, l);
+    const midBetter = lnAt(add, mid) < lnAt(cur, mid);
+    if (midBetter) {
+      const swap = cur;
+      cur = add;
+      add = swap;
+      node.line = cur;
+    }
+    if (l === r) return;
+    if (leftBetter !== midBetter) put(l, mid, add);
+    else put(mid + 1, r, add);
+  };
+  for (const L of LC_LINES) put(LC_LO, LC_HI, L);
+}
+/** เดินรากถึงใบที่ตำแหน่งนี้ ต้องเจอเส้นที่ต่ำที่สุดจริงระหว่างทาง */
+const LC_Q = 5;
+const lcPath: LcNode[] = (() => {
+  const out: LcNode[] = [];
+  let l = LC_LO;
+  let r = LC_HI;
+  for (;;) {
+    const node = lcNodes.find((nd) => nd.l === l && nd.r === r);
+    if (node === undefined) break;
+    out.push(node);
+    if (l === r) break;
+    const mid = l + Math.floor((r - l) / 2);
+    if (LC_Q <= mid) r = mid;
+    else l = mid + 1;
+  }
+  return out;
+})();
+const lcBest = lcPath.reduce(
+  (best, nd) => (nd.line === null ? best : Math.min(best, lnAt(nd.line, LC_Q))),
+  INF,
+);
+const lcTruth = naiveMin(LC_LINES, LC_Q);
+if (lcBest !== lcTruth) {
+  throw new Error(`convex-hull-dp: ต้นไม้ลีเชาในภาพตอบ ${lcBest} แต่ความจริงคือ ${lcTruth}`);
+}
+const LC_DEPTH = Math.max(...lcNodes.map((nd) => nd.depth));
+const LC_BW = 74;
+const LC_BH = 34;
+const LC_GAPY = 62;
+const lcLeaves = 1 << LC_DEPTH;
+const lcx = (nd: LcNode): number => {
+  const span = lcLeaves >> nd.depth;
+  return 20 + (nd.pos * span + span / 2) * (LC_BW + 6) - LC_BW / 2;
+};
+const lcy = (nd: LcNode): number => 34 + nd.depth * LC_GAPY;
+const lcPathKeys = new Set(lcPath.map((nd) => nd.l + ':' + nd.r));
+const lcRight = Math.max(...lcNodes.map((nd) => lcx(nd) + LC_BW));
+const lcBottom = lcy(lcNodes[lcNodes.length - 1]) + LC_BH + 26;
+const lcVB = `0 0 ${lcRight + 12} ${lcBottom + 34}`;
+const lcEdges = lcNodes
+  .filter((nd) => nd.depth > 0)
+  .map((nd) => {
+    const span = (lcLeaves >> nd.depth) * 2;
+    const pl = Math.floor(nd.pos / 2);
+    const parent = lcNodes.find((p) => p.depth === nd.depth - 1 && p.pos === pl);
+    return { from: parent, to: nd, span };
+  })
+  .filter((e): e is { from: LcNode; to: LcNode; span: number } => e.from !== undefined);
+
+/* ============================================================================
+   ตัวอย่างของโจทย์ฝึกแต่ละข้อ ทุกตัวเลขคิดที่นี่ ไม่มีเลขไหนพิมพ์ด้วยมือ
+   ========================================================================== */
+
+/* ---------- ฝึกข้อ 2: โค่นต้นไม้ (CF 319C) ใช้ตัวอย่างที่สองของโจทย์ ---------- */
+const P2_A = [1, 2, 3, 10, 20, 30];
+const P2_B = [6, 5, 4, 3, 2, 0];
+const P2_N = P2_A.length;
+type TreeRow = { i: number; dp: number; from: number; charge: number; hits: number };
+const p2Rows: TreeRow[] = (() => {
+  const dp = Array<number>(P2_N + 1).fill(INF);
+  const from = Array<number>(P2_N + 1).fill(0);
+  dp[1] = 0;
+  for (let i = 2; i <= P2_N; i++) {
+    for (let j = 1; j < i; j++) {
+      const v = dp[j] + P2_B[j - 1] * P2_A[i - 1];
+      if (v < dp[i]) {
+        dp[i] = v;
+        from[i] = j;
+      }
+    }
+  }
+  const out: TreeRow[] = [];
+  for (let i = 1; i <= P2_N; i++) {
+    out.push({
+      i,
+      dp: dp[i],
+      from: from[i],
+      charge: i === 1 ? 0 : P2_B[from[i] - 1],
+      hits: P2_A[i - 1],
+    });
+  }
+  return out;
+})();
+const p2Answer = p2Rows[P2_N - 1].dp;
+if (p2Answer !== 138) {
+  throw new Error(`convex-hull-dp: ตัวอย่างของฝึกข้อ 2 ต้องได้ 138 แต่โมเดลได้ ${p2Answer}`);
+}
+/** ตรวจด้วยเปลือกล่างอีกชั้น ความชัน b เรียงลดลง ตำแหน่งถาม a เรียงเพิ่มขึ้น จึงใช้ท่าระดับ 1 ได้ */
+{
+  const dp = Array<number>(P2_N + 1).fill(0);
+  const h = new LowerHull();
+  h.add({ m: P2_B[0], b: 0 });
+  for (let i = 2; i <= P2_N; i++) {
+    dp[i] = h.query(P2_A[i - 1]);
+    h.add({ m: P2_B[i - 1], b: dp[i] });
+  }
+  if (dp[P2_N] !== p2Answer) throw new Error('convex-hull-dp: ฝึกข้อ 2 เปลือกล่างตอบไม่ตรงกับการไล่ทุกเส้น');
+}
+/** กฎที่คนคิดออกก่อนเสมอ คือโค่นต้นถัดไปเรื่อย ๆ ตามลำดับ ไม่ข้ามต้นไหน */
+const p2StepByStep = (() => {
+  let sum = 0;
+  for (let i = 2; i <= P2_N; i++) sum += P2_B[i - 2] * P2_A[i - 1];
+  return sum;
+})();
+if (p2StepByStep <= p2Answer) {
+  throw new Error(`convex-hull-dp: ฝึกข้อ 2 กฎโค่นเรียงต้นควรแพ้ แต่ได้ ${p2StepByStep} ส่วนคำตอบจริง ${p2Answer}`);
+}
+/** ต้นที่คำตอบเลือกโค่นจริง อ่านย้อนจากตาราง from */
+const p2Chain = (() => {
+  const out: number[] = [];
+  let i = P2_N;
+  while (i >= 1) {
+    out.push(i);
+    if (i === 1) break;
+    i = p2Rows[i - 1].from;
+  }
+  out.reverse();
+  return out;
+})();
+const p2ChainCost = (() => {
+  let sum = 0;
+  for (let t = 1; t < p2Chain.length; t++) {
+    sum += P2_B[p2Chain[t - 1] - 1] * P2_A[p2Chain[t] - 1];
+  }
+  return sum;
+})();
+if (p2ChainCost !== p2Answer) throw new Error('convex-hull-dp: ลำดับโค่นของฝึกข้อ 2 รวมได้ไม่ตรงคำตอบ');
+
+/* ---------- ฝึกข้อ 3: สี่เหลี่ยมของนัท (CF 1083E) ใช้ตัวอย่างแรกของโจทย์ ---------- */
+type Rect = { x: number; y: number; a: number };
+const P3_RECTS: Rect[] = [
+  { x: 4, y: 4, a: 8 },
+  { x: 1, y: 5, a: 0 },
+  { x: 5, y: 2, a: 10 },
+];
+const p3Sorted = [...P3_RECTS].sort((r, s) => r.x - s.x);
+const P3_N = p3Sorted.length;
+type RectRow = { t: number; r: Rect; own: number; f: number; from: number };
+const p3Rows: RectRow[] = (() => {
+  const f = Array<number>(P3_N + 1).fill(0);
+  const from = Array<number>(P3_N + 1).fill(0);
+  const out: RectRow[] = [];
+  for (let i = 1; i <= P3_N; i++) {
+    const r = p3Sorted[i - 1];
+    let best = 0;
+    let bj = 0;
+    for (let j = 1; j < i; j++) {
+      const v = f[j] - p3Sorted[j - 1].x * r.y;
+      if (v > best) {
+        best = v;
+        bj = j;
+      }
+    }
+    f[i] = r.x * r.y - r.a + best;
+    from[i] = bj;
+    out.push({ t: i, r, own: r.x * r.y - r.a, f: f[i], from: bj });
+  }
+  return out;
+})();
+const p3Answer = Math.max(0, ...p3Rows.map((row) => row.f));
+if (p3Answer !== 9) {
+  throw new Error(`convex-hull-dp: ตัวอย่างของฝึกข้อ 3 ต้องได้ 9 แต่โมเดลได้ ${p3Answer}`);
+}
+/** ตรวจอิสระ: ไล่ทุกสับเซตแล้วคิดพื้นที่ยูเนียนจากนิยาม ไม่ใช้ดีพีเลย */
+const p3BySubset = (() => {
+  let best = 0;
+  for (let mask = 1; mask < 1 << P3_N; mask++) {
+    const pick = p3Sorted.filter((_, t) => (mask >> t) & 1);
+    const cuts = [...new Set(pick.map((r) => r.x))].sort((a, b) => a - b);
+    let area = 0;
+    let prev = 0;
+    for (const cut of cuts) {
+      const top = pick.reduce((mx, r) => (r.x >= cut ? Math.max(mx, r.y) : mx), 0);
+      area += (cut - prev) * top;
+      prev = cut;
+    }
+    best = Math.max(best, area - pick.reduce((s, r) => s + r.a, 0));
+  }
+  return best;
+})();
+if (p3BySubset !== p3Answer) {
+  throw new Error(`convex-hull-dp: ฝึกข้อ 3 ไล่ทุกสับเซตได้ ${p3BySubset} แต่ดีพีได้ ${p3Answer}`);
+}
+/** รูปที่คำตอบเลือกจริง กับขั้นบันไดของยูเนียน ใช้วาดภาพ */
+const p3BestIdx = p3Rows.reduce((best, row) => (row.f > best.f ? row : best)).t;
+const p3Chosen = (() => {
+  const out: number[] = [];
+  let i = p3BestIdx;
+  while (i >= 1) {
+    out.push(i);
+    i = p3Rows[i - 1].from;
+  }
+  out.reverse();
+  return out;
+})();
+const p3Steps = p3Chosen.map((i, t) => {
+  const r = p3Sorted[i - 1];
+  const prevX = t === 0 ? 0 : p3Sorted[p3Chosen[t - 1] - 1].x;
+  return { i, r, prevX, band: (r.x - prevX) * r.y };
+});
+const p3Area = p3Steps.reduce((s, st) => s + st.band, 0);
+const p3Cost = p3Chosen.reduce((s, i) => s + p3Sorted[i - 1].a, 0);
+if (p3Area - p3Cost !== p3Answer) {
+  throw new Error('convex-hull-dp: ขั้นบันไดของฝึกข้อ 3 รวมได้ไม่ตรงคำตอบ');
+}
+
+/* ---------- ฝึกข้อ 4: กระโดดลงใบ (CF 932F) ใช้ตัวอย่างที่สองของโจทย์ ---------- */
+const P4_A = [5, -10, 5, 7];
+const P4_B = [-8, -80, -3, -10];
+const P4_EDGES: [number, number][] = [
+  [2, 1],
+  [2, 4],
+  [1, 3],
+];
+const P4_N = P4_A.length;
+type JumpNode = { u: number; par: number; kids: number[]; depth: number; dp: number; via: number };
+const p4Nodes: JumpNode[] = (() => {
+  const adj: number[][] = Array.from({ length: P4_N + 1 }, () => []);
+  for (const [u, v] of P4_EDGES) {
+    adj[u].push(v);
+    adj[v].push(u);
+  }
+  const par = Array<number>(P4_N + 1).fill(0);
+  const depth = Array<number>(P4_N + 1).fill(0);
+  const order: number[] = [];
+  par[1] = -1;
+  const stack = [1];
+  while (stack.length > 0) {
+    const u = stack.pop();
+    if (u === undefined) break;
+    order.push(u);
+    for (const v of adj[u]) {
+      if (v === par[u]) continue;
+      par[v] = u;
+      depth[v] = depth[u] + 1;
+      stack.push(v);
+    }
+  }
+  const kids: number[][] = Array.from({ length: P4_N + 1 }, () => []);
+  for (let u = 1; u <= P4_N; u++) if (par[u] > 0) kids[par[u]].push(u);
+  /** ปมทุกตัวในต้นย่อยของ u คิดจากล่างขึ้นบน */
+  const sub: number[][] = Array.from({ length: P4_N + 1 }, () => []);
+  const dp = Array<number>(P4_N + 1).fill(0);
+  const via = Array<number>(P4_N + 1).fill(0);
+  for (let t = order.length - 1; t >= 0; t--) {
+    const u = order[t];
+    sub[u] = [u];
+    for (const v of kids[u]) sub[u] = [...sub[u], ...sub[v]];
+    let best = INF;
+    let bv = 0;
+    for (const v of sub[u]) {
+      if (v === u) continue;
+      const val = P4_A[u - 1] * P4_B[v - 1] + dp[v];
+      if (val < best) {
+        best = val;
+        bv = v;
+      }
+    }
+    dp[u] = best === INF ? 0 : best;
+    via[u] = bv;
+  }
+  const out: JumpNode[] = [];
+  for (let u = 1; u <= P4_N; u++) out.push({ u, par: par[u], kids: kids[u], depth: depth[u], dp: dp[u], via: via[u] });
+  return out;
+})();
+const p4Answer = p4Nodes.map((nd) => nd.dp).join(' ');
+if (p4Answer !== '-300 100 0 0') {
+  throw new Error(`convex-hull-dp: ตัวอย่างของฝึกข้อ 4 ต้องได้ "-300 100 0 0" แต่โมเดลได้ "${p4Answer}"`);
+}
+/** ความชันของเส้นในข้อนี้คือ b ซึ่งเรียงไม่ได้เลย และตำแหน่งที่ถามคือ a ก็เรียงไม่ได้
+    นั่นคือเหตุผลเดียวที่ต้องยกต้นไม้ลีเชามาใช้ ตรวจข้ออ้างนี้ไว้ด้วย */
+const p4SlopesSorted = (() => {
+  const up = P4_B.every((v, t) => t === 0 || P4_B[t - 1] <= v);
+  const down = P4_B.every((v, t) => t === 0 || P4_B[t - 1] >= v);
+  return up || down;
+})();
+if (p4SlopesSorted) {
+  throw new Error('convex-hull-dp: ตัวอย่างของฝึกข้อ 4 ควรมีความชันที่เรียงไม่ได้ เพื่อให้เหตุผลของลีเชาชัด');
+}
+/** เส้นทางกระโดดของปมที่ 1 ในตัวอย่าง ใช้เขียนคำอธิบายภาพ */
+const p4Path = (() => {
+  const out: { from: number; to: number; price: number }[] = [];
+  let u = 1;
+  for (;;) {
+    const nd = p4Nodes[u - 1];
+    if (nd.via === 0) break;
+    out.push({ from: u, to: nd.via, price: P4_A[u - 1] * P4_B[nd.via - 1] });
+    u = nd.via;
+  }
+  return out;
+})();
+const p4PathTotal = p4Path.reduce((s, j) => s + j.price, 0);
+if (p4PathTotal !== p4Nodes[0].dp) {
+  throw new Error('convex-hull-dp: เส้นทางกระโดดของปมที่ 1 รวมได้ไม่ตรงกับ dp');
+}
+
+/* ============================================================================
+   เรขาคณิตของภาพประกอบโจทย์ฝึก
+   ========================================================================== */
+
+/* ภาพฝึกข้อ 2: ต้นไม้เรียงตามความสูง กับลำดับการโค่นที่ถูกที่สุด */
+const D5_X0 = 40;
+const D5_GAP = 96;
+const D5_BASE = 210;
+const d5x = (i: number): number => D5_X0 + (i - 1) * D5_GAP;
+const P2_MAXA = Math.max(...P2_A);
+const d5h = (a: number): number => 24 + (a / P2_MAXA) * 130;
+const p2ChainSet = new Set(p2Chain);
+const d5Bottom = D5_BASE + 40;
+const d5VB = `0 0 ${d5x(P2_N) + 60 + 12} ${d5Bottom + 34}`;
+
+/* ภาพฝึกข้อ 3: ยูเนียนของสี่เหลี่ยมมุมศูนย์ เป็นขั้นบันได */
+const P3_MAXX = Math.max(...p3Sorted.map((r) => r.x));
+const P3_MAXY = Math.max(...p3Sorted.map((r) => r.y));
+const D6_X0 = 52;
+const D6_W = 380;
+const D6_H = 220;
+const D6_Y0 = 26;
+const d6x = (x: number): number => D6_X0 + (x / P3_MAXX) * D6_W;
+const d6y = (y: number): number => D6_Y0 + D6_H - (y / P3_MAXY) * D6_H;
+const D6_TXT = D6_X0 + D6_W + 30;
+const D6_ROW_H = 28;
+const d6Bottom = Math.max(D6_Y0 + D6_H + 34, D6_Y0 + 20 + p3Steps.length * D6_ROW_H + 40);
+const d6VB = `0 0 ${D6_TXT + 151} ${d6Bottom + 34}`;   /* 139 คือขอบขวาของข้อความจริง บวกเผื่อ 12 */
+
+/* ภาพฝึกข้อ 4: ต้นไม้กับค่าประจำปม และลูกศรกระโดดของคำตอบ */
+const D7_BW = 96;
+const D7_BH = 46;
+const D7_GAPY = 76;
+const p4Slots = (() => {
+  /* วางปมตามลำดับที่เดินซ้ายไปขวา ใบได้ช่องของตัวเอง ปมในได้ตำแหน่งกลางของลูก */
+  const slot = new Map<number, number>();
+  let next = 0;
+  const walk = (u: number): number => {
+    const nd = p4Nodes[u - 1];
+    if (nd.kids.length === 0) {
+      const s = next;
+      next++;
+      slot.set(u, s);
+      return s;
+    }
+    const cs = nd.kids.map(walk);
+    const s = (Math.min(...cs) + Math.max(...cs)) / 2;
+    slot.set(u, s);
+    return s;
+  };
+  walk(1);
+  return slot;
+})();
+const d7x = (u: number): number => 24 + (p4Slots.get(u) ?? 0) * (D7_BW + 26);
+const d7y = (u: number): number => 30 + p4Nodes[u - 1].depth * D7_GAPY;
+const P4_MAXDEPTH = Math.max(...p4Nodes.map((nd) => nd.depth));
+const d7Right = Math.max(...p4Nodes.map((nd) => d7x(nd.u) + D7_BW));
+const d7Bottom = 30 + P4_MAXDEPTH * D7_GAPY + D7_BH + 44;
+const d7VB = `0 0 ${d7Right + 84 + 12} ${d7Bottom + 34}`;   /* 84 คือขอบขวาของป้าย "ตอบ N" บวกเผื่อ 12 */
+const p4TreeEdges = p4Nodes.filter((nd) => nd.par > 0).map((nd) => ({ from: nd.par, to: nd.u }));
+const p4JumpSet = new Set(p4Path.map((j) => j.from + '>' + j.to));
+
+/* ============================================================================
+   ตารางวัดเวลา ตัวเลขพวกนี้มาจากการรันจริง ไม่ใช่การประมาณ
+   คอมไพล์จากโค้ดที่หน้านี้ปล่อยจริง (ดึงออกจาก dist) ด้วย g++ 11.4 แล้ว -O2 บนอินพุตชุดเดียวกัน จุดสุ่ม 1 ถึง 1e9 และ c = 1e6
+   ค่าเปลือกนูนเฉลี่ยจากการรันห้าครั้ง เพราะครั้งเดียวสั้นเกินกว่านาฬิกาจะละเอียดพอ
+   ========================================================================== */
+type Bench = { n: number; naive: string; hull: string; ratio: string };
+const benchRows: Bench[] = [
+  { n: 20000, naive: '0.15 s', hull: '0.004 s', ratio: '37 เท่า' },
+  { n: 100000, naive: '4.18 s', hull: '0.014 s', ratio: '299 เท่า' },
+  { n: 200000, naive: '14.75 s', hull: '0.024 s', ratio: '615 เท่า' },
+  { n: 1000000, naive: 'ไม่ได้วัด', hull: '0.076 s', ratio: 'ไม่ได้วัด' },
+];
+
+/* ============================================================================
+   สูตร
+   ========================================================================== */
+const MIN_OP = '\\mathop{\\textcolor{#50FA7B}{\\min}}\\limits';
+const DP = mc.fn('dp');
+const MM = mc.fn('m');
+const BB = mc.fn('b');
+const XX = mc.fn('x');
+const CC = mc.fn('c');
+const EQ = mc.op('=');
+const PLUS = mc.op('+');
+const MINUS = mc.op('-');
+const LE = mc.op('\\le');
+const TWO = mc.num('2');
+const ONE = mc.num('1');
+
+const texWalkRaw = texCode(
+  DP +
+    '[i] ' +
+    EQ +
+    ' ' +
+    MIN_OP +
+    '_{' +
+    mc.num('0') +
+    ' ' +
+    LE +
+    ' j ' +
+    mc.op('<') +
+    ' i} \\Big( ' +
+    DP +
+    '[j] ' +
+    PLUS +
+    ' ' +
+    CC +
+    ' ' +
+    PLUS +
+    ' (' +
+    XX +
+    '[i] ' +
+    MINUS +
+    ' ' +
+    XX +
+    '[j' +
+    PLUS +
+    ONE +
+    '])^{' +
+    TWO +
+    '} \\Big)',
+);
+const texWalkOpen = texCode(
+  DP +
+    '[i] ' +
+    EQ +
+    ' ' +
+    XX +
+    '[i]^{' +
+    TWO +
+    '} ' +
+    PLUS +
+    ' ' +
+    CC +
+    ' ' +
+    PLUS +
+    ' ' +
+    MIN_OP +
+    '_{j} \\Big( \\underbrace{(' +
+    MINUS +
+    TWO +
+    XX +
+    '[j' +
+    PLUS +
+    ONE +
+    '])}_{\\text{ความชัน}} \\cdot ' +
+    XX +
+    '[i] ' +
+    PLUS +
+    ' \\underbrace{(' +
+    DP +
+    '[j] ' +
+    PLUS +
+    ' ' +
+    XX +
+    '[j' +
+    PLUS +
+    ONE +
+    ']^{' +
+    TWO +
+    '})}_{\\text{จุดตัดแกน}} \\Big)',
+);
+const texShape = texCode(
+  DP +
+    '[i] ' +
+    EQ +
+    ' \\text{(ก้อนที่ขึ้นกับ } i \\text{ ล้วน)} ' +
+    PLUS +
+    ' ' +
+    MIN_OP +
+    '_{j} \\Big( ' +
+    MM +
+    '_j \\cdot ' +
+    XX +
+    '_i ' +
+    PLUS +
+    ' ' +
+    BB +
+    '_j \\Big)',
+);
+const texUseless = texCode(
+  '\\frac{' +
+    BB +
+    '_c ' +
+    MINUS +
+    ' ' +
+    BB +
+    '_a}{' +
+    MM +
+    '_a ' +
+    MINUS +
+    ' ' +
+    MM +
+    '_c} \\;' +
+    LE +
+    '\\; \\frac{' +
+    BB +
+    '_b ' +
+    MINUS +
+    ' ' +
+    BB +
+    '_a}{' +
+    MM +
+    '_a ' +
+    MINUS +
+    ' ' +
+    MM +
+    '_b}',
+);
+const texUselessCross = texCode(
+  '(' +
+    BB +
+    '_c ' +
+    MINUS +
+    ' ' +
+    BB +
+    '_a)(' +
+    MM +
+    '_a ' +
+    MINUS +
+    ' ' +
+    MM +
+    '_b) \\;' +
+    LE +
+    '\\; (' +
+    BB +
+    '_b ' +
+    MINUS +
+    ' ' +
+    BB +
+    '_a)(' +
+    MM +
+    '_a ' +
+    MINUS +
+    ' ' +
+    MM +
+    '_c)',
+);
+/* ---------- กระดานของเกม: วาดกราฟของทุกชุดตอนบิลด์ แล้วให้สคริปต์แค่สลับว่าโชว์ชุดไหน ----------
+   เหตุผลที่ไม่วาดด้วย JS คือรูปเป็นข้อมูลของโมเดล ไม่ใช่ผลของการกดปุ่ม
+   วาดตอนบิลด์แปลว่ามันถูกตรวจไปพร้อมกับตัวเลขอื่นทั้งหมดแล้ว */
+type GameBoard = { plot: Plot; segs: { t: number; L: Ln; seg: { ax: number; ay: number; bx: number; by: number } | null }[]; env: string; vb: string; bot: number };
+
+function autoPlot(lines: Ln[]): Plot {
+  const hull = new LowerHull();
+  for (const L of [...lines].sort((a, b) => b.m - a.m || a.b - b.b)) hull.add(L);
+  const breaks: number[] = [];
+  for (let t = 0; t + 1 < hull.st.length; t++) {
+    const dm = hull.st[t].m - hull.st[t + 1].m;
+    if (dm !== 0) breaks.push((hull.st[t + 1].b - hull.st[t].b) / dm);
+  }
+  const lo = breaks.length === 0 ? -4 : Math.floor(Math.min(...breaks)) - 4;
+  const hi = breaks.length === 0 ? 4 : Math.ceil(Math.max(...breaks)) + 4;
+  const x0 = lo;
+  const x1 = hi - lo < 8 ? lo + 8 : hi;
+  const edge = lines.flatMap((L) => [lnAt(L, x0), lnAt(L, x1)]);
+  const envLo = Math.min(...hull.st.map((L) => Math.min(lnAt(L, x0), lnAt(L, x1))));
+  const envHi = Math.max(...edge);
+  const pad = Math.max(4, (envHi - envLo) * 0.06);
+  return makePlot(x0, x1, envLo - pad, envHi + pad, 520, 260);
+}
+
+const gameBoards: GameBoard[] = gamePuzzles.map((pz) => {
+  const plot = autoPlot(pz.lines);
+  const segs = pz.lines.map((L, t) => ({ t, L, seg: clipLine(L, plot) }));
+  /* ทุกเส้นต้องโผล่ในกรอบ ไม่งั้นผู้เล่นจะเห็นชิปที่ไม่มีเส้นให้ดู */
+  for (const s of segs) {
+    if (s.seg === null) {
+      throw new Error(`convex-hull-dp: กระดานของชุด ${pz.id} มีเส้นที่ตกกรอบ`);
+    }
+  }
+  const bot = plot.padT + plot.h;
+  return {
+    plot,
+    segs,
+    env: envelopePath(pz.lines, plot),
+    vb: `0 0 ${plot.padL + plot.w + 72 + 12} ${bot + 40 + 34}`,
+    bot,
+  };
+});
+
+/* ============================================================================
+   โค้ดทุกก้อนในหน้านี้คอมไพล์ด้วย g++ 11.4 แล้วตรวจกับตัวไล่ทุกทางเลือกมาแล้ว
+   ก้อนที่ตั้งใจให้ผิดสองก้อนท้ายสุด ก็คอมไพล์และรันเพื่อยืนยันว่ามันผิดจริงตามที่เล่า
+   ========================================================================== */
+const codeTemplate = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+/* ============================================================
+   แม่แบบ CHT ระดับ 1 · ลอกไปใช้ได้เลย
+   ใช้ได้เมื่อครบสองข้อ
+     1. ความชันของเส้นที่ใส่ เรียงจากมากไปน้อย
+     2. ตำแหน่งที่ถาม เรียงจากน้อยไปมาก
+   หาค่า "น้อยสุด" ถ้าต้องการค่ามากสุด ให้กลับเครื่องหมายทั้งชันและจุดตัด
+   แล้วกลับเครื่องหมายคำตอบอีกที
+   ============================================================ */
+struct Line { ll m, b; };
+static inline ll lineAt(const Line &L, ll x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;                                 // เส้นที่ยังมีสิทธิ์ชนะ เรียงตามความชันจากมากไปน้อย
+  int ptr = 0;                                     // ตัวชี้ว่ารอบก่อนเส้นไหนชนะ เดินไปข้างหน้าทางเดียว
+
+  /* เส้นกลาง b ทิ้งได้ ถ้าจุดตัดของ a กับเส้นใหม่ c ไม่ได้อยู่ขวากว่าจุดตัดของ a กับ b
+     เขียนเป็นการคูณไขว้ ไม่ใช้ทศนิยม และใช้ __int128 เพราะผลคูณล้น long long ได้จริง */
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+
+  /* ตัวชี้อาจชี้เลยปลายสแต็กหลังมีการทิ้งเส้น ต้องหนีบกลับทุกครั้ง
+     เส้นที่ถูกทิ้งอยู่ท้ายสแต็กเสมอ การหนีบมาที่ตัวสุดท้ายจึงไม่ทำให้พลาดคำตอบ */
+  void clampPtr() {
+    if (ptr >= (int)st.size()) ptr = (int)st.size() - 1;
+    if (ptr < 0) ptr = 0;
+  }
+
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {        // ชันเท่ากันไม่มีวันตัดกัน เก็บตัวที่ต่ำกว่า
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+    clampPtr();
+  }
+
+  ll query(ll x) {
+    clampPtr();
+    while (ptr + 1 < (int)st.size() && lineAt(st[ptr + 1], x) <= lineAt(st[ptr], x)) ptr++;
+    return lineAt(st[ptr], x);
+  }
+};
+
+/* ตัวอย่างการต่อสาย: dp[i] = ก้อนที่ขึ้นกับ i ล้วน + min over j<i ของ ( m(j)*x(i) + b(j) )
+   กติกาเดียวที่ต้องระวังคือลำดับ ใส่เส้นของ j ให้ครบทุกตัวที่ใช้ได้ ก่อนจะถามที่ i */
+ll demo(int n, const vector<ll> &slope, const vector<ll> &pos, const vector<ll> &own) {
+  vector<ll> dp(n + 1, 0);
+  Hull h;
+  for (int i = 1; i <= n; i++) {
+    int j = i - 1;                                 // รอบนี้เส้นของ j เพิ่งพร้อมใช้พอดี
+    h.add({slope[j], dp[j]});
+    dp[i] = h.query(pos[i - 1]) + own[i - 1];
+  }
+  return dp[n];
+}
+
+int main() {
+  /* กันไว้ให้ไฟล์นี้คอมไพล์ได้เดี่ยว ๆ ไม่ได้เป็นส่วนของเฉลยข้อไหน */
+  int n = 3;
+  vector<ll> slope = {0, -2, -4}, pos = {1, 2, 3}, own = {5, 5, 5};
+  printf("%lld\\n", demo(n, slope, pos, own));
+  return 0;
+}
+`;
+const codeLevel2 = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+/* ---- เปลือกล่างแบบ "ชันเรียง แต่คำถามไม่เรียง" ----
+   ใส่เส้นยังเหมือนเดิมเป๊ะ เพราะการใส่พึ่งแค่ว่าความชันเรียงลดลง
+   ที่เปลี่ยนคือการถาม เลิกใช้ตัวชี้ แล้วค้นหาแบบไบนารีบนช่วงของแต่ละเส้นแทน  */
+struct Line { ll m, b; };
+static inline ll lineAt(const Line &L, ll x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+  }
+  /* เส้นที่ i ชนะตั้งแต่จุดตัดกับเส้นที่ i-1 ไปจนถึงจุดตัดกับเส้นที่ i+1
+     จึงหาเส้นแรกที่ "จุดตัดกับเส้นถัดไป" อยู่ทางขวาของ x ที่ถาม  */
+  ll query(ll x) const {
+    int lo = 0, hi = (int)st.size() - 1;
+    while (lo < hi) {
+      int mid = lo + (hi - lo) / 2;
+      if (lineAt(st[mid + 1], x) <= lineAt(st[mid], x)) lo = mid + 1;
+      else hi = mid;
+    }
+    return lineAt(st[lo], x);
+  }
+};
+
+int main() {
+  /* ตัวทดสอบในตัว: สุ่มเส้นแล้วเรียงความชันจากมากไปน้อย
+     ถามที่ตำแหน่งแบบสุ่มไม่เรียง เทียบกับการไล่ทุกเส้น  */
+  mt19937 rng(20260910);
+  for (int round = 1; round <= 3000; round++) {
+    int n = 1 + (int)(rng() % 8);
+    vector<Line> all;
+    for (int t = 0; t < n; t++) all.push_back({(ll)(rng() % 21) - 10, (ll)(rng() % 41) - 20});
+    sort(all.begin(), all.end(), [](const Line &p, const Line &q) {
+      return p.m != q.m ? p.m > q.m : p.b < q.b;
+    });
+    Hull h;
+    for (const Line &L : all) h.add(L);
+    for (int q = 0; q < 12; q++) {
+      ll x = (ll)(rng() % 41) - 20;
+      ll got = h.query(x);
+      ll want = LLONG_MAX;
+      for (const Line &L : all) want = min(want, lineAt(L, x));
+      if (got != want) {
+        printf("ROUND %d x=%lld got=%lld want=%lld\\n", round, x, got, want);
+        return 1;
+      }
+    }
+  }
+  printf("ok\\n");
+  return 0;
+}
+`;
+const codeLevel3 = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const ll INF = (ll)4e18;
+
+/* ---- ต้นไม้ลีเชา: ใส่เส้นได้ทุกลำดับ ถามได้ทุกตำแหน่ง ----
+   หนึ่งปมเก็บเส้นเดียว และรับประกันว่าเดินจากรากลงไปถึงใบของตำแหน่งที่ถาม
+   จะต้องผ่านเส้นที่ต่ำที่สุดของตำแหน่งนั้นอย่างน้อยหนึ่งครั้ง  */
+struct Node { int lc, rc; ll m, b; };
+vector<Node> nd(1, {0, 0, 0, INF});                // ปมที่ 0 คือ "ว่าง" เส้นสูงชนิดไม่มีวันชนะ
+
+static inline ll at(int t, ll x) { return nd[t].m * x + nd[t].b; }
+
+int makeNode(ll m, ll b) {
+  nd.push_back({0, 0, m, b});
+  return (int)nd.size() - 1;
+}
+
+/* ตัดสินที่จุดกลางว่าเส้นไหนต่ำกว่า เก็บตัวที่ต่ำกว่าไว้ที่ปมนี้
+   อีกตัวจะต่ำกว่าได้แค่ครึ่งเดียว จึงส่งลงไปครึ่งนั้น ทำให้ลึกแค่ log ของช่วง
+
+   คืนค่าเป็นหมายเลขปม ไม่รับพารามิเตอร์เป็น int& เพราะ makeNode ทำ push_back
+   ซึ่งอาจย้ายตำแหน่งของ vector ทั้งก้อน แล้วอ้างอิงที่ถืออยู่จะชี้ไปหน่วยความจำเก่า */
+int addLine(int t, int l, int r, ll m, ll b) {
+  if (!t) return makeNode(m, b);
+  int mid = l + (r - l) / 2;
+  bool onLeft = m * l + b < at(t, l);
+  bool onMid = m * mid + b < at(t, mid);
+  if (onMid) { swap(nd[t].m, m); swap(nd[t].b, b); }
+  if (l == r) return t;
+  if (onLeft != onMid) {
+    int c = addLine(nd[t].lc, l, mid, m, b);
+    nd[t].lc = c;
+  } else {
+    int c = addLine(nd[t].rc, mid + 1, r, m, b);
+    nd[t].rc = c;
+  }
+  return t;
+}
+
+ll queryTree(int t, int l, int r, ll x) {
+  if (!t) return INF;
+  ll res = at(t, x);
+  if (l == r) return res;
+  int mid = l + (r - l) / 2;
+  if (x <= mid) return min(res, queryTree(nd[t].lc, l, mid, x));
+  return min(res, queryTree(nd[t].rc, mid + 1, r, x));
+}
+
+int main() {
+  /* ตัวทดสอบในตัว: ใส่เส้นแบบสุ่มทั้งลำดับและค่า แล้วถามทุกตำแหน่งในช่วง
+     เทียบกับการไล่ทุกเส้น  */
+  const int LO = -60, HI = 60;
+  mt19937 rng(20260911);
+  for (int round = 1; round <= 400; round++) {
+    nd.assign(1, {0, 0, 0, INF});
+    int root = 0;
+    vector<pair<ll, ll>> all;
+    int n = 1 + (int)(rng() % 10);
+    for (int t = 0; t < n; t++) {
+      ll m = (ll)(rng() % 21) - 10, b = (ll)(rng() % 41) - 20;
+      all.push_back({m, b});
+      root = addLine(root, LO, HI, m, b);
+    }
+    for (int x = LO; x <= HI; x++) {
+      ll got = queryTree(root, LO, HI, x);
+      ll want = INF;
+      for (auto &L : all) want = min(want, L.first * x + L.second);
+      if (got != want) {
+        printf("ROUND %d x=%d got=%lld want=%lld\\n", round, x, got, want);
+        return 1;
+      }
+    }
+  }
+  printf("ok\\n");
+  return 0;
+}
+`;
+const codeWalkway = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+/* ---- เปลือกล่างแบบเดินทางเดียว ใช้ได้เมื่อความชัน "ลดลง" และคำถาม "เพิ่มขึ้น" ---- */
+struct Line { long long m, b; };
+static inline long long lineAt(const Line &L, long long x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;
+  int ptr = 0;
+  /* เส้นกลาง b ไม่จำเป็น ถ้าจุดตัดของ a กับเส้นใหม่ c อยู่ซ้ายกว่าหรือตรงกับจุดตัดของ a กับ b
+     เขียนเป็นการคูณไขว้ ไม่ใช้ทศนิยม จะได้ไม่มีปัญหาความละเอียด */
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+  void clampPtr() { if (ptr >= (int)st.size()) ptr = (int)st.size() - 1; if (ptr < 0) ptr = 0; }
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {          // ชันเท่ากัน เก็บเส้นที่ต่ำกว่า
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+    clampPtr();
+  }
+  long long query(long long x) {
+    clampPtr();
+    while (ptr + 1 < (int)st.size() && lineAt(st[ptr + 1], x) <= lineAt(st[ptr], x)) ptr++;
+    return lineAt(st[ptr], x);
+  }
+};
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+  ll n, c;
+  if (!(cin >> n >> c)) return 0;
+  vector<ll> x(n + 1);
+  for (ll i = 1; i <= n; i++) cin >> x[i];
+
+  /* dp[i] = ค่าน้อยสุดที่คลุมจุดที่ 1..i ให้ครบ
+     ถ้าหลังคาผืนสุดท้ายคลุมจุด j+1..i ราคาผืนนั้นคือ c + (x[i] - x[j+1])^2
+     กระจายกำลังสองออกมา จะได้ dp[j] + x[j+1]^2 - 2*x[j+1]*x[i] + x[i]^2 + c
+     ก้อนที่ขึ้นกับ j คือ (-2*x[j+1]) * x[i] + (dp[j] + x[j+1]^2) ซึ่งเป็นเส้นตรงที่ x[i] */
+  vector<ll> dp(n + 1, 0);
+  Hull h;
+  for (ll i = 1; i <= n; i++) {
+    ll j = i - 1;                                  // เส้นของ j เพิ่งพร้อมใช้พอดี
+    h.add({-2 * x[j + 1], dp[j] + x[j + 1] * x[j + 1]});
+    dp[i] = h.query(x[i]) + x[i] * x[i] + c;
+  }
+  cout << dp[n] << "\\n";
+  return 0;
+}
+`;
+const codeTrees = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+/* ---- เปลือกล่างแบบเดินทางเดียว ใช้ได้เมื่อความชัน "ลดลง" และคำถาม "เพิ่มขึ้น" ---- */
+struct Line { long long m, b; };
+static inline long long lineAt(const Line &L, long long x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;
+  int ptr = 0;
+  /* เส้นกลาง b ไม่จำเป็น ถ้าจุดตัดของ a กับเส้นใหม่ c อยู่ซ้ายกว่าหรือตรงกับจุดตัดของ a กับ b
+     เขียนเป็นการคูณไขว้ ไม่ใช้ทศนิยม จะได้ไม่มีปัญหาความละเอียด */
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+  void clampPtr() { if (ptr >= (int)st.size()) ptr = (int)st.size() - 1; if (ptr < 0) ptr = 0; }
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {          // ชันเท่ากัน เก็บเส้นที่ต่ำกว่า
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+    clampPtr();
+  }
+  long long query(long long x) {
+    clampPtr();
+    while (ptr + 1 < (int)st.size() && lineAt(st[ptr + 1], x) <= lineAt(st[ptr], x)) ptr++;
+    return lineAt(st[ptr], x);
+  }
+};
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+  int n;
+  if (!(cin >> n)) return 0;
+  vector<ll> a(n + 1), b(n + 1);
+  for (int i = 1; i <= n; i++) cin >> a[i];
+  for (int i = 1; i <= n; i++) cin >> b[i];
+
+  /* dp[i] = ค่าน้อยสุดที่จะโค่นต้นที่ i ให้ล้มสนิท
+     ตอนโค่นต้นที่ i ต้นที่ล้มสนิทแล้วซึ่งหมายเลขมากสุดคือ j อยู่ก่อน i
+     จึงจ่ายค่าชาร์จ b[j] ต่อหนึ่งฟัน และต้องฟัน a[i] ครั้ง
+     dp[i] = min over j<i ของ dp[j] + b[j] * a[i] ซึ่งคือเส้นตรงชัน b[j] ที่ตำแหน่ง a[i] */
+  vector<ll> dp(n + 1, 0);
+  Hull h;
+  h.add({b[1], dp[1]});                            // dp[1] = 0 เพราะ a[1] = 1 และเลื่อยชาร์จมาแล้ว
+  for (int i = 2; i <= n; i++) {
+    dp[i] = h.query(a[i]);
+    h.add({b[i], dp[i]});
+  }
+  cout << dp[n] << "\\n";
+  return 0;
+}
+`;
+const codeRects = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+/* ---- เปลือกล่างแบบเดินทางเดียว ใช้ได้เมื่อความชัน "ลดลง" และคำถาม "เพิ่มขึ้น" ---- */
+struct Line { long long m, b; };
+static inline long long lineAt(const Line &L, long long x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;
+  int ptr = 0;
+  /* เส้นกลาง b ไม่จำเป็น ถ้าจุดตัดของ a กับเส้นใหม่ c อยู่ซ้ายกว่าหรือตรงกับจุดตัดของ a กับ b
+     เขียนเป็นการคูณไขว้ ไม่ใช้ทศนิยม จะได้ไม่มีปัญหาความละเอียด */
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+  void clampPtr() { if (ptr >= (int)st.size()) ptr = (int)st.size() - 1; if (ptr < 0) ptr = 0; }
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {          // ชันเท่ากัน เก็บเส้นที่ต่ำกว่า
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+    clampPtr();
+  }
+  long long query(long long x) {
+    clampPtr();
+    while (ptr + 1 < (int)st.size() && lineAt(st[ptr + 1], x) <= lineAt(st[ptr], x)) ptr++;
+    return lineAt(st[ptr], x);
+  }
+};
+
+struct Rect { ll x, y, a; };
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+  int n;
+  if (!(cin >> n)) return 0;
+  vector<Rect> r(n);
+  for (auto &t : r) cin >> t.x >> t.y >> t.a;
+  sort(r.begin(), r.end(), [](const Rect &p, const Rect &q) { return p.x < q.x; });
+
+  /* โจทย์รับประกันว่าไม่มีรูปไหนซ้อนอยู่ในรูปอื่น เรียงตาม x เพิ่มขึ้นแล้ว y จะลดลงเอง
+     f[i] = ค่าดีที่สุดเมื่อรูปที่ i เป็นรูปขวาสุดที่เลือก
+     พื้นที่ที่รูปที่ i เพิ่มให้คือ x[i]*y[i] ลบส่วนที่รูปก่อนหน้าคลุมไว้แล้วคือ x[j]*y[i]
+     f[i] = x[i]*y[i] - a[i] + max over j<i ของ ( f[j] - x[j]*y[i] )
+
+     ก้อนใน max เป็นเส้นตรงชัน -x[j] ที่ตำแหน่ง y[i] ซึ่งเป็น "ค่ามากสุด" และความชันลดลง
+     พลิกเครื่องมือเดิมมาใช้ด้วยการกลับเครื่องหมายทั้งชันและจุดตัด (สะท้อนรูปข้ามแกน x)
+     แล้วถามที่ -y[i] ซึ่งเรียงเพิ่มขึ้นพอดี ค่ามากสุดจึงเท่ากับลบของค่าน้อยสุด */
+  Hull h;
+  h.add({0, 0});                                   // ไม่เลือกรูปไหนก่อนหน้าเลย f = 0
+  ll ans = 0;
+  for (int i = 0; i < n; i++) {
+    ll f = r[i].x * r[i].y - r[i].a - h.query(-r[i].y);
+    ans = max(ans, f);
+    h.add({-r[i].x, -f});
+  }
+  cout << ans << "\\n";
+  return 0;
+}
+`;
+const codeJump = `
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+const ll INF = (ll)4e18;
+const int XLO = -100000, XHI = 100000;             // ช่วงของ a[i] ตามขอบเขตโจทย์
+
+/* ---- ต้นไม้ลีเชา เก็บเส้นตรงหนึ่งเส้นต่อหนึ่งปม เดินรากถึงใบแล้วเจอเส้นที่ดีที่สุดแน่ ---- */
+struct Node { int lc, rc; ll m, b; };
+vector<Node> nd(1, {0, 0, 0, INF});                // ปมที่ 0 คือ "ว่าง" เส้นสูงชนิดไม่มีวันชนะ
+
+static inline ll at(int t, ll x) { return nd[t].m * x + nd[t].b; }
+
+int makeNode(ll m, ll b) {
+  nd.push_back({0, 0, m, b});
+  return (int)nd.size() - 1;
+}
+
+/* ใส่เส้นใหม่ ตัดสินที่จุดกลางว่าเส้นไหนต่ำกว่า เก็บตัวที่ต่ำกว่าไว้ที่ปมนี้
+   อีกตัวจะต่ำกว่าได้แค่ครึ่งเดียว จึงส่งลงไปครึ่งนั้น ทำให้ลึกแค่ log ของช่วง
+
+   คืนค่าเป็นหมายเลขปม ไม่รับพารามิเตอร์เป็น int& เพราะ makeNode ทำ push_back
+   ซึ่งอาจย้ายตำแหน่งของ vector ทั้งก้อน แล้วอ้างอิงที่ถืออยู่จะชี้ไปที่หน่วยความจำเก่า */
+int addLine(int t, int l, int r, ll m, ll b) {
+  if (!t) return makeNode(m, b);
+  int mid = l + (r - l) / 2;
+  bool onLeft = m * l + b < at(t, l);
+  bool onMid = m * mid + b < at(t, mid);
+  if (onMid) { swap(nd[t].m, m); swap(nd[t].b, b); }
+  if (l == r) return t;
+  if (onLeft != onMid) {
+    int c = addLine(nd[t].lc, l, mid, m, b);
+    nd[t].lc = c;
+  } else {
+    int c = addLine(nd[t].rc, mid + 1, r, m, b);
+    nd[t].rc = c;
+  }
+  return t;
+}
+
+/* รวมสองต้นเข้าด้วยกัน รวมลูกก่อน แล้วค่อยยัดเส้นของปมฝั่งที่ถูกกลืนลงไปในต้นที่เหลือ */
+int mergeTree(int a, int b, int l, int r) {
+  if (!a) return b;
+  if (!b) return a;
+  int mid = l + (r - l) / 2;
+  if (l < r) {
+    int cl = mergeTree(nd[a].lc, nd[b].lc, l, mid);
+    nd[a].lc = cl;
+    int cr = mergeTree(nd[a].rc, nd[b].rc, mid + 1, r);
+    nd[a].rc = cr;
+  }
+  return addLine(a, l, r, nd[b].m, nd[b].b);
+}
+
+ll queryTree(int t, int l, int r, ll x) {
+  if (!t) return INF;
+  ll res = at(t, x);
+  if (l == r) return res;
+  int mid = l + (r - l) / 2;
+  if (x <= mid) return min(res, queryTree(nd[t].lc, l, mid, x));
+  return min(res, queryTree(nd[t].rc, mid + 1, r, x));
+}
+
+int main() {
+  ios::sync_with_stdio(false);
+  cin.tie(nullptr);
+  int n;
+  if (!(cin >> n)) return 0;
+  vector<ll> a(n + 1), b(n + 1);
+  for (int i = 1; i <= n; i++) cin >> a[i];
+  for (int i = 1; i <= n; i++) cin >> b[i];
+  vector<vector<int>> g(n + 1);
+  for (int e = 0; e < n - 1; e++) {
+    int u, v;
+    cin >> u >> v;
+    g[u].push_back(v);
+    g[v].push_back(u);
+  }
+
+  /* ไล่ต้นไม้ด้วยสแต็กของตัวเอง ไม่ใช้การเรียกซ้ำ เพราะต้นไม้ลึกได้ถึงแสนชั้น */
+  vector<int> par(n + 1, 0), order;
+  order.reserve(n);
+  {
+    vector<int> stk{1};
+    par[1] = -1;
+    while (!stk.empty()) {
+      int u = stk.back();
+      stk.pop_back();
+      order.push_back(u);
+      for (int v : g[u]) if (v != par[u]) { par[v] = u; stk.push_back(v); }
+    }
+  }
+
+  /* dp[u] = ค่าน้อยสุดที่จะกระโดดจาก u ลงไปถึงใบใดก็ได้ในต้นย่อยของ u
+     กระโดดครั้งแรกไปที่ v ราคา a[u]*b[v] แล้วจ่ายต่ออีก dp[v]
+     ก้อนนี้เป็นเส้นตรงชัน b[v] จุดตัด dp[v] ที่ตำแหน่ง a[u]
+     ความชัน b[v] มาแบบไม่เรียง และตำแหน่งถาม a[u] ก็ไม่เรียง จึงใช้ต้นไม้ลีเชา */
+  vector<ll> dp(n + 1, 0);
+  vector<int> root(n + 1, 0);
+  for (int t = (int)order.size() - 1; t >= 0; t--) {
+    int u = order[t];
+    for (int v : g[u]) if (v != par[u]) root[u] = mergeTree(root[u], root[v], XLO, XHI);
+    dp[u] = root[u] ? queryTree(root[u], XLO, XHI, a[u]) : 0;   // ไม่มีลูกคือเป็นใบ จ่าย 0
+    root[u] = addLine(root[u], XLO, XHI, b[u], dp[u]);
+  }
+  for (int i = 1; i <= n; i++) cout << dp[i] << " \\n"[i == n];
+  return 0;
+}
+`;
+const codeStress = `
+/* ตัวตรวจของทางเดินมีหลังคา รวมสองอย่างไว้ในไบนารีเดียว
+   ชั้นที่หนึ่ง: ดีพีที่ไล่ทางเลือกทุกทาง ซึ่งไม่รู้จักคำว่าเปลือกนูนเลย
+   ชั้นที่สอง: เปลือกล่างที่บทนี้สอน
+   ถ้าสองชั้นตอบไม่ตรงกันแม้แต่รอบเดียว โปรแกรมจะพิมพ์อินพุตที่พังออกมาให้เลย
+
+   ทำเป็นไบนารีเดียวที่วนเคสในตัว ไม่ใช่สองไบนารีกับสคริปต์เชลล์
+   เพราะการเปิดโปรเซสใหม่ต่อหนึ่งเคสแพงกว่าการคิดเคสนั้นหลายสิบเท่า */
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+struct Line { ll m, b; };
+static inline ll lineAt(const Line &L, ll x) { return L.m * x + L.b; }
+
+struct Hull {
+  vector<Line> st;
+  int ptr = 0;
+  static bool useless(const Line &a, const Line &b, const Line &c) {
+    return (__int128)(c.b - a.b) * (a.m - b.m) <= (__int128)(b.b - a.b) * (a.m - c.m);
+  }
+  void clampPtr() {
+    if (ptr >= (int)st.size()) ptr = (int)st.size() - 1;
+    if (ptr < 0) ptr = 0;
+  }
+  void add(Line L) {
+    if (!st.empty() && st.back().m == L.m) {
+      if (st.back().b <= L.b) return;
+      st.pop_back();
+    }
+    while (st.size() >= 2 && useless(st[st.size() - 2], st.back(), L)) st.pop_back();
+    st.push_back(L);
+    clampPtr();
+  }
+  ll query(ll x) {
+    clampPtr();
+    while (ptr + 1 < (int)st.size() && lineAt(st[ptr + 1], x) <= lineAt(st[ptr], x)) ptr++;
+    return lineAt(st[ptr], x);
+  }
+};
+
+ll byHull(const vector<ll> &x, ll c) {
+  int n = (int)x.size();
+  vector<ll> dp(n + 1, 0);
+  Hull h;
+  for (int i = 1; i <= n; i++) {
+    int j = i - 1;
+    h.add({-2 * x[j], dp[j] + x[j] * x[j]});
+    dp[i] = h.query(x[i - 1]) + x[i - 1] * x[i - 1] + c;
+  }
+  return dp[n];
+}
+
+ll byEveryChoice(const vector<ll> &x, ll c) {
+  int n = (int)x.size();
+  vector<ll> dp(n + 1, LLONG_MAX);
+  dp[0] = 0;
+  for (int i = 1; i <= n; i++)
+    for (int j = 0; j < i; j++) {
+      ll d = x[i - 1] - x[j];
+      ll v = dp[j] + c + d * d;
+      if (v < dp[i]) dp[i] = v;
+    }
+  return dp[n];
+}
+
+int main() {
+  mt19937_64 rng(20260910);
+  int rounds = 0;
+  /* กลุ่มที่หนึ่ง: เลขเล็ก จุดซ้ำกันได้บ่อย เพื่อจับกรณีชันเท่ากัน */
+  for (int it = 0; it < 4000; it++) {
+    int n = 1 + (int)(rng() % 9);
+    ll c = 1 + (ll)(rng() % 40);
+    vector<ll> x(n);
+    for (ll &v : x) v = 1 + (ll)(rng() % 30);
+    sort(x.begin(), x.end());
+    ll a = byHull(x, c), b = byEveryChoice(x, c);
+    rounds++;
+    if (a != b) {
+      printf("DIFF n=%d c=%lld hull=%lld truth=%lld\\nx =", n, c, a, b);
+      for (ll v : x) printf(" %lld", v);
+      printf("\\n");
+      return 1;
+    }
+  }
+  /* กลุ่มที่สอง: เลขใหญ่ระดับขอบเขตจริง เพื่อจับการล้นของตัวคูณในเงื่อนไขทิ้งเส้น
+     จุดจะถูกดันไปกองที่ปลายสองข้าง เพราะนั่นคือรูปที่ทำให้ผลต่างของจุดตัดแกนใหญ่ที่สุด */
+  for (int it = 0; it < 4000; it++) {
+    int n = 3 + (int)(rng() % 8);
+    ll c = 1 + (ll)(rng() % 1000000000LL);
+    vector<ll> x(n);
+    for (ll &v : x) {
+      if (rng() % 2) v = 1 + (ll)(rng() % 300);
+      else v = 1000000000LL - (ll)(rng() % 300);
+    }
+    sort(x.begin(), x.end());
+    ll a = byHull(x, c), b = byEveryChoice(x, c);
+    rounds++;
+    if (a != b) {
+      printf("DIFF n=%d c=%lld hull=%lld truth=%lld\\nx =", n, c, a, b);
+      for (ll v : x) printf(" %lld", v);
+      printf("\\n");
+      return 1;
+    }
+  }
+  printf("ตรงกันทุกรอบ %d รอบ\\n", rounds);
+  return 0;
+}
+`;
+const codeBruteRects = `
+/* ตัวตรวจของฝึกข้อ 3: ไล่ทุกสับเซตของรูป แล้วคิดพื้นที่ยูเนียนจากนิยามตรง ๆ
+   ไม่ใช้ดีพี ไม่ใช้ข้ออ้างเรื่อง "รูปขวาสุด" และไม่ใช้เรื่องไม่มีรูปซ้อนกันเลย */
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+struct R { ll x, y, a; };
+
+int main() {
+  int n;
+  if (!(cin >> n)) return 0;
+  vector<R> r(n);
+  for (auto &t : r) cin >> t.x >> t.y >> t.a;
+  ll best = 0;                                     // ไม่เลือกรูปไหนเลยได้ 0
+  for (int mask = 1; mask < (1 << n); mask++) {
+    vector<R> s;
+    for (int i = 0; i < n; i++) if (mask >> i & 1) s.push_back(r[i]);
+    vector<ll> xs;
+    for (auto &t : s) xs.push_back(t.x);
+    sort(xs.begin(), xs.end());
+    xs.erase(unique(xs.begin(), xs.end()), xs.end());
+    ll area = 0, prev = 0;
+    for (ll cut : xs) {                            // แถบแนวตั้ง (prev, cut]
+      ll top = 0;
+      for (auto &t : s) if (t.x >= cut) top = max(top, t.y);
+      area += (cut - prev) * top;
+      prev = cut;
+    }
+    ll cost = 0;
+    for (auto &t : s) cost += t.a;
+    best = max(best, area - cost);
+  }
+  cout << best << "\\n";
+  return 0;
+}
+`;
+const codeBruteJump = `
+/* ตัวตรวจของฝึกข้อ 4: ไล่ทุกปมในต้นย่อยตรง ๆ ไม่มีต้นไม้ลีเชา ไม่มีเปลือกนูน */
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+const ll INF = (ll)4e18;
+int n; vector<vector<int>> g; vector<int> par, order_;
+int main(){
+  if(!(cin>>n))return 0;
+  vector<ll>a(n+1),b(n+1);
+  for(int i=1;i<=n;i++)cin>>a[i];
+  for(int i=1;i<=n;i++)cin>>b[i];
+  g.assign(n+1,{});
+  for(int e=0;e<n-1;e++){int u,v;cin>>u>>v;g[u].push_back(v);g[v].push_back(u);}
+  par.assign(n+1,0);
+  vector<int>stk{1};par[1]=-1;
+  while(!stk.empty()){int u=stk.back();stk.pop_back();order_.push_back(u);
+    for(int v:g[u])if(v!=par[u]){par[v]=u;stk.push_back(v);}}
+  // ปมในต้นย่อยของแต่ละ u
+  vector<vector<int>>sub(n+1);
+  for(int t=(int)order_.size()-1;t>=0;t--){int u=order_[t];sub[u].push_back(u);
+    for(int v:g[u])if(v!=par[u])for(int w:sub[v])sub[u].push_back(w);}
+  vector<ll>dp(n+1,0);
+  for(int t=(int)order_.size()-1;t>=0;t--){int u=order_[t];ll best=INF;
+    for(int v:sub[u])if(v!=u)best=min(best,a[u]*b[v]+dp[v]);
+    dp[u]=(best==INF?0:best);}
+  for(int i=1;i<=n;i++)cout<<dp[i]<<" \\n"[i==n];
+}
+`;
+const codeBadOverflow = `
+// เงื่อนไขทิ้งเส้น เวอร์ชันที่ผลคูณล้น
+static bool useless(const Line &a, const Line &b, const Line &c) {
+  // บรรทัดนี้ผิด: ผลต่างของจุดตัดแกนโตได้ถึงระดับ 2e18 และผลต่างของความชันถึง 4e9
+  // คูณกันแล้วเป็น 8e27 ซึ่งล้น long long (เพดานราว 9.2e18) แบบเงียบ ๆ
+  return (long long)(c.b - a.b) * (a.m - b.m) <= (long long)(b.b - a.b) * (a.m - c.m);
+}
+
+// อินพุตที่เล็กที่สุดเท่าที่ทำให้พัง มีจุดแค่สามจุด
+//   3 1000000
+//   1
+//   999999900
+//   1000000000
+// เวอร์ชันล้นตอบ 3000000 คือ "คลุมจุดละผืน" สามผืน
+// คำตอบจริงคือ 2010000 คือผืนแรกคลุมจุดที่ 1 อย่างเดียวจ่าย 1000000
+// ผืนที่สองคลุมสองจุดท้ายซึ่งห่างกัน 100 จ่าย 1000000 + 100*100 = 1010000
+//
+// เส้นตรงต้องมีสามเส้นขึ้นไปเงื่อนไขนี้จึงถูกเรียกใช้ สามจุดจึงเป็นตัวค้านที่เล็กที่สุดที่มีได้
+`;
+const codeBadJump = `
+// ต้นไม้ลีเชา เวอร์ชันแรกที่ผมเขียน ซึ่งผิด
+// ปมเก็บใน vector<Node> nd แล้วรับพารามิเตอร์เป็นอ้างอิงไปยังช่องลูก
+void addLine(int &t, int l, int r, ll m, ll b) {
+  // makeNode ข้างล่างทำ nd.push_back() ซึ่งถ้า vector เต็มจะจองบล็อกใหม่แล้วย้ายข้อมูลทั้งก้อน
+  // ตอนนั้น t ที่เป็นอ้างอิงไปยัง nd[...].lc ของบล็อกเก่า กลายเป็นอ้างอิงค้าง
+  if (!t) { t = makeNode(m, b); return; }
+
+  int mid = l + (r - l) / 2;
+  bool onLeft = m * l + b < at(t, l);
+  bool onMid = m * mid + b < at(t, mid);
+  if (onMid) { swap(nd[t].m, m); swap(nd[t].b, b); }
+  if (l == r) return;
+
+  // สองบรรทัดนี้คือจุดตาย ส่ง nd[t].lc เข้าไปเป็นอ้างอิง
+  // แล้วข้างในนั้นมีการ push_back ซึ่งย้าย nd ทั้งก้อน
+  // การเขียนค่ากลับจึงไปลงที่หน่วยความจำที่ถูกปล่อยแล้ว เส้นที่ใส่หายไปเงียบ ๆ
+  if (onLeft != onMid) addLine(nd[t].lc, l, mid, m, b);
+  else addLine(nd[t].rc, mid + 1, r, m, b);
+}
+
+// อาการ: ตัวอย่างที่หนึ่งของโจทย์ผ่าน (10 50 0) แต่ตัวอย่างที่สองตอบ
+//   -50 100 0 0
+// ขณะที่คำตอบคือ
+//   -300 100 0 0
+// ปมที่ 1 ควรกระโดดไปปมที่ 2 ด้วยราคา 5 * (-80) = -400 แล้วต่อไปปมที่ 4 อีก 100 รวม -300
+// แต่เส้นของปมที่ 2 หายไปจากต้นไม้ที่ถูกรวมขึ้นมา จึงเหลือทางที่แย่กว่าคือกระโดดตรงไปปมที่ 4 ได้ -50
+//
+// ทางแก้: ให้ addLine คืนหมายเลขปมกลับมา แล้วเขียนค่าลง nd[t].lc หลังการเรียกจบ
+// ตอนนั้น nd ถูกมองใหม่แล้ว จึงไม่มีอ้างอิงค้างข้ามการ push_back อีก
+`;
+
+---
+
+<CpProblemLayout href={href}>
+  <h2>ปัญหาที่บทนี้แก้</h2>
+  <p>
+    มหาวิทยาลัยจะสร้างทางเดินมีหลังคา บนทางเดินมีจุดที่<strong>ต้องมีหลังคาคลุมให้ได้</strong> อยู่{' '}
+    <code>{RN}</code> จุด จุดอื่นคลุมหรือไม่คลุมก็ไม่มีใครสน ผู้รับเหมาคิดราคาแปลก ๆ คือหลังคาหนึ่งผืน
+    ที่พาดจากตำแหน่ง <code>x</code> ถึงตำแหน่ง <code>y</code> ราคา <code>{RUN_C}</code> บวกกับ
+    <strong>ระยะพาดยกกำลังสอง</strong> ผืนที่คลุมจุดเดียวก็ยังต้องจ่ายค่าคงที่ {RUN_C} อยู่
+  </p>
+  <p>
+    ราคาแบบนี้บีบจากสองข้างพอดี ผืนใหญ่ผืนเดียวคลุมทุกจุดจ่าย <code>{runOneRoof.toLocaleString('en-US')}</code>{' '}
+    เพราะระยะพาดถูกยกกำลังสอง ส่วนการแยกเป็นจุดละผืนจ่าย <code>{runAllSingles.toLocaleString('en-US')}</code>{' '}
+    เพราะค่าคงที่โดนคิดซ้ำ {RN} รอบ คำตอบที่ถูกที่สุดอยู่ตรงกลางระหว่างสองทางนั้น คือ{' '}
+    <code>{runAnswer.toLocaleString('en-US')}</code> ด้วยหลังคา {runRoofs.length} ผืน
+  </p>
+
+  <ZoomableDiagram caption={`จุดที่ต้องคลุมทั้ง ${RN} จุด กับหลังคา ${runRoofs.length} ผืนที่ถูกที่สุด แถบเทาคือช่วงที่แต่ละผืนพาด ผืนที่กว้างที่สุดพาด ${runWidest.span} หน่วยจึงจ่ายถึง ${runWidest.price} ขณะที่อีก ${runSingles} ผืนคลุมจุดเดียวจ่ายแค่ค่าคงที่`}>
+    <svg viewBox={d1VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ทางเดินกับจุดที่ต้องคลุม และหลังคาที่ถูกที่สุด">
+      <text x="26" y="20" fill="#9aa7bd" font-size="12" font-family="monospace">ทางเดิน · จุดที่ต้องคลุมคือขีดสีทอง</text>
+      <line x1={d1x(RUN_X[0])} y1={54} x2={d1x(RUN_X[RN - 1])} y2={54} stroke="#4a5a7d" stroke-width="2" />
+      {RUN_X.map((v, t) => (
+        <>
+          <line x1={d1x(v)} y1={40} x2={d1x(v)} y2={68} stroke="#e0b400" stroke-width="2" />
+          <text
+            x={d1x(v)}
+            y={t % 2 === 0 ? 34 : 82}
+            fill="#e0b400"
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {v}
+          </text>
+        </>
+      ))}
+      {runRoofs.map((r, t) => (
+        <>
+          <text x="26" y={D1_ROW_Y + t * D1_ROW_H + 15} fill="#9aa7bd" font-size="11" font-family="monospace">
+            ผืนที่ {t + 1}
+          </text>
+          <rect
+            x={d1x(r.from) - 4}
+            y={D1_ROW_Y + t * D1_ROW_H}
+            width={d1x(r.to) - d1x(r.from) + 8}
+            height={20}
+            rx="4"
+            fill="#132033"
+            stroke="#4ade80"
+          />
+          <text
+            x={d1x(r.to) + 12}
+            y={D1_ROW_Y + t * D1_ROW_H + 15}
+            fill="#cdd6ea"
+            font-size="11"
+            font-family="monospace"
+          >
+            พาด {r.span} จ่าย {r.price}
+          </text>
+        </>
+      ))}
+      <text x="26" y={d1Bottom + 6} fill="#4ade80" font-size="13" font-family="monospace">
+        รวม {runAnswer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เขียนสูตรได้ไม่ยาก มองว่าหลังคาผืนสุดท้ายคลุมจุดที่ <code>j+1</code> ถึงจุดที่ <code>i</code>{' '}
+    แล้วที่เหลือเป็นโจทย์เดิมที่เล็กลง
+  </p>
+  <Fragment set:html={texWalkRaw} />
+  <p>
+    สูตรนี้มีช่องให้เติม <code>n</code> ช่อง แต่ละช่องไล่ <code>j</code> ได้ถึง <code>n</code> ค่า
+    รวมเป็น <code>O(n²)</code> ซึ่งไหวถ้า <code>n</code> อยู่ระดับหมื่น
+    แต่โจทย์ต้นทางให้ <code>n</code> ถึงหนึ่งล้าน
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>วัดหัวต่อหัว · g++ 11.4 ตัวเดียวกัน คอมไพล์ด้วย -O2</caption>
+      <thead>
+        <tr>
+          <th class="num">n</th>
+          <th class="num">ไล่ทางเลือกทุกทาง</th>
+          <th class="num">ถามเปลือกนูน</th>
+          <th class="num">เร็วขึ้น</th>
+        </tr>
+      </thead>
+      <tbody>
+        {benchRows.map((r) => (
+          <tr>
+            <td class="num">{r.n.toLocaleString('en-US')}</td>
+            <td class="num">{r.naive}</td>
+            <td class="num">{r.hull}</td>
+            <td class="num">{r.ratio}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>
+      สองแถวนี้ไม่ใช่การประมาณ ผมคอมไพล์ทั้งสองตัวแล้วรันอินพุตชุดเดียวกันจริง จุดสุ่มระหว่าง 1 ถึงหนึ่งพันล้าน
+      ทั้งคู่ตอบเลขเดียวกันทุกครั้ง ค่าของฝั่งเปลือกนูนเฉลี่ยจากการรันห้าครั้ง เพราะครั้งเดียวสั้นเกินกว่านาฬิกาจะละเอียดพอ
+      แถวสุดท้ายผมไม่ได้รันฝั่งไล่ทุกทาง เพราะเวลาที่ต้องใช้ยาวเกินกว่าจะนั่งรอ และตัวเลขที่ไม่ได้วัดผมไม่เขียนลงตาราง
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-note">
+    <p class="callout-label">ชื่อของท่าที่จะแก้เรื่องนี้</p>
+    <p>
+      ท่านี้ชื่อ <strong>convex hull trick</strong> (ย่อว่า <strong>CHT</strong>) อ่านว่า{' '}
+      <strong>"คอนเวกซ์ ฮัลล์ ทริก"</strong> คำว่า <i>convex</i> อ่านว่า <strong>"คอนเวกซ์"</strong> แปลว่า{' '}
+      <strong>"นูนออก"</strong> เป็นคำที่ใช้เรียกรูปที่ไม่มีรอยบุบเข้าไปข้างใน ส่วน <i>hull</i> อ่านว่า{' '}
+      <strong>"ฮัลล์"</strong> แปลตรงตัวว่า <strong>"เปลือก"</strong> หรือ <strong>"ท้องเรือ"</strong>{' '}
+      รวมกันเป็น <strong>"เปลือกนูน"</strong> คือรูปนูนที่เล็กที่สุดที่ห่อของทั้งกองไว้ได้
+      ในบทนี้เราจะไม่ใช้เปลือกนูนทั้งรูป ใช้แค่<strong>ขอบล่างของมัน</strong> ซึ่งเรียกว่า{' '}
+      <i>lower envelope</i> อ่านว่า <strong>"โลเวอร์ เอนเวอโลป"</strong> แปลว่า{' '}
+      <strong>"ซองล่าง"</strong> หรือขอบล่างสุดที่ห่อของทั้งกองไว้
+    </p>
+  </div>
+
+  <p>
+    ท่านี้เป็นสมาชิกคนที่สามของตระกูล "เร่งดีพีด้วยการตัดทางเลือกที่ไม่มีสิทธิ์ชนะทิ้ง" ในคลังนี้ อีกสองคนคือ
+    <a href="/cp/divide-conquer-dp/">แบ่งครึ่งเร่งดีพี</a> กับ
+    <a href="/cp/knuth-optimization/">คะนูธ</a> จุดต่างอยู่ที่<strong>รูปของทางเลือก</strong>
+    สองท่านั้นอ้างว่าจุดตัดที่ดีที่สุดเดินไปทางเดียว ส่วนท่านี้อ้างว่า
+    <strong>ทางเลือกทุกทางเป็นเส้นตรงบนระนาบเดียวกัน</strong> พออ้างได้แบบนั้น
+    เครื่องมือเรขาคณิตก็เข้ามาช่วยตัดทางเลือกทิ้งได้ทันที
+  </p>
+
+  <hr class="divider" />
+
+  <h2>รูปที่ต้องมองให้ออก คือทางเลือกทุกทางเป็นเส้นตรง</h2>
+  <p>
+    กลับไปดูสูตรข้างบนอีกที ก้อนที่แพงคือ <code>(x[i] - x[j+1])²</code> ซึ่งมี <code>i</code> กับ{' '}
+    <code>j</code> พันกันอยู่ในวงเล็บเดียว นั่นคือสาเหตุที่ต้องไล่ทุก <code>j</code>
+    ถ้า <strong>กระจายกำลังสองออกมา</strong> ปมนั้นจะคลายเอง
+  </p>
+  <Fragment set:html={texWalkOpen} />
+  <p>
+    หลังกระจาย ก้อนที่อยู่นอก <code>min</code> ขึ้นกับ <code>i</code> ล้วน คิดทีเดียวจบ
+    ส่วนก้อนที่อยู่ใน <code>min</code> มีรูปที่สำคัญมาก คือ <strong>ตัวเลขที่ขึ้นกับ j เท่านั้น
+    คูณกับตัวเลขที่ขึ้นกับ i เท่านั้น บวกตัวเลขที่ขึ้นกับ j เท่านั้น</strong>
+  </p>
+  <Fragment set:html={texShape} />
+  <p>
+    รูปนี้คุณเห็นมาตั้งแต่มัธยม มันคือ <code>y = mx + b</code> นั่นเอง ความชันคือ{' '}
+    <code>m_j</code> จุดตัดแกนตั้งคือ <code>b_j</code> ทั้งสองค่าคิดจบตอนที่เรารู้ <code>dp[j]</code> แล้ว
+    ส่วน <code>x_i</code> คือ<strong>ตำแหน่งที่เราไปถาม</strong>
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">คำถามเปลี่ยนไปแล้ว และนี่คือสิ่งเดียวที่บทนี้ทำ</p>
+    <p>
+      จากเดิม "ไล่ดู <code>j</code> ทุกตัวว่าตัวไหนให้ค่าน้อยสุด" กลายเป็น{' '}
+      <strong>"มีเส้นตรงกองหนึ่งวางอยู่บนกระดาษ ที่ตำแหน่ง x นี้ เส้นไหนอยู่ต่ำที่สุด"</strong>{' '}
+      คำถามสองอันนี้เป็นคำถามเดียวกันเป๊ะ ต่างกันแค่คำถามที่สองมีรูปให้ดู
+      และรูปนั้นมีสมบัติที่ทำให้ทิ้งทางเลือกได้เป็นกอง
+    </p>
+  </div>
+
+  <p>
+    วาดออกมาดูจริง นี่คือเส้นตรงห้าเส้น เส้นเขียวหนาคือ<strong>ขอบล่าง</strong> ซึ่งก็คือคำตอบของทุก{' '}
+    <code>x</code> พร้อมกันทั้งแถบ
+  </p>
+
+  <ZoomableDiagram caption={`เส้นตรง ${HULL_SET.length} เส้น กับขอบล่างของมัน เส้นประคือเส้นที่ไม่เคยเป็นเส้นที่ต่ำที่สุดที่ตำแหน่งไหนเลย จุดหักของขอบล่างมี ${hullBreaks.length} จุด และแต่ละเส้นที่อยู่บนขอบล่างเป็นเจ้าของช่วง x ที่ติดกันเป็นพืดเดียว ไม่ใช่หลายท่อน`}>
+    <svg viewBox={p2VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="เส้นตรงหลายเส้นกับขอบล่างของมัน">
+      <rect x={P2.padL} y={P2.padT} width={P2.w} height={P2.h} rx="6" fill="#0d1526" stroke="#2a3350" />
+      <line x1={P2.padL} y1={P2.sy(0)} x2={P2.padL + P2.w} y2={P2.sy(0)} stroke="#4a5a7d" stroke-dasharray="3 3" />
+      <line x1={P2.sx(0)} y1={P2.padT} x2={P2.sx(0)} y2={P2_BOT} stroke="#4a5a7d" stroke-dasharray="3 3" />
+      <text x={P2.padL - 8} y={P2.sy(0) + 4} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">y=0</text>
+      <text x={P2.sx(0)} y={P2_BOT + 15} fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">x=0</text>
+      <text x={P2.padL + 6} y={P2.padT + 14} fill="#7b8397" font-size="10" font-family="monospace">y</text>
+      <text x={P2.padL + P2.w - 6} y={P2.sy(0) - 6} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">x</text>
+      <path d={p2Env} fill="none" stroke="#4ade80" stroke-width="6" stroke-linejoin="round" opacity="0.35" />
+      {p2Segs.map((s) =>
+        s.seg === null ? null : (
+          <line
+            x1={s.seg.ax}
+            y1={s.seg.ay}
+            x2={s.seg.bx}
+            y2={s.seg.by}
+            stroke={s.dead ? '#7b8397' : colorOf(s.t)}
+            stroke-width={s.dead ? 1.6 : 2.2}
+            stroke-dasharray={s.dead ? '6 4' : undefined}
+          />
+        ),
+      )}
+      {p2Segs.map((s, t) => (
+        <>
+          <line
+            x1={P2.padL + P2.w + 10}
+            y1={P2.padT + 12 + t * 20}
+            x2={P2.padL + P2.w + 28}
+            y2={P2.padT + 12 + t * 20}
+            stroke={s.dead ? '#7b8397' : colorOf(t)}
+            stroke-width={s.dead ? 1.6 : 2.2}
+            stroke-dasharray={s.dead ? '6 4' : undefined}
+          />
+          <text
+            x={P2.padL + P2.w + 32}
+            y={P2.padT + 16 + t * 20}
+            fill={s.dead ? '#7b8397' : '#cdd6ea'}
+            font-size="10"
+            font-family="monospace"
+          >
+            {s.L.m}x{s.L.b >= 0 ? '+' : '-'}{Math.abs(s.L.b)}
+          </text>
+        </>
+      ))}
+      <text x={P2.padL} y={P2_BOT + 34} fill="#4ade80" font-size="11" font-family="monospace">
+        ขอบล่าง (เส้นเขียวหนา) ประกอบจาก {hullOrder.length} เส้น จากทั้งหมด {HULL_SET.length} เส้น
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    จากรูปนี้มีข้อสังเกตสองข้อที่เป็นทั้งหมดของท่านี้
+  </p>
+  <ul>
+    <li>
+      <strong>เส้นที่อยู่บนขอบล่าง เป็นเจ้าของช่วง x ที่ติดกันเป็นพืดเดียว</strong> ไม่มีเส้นไหนชนะเป็นช่วง ๆ
+      แล้วหายไปแล้วกลับมาชนะอีก เพราะเส้นตรงสองเส้นตัดกันได้ที่เดียว
+    </li>
+    <li>
+      <strong>เรียงตามความชัน คือเรียงตามตำแหน่งบนขอบล่างพอดี</strong> เส้นที่ชันมาก (ในกรณีหาค่าน้อยสุด
+      คือชันเป็นบวกมาก) เป็นเจ้าของฝั่งซ้าย เส้นที่ชันน้อยเป็นเจ้าของฝั่งขวา
+    </li>
+  </ul>
+  <p>
+    ผลที่ตามมาคือ <strong>เส้นที่ไม่ได้อยู่บนขอบล่าง ทิ้งได้ทันทีและตลอดไป</strong>{' '}
+    ในรูปข้างบนมีเส้นแบบนั้น {gamePuzzles[2].useless.length} เส้น เก็บไว้ก็เปลืองเวลาเปล่า ๆ
+    เพราะไม่ว่าจะถามที่ <code>x</code> ไหน มันก็ไม่เคยเป็นคำตอบ
+  </p>
+
+  <hr class="divider" />
+
+  <h2>ลองเอง · เส้นไหนไม่มีวันชนะ</h2>
+  <p>
+    ก่อนไปดูวิธีทิ้งเส้นด้วยเครื่อง ลองทิ้งด้วยมือก่อน กติกาคือกดชิปของเส้นที่คุณคิดว่า
+    <strong>ไม่มีวันเป็นเส้นที่ต่ำที่สุด ไม่ว่าจะถามที่ x ไหนก็ตาม</strong> กดครบแล้วกดตรวจ
+    ระวังว่าแกน <code>x</code> ยืดไปทั้งสองข้างไม่มีที่สิ้นสุด เส้นที่ดูสูงในกรอบอาจไปชนะไกล ๆ นอกกรอบได้
+  </p>
+
+  <div class="cpgame chtgame" data-chtgame data-puzzles={gameJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {gamePuzzles.map((p, t) => (
+        <button
+          type="button"
+          class="cpg-tab"
+          role="tab"
+          data-cpg-tab={String(t)}
+          aria-selected={t === 0 ? 'true' : 'false'}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{gamePuzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {gameBoards.map((bd, gi) => (
+        <div class="chtg-board" data-cht-board={String(gi)} data-on={gi === 0 ? '1' : '0'}>
+          <svg viewBox={bd.vb} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label={'กราฟของ ' + gamePuzzles[gi].label}>
+            <rect x={bd.plot.padL} y={bd.plot.padT} width={bd.plot.w} height={bd.plot.h} rx="6" fill="#0d1526" stroke="#2a3350" />
+            <line x1={bd.plot.padL} y1={bd.plot.sy(0)} x2={bd.plot.padL + bd.plot.w} y2={bd.plot.sy(0)} stroke="#4a5a7d" stroke-dasharray="3 3" />
+            <line x1={bd.plot.sx(0)} y1={bd.plot.padT} x2={bd.plot.sx(0)} y2={bd.bot} stroke="#4a5a7d" stroke-dasharray="3 3" />
+            <text x={bd.plot.padL - 8} y={bd.plot.sy(0) + 4} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">y=0</text>
+            <text x={bd.plot.sx(0)} y={bd.bot + 15} fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">x=0</text>
+            <text x={bd.plot.padL + 6} y={bd.plot.padT + 14} fill="#7b8397" font-size="10" font-family="monospace">y</text>
+            <text x={bd.plot.padL + bd.plot.w - 6} y={bd.plot.sy(0) - 6} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">x</text>
+            {bd.segs.map((s) =>
+              s.seg === null ? null : (
+                <line x1={s.seg.ax} y1={s.seg.ay} x2={s.seg.bx} y2={s.seg.by} stroke={colorOf(s.t)} stroke-width="2.2" />
+              ),
+            )}
+            {bd.segs.map((s, t) => (
+              <>
+                <line
+                  x1={bd.plot.padL + bd.plot.w + 10}
+                  y1={bd.plot.padT + 12 + t * 20}
+                  x2={bd.plot.padL + bd.plot.w + 28}
+                  y2={bd.plot.padT + 12 + t * 20}
+                  stroke={colorOf(t)}
+                  stroke-width="2.2"
+                />
+                <text
+                  x={bd.plot.padL + bd.plot.w + 32}
+                  y={bd.plot.padT + 16 + t * 20}
+                  fill="#cdd6ea"
+                  font-size="10"
+                  font-family="monospace"
+                >
+                  {s.L.m}x{s.L.b >= 0 ? '+' : '-'}{Math.abs(s.L.b)}
+                </text>
+              </>
+            ))}
+            <text x={bd.plot.padL} y={bd.bot + 34} fill="#7b8397" font-size="10" font-family="monospace">
+              แกน x ในกรอบนี้คือ {bd.plot.x0} ถึง {bd.plot.x1} แต่ของจริงยืดไปสองข้างไม่มีที่สิ้นสุด
+            </text>
+          </svg>
+
+          <div class="chtg-chips">
+            {gamePuzzles[gi].lines.map((L, t) => (
+              <button type="button" class="chtg-chip" data-cht-pick={String(gi) + ':' + String(t)}>
+                <span class="chtg-swatch" style={'background:' + colorOf(t)}></span>
+                y = {L.m}x {L.b >= 0 ? '+' : '-'} {Math.abs(L.b)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-cht-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn" data-cht-none>ชุดนี้ทุกเส้นใช้ได้</button>
+      <button type="button" class="cpg-btn main" data-cht-check>ตรวจคำตอบ</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดชิปของเส้นที่คิดว่าไม่มีวันชนะ แล้วกดตรวจคำตอบ</p>
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้เลือกเส้นไหน</p>
+    <p class="cpg-hint">ชิปที่ถูกเลือกจะจางลง หมายถึงเส้นที่คุณกำลังบอกว่าทิ้งได้</p>
+  </div>
+
+  <p class="ns-cue">
+    พอมีคำตอบในใจแล้ว มาดูกันว่าเครื่องรู้ได้ยังไงว่าเส้นไหนทิ้งได้ โดยไม่ต้องวาดรูปเลย
+  </p>
+
+  <hr class="divider" />
+
+  <h2>เครื่องรู้ได้ยังไงว่าเส้นไหนทิ้งได้</h2>
+  <p>
+    ตัวตัดสินคือ<strong>จุดตัด</strong> สมมติว่ามีเส้นสามเส้นเรียงตามความชันจากมากไปน้อย เรียกว่า{' '}
+    <code>a</code>, <code>b</code>, <code>c</code> คำถามคือเส้นกลาง <code>b</code> ยังมีที่ทางของตัวเองไหม
+  </p>
+  <p>
+    เส้น <code>b</code> จะได้ครองช่วงของตัวเอง ก็ต้องมีช่วงที่มันชนะทั้ง <code>a</code> และ <code>c</code>{' '}
+    เส้น <code>b</code> ชนะ <code>a</code> ตั้งแต่จุดที่ <code>a</code> กับ <code>b</code> ตัดกันไปทางขวา
+    และ <code>b</code> ชนะ <code>c</code> จนถึงจุดที่ <code>b</code> กับ <code>c</code> ตัดกัน
+    ถ้าจุดตัดสองจุดนั้น<strong>สลับข้างกัน</strong> ช่วงของ <code>b</code> ก็หายไปเลย
+  </p>
+
+  <ZoomableDiagram caption={'เส้นกลางที่ถูกบีบจนไม่เหลือช่วงของตัวเอง เส้นประคือเส้นที่ทิ้งได้ มันตัดเพื่อนบ้านที่ชันกว่าที่ x = ' + sqCutHi + ' และตัดเพื่อนบ้านที่ชันน้อยกว่าที่ x = ' + sqCutLo + ' ซึ่งอยู่สลับข้างกัน วงกลมสีฟ้าคือที่ที่เพื่อนบ้านสองข้างตัดกันเอง ตรงตำแหน่งนั้นเพื่อนบ้านอยู่ที่ y = ' + sqCrossY + ' ส่วนเส้นประอยู่ที่ y = ' + sqDeadY + ' ซึ่งสูงกว่า'}>
+    <svg viewBox={p3VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="เส้นกลางที่ถูกเพื่อนบ้านสองข้างบีบจนไม่มีช่วงของตัวเอง">
+      <rect x={P3.padL} y={P3.padT} width={P3.w} height={P3.h} rx="6" fill="#0d1526" stroke="#2a3350" />
+      <line x1={P3.padL} y1={P3.sy(0)} x2={P3.padL + P3.w} y2={P3.sy(0)} stroke="#4a5a7d" stroke-dasharray="3 3" />
+      <text x={P3.padL - 8} y={P3.sy(0) + 4} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">y=0</text>
+      <text x={P3.padL + P3.w - 6} y={P3.sy(0) - 6} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">x</text>
+      {p3Trio.map((s) =>
+        s.seg === null ? null : (
+          <line
+            x1={s.seg.ax}
+            y1={s.seg.ay}
+            x2={s.seg.bx}
+            y2={s.seg.by}
+            stroke={s.t === 1 ? '#7b8397' : '#4ade80'}
+            stroke-width={s.t === 1 ? 1.8 : 2.4}
+            stroke-dasharray={s.t === 1 ? '6 4' : undefined}
+          />
+        ),
+      )}
+      <circle cx={P3.sx(sqCutHi)} cy={P3.sy(lnAt(squeezeLine, sqCutHi))} r="4" fill="#e0b400" />
+      <circle cx={P3.sx(sqCutLo)} cy={P3.sy(lnAt(squeezeLine, sqCutLo))} r="4" fill="#e0b400" />
+      <circle cx={P3.sx(sqNeighboursCross)} cy={P3.sy(sqCrossY)} r="5" fill="none" stroke="#7dd3fc" stroke-width="2" />
+      <text x={P3.sx(sqCutHi)} y={P3.sy(lnAt(squeezeLine, sqCutHi)) - 10} fill="#e0b400" font-size="10" text-anchor="middle" font-family="monospace">
+        x={sqCutHi}
+      </text>
+      <text x={P3.sx(sqCutLo)} y={P3.sy(lnAt(squeezeLine, sqCutLo)) - 10} fill="#e0b400" font-size="10" text-anchor="middle" font-family="monospace">
+        x={sqCutLo}
+      </text>
+      <text x={P3.sx(sqNeighboursCross) + 10} y={P3.sy(sqCrossY) + 4} fill="#7dd3fc" font-size="10" font-family="monospace">
+        เพื่อนบ้านตัดกันเองที่ x={sqNeighboursCross}
+      </text>
+      <text x={P3.padL} y={P3_BOT + 20} fill="#7b8397" font-size="10" font-family="monospace">
+        เส้นเขียวคือเพื่อนบ้านสองข้าง · เส้นประคือเส้นที่ถูกบีบ
+      </text>
+      <text x={P3.padL} y={P3_BOT + 36} fill="#4ade80" font-size="11" font-family="monospace">
+        จุดตัดสลับข้างกัน เส้นประจึงไม่เหลือช่วงของตัวเอง
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เขียนเงื่อนไข "จุดตัดสลับข้างกัน" เป็นสูตรได้ตรง ๆ คือจุดตัดของ <code>a</code> กับ <code>c</code>{' '}
+    อยู่ซ้ายกว่าหรือตรงกับจุดตัดของ <code>a</code> กับ <code>b</code>
+  </p>
+  <Fragment set:html={texUseless} />
+  <p>
+    แต่สูตรนี้เขียนลงโค้ดตรง ๆ ไม่ได้ เพราะมันเป็นการหาร ซึ่งพาทศนิยมเข้ามา
+    ท่าที่ปลอดภัยคือ<strong>คูณไขว้</strong> ตัวหารทั้งสองข้างเป็นบวกแน่ เพราะ <code>a</code> ชันกว่าทั้งสองตัว
+    จึงคูณไขว้ได้โดยไม่ต้องกลับเครื่องหมาย
+  </p>
+  <Fragment set:html={texUselessCross} />
+  <div class="callout callout-warn">
+    <p class="callout-label">การหารในสูตรนี้เป็นกับดักที่ตอบผิดแบบเงียบ ๆ</p>
+    <p>
+      บทสอนหลายที่เขียนฟังก์ชันหาจุดตัดด้วย <code>long double</code> ซึ่งใช้ได้ในหลายโจทย์
+      แต่พอค่าโตขึ้น ความละเอียดจะหลุด แล้วเปลือกจะเก็บเส้นที่ควรทิ้งหรือทิ้งเส้นที่ควรเก็บ
+      โดยไม่มีข้อความเตือนอะไรเลย ถ้าเขียนแบบคูณไขว้ตั้งแต่แรก ปัญหานี้หายไปทั้งชั้น
+      เหลือแค่เรื่องเดียวคือ<strong>ตัวคูณล้นชนิดข้อมูล</strong> ซึ่งแก้ด้วย <code>__int128</code>
+      และเป็นเรื่องที่ผมจะไล่ให้ดูด้วยตัวเลขจริงในหัวข้อกับดักท้ายบท
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>เดินให้ดูทีละขั้น</h2>
+  <p>
+    นี่คือการเติม <code>dp</code> ของทางเดินตัวอย่างข้างบนจริง ๆ แถวหนึ่งคือจุดที่ต้องคลุมหนึ่งจุด
+    ก่อนถามทุกครั้ง ต้องใส่เส้นของทางเลือกที่เพิ่งพร้อมใช้เข้าไปก่อน
+    สังเกตสองคอลัมน์ขวาสุด คือจำนวนเส้นที่ยังเหลือในสแต็ก กับความชันของเส้นที่ชนะรอบนั้น
+  </p>
+
+  <CpStepPlayer hook="chtsim" steps={rowSteps} label="เติม dp ของทางเดินมีหลังคา ทีละจุด">
+    <table class="rec chtboard">
+      <caption>DP · ทางเดินตัวอย่าง</caption>
+      <thead>
+        <tr>
+          <th class="num">i</th>
+          <th class="num">x[i]</th>
+          <th class="num">เส้นที่ใส่</th>
+          <th class="num">ทิ้งเส้น</th>
+          <th class="num">เหลือในสแต็ก</th>
+          <th class="num">ชันที่ชนะ</th>
+          <th class="num">dp[i]</th>
+        </tr>
+      </thead>
+      <tbody>
+        {boardRows.map((r) => (
+          <tr>
+            <td class="num">{r.i}</td>
+            <td class="num">{r.x}</td>
+            <td class="num">{r.added}</td>
+            <td class="num">{r.dropped === '' ? <span class="dim">·</span> : r.dropped}</td>
+            <td class="num">{r.stackSize}</td>
+            <td class="num">{r.ptrSlope}</td>
+            <td class="num">{r.dp}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </CpStepPlayer>
+
+  <p class="io-note">
+    เดินครบทั้งตารางแล้วได้ {runAnswer} ตรงกับที่ไล่ทางเลือกทุกทาง จำนวนครั้งที่ต้องใส่เส้นคือ{' '}
+    {runHull.probes} ครั้ง เท่ากับจำนวนจุดพอดี ขณะที่การไล่ทุกทางเลือกต้องส่อง {runNaive.scans} ครั้ง
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">ทำไมรวมทั้งลูปแล้วเป็น O(n) ไม่ใช่ O(n²)</p>
+    <p>
+      ดูเผิน ๆ ทั้ง <code>add</code> และ <code>query</code> มีลูป <code>while</code> อยู่ข้างใน
+      ซึ่งรอบเดียวอาจวนหลายครั้ง แต่<strong>ของที่ลูปพวกนั้นกินไม่เคยกลับมา</strong>
+      เส้นที่ถูกทิ้งไม่มีวันถูกใส่กลับ และตัวชี้เดินไปข้างหน้าทางเดียวไม่มีวันถอย
+      เส้นถูกใส่ทั้งหมด <code>n</code> เส้น จึงถูกทิ้งได้มากที่สุด <code>n</code> ครั้งรวมทั้งโปรแกรม
+      และตัวชี้เดินได้มากที่สุด <code>n</code> ช่องรวมทั้งโปรแกรม
+    </p>
+    <p>
+      วิธีนับแบบนี้เรียกว่า <strong>amortized analysis</strong> อ่านว่า{' '}
+      <strong>"อะมอร์ไทซ์ อะแนไลซิส"</strong> แปลว่า <strong>"การวิเคราะห์แบบเฉลี่ยทบ"</strong>{' '}
+      เป็นตัวนับเดียวกับที่<a href="/cp/sliding-window/">บทหน้าต่างเลื่อน</a> ใช้ คือขอบที่เดินทางเดียวตลอด
+      ให้นับรวมทั้งลูปได้เลย แทนที่จะคูณจำนวนรอบด้วยงานที่แย่ที่สุดของหนึ่งรอบ
+    </p>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>สามระดับของท่านี้ กับกฎที่ตัดสินว่าใช้อันไหน</h2>
+  <p>
+    ตรงนี้เป็นหัวใจของการหยิบท่านี้ไปใช้จริง เพราะเครื่องมือที่ใช้ไม่ได้ขึ้นกับโจทย์
+    มันขึ้นกับ<strong>คำถามสองข้อ</strong> เท่านั้น
+  </p>
+  <ol>
+    <li><strong>ความชันของเส้นที่ใส่ เรียงอยู่แล้วไหม</strong> (เรียงขึ้นหรือลงก็ได้ ขอแค่เรียง)</li>
+    <li><strong>ตำแหน่งที่ถาม เรียงอยู่แล้วไหม</strong></li>
+  </ol>
+  <p>
+    ตอบสองข้อนี้ให้ได้ก่อนพิมพ์โค้ดทุกครั้ง แล้วเลือกจากตารางนี้
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>เลือกเครื่องมือจากคำตอบสองข้อ</caption>
+      <thead>
+        <tr>
+          <th>ความชัน</th>
+          <th>ตำแหน่งที่ถาม</th>
+          <th>เครื่องมือ</th>
+          <th class="num">ราคาต่อครั้ง</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>เรียง</td>
+          <td>เรียง</td>
+          <td><strong>สแต็ก กับตัวชี้</strong> (ระดับ 1)</td>
+          <td class="num">O(1) เฉลี่ยทบ</td>
+        </tr>
+        <tr>
+          <td>เรียง</td>
+          <td>ไม่เรียง</td>
+          <td><strong>สแต็ก กับค้นหาแบบไบนารี</strong> (ระดับ 2)</td>
+          <td class="num">O(log n)</td>
+        </tr>
+        <tr>
+          <td>ไม่เรียง</td>
+          <td>ไม่เรียง</td>
+          <td><strong>ต้นไม้ลีเชา</strong> (ระดับ 3)</td>
+          <td class="num">O(log C)</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ช่อง <code>C</code> ในแถวสุดท้ายคือความกว้างของช่วงตำแหน่งที่จะถาม ไม่ใช่จำนวนเส้น
+      นั่นคือข้อแลกเปลี่ยนของระดับ 3 มันไม่สนว่ามีเส้นกี่เส้น แต่ไปสนว่าแกน x กว้างแค่ไหน
+      กรณี "ความชันไม่เรียง แต่ตำแหน่งที่ถามเรียง" ก็มีอยู่ ซึ่งใช้ต้นไม้ลีเชาได้เหมือนกัน
+      จึงยุบรวมไว้ในแถวเดียวกัน
+    </figcaption>
+  </figure>
+
+  <h3>ระดับ 1 · ชันเรียง ถามเรียง</h3>
+  <p>
+    นี่คือระดับที่บทนี้เดินให้ดูมาทั้งหมด และเป็นระดับที่เจอบ่อยที่สุดในโจทย์แข่ง
+    เพราะดีพีมักไล่ <code>i</code> จากน้อยไปมาก แล้วทั้งความชันและตำแหน่งที่ถามก็มักเป็น
+    ฟังก์ชันของ <code>i</code> ที่ขึ้นหรือลงทางเดียว โค้ดอยู่ในหัวข้อแม่แบบข้างล่าง
+  </p>
+
+  <h3>ระดับ 2 · ชันเรียง แต่ถามไม่เรียง</h3>
+  <p>
+    การใส่เส้นไม่ต้องแก้อะไรเลย เพราะการใส่พึ่งแค่ว่าความชันเรียง ที่ต้องเปลี่ยนคือการถาม
+    เลิกใช้ตัวชี้ แล้วใช้ข้อสังเกตข้อแรกจากรูปเปลือกล่างแทน คือ
+    <strong>เส้นที่ i เป็นเจ้าของช่วง x ตั้งแต่จุดตัดกับเส้นก่อนหน้า ถึงจุดตัดกับเส้นถัดไป</strong>{' '}
+    ช่วงพวกนี้เรียงกันไม่คาบเกี่ยว จึงค้นหาแบบไบนารีได้ตรง ๆ
+  </p>
+  <details class="expander">
+    <summary>ดูโค้ดระดับ 2 พร้อมตัวทดสอบในตัว</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeLevel2} lang="cpp" title="level2.cpp" />
+      <p>
+        ไฟล์นี้มีตัวทดสอบอยู่ในตัว สุ่มเส้นแล้วเรียงความชันจากมากไปน้อย
+        จากนั้นถามที่ตำแหน่งสุ่มแบบไม่เรียง เทียบกับการไล่ทุกเส้น รันแล้วพิมพ์ <code>ok</code>
+        แปลว่าตรงกันทุกรอบ ผมรันจริงและได้ <code>ok</code>
+      </p>
+    </div>
+  </details>
+
+  <h3>ระดับ 3 · ไม่เรียงทั้งคู่ ต้องยกต้นไม้ลีเชามาใช้</h3>
+  <p>
+    พอความชันมาแบบไม่เรียง สแต็กใช้ไม่ได้อีก เพราะกติกาของการทิ้งเส้นสร้างขึ้นบนสมมติฐานว่า
+    เส้นใหม่ชันน้อยที่สุดในกอง เครื่องมือที่ใช้แทนคือ <strong>Li Chao tree</strong> อ่านว่า{' '}
+    <strong>"ลี เชา ทรี"</strong> ตั้งชื่อตาม <i>Li Chao</i> ผู้เผยแพร่ท่านี้
+    ตัวมันคือ<a href="/cp/segment-tree/">เซกเมนต์ทรี</a>ที่<strong>สร้างบนแกน x</strong>{' '}
+    ไม่ใช่บนอาเรย์ของข้อมูล และแต่ละปมเก็บ<strong>เส้นเดียว</strong>
+  </p>
+  <p>
+    กติกาการใส่เส้นสั้นมาก ที่ปมหนึ่งซึ่งดูแลช่วง <code>[l, r]</code> ให้เทียบเส้นเก่ากับเส้นใหม่
+    <strong>ที่จุดกลางของช่วง</strong> ตัวที่ต่ำกว่าอยู่ที่ปมนี้ อีกตัวจะต่ำกว่าได้แค่ครึ่งเดียวของช่วง
+    (เพราะเส้นตรงสองเส้นตัดกันได้ที่เดียว) จึงส่งลงไปครึ่งนั้นครึ่งเดียว
+    ความลึกจึงเป็น <code>log</code> ของความกว้างแกน x
+  </p>
+  <p>
+    การถามก็สั้นเท่ากัน คือ<strong>เดินจากรากลงไปถึงใบของตำแหน่งที่ถาม แล้วเอาค่าน้อยสุดของทุกปมที่เดินผ่าน</strong>{' '}
+    สิ่งที่กติกาการใส่รับประกันคือ เส้นที่ต่ำที่สุดของตำแหน่งนั้น ต้องนอนอยู่ปมใดปมหนึ่งบนเส้นทางนี้แน่
+  </p>
+
+  <ZoomableDiagram caption={'ต้นไม้ลีเชาที่สร้างบนแกน x ช่วง ' + LC_LO + ' ถึง ' + LC_HI + ' หลังใส่เส้น ' + LC_LINES.length + ' เส้น กล่องเขียวคือเส้นทางจากรากลงไปถึงใบของตำแหน่ง x = ' + LC_Q + ' ค่าน้อยสุดที่เจอบนเส้นทางนี้คือ ' + lcBest + ' ซึ่งตรงกับการไล่ทุกเส้นที่ตำแหน่งเดียวกัน กล่องที่ไม่มีเส้นแปลว่าปมนั้นยังว่าง'}>
+    <svg viewBox={lcVB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้ลีเชาและเส้นทางจากรากถึงใบของตำแหน่งที่ถาม" style="display:block;margin:0 auto;max-width:936px">
+      {lcEdges.map((e) => (
+        <line
+          x1={lcx(e.from) + LC_BW / 2}
+          y1={lcy(e.from) + LC_BH}
+          x2={lcx(e.to) + LC_BW / 2}
+          y2={lcy(e.to)}
+          stroke="#2a3350"
+          stroke-width="1.5"
+        />
+      ))}
+      {lcNodes.map((ndx) => (
+        <>
+          <rect
+            x={lcx(ndx)}
+            y={lcy(ndx)}
+            width={LC_BW}
+            height={LC_BH}
+            rx="5"
+            fill={lcPathKeys.has(ndx.l + ':' + ndx.r) ? 'rgba(74,222,128,0.20)' : '#101827'}
+            stroke={lcPathKeys.has(ndx.l + ':' + ndx.r) ? '#4ade80' : '#2a3350'}
+          />
+          <text
+            x={lcx(ndx) + LC_BW / 2}
+            y={lcy(ndx) + 15}
+            fill="#7b8397"
+            font-size="9"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            [{ndx.l},{ndx.r}]
+          </text>
+          <text
+            x={lcx(ndx) + LC_BW / 2}
+            y={lcy(ndx) + 30}
+            fill={ndx.line === null ? '#4a5a7d' : '#eaf4ff'}
+            font-size="10"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {ndx.line === null ? 'ว่าง' : ndx.line.m + 'x' + (ndx.line.b >= 0 ? '+' : '-') + Math.abs(ndx.line.b)}
+          </text>
+        </>
+      ))}
+      <text x="20" y={lcBottom + 6} fill="#4ade80" font-size="11" font-family="monospace">
+        ถามที่ x = {LC_Q} เดินผ่าน {lcPath.length} ปม ได้ค่าน้อยสุด {lcBest}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <details class="expander">
+    <summary>ดูโค้ดต้นไม้ลีเชา พร้อมตัวทดสอบในตัว</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeLevel3} lang="cpp" title="lichao.cpp" />
+      <p>
+        ไฟล์นี้ก็มีตัวทดสอบในตัว ใส่เส้นแบบสุ่มทั้งลำดับและค่า แล้วถามทุกตำแหน่งจำนวนเต็มในช่วง
+        เทียบกับการไล่ทุกเส้น รันแล้วได้ <code>ok</code>
+      </p>
+      <p>
+        จุดที่ต้องอ่านให้ดีในโค้ดนี้คือ <code>addLine</code> <strong>คืนหมายเลขปมกลับมา</strong>{' '}
+        ไม่ได้รับพารามิเตอร์เป็นอ้างอิง เหตุผลอยู่ในเรื่องที่ผมเล่าไว้ในฝึกข้อ 4
+        เพราะเวอร์ชันแรกที่ผมเขียนใช้อ้างอิง แล้วมันผิดในแบบที่หาสาเหตุยากที่สุดในบทนี้
+      </p>
+    </div>
+  </details>
+
+  <hr class="divider" />
+
+  <h2>ถ้าฝืนใช้ผิดระดับ จะพังยังไง</h2>
+  <p>
+    ท่านี้มีคุณสมบัติที่น่ากลัวเหมือนท่าเร่งดีพีอื่น ๆ คือ<strong>เวลาใช้ผิด มันไม่ฟ้อง</strong>{' '}
+    ไม่มีข้อผิดพลาดตอนรัน ไม่มีลูปไม่รู้จบ มีแค่ตัวเลขที่มากกว่าคำตอบจริงในบางอินพุต
+    สองตัวอย่างข้างล่างนี้ผมหามาจากการไล่ทุกกรณีเล็ก ๆ ตามลำดับจากเล็กไปใหญ่
+    ตัวแรกที่เจอจึงเป็นตัวที่เล็กที่สุดจริง ไม่ใช่ตัวที่สุ่มมาได้
+  </p>
+
+  <h3>ค้านที่ 1 · ตำแหน่งที่ถามไม่เรียง แต่ยังใช้ตัวชี้</h3>
+  <p>
+    ตัวชี้เดินไปข้างหน้าทางเดียว เพราะเราสัญญาไว้ว่าตำแหน่งที่ถามจะเรียงขึ้นเรื่อย ๆ
+    ถ้าผิดสัญญา ตัวชี้ก็ถอยกลับไปดูเส้นที่มันเดินผ่านมาแล้วไม่ได้
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตัวค้านที่เล็กที่สุด · เส้น {queryTrap.lines.length} เส้น ถาม {queryTrap.queries.length} ครั้ง</caption>
+      <thead>
+        <tr>
+          <th>ของที่ใส่และที่ถาม</th>
+          <th class="num">ตัวชี้ตอบ</th>
+          <th class="num">ความจริง</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            เส้น{' '}
+            {queryTrap.lines.map((L, t) => (
+              <span>
+                {t === 0 ? '' : ' และ '}
+                <code>y = {L.m}x {L.b >= 0 ? '+' : '-'} {Math.abs(L.b)}</code>
+              </span>
+            ))}
+            {' '}แล้วถามที่ x = {queryTrap.queries.join(' ตามด้วย ')}
+          </td>
+          <td class="num">{queryTrap.got}</td>
+          <td class="num">{queryTrap.want}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      คำถามแรกที่ x = {queryTrap.queries[0]} ทำให้ตัวชี้เดินไปหาเส้นที่ชันน้อยกว่า
+      คำถามที่สองที่ x = {queryTrap.at} คำตอบย้อนกลับไปอยู่ที่เส้นเดิม แต่ตัวชี้ถอยไม่ได้
+      ผลคือตอบ {queryTrap.got} ทั้งที่ความจริงคือ {queryTrap.want}
+      สองเส้นสองคำถามเป็นขนาดที่เล็กที่สุดที่ทำให้เกิดเรื่องนี้ได้
+    </figcaption>
+  </figure>
+
+  <h3>ค้านที่ 2 · ความชันไม่เรียง แต่ยังใช้สแต็ก</h3>
+  <p>
+    เงื่อนไขทิ้งเส้นสร้างบนสมมติฐานว่าเส้นใหม่ชันน้อยที่สุดในกอง ถ้าเส้นใหม่ชันมากกว่าเส้นที่อยู่บนสุด
+    ตัวหารในสูตรจุดตัดจะกลับเครื่องหมาย แล้วเงื่อนไขก็ตัดสินกลับด้าน ผลคือ<strong>ทิ้งเส้นที่ยังมีประโยชน์</strong>
+  </p>
+  <figure class="tbl">
+    <table class="rec">
+      <caption>ตัวค้านที่เล็กที่สุด · ใส่เส้นผิดลำดับ</caption>
+      <thead>
+        <tr>
+          <th>ลำดับที่ใส่</th>
+          <th>เส้นที่หายไปจากสแต็ก</th>
+          <th class="num">สแต็กตอบ</th>
+          <th class="num">ความจริง</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            {slopeTrap.lines.map((L, t) => (
+              <span>
+                {t === 0 ? '' : ' แล้ว '}
+                <code>{L.m}x {L.b >= 0 ? '+' : '-'} {Math.abs(L.b)}</code>
+              </span>
+            ))}
+          </td>
+          <td>
+            <code>{slopeTrap.lost.m}x {slopeTrap.lost.b >= 0 ? '+' : '-'} {Math.abs(slopeTrap.lost.b)}</code>
+          </td>
+          <td class="num">{slopeTrap.got}</td>
+          <td class="num">{slopeTrap.want}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ถามที่ x = {slopeTrap.at} สแต็กตอบ {slopeTrap.got} ส่วนความจริงคือ {slopeTrap.want}
+      ตรงนี้ผมไม่ได้ใช้ตัวชี้เลย ใช้การไล่ดูทุกเส้นที่ยังอยู่ในสแต็ก
+      เพื่อให้ชัดว่าความผิดพลาดอยู่ที่ตอนใส่ ไม่ใช่ตอนถาม
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-warn">
+    <p class="callout-label">สิ่งที่ต้องทำก่อนส่ง ทุกครั้งที่ใช้ท่านี้</p>
+    <ul>
+      <li>
+        <strong>เขียนออกมาเป็นคำว่าความชันของคุณคือฟังก์ชันอะไรของ i</strong> แล้วถามว่ามันขึ้นหรือลงทางเดียวจริงไหม
+        ตัวอย่างในบทนี้ความชันคือ <code>-2x[j+1]</code> ซึ่งลดลงเพราะ <code>x</code> เรียงขึ้น
+        ถ้าตอบข้อนี้ไม่ได้ อย่าใช้ระดับ 1
+      </li>
+      <li>
+        <strong>ถามข้อเดียวกันกับตำแหน่งที่ถาม</strong> ในบทนี้คือ <code>x[i]</code> ซึ่งเรียงขึ้น
+        ถ้าตำแหน่งที่ถามไม่เรียง ให้ลบตัวชี้ทิ้งแล้วใช้การค้นหาแบบไบนารี ซึ่งเป็นการแก้สามบรรทัด
+      </li>
+      <li>
+        <strong>สุ่มเทียบกับการไล่ทางเลือกทุกทาง</strong> ก่อนส่ง โค้ดตัวตรวจอยู่ท้ายหน้านี้
+        นี่เป็นข้อที่ข้ามไม่ได้จริง ๆ เพราะสองข้อบนเป็นการอ่านโค้ดของตัวเอง ซึ่งเชื่อไม่ได้
+      </li>
+    </ul>
+  </div>
+
+  <hr class="divider" />
+
+  <h2>แม่แบบที่ลอกไปใช้ได้ทุกข้อ</h2>
+  <p>
+    โครงนี้ใช้ได้กับทุกข้อในบทนี้ ที่ต่างกันคือ<strong>สามบรรทัด</strong> คือความชันของเส้น
+    จุดตัดแกนของเส้น และตำแหน่งที่ถาม ส่วนตัวเปลือกไม่ต้องแตะเลย
+  </p>
+
+  <CodeBlock code={codeTemplate} lang="cpp" title="cht.cpp" />
+
+  <div class="callout callout-warn">
+    <p class="callout-label">สี่จุดที่ต้องระวังในแม่แบบนี้</p>
+    <ul>
+      <li>
+        <strong>ลำดับต้องเป็น "ใส่ก่อน ถามหลัง" ในรอบเดียวกัน</strong> เส้นของทางเลือก <code>j</code>{' '}
+        ใส่ได้เมื่อ <code>dp[j]</code> รู้ค่าแล้วเท่านั้น ถ้าใส่เร็วไป จุดตัดแกนจะเป็นศูนย์ที่ยังไม่มีความหมาย
+        และคำตอบจะน้อยกว่าจริง ซึ่งจับยากกว่าคำตอบที่มากกว่าจริง
+      </li>
+      <li>
+        <strong>ต้องหนีบตัวชี้ทุกครั้งหลังทิ้งเส้น</strong> เพราะเส้นที่ถูกทิ้งอยู่ท้ายสแต็ก
+        ตัวชี้อาจชี้เลยปลายไปแล้ว ถ้าไม่หนีบ โปรแกรมจะอ่านนอกขอบเขต ซึ่งบางเครื่องไม่พังทันที
+        แต่ตอบเลขมั่ว
+      </li>
+      <li>
+        <strong>ต้องมีสาขาสำหรับเส้นที่ชันเท่ากัน</strong> เส้นสองเส้นที่ชันเท่ากันไม่มีวันตัดกัน
+        สูตรจุดตัดจึงหารด้วยศูนย์ เก็บตัวที่จุดตัดแกนต่ำกว่าไว้ตัวเดียวก็จบ
+      </li>
+      <li>
+        <strong>ต้องใช้ <code>__int128</code> ในการคูณไขว้</strong> ไม่ใช่ <code>long long</code>{' '}
+        ข้อนี้มีตัวเลขจริงให้ดูในฝึกข้อ 1
+      </li>
+    </ul>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>โจทย์ฝึก · ไล่จากง่ายไปยาก</h2>
+  <p>
+    สี่ข้อนี้หยิบมาจากรายการโจทย์ท้ายบทความต้นทางบน Codeforces เรียงให้เห็นครบทุกมุมของท่านี้
+    ข้อแรกใช้ระดับ 1 ตรง ๆ ข้อสองยากที่การมองให้ออกว่ามันเป็นเส้นตรง ข้อสามเป็นการหา
+    <strong>ค่ามากสุด</strong> ซึ่งต้องพลิกเครื่องมือ และข้อสี่บังคับให้ใช้ระดับ 3
+    เพราะทั้งความชันและตำแหน่งที่ถามเรียงไม่ได้เลย
+  </p>
+
+  <h3>ฝึกข้อ 1 · ทางเดินมีหลังคา (Kattis coveredwalkway)</h3>
+  <p>
+    เรื่องเดียวกับที่บทนี้เดินให้ดูมาทั้งบท เปลี่ยนแค่ขอบเขต ซึ่งเป็นจุดที่ทำให้ต้องใช้ท่านี้จริง ๆ
+    ไม่ใช่ใช้เพราะสวย
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกมีจำนวนจุด <code>n</code> กับค่าคงที่ <code>c</code>{' '}
+        แล้วอีก <code>n</code> บรรทัดคือตำแหน่งของจุดที่ต้องคลุม เรียงจากน้อยไปมากมาให้แล้ว
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>n</code> ถึงหนึ่งล้าน <code>c</code> ถึงหนึ่งพันล้าน
+        ตำแหน่งอยู่ระหว่าง 1 ถึงหนึ่งพันล้าน และ<strong>ตำแหน่งซ้ำกันได้</strong>
+      </li>
+      <li><strong>เอาต์พุต:</strong> ค่าใช้จ่ายรวมที่น้อยที่สุด รับประกันว่าลงในจำนวนเต็ม 64 บิต</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{RN} {RUN_C}<br />{RUN_X.map((v) => (<span>{v}<br /></span>))}</td>
+        <td>{runAnswer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกบอกว่ามีจุดที่ต้องคลุม <code>{RN}</code> จุด และค่าคงที่ต่อหนึ่งผืนคือ{' '}
+      <code>{RUN_C}</code> อีก {RN} บรรทัดคือตำแหน่งของจุดพวกนั้น
+      เอาต์พุตเป็น<strong>เงินรวม ไม่ใช่จำนวนหลังคา</strong> นี่เป็นจุดที่คนอ่านผิดบ่อยที่สุด
+      เพราะโจทย์เล่าเรื่องหลังคาแต่ถามเรื่องเงิน
+    </p>
+    <p>
+      คำตอบ {runAnswer} มาจากหลังคา {runRoofs.length} ผืน คือ{' '}
+      {runRoofs.map((r, t) => (
+        <span>
+          {t === 0 ? '' : ' บวก '}
+          <code>{RUN_C} + {r.span}² = {r.price}</code>
+        </span>
+      ))}
+      {' '}สังเกตว่าผืนที่คลุมจุดเดียวยังจ่ายค่าคงที่ {RUN_C} อยู่ นั่นคือเหตุผลที่ไม่คุ้มจะแยกทุกจุด
+      และผืนที่พาด {runWidest.span} หน่วยจ่ายถึง {runWidest.price} นั่นคือเหตุผลที่ไม่คุ้มจะรวมทุกจุด
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={'ค่าใช้จ่ายของคำตอบ แยกตามหลังคาแต่ละผืน ความกว้างของแถบคือสัดส่วนของเงินที่ผืนนั้นกิน ส่วนสีทองในแถบคือค่าคงที่ ' + RUN_C + ' ที่ทุกผืนต้องจ่ายเท่ากัน ส่วนสีเขียวคือค่าระยะพาดยกกำลังสอง ผืนที่คลุมจุดเดียวจึงเป็นทองล้วน'}>
+    <svg viewBox={'0 0 671 ' + String(58 + runRoofs.length * 34 + 34)} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ค่าใช้จ่ายแยกตามหลังคาแต่ละผืน" style="display:block;margin:0 auto;max-width:940px">
+      <text x="20" y="18" fill="#9aa7bd" font-size="12" font-family="monospace">
+        เงินรวม {runAnswer} · ทอง = ค่าคงที่ · เขียว = ระยะพาดยกกำลังสอง
+      </text>
+      {runRoofs.map((r, t) => (
+        <>
+          <text x="20" y={44 + t * 34 + 15} fill="#9aa7bd" font-size="11" font-family="monospace">
+            ผืนที่ {t + 1}
+          </text>
+          <rect
+            x={92}
+            y={44 + t * 34}
+            width={(RUN_C / runAnswer) * 470}
+            height={20}
+            rx="3"
+            fill="rgba(224,180,0,0.30)"
+            stroke="#e0b400"
+          />
+          <rect
+            x={92 + (RUN_C / runAnswer) * 470}
+            y={44 + t * 34}
+            width={((r.price - RUN_C) / runAnswer) * 470}
+            height={20}
+            rx="3"
+            fill="rgba(74,222,128,0.28)"
+            stroke="#4ade80"
+          />
+          <text x={578} y={44 + t * 34 + 15} fill="#cdd6ea" font-size="11" font-family="monospace">
+            พาด {r.span} · {r.price}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เขียนสูตร <code>O(n²)</code> ออกมาก่อน แล้วดูก้อน <code>(x[i] - x[j+1])²</code> ให้ดี
+      <strong>กระจายกำลังสองออกมา</strong> แล้วแยกว่าก้อนไหนขึ้นกับ <code>i</code> เท่านั้น
+      ก้อนไหนขึ้นกับ <code>j</code> เท่านั้น และก้อนไหนมีทั้งคู่คูณกันอยู่
+      ถ้าแยกได้แล้ว ตอบสองคำถามนี้ คือความชันของคุณเรียงไหม และตำแหน่งที่ถามเรียงไหม
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 1</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งที่ทำให้ผมมองไปทางเส้นตรงตั้งแต่แรก ไม่ใช่การจำรูป แต่เป็นเลข <code>n</code> ถึงหนึ่งล้าน
+        เทียบกับสูตรที่มีสองลูป ผมคูณดูแล้วได้ห้าแสนล้านรอบ ซึ่งไม่ต้องคิดต่อ
+        และมันบอกอีกอย่างที่สำคัญกว่า คือคำตอบต้องใช้เวลาระดับ <code>n</code>
+        หรือ <code>n log n</code> เท่านั้น ไม่มีทางเลือกอื่น
+      </p>
+      <p>
+        พอรู้เพดานนั้น คำถามก็เปลี่ยนเป็น "ต้องทิ้งอะไรถึงจะเหลือแค่นั้น" และของที่ต้องทิ้งมีอย่างเดียว
+        คือลูป <code>j</code> ผมจึงกลับไปดูว่าอะไรบังคับให้ต้องไล่ <code>j</code> ทุกตัว
+        คำตอบคือวงเล็บยกกำลังสองที่มี <code>i</code> กับ <code>j</code> อยู่ด้วยกัน
+        การกระจายกำลังสองไม่ใช่กลเม็ด มันคือ<strong>การพยายามแยก i กับ j ออกจากกัน</strong> ตรง ๆ
+        และเมื่อแยกได้ รูปที่เหลือคือเส้นตรง ซึ่งเป็นรูปที่มีเครื่องมือรออยู่แล้ว
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ เวลาเห็นก้อนที่ <code>i</code> กับ <code>j</code> พันกัน
+        ให้ลองกระจายก่อนเสมอ ถ้าหลังกระจายแล้วเหลือรูป "ของที่ขึ้นกับ j คูณของที่ขึ้นกับ i"
+        แค่นั้นก็พอที่จะยกท่านี้มาใช้ได้ ไม่ต้องมีอย่างอื่นอีก
+      </p>
+    </div>
+    <p>
+      นิยาม <code>dp[i]</code> ว่าเป็นค่าน้อยสุดที่คลุมจุดที่ 1 ถึง <code>i</code> ให้ครบ
+      แล้วมองว่าหลังคาผืนสุดท้ายคลุมจุดที่ <code>j+1</code> ถึง <code>i</code>{' '}
+      ผืนนั้นราคา <code>c</code> บวก <code>(x[i] - x[j+1])²</code>
+    </p>
+    <p>
+      กระจายกำลังสองแล้วจะได้ว่าก้อนที่ขึ้นกับ <code>j</code> คือ{' '}
+      <code>(-2·x[j+1])·x[i] + (dp[j] + x[j+1]²)</code> ซึ่งเป็นเส้นตรงที่ตำแหน่ง <code>x[i]</code>{' '}
+      โดยความชันคือ <code>-2·x[j+1]</code> และจุดตัดแกนคือ <code>dp[j] + x[j+1]²</code>
+    </p>
+    <p>
+      ตอบสองคำถาม ความชัน <code>-2·x[j+1]</code> <strong>ลดลง</strong> เพราะ <code>x</code>{' '}
+      เรียงขึ้นและมีเครื่องหมายลบคูณอยู่ ตำแหน่งที่ถาม <code>x[i]</code> <strong>เพิ่มขึ้น</strong>{' '}
+      ครบสองข้อ จึงใช้ระดับ 1 ได้ตรง ๆ เหลืองาน <code>O(n)</code>
+    </p>
+    <p>
+      มีจุดที่ต้องระวังหนึ่งจุดที่โจทย์นี้มีแต่โจทย์อื่นในบทนี้ไม่มี คือ
+      <strong>ตำแหน่งซ้ำกันได้</strong> ตำแหน่งซ้ำแปลว่าความชันเท่ากัน ซึ่งเป็นกรณีที่เส้นสองเส้น
+      ไม่มีวันตัดกัน ถ้าไม่มีสาขาจัดการ สูตรจุดตัดจะหารด้วยศูนย์
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 1</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeWalkway} lang="cpp" title="walkway.cpp" />
+        <p>
+          ตรวจกับ<strong>ไบนารีที่คอมไพล์จากโค้ดก้อนนี้เอง</strong> ไม่ใช่จากไฟล์ที่เขียนไว้ก่อนแล้วคัดลอกมา
+          คือดึงโค้ดออกจากหน้าที่บิลด์เสร็จแล้ว คอมไพล์ด้วย g++ 11.4 แล้วเทียบกับตัวไล่ทางเลือกทุกทาง{' '}
+          <strong>8,000 รอบ</strong> แบ่งเป็นเลขเล็กที่จุดซ้ำกันบ่อย 4,000 รอบ
+          กับเลขใหญ่ระดับขอบเขตจริงที่จุดกองอยู่ปลายสองข้าง 4,000 รอบ ตรงกันทุกรอบ
+          และมันตอบตัวอย่างของโจทย์ได้ {runAnswer} ตรงตามเฉลย
+        </p>
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>เรื่องของบรรทัดเดียวที่ผมเปลี่ยน แล้วโปรแกรมตอบผิดโดยไม่ฟ้อง</summary>
+      <div class="expander-body">
+        <p>
+          ผมเขียน <code>__int128</code> ในการคูณไขว้ตั้งแต่ครั้งแรก เพราะกะขนาดตัวเลขไว้ก่อนแล้ว
+          ไม่ได้เจอบักตัวนี้เอง แต่ผมอยากรู้ว่ามันสำคัญจริงหรือแค่ระวังเกินไป
+          จึงคอมไพล์เวอร์ชันที่เปลี่ยนเป็น <code>long long</code> ขึ้นมา แล้วไปหาอินพุตที่ทำให้มันพัง
+        </p>
+        <p>
+          ผลคือ<strong>มันผ่านตัวอย่างของโจทย์</strong> คือตอบ {runAnswer} เหมือนกันเป๊ะ
+          และผ่านการสุ่มด้วยเลขเล็กหลายพันรอบด้วย มันเริ่มพังเฉพาะตอนที่จุดกองอยู่ปลายสองข้าง
+          ซึ่งเป็นรูปที่ทำให้ผลต่างของจุดตัดแกนใหญ่ที่สุด
+        </p>
+        <CodeBlock code={codeBadOverflow} lang="cpp" title="ทำไมต้อง __int128" />
+        <p>
+          บทเรียนคือขนาดของตัวเลขในเงื่อนไขทิ้งเส้น <strong>ไม่ได้เท่ากับขนาดของคำตอบ</strong>{' '}
+          คำตอบของโจทย์นี้รับประกันว่าลงจำนวนเต็ม 64 บิต ซึ่งจริง แต่ตัวคูณที่ใช้ตัดสินว่าจะทิ้งเส้นไหน
+          เป็นผลคูณของสองผลต่าง ซึ่งใหญ่กว่าคำตอบเป็นสิบเท่าของเลขยกกำลัง
+          และเวลาล้น มันไม่ตอบผิดทุกครั้ง มันตอบผิดเป็นบางครั้ง ซึ่งแย่กว่า
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 2 · โค่นต้นไม้ (CF 319C Kalila and Dimna in the Logging Industry)</h3>
+  <p>
+    หมาจิ้งจอกสองตัวรับงานโค่นต้นไม้ <code>n</code> ต้น ต้นที่ <code>i</code> สูง <code>a[i]</code>{' '}
+    เลื่อยไฟฟ้าฟันหนึ่งครั้งลดความสูงลงหนึ่งหน่วย และ<strong>ต้องชาร์จใหม่ทุกครั้งที่ฟัน</strong>{' '}
+    ราคาชาร์จขึ้นกับต้นที่ล้มสนิทไปแล้ว ถ้าต้นที่ล้มสนิทแล้วซึ่งหมายเลขมากที่สุดคือ <code>i</code>{' '}
+    ราคาชาร์จหนึ่งครั้งคือ <code>b[i]</code> ต้องโค่นให้ล้มสนิททุกต้น ด้วยเงินน้อยที่สุด
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> <code>n</code> แล้วอาเรย์ <code>a</code> แล้วอาเรย์ <code>b</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>n</code> ถึงหนึ่งแสน ค่าใน <code>a</code> และ <code>b</code>{' '}
+        ถึงหนึ่งพันล้าน โจทย์รับประกันว่า <code>a</code> เรียงเพิ่ม <code>b</code> เรียงลด{' '}
+        <code>a[1] = 1</code> และ <code>b[n] = 0</code>
+      </li>
+      <li><strong>เอาต์พุต:</strong> เงินน้อยที่สุด</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P2_N}<br />{P2_A.join(' ')}<br />{P2_B.join(' ')}</td>
+        <td>{p2Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดที่สองคือ<strong>ความสูง</strong> ของต้นไม้ ซึ่งเท่ากับ<strong>จำนวนครั้งที่ต้องฟัน</strong>{' '}
+      ต้นนั้น บรรทัดที่สามคือ<strong>ราคาต่อหนึ่งฟัน</strong> ที่จะได้ถ้าต้นนั้นล้มสนิทแล้ว
+      เอาต์พุตเป็นเงินรวม ไม่ใช่จำนวนครั้งที่ฟัน
+    </p>
+    <p>
+      กุญแจอยู่ที่เงื่อนไขสองข้อท้ายโจทย์ <code>a[1] = 1</code> แปลว่าต้นแรกฟันครั้งเดียวก็ล้ม
+      และเลื่อยชาร์จมาให้แล้วตอนเริ่ม จึง<strong>โค่นต้นแรกฟรี</strong>{' '}
+      ส่วน <code>b[n] = 0</code> แปลว่าพอต้นสุดท้ายล้ม การชาร์จก็ฟรีตลอดไป
+      งานที่เหลือทั้งหมดจึงฟรี <strong>คำตอบคือค่าใช้จ่ายในการไปให้ถึงต้นสุดท้าย เท่านั้น</strong>{' '}
+      ต้นที่เราไม่แวะโค่นก่อน ก็ไปโค่นทีหลังตอนฟรีได้
+    </p>
+    <p>
+      ในตัวอย่างนี้ ลำดับที่ถูกที่สุดคือแวะโค่นต้น{' '}
+      {p2Chain.map((v, t) => (<span>{t === 0 ? '' : ' แล้วต้น '}<code>{v}</code></span>))}
+      {' '}รวม {p2Answer} ส่วนกฎที่คนคิดออกก่อนเสมอ คือโค่นเรียงทุกต้นไม่ข้ามใคร จ่ายถึง{' '}
+      {p2StepByStep} ซึ่งแพงกว่า {p2StepByStep - p2Answer}
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={'ต้นไม้ทั้ง ' + P2_N + ' ต้นในตัวอย่าง ความสูงของแถบคือจำนวนครั้งที่ต้องฟัน ตัวเลขใต้แถบคือราคาชาร์จที่จะได้ถ้าต้นนั้นล้ม แถบเขียวคือต้นที่คำตอบเลือกแวะโค่น ซึ่งมี ' + p2Chain.length + ' ต้นจากทั้งหมด ' + P2_N + ' ต้น'}>
+    <svg viewBox={d5VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้เรียงตามความสูงและลำดับการโค่นที่ถูกที่สุด" style="display:block;margin:0 auto;max-width:770px">
+      <text x="20" y="18" fill="#9aa7bd" font-size="12" font-family="monospace">
+        สูง = จำนวนครั้งที่ต้องฟัน · เลขใต้แถบ = ราคาชาร์จถ้าต้นนี้ล้ม
+      </text>
+      <line x1={20} y1={D5_BASE} x2={d5x(P2_N) + 60} y2={D5_BASE} stroke="#4a5a7d" stroke-width="1.5" />
+      {P2_A.map((a, t) => (
+        <>
+          <rect
+            x={d5x(t + 1)}
+            y={D5_BASE - d5h(a)}
+            width={44}
+            height={d5h(a)}
+            rx="3"
+            fill={p2ChainSet.has(t + 1) ? 'rgba(74,222,128,0.24)' : '#101827'}
+            stroke={p2ChainSet.has(t + 1) ? '#4ade80' : '#2a3350'}
+          />
+          <text
+            x={d5x(t + 1) + 22}
+            y={D5_BASE - d5h(a) - 8}
+            fill={p2ChainSet.has(t + 1) ? '#eaf4ff' : '#7b8397'}
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {a}
+          </text>
+          <text x={d5x(t + 1) + 22} y={D5_BASE + 16} fill="#6b7690" font-size="10" text-anchor="middle" font-family="monospace">
+            ต้น {t + 1}
+          </text>
+          <text x={d5x(t + 1) + 22} y={D5_BASE + 30} fill="#e0b400" font-size="10" text-anchor="middle" font-family="monospace">
+            b={P2_B[t]}
+          </text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>เงินที่จ่ายในแต่ละช่วง · ลำดับที่ถูกที่สุด</caption>
+      <thead>
+        <tr>
+          <th class="num">แวะโค่นต้น</th>
+          <th class="num">ตอนนั้นชาร์จราคา</th>
+          <th class="num">ต้องฟัน</th>
+          <th class="num">จ่าย</th>
+        </tr>
+      </thead>
+      <tbody>
+        {p2Chain.slice(1).map((v, t) => (
+          <tr>
+            <td class="num">{v}</td>
+            <td class="num">{P2_B[p2Chain[t] - 1]}</td>
+            <td class="num">{P2_A[v - 1]}</td>
+            <td class="num">{P2_B[p2Chain[t] - 1] * P2_A[v - 1]}</td>
+          </tr>
+        ))}
+        <tr class="tot">
+          <td class="num">รวม</td>
+          <td class="num"><span class="dim">·</span></td>
+          <td class="num"><span class="dim">·</span></td>
+          <td class="num">{p2Answer}</td>
+        </tr>
+      </tbody>
+    </table>
+    <figcaption>
+      ต้นที่ไม่ได้อยู่ในตารางนี้ ไม่ได้แปลว่าไม่ต้องโค่น มันถูกโค่นทีหลังตอนที่การชาร์จฟรีแล้ว
+      เพราะโจทย์ให้ <code>b</code> ของต้นสุดท้ายเป็นศูนย์ จึงไม่คิดเงินอีก
+    </figcaption>
+  </figure>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      อย่าคิดเป็น "จะฟันต้นไหนกี่ครั้ง" ให้คิดเป็น <strong>"จะแวะโค่นต้นไหนให้ล้มสนิทบ้าง
+      ก่อนจะไปถึงต้นสุดท้าย"</strong> ถ้าตอนนี้ต้นที่ล้มแล้วซึ่งใหญ่สุดคือ <code>j</code>{' '}
+      แล้วเราเลือกไปโค่นต้น <code>i</code> ต่อ ราคาของก้าวนั้นคืออะไร
+      เขียนออกมาเป็นสูตรแล้วดูว่ามันหน้าตาเหมือนอะไรที่เพิ่งอ่านมา
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 2</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">สองทางที่ผมลองก่อน แล้วทิ้ง</p>
+      <p>
+        ทางแรกที่ผมลองคือโลภ คือแวะโค่นต้นที่ให้ราคาชาร์จถูกที่สุดต่อหน่วยความสูงก่อน
+        มันแพ้ทันทีในตัวอย่างที่สองของโจทย์ ผมเลยลองอีกทางคือ "โค่นเรียงทุกต้นไม่ข้ามใคร"
+        ซึ่งเป็นกฎที่ดูปลอดภัยที่สุด ทางนั้นได้ {p2StepByStep} เทียบกับคำตอบจริง {p2Answer}
+        ตัวเลขสองตัวนี้บอกอะไรที่สำคัญ คือ<strong>การข้ามต้นเป็นเรื่องที่คุ้ม</strong>
+        และคุ้มมากพอที่จะไม่ใช่รายละเอียดปลีกย่อย
+      </p>
+      <p>
+        พอรู้ว่าต้องเลือกว่าจะข้ามต้นไหน ก็เห็นว่านี่คือดีพี ไม่ใช่โลภ
+        และสิ่งที่ต้องจำจากอดีตมีค่าเดียว คือ<strong>ต้นที่ล้มสนิทแล้วซึ่งใหญ่ที่สุดคือต้นไหน</strong>{' '}
+        เพราะมันเป็นตัวเดียวที่กำหนดราคาชาร์จของทุกฟันต่อจากนี้ ตรงนี้เองที่สูตรออกมาเป็น
+        <code>dp[j] + b[j]·a[i]</code> และผมเห็นรูปเส้นตรงทันที เพราะมันคือ
+        <strong>ค่าคงที่คูณตัวแปรบวกค่าคงที่</strong> โดยไม่ต้องกระจายอะไรเลย
+        ซึ่งต่างจากข้อแรกที่ต้องกระจายกำลังสองก่อน
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ ให้เอากฎโลภที่คิดออกง่ายที่สุดไปคำนวณกับตัวอย่างจริงก่อน
+        ไม่ใช่เพื่อหวังว่ามันจะถูก แต่เพื่ออ่านว่า<strong>มันแพ้ด้วยส่วนต่างเท่าไร</strong>{' '}
+        ส่วนต่างนั้นบอกว่าสิ่งที่มันมองข้ามคืออะไร และนั่นคือสิ่งที่ต้องกลายเป็นสถานะของดีพี
+      </p>
+    </div>
+    <p>
+      นิยาม <code>dp[i]</code> ว่าเป็นเงินน้อยสุดที่จะทำให้ต้นที่ <code>i</code> ล้มสนิท
+      โดยที่ต้นที่ <code>i</code> เป็นต้นที่ใหญ่ที่สุดที่ล้มแล้ว ได้ <code>dp[1] = 0</code>{' '}
+      เพราะโจทย์ให้ <code>a[1] = 1</code> และเลื่อยชาร์จมาแล้ว
+    </p>
+    <p>
+      ถ้าก่อนจะโค่นต้น <code>i</code> ต้นที่ใหญ่สุดที่ล้มแล้วคือ <code>j</code>{' '}
+      ทุกฟันจากนี้ราคา <code>b[j]</code> และต้องฟัน <code>a[i]</code> ครั้ง จึงได้
+      <code>dp[i] = min over j&lt;i ของ dp[j] + b[j]·a[i]</code> คำตอบคือ <code>dp[n]</code>{' '}
+      เพราะพอต้นที่ <code>n</code> ล้ม ที่เหลือฟรีหมด
+    </p>
+    <p>
+      ตอบสองคำถาม ความชันคือ <code>b[j]</code> ซึ่งโจทย์<strong>รับประกันว่าเรียงลด</strong>{' '}
+      ตำแหน่งที่ถามคือ <code>a[i]</code> ซึ่งโจทย์<strong>รับประกันว่าเรียงเพิ่ม</strong>{' '}
+      ครบสองข้อ ใช้ระดับ 1 ได้ตรง ๆ เหลืองาน <code>O(n)</code>
+      เงื่อนไขสองข้อที่ดูเหมือนของแถมในโจทย์ จึงเป็นของที่ทำให้ข้อนี้ง่ายลงทั้งข้อ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 2</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeTrees} lang="cpp" title="logging.cpp" />
+        <p>
+          เปลือกในไฟล์นี้เป็นก้อนเดียวกับฝึกข้อ 1 ไม่ได้แก้แม้แต่ตัวอักษรเดียว
+          ต่างกันแค่สามบรรทัดที่บอกว่าความชันคืออะไร จุดตัดแกนคืออะไร และถามที่ไหน
+        </p>
+        <p>
+          ตรวจกับตัวไล่ทางเลือกทุกทาง <strong>1,500 รอบ</strong> ด้วยอินพุตสุ่มที่เคารพเงื่อนไขของโจทย์
+          คือ <code>a</code> เรียงเพิ่มโดย <code>a[1] = 1</code> และ <code>b</code> เรียงลดโดย{' '}
+          <code>b[n] = 0</code> ตรงกันทุกรอบ และมันตอบตัวอย่างทั้งสองชุดของโจทย์ได้ถูก
+          คือ 25 กับ {p2Answer}
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 3 · สี่เหลี่ยมของนัท (CF 1083E The Fair Nut and Rectangles)</h3>
+  <p>
+    มีสี่เหลี่ยม <code>n</code> รูป รูปที่ <code>i</code> มีมุมหนึ่งอยู่ที่จุดกำเนิดและมุมตรงข้ามอยู่ที่{' '}
+    <code>(x[i], y[i])</code> พร้อมค่าปรับ <code>a[i]</code> ให้เลือกรูปมาบางส่วน
+    แล้วคิดคะแนนเป็น<strong>พื้นที่ของรูปที่รวมกันแล้ว</strong> ลบผลรวมค่าปรับของรูปที่เลือก
+    ให้คะแนนมากที่สุด โจทย์รับประกันว่าไม่มีรูปไหนซ้อนอยู่ในรูปอื่น
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> <code>n</code> แล้ว <code>n</code> บรรทัด แต่ละบรรทัดมี <code>x</code>, <code>y</code>, <code>a</code></li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>n</code> ถึงหนึ่งล้าน <code>x</code> และ <code>y</code>{' '}
+        ถึงหนึ่งพันล้าน และ <code>a</code> อยู่ระหว่าง 0 ถึง <code>x·y</code>
+        ไม่มีรูปไหนซ้อนอยู่ในรูปอื่น
+      </li>
+      <li><strong>เอาต์พุต:</strong> คะแนนมากที่สุด</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{P3_RECTS.length}<br />{P3_RECTS.map((r) => (<span>{r.x} {r.y} {r.a}<br /></span>))}</td>
+        <td>{p3Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      แต่ละบรรทัดคือ<strong>ความกว้าง ความสูง และค่าปรับ</strong> ของรูปหนึ่งรูป
+      เอาต์พุตเป็น<strong>คะแนน</strong> ซึ่งอาจเกิดจากการเลือกรูปไม่ครบ และ
+      <strong>เลือกศูนย์รูปก็ได้ ซึ่งได้คะแนน 0</strong> คำตอบจึงไม่ต่ำกว่า 0 เสมอ
+    </p>
+    <p>
+      ประโยค "ไม่มีรูปไหนซ้อนอยู่ในรูปอื่น" เป็นของที่ต้องแปลก่อน มันหมายความว่าถ้าเรียงตาม{' '}
+      <code>x</code> จากน้อยไปมาก แล้ว <code>y</code> จะ<strong>ลดลงเองโดยอัตโนมัติ</strong>{' '}
+      ถ้ามีรูปที่ทั้งกว้างกว่าและสูงกว่าอีกรูป รูปเล็กก็จะซ้อนอยู่ข้างในพอดี ซึ่งโจทย์ห้ามไว้
+      หลังเรียงแล้ว ยูเนียนของรูปจึงเป็น<strong>ขั้นบันไดที่ลดลงทางขวา</strong> เสมอ
+    </p>
+    <p>
+      ในตัวอย่างนี้ เรียงตาม <code>x</code> ได้{' '}
+      {p3Sorted.map((r, t) => (<span>{t === 0 ? '' : ' แล้ว '}<code>({r.x}, {r.y})</code></span>))}
+      {' '}คำตอบเลือก {p3Chosen.length} รูป คือรูปที่ {p3Chosen.join(' และ ')} ตามลำดับที่เรียงแล้ว
+      พื้นที่รวมได้ {p3Area} จากแถบ{' '}
+      {p3Steps.map((st, t) => (
+        <span>
+          {t === 0 ? '' : ' บวก '}
+          <code>({st.r.x} - {st.prevX}) × {st.r.y} = {st.band}</code>
+        </span>
+      ))}
+      {' '}แล้วลบค่าปรับรวม {p3Cost} เหลือ {p3Answer}
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={'ยูเนียนของรูปที่คำตอบเลือก เป็นขั้นบันไดที่ลดลงทางขวา แถบเขียวคือส่วนที่แต่ละรูปเพิ่มพื้นที่ให้จริง ซึ่งเท่ากับความกว้างส่วนที่เกินจากรูปก่อนหน้า คูณความสูงของตัวเอง พื้นที่รวม ' + p3Area + ' ลบค่าปรับ ' + p3Cost + ' เหลือ ' + p3Answer}>
+    <svg viewBox={d6VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ยูเนียนของสี่เหลี่ยมมุมศูนย์เป็นขั้นบันได" style="display:block;margin:0 auto;max-width:858px">
+      <text x="20" y="18" fill="#9aa7bd" font-size="12" font-family="monospace">ยูเนียนของรูปที่เลือก</text>
+      <line x1={D6_X0} y1={D6_Y0 + D6_H} x2={D6_X0 + D6_W + 16} y2={D6_Y0 + D6_H} stroke="#4a5a7d" stroke-width="1.5" />
+      <line x1={D6_X0} y1={D6_Y0 - 6} x2={D6_X0} y2={D6_Y0 + D6_H} stroke="#4a5a7d" stroke-width="1.5" />
+      <text x={D6_X0 + D6_W + 20} y={D6_Y0 + D6_H + 4} fill="#7b8397" font-size="10" font-family="monospace">x</text>
+      <text x={D6_X0 - 10} y={D6_Y0 - 10} fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">y</text>
+      {p3Steps.map((st) => (
+        <>
+          <rect
+            x={d6x(st.prevX)}
+            y={d6y(st.r.y)}
+            width={d6x(st.r.x) - d6x(st.prevX)}
+            height={D6_Y0 + D6_H - d6y(st.r.y)}
+            fill="rgba(74,222,128,0.22)"
+            stroke="#4ade80"
+          />
+          <text
+            x={(d6x(st.prevX) + d6x(st.r.x)) / 2}
+            y={d6y(st.r.y) - 8}
+            fill="#4ade80"
+            font-size="11"
+            text-anchor="middle"
+            font-family="monospace"
+          >
+            {st.band}
+          </text>
+          <text x={d6x(st.r.x)} y={D6_Y0 + D6_H + 16} fill="#e0b400" font-size="10" text-anchor="middle" font-family="monospace">
+            {st.r.x}
+          </text>
+          <text x={D6_X0 - 8} y={d6y(st.r.y) + 4} fill="#e0b400" font-size="10" text-anchor="end" font-family="monospace">
+            {st.r.y}
+          </text>
+        </>
+      ))}
+      {p3Steps.map((st, t) => (
+        <text x={D6_TXT} y={D6_Y0 + 20 + t * D6_ROW_H} fill="#cdd6ea" font-size="11" font-family="monospace">
+          รูป ({st.r.x},{st.r.y}) เพิ่ม {st.band} ค่าปรับ {st.r.a}
+        </text>
+      ))}
+      <text x={D6_TXT} y={D6_Y0 + 20 + p3Steps.length * D6_ROW_H + 10} fill="#4ade80" font-size="11" font-family="monospace">
+        พื้นที่ {p3Area} ลบค่าปรับ {p3Cost}
+      </text>
+      <text x={D6_TXT} y={D6_Y0 + 20 + p3Steps.length * D6_ROW_H + 28} fill="#4ade80" font-size="12" font-family="monospace">
+        คะแนน {p3Answer}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เรียงตาม <code>x</code> ก่อน แล้วนิยามดีพีด้วยคำถามว่า <strong>"รูปที่อยู่ขวาสุดที่เราเลือก
+      คือรูปไหน"</strong> พอตั้งคำถามแบบนี้ พื้นที่ที่รูปขวาสุดเพิ่มให้จะคิดได้ด้วยเลขสองตัวเท่านั้น
+      คือ <code>x</code> ของตัวเอง กับ <code>x</code> ของรูปที่เลือกก่อนหน้ามันติดกัน
+      เขียนออกมาเป็นสูตรแล้วจะเห็นว่าก้อนใน <code>max</code> เป็นเส้นตรงอีกแล้ว
+      ทีนี้ระวังสองอย่าง คือมันเป็น <code>max</code> ไม่ใช่ <code>min</code>
+      และตำแหน่งที่ถามเรียง<strong>ลด</strong> ไม่ได้เรียงเพิ่ม
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 3</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ผมติดอยู่ที่คำว่า "พื้นที่ยูเนียน" เพราะยูเนียนของรูปหลายรูปฟังดูเหมือนต้องคิดทั้งกองพร้อมกัน
+        ซึ่งเป็นสิ่งที่ดีพีทำไม่ได้ ตัวที่ปลดล็อกคือประโยค "ไม่มีรูปไหนซ้อนอยู่ในรูปอื่น"
+        ตอนแรกผมอ่านผ่าน คิดว่าเป็นเงื่อนไขกันเคสประหลาด แต่พอลองวาดสามรูปในตัวอย่างจริงบนกระดาษ
+        ผมเห็นว่ามันบังคับให้ยูเนียนเป็น<strong>ขั้นบันไดที่ลดลงทางขวาเท่านั้น</strong>
+      </p>
+      <p>
+        พอเป็นขั้นบันได พื้นที่ก็แยกเป็นแถบแนวตั้งที่ไม่ทับกัน และแถบของรูปหนึ่งขึ้นกับ
+        <strong>รูปที่เลือกก่อนหน้ามันตัวเดียว</strong> ไม่ได้ขึ้นกับทั้งกอง นั่นคือจุดที่มันกลายเป็นดีพี
+        และสูตร <code>f[i] = x[i]·y[i] - a[i] + max(f[j] - x[j]·y[i])</code> ก็ออกมาเอง
+      </p>
+      <p>
+        เรื่องที่เหลือคือ <code>max</code> กับตำแหน่งที่ถามเรียงลด ซึ่งดูเหมือนต้องเขียนเปลือกอีกชุด
+        ผมเกือบเขียนแล้ว แต่หยุดคิดก่อนว่าเปลือกที่มีอยู่ทำอะไรได้ คำตอบคือมันหาค่าน้อยสุด
+        เมื่อชันเรียงลดและถามเรียงเพิ่ม ซึ่งเป็น<strong>ภาพสะท้อน</strong> ของสิ่งที่ข้อนี้ต้องการพอดี
+        การกลับเครื่องหมายชันและจุดตัดคือการสะท้อนรูปข้ามแกน x และการถามที่ <code>-y[i]</code>{' '}
+        คือการสะท้อนข้ามแกน y เมื่อสะท้อนสองครั้ง ปัญหาก็ตกลงมาอยู่ในรูปที่เครื่องมือเดิมรับได้
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ ก่อนเขียนโครงสร้างข้อมูลชุดที่สอง ให้ถามว่าปัญหาใหม่เป็น
+        ภาพสะท้อนของอันเดิมไหม เพราะโค้ดที่ไม่ได้เขียนคือโค้ดที่ไม่มีบัก
+      </p>
+    </div>
+    <p>
+      เรียงรูปตาม <code>x</code> จากน้อยไปมาก แล้ว <code>y</code> จะเรียงลดเอง
+      นิยาม <code>f[i]</code> ว่าเป็นคะแนนดีที่สุดเมื่อ<strong>รูปที่ i เป็นรูปขวาสุดที่เลือก</strong>
+    </p>
+    <p>
+      ถ้ารูปที่เลือกก่อนหน้าติดกันคือรูป <code>j</code> พื้นที่ที่รูป <code>i</code> เพิ่มให้คือแถบกว้าง{' '}
+      <code>x[i] - x[j]</code> สูง <code>y[i]</code> จึงได้ว่า{' '}
+      <code>f[i] = x[i]·y[i] - a[i] + max over j ของ ( f[j] - x[j]·y[i] )</code>{' '}
+      โดยที่ <code>j = 0</code> หมายถึงไม่เลือกรูปไหนก่อนหน้าเลย ซึ่งเป็นเส้นชัน 0 จุดตัดแกน 0
+    </p>
+    <p>
+      ก้อนใน <code>max</code> เป็นเส้นชัน <code>-x[j]</code> ที่ตำแหน่ง <code>y[i]</code>{' '}
+      ความชัน <code>-x[j]</code> เรียงลด (เพราะ <code>x</code> เรียงเพิ่ม) แต่ตำแหน่งที่ถาม{' '}
+      <code>y[i]</code> ก็เรียงลดด้วย และเราหาค่ามากสุด ทั้งสองอย่างสวนทางกับเครื่องมือที่มี
+    </p>
+    <p>
+      ท่าแก้คือ<strong>สะท้อนรูปสองครั้ง</strong> ใส่เส้นด้วยชัน <code>-x[j]</code>{' '}
+      และจุดตัดแกน <code>-f[j]</code> แล้วถามที่ <code>-y[i]</code> จากนั้นกลับเครื่องหมายคำตอบ
+      ผลลัพธ์เท่ากันเป๊ะ แต่ตอนนี้ความชันเรียงลด ตำแหน่งที่ถามเรียงเพิ่ม และเป็นการหาค่าน้อยสุด
+      ซึ่งคือรูปที่เปลือกเดิมรับได้ทั้งหมด
+    </p>
+    <p>
+      สุดท้าย คำตอบคือค่ามากสุดของ <code>f[i]</code> ทุกตัว ไม่ใช่ <code>f[n]</code>{' '}
+      เพราะรูปขวาสุดที่เลือกไม่จำเป็นต้องเป็นรูปที่ <code>x</code> มากที่สุด
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 3</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeRects} lang="cpp" title="rectangles.cpp" />
+        <p>
+          เปลือกยังเป็นก้อนเดิมอีกครั้ง สิ่งที่เพิ่มมาคือเครื่องหมายลบสามตัว
+          คือที่ความชัน ที่จุดตัดแกน และที่ตำแหน่งที่ถาม
+        </p>
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ไม่เชื่อแม้แต่ว่าข้อนี้เป็นดีพี</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeBruteRects} lang="cpp" title="checker3.cpp" />
+        <p>
+          ตัวนี้ไล่<strong>ทุกสับเซตของรูป</strong> แล้วคิดพื้นที่ยูเนียนจากนิยามตรง ๆ
+          ด้วยการสแกนแถบแนวตั้ง มันไม่รู้จักดีพี ไม่รู้จักคำว่า "รูปขวาสุด"
+          และไม่ได้ใช้เงื่อนไขเรื่องไม่มีรูปซ้อนกันเลย ซึ่งเป็นเหตุผลเดียวที่มันเชื่อถือได้
+        </p>
+        <p>
+          ตรวจ <strong>1,500 รอบ</strong> ด้วยรูปสุ่มไม่เกินแปดรูปที่เคารพเงื่อนไขไม่มีรูปซ้อนกัน
+          ตรงกันทุกรอบ และตอบตัวอย่างทั้งสองชุดของโจทย์ได้ถูก คือ {p3Answer} กับ 10
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider" />
+
+  <h3>ฝึกข้อ 4 · กระโดดลงใบ (CF 932F Escape Through Leaf)</h3>
+  <p>
+    มีต้นไม้ <code>n</code> ปมที่มีรากอยู่ที่ปมที่ 1 ปมที่ <code>i</code> มีค่าประจำตัวสองค่าคือ{' '}
+    <code>a[i]</code> และ <code>b[i]</code> จากปมหนึ่งกระโดดไปปมไหนก็ได้ที่อยู่ในต้นย่อยของมัน
+    (แต่กระโดดมาที่ตัวเองไม่ได้) ราคาของการกระโดดจาก <code>u</code> ไป <code>v</code> คือ{' '}
+    <code>a[u]·b[v]</code> ให้หาว่าแต่ละปมกระโดดลงไปถึงใบใดก็ได้ ด้วยราคารวมน้อยที่สุดเท่าไร
+    รากไม่ถือเป็นใบ ไม่ว่ามันจะมีกิ่งเดียวก็ตาม
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> <code>n</code> แล้วอาเรย์ <code>a</code> แล้วอาเรย์ <code>b</code>{' '}
+        แล้วเส้นเชื่อม <code>n-1</code> เส้น
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>n</code> ถึงหนึ่งแสน ค่าใน <code>a</code> และ <code>b</code>{' '}
+        อยู่ระหว่างลบหนึ่งแสนถึงหนึ่งแสน <strong>ติดลบได้</strong> และ<strong>ไม่มีการรับประกันว่าเรียง</strong>
+      </li>
+      <li><strong>เอาต์พุต:</strong> <code>n</code> จำนวน ค่าที่ <code>i</code> คือคำตอบของปมที่ <code>i</code></li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {P4_N}<br />{P4_A.join(' ')}<br />{P4_B.join(' ')}<br />
+          {P4_EDGES.map((e) => (<span>{e[0]} {e[1]}<br /></span>))}
+        </td>
+        <td>{p4Answer}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดที่สองคือ <code>a</code> ของทุกปมเรียงตามหมายเลขปม บรรทัดที่สามคือ <code>b</code>{' '}
+      แล้วอีก {P4_EDGES.length} บรรทัดคือเส้นเชื่อม เอาต์พุตเป็น<strong>ราคารวมของแต่ละปม
+      ทั้ง {P4_N} ปม</strong> ไม่ใช่ค่าเดียว และไม่ใช่จำนวนครั้งที่กระโดด
+      ปมที่เป็นใบตอบ 0 เพราะมันถึงใบอยู่แล้วโดยไม่ต้องกระโดด
+    </p>
+    <p>
+      เส้นเชื่อมในตัวอย่างนี้ทำให้ปมที่ 1 เป็นรากที่มีลูกคือปมที่ 2 และปมที่ 3
+      และปมที่ 2 มีลูกคือปมที่ 4 ปมที่ 3 กับปมที่ 4 จึงเป็นใบ ตอบ 0 ทั้งคู่
+      ปมที่ 2 มีทางเลือกเดียวคือกระโดดไปปมที่ 4 ราคา <code>a[2]·b[4] = {P4_A[1]} × {P4_B[3]} = {P4_A[1] * P4_B[3]}</code>
+    </p>
+    <p>
+      ปมที่ 1 น่าสนใจที่สุด มันกระโดดตรงไปใบได้เลย แต่<strong>ไม่คุ้ม</strong>{' '}
+      ทางที่ถูกที่สุดคือแวะที่ปมที่ 2 ก่อน คือ{' '}
+      {p4Path.map((j, t) => (
+        <span>
+          {t === 0 ? '' : ' แล้ว '}
+          <code>{j.from} ไป {j.to} ราคา {P4_A[j.from - 1]} × {P4_B[j.to - 1]} = {j.price}</code>
+        </span>
+      ))}
+      {' '}รวม {p4PathTotal} จุดที่ทำให้มันคุ้มคือ <code>b</code> ของปมที่ 2 ติดลบมาก
+      การกระโดดไปที่นั่นจึงได้เงินคืน แล้วค่อยจ่ายต่อจากนั้น
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={'ต้นไม้ในตัวอย่าง ตัวเลขในกล่องคือ a และ b ของปมนั้น ตัวเลขข้างกล่องคือคำตอบของปมนั้น ลูกศรเขียวคือเส้นทางกระโดดที่ถูกที่สุดของราก ซึ่งแวะปมกลางก่อนเพราะ b ของปมนั้นติดลบมาก รวม ' + p4PathTotal}>
+    <svg viewBox={d7VB} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้กับค่าประจำปมและเส้นทางกระโดดที่ถูกที่สุด" style="display:block;margin:0 auto;max-width:440px">
+      {p4TreeEdges.map((e) => (
+        <line
+          x1={d7x(e.from) + D7_BW / 2}
+          y1={d7y(e.from) + D7_BH}
+          x2={d7x(e.to) + D7_BW / 2}
+          y2={d7y(e.to)}
+          stroke="#2a3350"
+          stroke-width="1.5"
+        />
+      ))}
+      {p4Nodes.map((ndx) => (
+        <>
+          <rect
+            x={d7x(ndx.u)}
+            y={d7y(ndx.u)}
+            width={D7_BW}
+            height={D7_BH}
+            rx="6"
+            fill={p4JumpSet.has(ndx.u + '>' + ndx.via) || ndx.dp === 0 ? 'rgba(74,222,128,0.18)' : '#101827'}
+            stroke={ndx.kids.length === 0 ? '#e0b400' : '#4ade80'}
+          />
+          <text x={d7x(ndx.u) + D7_BW / 2} y={d7y(ndx.u) + 16} fill="#eaf4ff" font-size="10" text-anchor="middle" font-family="monospace">
+            ปม {ndx.u}
+          </text>
+          <text x={d7x(ndx.u) + D7_BW / 2} y={d7y(ndx.u) + 32} fill="#9aa7bd" font-size="10" text-anchor="middle" font-family="monospace">
+            a={P4_A[ndx.u - 1]} b={P4_B[ndx.u - 1]}
+          </text>
+          <text x={d7x(ndx.u) + D7_BW + 8} y={d7y(ndx.u) + 26} fill="#4ade80" font-size="11" font-family="monospace">
+            ตอบ {ndx.dp}
+          </text>
+        </>
+      ))}
+      {p4Path.map((j) => (
+        <line
+          x1={d7x(j.from) + 12}
+          y1={d7y(j.from) + D7_BH}
+          x2={d7x(j.to) + 12}
+          y2={d7y(j.to)}
+          stroke="#4ade80"
+          stroke-width="3"
+        />
+      ))}
+      <text x="24" y={d7Bottom + 4} fill="#4ade80" font-size="11" font-family="monospace">
+        กรอบทองคือใบ · เส้นเขียวหนาคือทางกระโดดของราก รวม {p4PathTotal}
+      </text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      เขียนสูตรออกมาก่อน <code>dp[u] = min over v ในต้นย่อยของ u ของ a[u]·b[v] + dp[v]</code>{' '}
+      แล้วดูว่าอะไรเป็นความชัน อะไรเป็นตำแหน่งที่ถาม พอตอบได้แล้วให้กลับไปอ่านขอบเขตอีกที
+      แล้วถามสองคำถามประจำ ครั้งนี้คำตอบจะเป็น "ไม่" ทั้งสองข้อ
+      คำถามถัดไปจึงเป็นว่า เครื่องมือที่ไม่สนลำดับเลย จะเอามาต่อกับต้นไม้ได้ยังไง
+      เมื่อแต่ละปมต้องรู้เส้นของ<strong>ทุกปมในต้นย่อยของตัวเอง</strong>
+    </p>
+  </div>
+
+  <h2>เฉลยฝึกข้อ 4</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
+      <p>
+        สองคำถามประจำตอบง่ายมากในข้อนี้ ความชันคือ <code>b[v]</code> ตำแหน่งที่ถามคือ{' '}
+        <code>a[u]</code> ทั้งคู่โจทย์ให้มาแบบสุ่ม ติดลบได้ และไม่รับประกันอะไรเลย
+        จึงเป็นระดับ 3 ตั้งแต่บรรทัดแรกที่อ่านขอบเขตจบ ไม่มีอะไรให้ลังเล
+      </p>
+      <p>
+        ของที่ต้องคิดจริง ๆ คือการต่อลีเชากับต้นไม้ ปมหนึ่งต้องถามเส้นของทุกปมในต้นย่อยของตัวเอง
+        ซึ่งคือ<strong>การรวมต้นไม้ของลูกทุกตัวเข้าด้วยกัน</strong> ผมเขียน <code>mergeTree</code>{' '}
+        แบบเดียวกับที่รวมเซกเมนต์ทรีสองต้น คือรวมลูกซ้ายกับลูกซ้าย ลูกขวากับลูกขวา
+        แล้วยัดเส้นของปมฝั่งที่ถูกกลืนลงไปในต้นที่เหลือ
+      </p>
+      <p>
+        รันตัวอย่างที่หนึ่ง ผ่าน ได้ <code>10 50 0</code> ตรงเฉลย รันตัวอย่างที่สอง
+        <strong>ไม่ผ่าน</strong> ได้ <code>-50 100 0 0</code> ขณะที่เฉลยคือ <code>{p4Answer}</code>{' '}
+        ค่าที่ผิดคือปมที่ 1 เพียงตัวเดียว และมันผิดไปในทางที่<strong>แย่กว่าคำตอบจริง</strong>{' '}
+        ซึ่งแปลว่าโปรแกรมมองไม่เห็นทางเลือกบางทาง ไม่ใช่คิดราคาผิด
+      </p>
+      <p>
+        ผมไล่ดูว่าทางที่หายไปคือทางไหน คำตอบคือทางที่ผ่านปมที่ 2 ซึ่งแปลว่า
+        <strong>เส้นของปมที่ 2 หายไปจากต้นไม้ที่ถูกรวมขึ้นมา</strong> ตรงนั้นเองที่ผมเห็นว่า
+        ปัญหาไม่ได้อยู่ที่ตรรกะของลีเชาเลย มันอยู่ที่ C++ คือผมส่ง <code>nd[t].lc</code>{' '}
+        เข้าไปเป็น<strong>อ้างอิง</strong> แล้วข้างในนั้นมีการ <code>push_back</code>{' '}
+        ซึ่งย้าย <code>vector</code> ทั้งก้อนไปที่ใหม่ อ้างอิงที่ถืออยู่จึงชี้ไปหน่วยความจำเก่า
+        การเขียนค่ากลับหายไปเงียบ ๆ
+      </p>
+      <p>
+        บทเรียนที่หยิบไปใช้ต่อได้คือ เวลาโครงสร้างข้อมูลแบบจองปมเองเก็บอยู่ใน <code>vector</code>{' '}
+        ห้ามถืออ้างอิงหรือพอยน์เตอร์เข้าไปในนั้นข้ามการ <code>push_back</code> เด็ดขาด
+        ท่าที่ปลอดภัยคือให้ฟังก์ชัน<strong>คืนหมายเลขปมกลับมา</strong> แล้วเขียนค่าลงหลังการเรียกจบ
+        และข้อนี้โชคดีที่ตัวอย่างของโจทย์จับได้ ถ้าตัวอย่างเป็นต้นไม้เล็กกว่านี้
+        หรือ <code>vector</code> ยังไม่ต้องขยาย มันจะผ่านตัวอย่างแล้วไปตกเทสจริง
+      </p>
+    </div>
+    <p>
+      นิยาม <code>dp[u]</code> ว่าเป็นราคารวมน้อยสุดที่จะกระโดดจาก <code>u</code> ลงไปถึงใบใดก็ได้
+      ในต้นย่อยของ <code>u</code> ถ้า <code>u</code> เป็นใบก็ได้ 0
+    </p>
+    <p>
+      การกระโดดครั้งแรกไปที่ <code>v</code> ราคา <code>a[u]·b[v]</code> แล้วจ่ายต่ออีก{' '}
+      <code>dp[v]</code> ก้อนนี้เป็นเส้นชัน <code>b[v]</code> จุดตัดแกน <code>dp[v]</code>{' '}
+      ที่ตำแหน่ง <code>a[u]</code>
+    </p>
+    <p>
+      โครงของโค้ดจึงเป็น เดินต้นไม้จากล่างขึ้นบน ที่ปม <code>u</code> ให้
+      <strong>รวมต้นไม้ลีเชาของลูกทุกตัว</strong> เข้าเป็นต้นเดียวก่อน แล้ว
+      <strong>ถามที่ a[u]</strong> ได้ <code>dp[u]</code> ออกมา แล้วจึง
+      <strong>ใส่เส้นของตัวเอง</strong> ลงในต้นนั้น เพื่อให้พ่อของมันใช้ต่อได้
+      ลำดับสามอย่างนี้สลับกันไม่ได้ ถ้าใส่เส้นของตัวเองก่อนถาม ปมจะกระโดดมาที่ตัวเองได้ ซึ่งโจทย์ห้าม
+    </p>
+    <p>
+      สองเรื่องที่ต้องระวังเพิ่ม เรื่องแรกคือ<strong>ต้นไม้ลึกได้ถึงแสนชั้น</strong>{' '}
+      การเดินต้นไม้ด้วยฟังก์ชันเรียกตัวเองจะล้นสแต็กของระบบ ต้องใช้สแต็กของตัวเองแบบที่
+      <a href="/cp/tree-dp/">บทดีพีบนต้นไม้</a> ทำ ส่วนการเรียกซ้ำภายในลีเชาไม่เป็นไร
+      เพราะมันลึกแค่ <code>log</code> ของความกว้างแกน x เรื่องที่สองคือช่วงของแกน x{' '}
+      ต้องคลุมค่า <code>a</code> ที่<strong>ติดลบ</strong> ได้ด้วย
+    </p>
+  </Spoiler>
+
+  <h2>โค้ดฝึกข้อ 4</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ด C++</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeJump} lang="cpp" title="escape.cpp" />
+        <p>
+          ตรวจกับตัวไล่ทุกปมในต้นย่อยตรง ๆ <strong>2,600 รอบ</strong> แบ่งเป็นต้นไม้สุ่มเล็ก
+          ไม่เกินสิบปม 2,000 รอบ กับต้นไม้ไม่เกินหกสิบปมที่บังคับทรงเป็นทางยาว
+          เป็นดาว และเป็นแบบสุ่ม อีก 600 รอบ ตรงกันทุกรอบ
+        </p>
+        <p>
+          วัดเวลาด้วยต้นไม้ที่เป็น<strong>ทางยาวหนึ่งแสนปม</strong> ซึ่งเป็นทรงที่ทำให้
+          การเรียกตัวเองล้มแน่ ๆ ได้ 0.06 วินาที และใช้หน่วยความจำราว 12 เมกะไบต์
+        </p>
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ไม่รู้จักต้นไม้ลีเชาเลย</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeBruteJump} lang="cpp" title="checker4.cpp" />
+        <p>
+          ตัวนี้เก็บรายชื่อปมทุกตัวในต้นย่อยของแต่ละปมไว้ตรง ๆ แล้วไล่ดูทุกตัว
+          ช้าเป็น <code>O(n²)</code> แต่มันไม่ใช้เปลือกนูน ไม่ใช้ลีเชา
+          และไม่เชื่อข้ออ้างอะไรของบทนี้เลย ซึ่งเป็นเหตุผลเดียวที่มันเชื่อถือได้
+        </p>
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ดูบรรทัดที่ผิด กับอินพุตที่จับมันได้</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeBadJump} lang="cpp" title="ทำไม addLine ต้องคืนหมายเลขปม" />
+        <p>
+          ผมคอมไพล์เวอร์ชันนี้จริงเพื่อยืนยันเรื่องที่เล่า มันผ่านตัวอย่างที่หนึ่งของโจทย์
+          และตกตัวอย่างที่สอง นี่เป็นหนึ่งในไม่กี่ครั้งที่ตัวอย่างของโจทย์จับบักได้เอง
+          และเป็นเหตุผลที่ควรรันตัวอย่างทุกชุดที่โจทย์ให้มา ไม่ใช่ชุดแรกชุดเดียว
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <hr class="divider-solid" />
+
+  <h2>ตัวตรวจที่ควรเขียนคู่กันทุกครั้ง</h2>
+  <p>
+    ท่านี้เป็นท่าที่ตัวตรวจคุ้มค่าที่สุดในคลังนี้ร่วมกับ<a href="/cp/knuth-optimization/">คะนูธ</a>{' '}
+    เพราะทุกอย่างที่ผิดได้ในบทนี้ผิดแบบ<strong>ไม่มีข้อความเตือน</strong> ทั้งการเดาเรื่องลำดับผิด
+    ทั้งการล้นของตัวคูณ และทั้งการวางลำดับ "ใส่ก่อน ถามหลัง" สลับกัน
+    อาการที่ออกมาเหมือนกันหมด คือตัวเลขที่ถูกในตัวอย่างของโจทย์ แต่ผิดในบางอินพุตที่ใหญ่กว่า
+  </p>
+
+  <details class="expander">
+    <summary>ดูโค้ดตัวตรวจ รวมสองชั้นในไบนารีเดียว</summary>
+    <div class="expander-body">
+      <CodeBlock code={codeStress} lang="cpp" title="stress.cpp" />
+      <p>
+        ชั้นแรกคือดีพีที่ไล่ทางเลือกทุกทาง ซึ่งไม่รู้จักคำว่าเปลือกนูนเลย ชั้นที่สองคือท่าที่บทนี้สอน
+        จุดที่ตั้งใจออกแบบคือ<strong>กลุ่มทดสอบสองกลุ่ม</strong> กลุ่มแรกใช้เลขเล็กและปล่อยให้จุดซ้ำกันบ่อย
+        เพื่อจับกรณีความชันเท่ากัน กลุ่มที่สองใช้เลขระดับขอบเขตจริงและดันจุดไปกองที่ปลายสองข้าง
+        เพื่อจับการล้นของตัวคูณ
+      </p>
+      <p>
+        การแยกสองกลุ่มไม่ใช่เรื่องตกแต่ง ผมทดสอบแล้วว่า<strong>กลุ่มเลขเล็กเพียงกลุ่มเดียวจับการล้นไม่ได้</strong>{' '}
+        ผมเอาโค้ดตัวนี้ไปเปลี่ยน <code>__int128</code> เป็น <code>long long</code> แล้วรัน
+        มันฟ้องภายในกลุ่มที่สองพร้อมพิมพ์อินพุตที่พังออกมาให้ ซึ่งเป็นการยืนยันว่าตัวตรวจตัวนี้
+        จับบักที่บทนี้เตือนไว้ได้จริง ไม่ใช่แค่รันผ่านสวย ๆ
+      </p>
+      <p>
+        และเหตุผลที่รวมสองชั้นไว้ในไบนารีเดียวแทนที่จะใช้สองไบนารีกับสคริปต์เชลล์ คือการเปิด
+        โปรเซสใหม่ต่อหนึ่งเคสแพงกว่าการคิดเคสนั้นหลายสิบเท่า แปดพันรอบในไบนารีเดียวจบในพริบตา
+      </p>
+    </div>
+  </details>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ถ้าดีพีของคุณมีรูป <code>dp[i] = (ก้อนที่ขึ้นกับ i ล้วน) + min หรือ max ของ ( m(j)·x(i) + b(j) )</code>{' '}
+    แปลว่าทางเลือกทุกทางเป็นเส้นตรงบนระนาบเดียวกัน แล้วเส้นที่ไม่ได้อยู่บนขอบล่างก็ทิ้งได้ทันทีและตลอดไป
+    ที่เหลือคือตอบสองคำถามว่าความชันเรียงไหมและตำแหน่งที่ถามเรียงไหม
+    แล้วหยิบเครื่องมือตามตารางสามระดับ
+  </p>
+  <p class="pull">
+    ท่านี้ไม่ได้ทำให้การคิดแต่ละช่องเร็วขึ้น มันเปลี่ยนคำถามจาก "ไล่ดูทางเลือกทุกทาง"
+    เป็น "ที่ตำแหน่งนี้ เส้นไหนอยู่ต่ำที่สุด" ซึ่งเป็นคำถามที่เรขาคณิตตอบได้โดยไม่ต้องไล่
+  </p>
+
+  <h2>ที่มาและอ่านต่อ</h2>
+  <ol class="references">
+    <li>
+      meooow, "[Tutorial] Convex Hull Trick" ต้นทางหลักของบทนี้
+      ทั้งการแบ่งสามระดับ เงื่อนไขทิ้งเส้น ข้อสังเกตเรื่องความละเอียดของ <code>long double</code>{' '}
+      และรายการโจทย์ท้ายบทความที่โจทย์ฝึกทั้งสี่ข้อมาจากที่นั่น{' '}
+      <a href="https://codeforces.com/blog/entry/63823" rel="noopener noreferrer" target="_blank">codeforces.com/blog/entry/63823</a>
+    </li>
+    <li>
+      cp-algorithms, "Convex hull trick and Li Chao tree" ที่มาของกติกาต้นไม้ลีเชาที่ใช้ในระดับ 3{' '}
+      <a href="https://cp-algorithms.com/geometry/convex_hull_trick.html" rel="noopener noreferrer" target="_blank">cp-algorithms.com</a>
+    </li>
+    <li>
+      โจทย์ฝึก: Kattis coveredwalkway (2012 University of Chicago Invitational Programming Contest),
+      Codeforces 319C Kalila and Dimna in the Logging Industry, Codeforces 1083E The Fair Nut and Rectangles,
+      Codeforces 932F Escape Through Leaf
+    </li>
+    <li>
+      ในคลังนี้: <a href="/cp/segment-tree/">เซกเมนต์ทรี</a> คือบทที่ควรอ่านก่อนถ้าจะเข้าระดับ 3 และ{' '}
+      <a href="/cp/tree-dp/">ดีพีบนต้นไม้</a> คือที่มาของโครงเดินต้นไม้แบบไม่เรียกตัวเองที่ฝึกข้อ 4 ใช้
+    </li>
+    <li>
+      ท่าพี่น้องที่ตัดทางเลือกทิ้งด้วยเหตุผลอื่น:{' '}
+      <a href="/cp/divide-conquer-dp/">แบ่งครึ่งเร่งดีพี</a> กับ{' '}
+      <a href="/cp/knuth-optimization/">คะนูธ</a> ทั้งคู่อ้างว่าจุดตัดที่ดีที่สุดเดินไปทางเดียว
+      ต่างจากบทนี้ที่อ้างว่าทางเลือกเป็นเส้นตรง
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* หัวข้อย่อยต้องเล็กกว่า h2 ของ DivineLoreLayout (1rem) ไม่ใช่ใหญ่กว่า
+     และใช้ margin แบบ auto ซ้ายขวา ไม่งั้นมันจะทับกฎจัดกลางของ CpProblemLayout */
+  h3{
+    font-size:0.92rem;
+    margin:1.6rem auto 0.5rem;
+    max-width:46rem;
+    color:var(--dl-emerald-bright);
+    letter-spacing:0.02em;
+  }
+
+  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
+     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td strong{color:var(--dl-gold);}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+  .dim{color:#7b8397;}
+  /* แถวรวมของตาราง เน้นด้วยน้ำหนักตัวอักษร ไม่ใช้ <strong> ในเซลล์
+     เพราะตัวแปลของ Astro ย้าย <strong> ที่อยู่ในตารางออกไปไว้หลัง </table>
+     แล้วมันไปห่อทุกอย่างที่ตามมา ซึ่งดัน max-content ของการ์ดไปชนเพดาน 71rem */
+  table.rec tbody tr.tot td{color:var(--dl-gold);font-weight:700;}
+
+  /* ---------- กระดานของเครื่องเดิน ----------
+     !important สู้กับกฎของ CpProblemLayout คือ body .panel .dpsim table.rec{width:100%}
+     ซึ่ง selector ยาวกว่ากฎคลาสของหน้านี้ จึงชนะถ้าไม่ใส่
+     ถ้าปล่อยให้ width:100% ชนะ ตารางจะยกความกว้าง max-content ของตัวเองเข้าไปคิดด้วย
+     กล่อง .dps-scroll เลยมี max-content เป็นล้านพิกเซล การ์ดก็ถูกดันไปชนเพดาน 66rem
+     แล้วทั้งบทความก็กว้างตาม เหลือที่ว่างซ้ายขวาโดยไม่จำเป็น */
+  table.rec.chtboard{
+    table-layout:fixed;
+    width:0 !important;
+    min-width:100%;
+  }
+  table.rec.chtboard th:first-child,
+  table.rec.chtboard td:first-child{width:3.2rem;}
+  table.rec.chtboard th:nth-child(2),
+  table.rec.chtboard td:nth-child(2){width:5rem;}
+  table.rec.chtboard th:nth-child(3),
+  table.rec.chtboard td:nth-child(3){width:11rem;}
+  table.rec.chtboard th:nth-child(4),
+  table.rec.chtboard td:nth-child(4){width:5rem;}
+  table.rec.chtboard th:nth-child(5),
+  table.rec.chtboard td:nth-child(5){width:8rem;}
+  table.rec.chtboard th:nth-child(6),
+  table.rec.chtboard td:nth-child(6){width:6rem;}
+  table.rec.chtboard th:last-child,
+  table.rec.chtboard td:last-child{width:7rem;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  /* ชุดที่ไม่ได้เลือกซ่อนไว้ ไม่ได้ลบทิ้ง เพราะรูปถูกวาดตอนบิลด์ไปแล้ว */
+  .chtg-board[data-on="0"]{display:none;}
+  .chtg-board{width:0;min-width:100%;}
+  .chtg-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.4rem;
+    padding:0.6rem 0 0.2rem;
+  }
+  .chtg-chip{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:0.4rem;
+    font:inherit;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.76rem;
+    cursor:pointer;
+    border-radius:999px;
+    padding:0.3rem 0.7rem;
+    border:1px solid var(--dl-border);
+    background:#141b2b;
+    color:#cdd6ea;
+    transition:border-color 0.15s ease, opacity 0.15s ease;
+  }
+  .chtg-chip:hover{border-color:var(--dl-emerald);}
+  .chtg-chip.picked{
+    opacity:0.42;
+    border-color:var(--dl-gold);
+    text-decoration:line-through;
+  }
+  .chtg-swatch{
+    display:inline-block;
+    width:0.85rem;
+    height:0.2rem;
+    border-radius:2px;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .chtg-chip{transition:none;}
+  }
+
+  /* บนจอแคบ ถ้าปล่อยให้ SVG หดตามการ์ด กราฟทั้งรูปจะถูกย่อ (ที่ 375px เหลือ 222px
+     คือ 0.34 เท่า ป้าย font-size 10 กลายเป็น 3.4px ซึ่งอ่านไม่ออก)
+     ให้มัน "ล้น" แล้วปล่อยให้ .cpg-scroll เลื่อนแทน หน้าเว็บเองจึงไม่เลื่อนตาม
+     กติกาเดียวกับ .dgm-scroll svg ของ ZoomableDiagram */
+  @media (max-width: 640px){
+    .chtg-board svg{min-width:520px;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type Ln = { m: number; b: number };
+  type ChtPuzzle = { id: string; label: string; tease: string; lines: Ln[]; useless: number[] };
+
+  function initChtGame(): void {
+    const maybeUi = cpGameUi('[data-chtgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as ChtPuzzle[];
+    if (puzzles.length === 0) return;
+
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-cht-board]'));
+    const chips = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-cht-pick]'));
+    if (boards.length !== puzzles.length) return;
+
+    let pi = 0;
+    /* เส้นที่ผู้เล่นบอกว่าทิ้งได้ แยกเก็บต่อชุด เพื่อให้สลับแท็บไปมาแล้วไม่หาย */
+    const picked: Set<number>[] = puzzles.map(() => new Set<number>());
+
+    const pz = (): ChtPuzzle => puzzles[pi];
+
+    function render(): void {
+      boards.forEach((bd, t) => bd.setAttribute('data-on', t === pi ? '1' : '0'));
+      for (const chip of chips) {
+        const raw = chip.dataset.chtPick ?? '';
+        const parts = raw.split(':');
+        const gi = Number(parts[0]);
+        const li = Number(parts[1]);
+        chip.classList.toggle('picked', gi === pi && picked[pi].has(li));
+      }
+      const n = picked[pi].size;
+      ui.setScore(
+        n === 0 ? 'ยังไม่ได้เลือกเส้นไหน' : 'เลือกไว้ ' + n + ' เส้น จากทั้งหมด ' + pz().lines.length + ' เส้น',
+      );
+    }
+
+    function describe(idx: number[]): string {
+      if (idx.length === 0) return 'ไม่มีเส้นไหนเลย';
+      return idx
+        .map((t) => {
+          const L = pz().lines[t];
+          return L.m + 'x' + (L.b >= 0 ? '+' : '-') + Math.abs(L.b);
+        })
+        .join(' และ ');
+    }
+
+    function check(): void {
+      const want = new Set(pz().useless);
+      const got = picked[pi];
+      const missing = pz().useless.filter((t) => !got.has(t));
+      const extra = Array.from(got).filter((t) => !want.has(t));
+      if (missing.length === 0 && extra.length === 0) {
+        ui.setStatus(
+          want.size === 0
+            ? 'ถูกต้องครับ ชุดนี้ทุกเส้นอยู่บนขอบล่างจริง ไม่มีเส้นไหนทิ้งได้'
+            : 'ถูกต้องครับ เส้นที่ทิ้งได้คือ ' + describe(pz().useless) + ' และคุณเลือกครบพอดี',
+          'good',
+        );
+        return;
+      }
+      if (extra.length > 0) {
+        ui.setStatus(
+          'ยังไม่ถูกครับ เส้น ' + describe(extra) + ' ทิ้งไม่ได้ มันมีช่วง x ที่มันชนะอยู่ ลองมองไกลออกไปนอกกรอบ',
+          'bad',
+        );
+        return;
+      }
+      ui.setStatus(
+        'ใกล้แล้วครับ ยังเหลือเส้นที่ทิ้งได้อีก ' + missing.length + ' เส้นที่ยังไม่ได้เลือก',
+        'bad',
+      );
+    }
+
+    function selectPuzzle(t: number): void {
+      pi = t;
+      ui.selectTab(t);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดชิปของเส้นที่คิดว่าไม่มีวันชนะ แล้วกดตรวจคำตอบ');
+      render();
+    }
+
+    for (const chip of chips) {
+      chip.addEventListener('click', () => {
+        const raw = chip.dataset.chtPick ?? '';
+        const parts = raw.split(':');
+        const gi = Number(parts[0]);
+        const li = Number(parts[1]);
+        if (gi !== pi) return;
+        if (picked[pi].has(li)) picked[pi].delete(li);
+        else picked[pi].add(li);
+        ui.setStatus('เลือกไว้แล้ว กดตรวจคำตอบเมื่อพร้อม');
+        render();
+      });
+    }
+
+    ui.onClick('data-cht-reset', () => {
+      picked[pi].clear();
+      ui.setStatus('เริ่มใหม่แล้ว กดชิปของเส้นที่คิดว่าไม่มีวันชนะ');
+      render();
+    });
+    ui.onClick('data-cht-none', () => {
+      picked[pi].clear();
+      render();
+      check();
+    });
+    ui.onClick('data-cht-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initChtGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  /* เครื่องเดินของหน้านี้เดินตามแถวของตารางตรง ๆ หนึ่งแถวคือหนึ่งจุดที่ต้องคลุม
+     จึงใช้ตัวช่วยแบบแถวได้เลย ไม่ต้องเขียน draw เอง */
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-chtsim]');
+  });
+</script>
