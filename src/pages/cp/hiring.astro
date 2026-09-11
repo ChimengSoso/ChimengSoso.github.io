@@ -1,0 +1,942 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'hiring/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** ผู้สมัครหนึ่งคน s = เงินเดือนขั้นต่ำที่ขอ, q = ระดับคุณวุฒิ */
+type Cand = { s: number; q: number };
+
+/** อัตราของ a สูงกว่าของ b ไหม เทียบ s/q ด้วยการคูณไขว้ ไม่ต้องหาร */
+const rateAbove = (a: Cand, b: Cand): boolean => a.s * b.q > b.s * a.q;
+
+/** ทีมนี้จ่ายไหวไหม อัตราคือ s/q ที่สูงสุดในทีม ค่าจ้างรวมคืออัตราคูณผลรวมคุณวุฒิ */
+function teamFits(team: Cand[], w: number): boolean {
+  if (team.length === 0) return true;
+  let top = team[0];
+  let sumQ = 0;
+  for (const c of team) {
+    sumQ += c.q;
+    if (rateAbove(c, top)) top = c;
+  }
+  return sumQ * top.s <= w * top.q;
+}
+
+/** ตัวตรวจ ลองทุกเซตย่อยของผู้สมัคร ไม่มีการเรียงหรือฮีปใด ๆ */
+function bruteBest(w: number, cs: Cand[]): { best: number; ties: number } {
+  let best = 0;
+  let ties = 1;
+  for (let m = 1; m < 1 << cs.length; m++) {
+    const team = cs.filter((_, i) => (m >> i) & 1);
+    if (!teamFits(team, w)) continue;
+    if (team.length > best) {
+      best = team.length;
+      ties = 1;
+    } else if (team.length === best) ties++;
+  }
+  return { best, ties };
+}
+
+/** ดัชนีเรียงตามอัตราจากถูกไปแพง อัตราเท่ากันให้คนหมายเลขน้อยมาก่อน */
+const byRate = (cs: Cand[]): number[] =>
+  cs.map((_, i) => i).sort((a, b) => cs[a].s * cs[b].q - cs[b].s * cs[a].q || a - b);
+
+/** ท่ากลาง ตรึงคนตั้งราคาทีละคน แล้วหยิบคุณวุฒิน้อยก่อนจากคนที่อัตราไม่เกินเขา */
+function pivotSmallest(w: number, cs: Cand[]): number {
+  let best = 0;
+  for (const p of cs) {
+    const qs = cs.filter((c) => !rateAbove(c, p)).map((c) => c.q).sort((x, y) => x - y);
+    let sumQ = 0;
+    let cnt = 0;
+    for (const q of qs) {
+      if ((sumQ + q) * p.s > w * p.q) break;
+      sumQ += q;
+      cnt++;
+    }
+    best = Math.max(best, cnt);
+  }
+  return best;
+}
+
+type HeapStep = {
+  who: number;
+  s: number;
+  q: number;
+  hand: number[];
+  dropped: number[];
+  sumQ: number;
+  pay: number;
+  size: number;
+  best: number;
+};
+
+/** ท่าเต็ม เดินอัตราจากถูกไปแพง ในมือเก็บคุณวุฒิ งบเกินเมื่อไรทิ้งคนคุณวุฒิสูงสุด */
+function heapWalk(w: number, cs: Cand[]): { best: number; steps: HeapStep[] } {
+  const hand: number[] = [];
+  let sumQ = 0;
+  let best = 0;
+  const steps: HeapStep[] = [];
+  for (const k of byRate(cs)) {
+    const c = cs[k];
+    hand.push(c.q);
+    sumQ += c.q;
+    const dropped: number[] = [];
+    while (hand.length > 0 && sumQ * c.s > w * c.q) {
+      let at = 0;
+      for (let i = 1; i < hand.length; i++) if (hand[i] > hand[at]) at = i;
+      dropped.push(hand[at]);
+      sumQ -= hand[at];
+      hand.splice(at, 1);
+    }
+    best = Math.max(best, hand.length);
+    steps.push({
+      who: k + 1,
+      s: c.s,
+      q: c.q,
+      hand: [...hand].sort((x, y) => x - y),
+      dropped,
+      sumQ,
+      pay: (sumQ * c.s) / c.q,
+      size: hand.length,
+      best,
+    });
+  }
+  return { best, steps };
+}
+
+/** สองท่าที่ดูเข้าท่าแต่ผิด ใช้ในกล่องกับดักและเป็นด่านตรวจของเกม */
+function greedyCheapS(w: number, cs: Cand[]): number {
+  const team: Cand[] = [];
+  const order = cs.map((_, i) => i).sort((a, b) => cs[a].s - cs[b].s || cs[a].q - cs[b].q);
+  for (const i of order) if (teamFits([...team, cs[i]], w)) team.push(cs[i]);
+  return team.length;
+}
+function greedyRatePrefix(w: number, cs: Cand[]): number {
+  let sumQ = 0;
+  let best = 0;
+  byRate(cs).forEach((k, i) => {
+    sumQ += cs[k].q;
+    if (sumQ * cs[k].s <= w * cs[k].q) best = i + 1;
+  });
+  return best;
+}
+
+/* ด่านตรวจตอนบิลด์ ทั้งท่ากลางและท่าเต็มต้องตรงกับการลองทุกเซตย่อย ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 500;
+{
+  let seed = 20310911;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(9);
+    const V = [3, 10, 50][rnd(3)];
+    const cs = Array.from({ length: n }, () => ({ s: 1 + rnd(V), q: 1 + rnd(V) }));
+    const w = 1 + rnd(V * n * 3);
+    const b = bruteBest(w, cs).best;
+    if (heapWalk(w, cs).best !== b || pivotSmallest(w, cs) !== b)
+      throw new Error(`hiring: ท่าที่สอนไม่ตรงกับการลองทุกเซตย่อย ที่ W=${w} ${JSON.stringify(cs)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+type Sample = { w: number; cs: Cand[] };
+const SAMPLES: Sample[] = [
+  { w: 100, cs: [{ s: 5, q: 1000 }, { s: 10, q: 100 }, { s: 8, q: 10 }, { s: 20, q: 1 }] },
+  { w: 4, cs: [{ s: 1, q: 2 }, { s: 1, q: 3 }, { s: 1, q: 3 }] },
+  { w: 40, cs: [{ s: 10, q: 1 }, { s: 10, q: 2 }, { s: 10, q: 3 }] },
+];
+const SAMPLE_OUT = [2, 3, 2];
+SAMPLES.forEach((sm, i) => {
+  if (heapWalk(sm.w, sm.cs).best !== SAMPLE_OUT[i]) throw new Error(`hiring: ตัวอย่างที่ ${i + 1} ไม่ตรงกับโจทย์`);
+});
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+/** ตัวเลขทศนิยมแบบสั้น ตัดศูนย์ท้ายทิ้ง */
+const dec = (x: number, d = 3): string => String(Number(x.toFixed(d)));
+
+/* ตัวอย่างที่ 3 ใช้อธิบายกฎการจ่ายเงิน ทีมคนที่ 2 กับ 3 */
+const EX3 = SAMPLES[2];
+const EX3_TEAM = [1, 2];
+const EX3_TOP = EX3_TEAM.reduce((a, b) => (rateAbove(EX3.cs[b], EX3.cs[a]) ? b : a));
+const ex3Rate = EX3.cs[EX3_TOP].s / EX3.cs[EX3_TOP].q;
+const ex3Pays = EX3_TEAM.map((i) => ({ who: i + 1, q: EX3.cs[i].q, s: EX3.cs[i].s, pay: EX3.cs[i].q * ex3Rate }));
+const ex3Total = ex3Pays.reduce((t, p) => t + p.pay, 0);
+const ex3AllRate = Math.max(...EX3.cs.map((c) => c.s / c.q));
+const ex3AllTotal = ex3AllRate * EX3.cs.reduce((t, c) => t + c.q, 0);
+
+/* แผนภาพเส้นอัตราของตัวอย่างที่ 3 */
+const RX0 = 40;
+const RUNIT = 60;
+const rx = (r: number): number => RX0 + r * RUNIT;
+const R_MAX = Math.ceil(ex3AllRate) + 1;
+const ratePts = EX3.cs.map((c, i) => ({ who: i + 1, s: c.s, q: c.q, r: c.s / c.q, inTeam: EX3_TEAM.includes(i) }));
+const teamRates = ratePts.filter((p) => p.inTeam).map((p) => p.r);
+const BR_L = rx(Math.min(...teamRates));
+const BR_R = rx(Math.max(...teamRates));
+const RL_W = rx(R_MAX) + 19;
+const RL_H = 229;
+
+/* ---------- ตัวเล่นทีละขั้น ตัวอย่างที่ 1 ---------- */
+const EX1 = SAMPLES[0];
+const EX1_WALK = heapWalk(EX1.w, EX1.cs);
+const walkSteps = EX1_WALK.steps.map((st) => {
+  const rate = dec(st.s / st.q);
+  const head =
+    `คนที่ <b>${st.who}</b> ขอ ${st.s} ดอลลาร์ คุณวุฒิ ${st.q} อัตราจึงเป็น <b>${rate}</b> ต่อหนึ่งหน่วยคุณวุฒิ ` +
+    `ถือว่าเขาเป็นคนตั้งราคา แล้วรับคุณวุฒิ ${st.q} เข้ามือ `;
+  const drop =
+    st.dropped.length === 0
+      ? `ผลรวมคุณวุฒิในมือเป็น ${fmt(st.sumQ)} คูณอัตรา ${rate} ได้ <b>${dec(st.pay, 2)}</b> ไม่เกินงบ ${EX1.w} จึงไม่ต้องทิ้งใคร `
+      : `งบไม่พอ จึงทิ้งคนคุณวุฒิสูงสุดออกทีละคน คือ <b>${st.dropped.join(' แล้ว ')}</b> ` +
+        `จนผลรวมเหลือ ${fmt(st.sumQ)} คูณอัตราได้ <b>${dec(st.pay, 2)}</b> ซึ่งไม่เกินงบ `;
+  return { note: head + drop + `ในมือเหลือ <b>${st.size}</b> คน จำนวนที่ดีที่สุดจนถึงตอนนี้คือ <b>${st.best}</b>` };
+});
+
+/* ---------- กับดักสองท่า หากรณีที่เล็กที่สุดตอนบิลด์ด้วยการไล่ทุกกรณีเล็ก ๆ ---------- */
+function smallestFail(f: (w: number, cs: Cand[]) => number): { w: number; cs: Cand[]; got: number; best: number } {
+  const pool: Cand[] = [];
+  for (let s = 1; s <= 4; s++) for (let q = 1; q <= 4; q++) pool.push({ s, q });
+  for (let n = 1; n <= 3; n++) {
+    const idx = Array(n).fill(0);
+    for (;;) {
+      const cs = idx.map((i) => pool[i]);
+      for (let w = 1; w <= 24; w++) {
+        const b = bruteBest(w, cs).best;
+        const got = f(w, cs);
+        if (got !== b) return { w, cs, got, best: b };
+      }
+      let d = n - 1;
+      while (d >= 0 && idx[d] === pool.length - 1) d--;
+      if (d < 0) break;
+      idx[d]++;
+      for (let e = d + 1; e < n; e++) idx[e] = idx[d];
+    }
+  }
+  throw new Error('hiring: หากรณีที่กับดักพังไม่เจอ แปลว่าข้ออ้างในกล่องกับดักผิด');
+}
+const TRAP_S = smallestFail(greedyCheapS);
+const TRAP_P = smallestFail(greedyRatePrefix);
+const csList = (cs: Cand[]): string => cs.map((c) => `(${c.s}, ${c.q})`).join(' ');
+
+/* ---------- มินิเกม เลือกทีมให้คนเยอะที่สุดภายใต้งบ ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; w: number; cs: Cand[]; best: number; ties: number };
+function makePuzzle(id: string, label: string, tease: string, w: number, cs: Cand[], trap: boolean): GamePuzzle {
+  const b = bruteBest(w, cs);
+  if (heapWalk(w, cs).best !== b.best) throw new Error(`hiring: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  if (trap && (greedyCheapS(w, cs) >= b.best || greedyRatePrefix(w, cs) >= b.best))
+    throw new Error(`hiring: ชุด ${id} ควรทำให้ท่าโลภทั้งสองแพ้ แต่ไม่แพ้`);
+  return { id, label, tease, w, cs, best: b.best, ties: b.ties };
+}
+const PZ_C: Cand[] = [{ s: 30, q: 1 }, { s: 45, q: 2 }, { s: 45, q: 3 }, { s: 35, q: 2 }, { s: 55, q: 5 }, { s: 10, q: 1 }];
+const PZ_D: Cand[] = [{ s: 20, q: 7 }, { s: 50, q: 4 }, { s: 45, q: 2 }, { s: 80, q: 1 }, { s: 25, q: 1 }, { s: 85, q: 4 }];
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ตัวอย่างที่ 1 งบ 100', 'สี่คนนี้มาจากตัวอย่างในโจทย์ ลองกดเลือกดู แล้วสังเกตว่าตัวเลขค่าจ้างของทุกคนเปลี่ยนตามใคร', EX1.w, EX1.cs, false),
+  makePuzzle('b', 'ตัวอย่างที่ 3 งบ 40', 'ทุกคนขอเงินเท่ากันหมด แต่ราคาของทีมไม่เท่ากันเลย', EX3.w, EX3.cs, false),
+  makePuzzle('c', 'หกคน งบ 110', 'ชุดนี้คนที่ขอเงินน้อยที่สุดไม่ใช่ตัวเลือกที่ดีเสมอไป ลองจ้างเขาก่อนแล้วดูว่าเกิดอะไรขึ้น', 110, PZ_C, true),
+  makePuzzle('d', 'หกคน งบ 330', 'ชุดสุดท้าย ลองหาทีมที่ใหญ่ที่สุดให้ได้ก่อนเปิดเฉลย', 330, PZ_D, true),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+const pzC = puzzles[2];
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 500000;
+const bill = [
+  { name: 'ลองทุกทีม', limit: 'N ราว 20', work: `2 ยกกำลัง N ทีม ที่ N เท่ากับ ${fmt(N_MAX)} เกินจะนับ` },
+  { name: 'ตรึงคนตั้งราคาทีละคน แล้วเรียงคุณวุฒิใหม่ทุกครั้ง', limit: 'N หลักพัน', work: `ราว ${fmt(N_MAX)} ยกกำลังสอง คือสองแสนห้าหมื่นล้าน` },
+  { name: 'เดินอัตราจากถูกไปแพงรอบเดียว พร้อมฮีป', limit: `N ถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 19)} ครั้ง (N คูณ log N)` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main(){
+    int n; ll W;
+    if(scanf("%d %lld", &n, &W) != 2) return 0;
+    vector<ll> S(n), Q(n);
+    for(int i = 0; i < n; i++) scanf("%lld %lld", &S[i], &Q[i]);
+    // เรียงตามอัตราค่าจ้างต่อหนึ่งหน่วยคุณวุฒิ S/Q จากน้อยไปมาก (เทียบด้วยการคูณไขว้ ไม่ต้องหาร)
+    vector<int> id(n);
+    iota(id.begin(), id.end(), 0);
+    sort(id.begin(), id.end(), [&](int a, int b){ return S[a] * Q[b] < S[b] * Q[a]; });
+    priority_queue<ll> heap;   // คุณวุฒิของคนที่ถืออยู่ ตัวใหญ่สุดอยู่บนหัว
+    ll sumQ = 0;
+    size_t best = 0;
+    for(int k : id){
+        heap.push(Q[k]); sumQ += Q[k];
+        // อัตราตอนนี้คือ S[k]/Q[k] ค่าจ้างรวมคือ sumQ * S[k] / Q[k] ต้องไม่เกิน W
+        while(!heap.empty() && sumQ * S[k] > W * Q[k]){
+            sumQ -= heap.top(); heap.pop();   // ทิ้งคนที่คุณวุฒิสูงสุด เพราะเขาแพงสุดที่อัตรานี้
+        }
+        best = max(best, heap.size());
+    }
+    printf("%zu\\n", best);
+}`;
+
+const midCode = `#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main(){
+    int n; ll W;
+    if(scanf("%d %lld", &n, &W) != 2) return 0;
+    vector<ll> S(n), Q(n);
+    for(int i = 0; i < n; i++) scanf("%lld %lld", &S[i], &Q[i]);
+    int best = 0;
+    // ลองให้แต่ละคนเป็นคนที่อัตราสูงสุดในทีม
+    for(int j = 0; j < n; j++){
+        vector<ll> cand;   // คนที่อัตราไม่เกินคนที่ j
+        for(int i = 0; i < n; i++)
+            if(S[i] * Q[j] <= S[j] * Q[i]) cand.push_back(Q[i]);
+        sort(cand.begin(), cand.end());
+        ll sumQ = 0; int cnt = 0;
+        for(ll q : cand){   // หยิบคุณวุฒิน้อยก่อน จนงบไม่พอ
+            if((sumQ + q) * S[j] > W * Q[j]) break;
+            sumQ += q; cnt++;
+        }
+        best = max(best, cnt);
+    }
+    printf("%d\\n", best);
+}`;
+
+const bruteCode = `// ตัวตรวจ ลองทุกเซตย่อยของผู้สมัคร ไม่มีการเรียงหรือฮีปใด ๆ
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main(){
+    int n; ll W; scanf("%d %lld", &n, &W);
+    vector<ll> S(n), Q(n);
+    for(int i = 0; i < n; i++) scanf("%lld %lld", &S[i], &Q[i]);
+    int best = 0;
+    for(int m = 1; m < (1 << n); m++){
+        // หาอัตราสูงสุดในเซต (เก็บเป็นเศษส่วน S/Q) แล้วคิดค่าจ้างรวม = อัตรา * ผลรวมคุณวุฒิ
+        int top = -1; ll sumQ = 0;
+        for(int i = 0; i < n; i++) if(m >> i & 1){
+            sumQ += Q[i];
+            if(top < 0 || S[i] * Q[top] > S[top] * Q[i]) top = i;
+        }
+        if(sumQ * S[top] <= W * Q[top]) best = max(best, __builtin_popcount(m));
+    }
+    printf("%d\\n", best);
+}`;
+
+const coreSnippet = `// ค่าจ้างรวมของทีม = (อัตราสูงสุดในทีม) x (ผลรวมคุณวุฒิของทีม)
+// เทียบกับงบโดยไม่ต้องหาร:  sumQ * S[top] <= W * Q[top]
+bool fits = sumQ * S[top] <= W * Q[top];`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; จ้างคนงานให้ได้มากที่สุดภายใต้งบ</h2>
+  <p>
+    เรากำลังจะเปิดไซต์ก่อสร้าง มีผู้สมัคร <code>N</code> คน คนที่ <code>k</code> บอกมาสองอย่าง
+    คือเงินเดือนขั้นต่ำที่เขายอมรับ <code>S</code> ดอลลาร์ และระดับคุณวุฒิ <code>Q</code>
+    ใครที่เราจ้าง ต้องได้เงินไม่ต่ำกว่าที่เขาขอ
+  </p>
+  <p>
+    แต่มีกฎของสมาคมก่อสร้างมาขวางอยู่ข้อหนึ่ง คือ<strong>ค่าจ้างของคนที่เราจ้างต้องเป็นสัดส่วนกับคุณวุฒิพอดี</strong>
+    ถ้าคนงาน A มีคุณวุฒิเป็นสามเท่าของคนงาน B เราต้องจ่าย A เป็นสามเท่าของที่จ่าย B เป๊ะ ๆ
+    จะจ่ายเป็นเศษสตางค์ก็ได้ ไม่ต้องเป็นจำนวนเต็ม
+  </p>
+  <p>
+    เรามีงบ <code>W</code> ดอลลาร์ งานนี้ไม่สนเรื่องคุณวุฒิเลย ขอแค่<strong>จำนวนคนมากที่สุด</strong>
+    ถามว่าจ้างได้มากที่สุดกี่คน
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> กับ <code>W</code>
+        จากนั้นอีก <code>N</code> บรรทัด บรรทัดที่ <code>k</code> คือ <code>S</code> กับ <code>Q</code> ของผู้สมัครคนที่ <code>k</code>
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {fmt(N_MAX)}</code>,
+        <code>1 &le; S, Q &le; 20,000</code>, <code>1 &le; W &le; 10,000,000,000</code>
+        (งบใหญ่เกิน 32 บิต ต้องใช้ <code>long long</code>) เวลา 2 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนคนงานมากที่สุดที่จ้างได้ ตัวเลขเดียว</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      {SAMPLES.map((sm, i) => (
+        <tr>
+          <td>{sm.cs.length} {sm.w}<br />{sm.cs.map((c) => <>{c.s} {c.q}<br /></>)}</td>
+          <td>{SAMPLE_OUT[i]}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+
+  <p class="io-note">
+    ลองอ่านกฎการจ่ายเงินกับตัวอย่างที่ 3 ทั้งสามคนขอ {EX3.cs[0].s} ดอลลาร์เท่ากัน
+    ถ้าจ้างคนที่ {ex3Pays[0].who} (คุณวุฒิ {ex3Pays[0].q}) กับคนที่ {ex3Pays[1].who} (คุณวุฒิ {ex3Pays[1].q})
+    เราต้องจ่าย {dec(ex3Pays[0].pay, 2)} กับ {dec(ex3Pays[1].pay, 2)} ดอลลาร์ ทั้งคู่ได้ไม่ต่ำกว่าที่ขอ
+    สัดส่วน {ex3Pays[0].q} ต่อ {ex3Pays[1].q} ถูกกฎ และรวมกัน {dec(ex3Total, 2)} ไม่เกินงบ {EX3.w}
+    คำตอบคือ<strong>จำนวนคน</strong> ไม่ใช่ยอดเงิน
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      กฎสัดส่วนทำให้ทั้งทีมผูกกันด้วยตัวเลขตัวเดียว คือเงินที่จ่ายต่อ<strong>หนึ่งหน่วยคุณวุฒิ</strong>
+      พอตัวเลขนี้ถูกกำหนดแล้ว ค่าจ้างของทุกคนก็ตามมาเองหมด
+    </p>
+    <p>
+      ลองถามว่าตัวเลขนั้นต้องสูงอย่างน้อยเท่าไร ถึงจะไม่มีใครในทีมได้ต่ำกว่าที่ขอ
+      และในทีมหนึ่งทีม มีกี่คนที่มีเสียงในเรื่องนี้จริง ๆ
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; จัดทีมให้ใหญ่ที่สุดภายใต้งบ</h2>
+  <div class="cpgame hrgame" data-hrgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดผู้สมัคร">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => (
+        <div class="hr-board" data-hr-board={String(k)} hidden={k !== 0}>
+          {p.cs.map((c, i) => (
+            <button type="button" class="hr-card" data-hr-cell={`${k}:${i}`} aria-pressed="false">
+              <span class="hr-who">คนที่ {i + 1}</span>
+              <span class="hr-ask">ขอ {c.s}</span>
+              <span class="hr-q">คุณวุฒิ {c.q}</span>
+              <span class="hr-pay" data-hr-pay>&nbsp;</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้เลือกใคร</p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-hr-clear>ล้างทีม</button>
+      <button type="button" class="cpg-btn main" data-hr-check>ส่งทีมนี้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดการ์ดเพื่อจ้างหรือปลดคนนั้น ตัวเลข "ได้" คือเงินที่เขาได้จริงตามกฎสัดส่วน</p>
+    <p class="cpg-hint">การ์ดที่ขอบสีทองคือคนที่ตั้งราคาให้ทีมตอนนี้ ลองปลดเขาออกแล้วดูว่าค่าจ้างของคนอื่นเปลี่ยนไปยังไง</p>
+  </div>
+  <p class="ns-cue">
+    ลองจัดทีมให้ครบทั้งสี่ชุดก่อนนะครับ โดยเฉพาะชุดหกคนงบ {pzC.w} ที่คนขอเงินน้อยที่สุดกลับเป็นตัวถ่วง
+    พอมีคำตอบในใจแล้ว ค่อยเปิดเฉลย
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; คนเดียวในทีมเป็นคนตั้งราคา</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมเริ่มจากคำถามที่เล็กที่สุดก่อน คือ<strong>ถ้ามีทีมมาให้หนึ่งทีม จ่ายเท่าไร</strong>
+        ยังไม่ถามเลยว่าทีมไหนดี เพราะถ้าคิดราคาของทีมเดียวยังไม่ออก ก็ยังไม่มีอะไรให้เพิ่มประสิทธิภาพ
+        กฎสัดส่วนบอกว่าทุกคนได้ <code>Q</code> คูณตัวเลขตัวเดียวกัน พอเขียนเงื่อนไข "ได้ไม่ต่ำกว่าที่ขอ" ของแต่ละคนออกมา
+        ก็เห็นว่าตัวเลขนั้นต้องไม่ต่ำกว่า <code>S/Q</code> ของทุกคนในทีม
+      </p>
+      <p>
+        ตรงนี้คือจุดที่โจทย์เปลี่ยนหน้าตา ตัวเลขที่ต่ำที่สุดที่ใช้ได้คือ <code>S/Q</code> ที่<strong>สูงที่สุด</strong>ในทีม
+        แปลว่าในทีมหนึ่งทีม มีแค่คนเดียวที่ได้เงินพอดีกับที่ขอ ที่เหลือได้เกินกันหมด
+        และค่าจ้างรวมก็แยกเป็นผลคูณของสองก้อน คืออัตราของคนนั้นกับผลรวมคุณวุฒิของทั้งทีม
+        สองก้อนนี้ยังผูกกันอยู่ แต่อย่างน้อยผมก็รู้แล้วว่ากำลังสู้กับอะไร
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ก่อนหาทีมที่ดีที่สุด ให้เขียนราคาของทีมเดียวออกมาเป็นสูตรก่อน
+        สูตรนั้นมักบอกเองว่าต้องตรึงตัวไหนไว้
+      </p>
+    </div>
+    <p>
+      เรียก <code>S/Q</code> ของแต่ละคนว่า<strong>อัตรา</strong>ของเขา คือเงินขั้นต่ำที่เขาต้องการต่อหนึ่งหน่วยคุณวุฒิ
+      ถ้าทีมจ่ายที่อัตรา <code>r</code> คนที่ <code>k</code> จะได้ <code>r × Q</code>
+      ซึ่งไม่ต่ำกว่า <code>S</code> ก็ต่อเมื่อ <code>r</code> ไม่ต่ำกว่าอัตราของเขา
+      ทีมจึงต้องจ่ายที่<strong>อัตราสูงสุดในทีม</strong> ค่าจ้างรวมคืออัตรานั้นคูณผลรวมคุณวุฒิของทั้งทีม
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ราคาของทีมหนึ่งทีม" />
+
+    <ZoomableDiagram caption={`ตัวอย่างที่ 3 วางบนเส้นอัตรา ทีมของคนที่ ${EX3_TEAM.map((i) => i + 1).join(' กับ ')} จ่ายที่อัตรา ${dec(ex3Rate)} ของคนขวาสุดในทีม รวม ${dec(ex3Total, 2)} ไม่เกินงบ ${EX3.w} ถ้าชวนคนที่เหลือเข้ามาด้วย อัตราทั้งทีมจะกระโดดไปเป็น ${dec(ex3AllRate)} และรวมเป็น ${dec(ex3AllTotal, 2)} ซึ่งเกินงบ คนที่ขอเงินเท่ากันหมดจึงไม่ได้ราคาเท่ากันเลย`}>
+      <svg viewBox={`0 0 ${RL_W} ${RL_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="เส้นอัตราค่าจ้างต่อหนึ่งหน่วยคุณวุฒิของผู้สมัครสามคนในตัวอย่างที่ 3 สองคนที่อัตราต่ำอยู่ในทีม ทีมจ่ายที่อัตราของคนขวาสุดในทีม">
+        <text x={RX0 - 20} y="24" fill="#7b8397" font-size="13">อัตรา = S / Q (เงินขั้นต่ำต่อหนึ่งหน่วยคุณวุฒิ)</text>
+        <line x1={RX0} y1="118" x2={rx(R_MAX)} y2="118" stroke="#3a4560" stroke-width="2" />
+        {Array.from({ length: R_MAX + 1 }, (_, r) => (
+          <>
+            <line x1={rx(r)} y1="113" x2={rx(r)} y2="123" stroke="#3a4560" />
+            <text x={rx(r)} y="140" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{r}</text>
+          </>
+        ))}
+        <path d={`M${BR_L} 160 L${BR_L} 170 L${BR_R} 170 L${BR_R} 160`} fill="none" stroke="#2f9e5c" stroke-width="2" />
+        <text x={(BR_L + BR_R) / 2} y="192" fill="#6ee7a8" font-size="13" text-anchor="middle">ทีมจ่ายที่อัตรา {dec(ex3Rate)}</text>
+        {ratePts.map((p) => (
+          <>
+            <circle cx={rx(p.r)} cy="118" r="8" fill={p.inTeam ? '#2f9e5c' : '#1a2336'} stroke={p.inTeam ? '#6ee7a8' : '#7b8397'} stroke-width="2" />
+            <text x={rx(p.r)} y="72" fill="#cdd6ea" font-size="13" text-anchor="middle">คนที่ {p.who}</text>
+            <text x={rx(p.r)} y="92" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">S={p.s} Q={p.q}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ภาพนี้อธิบายตัวอย่างที่ 3 ได้ทั้งข้อ ทุกคนขอ {EX3.cs[0].s} ดอลลาร์ แต่คนที่คุณวุฒิสูงมีอัตราต่ำ
+      เพราะเงินก้อนเท่ากันถูกหารด้วยคุณวุฒิที่มากกว่า การจ้างคนคุณวุฒิสูงจึงถูกในแง่อัตรา แต่แพงในแง่ผลรวมคุณวุฒิ
+      โจทย์ทั้งข้อคือการชั่งสองแรงนี้
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ตรึงคนตั้งราคา แล้วหยิบคุณวุฒิน้อยก่อน</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ทางแรกที่ผมเขียน แล้วตีราคาทิ้ง</p>
+      <p>
+        สูตรจากตอนที่ 1 มีสองก้อนผูกกัน ท่ามาตรฐานคือตรึงก้อนหนึ่งไว้ ผมตรึงอัตราก่อน
+        เพราะอัตรามาจากคนคนเดียว จึงมีแค่ <code>N</code> ค่าให้ลอง ส่วนผลรวมคุณวุฒิมาจากทั้งทีม
+        พอสมมติว่าคนที่ <code>j</code> เป็นคนตั้งราคา คนที่อัตราสูงกว่าเขาก็เข้าทีมไม่ได้
+        ส่วนคนที่อัตราไม่เกินเขา ใครเข้ามาก็จ่ายที่อัตราเดิม ราคาต่อหัวจึงขึ้นกับคุณวุฒิอย่างเดียว
+        อยากได้คนเยอะก็หยิบคุณวุฒิน้อยก่อน จนงบหมด
+      </p>
+      <p>
+        ท่านี้ถูก และผมเขียนมันเป็นโค้ดจริงไว้ใช้เป็นตัวเทียบ แต่ต้องเรียงคุณวุฒิใหม่ทุกครั้งที่เปลี่ยนคนตั้งราคา
+        ที่ <code>N</code> ห้าแสน คือราวสองแสนห้าหมื่นล้านครั้ง วัดจริงที่ <code>N</code> เท่ากับ 5,000 ใช้ไป 0.47 วินาทีแล้ว
+        สิ่งที่ต้องหาต่อจึงชัดขึ้นมาก คือจะไม่ทิ้งงานที่ทำไปแล้วตอนเปลี่ยนคนตั้งราคาได้ยังไง
+      </p>
+    </div>
+    <p>
+      มีรายละเอียดหนึ่งที่ต้องเช็กให้ชัด ตอนตรึงคนที่ <code>j</code> เป็นคนตั้งราคา
+      ผมไม่ได้บังคับให้เขาอยู่ในทีมด้วย ถ้าทีมที่หยิบมาไม่มีเขา อัตราจริงของทีมจะต่ำกว่าหรือเท่ากับของเขา
+      ค่าจ้างจริงจึงไม่มีทางแพงกว่าที่คิดไว้ ทีมนั้นจ่ายไหวแน่นอน
+      และทีมที่ดีที่สุดของโจทย์ก็มีคนตั้งราคาของมันอยู่หนึ่งคนเสมอ
+      คำตอบจึงเท่ากับค่ามากที่สุดจากการลองให้ทุกคนเป็นคนตั้งราคา ไม่ขาดไม่เกิน
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; เดินจากอัตราถูกไปแพง แล้วทิ้งคนที่แพงที่สุดในมือ</h2>
+  <Spoiler>
+    <p>
+      เรียงผู้สมัครตามอัตราจากน้อยไปมาก แล้วเดินทีละคน ตอนเดินมาถึงคนที่ <code>j</code>
+      คนที่ผ่านมาแล้วทั้งหมดคือคนที่อัตราไม่เกินเขาพอดี ซึ่งก็คือกลุ่มที่ตอนที่ 2 ต้องกรองใหม่ทุกรอบ
+      ทีนี้กลุ่มนั้นโตขึ้นทีละคน ไม่ต้องสร้างใหม่อีกแล้ว
+    </p>
+    <p>
+      สิ่งที่ถืออยู่ในมือคือคุณวุฒิของทีมปัจจุบัน รับคนที่ <code>j</code> เข้ามา
+      แล้วถ้าผลรวมคุณวุฒิคูณอัตราของเขาเกินงบ ให้<strong>ทิ้งคนที่คุณวุฒิสูงสุดในมือ</strong>ออกทีละคนจนงบพอ
+      เพราะที่อัตราเดียวกัน คนคุณวุฒิสูงคือคนที่แพงที่สุด จำนวนคนในมือหลังจบรอบคือทีมที่ใหญ่ที่สุดของคนตั้งราคาคนนี้
+      และคำตอบคือค่ามากที่สุดของตัวเลขนี้ตลอดทาง
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แกะคำศัพท์ &middot; heap</p>
+      <p>
+        ของที่ต้องหยิบ "ตัวที่คุณวุฒิสูงสุด" ออกได้เร็ว ๆ ซ้ำไปเรื่อย ๆ คือ<strong>ฮีป (heap)</strong>
+        คำนี้<strong>อ่านว่า "ฮีป" แปลตรงตัวว่ากองของ</strong> แบบกองผ้าที่ชิ้นบนสุดหยิบได้ทันที
+        ส่วนชิ้นล่าง ๆ ไม่ได้เรียงกันเป๊ะ เพราะเราไม่เคยต้องใช้มัน
+        ใน C++ คือ <code>priority_queue</code> ใส่ของหรือหยิบหัวกองออกครั้งละ log N
+      </p>
+    </div>
+    <p>
+      คำถามที่ควรค้างอยู่ในหัวตอนนี้คือ คนที่ถูกทิ้งไปแล้ว ไม่เคยถูกเรียกกลับเลย
+      ถ้าอีกหลายรอบต่อมาเขากลับเป็นคนที่ควรอยู่ในทีมล่ะ
+      คำตอบคือไม่มีทาง เขาถูกทิ้งตอนที่งบไม่พอแม้ที่อัตราถูกกว่า และอัตราหลังจากนี้มีแต่ขยับขึ้น
+      ทีมที่ต้องมีเขาจึงมีแต่แพงขึ้นเรื่อย ๆ ขั้นตอนเต็มอยู่ในกล่องข้างล่าง
+    </p>
+    <details class="expander">
+      <summary>ทำไมคนที่ถูกทิ้งไม่ต้องเรียกกลับ</summary>
+      <div class="expander-body">
+        <p>
+          ให้ <code>c(j)</code> คือขนาดทีมที่ใหญ่ที่สุดเมื่อคนที่ <code>j</code> ตั้งราคา
+          ผมจะแสดงว่าหลังจบรอบที่ <code>j</code> ในมือคือ <code>c(j)</code> คนที่คุณวุฒิน้อยที่สุด
+          ในบรรดาคนที่เดินผ่านมาแล้ว ซึ่งเป็นทีมที่ตอนที่ 2 หยิบพอดี
+        </p>
+        <p>
+          ข้อแรก <code>c(j)</code> โตขึ้นจากรอบก่อนได้ไม่เกินหนึ่ง เอาทีมที่ดีที่สุดของรอบ <code>j</code> มา
+          ตัดคนที่ <code>j</code> ออกถ้าเขาอยู่ในนั้น ที่เหลือเป็นคนจากรอบก่อนทั้งหมด
+          และที่อัตราของรอบก่อนซึ่งไม่แพงกว่า ทีมนี้ก็จ่ายไหว รอบก่อนจึงได้อย่างน้อย <code>c(j) - 1</code> คน
+        </p>
+        <p>
+          ข้อสอง ในมือหลังรับคนที่ <code>j</code> คือทีมเก่าบวกเขาหนึ่งคน ทีมเก่าเป็นคนคุณวุฒิน้อยที่สุดของรอบก่อน
+          จึงครอบทุกคนที่ต้องใช้ในรอบนี้ไว้แล้ว ยกเว้นกรณีเดียวที่รอบนี้ใหญ่กว่ารอบก่อนหนึ่งคน
+          ซึ่งข้อแรกบังคับว่าคนที่เพิ่มมาต้องเป็นคนที่ <code>j</code> เอง ที่เพิ่งรับเข้ามือพอดี
+          การทิ้งตัวใหญ่สุดทีละคนจนงบพอ จึงเหลือ <code>c(j)</code> คนที่คุณวุฒิน้อยที่สุดตามต้องการ
+        </p>
+        <p>
+          ผมไม่ได้เชื่อบทพิสูจน์นี้อย่างเดียว ตัวตรวจที่ลองทุกเซตย่อยตรงกับท่านี้ทุกเคสที่สุ่ม
+          และหน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p class="pull">
+      อัตราถูกเรียงให้ขึ้นอย่างเดียว ของที่ทิ้งไปแล้วจึงไม่มีวันกลับมาคุ้ม และทั้งข้อเหลืองานแค่เรียงหนึ่งครั้งกับฮีปหนึ่งกอง
+    </p>
+  </Spoiler>
+
+  <h2>เดินฮีปให้ดูหนึ่งรอบ</h2>
+  <Spoiler>
+    <CpStepPlayer hook="hrsim" steps={walkSteps} label={`เดินผู้สมัครของตัวอย่างที่ 1 จากอัตราถูกไปแพง งบ ${EX1.w}`}>
+      <table class="rec hrrec">
+        <caption>ตัวอย่างที่ 1 เรียงตามอัตรา</caption>
+        <thead>
+          <tr>
+            <th class="num">คนที่</th><th class="num">S</th><th class="num">Q</th><th class="num">อัตรา</th>
+            <th class="hand">คุณวุฒิในมือ</th><th class="num">ทิ้ง</th><th class="num">ค่าจ้างรวม</th><th class="num">ในมือ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {EX1_WALK.steps.map((st) => (
+            <tr>
+              <td class="num">{st.who}</td>
+              <td class="num">{st.s}</td>
+              <td class="num">{fmt(st.q)}</td>
+              <td class="num">{dec(st.s / st.q)}</td>
+              <td class="hand"><span>{st.hand.map(fmt).join(', ')}</span></td>
+              <td class="num">{st.dropped.length ? st.dropped.map(fmt).join(', ') : '·'}</td>
+              <td class="num">{dec(st.pay, 2)}</td>
+              <td class="num">{st.size}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ขนาดในมือตลอดทางคือ {EX1_WALK.steps.map((s) => s.size).join(', ')} ค่ามากที่สุดคือ <strong>{EX1_WALK.best}</strong>
+      ตรงกับเอาต์พุตของตัวอย่าง สังเกตแถวสุดท้าย คนที่อัตราแพงที่สุดเข้ามาแล้วดันทุกคนออกจนเหลือตัวเขาคนเดียว
+      แต่คำตอบไม่เสียหาย เพราะเราเก็บค่ามากที่สุดของทุกรอบไว้แล้ว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="hiring.cpp" />
+        <p>
+          จุดที่ต้องระวังคือขนาดตัวเลข ผลรวมคุณวุฒิขึ้นได้ถึงหนึ่งหมื่นล้าน คูณ <code>S</code> อีกสองหมื่นเป็น 2 × 10<sup>14</sup>
+          ฝั่งงบก็ขนาดเดียวกัน ทุกตัวจึงเป็น <code>long long</code> และเทียบอัตราด้วยการคูณไขว้
+          เพื่อไม่ให้ทศนิยมของ <code>double</code> ทำให้อัตราที่เท่ากันพอดีเทียบผิด
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูท่าตรึงคนตั้งราคา (ตัวเทียบระดับกลาง)</summary>
+      <div class="expander-body">
+        <CodeBlock code={midCode} lang="cpp" title="hiring_pivot.cpp" />
+        <p>
+          โจทย์ข้อนี้ไม่มีชุดคะแนนย่อย ท่านี้จึงไม่ได้คะแนนเพิ่มในตัวมันเอง
+          แต่มันเป็นตัวเทียบที่ดีมาก เพราะคิดแต่ละคนตั้งราคาแยกกันหมด ไม่มีเรื่องทิ้งแล้วไม่เรียกกลับเลย
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_hiring.cpp" />
+        <p>
+          ตัวตรวจลองทุกเซตย่อย แล้วคิดราคาจากนิยามตรง ๆ ไม่ได้ใช้ข้ออ้างเรื่องเรียงอัตราหรือหยิบคุณวุฒิน้อยก่อนเลยสักข้อ
+          ผมสุ่มผู้สมัครไม่เกิน 12 คน ค่าอยู่ในช่วงแคบบ้างกว้างบ้างเพื่อให้อัตราชนกันบ่อย รวม 800 เคส
+          แล้วเทียบทั้งสามโปรแกรม ตรงกันหมด และตรงกับตัวอย่างทั้งสามในโจทย์
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>สองท่าที่ดูเข้าท่า แต่ผิด</summary>
+      <div class="expander-body">
+        <p>
+          <strong>จ้างคนที่ขอเงินน้อยก่อน</strong> ฟังดูประหยัด แต่เงินที่ขอไม่ได้บอกราคาต่อหน่วย
+          ผู้สมัคร {csList(TRAP_S.cs)} (เขียนเป็น <code>(S, Q)</code>) งบ {TRAP_S.w}
+          ท่านี้ได้ {TRAP_S.got} คน ขณะที่คำตอบจริงคือ {TRAP_S.best} คน
+          คนที่ขอน้อยที่สุดมีอัตราสูง พอเขาเข้าทีมแล้ว ทุกคนที่ตามมาต้องได้ค่าจ้างที่อัตราของเขา
+        </p>
+        <p>
+          <strong>เรียงตามอัตราแล้วจ้างต่อกันไปโดยไม่ทิ้งใคร</strong> ใกล้เฉลยกว่า แต่พลาดตรงที่ไม่ยอมทิ้งคนคุณวุฒิสูงที่อัตราถูก
+          ผู้สมัคร {csList(TRAP_P.cs)} งบ {TRAP_P.w} ท่านี้ได้ {TRAP_P.got} คน ขณะที่คำตอบจริงคือ {TRAP_P.best} คน
+        </p>
+        <p>
+          ทั้งสองกรณีเป็นกรณีที่เล็กที่สุดที่ท่านั้นพัง หน้าเว็บหาเองตอนบิลด์ ด้วยการไล่ทุกชุดผู้สมัครไม่เกินสามคน
+          ที่ <code>S</code> กับ <code>Q</code> อยู่ระหว่าง 1 ถึง 4 แล้วเทียบกับการลองทุกเซตย่อย
+          ชุดหกคนงบ {pzC.w} ในเกมข้างบนก็ทำให้ทั้งสองท่าแพ้ ด่านตรวจตอนบิลด์ยืนยันไว้แล้ว
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ผู้สมัคร {fmt(N_MAX)} คนที่ค่าสุ่มเต็มช่วง ใช้เวลา <strong>0.32 วินาที</strong>
+      ส่วนชุดที่งบน้อยจนฮีปต้องทิ้งคนแทบทุกรอบ ใช้ <strong>0.29 วินาที</strong> จากลิมิต 2 วินาที
+      ตัวเลขนี้รวมเวลาอ่านอินพุตหนึ่งล้านจำนวนด้วย
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ข้อนี้มีสองจังหวะ จังหวะแรกคือ<strong>เขียนราคาของตัวเลือกเดียวให้เป็นสูตรก่อน</strong>
+    แล้วสังเกตว่ามีตัวแปรหนึ่งที่มาจากสมาชิกคนเดียว (อัตราสูงสุด) ตัวแปรแบบนั้นตรึงได้ทีละค่า
+    จังหวะที่สองคือพอเรียงตามตัวแปรที่ตรึงแล้ว กลุ่มที่ใช้ได้โตขึ้นทีละคน
+    งานที่ต้องเริ่มใหม่ทุกรอบจึงกลายเป็นการดูแลกองเดียวต่อเนื่องไปทั้งทาง
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทั้งสามแถวนับหน่วยเดียวกัน คือจำนวนครั้งที่แตะผู้สมัครหนึ่งคน แถวกลางต้องเรียงใหม่ทุกครั้งที่เปลี่ยนคนตั้งราคา แถวล่างเรียงครั้งเดียว แล้วทุกคนเข้าและออกจากฮีปอย่างละไม่เกินหนึ่งครั้ง</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ทีมจ่ายที่อัตราของคนที่อัตราสูงสุดในทีม เดินคนตั้งราคาจากถูกไปแพง เก็บคุณวุฒิไว้ในฮีป
+    งบเกินเมื่อไรก็ทิ้งคนคุณวุฒิสูงสุด แล้วตอบขนาดกองที่ใหญ่ที่สุดที่เคยเห็น
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>HIRING</i> บน programming.in.th ข้อ 2031
+      <a href="https://programming.in.th/tasks/2031" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2031
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>
+      ต้นฉบับคือโจทย์ <i>Hiring</i> วันแรกของ International Olympiad in Informatics ครั้งที่ 21 (IOI 2009, ประเทศบัลแกเรีย)
+      ฉบับนั้นให้ตอบรายชื่อคนที่จ้างและถ้าจำนวนเท่ากันให้เลือกทีมที่จ่ายน้อยที่สุดด้วย ฉบับบน programming.in.th ตัดเหลือแค่จำนวนคน
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.hrrec{width:auto !important;table-layout:fixed;}
+  table.rec.hrrec th, table.rec.hrrec td{width:5.6rem;}
+  table.rec.hrrec th.hand, table.rec.hrrec td.hand{width:9rem;}
+  table.rec.hrrec td.hand{font-family:"Fira Code","Fira Mono",monospace;color:#cdd6ea;}
+  table.rec.hrrec td.hand span{display:block;width:0;min-width:100%;}
+  table.rec.hrrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.hrrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.hrrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .hr-board{display:flex;gap:0.45rem;justify-content:center;flex-wrap:nowrap;margin:0.2rem auto 0.6rem;}
+  .hr-card{
+    /* ห้ามให้การ์ดหดตามกล่อง บนจอแคบให้แถวล้นแล้ว .cpg-scroll เลื่อนแทน */
+    flex:0 0 auto;
+    width:6.2rem;
+    display:flex;flex-direction:column;align-items:center;gap:0.1rem;
+    padding:0.5rem 0.3rem;
+    font-family:"Fira Code","Fira Mono",monospace;
+    border-radius:8px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    transition:background .15s, border-color .15s;
+  }
+  .hr-who{font-size:0.7rem;color:#7b8397;}
+  .hr-ask{font-size:0.88rem;}
+  .hr-q{font-size:0.75rem;color:#9aa6c0;}
+  .hr-pay{font-size:0.78rem;min-height:1.2em;color:#6ee7a8;}
+  .hr-card.on{background:#163a2a;border-color:var(--dl-emerald-bright);color:#eaf2ff;}
+  .hr-card.top{border-color:var(--dl-gold);box-shadow:0 0 0 1px var(--dl-gold);}
+  @media (prefers-reduced-motion: reduce){
+    .hr-card{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type HrCand = { s: number; q: number };
+  type HrPuzzle = { id: string; label: string; tease: string; w: number; cs: HrCand[]; best: number; ties: number };
+
+  function isPuzzle(x: unknown): x is HrPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.w === 'number' && typeof o.best === 'number' && Array.isArray(o.cs) && typeof o.tease === 'string';
+  }
+
+  const show = (x: number): string => String(Number(x.toFixed(2)));
+
+  function initHiringGame(): void {
+    const maybeUi = cpGameUi('[data-hrgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isPuzzle);
+    if (puzzles.length === 0) return;
+
+    let pi = 0;
+    let team = new Set<number>();
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-hr-board]'));
+
+    /** คนตั้งราคาของทีม คือคนที่ s/q สูงสุด (-1 ถ้ายังไม่มีใคร) */
+    function topOf(p: HrPuzzle): number {
+      let top = -1;
+      for (const i of team) if (top < 0 || p.cs[i].s * p.cs[top].q > p.cs[top].s * p.cs[i].q) top = i;
+      return top;
+    }
+    const sumQ = (p: HrPuzzle): number => [...team].reduce((t, i) => t + p.cs[i].q, 0);
+    const fits = (p: HrPuzzle, top: number): boolean => top < 0 || sumQ(p) * p.cs[top].s <= p.w * p.cs[top].q;
+
+    function render(): void {
+      const p = puzzles[pi];
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      const top = topOf(p);
+      const rate = top < 0 ? 0 : p.cs[top].s / p.cs[top].q;
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-hr-cell]'))) {
+        const i = Number((btn.dataset.hrCell ?? '').split(':')[1]);
+        const on = team.has(i);
+        btn.classList.toggle('on', on);
+        btn.classList.toggle('top', i === top);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        const pay = btn.querySelector<HTMLElement>('[data-hr-pay]');
+        if (pay) pay.textContent = on ? `ได้ ${show(p.cs[i].q * rate)}` : '';
+      }
+      if (top < 0) {
+        ui.setScore(`ยังไม่ได้เลือกใคร งบ ${p.w}`);
+        return;
+      }
+      const total = sumQ(p) * rate;
+      ui.setScore(
+        `ทีม ${team.size} คน อัตราตั้งโดยคนที่ ${top + 1} คือ ${show(rate)} ต่อหนึ่งหน่วยคุณวุฒิ ` +
+          `จ่ายรวม ${show(total)} จากงบ ${p.w}${fits(p, top) ? '' : ' (เกินงบ)'}`,
+      );
+    }
+
+    function toggle(i: number): void {
+      if (team.has(i)) team.delete(i);
+      else team.add(i);
+      const p = puzzles[pi];
+      ui.setStatus(fits(p, topOf(p)) ? 'ทีมนี้ยังอยู่ในงบ' : 'ทีมนี้เกินงบแล้ว ลองดูว่าใครเป็นคนดันอัตราขึ้น', fits(p, topOf(p)) ? 'plain' : 'bad');
+      render();
+    }
+
+    function check(): void {
+      const p = puzzles[pi];
+      const top = topOf(p);
+      if (team.size === 0) ui.setStatus('ยังไม่ได้เลือกใครเลยครับ', 'plain');
+      else if (!fits(p, top)) ui.setStatus('ทีมนี้จ่ายไม่ไหว ค่าจ้างรวมเกินงบ', 'bad');
+      else if (team.size === p.best)
+        ui.setStatus(
+          p.ties > 1
+            ? `ได้ ${p.best} คน เต็มเพดานของชุดนี้แล้วครับ ชุดนี้มีทีมขนาดนี้ที่จ่ายไหวอยู่ ${p.ties} แบบ โจทย์ถามแค่จำนวน`
+            : `ได้ ${p.best} คน เต็มเพดานของชุดนี้แล้วครับ และมีทีมขนาดนี้ที่จ่ายไหวอยู่แบบเดียว`,
+          'good',
+        );
+      else ui.setStatus(`จ่ายไหว ได้ ${team.size} คน แต่ชุดนี้จ้างได้มากกว่านั้น`, 'plain');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      team = new Set<number>();
+      ui.selectTab(k);
+      ui.setTease(puzzles[pi].tease);
+      ui.setStatus('กดการ์ดเพื่อจ้างหรือปลดคนนั้น ตัวเลข "ได้" คือเงินที่เขาได้จริงตามกฎสัดส่วน');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-hr-cell]');
+      if (!(btn instanceof HTMLElement)) return;
+      toggle(Number((btn.dataset.hrCell ?? '').split(':')[1]));
+    });
+
+    ui.onClick('data-hr-clear', () => selectPuzzle(pi));
+    ui.onClick('data-hr-check', check);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initHiringGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-hrsim]');
+  });
+</script>

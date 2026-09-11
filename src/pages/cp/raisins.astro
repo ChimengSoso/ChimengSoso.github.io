@@ -1,0 +1,1019 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'raisins/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Grid = number[][];
+/** บล็อกหนึ่งก้อน บอกด้วยขอบสี่ด้าน แถวบน คอลัมน์ซ้าย แถวล่าง คอลัมน์ขวา (นับจากศูนย์) */
+type Blk = [number, number, number, number];
+type Cut = { dir: 'h' | 'v'; k: number; p: Blk; q: Blk };
+
+const blkSum = (g: Grid, b: Blk): number => {
+  let s = 0;
+  for (let r = b[0]; r <= b[2]; r++) for (let c = b[1]; c <= b[3]; c++) s += g[r][c];
+  return s;
+};
+const isSingle = (b: Blk): boolean => b[0] === b[2] && b[1] === b[3];
+const blkH = (b: Blk): number => b[2] - b[0] + 1;
+const blkW = (b: Blk): number => b[3] - b[1] + 1;
+const sizeLabel = (b: Blk): string => `${blkH(b)}×${blkW(b)}`;
+
+/** ทุกเส้นที่หั่นบล็อกนี้ได้ แนวนอนก่อน แล้วค่อยแนวตั้ง */
+function cutsOf(b: Blk): Cut[] {
+  const out: Cut[] = [];
+  for (let k = b[0]; k < b[2]; k++) out.push({ dir: 'h', k, p: [b[0], b[1], k, b[3]], q: [k + 1, b[1], b[2], b[3]] });
+  for (let k = b[1]; k < b[3]; k++) out.push({ dir: 'v', k, p: [b[0], b[1], b[2], k], q: [b[0], k + 1, b[2], b[3]] });
+  return out;
+}
+
+/** ท่าที่หน้านี้สอน ค่าแรงน้อยสุดของบล็อก = ลูกเกดบนบล็อก + ผลรวมที่ดีที่สุดของสองชิ้นหลังหั่น */
+function makeDp(g: Grid): (b: Blk) => number {
+  const memo = new Map<string, number>();
+  const f = (b: Blk): number => {
+    if (isSingle(b)) return 0;
+    const key = b.join(',');
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    let best = Infinity;
+    for (const c of cutsOf(b)) best = Math.min(best, f(c.p) + f(c.q));
+    const v = blkSum(g, b) + best;
+    memo.set(key, v);
+    return v;
+  };
+  return f;
+}
+const whole = (g: Grid): Blk => [0, 0, g.length - 1, g[0].length - 1];
+const solve = (g: Grid): number => makeDp(g)(whole(g));
+
+/**
+ * ตัวตรวจ ไม่เชื่อว่าแต่ละบล็อกคิดแยกกันได้
+ * สถานะคือถุงของบล็อกทั้งหมดที่ยังต้องหั่น แล้วลองทุกบล็อก ทุกเส้น ทุกลำดับ
+ */
+function bagBrute(g: Grid): number {
+  const seen = new Map<string, number>();
+  const go = (bag: Blk[]): number => {
+    if (bag.length === 0) return 0;
+    const sorted = [...bag].sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3]);
+    const key = sorted.map((b) => b.join(',')).join('|');
+    const hit = seen.get(key);
+    if (hit !== undefined) return hit;
+    let res = Infinity;
+    sorted.forEach((b, i) => {
+      const rest = sorted.filter((_, j) => j !== i);
+      for (const c of cutsOf(b)) {
+        const next = [...rest, ...[c.p, c.q].filter((x) => !isSingle(x))];
+        res = Math.min(res, blkSum(g, b) + go(next));
+      }
+    });
+    seen.set(key, res);
+    return res;
+  };
+  const start = whole(g);
+  return isSingle(start) ? 0 : go([start]);
+}
+
+/** ท่าโลภที่ฟังดูเข้าท่า หั่นเส้นที่ทำให้สองซีกมีลูกเกดใกล้กันที่สุด ถ้าเสมอเลือกเส้นแรกที่เจอ */
+function balancedCut(g: Grid, b: Blk): Cut {
+  let pick = cutsOf(b)[0];
+  let gap = Infinity;
+  for (const c of cutsOf(b)) {
+    const d = Math.abs(blkSum(g, c.p) - blkSum(g, c.q));
+    if (d < gap) {
+      gap = d;
+      pick = c;
+    }
+  }
+  return pick;
+}
+function greedy(g: Grid): number {
+  const go = (b: Blk): number => {
+    if (isSingle(b)) return 0;
+    const c = balancedCut(g, b);
+    return blkSum(g, b) + go(c.p) + go(c.q);
+  };
+  return go(whole(g));
+}
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับตัวตรวจแบบถุง ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 400;
+{
+  let seed = 20340911;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(3);
+    const m = 1 + rnd(n === 3 ? 3 : 4);
+    const V = [1, 3, 9, 1000][rnd(4)];
+    const g = Array.from({ length: n }, () => Array.from({ length: m }, () => 1 + rnd(V)));
+    if (solve(g) !== bagBrute(g)) throw new Error(`raisins: ท่าตารางบล็อกไม่ตรงกับตัวตรวจแบบถุง ที่ ${JSON.stringify(g)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE: Grid = [
+  [2, 7, 5],
+  [1, 9, 5],
+];
+const SN = SAMPLE.length;
+const SM = SAMPLE[0].length;
+const SAMPLE_ANS = solve(SAMPLE);
+const SAMPLE_TOTAL = blkSum(SAMPLE, whole(SAMPLE));
+const SAMPLE_CUTS = SN * SM - 1;
+const SAMPLE_GREEDY = greedy(SAMPLE);
+
+/* ต้นไม้การหั่นที่ดีที่สุดของตัวอย่าง (เลือกเส้นแรกที่ได้ค่าดีที่สุด) เก็บเป็นลำดับก่อนหลัง */
+type TreeCut = { order: number; blk: Blk; cut: Cut; cost: number };
+function optTree(g: Grid): { cuts: TreeCut[]; depth: number[][] } {
+  const f = makeDp(g);
+  const cuts: TreeCut[] = [];
+  const depth = g.map((row) => row.map(() => 0));
+  const walk = (b: Blk): void => {
+    if (isSingle(b)) return;
+    const target = f(b) - blkSum(g, b);
+    const c = cutsOf(b).find((x) => f(x.p) + f(x.q) === target);
+    if (!c) throw new Error('raisins: หาเส้นที่ให้ค่าดีที่สุดไม่เจอ');
+    cuts.push({ order: cuts.length + 1, blk: b, cut: c, cost: blkSum(g, b) });
+    for (let r = b[0]; r <= b[2]; r++) for (let cc = b[1]; cc <= b[3]; cc++) depth[r][cc] += 1;
+    walk(c.p);
+    walk(c.q);
+  };
+  walk(whole(g));
+  return { cuts, depth };
+}
+const sampleTree = optTree(SAMPLE);
+/* ข้ออ้างในเนื้อความ: ค่าแรงรวม = ลูกเกดของแต่ละช่อง คูณจำนวนครั้งที่ช่องนั้นอยู่ในบล็อกที่ถูกหั่น */
+const depthTotal = SAMPLE.reduce((s, row, r) => s + row.reduce((t, v, c) => t + v * sampleTree.depth[r][c], 0), 0);
+if (depthTotal !== SAMPLE_ANS || sampleTree.cuts.reduce((s, c) => s + c.cost, 0) !== SAMPLE_ANS)
+  throw new Error('raisins: สูตรลูกเกดคูณความลึกไม่ตรงกับคำตอบของตัวอย่าง');
+if (sampleTree.cuts.length !== SAMPLE_CUTS) throw new Error('raisins: จำนวนครั้งที่หั่นไม่เท่า N*M-1');
+const sampleDp = makeDp(SAMPLE);
+const sampleFirstTies = cutsOf(whole(SAMPLE)).filter((c) => SAMPLE_TOTAL + sampleDp(c.p) + sampleDp(c.q) === SAMPLE_ANS).length;
+const sampleFirstCount = cutsOf(whole(SAMPLE)).length;
+const depthTerms = SAMPLE.flatMap((row, r) => row.map((v, c) => `${v}×${sampleTree.depth[r][c]}`)).join(' + ');
+
+/* แผนภาพต้นไม้การหั่นของตัวอย่าง */
+const D_CELL = 84;
+const D_GX = 24;
+const D_GY = 24;
+const dCells = SAMPLE.flatMap((row, r) =>
+  row.map((v, c) => ({ x: D_GX + c * D_CELL, y: D_GY + r * D_CELL, v, d: sampleTree.depth[r][c] })),
+);
+const dLines = sampleTree.cuts.map((t) => {
+  const b = t.blk;
+  if (t.cut.dir === 'h') {
+    const y = D_GY + (t.cut.k + 1) * D_CELL;
+    const x1 = D_GX + b[1] * D_CELL;
+    const x2 = D_GX + (b[3] + 1) * D_CELL;
+    return { ...t, x1, y1: y, x2, y2: y, bx: (x1 + x2) / 2, by: y };
+  }
+  const x = D_GX + (t.cut.k + 1) * D_CELL;
+  const y1 = D_GY + b[0] * D_CELL;
+  const y2 = D_GY + (b[2] + 1) * D_CELL;
+  return { ...t, x1: x, y1, x2: x, y2, bx: x, by: (y1 + y2) / 2 };
+});
+const D_LX = D_GX + SM * D_CELL + 34;
+const D_LY = D_GY + 20;
+const D_LSTEP = 28;
+const dLegend = sampleTree.cuts.map((t, i) => ({
+  y: D_LY + i * D_LSTEP,
+  text: `ครั้งที่ ${t.order} · หั่นบล็อก ${sizeLabel(t.blk)} จ่าย ${t.cost}`,
+}));
+const D_TOTAL_Y = D_LY + sampleTree.cuts.length * D_LSTEP + 6;
+/* ความกว้างของข้อความในคำอธิบายด้านขวา ประมาณจากจำนวนตัวอักษรที่ขนาด 14
+   ไม่นับสระบนล่างกับวรรณยุกต์ของไทย เพราะมันซ้อนอยู่บนตัวอักษรอื่น ไม่กินที่ในแนวนอน */
+const visibleLen = (s: string): number => s.replace(/[ัิ-ฺ็-๎]/g, '').length;
+const D_LEGEND_W = Math.max(...dLegend.map((l) => visibleLen(l.text))) * 7.6;
+// ความกว้างตัวอักษรข้างบนเป็นค่าประมาณที่เผื่อเกิน วัดจริงในเบราว์เซอร์แล้วเหลือที่ว่างขวา 34 จึงหักออก 22 ให้เหลือราว 12
+const D_W = Math.round(D_LX + D_LEGEND_W - 10);
+const D_H = Math.max(D_GY + SN * D_CELL, D_TOTAL_Y) + 34;
+
+/* ---------- กระดานกับดัก ท่าหั่นให้สองซีกหนักเท่ากัน ---------- */
+const TRAP: Grid = [
+  [1, 1, 2, 9],
+  [9, 8, 1, 2],
+];
+const TRAP_ANS = solve(TRAP);
+const TRAP_GREEDY = greedy(TRAP);
+const TRAP_TOTAL = blkSum(TRAP, whole(TRAP));
+if (TRAP_GREEDY <= TRAP_ANS) throw new Error('raisins: ท่าโลภไม่แพ้บนกระดานกับดัก เนื้อความจะผิด');
+if (SAMPLE_GREEDY !== SAMPLE_ANS) throw new Error('raisins: ท่าโลภไม่ผ่านตัวอย่างในโจทย์ เนื้อความจะผิด');
+
+const cutName = (c: Cut): string => (c.dir === 'h' ? `แนวนอน ใต้แถว ${c.k + 1}` : `แนวตั้ง หลังคอลัมน์ ${c.k + 1}`);
+
+/* ตัวเล่นทีละขั้น ไล่ทุกเส้นที่หั่นกระดานกับดักเป็นครั้งแรกได้ */
+const trapDp = makeDp(TRAP);
+const trapBalanced = balancedCut(TRAP, whole(TRAP));
+type FirstRow = { name: string; pSize: string; pBest: number; qSize: string; qBest: number; total: number; balanced: boolean; pRaw: number; qRaw: number };
+const trapRows: FirstRow[] = cutsOf(whole(TRAP)).map((c) => ({
+  name: cutName(c),
+  pSize: sizeLabel(c.p),
+  pBest: trapDp(c.p),
+  qSize: sizeLabel(c.q),
+  qBest: trapDp(c.q),
+  total: TRAP_TOTAL + trapDp(c.p) + trapDp(c.q),
+  balanced: c.dir === trapBalanced.dir && c.k === trapBalanced.k,
+  pRaw: blkSum(TRAP, c.p),
+  qRaw: blkSum(TRAP, c.q),
+}));
+if (Math.min(...trapRows.map((r) => r.total)) !== TRAP_ANS) throw new Error('raisins: ตารางเส้นแรกไม่ได้คำตอบของกระดานกับดัก');
+const trapBalancedRow = trapRows.find((r) => r.balanced);
+if (!trapBalancedRow) throw new Error('raisins: หาเส้นของท่าโลภในตารางไม่เจอ');
+const trapBestRow = trapRows.reduce((a, b) => (b.total < a.total ? b : a));
+if (trapBestRow.balanced || Math.abs(trapBestRow.pRaw - trapBestRow.qRaw) <= Math.abs(trapBalancedRow.pRaw - trapBalancedRow.qRaw))
+  throw new Error('raisins: เส้นที่ดีที่สุดไม่ได้แบ่งลูกเกดห่างกว่าเส้นของท่าโลภ เนื้อความจะผิด');
+const trapSteps = trapRows.map((row, i) => {
+  const bestSoFar = Math.min(...trapRows.slice(0, i + 1).map((r) => r.total));
+  const lead = row.balanced
+    ? `เส้นนี้แบ่งลูกเกดได้ใกล้กันที่สุด คือ <b>${row.pRaw}</b> กับ <b>${row.qRaw}</b> ท่าหั่นให้สองซีกหนักเท่ากันจึงเลือกมัน `
+    : `เส้นนี้แบ่งลูกเกดเป็น <b>${row.pRaw}</b> กับ <b>${row.qRaw}</b> `;
+  return {
+    note:
+      `ถ้าหั่น${row.name}เป็นครั้งแรก ${lead}` +
+      `ชิ้นแรกขนาด ${row.pSize} หั่นต่อจนหมดได้ถูกสุด <b>${row.pBest}</b> ชิ้นที่สองขนาด ${row.qSize} ถูกสุด <b>${row.qBest}</b> ` +
+      `บวกค่าแรงครั้งแรก ${TRAP_TOTAL} ซึ่งเท่ากันทุกเส้น รวมเป็น <b>${row.total}</b> ` +
+      `ดีที่สุดที่เจอมาถึงแถวนี้คือ <b>${bestSoFar}</b>`,
+  };
+});
+
+/* ---------- มินิเกม หั่นเองให้ถูกที่สุด ---------- */
+type BoardItem = { kind: 'cell' | 'h' | 'v' | 'dot'; r: number; c: number; v: number };
+type GamePuzzle = { id: string; label: string; tease: string; g: Grid; best: number };
+function makePuzzle(id: string, label: string, tease: string, g: Grid): GamePuzzle {
+  const best = bagBrute(g);
+  if (solve(g) !== best) throw new Error(`raisins: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, g, best };
+}
+const SQUARE: Grid = [
+  [4, 9, 4],
+  [5, 6, 1],
+  [9, 1, 9],
+];
+const SQUARE_GREEDY = greedy(SQUARE);
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', `ตัวอย่างในโจทย์ ${SN}×${SM}`, 'เริ่มจากกระดานในโจทย์ก่อน ลองดูว่าหั่นยังไงถึงจ่ายแค่เท่าที่โจทย์ตอบ', SAMPLE),
+  makePuzzle('b', `กระดาน ${TRAP.length}×${TRAP[0].length}`, 'ลองหั่นให้สองซีกมีลูกเกดใกล้เคียงกันทุกครั้งดูก่อน แล้วค่อยลองท่าอื่น', TRAP),
+  makePuzzle('c', `กระดาน ${SQUARE.length}×${SQUARE[0].length}`, 'สามคูณสามต้องหั่นแปดครั้ง เส้นแรกที่เลือกจะกำหนดว่าช่องไหนต้องจ่ายซ้ำกี่รอบ', SQUARE),
+];
+if (SQUARE_GREEDY <= puzzles[2].best) throw new Error('raisins: ท่าโลภไม่แพ้บนกระดานสามคูณสาม');
+function boardItems(g: Grid): BoardItem[] {
+  const out: BoardItem[] = [];
+  const n = g.length;
+  const m = g[0].length;
+  for (let i = 0; i < 2 * n - 1; i++)
+    for (let j = 0; j < 2 * m - 1; j++) {
+      const r = Math.floor(i / 2);
+      const c = Math.floor(j / 2);
+      const kind = i % 2 === 0 ? (j % 2 === 0 ? 'cell' : 'v') : j % 2 === 0 ? 'h' : 'dot';
+      out.push({ kind, r, c, v: kind === 'cell' ? g[r][c] : 0 });
+    }
+  return out;
+}
+const gridCols = (m: number): string => Array.from({ length: 2 * m - 1 }, (_, j) => (j % 2 === 0 ? '3.1rem' : '0.9rem')).join(' ');
+const gridRows = (n: number): string => Array.from({ length: 2 * n - 1 }, (_, i) => (i % 2 === 0 ? '3.1rem' : '0.9rem')).join(' ');
+const boards = puzzles.map((p) => ({
+  items: boardItems(p.g),
+  style: `grid-template-columns:${gridCols(p.g[0].length)};grid-template-rows:${gridRows(p.g.length)}`,
+}));
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- ขนาดงานที่ขอบเขตเต็ม ---------- */
+const N_MAX = 50;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const BLOCKS_MAX = ((N_MAX * (N_MAX + 1)) / 2) ** 2;
+/* นับงานของสองท่าด้วยหน่วยเดียวกัน คือจำนวนครั้งที่แตะช่องหรือแตะคู่ของชิ้น */
+const workCount = (() => {
+  let tr = 0;
+  let area = 0;
+  for (let h = 1; h <= N_MAX; h++)
+    for (let w = 1; w <= N_MAX; w++) {
+      const cnt = (N_MAX - h + 1) * (N_MAX - w + 1);
+      tr += cnt * (h - 1 + (w - 1));
+      area += cnt * h * w;
+    }
+  return { tr, area };
+})();
+const TIME_FULL = '0.07';
+const TIME_NAIVE = '0.32';
+const SPEEDUP = Math.round(Number(TIME_NAIVE) / Number(TIME_FULL));
+const TIME_BRUTE_4 = '0.18';
+const TIME_BRUTE_34 = '0.01';
+const BRUTE_GROWTH = Math.round(Number(TIME_BRUTE_4) / Number(TIME_BRUTE_34));
+const ALL_MAX_ANS = 28600000;
+const bill = [
+  { name: 'ถุงของบล็อก ลองทุกลำดับการหั่น (ตัวตรวจ)', limit: 'ทดสอบถึง 4×4', work: `4×4 ใช้ ${TIME_BRUTE_4} วินาที` },
+  { name: 'จำบล็อกด้วยขอบสี่ด้าน นับลูกเกดทีละช่อง', limit: `ถึง ${N_MAX}×${N_MAX}`, work: `${N_MAX}×${N_MAX} ใช้ ${TIME_NAIVE} วินาที` },
+  { name: 'จำบล็อกด้วยขอบสี่ด้าน นับลูกเกดด้วยผลรวมสะสม', limit: `ถึง ${N_MAX}×${N_MAX}`, work: `${N_MAX}×${N_MAX} ใช้ ${TIME_FULL} วินาที` },
+];
+
+/* ---------- สูตร ---------- */
+const DP = mc.fn('\\mathrm{dp}');
+const SUM = mc.fn('\\mathrm{sum}');
+/* mc ยังไม่มี \min แบบวางเงื่อนไขไว้ใต้ตัว จึงเขียนตรง ๆ ตามแบบของ mc.max */
+const MIN = '\\mathop{\\textcolor{#50FA7B}{\\min}}\\limits';
+const recurrenceTex = texCode(
+  DP + '[B] \\;' + mc.op('=') + '\\; ' + SUM + '[B] \\;' + mc.op('+') + '\\; ' +
+    MIN + '_{\\text{หั่น } B \\text{ เป็น } P,\\,Q} \\big(' + DP + '[P] ' + mc.op('+') + ' ' + DP + '[Q]\\big)',
+);
+
+/* ---------- โค้ด ---------- */
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int n, m;
+int pre[51][51];           // pre[i][j] = ลูกเกดรวมของแถว 0..i-1 คอลัมน์ 0..j-1
+int dp[50][50][50][50];    // dp[r1][c1][r2][c2] = ค่าแรงน้อยสุดของบล็อกแถว r1..r2 คอลัมน์ c1..c2
+
+// ลูกเกดในบล็อก ได้ในจังหวะเดียวด้วยผลรวมสะสมสองมิติ
+int raisins(int r1, int c1, int r2, int c2){
+    return pre[r2+1][c2+1] - pre[r1][c2+1] - pre[r2+1][c1] + pre[r1][c1];
+}
+
+int main(){
+    scanf("%d %d", &n, &m);
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < m; j++){
+            int x; scanf("%d", &x);
+            pre[i+1][j+1] = pre[i][j+1] + pre[i+1][j] - pre[i][j] + x;
+        }
+    // ไล่บล็อกจากเล็กไปใหญ่ บล็อกสูง h กว้าง w ใช้แค่บล็อกที่เล็กกว่ามันเสมอ
+    for(int h = 1; h <= n; h++)
+        for(int w = 1; w <= m; w++)
+            for(int r1 = 0; r1 + h <= n; r1++)
+                for(int c1 = 0; c1 + w <= m; c1++){
+                    int r2 = r1 + h - 1, c2 = c1 + w - 1;
+                    if(h == 1 && w == 1){ dp[r1][c1][r2][c2] = 0; continue; }   // ชิ้นเดี่ยว ไม่ต้องหั่นแล้ว
+                    int best = INT_MAX;
+                    for(int k = r1; k < r2; k++)   // หั่นแนวนอน ใต้แถว k
+                        best = min(best, dp[r1][c1][k][c2] + dp[k+1][c1][r2][c2]);
+                    for(int k = c1; k < c2; k++)   // หั่นแนวตั้ง ทางขวาของคอลัมน์ k
+                        best = min(best, dp[r1][c1][r2][k] + dp[r1][k+1][r2][c2]);
+                    dp[r1][c1][r2][c2] = best + raisins(r1, c1, r2, c2);
+                }
+    printf("%d\\n", dp[0][0][n-1][m-1]);
+}`;
+
+const subSolution = `#include <bits/stdc++.h>
+using namespace std;
+int n, m, g[7][7];
+int memo[7][7][7][7];   // -1 แปลว่าบล็อกนี้ยังไม่เคยคิด
+
+// ค่าแรงน้อยสุดของบล็อกแถว r1..r2 คอลัมน์ c1..c2
+int solve(int r1, int c1, int r2, int c2){
+    if(r1 == r2 && c1 == c2) return 0;                 // ชิ้นเดี่ยว ไม่ต้องหั่นแล้ว
+    int &res = memo[r1][c1][r2][c2];
+    if(res != -1) return res;                          // บล็อกนี้เคยคิดไว้แล้ว
+    int s = 0;                                          // นับลูกเกดตรง ๆ ทีละช่อง
+    for(int r = r1; r <= r2; r++)
+        for(int c = c1; c <= c2; c++) s += g[r][c];
+    int best = INT_MAX;
+    for(int k = r1; k < r2; k++) best = min(best, solve(r1, c1, k, c2) + solve(k+1, c1, r2, c2));
+    for(int k = c1; k < c2; k++) best = min(best, solve(r1, c1, r2, k) + solve(r1, k+1, r2, c2));
+    return res = s + best;
+}
+
+int main(){
+    scanf("%d %d", &n, &m);
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < m; j++) scanf("%d", &g[i][j]);
+    memset(memo, -1, sizeof memo);
+    printf("%d\\n", solve(0, 0, n-1, m-1));
+}`;
+
+const bruteCode = `// ตัวตรวจ ไม่เชื่อว่าแต่ละบล็อกคิดแยกกันได้
+// สถานะคือถุงของบล็อกที่ยังต้องหั่นทั้งหมด แล้วลองทุกบล็อก ทุกเส้น ทุกลำดับ
+#include <bits/stdc++.h>
+using namespace std;
+typedef array<int,4> Blk;   // r1, c1, r2, c2
+int n, m, g[4][4];
+map<vector<Blk>, int> seen;
+
+int raisins(const Blk &b){
+    int s = 0;
+    for(int r = b[0]; r <= b[2]; r++)
+        for(int c = b[1]; c <= b[3]; c++) s += g[r][c];
+    return s;
+}
+
+int best(vector<Blk> bag){
+    if(bag.empty()) return 0;
+    sort(bag.begin(), bag.end());
+    auto it = seen.find(bag);
+    if(it != seen.end()) return it->second;
+    int res = INT_MAX;
+    for(size_t i = 0; i < bag.size(); i++){
+        Blk b = bag[i];
+        vector<Blk> rest = bag;
+        rest.erase(rest.begin() + i);
+        vector<pair<Blk,Blk>> cuts;
+        for(int k = b[0]; k < b[2]; k++) cuts.push_back({{b[0], b[1], k, b[3]}, {k+1, b[1], b[2], b[3]}});
+        for(int k = b[1]; k < b[3]; k++) cuts.push_back({{b[0], b[1], b[2], k}, {b[0], k+1, b[2], b[3]}});
+        for(auto &pc : cuts){
+            vector<Blk> nb = rest;
+            for(Blk x : {pc.first, pc.second})
+                if(!(x[0] == x[2] && x[1] == x[3])) nb.push_back(x);   // ชิ้นเดี่ยวหลุดออกจากถุง
+            res = min(res, raisins(b) + best(nb));
+        }
+    }
+    return seen[bag] = res;
+}
+
+int main(){
+    scanf("%d %d", &n, &m);
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < m; j++) scanf("%d", &g[i][j]);
+    vector<Blk> start;
+    if(n > 1 || m > 1) start.push_back({0, 0, n-1, m-1});
+    printf("%d\\n", best(start));
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; หั่นแผ่นช็อกโกแลตลูกเกดให้จ่ายค่าแรงน้อยที่สุด</h2>
+  <p>
+    Bonny ทำขนมอยู่ที่เมือง Plovdiv เธอมีแผ่นช็อกโกแลตรูปสี่เหลี่ยมที่เรียงเป็นชิ้นเล็ก <code>N</code> แถว <code>M</code> คอลัมน์
+    บนแต่ละชิ้นมีลูกเกดอย่างน้อยหนึ่งเม็ด เธออยากหั่นมันจนเหลือเป็นชิ้นเดี่ยวทั้ง <code>N × M</code> ชิ้น
+    แต่ไม่ว่าง จึงจ้าง Sly Peter มาหั่นแทน
+  </p>
+  <p>
+    Peter หั่นได้ทีละครั้ง เป็นเส้นตรงจากขอบหนึ่งไปอีกขอบของบล็อกที่ได้รับ ตามแนวรอยต่อระหว่างชิ้น
+    และคิดค่าแรงเป็นลูกเกด <strong>หั่นบล็อกไหน ก็ขอลูกเกดเท่ากับจำนวนลูกเกดทั้งหมดบนบล็อกนั้น</strong>
+    Bonny เลือกได้ทุกอย่าง ทั้งจะส่งบล็อกไหนให้หั่นก่อน หั่นแนวนอนหรือแนวตั้ง และหั่นตรงรอยไหน
+    งานของเราคือหาค่าแรงรวมที่น้อยที่สุด
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> และ <code>M</code>
+        อีก <code>N</code> บรรทัดถัดมา บรรทัดละ <code>M</code> จำนวน คือจำนวนลูกเกดบนแต่ละชิ้นของแถวนั้น เรียงจากซ้ายไปขวา
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N, M &le; {N_MAX}</code> ลูกเกดบนแต่ละชิ้นอยู่ระหว่าง 1 ถึง 1,000 เม็ด
+        เวลา 5 วินาที หน่วยความจำ 128 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> จำนวนลูกเกดน้อยที่สุดที่ Bonny ต้องจ่ายให้ Peter</li>
+      <li><strong>ให้คะแนน:</strong> ชุดทดสอบมูลค่า 25 คะแนนมี <code>N</code> และ <code>M</code> ไม่เกิน 7</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{SN} {SM}<br />{SAMPLE.map((row) => <>{row.join(' ')}<br /></>)}</td>
+        <td>{SAMPLE_ANS}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    กระดานนี้มี {SN * SM} ชิ้น ทุกครั้งที่หั่นจะได้ชิ้นเพิ่มหนึ่งชิ้นพอดี จึงต้องหั่น {SAMPLE_CUTS} ครั้งเสมอ
+    ไม่ว่าจะหั่นยังไง คำตอบ {SAMPLE_ANS} คือค่าแรงของทั้ง {SAMPLE_CUTS} ครั้งนั้นรวมกัน
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ครั้งแรกไม่มีทางเลือกเลย บล็อกที่ได้รับคือทั้งแผ่น จึงต้องจ่ายลูกเกดทั้งหมด {SAMPLE_TOTAL} เม็ดเสมอ
+      สิ่งที่เลือกได้คือหั่นตรงไหน และมันกำหนดว่าชิ้นไหนจะต้องไปอยู่ในบล็อกที่ถูกหั่นซ้ำอีกกี่รอบ
+    </p>
+    <p>
+      หลังหั่นครั้งแรกเสร็จ เราถือสองบล็อกที่ไม่เกี่ยวกันเลย ลองถามดูว่าบล็อกหนึ่งก้อนต้องจำอะไรบ้าง
+      ถึงจะรู้ว่ามันควรจ่ายเท่าไร และบล็อกแบบนี้บนกระดาน {N_MAX} คูณ {N_MAX} มีได้กี่แบบ
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; หั่นเองให้จ่ายน้อยที่สุด</h2>
+  <div class="cpgame rzgame" data-rzgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกกระดาน">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {boards.map((b, k) => (
+        <div class="rz-board" data-rz-board={String(k)} hidden={k !== 0} style={b.style}>
+          {b.items.map((it) =>
+            it.kind === 'cell' ? (
+              <span class="rz-cell" data-rz-cell={`${it.r}:${it.c}`}>{it.v}</span>
+            ) : it.kind === 'dot' ? (
+              <span class="rz-dot" data-rz-dot={`${it.r}:${it.c}`}></span>
+            ) : (
+              <button
+                type="button"
+                class={`rz-gap rz-${it.kind}`}
+                data-rz-gap={`${it.kind}:${it.r}:${it.c}`}
+                aria-label={it.kind === 'h' ? `หั่นแนวนอน ใต้แถว ${it.r + 1} ตรงคอลัมน์ ${it.c + 1}` : `หั่นแนวตั้ง หลังคอลัมน์ ${it.c + 1} ตรงแถว ${it.r + 1}`}
+              ></button>
+            ),
+          )}
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-rz-undo>ย้อนหนึ่งครั้ง</button>
+      <button type="button" class="cpg-btn" data-rz-reset>เริ่มกระดานนี้ใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดรอยต่อระหว่างสองชิ้น เพื่อหั่นบล็อกที่รอยนั้นอยู่ ตลอดแนวทั้งบล็อก</p>
+    <p class="cpg-score" data-cpg-score>จ่ายไปแล้ว 0 เม็ด</p>
+    <p class="cpg-hint">การหั่นหนึ่งครั้งจะวิ่งสุดขอบของบล็อกที่รอยนั้นอยู่เสมอ บล็อกอื่นไม่โดนด้วย</p>
+  </div>
+  <p class="ns-cue">ลองหั่นให้ครบทั้งสามกระดานก่อนนะครับ พอเริ่มรู้สึกว่าเส้นแรกสำคัญที่สุด ค่อยเปิดเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ลำดับการหั่นไม่มีผล เหลือแค่ว่าหั่นเส้นไหน</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ประโยคที่ทำให้โจทย์ดูยากคือ Bonny <strong>เลือกลำดับได้</strong> ว่าจะส่งบล็อกไหนให้หั่นก่อน
+        ถ้าลำดับมีผลจริง สถานะของปัญหาจะต้องจำทุกบล็อกที่ยังเหลืออยู่พร้อมกัน
+        ซึ่งคือตัวตรวจแบบถุงที่ผมเขียนไว้ท้ายบท ผมวัดมันแล้ว จากกระดาน 3×4 ไป 4×4 เวลาโตขึ้นราว {BRUTE_GROWTH} เท่า ทั้งที่ชิ้นเพิ่มแค่สี่ชิ้น
+      </p>
+      <p>
+        แต่พอดูว่าค่าแรงหนึ่งครั้งขึ้นกับอะไร คำตอบคือขึ้นกับ<strong>ลูกเกดบนบล็อกที่ถูกหั่นเท่านั้น</strong>
+        ไม่ได้ขึ้นกับว่าตอนนั้นมีบล็อกอื่นวางอยู่บนโต๊ะกี่ก้อน หรือหั่นกันไปแล้วกี่ครั้ง
+        หั่นบล็อกซ้ายก่อนหรือขวาก่อน เงินที่จ่ายจึงเท่ากัน ลำดับถูกตัดทิ้งไปจากปัญหาได้ทั้งหมด
+      </p>
+      <p>
+        เหลือแค่ว่าแต่ละบล็อกถูกหั่นตรงเส้นไหน และบล็อกหนึ่งก้อนบอกได้ด้วยตัวเลขสี่ตัว คือแถวบน คอลัมน์ซ้าย แถวล่าง คอลัมน์ขวา
+        ที่ขอบเขตเต็มมีบล็อกได้ {fmt(BLOCKS_MAX)} แบบ ซึ่งเก็บเป็นตารางได้สบาย
+        ผมไม่ได้เชื่อข้ออ้างเรื่องลำดับเฉย ๆ แต่เอาไปเทียบกับตัวตรวจแบบถุงที่ไม่ได้ใช้ข้ออ้างนี้เลย ตรงกันหมด
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาโจทย์ให้เลือกลำดับ ให้ถามก่อนว่าต้นทุนแต่ละก้าวรู้ตัวหรือเปล่าว่าตัวเองมาก่อนหรือหลัง
+      </p>
+    </div>
+    <p>
+      มองอีกมุมก็ได้ภาพเดียวกัน ลูกเกดหนึ่งเม็ดถูกนับเข้าค่าแรงทุกครั้งที่บล็อกของมันถูกหั่น
+      ค่าแรงรวมจึงเท่ากับ<strong>ลูกเกดของแต่ละชิ้น คูณจำนวนครั้งที่ชิ้นนั้นอยู่ในบล็อกที่ถูกหั่น</strong>
+      ตัวอย่างในโจทย์หั่นแบบที่ดีที่สุดแล้วได้ {depthTerms} เท่ากับ {depthTotal} ตรงกับคำตอบ
+      เป้าหมายจริงของเราจึงเป็นการจัดให้ชิ้นที่มีลูกเกดเยอะหลุดออกมาเป็นชิ้นเดี่ยวเร็ว ๆ
+    </p>
+
+    <ZoomableDiagram caption={`วิธีหั่นที่ดีที่สุดแบบหนึ่งของตัวอย่าง เลขในวงกลมคือลำดับที่หั่น เลขเล็กใต้ลูกเกดคือจำนวนครั้งที่ชิ้นนั้นอยู่ในบล็อกที่ถูกหั่น ค่าแรงรวม ${SAMPLE_ANS} ได้ทั้งจากการบวกค่าแรง ${SAMPLE_CUTS} ครั้งทางขวา และจากการคูณลูกเกดกับเลขเล็กของทุกชิ้น เส้นแรกที่ให้ค่าดีที่สุดมี ${sampleFirstTies} จาก ${sampleFirstCount} เส้น โจทย์ถามแค่ตัวเลข จึงหั่นแบบไหนก็ได้ที่ได้ ${SAMPLE_ANS}`}>
+      <svg viewBox={`0 0 ${D_W} ${D_H}`} xmlns="http://www.w3.org/2000/svg" role="img" style="display:block;margin:0 auto;max-width:680px" aria-label={`กระดาน ${SN} คูณ ${SM} ของตัวอย่าง พร้อมเส้นหั่น ${SAMPLE_CUTS} เส้นที่มีหมายเลขลำดับ และรายการค่าแรงของแต่ละครั้งทางขวา รวมเป็น ${SAMPLE_ANS}`}>
+        {dCells.map((c) => (
+          <>
+            <rect x={c.x} y={c.y} width={D_CELL} height={D_CELL} fill="#1a1410" stroke="#3a2c20" />
+            <text x={c.x + D_CELL / 2} y={c.y + 40} fill="#f3e3c8" font-size="24" text-anchor="middle" font-family="monospace">{c.v}</text>
+            <text x={c.x + D_CELL / 2} y={c.y + 66} fill="#9aa4b8" font-size="13" text-anchor="middle" font-family="monospace">×{c.d}</text>
+          </>
+        ))}
+        {dLines.map((l) => (
+          <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#34d399" stroke-width={l.order === 1 ? 5 : 3} stroke-linecap="round" />
+        ))}
+        {dLines.map((l) => (
+          <>
+            <circle cx={l.bx} cy={l.by} r="12" fill="#0b1220" stroke="#34d399" stroke-width="2" />
+            <text x={l.bx} y={l.by + 5} fill="#eaf2ff" font-size="13" text-anchor="middle" font-family="monospace">{l.order}</text>
+          </>
+        ))}
+        {dLegend.map((l) => (
+          <text x={D_LX} y={l.y} fill="#cdd6ea" font-size="14">{l.text}</text>
+        ))}
+        <text x={D_LX} y={D_TOTAL_Y} fill="#34d399" font-size="15">รวม {SAMPLE_ANS}</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <div class="callout callout-warn">
+      <p class="callout-label">ท่าที่ฟังดูเข้าท่า แต่แพ้</p>
+      <p>
+        ท่าที่ผุดขึ้นมาก่อนเพื่อนคือหั่นให้สองซีกมีลูกเกดใกล้กันที่สุดทุกครั้ง (ถ้าเสมอกันก็เลือกเส้นแรกที่เจอ)
+        บนตัวอย่างในโจทย์มันได้ {SAMPLE_GREEDY} ตรงคำตอบพอดี ซึ่งเป็นเหตุผลที่มันอันตราย
+        บนกระดาน {TRAP.length}×{TRAP[0].length} ในเกม มันได้ {TRAP_GREEDY} ขณะที่ค่าดีที่สุดคือ {TRAP_ANS}
+        และบนกระดาน {SQUARE.length}×{SQUARE[0].length} มันได้ {SQUARE_GREEDY} จากค่าดีที่สุด {puzzles[2].best}
+        การแบ่งให้เท่ากันไม่ได้สนใจว่าลูกเกดกองอยู่ตรงไหน ส่วนเป้าหมายจริงคือปล่อยชิ้นที่หนักให้หลุดออกไปก่อน
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ตารางของบล็อกทุกก้อน</h2>
+  <Spoiler>
+    <p>
+      ให้ <code>dp[B]</code> คือ<strong>ค่าแรงน้อยที่สุดที่ต้องจ่าย เพื่อหั่นบล็อก <code>B</code> จนเหลือแต่ชิ้นเดี่ยว</strong>
+      และ <code>sum[B]</code> คือจำนวนลูกเกดบนบล็อกนั้น
+    </p>
+    <Fragment set:html={recurrenceTex} />
+    <p>
+      อ่านสูตรนี้จากจังหวะที่เราถือบล็อก <code>B</code> อยู่ในมือ ครั้งถัดไปที่ Peter หั่นมัน
+      เราต้องจ่าย <code>sum[B]</code> ทันทีไม่ว่าหั่นตรงไหน ส่วน <code>P</code> กับ <code>Q</code> คือสองชิ้นที่ได้หลังหั่น
+      ซึ่งเล็กกว่า <code>B</code> ทั้งคู่ ค่าที่ดีที่สุดของมันจึงอยู่ในตารางแล้ว เส้นที่หั่นได้มีสองแบบ
+    </p>
+    <ul>
+      <li>
+        <strong>หั่นแนวนอน ใต้แถว <code>k</code>:</strong> <code>P</code> คือแถวบนสุดของบล็อกถึงแถว <code>k</code>
+        <code>Q</code> คือแถว <code>k+1</code> ถึงแถวล่างสุด ทั้งคู่กว้างเท่าเดิม
+        ค่าแรงรวมของทางนี้คือ <code>sum[B]</code> บวกค่าที่ดีที่สุดของสองชิ้น ทางนี้ใช้ไม่ได้เมื่อบล็อกสูงแถวเดียว
+      </li>
+      <li>
+        <strong>หั่นแนวตั้ง หลังคอลัมน์ <code>k</code>:</strong> เหมือนกันแต่แบ่งตามคอลัมน์ สองชิ้นสูงเท่าเดิม
+        ทางนี้ใช้ไม่ได้เมื่อบล็อกกว้างคอลัมน์เดียว
+      </li>
+    </ul>
+    <p>
+      ชิ้นเดี่ยวไม่มีเส้นให้หั่นเลย จึงมีค่าเป็นศูนย์ และเป็นจุดเริ่มของทั้งตาราง
+    </p>
+    <p>
+      ลำดับการเติมตารางคือจากเล็กไปใหญ่ ไล่ความสูงแล้วความกว้างของบล็อก เพราะชิ้นที่ได้หลังหั่นเตี้ยกว่าหรือแคบกว่าเสมอ
+      บล็อกมีทั้งหมด {fmt(BLOCKS_MAX)} แบบ ถ้านับลูกเกดทีละช่องทุกครั้ง จะต้องแตะช่องรวม {fmt(workCount.area)} ครั้ง
+      ส่วนการลองทุกเส้นมีรวม {fmt(workCount.tr)} ครั้ง
+      งานนับช่องจึงหนักกว่างานลองเส้นหลายเท่า และตัดทิ้งได้ด้วย<strong>ผลรวมสะสมสองมิติ</strong>
+      ซึ่งตอบลูกเกดของบล็อกไหนก็ได้ในการบวกลบสี่ตัว (บทปูพื้นอยู่ที่ <a href="/cp/prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> ฝึกข้อ 1)
+    </p>
+    <p>
+      ถ้าเคยทำ DP บนช่วงของอาเรย์หนึ่งมิติมาก่อน ข้อนี้คือท่าเดียวกันที่ขยายเป็นสองมิติ
+      ช่วงหนึ่งช่วงจำด้วยขอบซ้ายขวา บล็อกหนึ่งก้อนจำด้วยขอบสี่ด้าน
+      (บทปูพื้นอยู่ที่ <a href="/cp/interval-dp/">DP บนช่วง</a>)
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">โน้ต &middot; int พอไหม</p>
+      <p>
+        ค่าแรงโตตามจำนวนลูกเกดบนทุกชิ้น กรณีหนักสุดคือทุกชิ้นมี 1,000 เม็ดบนกระดาน {N_MAX}×{N_MAX}
+        ซึ่งผมรันแล้วได้ {fmt(ALL_MAX_ANS)} ช่องในตารางทุกช่องไม่เกินค่านี้ และผลบวกของสองช่องก็ยังห่างจากขีดของ int มาก
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เดินการเลือกเส้นแรกบนกระดานกับดัก</h2>
+  <Spoiler>
+    <CpStepPlayer hook="rzsim" steps={trapSteps} label={`ลองทุกเส้นแรกของกระดาน ${TRAP.length}×${TRAP[0].length} ในเกม โดยใช้ค่าของบล็อกที่เล็กกว่าจากตาราง`}>
+      <table class="rec rzrec">
+        <caption>ทางเลือกของเส้นแรก บนบล็อกที่มีลูกเกด {TRAP_TOTAL} เม็ด</caption>
+        <thead>
+          <tr>
+            <th>เส้นแรก</th><th class="num">ชิ้นแรก</th><th class="num">ค่าแรง</th>
+            <th class="num">ชิ้นที่สอง</th><th class="num">ค่าแรง</th><th class="num">รวม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {trapRows.map((r) => (
+            <tr>
+              <td>{r.name}</td>
+              <td class="num">{r.pSize}</td>
+              <td class="num">{r.pBest}</td>
+              <td class="num">{r.qSize}</td>
+              <td class="num">{r.qBest}</td>
+              <td class="num">{r.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      เส้นของท่าหั่นให้สองซีกเท่ากันคือ{trapBalancedRow.name} แม้หั่นสองชิ้นที่เหลือได้ดีที่สุดแล้ว ทางนี้ก็ยังได้ {trapBalancedRow.total}
+      ส่วนเส้นที่ดีที่สุดคือ{trapBestRow.name} ได้ {TRAP_ANS} ทั้งที่มันแบ่งลูกเกดได้ไม่เท่ากันเลย ({trapBestRow.pRaw} กับ {trapBestRow.qRaw})
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม (ครบทุกชุดทดสอบ)</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="raisins.cpp" />
+        <p>
+          ตาราง <code>dp</code> ขนาด 50 ยกกำลังสี่ช่อง ช่องละ 4 ไบต์ คือ 25 เมกะไบต์ ในลิมิต 128
+          ช่องที่ไม่ใช่บล็อกจริง (แถวล่างอยู่เหนือแถวบน) เปลืองที่แต่ไม่เคยถูกอ่าน
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดชุดย่อย N, M ไม่เกิน 7</summary>
+      <div class="expander-body">
+        <CodeBlock code={subSolution} lang="cpp" title="raisins_small.cpp" />
+        <p>
+          นี่คือสิ่งแรกที่ควรเขียนออกมาหลังเห็นว่าลำดับไม่มีผล คือรีเคอร์ชันที่จำคำตอบของบล็อกไว้ แล้วนับลูกเกดตรง ๆ
+          ที่ 7×7 มีบล็อกแค่ {fmt(((7 * 8) / 2) ** 2)} แบบ จึงผ่านชุด 25 คะแนนสบาย
+          ผมลองขยายอาเรย์เป็น 50 แล้ววัดบนกระดาน {N_MAX}×{N_MAX} ด้วย ได้ {TIME_NAIVE} วินาที ซึ่งก็ผ่านลิมิต 5 วินาทีเหมือนกัน
+          ข้อนี้จึงยากที่ความคิดว่าลำดับไม่มีผล ไม่ได้ยากที่การเร่งความเร็ว ผลรวมสะสมในโค้ดเต็มแค่ทำให้เร็วขึ้นอีกราว {SPEEDUP} เท่า
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_raisins.cpp" />
+        <p>
+          ตัวตรวจนี้ไม่เชื่อว่าลำดับไม่มีผล มันเก็บบล็อกที่ยังเหลือทั้งหมดไว้ในถุงเดียว แล้วลองหั่นทุกบล็อกในถุงทุกเส้น
+          ถ้าข้ออ้างเรื่องลำดับผิด คำตอบของมันจะต่ำกว่าโค้ดเต็ม ผมสุ่มกระดานไม่เกินเก้าชิ้น ค่าลูกเกดทั้งแบบเท่ากันหมดและกระจายถึงพัน
+          รวมตัวอย่างในโจทย์ 601 เคส บวกกระดาน 4×4 อีก 50 เคส แล้วเทียบกับโค้ดทั้งสองชุด ตรงกันหมด
+          ส่วนโค้ดชุดย่อยกับโค้ดเต็มเทียบกันเองอีก 300 เคสบนกระดานไม่เกิน 7×7 ตรงกันหมด
+          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม กระดาน {N_MAX}×{N_MAX} ลูกเกดสุ่มถึงพันเม็ด โค้ดเต็มใช้ <strong>{TIME_FULL} วินาที</strong>
+      จากลิมิต 5 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    เวลาโจทย์ยื่นอิสระให้เลือกลำดับ ให้ถามก่อนว่าต้นทุนของแต่ละก้าวรู้ไหมว่าตัวเองมาก่อนหรือหลัง
+    ถ้าไม่รู้ ลำดับก็ทิ้งได้ และสิ่งที่เหลือมักเป็นการแบ่งของก้อนหนึ่งออกเป็นสองก้อนที่ไม่ยุ่งกันอีก
+    ซึ่งคือ DP บนช่วง ในข้อนี้ช่วงกลายเป็นบล็อกสี่เหลี่ยม สถานะจึงมีสี่ตัวแทนที่จะมีสอง
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">เวลาที่วัดได้</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทุกแถววัดด้วยโปรแกรมที่อยู่ในหน้านี้ บนเครื่องเดียวกัน แถวบนสุดโตตามจำนวนถุงของบล็อกที่เป็นไปได้ ซึ่งระเบิดเร็วมาก ส่วนสองแถวล่างมีสถานะเท่ากัน ต่างกันแค่ว่านับลูกเกดของบล็อกทีละช่องหรือในการบวกลบสี่ตัว</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ค่าแรงหนึ่งครั้งขึ้นกับบล็อกที่ถูกหั่นเท่านั้น ลำดับจึงไม่มีผล และบล็อกหนึ่งก้อนจำได้ด้วยขอบสี่ด้าน
+    ค่าที่ดีที่สุดของมันคือลูกเกดบนบล็อก บวกผลรวมที่ถูกที่สุดของสองชิ้นที่ได้จากเส้นใดเส้นหนึ่ง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>RAISINS</i> บน programming.in.th ข้อ 2034
+      <a href="https://programming.in.th/tasks/2034" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2034
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>ที่มาของโจทย์ตามที่ระบุในเอกสาร: International Olympiad in Informatics ครั้งที่ 21 ปี 2009 วันที่ 1</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนแถวที่เน้นเปลี่ยน
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.rzrec{width:auto !important;table-layout:fixed;}
+  table.rec.rzrec th, table.rec.rzrec td{width:6rem;}
+  table.rec.rzrec th:first-child, table.rec.rzrec td:first-child{width:11rem;white-space:nowrap;}
+  table.rec.rzrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.rzrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.rzrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ----------
+     ช่องกับรอยต่อมีขนาดคงที่เป็น rem กระดานจึงไม่หดตามการ์ดบนจอแคบ
+     ถ้ากว้างเกินก็ปล่อยให้ .cpg-scroll เลื่อนแทน */
+  .rz-board{display:grid;width:max-content;margin:0.3rem auto 0.7rem;}
+  .rz-cell{
+    display:flex;align-items:center;justify-content:center;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.95rem;
+    border-radius:4px;
+    background:#1a1410;
+    border:1px solid #3a2c20;
+    color:#f3e3c8;
+  }
+  .rz-cell.is-done{background:#10251c;border-color:#1f5a41;color:#9fe3c2;}
+  .rz-gap{
+    padding:0;margin:0;
+    border:none;
+    background:transparent;
+    cursor:pointer;
+    position:relative;
+  }
+  .rz-gap::after{
+    content:"";
+    position:absolute;
+    background:#3a2c20;
+  }
+  .rz-v::after{left:calc(50% - 1px);width:2px;top:0;bottom:0;}
+  .rz-h::after{top:calc(50% - 1px);height:2px;left:0;right:0;}
+  .rz-gap:hover::after, .rz-gap:focus-visible::after{background:var(--dl-gold);}
+  .rz-gap:focus-visible{outline:none;}
+  .rz-gap.is-cut{cursor:default;}
+  .rz-gap.is-cut::after{background:var(--dl-emerald-bright);}
+  .rz-v.is-cut::after{left:calc(50% - 2px);width:4px;}
+  .rz-h.is-cut::after{top:calc(50% - 2px);height:4px;}
+  .rz-dot{display:block;}
+  .rz-dot.is-cut{background:var(--dl-emerald-bright);border-radius:2px;margin:calc(50% - 2px);}
+  @media (prefers-reduced-motion: reduce){
+    .rz-gap::after, .rz-cell{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type RzBlk = [number, number, number, number];
+  type RzPuzzle = { id: string; label: string; tease: string; g: number[][]; best: number };
+
+  function isPuzzle(x: unknown): x is RzPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.best === 'number' && typeof o.tease === 'string' && Array.isArray(o.g);
+  }
+
+  function initRaisinGame(): void {
+    const maybeUi = cpGameUi('[data-rzgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isPuzzle);
+    if (puzzles.length === 0) return;
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-rz-board]'));
+
+    let pi = 0;
+    let blocks: RzBlk[] = [];
+    let paid = 0;
+    let history: { blocks: RzBlk[]; paid: number }[] = [];
+
+    const pz = (): RzPuzzle => puzzles[pi];
+    const cellsTotal = (): number => pz().g.length * pz().g[0].length;
+    const sumOf = (b: RzBlk): number => {
+      let s = 0;
+      for (let r = b[0]; r <= b[2]; r++) for (let c = b[1]; c <= b[3]; c++) s += pz().g[r][c];
+      return s;
+    };
+    const blockAt = (r: number, c: number): number => blocks.findIndex((b) => r >= b[0] && r <= b[2] && c >= b[1] && c <= b[3]);
+    const single = (b: RzBlk): boolean => b[0] === b[2] && b[1] === b[3];
+
+    function render(): void {
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      const board = boards[pi];
+      const g = pz().g;
+      for (const el of Array.from(board.querySelectorAll<HTMLElement>('[data-rz-cell]'))) {
+        const [r, c] = (el.dataset.rzCell ?? '0:0').split(':').map(Number);
+        el.classList.toggle('is-done', single(blocks[blockAt(r, c)]));
+      }
+      const gapCut = (kind: string, r: number, c: number): boolean =>
+        kind === 'v' ? c + 1 < g[0].length && blockAt(r, c) !== blockAt(r, c + 1) : r + 1 < g.length && blockAt(r, c) !== blockAt(r + 1, c);
+      for (const el of Array.from(board.querySelectorAll<HTMLButtonElement>('[data-rz-gap]'))) {
+        const [kind, rs, cs] = (el.dataset.rzGap ?? 'v:0:0').split(':');
+        const cut = gapCut(kind, Number(rs), Number(cs));
+        el.classList.toggle('is-cut', cut);
+        el.disabled = cut;
+      }
+      for (const el of Array.from(board.querySelectorAll<HTMLElement>('[data-rz-dot]'))) {
+        const [r, c] = (el.dataset.rzDot ?? '0:0').split(':').map(Number);
+        el.classList.toggle('is-cut', gapCut('v', r, c) || gapCut('v', r + 1, c) || gapCut('h', r, c) || gapCut('h', r, c + 1));
+      }
+      const done = cellsTotal() - blocks.length;
+      ui.setScore(`จ่ายไปแล้ว ${paid} เม็ด · หั่นแล้ว ${done} จาก ${cellsTotal() - 1} ครั้ง`);
+    }
+
+    function finishCheck(): void {
+      if (!blocks.every(single)) return;
+      const best = pz().best;
+      if (paid === best) ui.setStatus(`หั่นครบแล้ว จ่าย ${paid} เม็ด เท่ากับค่าที่ดีที่สุดของกระดานนี้พอดีครับ`, 'good');
+      else ui.setStatus(`หั่นครบแล้ว จ่าย ${paid} เม็ด ส่วนค่าที่ดีที่สุดคือ ${best} ยังเกินอยู่ ${paid - best} เม็ด ลองย้อนแล้วเปลี่ยนเส้นดู`, 'bad');
+    }
+
+    function cut(kind: string, r: number, c: number): void {
+      const i = blockAt(r, c);
+      const j = kind === 'v' ? blockAt(r, c + 1) : blockAt(r + 1, c);
+      if (i < 0 || i !== j) return;
+      const b = blocks[i];
+      const cost = sumOf(b);
+      history.push({ blocks: blocks.map((x) => [...x] as RzBlk), paid });
+      const parts: RzBlk[] = kind === 'v'
+        ? [[b[0], b[1], b[2], c], [b[0], c + 1, b[2], b[3]]]
+        : [[b[0], b[1], r, b[3]], [r + 1, b[1], b[2], b[3]]];
+      blocks = [...blocks.slice(0, i), ...parts, ...blocks.slice(i + 1)];
+      paid += cost;
+      const h = b[2] - b[0] + 1;
+      const w = b[3] - b[1] + 1;
+      ui.setStatus(`หั่นบล็อก ${h}×${w} ที่มีลูกเกด ${cost} เม็ด จ่าย ${cost}`, 'plain');
+      render();
+      finishCheck();
+    }
+
+    function reset(): void {
+      const g = pz().g;
+      blocks = [[0, 0, g.length - 1, g[0].length - 1]];
+      paid = 0;
+      history = [];
+      render();
+      if (blocks.every(single)) finishCheck();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดรอยต่อระหว่างสองชิ้น เพื่อหั่นบล็อกที่รอยนั้นอยู่ ตลอดแนวทั้งบล็อก');
+      reset();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-rz-gap]');
+      if (!(btn instanceof HTMLButtonElement) || btn.disabled) return;
+      const [kind, rs, cs] = (btn.dataset.rzGap ?? 'v:0:0').split(':');
+      cut(kind, Number(rs), Number(cs));
+    });
+    ui.onClick('data-rz-undo', () => {
+      const last = history.pop();
+      if (!last) {
+        ui.setStatus('ยังไม่ได้หั่นเลย ไม่มีอะไรให้ย้อน', 'plain');
+        return;
+      }
+      blocks = last.blocks;
+      paid = last.paid;
+      ui.setStatus('ย้อนกลับไปหนึ่งครั้งแล้ว', 'plain');
+      render();
+    });
+    ui.onClick('data-rz-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initRaisinGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-rzsim]');
+  });
+</script>

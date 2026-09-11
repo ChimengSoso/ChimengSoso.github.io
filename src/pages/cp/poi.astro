@@ -1,0 +1,967 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'poi/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** ตารางผลการแข่งขัน g[i][j] = 1 ถ้าคนที่ i+1 ทำข้อ j+1 ได้ */
+type Grid = number[][];
+type Result = { score: number; rank: number };
+
+/** ตัวตรวจ คิดจากนิยามตรง ๆ นับคนที่ทำไม่ได้ใหม่ทุกช่อง แล้วเรียงทั้งตารางจริง */
+function bruteResult(g: Grid, p: number): Result & { order: number[] } {
+  const n = g.length;
+  const t = g[0].length;
+  const score = Array<number>(n).fill(0);
+  const solved = Array<number>(n).fill(0);
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < t; j++)
+      if (g[i][j]) {
+        solved[i]++;
+        for (let k = 0; k < n; k++) if (!g[k][j]) score[i]++;
+      }
+  const order = g.map((_, i) => i).sort((x, y) => score[y] - score[x] || solved[y] - solved[x] || x - y);
+  return { score: score[p - 1], rank: order.indexOf(p - 1) + 1, order };
+}
+
+/** ท่าที่หน้านี้สอน นับค่าข้อรอบเดียว รวมคะแนนอีกรอบ แล้วนับคนที่อยู่เหนือ Philip */
+function pageSolve(g: Grid, p: number): Result {
+  const n = g.length;
+  const t = g[0].length;
+  const value = Array<number>(t).fill(0);
+  for (const row of g) row.forEach((x, j) => (value[j] += x ? 0 : 1));
+  const score = g.map((row) => row.reduce((s, x, j) => s + (x ? value[j] : 0), 0));
+  const solved = g.map((row) => row.reduce((s, x) => s + x, 0));
+  const me = p - 1;
+  let ahead = 0;
+  for (let i = 0; i < n; i++) if (i !== me && isAhead(i, me, score, solved)) ahead++;
+  return { score: score[me], rank: ahead + 1 };
+}
+
+/** คนที่ i ต้องอยู่เหนือคนที่ me ไหม ตามกติกาสามชั้นของโจทย์ */
+function isAhead(i: number, me: number, score: number[], solved: number[]): boolean {
+  if (score[i] !== score[me]) return score[i] > score[me];
+  if (solved[i] !== solved[me]) return solved[i] > solved[me];
+  return i < me;
+}
+
+/** คะแนนรายคนของท่าที่สอน (ใช้วาดตารางและเกม) */
+function scoresOf(g: Grid): { value: number[]; score: number[]; solved: number[] } {
+  const t = g[0].length;
+  const value = Array<number>(t).fill(0);
+  for (const row of g) row.forEach((x, j) => (value[j] += x ? 0 : 1));
+  return {
+    value,
+    score: g.map((row) => row.reduce((s, x, j) => s + (x ? value[j] : 0), 0)),
+    solved: g.map((row) => row.reduce((s, x) => s + x, 0)),
+  };
+}
+
+/** ท่าที่ดูเข้าท่าแต่ผิด นับเฉพาะคนที่คะแนนมากกว่า ลืมกติกาตอนเสมอ */
+function naiveRank(g: Grid, p: number): number {
+  const { score } = scoresOf(g);
+  return 1 + score.filter((s) => s > score[p - 1]).length;
+}
+/** อีกท่าที่ผิด จัดอันดับด้วยจำนวนข้อที่ทำได้ ไม่สนค่าของข้อ */
+function bySolvedRank(g: Grid, p: number): number {
+  const { solved } = scoresOf(g);
+  const order = g.map((_, i) => i).sort((x, y) => solved[y] - solved[x] || x - y);
+  return order.indexOf(p - 1) + 1;
+}
+
+/* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับตัวตรวจทุกเคสที่สุ่ม ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 600;
+{
+  let seed = 20330911;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let c = 0; c < SWEEP_CASES; c++) {
+    const n = 1 + rnd(9);
+    const t = 1 + rnd(6);
+    const dens = [2, 5, 8][rnd(3)];
+    const g: Grid = Array.from({ length: n }, () => Array.from({ length: t }, () => (rnd(10) < dens ? 1 : 0)));
+    const p = 1 + rnd(n);
+    const a = pageSolve(g, p);
+    const b = bruteResult(g, p);
+    if (a.score !== b.score || a.rank !== b.rank)
+      throw new Error(`poi: ท่าที่สอนไม่ตรงกับตัวตรวจ ที่ P=${p} ${JSON.stringify(g)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE: Grid = [
+  [0, 0, 1],
+  [1, 1, 0],
+  [1, 0, 0],
+  [1, 1, 0],
+  [1, 1, 0],
+];
+const SAMPLE_P = 2;
+const SAMPLE_OUT: Result = { score: 3, rank: 2 };
+{
+  const got = pageSolve(SAMPLE, SAMPLE_P);
+  if (got.score !== SAMPLE_OUT.score || got.rank !== SAMPLE_OUT.rank) throw new Error('poi: ตัวอย่างในโจทย์ไม่ตรง');
+}
+const N_S = SAMPLE.length;
+const T_S = SAMPLE[0].length;
+const EX = scoresOf(SAMPLE);
+const ME = SAMPLE_P - 1;
+
+/* ท่าที่ลืมกติกาตอนเสมอ ผ่านตัวอย่างในโจทย์ได้ (ข้ออ้างในกล่องกับดัก ตรวจตรงนี้) */
+if (naiveRank(SAMPLE, SAMPLE_P) !== SAMPLE_OUT.rank) throw new Error('poi: กล่องกับดักอ้างว่าท่านี้ผ่านตัวอย่าง แต่ไม่ผ่าน');
+
+/* หากรณีที่เล็กที่สุดที่ท่าลืมกติกาเสมอพัง ไล่ทุกตารางตามจำนวนช่องจากน้อยไปมาก */
+type Fail = { g: Grid; p: number; got: number; want: number };
+function smallestNaiveFail(): Fail {
+  for (let cells = 1; cells <= 12; cells++)
+    for (let n = 1; n <= cells; n++) {
+      if (cells % n !== 0) continue;
+      const t = cells / n;
+      for (let m = 0; m < 1 << cells; m++) {
+        const g: Grid = Array.from({ length: n }, (_, i) => Array.from({ length: t }, (_, j) => (m >> (i * t + j)) & 1));
+        for (let p = 1; p <= n; p++) {
+          const want = bruteResult(g, p).rank;
+          const got = naiveRank(g, p);
+          if (got !== want) return { g, p, got, want };
+        }
+      }
+    }
+  throw new Error('poi: หากรณีที่ท่าลืมกติกาเสมอพังไม่เจอ แปลว่ากล่องกับดักผิด');
+}
+const TRAP = smallestNaiveFail();
+const TRAP_N = TRAP.g.length;
+const TRAP_T = TRAP.g[0].length;
+const TRAP_ALLZERO = TRAP.g.every((row) => row.every((x) => x === 0));
+if (!TRAP_ALLZERO) throw new Error('poi: กล่องกับดักเล่าว่ากรณีเล็กสุดคือตารางที่ไม่มีใครทำได้ แต่ไม่ใช่');
+/* ข้ออ้างเรื่องคนที่เสมอ Philip ในตัวอย่าง: จำนวนข้อเท่ากันหมด และเลขประจำตัวมากกว่าเขาทุกคน */
+const sampleTies = EX.score.map((_, i) => i).filter((i) => i !== ME && EX.score[i] === EX.score[ME]);
+if (sampleTies.length === 0 || sampleTies.some((i) => EX.solved[i] !== EX.solved[ME] || i < ME))
+  throw new Error('poi: ข้ออ้างเรื่องคนที่เสมอ Philip ในตัวอย่างไม่จริง');
+const trapInput =`${TRAP_N} ${TRAP_T} ${TRAP.p}\n${TRAP.g.map((r) => r.join(' ')).join('\n')}`;
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const joinTh = (xs: (string | number)[]): string => xs.join(', ');
+
+/* ---------- แผนภาพตัวอย่าง: ตาราง ค่าข้อ และคะแนน ---------- */
+const DG_LX = 96; // ขอบขวาของป้ายแถว
+const DG_CX0 = 112;
+const DG_CW = 56;
+const DG_GAP = 10;
+const DG_CH = 32;
+const DG_RY0 = 56;
+const DG_RGAP = 8;
+const dgCx = (j: number): number => DG_CX0 + j * (DG_CW + DG_GAP);
+const dgRy = (i: number): number => DG_RY0 + i * (DG_CH + DG_RGAP);
+const DG_VAL_Y = dgRy(N_S) + 14;
+const DG_SX = dgCx(T_S) + 18;
+const dgScoreText = SAMPLE.map((row, i) => {
+  const parts = row.map((x, j) => (x ? EX.value[j] : -1)).filter((v) => v >= 0);
+  if (parts.length === 0) return '0';
+  return parts.length === 1 ? `${EX.score[i]}` : `${parts.join(' + ')} = ${EX.score[i]}`;
+});
+const DG_CHAR = 8.2; // ความกว้างโดยประมาณของอักษร monospace ขนาด 14
+const DG_SCORE_W = Math.max(...dgScoreText.map((s) => s.length), 5) * DG_CHAR;
+const DG_W = Math.round(DG_SX + DG_SCORE_W + 12);
+const DG_H = DG_VAL_Y + DG_CH + 34;
+const dgCells = SAMPLE.flatMap((row, i) =>
+  row.map((x, j) => ({ key: `${i}-${j}`, x: dgCx(j), y: dgRy(i), on: x === 1, me: i === ME })),
+);
+
+/* ---------- ตัวเล่นทีละขั้น ไล่ทีละคนในตัวอย่าง ---------- */
+type WalkRow = { who: number; tasks: string; score: number; solved: number; verdict: string; ahead: number };
+const walkRows: WalkRow[] = [];
+const walkSteps: { note: string }[] = [];
+{
+  let ahead = 0;
+  for (let i = 0; i < N_S; i++) {
+    const tasks = SAMPLE[i].map((x, j) => (x ? j + 1 : 0)).filter((j) => j > 0);
+    const sumText = tasks.length === 0 ? 'ไม่ได้คะแนนเลย' : `คะแนน ${tasks.map((j) => EX.value[j - 1]).join(' + ')} = <b>${EX.score[i]}</b>`;
+    const head = `คนที่ <b>${i + 1}</b> ทำได้ ${tasks.length === 0 ? 'ไม่มีข้อไหนเลย' : `ข้อ ${joinTh(tasks)}`} ${sumText} ทำได้ ${EX.solved[i]} ข้อ `;
+    let verdict: string;
+    let why: string;
+    if (i === ME) {
+      verdict = 'Philip เอง';
+      why = 'นี่คือ Philip เอง ไม่นับตัวเอง ';
+    } else {
+      const up = isAhead(i, ME, EX.score, EX.solved);
+      if (up) ahead++;
+      if (EX.score[i] !== EX.score[ME]) {
+        verdict = up ? 'คะแนนมากกว่า' : 'คะแนนน้อยกว่า';
+        why = `คะแนน${up ? 'มากกว่า' : 'น้อยกว่า'} ${EX.score[ME]} ของ Philip จึงอยู่${up ? 'เหนือ' : 'ใต้'}เขา `;
+      } else if (EX.solved[i] !== EX.solved[ME]) {
+        verdict = up ? 'เสมอ แต่ทำได้มากข้อกว่า' : 'เสมอ แต่ทำได้น้อยข้อกว่า';
+        why = `คะแนนเสมอกับ Philip จึงไปดูจำนวนข้อ ${EX.solved[i]} เทียบกับ ${EX.solved[ME]} ของเขา จึงอยู่${up ? 'เหนือ' : 'ใต้'}เขา `;
+      } else {
+        verdict = up ? 'เสมอทั้งคู่ เลขน้อยกว่า' : 'เสมอทั้งคู่ เลขมากกว่า';
+        why = `เสมอกับ Philip ทั้งคะแนนและจำนวนข้อ จึงตัดสินด้วยเลขประจำตัว ${i + 1} ${up ? 'น้อยกว่า' : 'มากกว่า'} ${SAMPLE_P} จึงอยู่${up ? 'เหนือ' : 'ใต้'}เขา `;
+      }
+    }
+    const tail =
+      i === N_S - 1
+        ? `ครบทุกคนแล้ว มีคนอยู่เหนือ Philip <b>${ahead}</b> คน อันดับของเขาจึงเป็น <b>${ahead + 1}</b>`
+        : `นับคนที่อยู่เหนือ Philip ได้ <b>${ahead}</b> คนแล้ว`;
+    walkRows.push({ who: i + 1, tasks: tasks.length ? joinTh(tasks) : '·', score: EX.score[i], solved: EX.solved[i], verdict, ahead });
+    walkSteps.push({ note: head + why + tail });
+  }
+  if (ahead + 1 !== SAMPLE_OUT.rank) throw new Error('poi: ตัวเล่นทีละขั้นนับอันดับไม่ตรงกับเอาต์พุต');
+}
+
+/* ---------- มินิเกม วางตารางคะแนนเองทีละอันดับ ---------- */
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  p: number;
+  g: Grid;
+  value: number[];
+  score: number[];
+  solved: number[];
+  order: number[];
+};
+function makePuzzle(id: string, label: string, tease: string, g: Grid, p: number): GamePuzzle {
+  const b = bruteResult(g, p);
+  const s = scoresOf(g);
+  const mine = pageSolve(g, p);
+  if (mine.rank !== b.rank || mine.score !== b.score) throw new Error(`poi: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, p, g, value: s.value, score: s.score, solved: s.solved, order: b.order };
+}
+const PZ_B: Grid = [
+  [0, 1, 1, 1],
+  [1, 0, 0, 0],
+  [0, 1, 0, 1],
+  [0, 1, 1, 1],
+  [1, 0, 0, 0],
+  [0, 1, 1, 1],
+];
+const PZ_B_P = 5;
+const PZ_C: Grid = [
+  [1, 1, 0, 1, 0],
+  [1, 1, 0, 1, 0],
+  [0, 1, 0, 1, 0],
+  [0, 1, 1, 1, 0],
+  [1, 0, 1, 0, 0],
+  [0, 1, 0, 0, 0],
+];
+const PZ_C_P = 5;
+/* ชุด B ต้องทำให้ท่าลืมกติกาเสมอพลาด ชุด C ต้องทำให้ท่านับจำนวนข้อพลาด ไม่งั้นป้ายชวนเล่นโกหก */
+if (naiveRank(PZ_B, PZ_B_P) === bruteResult(PZ_B, PZ_B_P).rank) throw new Error('poi: ชุด B ควรทำให้ท่าลืมกติกาเสมอพลาด');
+if (bySolvedRank(PZ_C, PZ_C_P) === bruteResult(PZ_C, PZ_C_P).rank) throw new Error('poi: ชุด C ควรทำให้ท่านับจำนวนข้อพลาด');
+
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ตัวอย่างในโจทย์', 'ห้าคนสามข้อจากตัวอย่างในโจทย์ Philip คือคนที่ 2 เริ่มจากคิดค่าของแต่ละข้อก่อน แล้วค่อยเรียงคน', SAMPLE, SAMPLE_P),
+  makePuzzle('b', 'หกคน สี่ข้อ', `ชุดนี้ Philip คือคนที่ ${PZ_B_P} มีคนคะแนนเท่าเขาอยู่หลายคน ลองดูว่าเขาไปจบที่ตรงไหน`, PZ_B, PZ_B_P),
+  makePuzzle('c', 'หกคน ห้าข้อ', `ชุดนี้ Philip คือคนที่ ${PZ_C_P} เขาทำได้แค่ ${scoresOf(PZ_C).solved[PZ_C_P - 1]} ข้อ น้อยกว่าหลายคน แต่ลองดูว่าเป็นข้อแบบไหน`, PZ_C, PZ_C_P),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+const pzB = puzzles[1];
+const pzBNaive = naiveRank(PZ_B, PZ_B_P);
+const pzBRank = pzB.order.indexOf(PZ_B_P - 1) + 1;
+const pzBTies = pzB.score.filter((s, i) => i !== PZ_B_P - 1 && s === pzB.score[PZ_B_P - 1]).length;
+const pzC = puzzles[2];
+const pzCBySolved = bySolvedRank(PZ_C, PZ_C_P);
+const pzCRank = pzC.order.indexOf(PZ_C_P - 1) + 1;
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 2000;
+const T_MAX = 2000;
+const bill = [
+  { name: 'ทุกช่องที่ทำได้ นับคนที่ทำข้อนั้นไม่ได้ใหม่', work: fmt(N_MAX * T_MAX * N_MAX), note: 'N x T x N' },
+  { name: 'นับค่าของทุกข้อก่อน แล้วค่อยรวมคะแนน', work: fmt(2 * N_MAX * T_MAX), note: 'สองรอบ รอบละ N x T' },
+  { name: 'หาอันดับด้วยการเรียงทุกคน', work: `ราว ${fmt(N_MAX * 11)}`, note: 'N x log N การเทียบ' },
+  { name: 'หาอันดับด้วยการนับคนที่อยู่เหนือ Philip', work: fmt(N_MAX - 1), note: 'N - 1 การเทียบ' },
+];
+/* เวลาที่วัดจริงบนเครื่องผม จากไบนารีที่คอมไพล์จากโค้ดในหน้านี้ ตาราง 2000 x 2000 */
+const TIME_HALF = '0.69';
+const TIME_ALL = '0.68';
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, t, p;
+    if(scanf("%d %d %d", &n, &t, &p) != 3) return 0;
+    // เก็บตารางทั้งหมดไว้ก่อน เพราะค่าของข้อจะรู้ก็ต่อเมื่ออ่านครบทุกคน
+    vector<vector<char>> a(n, vector<char>(t));
+    vector<int> value(t, 0);   // ค่าของข้อ j = จำนวนคนที่ทำข้อนั้นไม่ได้
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < t; j++){
+            int x; scanf("%d", &x);
+            a[i][j] = (char)x;
+            if(x == 0) value[j]++;
+        }
+    // รอบสอง ตอนนี้รู้ค่าของทุกข้อแล้ว จึงคิดคะแนนของแต่ละคนได้
+    vector<long long> score(n, 0);
+    vector<int> solved(n, 0);
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < t; j++)
+            if(a[i][j]){ score[i] += value[j]; solved[i]++; }
+    int me = p - 1;
+    int ahead = 0;   // จำนวนคนที่ต้องอยู่เหนือ Philip ในตาราง
+    for(int i = 0; i < n; i++){
+        if(i == me) continue;
+        if(score[i] != score[me]){
+            if(score[i] > score[me]) ahead++;
+        } else if(solved[i] != solved[me]){
+            if(solved[i] > solved[me]) ahead++;
+        } else if(i < me) ahead++;   // เสมอทั้งสองอย่าง เลขประจำตัวน้อยกว่าได้อยู่ก่อน
+    }
+    printf("%lld %d\\n", score[me], ahead + 1);
+}`;
+
+const bruteCode = `// ตัวตรวจ คิดทุกอย่างจากนิยามตรง ๆ ไม่นับค่าข้อไว้ล่วงหน้า และเรียงทั้งตารางจริง
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, t, p;
+    if(scanf("%d %d %d", &n, &t, &p) != 3) return 0;
+    vector<vector<int>> a(n, vector<int>(t));
+    for(auto &row : a) for(int &x : row) scanf("%d", &x);
+    vector<long long> score(n, 0);
+    vector<int> solved(n, 0);
+    for(int i = 0; i < n; i++)
+        for(int j = 0; j < t; j++) if(a[i][j]){
+            solved[i]++;
+            // นับคนที่ทำข้อนี้ไม่ได้ใหม่ทุกครั้ง ช้าแต่ตรงตามนิยาม
+            for(int k = 0; k < n; k++) if(!a[k][j]) score[i]++;
+        }
+    vector<int> order(n);
+    iota(order.begin(), order.end(), 0);
+    // เรียงทั้งตาราง คะแนนมากก่อน ทำได้มากข้อก่อน เลขประจำตัวน้อยก่อน
+    sort(order.begin(), order.end(), [&](int x, int y){
+        return make_tuple(-score[x], -solved[x], x) < make_tuple(-score[y], -solved[y], y);
+    });
+    int rank = int(find(order.begin(), order.end(), p - 1) - order.begin()) + 1;
+    printf("%lld %d\\n", score[p - 1], rank);
+}`;
+
+const naiveCode = `int me = p - 1, ahead = 0;
+for(int i = 0; i < n; i++)
+    if(score[i] > score[me]) ahead++;   // ผิดตรงนี้ ลืมกติกาตัดสินตอนคะแนนเสมอ
+printf("%lld %d\\n", score[me], ahead + 1);`;
+
+const coreSnippet = `// คนที่ i ต้องอยู่เหนือ Philip (คนที่ me) ไหม
+bool ahead(int i, int me){
+    if(score[i] != score[me]) return score[i] > score[me];    // ชั้นที่ 1 คะแนน
+    if(solved[i] != solved[me]) return solved[i] > solved[me]; // ชั้นที่ 2 จำนวนข้อ
+    return i < me;                                              // ชั้นที่ 3 เลขประจำตัว
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; โอลิมปิกที่ค่าของข้อตั้งหลังแข่งจบ</h2>
+  <p>
+    การแข่งขันเขียนโปรแกรมระดับท้องถิ่นของเมือง Plovdiv (อ่านว่า "พลอฟดิฟ" เมืองในบัลแกเรีย) หรือ POI
+    มีกติกาแปลกอยู่ข้อหนึ่ง มีผู้เข้าแข่ง <code>N</code> คน โจทย์ <code>T</code> ข้อ
+    แต่ละข้อมีชุดทดสอบชุดเดียว ใครทำได้ก็ได้ทั้งข้อ ใครทำไม่ได้ก็ไม่ได้อะไรเลย ไม่มีคะแนนบางส่วน
+  </p>
+  <p>
+    ส่วนที่แปลกคือ<strong>ค่าของแต่ละข้อยังไม่มีใครรู้ระหว่างแข่ง</strong>
+    มันถูกตั้งหลังแข่งจบ ให้เท่ากับจำนวนผู้เข้าแข่งที่ทำข้อนั้นไม่ได้
+    ข้อที่คนส่วนใหญ่ตกม้าตายจึงมีค่ามาก ส่วนข้อที่ทุกคนทำได้มีค่าเป็นศูนย์
+    คะแนนของแต่ละคนคือผลรวมค่าของข้อที่เขาทำได้
+  </p>
+  <p>
+    ตารางอันดับเรียงคะแนนจากมากไปน้อย ถ้าคะแนนเสมอ คนที่ทำได้มากข้อกว่าอยู่ก่อน
+    ถ้ายังเสมออีก คนที่เลขประจำตัวน้อยกว่าอยู่ก่อน
+    Philip มีเลขประจำตัว <code>P</code> เขางงกับกติกานี้ และอยากรู้แค่สองอย่าง คือตัวเองได้กี่คะแนน กับอยู่อันดับที่เท่าไร
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N T P</code>
+        จากนั้นอีก <code>N</code> บรรทัด บรรทัดที่ <code>k</code> มีเลข 0 หรือ 1 อยู่ <code>T</code> ตัว
+        ตัวที่ <code>j</code> เป็น 1 เมื่อคนที่ <code>k</code> ทำข้อ <code>j</code> ได้
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N, T &le; {fmt(N_MAX)}</code>, <code>1 &le; P &le; N</code>
+        เวลา 2 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> สองตัวเลขในบรรทัดเดียว คือคะแนนของ Philip แล้วตามด้วยอันดับของเขา (1 ถึง <code>N</code>)</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{N_S} {T_S} {SAMPLE_P}<br />{SAMPLE.map((row) => <>{row.join(' ')}<br /></>)}</td>
+        <td>{SAMPLE_OUT.score} {SAMPLE_OUT.rank}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="io-note">
+    ตัวอย่างนี้มีห้าคน สามข้อ Philip คือคนที่ {SAMPLE_P} แถวที่สองของตาราง ({SAMPLE[ME].join(' ')}) จึงบอกว่าเขาทำข้อไหนได้บ้าง
+    เอาต์พุตตัวแรกคือคะแนน ตัวที่สองคืออันดับ
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ลองถามว่าตอนอ่านแถวของคนที่ 1 จบ เรารู้คะแนนของเขาหรือยัง
+      ค่าของข้อที่ 1 ขึ้นกับใครบ้าง แล้วเราต้องอ่านไปถึงไหนถึงจะรู้
+    </p>
+    <p>
+      อีกเรื่องหนึ่ง โจทย์ไม่ได้ขอให้พิมพ์ตารางอันดับทั้งตาราง ถามแค่อันดับของคนเดียว
+      ถ้าอยากรู้ว่าตัวเองอยู่ที่เท่าไร ต้องรู้อะไรเกี่ยวกับคนอื่นบ้าง
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; จัดตารางอันดับด้วยมือ</h2>
+  <div class="cpgame poigame" data-poigame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดผลการแข่ง">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {puzzles.map((p, k) => (
+        <table class="poi-board" data-poi-board={String(k)} hidden={k !== 0}>
+          <thead>
+            <tr>
+              <th class="who">คนที่</th>
+              {p.value.map((_, j) => <th>ข้อ {j + 1}</th>)}
+              <th>อันดับ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {p.g.map((row, i) => (
+              <tr class={i === p.p - 1 ? 'me' : undefined}>
+                <th class="who">
+                  <button type="button" class="poi-pick" data-poi-row={`${k}:${i}`}>
+                    {i === p.p - 1 ? `${i + 1} Philip` : `${i + 1}`}
+                  </button>
+                </th>
+                {row.map((x) => <td class={x ? 'on' : 'off'}>{x}</td>)}
+                <td class="rk" data-poi-rank>&nbsp;</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th class="who">ค่าข้อ</th>
+              {p.value.map((v) => <td><span data-poi-val hidden>{v}</span><span data-poi-q>?</span></td>)}
+              <td>&nbsp;</td>
+            </tr>
+          </tfoot>
+        </table>
+      ))}
+    </div>
+
+    <p class="cpg-score" data-cpg-score>ยังไม่ได้วางใคร</p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-poi-vals>เปิดค่าข้อ</button>
+      <button type="button" class="cpg-btn" data-poi-reset>เริ่มชุดนี้ใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดเลขประจำตัวทีละคน เริ่มจากคนที่ควรอยู่อันดับ 1 ลงไปจนครบ</p>
+    <p class="cpg-hint">ค่าของแต่ละข้อยังซ่อนอยู่ ลองคิดเองก่อน ถ้าติดค่อยกดเปิดค่าข้อ</p>
+  </div>
+  <p class="ns-cue">
+    ลองจัดให้ครบทั้งสามชุดก่อนนะครับ โดยเฉพาะชุดสุดท้ายที่ Philip ทำได้น้อยข้อกว่าเพื่อน พอเห็นว่าเขาไปอยู่ตรงไหนแล้ว ค่อยเปิดเฉลย
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ค่าของข้อต้องรอให้อ่านครบทุกคน</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ไม่มีอัลกอริทึมให้เดา แรงกดดันเดียวมาจากลำดับของอินพุต
+        อินพุตมาทีละคน แต่ค่าของข้อมาจากทั้งแนวตั้ง คือต้องรู้ว่าทุกคนทำข้อนั้นได้หรือไม่
+        ตอนอ่านแถวของคนที่ 1 จบ ผมจึงยังบอกคะแนนเขาไม่ได้เลยสักนิด
+      </p>
+      <p>
+        ทางที่ตรงที่สุดคือทุกช่องที่ใครทำได้ ให้วิ่งลงไปนับคนที่ทำข้อนั้นไม่ได้ใหม่
+        ผมคิดราคาไว้ก่อนเขียน ที่ตาราง {fmt(N_MAX)} คูณ {fmt(T_MAX)} ช่องที่เป็น 1 อาจมีถึงสี่ล้านช่อง
+        แต่ละช่องวิ่งลงอีกสองพันแถว รวมแปดพันล้านครั้ง ซึ่งเกินสองวินาทีไปไกล
+        ทั้งที่ทุกช่องในแนวตั้งเดียวกันได้คำตอบเดียวกันหมด การนับซ้ำจึงเป็นงานเปล่า
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เมื่อค่าที่ต้องใช้ขึ้นกับข้อมูลที่ยังอ่านไม่ถึง ให้อ่านเก็บให้หมดก่อน
+        แล้วคำนวณเป็นสองรอบ รอบแรกหาค่ารวมที่ทุกคนใช้ร่วมกัน รอบสองค่อยใช้มัน
+      </p>
+    </div>
+    <p>
+      รอบแรก อ่านตารางทั้งหมดเก็บไว้ ระหว่างอ่านก็นับไปพร้อมกันว่าแต่ละข้อมีกี่คนที่ได้ 0
+      นั่นคือค่าของข้อนั้นพอดี รอบสอง เดินตารางอีกครั้ง ช่องไหนเป็น 1 ก็บวกค่าของข้อนั้นเข้าคะแนนของเจ้าของแถว
+      และนับจำนวนข้อที่ทำได้ไว้ด้วย เพราะกติกาตอนเสมอต้องใช้
+    </p>
+    <ZoomableDiagram caption={`ตัวอย่างในโจทย์ ค่าของแต่ละข้อคือจำนวนช่องที่เป็น 0 ในแนวตั้งนั้น ได้ ${joinTh(EX.value)} ตามลำดับ Philip (คนที่ ${SAMPLE_P}) ทำได้ข้อที่ค่า ${SAMPLE[ME].map((x, j) => (x ? EX.value[j] : -1)).filter((v) => v >= 0).join(' กับ ')} จึงได้ ${EX.score[ME]} คะแนน ส่วนคนที่ 1 ทำได้ข้อเดียว แต่เป็นข้อที่ค่าสูงสุด จึงได้คะแนนมากที่สุด`}>
+      <svg viewBox={`0 0 ${DG_W} ${DG_H}`} xmlns="http://www.w3.org/2000/svg" role="img" style="display:block;margin:0 auto;max-width:520px" aria-label="ตารางผลของตัวอย่างในโจทย์ ห้าคนสามข้อ แถวล่างสุดคือค่าของแต่ละข้อ คอลัมน์ขวาสุดคือคะแนนของแต่ละคน">
+        {Array.from({ length: T_S }, (_, j) => (
+          <text x={dgCx(j) + DG_CW / 2} y={DG_RY0 - 14} fill="#7b8397" font-size="13" text-anchor="middle">ข้อ {j + 1}</text>
+        ))}
+        <text x={DG_SX} y={DG_RY0 - 14} fill="#7b8397" font-size="13">คะแนน</text>
+        {SAMPLE.map((_, i) => (
+          <text x={DG_LX} y={dgRy(i) + 21} fill={i === ME ? '#6ee7a8' : '#cdd6ea'} font-size="13" text-anchor="end">
+            {i === ME ? `คนที่ ${i + 1} Philip` : `คนที่ ${i + 1}`}
+          </text>
+        ))}
+        {dgCells.map((c) => (
+          <>
+            <rect x={c.x} y={c.y} width={DG_CW} height={DG_CH} rx="5" fill={c.on ? '#163a2a' : '#121a2b'} stroke={c.me ? '#6ee7a8' : '#2a3350'} stroke-width={c.me ? 2 : 1} />
+            <text x={c.x + DG_CW / 2} y={c.y + 21} fill={c.on ? '#eaf2ff' : '#7b8397'} font-size="14" text-anchor="middle" font-family="monospace">{c.on ? 1 : 0}</text>
+          </>
+        ))}
+        {dgScoreText.map((s, i) => (
+          <text x={DG_SX} y={dgRy(i) + 21} fill={i === ME ? '#6ee7a8' : '#cdd6ea'} font-size="14" font-family="monospace">{s}</text>
+        ))}
+        <line x1={DG_CX0 - 6} y1={DG_VAL_Y - 7} x2={dgCx(T_S) - DG_GAP + 6} y2={DG_VAL_Y - 7} stroke="#3a4560" stroke-width="1.5" />
+        <text x={DG_LX} y={DG_VAL_Y + 21} fill="#e3b341" font-size="13" text-anchor="end">ค่าข้อ</text>
+        {EX.value.map((v, j) => (
+          <>
+            <rect x={dgCx(j)} y={DG_VAL_Y} width={DG_CW} height={DG_CH} rx="5" fill="#2a2412" stroke="#e3b341" />
+            <text x={dgCx(j) + DG_CW / 2} y={DG_VAL_Y + 21} fill="#e3b341" font-size="14" text-anchor="middle" font-family="monospace">{v}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      สังเกตคนที่ 1 ในภาพ เขาทำได้แค่ข้อเดียว แต่ข้อนั้นมีคนทำไม่ได้ {EX.value[2]} คนจาก {N_S}
+      คะแนนของเขาจึงชนะทุกคนที่ทำได้สองข้อ ในเกมชุดสุดท้ายข้างบน Philip ก็ได้อานิสงส์แบบเดียวกัน
+      จัดตามจำนวนข้อเขาจะอยู่อันดับ {pzCBySolved} แต่อันดับจริงคือ {pzCRank}
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ไม่ต้องเรียงทั้งตาราง นับแค่คนที่อยู่เหนือ</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        พอได้คะแนนครบทุกคน ท่าแรกที่มือจะเขียนคือเรียงทั้งตารางด้วยตัวเปรียบเทียบสามชั้น แล้วหาว่า Philip อยู่ช่องไหน
+        ท่านี้ถูกและเร็วพอด้วย ที่ <code>N</code> สองพันคือการเทียบราวสองหมื่นครั้ง ผมใช้มันเป็นตัวตรวจอยู่แล้ว
+      </p>
+      <p>
+        แต่คำถามของโจทย์ชี้ทางที่ง่ายกว่านั้น อันดับของ Philip ก็คือหนึ่งบวกจำนวนคนที่ต้องอยู่เหนือเขา
+        คนแต่ละคนจะอยู่เหนือหรือใต้ Philip ตัดสินได้ด้วยการเทียบกับเขาคนเดียว ไม่ต้องสนว่าคนอื่นเรียงกันเองยังไง
+        จึงเดินรอบเดียว เทียบทีละคน แล้วนับ
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ถ้าโจทย์ถามตำแหน่งของของชิ้นเดียว ให้นับของที่ชนะมันแทนการเรียงทั้งกอง
+      </p>
+    </div>
+    <p>
+      กติกาจัดอันดับเขียนเป็นการเทียบสามชั้นได้ตรงตัว ดูคะแนนก่อน ถ้าต่างกันก็จบตรงนั้น
+      ถ้าเสมอค่อยลงไปดูจำนวนข้อที่ทำได้ ถ้ายังเสมอค่อยดูเลขประจำตัว
+      ชั้นที่สามนี่เองที่ทำให้<strong>ไม่มีใครเสมอกันจริง ๆ</strong> ทุกคนมีตำแหน่งของตัวเองตำแหน่งเดียว
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ตัวเทียบสามชั้น" />
+    <p>
+      จุดที่พลาดง่ายคือชั้นที่สองกับสาม ถ้านับเฉพาะคนที่คะแนนมากกว่า Philip
+      คนที่คะแนนเท่าเขาจะหายไปจากการนับทั้งหมด ในเกมชุดที่สอง Philip เสมอคะแนนกับอีก {pzBTies} คน
+      ท่าที่นับแค่คะแนนจะให้อันดับ {pzBNaive} ขณะที่อันดับจริงคือ {pzBRank}
+    </p>
+  </Spoiler>
+
+  <h2>ไล่ตัวอย่างทีละคน</h2>
+  <Spoiler>
+    <CpStepPlayer hook="poisim" steps={walkSteps} label={`เทียบทุกคนกับ Philip (คนที่ ${SAMPLE_P}) ในตัวอย่างของโจทย์ ค่าข้อคือ ${joinTh(EX.value)}`}>
+      <table class="rec poirec">
+        <caption>ตัวอย่างในโจทย์ เทียบกับ Philip</caption>
+        <thead>
+          <tr>
+            <th class="num">คนที่</th><th class="num">ทำได้ข้อ</th><th class="num">คะแนน</th><th class="num">จำนวนข้อ</th>
+            <th class="why">เทียบกับ Philip</th><th class="num">อยู่เหนือ (สะสม)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {walkRows.map((r) => (
+            <tr>
+              <td class="num">{r.who}</td>
+              <td class="num">{r.tasks}</td>
+              <td class="num">{r.score}</td>
+              <td class="num">{r.solved}</td>
+              <td class="why"><span>{r.verdict}</span></td>
+              <td class="num">{r.ahead}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      มีคนอยู่เหนือ Philip {SAMPLE_OUT.rank - 1} คน อันดับจึงเป็น {SAMPLE_OUT.rank} และคะแนน {SAMPLE_OUT.score} ตรงกับเอาต์พุตของตัวอย่าง
+      คนที่คะแนนเสมอเขาในตัวอย่างนี้ทำได้จำนวนข้อเท่ากันด้วย จึงไปตัดสินกันที่เลขประจำตัว
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="poi.cpp" />
+        <p>
+          ตารางเก็บเป็น <code>char</code> ช่องละไบต์ สี่ล้านช่องจึงใช้ราว 4 เมกะไบต์
+          ถ้าเก็บเป็น <code>int</code> จะเป็น 16 เมกะไบต์ ซึ่งก็ยังไม่เกิน 64 แต่ไม่มีเหตุให้เปลือง
+          คะแนนสูงสุดที่เป็นไปได้คือ {fmt(T_MAX)} ข้อคูณค่าข้อละไม่ถึง {fmt(N_MAX)} ราวสี่ล้าน ใส่ <code>int</code> ได้สบาย
+          ผมใช้ <code>long long</code> ไว้เผื่อเฉย ๆ
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_poi.cpp" />
+        <p>
+          ตัวตรวจไม่ใช้ข้อสังเกตของทั้งสองตอนเลย มันนับคนที่ทำไม่ได้ใหม่ทุกช่อง และเรียงทั้งตารางจริงแทนการนับคนที่อยู่เหนือ
+          ผมสุ่มตารางไม่เกิน 9 คน 6 ข้อ ความหนาแน่นของเลข 1 มีทั้งน้อย กลาง มาก เพื่อให้คะแนนเสมอกันบ่อย รวม 800 เคส
+          โค้ดเต็มตรงกับตัวตรวจทุกเคส และตรงกับตัวอย่างในโจทย์ หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์อีก {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ท่าที่ลืมกติกาตอนเสมอ ผ่านตัวอย่างแต่ผิด</summary>
+      <div class="expander-body">
+        <CodeBlock code={naiveCode} lang="cpp" title="poi_wrong.cpp (ท่อนที่ต่าง)" />
+        <p>
+          ท่านี้คิดคะแนนถูกทุกอย่าง แค่ตอนหาอันดับนับเฉพาะคนที่คะแนนมากกว่า ผมคอมไพล์ลองแล้ว มันตอบตัวอย่างในโจทย์ได้ถูก
+          เพราะคนที่เสมอ Philip ในตัวอย่างนั้น (คนที่ {joinTh(sampleTies.map((i) => i + 1))}) บังเอิญมีเลขประจำตัวมากกว่าเขาทุกคน จึงอยู่ใต้เขาอยู่แล้ว
+        </p>
+        <p>
+          กรณีที่เล็กที่สุดที่มันพังคือ {TRAP_N} คน {TRAP_T} ข้อ{TRAP_ALLZERO ? ' ไม่มีใครทำได้เลย' : ''} และ Philip คือคนที่ {TRAP.p}
+          ทุกคนได้ศูนย์คะแนนเท่ากัน ท่านี้ตอบอันดับ {TRAP.got} ส่วนคำตอบจริงคือ {TRAP.want} เพราะคนที่เลขน้อยกว่าต้องอยู่ก่อน
+          หน้าเว็บหากรณีนี้เองตอนบิลด์ ด้วยการไล่ทุกตารางจากจำนวนช่องน้อยไปมาก
+        </p>
+        <table class="io">
+          <caption>EXAMPLE</caption>
+          <thead><tr><th>Input</th><th>คำตอบจริง</th><th>ท่าที่ผิดตอบ</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>{trapInput.split('\n').map((line) => <>{line}<br /></>)}</td>
+              <td>0 {TRAP.want}</td>
+              <td>0 {TRAP.got}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ตาราง {fmt(N_MAX)} x {fmt(T_MAX)} ที่สุ่มเลข 1 ครึ่งหนึ่ง ใช้ <strong>{TIME_HALF} วินาที</strong>
+      และตารางที่ทุกคนทำได้ทุกข้อ (ทุกคนได้ศูนย์ อันดับตัดสินด้วยเลขประจำตัวล้วน) ใช้ {TIME_ALL} วินาที จากลิมิต 2 วินาที
+      เวลาเกือบทั้งหมดคือการอ่านเลขสี่ล้านตัวด้วย <code>scanf</code> ส่วนการคิดจริงแทบไม่กินเวลา
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ข้อนี้มีสองจังหวะ จังหวะแรกคือสังเกตว่าค่าที่ต้องใช้มาจาก<strong>อีกแกนหนึ่งของข้อมูล</strong>
+    อินพุตมาเป็นแถว แต่ค่าของข้อมาจากแนวตั้ง จึงต้องเก็บทั้งตารางแล้วเดินสองรอบ
+    จังหวะที่สองคือถ้าถามตำแหน่งของคนเดียว ให้นับคนที่ชนะเขา แทนการเรียงทุกคน
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th class="num">งานคร่าว ๆ ที่ N = T = {fmt(N_MAX)}</th><th>สูตร</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td class="num">{r.work}</td><td>{r.note}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวบนนับการแตะช่องในตาราง สองแถวล่างนับการเทียบคนสองคน ส่วนที่แพงจริงของข้อนี้คือการคิดคะแนน การหาอันดับจะเลือกทางไหนก็เร็วพอ</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    อ่านทั้งตาราง นับเลข 0 ในแต่ละแนวตั้งเป็นค่าของข้อ รวมคะแนนอีกรอบ
+    แล้วนับคนที่อยู่เหนือ Philip ด้วยการเทียบสามชั้น คะแนน จำนวนข้อ เลขประจำตัว อันดับคือจำนวนนั้นบวกหนึ่ง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>POI</i> บน programming.in.th ข้อ 2033
+      <a href="https://programming.in.th/tasks/2033" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2033
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>
+      ต้นฉบับคือโจทย์ <i>POI</i> วันแรกของ International Olympiad in Informatics ครั้งที่ 21 (IOI 2009, ประเทศบัลแกเรีย)
+      ตามที่ระบุไว้ท้ายโจทย์บน programming.in.th
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเดินทีละขั้น
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.poirec{width:auto !important;table-layout:fixed;}
+  table.rec.poirec th, table.rec.poirec td{width:6.4rem;}
+  table.rec.poirec th.why, table.rec.poirec td.why{width:13rem;}
+  table.rec.poirec td.why span{display:block;width:0;min-width:100%;}
+  table.rec.poirec tbody tr.is-later td{color:#4a5468;}
+  table.rec.poirec tbody tr.is-now td{background:#163a2a;}
+  table.rec.poirec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  table.poi-board{
+    margin:0.2rem auto 0.6rem;
+    border-collapse:separate;
+    border-spacing:0.3rem;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.86rem;
+  }
+  table.poi-board th{
+    color:#7b8397;
+    font-weight:600;
+    font-size:0.74rem;
+    padding:0.2rem 0.4rem;
+    white-space:nowrap;
+    text-align:center;
+  }
+  table.poi-board th.who{text-align:right;}
+  table.poi-board td{
+    width:2.6rem;
+    min-width:2.6rem;
+    height:2.1rem;
+    text-align:center;
+    border-radius:6px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#7b8397;
+  }
+  table.poi-board td.on{background:#163a2a;color:#eaf2ff;border-color:#2f6b4a;}
+  table.poi-board td.rk{width:3.2rem;min-width:3.2rem;color:var(--dl-gold);font-weight:700;border-style:dashed;}
+  table.poi-board tfoot td{background:#2a2412;border-color:#6b5a26;color:var(--dl-gold);}
+  table.poi-board tfoot td:last-child{background:transparent;border:none;}
+  table.poi-board tr.me td{border-color:var(--dl-emerald-bright);}
+  table.poi-board tr.placed td{opacity:0.55;}
+  table.poi-board tr.placed td.rk{opacity:1;}
+  .poi-pick{
+    min-width:5.4rem;
+    padding:0.3rem 0.55rem;
+    font:inherit;
+    font-size:0.8rem;
+    border-radius:6px;
+    border:1px solid #2a3350;
+    background:#141b2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    white-space:nowrap;
+    transition:background .15s, border-color .15s;
+  }
+  tr.me .poi-pick{color:#6ee7a8;border-color:var(--dl-emerald-bright);}
+  .poi-pick:disabled{cursor:default;opacity:0.5;}
+  @media (hover: hover){
+    .poi-pick:not(:disabled):hover{background:#1c2740;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .poi-pick{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type PoiPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    p: number;
+    value: number[];
+    score: number[];
+    solved: number[];
+    order: number[];
+  };
+
+  function isPuzzle(x: unknown): x is PoiPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return (
+      typeof o.p === 'number' &&
+      typeof o.tease === 'string' &&
+      Array.isArray(o.order) &&
+      Array.isArray(o.score) &&
+      Array.isArray(o.solved)
+    );
+  }
+
+  function initPoiGame(): void {
+    const maybeUi = cpGameUi('[data-poigame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isPuzzle);
+    if (puzzles.length === 0) return;
+
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-poi-board]'));
+    const valBtn = ui.root.querySelector<HTMLButtonElement>('[data-poi-vals]');
+    let pi = 0;
+    let placed: number[] = [];
+    let showVals = false;
+
+    function rowsOf(k: number): HTMLTableRowElement[] {
+      return Array.from(boards[k].querySelectorAll<HTMLTableRowElement>('tbody tr'));
+    }
+
+    function render(): void {
+      const p = puzzles[pi];
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      rowsOf(pi).forEach((tr, i) => {
+        const at = placed.indexOf(i);
+        tr.classList.toggle('placed', at >= 0);
+        const rk = tr.querySelector<HTMLElement>('[data-poi-rank]');
+        if (rk) rk.textContent = at >= 0 ? String(at + 1) : '\u00a0';
+        const btn = tr.querySelector<HTMLButtonElement>('[data-poi-row]');
+        if (btn) btn.disabled = at >= 0;
+      });
+      boards[pi].querySelectorAll<HTMLElement>('[data-poi-val]').forEach((el) => {
+        el.hidden = !showVals;
+      });
+      boards[pi].querySelectorAll<HTMLElement>('[data-poi-q]').forEach((el) => {
+        el.hidden = showVals;
+      });
+      if (valBtn) valBtn.textContent = showVals ? 'ซ่อนค่าข้อ' : 'เปิดค่าข้อ';
+      ui.setScore(`วางแล้ว ${placed.length} จาก ${p.order.length} คน`);
+    }
+
+    /** เหตุผลที่คนที่ i ยังไม่ถึงตา โดยดูจากคนที่ควรมาก่อน (e) แต่ไม่บอกว่าเป็นใคร */
+    function why(p: PoiPuzzle, e: number, i: number): string {
+      if (p.score[e] !== p.score[i]) return `ยังไม่ถึงตาคนที่ ${i + 1} ยังมีคนที่คะแนนมากกว่าเขา (${p.score[i]} คะแนน) เหลืออยู่`;
+      if (p.solved[e] !== p.solved[i])
+        return `ยังไม่ถึงตาคนที่ ${i + 1} ยังมีคนที่คะแนนเท่าเขา แต่ทำได้มากกว่า ${p.solved[i]} ข้อ เหลืออยู่`;
+      return `ยังไม่ถึงตาคนที่ ${i + 1} ยังมีคนที่เสมอเขาทั้งคะแนนและจำนวนข้อ แต่เลขประจำตัวน้อยกว่า เหลืออยู่`;
+    }
+
+    function pick(i: number): void {
+      const p = puzzles[pi];
+      if (placed.includes(i) || placed.length >= p.order.length) return;
+      const e = p.order[placed.length];
+      if (e !== i) {
+        ui.setStatus(why(p, e, i), 'bad');
+        return;
+      }
+      placed.push(i);
+      if (placed.length === p.order.length) {
+        const me = p.p - 1;
+        ui.setStatus(
+          `ครบแล้วครับ Philip (คนที่ ${p.p}) ได้ ${p.score[me]} คะแนน อยู่อันดับ ${p.order.indexOf(me) + 1} ตรงกับที่โปรแกรมต้องตอบ`,
+          'good',
+        );
+      } else ui.setStatus(`ถูกครับ คนที่ ${i + 1} อยู่อันดับ ${placed.length} ต่อไปคืออันดับ ${placed.length + 1}`, 'plain');
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      placed = [];
+      showVals = false;
+      ui.selectTab(k);
+      ui.setTease(puzzles[pi].tease);
+      ui.setStatus('กดเลขประจำตัวทีละคน เริ่มจากคนที่ควรอยู่อันดับ 1 ลงไปจนครบ');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-poi-row]');
+      if (!(btn instanceof HTMLElement)) return;
+      const [k, i] = (btn.dataset.poiRow ?? '').split(':').map(Number);
+      if (k === pi) pick(i);
+    });
+
+    ui.onClick('data-poi-vals', () => {
+      showVals = !showVals;
+      render();
+    });
+    ui.onClick('data-poi-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initPoiGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-poisim]');
+  });
+</script>

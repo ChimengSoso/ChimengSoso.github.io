@@ -1,0 +1,1140 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'hermes/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Pt = { x: number; y: number };
+const ORIGIN: Pt = { x: 0, y: 0 };
+
+/** ตัวตรวจ เดินทีละก้าวบนตารางจริง สถานะคือ (ส่งไปแล้วกี่ฉบับ, x, y)
+ *  ส่งได้ฟรีเมื่อยืนแนวเดียวกับฉบับถัดไป ไม่ได้ใช้ข้ออ้างเรื่องถนนสองเส้นเลย */
+function bruteBfs(ps: Pt[]): number {
+  const n = ps.length;
+  let lo = 0;
+  let hi = 0;
+  for (const p of ps) {
+    lo = Math.min(lo, p.x, p.y);
+    hi = Math.max(hi, p.x, p.y);
+  }
+  lo -= 2;
+  hi += 2;
+  const S = hi - lo + 1;
+  const id = (k: number, x: number, y: number): number => (k * S + (x - lo)) * S + (y - lo);
+  const dist: number[] = new Array<number>((n + 1) * S * S).fill(Infinity);
+  const dq: [number, number, number][] = [[0, 0, 0]];
+  dist[id(0, 0, 0)] = 0;
+  const moves: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  while (dq.length > 0) {
+    const head = dq.shift();
+    if (!head) break;
+    const [k, x, y] = head;
+    const d = dist[id(k, x, y)];
+    if (k === n) return d;
+    if (x === ps[k].x || y === ps[k].y) {
+      const t = id(k + 1, x, y);
+      if (dist[t] > d) {
+        dist[t] = d;
+        dq.unshift([k + 1, x, y]);
+      }
+    }
+    for (const [ax, ay] of moves) {
+      const nx = x + ax;
+      const ny = y + ay;
+      if (nx < lo || nx > hi || ny < lo || ny > hi) continue;
+      const t = id(k, nx, ny);
+      if (dist[t] > d + 1) {
+        dist[t] = d + 1;
+        dq.push([k, nx, ny]);
+      }
+    }
+  }
+  return Infinity;
+}
+
+type Side = 'row' | 'col';
+type Cell = { cost: number; from: { side: Side; c: number } | null; turn: boolean };
+type Layer = { at: Pt; row: Map<number, Cell>; col: Map<number, Cell> };
+
+/** ท่าเต็ม หลังส่งฉบับที่ i จำแค่ยืนบนเส้นไหนของฉบับนั้น กับพิกัดอีกแกน
+ *  row คือยืนบนถนนแนวนอน y = Y_i ที่ x = c, col คือยืนบนถนนแนวตั้ง x = X_i ที่ y = c */
+function lineLayers(ps: Pt[]): Layer[] {
+  const layers: Layer[] = [
+    {
+      at: ORIGIN,
+      row: new Map([[0, { cost: 0, from: null, turn: false }]]),
+      col: new Map([[0, { cost: 0, from: null, turn: false }]]),
+    },
+  ];
+  for (const p of ps) {
+    const prev = layers[layers.length - 1];
+    const { x: px, y: py } = prev.at;
+    const row = new Map<number, Cell>();
+    const col = new Map<number, Cell>();
+    for (const [c, cell] of prev.row) row.set(c, { cost: cell.cost + Math.abs(py - p.y), from: { side: 'row', c }, turn: false });
+    for (const [c, cell] of prev.col) col.set(c, { cost: cell.cost + Math.abs(px - p.x), from: { side: 'col', c }, turn: false });
+    let toRow: Cell | null = null;
+    for (const [c, cell] of prev.col) {
+      const v = cell.cost + Math.abs(c - p.y);
+      if (!toRow || v < toRow.cost) toRow = { cost: v, from: { side: 'col', c }, turn: true };
+    }
+    let toCol: Cell | null = null;
+    for (const [c, cell] of prev.row) {
+      const v = cell.cost + Math.abs(c - p.x);
+      if (!toCol || v < toCol.cost) toCol = { cost: v, from: { side: 'row', c }, turn: true };
+    }
+    const oldR = row.get(px);
+    if (toRow && (!oldR || toRow.cost < oldR.cost)) row.set(px, toRow);
+    const oldC = col.get(py);
+    if (toCol && (!oldC || toCol.cost < oldC.cost)) col.set(py, toCol);
+    layers.push({ at: p, row, col });
+  }
+  return layers;
+}
+
+function bestOf(layer: Layer): { side: Side; c: number; cost: number } {
+  let best = { side: 'row' as Side, c: 0, cost: Infinity };
+  for (const side of ['row', 'col'] as Side[])
+    for (const [c, cell] of layer[side]) if (cell.cost < best.cost) best = { side, c, cost: cell.cost };
+  return best;
+}
+const lineDp = (ps: Pt[]): number => bestOf(lineLayers(ps)[ps.length]).cost;
+const posOf = (layer: Layer, side: Side, c: number): Pt => (side === 'row' ? { x: c, y: layer.at.y } : { x: layer.at.x, y: c });
+
+/** ชุดย่อย ลองไปยืนทุกจุดบนสองเส้นของฉบับถัดไป (จำกัดกรอบไว้ที่ขอบของข้อมูลบวกสอง) */
+function allPointsDp(ps: Pt[]): number {
+  let lo = 0;
+  let hi = 0;
+  for (const p of ps) {
+    lo = Math.min(lo, p.x, p.y);
+    hi = Math.max(hi, p.x, p.y);
+  }
+  lo -= 2;
+  hi += 2;
+  let cur: { at: Pt; cost: number }[] = [{ at: ORIGIN, cost: 0 }];
+  for (const p of ps) {
+    const nxt = new Map<string, { at: Pt; cost: number }>();
+    for (const s of cur)
+      for (let z = lo; z < hi + 1; z++)
+        for (const q of [{ x: z, y: p.y }, { x: p.x, y: z }]) {
+          const v = s.cost + Math.abs(s.at.x - q.x) + Math.abs(s.at.y - q.y);
+          const key = `${q.x},${q.y}`;
+          const old = nxt.get(key);
+          if (!old || v < old.cost) nxt.set(key, { at: q, cost: v });
+        }
+    cur = [...nxt.values()];
+  }
+  return Math.min(...cur.map((s) => s.cost));
+}
+
+/** ท่าโลภ เดินไปเส้นที่ใกล้กว่าของฉบับถัดไปเสมอ ใช้ในกล่องกับดักและเป็นด่านตรวจของเกม */
+function greedyNearest(ps: Pt[]): number {
+  let cx = 0;
+  let cy = 0;
+  let tot = 0;
+  for (const { x, y } of ps) {
+    if (cx === x || cy === y) continue;
+    if (Math.abs(cx - x) <= Math.abs(cy - y)) {
+      tot += Math.abs(cx - x);
+      cx = x;
+    } else {
+      tot += Math.abs(cy - y);
+      cy = y;
+    }
+  }
+  return tot;
+}
+
+/* ด่านตรวจตอนบิลด์ ท่าทั้งสองที่หน้านี้สอนต้องตรงกับการเดินทีละก้าว ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 300;
+{
+  let seed = 20370911;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(6);
+    const v = [1, 2, 3, 4][rnd(4)];
+    const ps = Array.from({ length: n }, () => ({ x: rnd(2 * v + 1) - v, y: rnd(2 * v + 1) - v }));
+    const b = bruteBfs(ps);
+    if (lineDp(ps) !== b || allPointsDp(ps) !== b)
+      throw new Error(`hermes: ท่าที่สอนไม่ตรงกับการเดินทีละก้าว ที่ ${JSON.stringify(ps)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const SAMPLE: Pt[] = [{ x: 8, y: 3 }, { x: 7, y: -7 }, { x: 8, y: 1 }, { x: -2, y: 1 }, { x: 6, y: -5 }];
+const SAMPLE_OUT = 11;
+if (lineDp(SAMPLE) !== SAMPLE_OUT || bruteBfs(SAMPLE) !== SAMPLE_OUT) throw new Error('hermes: ตัวอย่างไม่ตรงกับโจทย์');
+const sampleGreedy = greedyNearest(SAMPLE);
+if (sampleGreedy <= SAMPLE_OUT) throw new Error('hermes: ข้ออ้างว่าท่าโลภแพ้ตัวอย่างในโจทย์ผิด');
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const ptStr = (p: Pt): string => `(${p.x}, ${p.y})`;
+
+/* ---------- เส้นทางที่ดีที่สุดของตัวอย่าง ย้อนจากช่องที่ดีที่สุดกลับไปหาจุดเริ่ม ---------- */
+const SL = lineLayers(SAMPLE);
+const route: { at: Pt; layer: number }[] = [];
+{
+  let cur: { side: Side; c: number } | null = bestOf(SL[SAMPLE.length]);
+  for (let i = SAMPLE.length; i >= 0 && cur; i--) {
+    route.unshift({ at: posOf(SL[i], cur.side, cur.c), layer: i });
+    const cell: Cell | undefined = SL[i][cur.side].get(cur.c);
+    cur = cell ? cell.from : null;
+  }
+}
+const routeLen = route.slice(1).reduce((t, r, i) => t + Math.abs(r.at.x - route[i].at.x) + Math.abs(r.at.y - route[i].at.y), 0);
+if (routeLen !== SAMPLE_OUT) throw new Error('hermes: เส้นทางที่ย้อนได้ยาวไม่เท่าคำตอบ');
+/* จุดส่งที่ตรงกัน รวมป้ายเป็นป้ายเดียว */
+const dropMap = new Map<string, { at: Pt; ks: number[] }>();
+route.slice(1).forEach((r) => {
+  const key = ptStr(r.at);
+  const e = dropMap.get(key) ?? { at: r.at, ks: [] };
+  e.ks.push(r.layer);
+  dropMap.set(key, e);
+});
+const drops = [...dropMap.values()];
+const zeroMoves = route.slice(1).filter((r, i) => r.at.x === route[i].at.x && r.at.y === route[i].at.y).map((r) => r.layer);
+
+/* พิกัดของแผนภาพเส้นทาง */
+const RX0 = -3;
+const RX1 = 9;
+const RY0 = -8;
+const RY1 = 4;
+const RU = 40;
+const RL = 40;
+const RT = 24;
+const rsx = (x: number): number => RL + (x - RX0) * RU;
+const rsy = (y: number): number => RT + (RY1 - y) * RU;
+const rGridX = Array.from({ length: RX1 - RX0 + 1 }, (_, i) => RX0 + i);
+const rGridY = Array.from({ length: RY1 - RY0 + 1 }, (_, i) => RY0 + i);
+const routeSegs = route
+  .slice(1)
+  .map((r, i) => ({ a: route[i].at, b: r.at }))
+  .filter((s) => s.a.x !== s.b.x || s.a.y !== s.b.y);
+const cafeLabels = (() => {
+  const m = new Map<string, { at: Pt; ks: number[] }>();
+  SAMPLE.forEach((p, i) => {
+    const e = m.get(ptStr(p)) ?? { at: p, ks: [] };
+    e.ks.push(i + 1);
+    m.set(ptStr(p), e);
+  });
+  return [...m.values()];
+})();
+const RW = rsx(RX1) + 12;
+const RH = rsy(RY0) + 18 + 34;
+const zeroNote =
+  zeroMoves.length > 0
+    ? `ฉบับที่ ${zeroMoves.join(' กับ ')} ส่งได้โดยไม่ต้องขยับ เพราะจุดที่ยืนอยู่แนวเดียวกับร้านถัดไปอยู่แล้ว`
+    : 'ทุกฉบับต้องเดินก่อนส่ง';
+const routeCaption = `เส้นทางที่ย้อนได้จากช่องที่ดีที่สุด ยาว ${routeLen} พอดีกับคำตอบ ทุกช่วงเป็นเส้นตรงเส้นเดียวตามที่ตอนที่ 3 บอก จุดวงแหวนคือจุดที่ยืนส่ง ${zeroNote}`;
+
+/* ---------- แผนภาพจุดใกล้ที่สุด ---------- */
+const NU = 52;
+const NL = 36;
+const NT = 30;
+const nsx = (x: number): number => NL + x * NU;
+const nsy = (y: number): number => NT + (5 - y) * NU;
+const NP: Pt = { x: 1, y: 1 };
+const NQ: Pt = { x: 6, y: 4 };
+const NZ: Pt = { x: 6, y: 3 };
+const NW = nsx(7) + 12;
+const NH = nsy(0) + 34;
+
+/* ---------- ตัวเล่นทีละขั้น ตัวอย่างในโจทย์ ---------- */
+const cellList = (m: Map<number, Cell>, axis: 'x' | 'y'): string =>
+  [...m.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([c, cell]) => `${axis}=${c} · ${cell.cost}`)
+    .join(', ');
+const stepRows = SL.map((L, i) => {
+  const b = bestOf(L);
+  return { i, at: L.at, rowList: cellList(L.row, 'x'), colList: cellList(L.col, 'y'), best: b.cost };
+});
+const walkSteps = SL.map((L, i) => {
+  if (i === 0)
+    return {
+      note:
+        'เริ่มที่ (0, 0) นับเป็นฉบับที่ 0 ซึ่งยืนอยู่บนทั้งสองเส้นของมันพร้อมกัน ' +
+        'บนถนนแนวนอน y = 0 ที่ x = 0 และบนถนนแนวตั้ง x = 0 ที่ y = 0 ระยะ 0 ทั้งคู่',
+    };
+  const prev = SL[i - 1];
+  const dy = Math.abs(prev.at.y - L.at.y);
+  const dx = Math.abs(prev.at.x - L.at.x);
+  const tr = L.row.get(prev.at.x);
+  const tc = L.col.get(prev.at.y);
+  const turnRow =
+    tr && tr.turn && tr.from
+      ? `ทางเลี้ยวลงถนนแนวนอนใหม่ได้ช่อง x = ${prev.at.x} ระยะ <b>${tr.cost}</b> (มาจากจุดบนถนนแนวตั้งเก่าที่ y = ${tr.from.c}) `
+      : `ทางเลี้ยวลงถนนแนวนอนใหม่ที่ x = ${prev.at.x} ไม่ชนะช่องเดิม `;
+  const turnCol =
+    tc && tc.turn && tc.from
+      ? `ทางเลี้ยวลงถนนแนวตั้งใหม่ได้ช่อง y = ${prev.at.y} ระยะ <b>${tc.cost}</b> (มาจากจุดบนถนนแนวนอนเก่าที่ x = ${tc.from.c}) `
+      : `ทางเลี้ยวลงถนนแนวตั้งใหม่ที่ y = ${prev.at.y} ไม่ชนะช่องเดิม `;
+  return {
+    note:
+      `ฉบับที่ <b>${i}</b> อยู่ที่ ${ptStr(L.at)} ` +
+      `ทางตรง: ทุกช่องฝั่งแนวนอนบวก ${dy} (ระยะขึ้นลงจาก y = ${prev.at.y} ถึง y = ${L.at.y}) ` +
+      `ทุกช่องฝั่งแนวตั้งบวก ${dx} (ระยะซ้ายขวาจาก x = ${prev.at.x} ถึง x = ${L.at.x}) ` +
+      turnRow +
+      turnCol +
+      `ดีที่สุดตอนนี้คือ <b>${bestOf(L).cost}</b>`,
+  };
+});
+const layerSizes = SL.map((L) => L.row.size + L.col.size);
+const sizeBoundOk = SL.every((L, i) => L.row.size <= i + 1 && L.col.size <= i + 1);
+if (!sizeBoundOk) throw new Error('hermes: ข้ออ้างว่าแต่ละฝั่งมีไม่เกิน i + 1 ช่องผิด');
+
+/* ---------- สูตร ---------- */
+const ROW = mc.fn('row');
+const COL = mc.fn('col');
+const MIN = '\\mathop{\\textcolor{#50FA7B}{\\min}}\\limits';
+const ABS = (s: string): string => '\\lvert ' + s + ' \\rvert';
+const I1 = 'i' + mc.op('-') + mc.num('1');
+const recurrenceTex = texCode(
+  ROW + '[i][c] \\;' + mc.op('=') + '\\; ' + MIN + ' \\begin{cases} ' +
+    ROW + '[' + I1 + '][c] ' + mc.op('+') + ' ' + ABS('Y_{' + I1 + '} ' + mc.op('-') + ' Y_i') + ' & \\\\ ' +
+    MIN + '_{c\'} \\big( ' + COL + '[' + I1 + '][c\'] ' + mc.op('+') + ' ' + ABS('c\' ' + mc.op('-') + ' Y_i') + ' \\big) & (c ' + mc.op('=') + ' X_{' + I1 + '}) \\end{cases}',
+);
+
+/* ---------- มินิเกม ---------- */
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  pts: Pt[];
+  best: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+};
+function makePuzzle(id: string, label: string, tease: string, pts: Pt[], trap: boolean): GamePuzzle {
+  const best = bruteBfs(pts);
+  if (lineDp(pts) !== best) throw new Error(`hermes: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  if (trap && greedyNearest(pts) <= best) throw new Error(`hermes: ชุด ${id} ควรทำให้ท่าโลภแพ้ แต่ไม่แพ้`);
+  const xs = [0, ...pts.map((p) => p.x)];
+  const ys = [0, ...pts.map((p) => p.y)];
+  return { id, label, tease, pts, best, x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, y0: Math.min(...ys) - 1, y1: Math.max(...ys) + 1 };
+}
+const PZ_A: Pt[] = [{ x: 2, y: 3 }, { x: -2, y: 1 }, { x: 1, y: -2 }];
+const PZ_C: Pt[] = [{ x: 3, y: -3 }, { x: -1, y: 2 }, { x: -3, y: -3 }, { x: -3, y: 3 }];
+const PZ_D: Pt[] = [{ x: 4, y: -1 }, { x: -3, y: 2 }, { x: 1, y: 4 }, { x: -2, y: -4 }, { x: 3, y: 3 }, { x: -4, y: 0 }];
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'อุ่นเครื่อง สามฉบับ', 'สามฉบับแรก ลองคลิกจุดที่อยากไปยืน แล้วดูว่าต้องไปถึงร้านจริง ๆ ไหม', PZ_A, false),
+  makePuzzle('b', 'ตัวอย่างในโจทย์', 'ห้าฉบับจากตัวอย่างในโจทย์ คำตอบของโจทย์คือระยะรวมที่ต่ำที่สุดของชุดนี้', SAMPLE, true),
+  makePuzzle('c', 'สี่ฉบับ ห้ามใจร้อน', 'ชุดนี้ถ้าเดินไปเส้นที่ใกล้ที่สุดทุกครั้ง จะเสียระยะเยอะมาก ลองหาทางที่ใจเย็นกว่านั้น', PZ_C, true),
+  makePuzzle('d', 'หกฉบับ', 'ชุดสุดท้าย ลองทำให้ได้ระยะต่ำสุดก่อนเปิดเฉลย', PZ_D, true),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+const pzC = puzzles[2];
+const pzCGreedy = greedyNearest(PZ_C);
+
+/* ตารางปุ่มของแต่ละกระดาน เรียงจากแถวบนลงล่าง (y มากไปน้อย) */
+const boardCells = puzzles.map((p) => {
+  const cells: { x: number; y: number; tag: string }[] = [];
+  for (let y = p.y1; y > p.y0 - 1; y--)
+    for (let x = p.x0; x < p.x1 + 1; x++) {
+      const ks = p.pts.map((q, i) => (q.x === x && q.y === y ? String(i + 1) : '')).filter((s) => s !== '');
+      cells.push({ x, y, tag: ks.join(',') });
+    }
+  return { cols: p.x1 - p.x0 + 1, cells };
+});
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 20000;
+const WID = 2001;
+const bill = [
+  { name: 'เดินทีละก้าวบนตารางทั้งแผ่น (ตัวตรวจ)', limit: 'พิกัดแคบ ๆ', work: `N × ${fmt(WID)}² ช่อง คือราว ${fmt(N_MAX * WID * WID)} ช่อง` },
+  { name: 'สองเส้น ลองทุกจุดบนเส้นใหม่ (ชุดย่อย)', limit: 'N ต่ำกว่า 80', work: `N × 2 × ${fmt(WID)} × 2 × ${fmt(WID)} คือราว ${fmt(N_MAX * 4 * WID * WID)} ครั้ง` },
+  { name: 'สองเส้น เดินไปจุดที่ใกล้ที่สุด (ท่าเต็ม)', limit: `N ถึง ${fmt(N_MAX)}`, work: `N × 2 × ${fmt(WID)} × 2 คือราว ${fmt(N_MAX * 4 * WID)} ครั้ง` },
+];
+
+/* ---------- เวลาที่วัดจากไบนารีที่คอมไพล์จากโค้ดในหน้านี้ ---------- */
+const T_FULL_BIG = '0.05';
+const T_SUB_79 = '0.37';
+const T_SUB_800 = '3.8';
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+const int OFF = 1000, W = 2001, INF = 1e9;
+// row[c] = ระยะน้อยสุด ถ้าตอนนี้ยืนบนถนนแนวนอนของฉบับล่าสุด ที่ x = c - OFF
+// col[c] = ระยะน้อยสุด ถ้าตอนนี้ยืนบนถนนแนวตั้งของฉบับล่าสุด ที่ y = c - OFF
+int row[W], col[W];
+int main(){
+    int n;
+    if(scanf("%d", &n) != 1) return 0;
+    fill(row, row + W, INF); fill(col, col + W, INF);
+    row[OFF] = col[OFF] = 0;    // จุดเริ่ม (0,0) นับเป็นฉบับที่ 0 ยืนอยู่บนทั้งสองเส้นของมัน
+    int px = 0, py = 0;           // พิกัดของฉบับก่อนหน้า
+    for(int i = 0; i < n; i++){
+        int x, y; scanf("%d %d", &x, &y);
+        // ทางเลี้ยว หาไว้ก่อนจากแถวเก่า
+        // toRow: จากถนนแนวตั้งเก่า เดินขึ้นลงไปชนถนนแนวนอนใหม่ y
+        // toCol: จากถนนแนวนอนเก่า เดินซ้ายขวาไปชนถนนแนวตั้งใหม่ x
+        int toRow = INF, toCol = INF;
+        for(int c = 0; c < W; c++){
+            if(col[c] < INF) toRow = min(toRow, col[c] + abs(c - OFF - y));
+            if(row[c] < INF) toCol = min(toCol, row[c] + abs(c - OFF - x));
+        }
+        // ทางตรง อยู่ฝั่งเดิม เดินขนานไปเส้นใหม่ พิกัดอีกแกนไม่เปลี่ยน ช่องจึงเป็นช่องเดิม
+        int dy = abs(py - y), dx = abs(px - x);
+        for(int c = 0; c < W; c++){
+            if(row[c] < INF) row[c] += dy;
+            if(col[c] < INF) col[c] += dx;
+        }
+        // ทางเลี้ยวลงได้ช่องเดียวต่อฝั่ง: ถนนแนวนอนใหม่ที่ x = px กับถนนแนวตั้งใหม่ที่ y = py
+        row[px + OFF] = min(row[px + OFF], toRow);
+        col[py + OFF] = min(col[py + OFF], toCol);
+        px = x; py = y;
+    }
+    int ans = INF;
+    for(int c = 0; c < W; c++) ans = min({ans, row[c], col[c]});
+    printf("%d\\n", ans);
+}`;
+
+const subCode = `#include <bits/stdc++.h>
+using namespace std;
+const int OFF = 1000, W = 2001, INF = 1e9;
+// ชุดย่อย N < 80: ยังไม่เชื่อว่าเดินไปจุดที่ใกล้ที่สุดพอ
+// จากทุกสถานะ ลองไปยืนทุกจุดบนสองเส้นของฉบับถัดไป
+int row[W], col[W], nrow[W], ncol[W];
+int main(){
+    int n;
+    if(scanf("%d", &n) != 1) return 0;
+    fill(row, row + W, INF); fill(col, col + W, INF);
+    row[OFF] = col[OFF] = 0;
+    int px = 0, py = 0;
+    for(int i = 0; i < n; i++){
+        int x, y; scanf("%d %d", &x, &y);
+        fill(nrow, nrow + W, INF); fill(ncol, ncol + W, INF);
+        for(int c = 0; c < W; c++){
+            for(int s = 0; s < 2; s++){
+                int d = s == 0 ? row[c] : col[c];
+                if(d >= INF) continue;
+                int cx = s == 0 ? c - OFF : px;   // ตำแหน่งจริงของสถานะนี้
+                int cy = s == 0 ? py : c - OFF;
+                for(int z = 0; z < W; z++){
+                    nrow[z] = min(nrow[z], d + abs(cx - (z - OFF)) + abs(cy - y));   // ไปยืน (z, y)
+                    ncol[z] = min(ncol[z], d + abs(cx - x) + abs(cy - (z - OFF)));   // ไปยืน (x, z)
+                }
+            }
+        }
+        copy(nrow, nrow + W, row); copy(ncol, ncol + W, col);
+        px = x; py = y;
+    }
+    int ans = INF;
+    for(int c = 0; c < W; c++) ans = min({ans, row[c], col[c]});
+    printf("%d\\n", ans);
+}`;
+
+const bruteCode = `// ตัวตรวจ เดินทีละก้าวบนตารางจริง ส่งจดหมายได้ฟรีเมื่อยืนแนวเดียวกับฉบับถัดไป
+// ไม่ได้ใช้ข้ออ้างเรื่องถนนสองเส้นเลย สถานะคือ (ส่งไปแล้วกี่ฉบับ, x, y)
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n; scanf("%d", &n);
+    vector<int> X(n), Y(n);
+    int lo = 0, hi = 0;
+    for(int i = 0; i < n; i++){
+        scanf("%d %d", &X[i], &Y[i]);
+        lo = min({lo, X[i], Y[i]}); hi = max({hi, X[i], Y[i]});
+    }
+    lo -= 2; hi += 2;                       // เผื่อขอบให้เดินอ้อมนอกกรอบได้
+    int S = hi - lo + 1;
+    auto id = [&](int k, int x, int y){ return (k * S + (x - lo)) * S + (y - lo); };
+    vector<int> dist((n + 1) * S * S, INT_MAX);
+    deque<array<int, 3>> dq;                // BFS แบบน้ำหนัก 0 กับ 1
+    dist[id(0, 0, 0)] = 0; dq.push_back({0, 0, 0});
+    int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+    while(!dq.empty()){
+        auto [k, x, y] = dq.front(); dq.pop_front();
+        int d = dist[id(k, x, y)];
+        if(k == n){ printf("%d\\n", d); return 0; }
+        if(x == X[k] || y == Y[k]){         // ส่งฉบับที่ k ตรงนี้ ไม่เสียระยะ
+            int t = id(k + 1, x, y);
+            if(dist[t] > d){ dist[t] = d; dq.push_front({k + 1, x, y}); }
+        }
+        for(int r = 0; r < 4; r++){
+            int nx = x + dx[r], ny = y + dy[r];
+            if(nx < lo || nx > hi || ny < lo || ny > hi) continue;
+            int t = id(k, nx, ny);
+            if(dist[t] > d + 1){ dist[t] = d + 1; dq.push_back({k, nx, ny}); }
+        }
+    }
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ส่งจดหมายให้เทพทุกองค์ตามลำดับ ด้วยระยะเดินน้อยที่สุด</h2>
+  <p>
+    เมืองของเทพเจ้ากรีกวางถนนเป็นตาราง ทุกจำนวนเต็ม <code>Z</code> มีถนนแนวนอนที่ <code>y = Z</code>
+    และถนนแนวตั้งที่ <code>x = Z</code> คู่พิกัดจำนวนเต็มแต่ละคู่จึงเป็นสี่แยกหนึ่งแห่ง
+    วันที่อากาศร้อน เทพแต่ละองค์ไปนั่งร้านกาแฟตามสี่แยกต่าง ๆ
+  </p>
+  <p>
+    เทพ<strong>แอร์เมส</strong> (เทพผู้ส่งสาร) ต้องเดินไปตามถนนเพื่อส่งจดหมายลับให้ครบ <code>N</code> ฉบับ
+    ฉบับละหนึ่งองค์ และต้องส่ง<strong>ตามลำดับที่กำหนด</strong>เท่านั้น เขาเริ่มที่ <code>(0, 0)</code>
+    กติกาที่ทำให้ข้อนี้น่าสนใจคือ จะส่งจดหมายให้เทพที่ร้าน <code>(X, Y)</code>
+    แอร์เมสไม่ต้องเดินไปถึงร้าน แค่ยืนอยู่บน<strong>ถนนเส้นเดียวกัน</strong>ก็พอ
+    คือยืนที่ <code>(X, Z)</code> หรือ <code>(Z, Y)</code> สำหรับจำนวนเต็ม <code>Z</code> ใดก็ได้
+    ใครจะเห็นจดหมายระหว่างทางก็ไม่เป็นไร ส่งครบแล้วแอร์เมสก็หายตัวไป
+  </p>
+  <p>ถามว่าระยะทางเดินรวมที่น้อยที่สุดคือเท่าไร</p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้นอีก <code>N</code> บรรทัด
+        บรรทัดละสองจำนวน คือพิกัดร้านของเทพที่จะได้รับฉบับนั้น เรียงตามลำดับการส่ง
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &lt; N &lt; {fmt(N_MAX)}</code>, <code>-1000 &lt; X, Y &lt; 1000</code>
+        และในข้อมูลทดสอบ 50% มี <code>N &lt; 80</code> เวลา 3 วินาที หน่วยความจำ 16 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> ระยะทางเดินรวมที่น้อยที่สุด ตัวเลขเดียว</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{SAMPLE.length}<br />{SAMPLE.map((p) => <>{p.x} {p.y}<br /></>)}</td>
+        <td>{SAMPLE_OUT}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="io-note">
+    ระยะทางนับตามถนน เดินได้แค่แนวนอนกับแนวตั้ง จาก <code>(0, 0)</code> ไป <code>(3, 2)</code> จึงเป็น 5 ช่วงถนน
+    ตัวอย่างนี้ฉบับแรกอยู่ที่ร้าน {ptStr(SAMPLE[0])} แอร์เมสอาจยืนที่ <code>(0, {SAMPLE[0].y})</code>
+    หรือ <code>({SAMPLE[0].x}, 0)</code> ก็ส่งได้แล้ว คำตอบ {SAMPLE_OUT} คือระยะรวมของทั้งห้าฉบับ
+  </p>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ตำแหน่งของแอร์เมสบนตารางมีสองพิกัด แต่ละพิกัดมีได้ราวสองพันค่า
+      ถ้าจำตำแหน่งเต็ม ๆ หลังส่งทุกฉบับ ตารางจะใหญ่เกินหน่วยความจำ 16 เมกะไบต์ไปไกล
+    </p>
+    <p>
+      ลองดูว่าหลังส่งฉบับที่ <code>i</code> เสร็จ เรารู้อะไรเกี่ยวกับตำแหน่งของเขาแน่ ๆ บ้าง
+      แล้วจากจุดนั้น จะไปยืนบนเส้นของฉบับถัดไปตรงไหนดี
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; พาแอร์เมสส่งให้ครบด้วยระยะน้อยที่สุด</h2>
+  <div class="cpgame hmgame" data-hmgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดจดหมาย">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {boardCells.map((b, k) => (
+        <div class="hm-board" data-hm-board={String(k)} hidden={k !== 0} style={`grid-template-columns:repeat(${b.cols}, 1.9rem)`}>
+          {b.cells.map((c) => (
+            <button
+              type="button"
+              class="hm-cell"
+              data-hm-cell={`${c.x}:${c.y}`}
+              aria-label={c.tag ? `จุด (${c.x}, ${c.y}) ร้านของฉบับที่ ${c.tag}` : `จุด (${c.x}, ${c.y})`}
+              title={`(${c.x}, ${c.y})`}
+            >
+              {c.tag}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    <p class="cpg-score" data-cpg-score>&nbsp;</p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-hm-undo>ย้อนหนึ่งก้าว</button>
+      <button type="button" class="cpg-btn" data-hm-reset>เริ่มใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>คลิกจุดบนตารางเพื่อเดินไปยืนตรงนั้น</p>
+    <p class="cpg-hint">
+      ตัวเลขบนช่องคือร้านของฉบับนั้น แถวกับคอลัมน์ที่เรืองสีคือถนนสองเส้นของฉบับถัดไป
+      แอร์เมสเดินจากจุดเดิมไปจุดที่คลิกด้วยระยะตามถนน และส่งจดหมายเฉพาะตรงจุดที่หยุดยืนเท่านั้น
+    </p>
+  </div>
+  <p class="ns-cue">
+    ลองทั้งสี่ชุดก่อนนะครับ โดยเฉพาะชุดสี่ฉบับที่การรีบเข้าหาเส้นที่ใกล้ที่สุดทำให้เสียเปรียบ
+    พอมีคำตอบในใจแล้ว ค่อยเปิดเฉลย
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; หลังส่งแต่ละฉบับ ตำแหน่งเหลือเลขที่ต้องจำแค่ตัวเดียว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมเริ่มจากสถานะที่ตรงที่สุดก่อน คือ "ส่งไปแล้วกี่ฉบับ และยืนอยู่ที่ <code>(x, y)</code> ไหน"
+        ตัวเลขฆ่ามันทันที พิกัดแต่ละแกนมี {fmt(WID)} ค่า สองแกนรวมกันราวสี่ล้านจุด
+        คูณจำนวนฉบับอีกสองหมื่นเป็นแปดหมื่นล้านสถานะ ส่วนหน่วยความจำ 16 เมกะไบต์เก็บ <code>int</code> ได้แค่ราวสี่ล้านตัว
+        แม้แต่ชั้นเดียวของตารางนี้ก็เกือบเต็มแล้ว
+      </p>
+      <p>
+        แรงบีบนั้นบังคับให้ถามว่าในสี่ล้านจุด มีจุดไหนบ้างที่เป็นไปได้จริงหลังส่งฉบับที่ <code>i</code>
+        คำตอบอยู่ในกติกาเอง ตอนที่ส่งฉบับที่ <code>i</code> แอร์เมสต้องยืนบนเส้นใดเส้นหนึ่งของร้านนั้น
+        พิกัดหนึ่งแกนจึงถูกตรึงไว้กับร้านแล้ว เหลือพิกัดอีกแกนแกนเดียวที่ยังเป็นอิสระ
+        สี่ล้านจุดยุบเหลือสองเส้น เส้นละ {fmt(WID)} จุด
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาสถานะใหญ่เกินไป ให้ไปอ่านกติกาว่ามันบังคับอะไรไว้ตอนจบแต่ละขั้น
+        ของที่ถูกบังคับไม่ต้องจำ
+      </p>
+    </div>
+    <p>
+      เรียกถนนสองเส้นที่ผ่านร้านของฉบับที่ <code>i</code> ว่า<strong>เส้นแนวนอน</strong> <code>y = Y<sub>i</sub></code>
+      กับ<strong>เส้นแนวตั้ง</strong> <code>x = X<sub>i</sub></code> หลังส่งฉบับที่ <code>i</code>
+      แอร์เมสยืนอยู่บนเส้นใดเส้นหนึ่งในสองเส้นนี้เสมอ สถานะจึงเขียนได้ด้วยของสองอย่าง
+    </p>
+    <ul>
+      <li><code>row[i][c]</code> คือระยะน้อยที่สุด ถ้าหลังส่งฉบับที่ <code>i</code> เขายืนบนเส้นแนวนอน ที่ <code>x = c</code></li>
+      <li><code>col[i][c]</code> คือระยะน้อยที่สุด ถ้าหลังส่งฉบับที่ <code>i</code> เขายืนบนเส้นแนวตั้ง ที่ <code>y = c</code></li>
+    </ul>
+    <p>
+      จุดเริ่ม <code>(0, 0)</code> นับเป็นฉบับที่ 0 ที่ร้านอยู่ตรงนั้นพอดี
+      แอร์เมสยืนบนทั้งสองเส้นของมันพร้อมกัน จึงเริ่มด้วย <code>row[0][0] = col[0][0] = 0</code>
+      ถ้าร้านของฉบับแรกบังเอิญอยู่แนวเดียวกับ <code>(0, 0)</code> ก็ส่งได้เลยโดยไม่ต้องเดิน
+      ซึ่งสูตรข้างล่างจะจัดการให้เอง
+    </p>
+    <p>
+      คำถามที่ยังค้างคือ จากจุดบนเส้นของฉบับที่ <code>i-1</code> จะไปยืนตรงไหนบนเส้นของฉบับที่ <code>i</code>
+      มีสองเส้นให้เลือก และบนแต่ละเส้นมีสองพันกว่าจุด ตอนที่ 2 ลองทุกจุดก่อน ตอนที่ 3 จะตัดเหลือจุดเดียวต่อเส้น
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ชุดย่อย N &lt; 80: ลองไปยืนทุกจุดบนเส้นใหม่</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ทางที่ตรงไปตรงมาที่สุด แล้วตีราคา</p>
+      <p>
+        เมื่อสถานะเหลือ 2 × {fmt(WID)} ช่องต่อฉบับแล้ว ทางที่ไม่ต้องคิดอะไรเพิ่มคือ
+        จากทุกช่อง ลองไปยืนทุกจุดบนสองเส้นของฉบับถัดไป ระยะก็คือระยะตามถนนจากตำแหน่งจริงของช่องนั้นไปจุดนั้น
+        ผมเขียนมันเป็นโค้ดจริงไว้ใช้เป็นตัวเทียบ และมันคือทางที่ผ่านชุดย่อย 50% ได้
+      </p>
+      <p>
+        ราคาต่อฉบับคือ 2 × {fmt(WID)} ช่องต้นทาง คูณ 2 × {fmt(WID)} จุดปลายทาง ราวสิบหกล้านครั้ง
+        วัดจริงที่ <code>N</code> เท่ากับ 79 ใช้ {T_SUB_79} วินาที ที่ 800 ใช้ {T_SUB_800} วินาที เวลาโตตาม <code>N</code> เป็นเส้นตรง
+        พอไปถึงสองหมื่นฉบับจะเกินลิมิต 3 วินาทีไปหลายสิบเท่า
+        สิ่งที่ต้องหาต่อจึงชัดมาก คือในสองพันกว่าจุดบนเส้นใหม่ จุดไหนที่ควรค่าแก่การไปยืนจริง ๆ
+      </p>
+    </div>
+    <p>
+      โค้ดของท่านี้อยู่ในหัวข้อโค้ดข้างล่าง มันไม่มีข้ออ้างอะไรเลยนอกจากตอนที่ 1
+      จึงเป็นตัวเทียบที่ดีของท่าเต็ม ถ้าสองท่าให้คำตอบตรงกันบนเคสสุ่มจำนวนมาก
+      ข้ออ้างของตอนที่ 3 ก็ไม่ได้ทำให้พลาดจุดไหนไป
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; บนแต่ละเส้น จุดที่ควรไปยืนมีจุดเดียว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        คำถามจากตอนที่ 2 คือจุดไหนบนเส้นใหม่ที่ควรค่าแก่การไป ผมลองวาดดูหนึ่งกรณี
+        แอร์เมสยืนที่ <code>P</code> อยากไปยืนที่จุด <code>Q</code> บนเส้นแนวตั้งของฉบับถัดไป
+        ระยะตามถนนจาก <code>P</code> ไป <code>Q</code> แยกได้เป็นสองก้อนเสมอ คือก้อนซ้ายขวากับก้อนขึ้นลง
+        ก้อนซ้ายขวาต้องจ่ายแน่ ๆ เพื่อไปถึงเส้นนั้น ส่วนก้อนขึ้นลงเป็นแค่การขยับไปตามเส้น
+      </p>
+      <p>
+        ก้อนขึ้นลงนั้นเลื่อนไปจ่ายทีหลังได้ทั้งก้อน โดยราคาไม่เปลี่ยน
+        ถ้าไปยืนที่จุดบนเส้นที่ตรงกับ <code>P</code> พอดีก่อน แล้วค่อยเดินต่อตามเส้นตอนที่ต้องใช้จริง
+        ระยะรวมเท่ากับไปที่ <code>Q</code> ตรง ๆ ทุกประการ ที่ต่างคือตอนนี้เลือกได้ว่าจะเดินต่อหรือไม่
+        จุดอื่นบนเส้นจึงไม่เคยดีกว่าจุดที่ใกล้ที่สุด ตัวตรวจที่เดินทีละก้าวยืนยันข้ออ้างนี้ในทุกเคสที่สุ่ม
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ เมื่อต้นทุนแยกเป็นก้อนที่ต้องจ่ายแน่กับก้อนที่เลื่อนไปจ่ายทีหลังได้
+        ให้จ่ายเฉพาะก้อนแรกไปก่อน ทางเลือกที่เหลือยังอยู่ครบ
+      </p>
+    </div>
+
+    <ZoomableDiagram caption="จาก P มีจุดที่คุ้มจะไปยืนแค่สองจุด คือจุดที่ใกล้ที่สุดบนแต่ละเส้นของฉบับถัดไป การไปจุดอื่นบนเส้นเดียวกันเท่ากับไปจุดใกล้ก่อนแล้วเดินต่อตามเส้น ซึ่งเลื่อนไปทำตอนหลังได้เสมอโดยไม่เสียอะไร">
+      <svg viewBox={`0 0 ${NW} ${NH}`} xmlns="http://www.w3.org/2000/svg" role="img" style="display:block;margin:0 auto;max-width:520px" aria-label="แอร์เมสยืนที่จุด P ร้านของฉบับถัดไปมีเส้นแนวนอนและเส้นแนวตั้งผ่าน ลูกศรทึบสองเส้นชี้จาก P ไปจุดที่ใกล้ที่สุดบนแต่ละเส้น ลูกศรประอีกเส้นชี้ไปจุดอื่นบนเส้นแนวตั้ง ซึ่งยาวเท่ากับไปจุดใกล้ก่อนแล้วเดินต่อ">
+        <defs>
+          <marker id="hm-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#6ee7a8" />
+          </marker>
+          <marker id="hm-arr-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#7b8397" />
+          </marker>
+        </defs>
+        <line x1={nsx(0)} y1={nsy(NQ.y)} x2={nsx(7)} y2={nsy(NQ.y)} stroke="#294266" stroke-width="3" stroke-dasharray="7 5" />
+        <line x1={nsx(NQ.x)} y1={nsy(0)} x2={nsx(NQ.x)} y2={nsy(5)} stroke="#294266" stroke-width="3" stroke-dasharray="7 5" />
+        <text x={nsx(0)} y={nsy(NQ.y) - 8} fill="#9aa6c0" font-size="13">เส้นแนวนอนของฉบับถัดไป</text>
+        <text x={nsx(NQ.x) - 8} y={nsy(0) - 6} fill="#9aa6c0" font-size="13" text-anchor="end">เส้นแนวตั้ง</text>
+        <path d={`M${nsx(NP.x)} ${nsy(NP.y) + 14} L${nsx(NZ.x) - 14} ${nsy(NP.y) + 14} L${nsx(NZ.x) - 14} ${nsy(NZ.y) + 10}`} fill="none" stroke="#7b8397" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#hm-arr-dim)" />
+        <text x={nsx(NZ.x) - 22} y={nsy(NZ.y) + 4} fill="#7b8397" font-size="12" text-anchor="end">ไปจุดอื่นบนเส้นเดียวกัน</text>
+        <line x1={nsx(NP.x) + 9} y1={nsy(NP.y)} x2={nsx(NQ.x) - 8} y2={nsy(NP.y)} stroke="#6ee7a8" stroke-width="3" marker-end="url(#hm-arr)" />
+        <line x1={nsx(NP.x)} y1={nsy(NP.y) - 9} x2={nsx(NP.x)} y2={nsy(NQ.y) + 8} stroke="#6ee7a8" stroke-width="3" marker-end="url(#hm-arr)" />
+        <text x={(nsx(NP.x) + nsx(NQ.x)) / 2} y={nsy(NP.y) - 10} fill="#6ee7a8" font-size="13" text-anchor="middle">ใกล้สุดบนเส้นแนวตั้ง</text>
+        <text x={nsx(NP.x) - 10} y={(nsy(NP.y) + nsy(NQ.y)) / 2} fill="#6ee7a8" font-size="13" text-anchor="middle" transform={`rotate(-90 ${nsx(NP.x) - 10} ${(nsy(NP.y) + nsy(NQ.y)) / 2})`}>ใกล้สุดบนเส้นแนวนอน</text>
+        <circle cx={nsx(NZ.x)} cy={nsy(NZ.y)} r="5" fill="none" stroke="#7b8397" stroke-width="2" />
+        <circle cx={nsx(NP.x)} cy={nsy(NP.y)} r="8" fill="#2f9e5c" stroke="#6ee7a8" stroke-width="2" />
+        <text x={nsx(NP.x) - 14} y={nsy(NP.y) + 22} fill="#eaf2ff" font-size="14" font-family="monospace">P</text>
+        <circle cx={nsx(NQ.x)} cy={nsy(NQ.y)} r="9" fill="#1a2336" stroke="#d6b25e" stroke-width="2" />
+        <text x={nsx(NQ.x) + 14} y={nsy(NQ.y) - 10} fill="#d6b25e" font-size="13">ร้าน</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      จากตำแหน่งปัจจุบันจึงมีทางไปแค่สองทาง และทั้งสองทางเดินเป็น<strong>เส้นตรงเส้นเดียว</strong>เสมอ
+      ถ้าอยู่บนเส้นแนวนอนของฉบับก่อน ก็เดินขึ้นลงไปชนเส้นแนวนอนใหม่ (พิกัด <code>x</code> ไม่เปลี่ยน)
+      หรือเดินซ้ายขวาไปชนเส้นแนวตั้งใหม่ (พิกัด <code>y</code> ยังเป็น <code>Y</code> ของฉบับก่อน)
+      ฝั่งเส้นแนวตั้งก็สลับบทบาทกัน เขียนเป็นสูตรฝั่งแนวนอนได้แบบนี้
+    </p>
+    <Fragment set:html={recurrenceTex} />
+    <p>
+      อ่านสูตรนี้โดยจำไว้ว่า <code>c</code> ในช่องปลายทางคือพิกัด <code>x</code> ที่แอร์เมสยืนหลังส่งฉบับที่ <code>i</code>
+      ส่วนดัชนีของช่องต้นทางคือพิกัดอีกแกนที่เขายืนหลังส่งฉบับก่อนหน้า ทางเข้าช่องปลายทางมีสองทาง
+    </p>
+    <ul>
+      <li>
+        <strong>ทางตรง</strong> ก่อนหน้านี้เขายืนบนเส้นแนวนอนของฉบับก่อนอยู่แล้ว ที่ <code>x = c</code>
+        เดินขึ้นหรือลงตรง ๆ จนชนเส้นแนวนอนใหม่ พิกัด <code>x</code> ไม่ขยับ จึงลงช่อง <code>c</code> เดิมพอดี
+        ระยะที่บวกคือระยะห่างระหว่างสองเส้นแนวนอน ซึ่งเท่ากันทุกช่อง ทางนี้ใช้ได้ทุกช่องที่ฉบับก่อนมีค่าอยู่
+      </li>
+      <li>
+        <strong>ทางเลี้ยว</strong> ก่อนหน้านี้เขายืนบนเส้นแนวตั้งของฉบับก่อน ซึ่งมี <code>x = X<sub>i-1</sub></code> ตายตัว
+        ที่ความสูง <code>c'</code> สักค่า เดินขึ้นหรือลงจนชนเส้นแนวนอนใหม่ ระยะ <code>|c' - Y<sub>i</sub>|</code>
+        และยืนที่ <code>x = X<sub>i-1</sub></code> ช่องปลายทางของทางนี้จึงเป็นช่องเดียว คือ <code>c = X<sub>i-1</sub></code>
+        และเลือก <code>c'</code> ที่ดีที่สุดจากทุกช่องของฝั่งแนวตั้ง
+      </li>
+    </ul>
+    <p>
+      ผลที่ตามมาคือแต่ละฉบับเพิ่มช่องใหม่ได้แค่หนึ่งช่องต่อฝั่ง หลังฉบับที่ <code>i</code>
+      แต่ละฝั่งจึงมีช่องที่มีค่าไม่เกิน <code>i + 1</code> ช่อง (ตัวอย่างในโจทย์มีช่องรวมทั้งสองฝั่ง {layerSizes.join(', ')} ตามลำดับ)
+      ส่วนสูตรฝั่ง <code>col</code> ได้จากการสลับ <code>x</code> กับ <code>y</code> ทั้งหมด
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>สรุปทางเข้าช่อง</caption>
+        <thead>
+          <tr><th>ช่องปลายทาง</th><th>มาจาก</th><th>ระยะที่บวก</th><th>เงื่อนไข</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>row[i][c]</code></td><td><code>row[i-1][c]</code></td><td><code>|Y[i-1] - Y[i]|</code></td><td>ทุก c</td></tr>
+          <tr><td><code>row[i][c]</code></td><td><code>col[i-1][c']</code> ทุก c'</td><td><code>|c' - Y[i]|</code></td><td>เฉพาะ c = X[i-1]</td></tr>
+          <tr><td><code>col[i][c]</code></td><td><code>col[i-1][c]</code></td><td><code>|X[i-1] - X[i]|</code></td><td>ทุก c</td></tr>
+          <tr><td><code>col[i][c]</code></td><td><code>row[i-1][c']</code> ทุก c'</td><td><code>|c' - X[i]|</code></td><td>เฉพาะ c = Y[i-1]</td></tr>
+        </tbody>
+      </table>
+      <figcaption>คำตอบคือค่าน้อยที่สุดของทุกช่องหลังฉบับสุดท้าย ไม่ว่าจะอยู่ฝั่งไหน เพราะส่งครบแล้วแอร์เมสก็หายตัวไปจากตรงนั้นเลย</figcaption>
+    </figure>
+
+    <details class="expander">
+      <summary>ท่าที่ดูเข้าท่า แต่ผิด: เดินเข้าหาเส้นที่ใกล้กว่าเสมอ</summary>
+      <div class="expander-body">
+        <p>
+          ในเมื่อแต่ละก้าวมีแค่สองทาง ก็น่าลองเลือกทางที่สั้นกว่าทุกครั้ง ท่านี้แพ้ตั้งแต่ตัวอย่างในโจทย์
+          ได้ระยะรวม {sampleGreedy} ขณะที่คำตอบคือ {SAMPLE_OUT} ส่วนชุดสี่ฉบับในเกมข้างบนแพ้ขาดกว่านั้น
+          ท่านี้ได้ {pzCGreedy} ขณะที่ทำได้ {pzC.best}
+        </p>
+        <p>
+          ต้นเหตุคือทางที่สั้นกว่าในก้าวนี้อาจทิ้งพิกัดอีกแกนไว้ในที่ที่แย่สำหรับฉบับถัด ๆ ไป
+          ทางที่ยาวกว่าบางครั้งพาไปยืนบนเส้นที่ร้านถัดไปอยู่แนวเดียวกันพอดี จึงต้องเก็บทั้งสองทางไว้ในตาราง
+          แล้วให้ฉบับสุดท้ายเป็นคนตัดสิน
+        </p>
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>เดินตารางให้ดูหนึ่งรอบ</h2>
+  <Spoiler>
+    <CpStepPlayer hook="hmsim" steps={walkSteps} label="ตัวอย่างในโจทย์ ช่องที่มีค่าของแต่ละฝั่ง เขียนเป็น พิกัด · ระยะ">
+      <table class="rec hmrec">
+        <caption>ช่องที่มีค่าหลังส่งแต่ละฉบับ</caption>
+        <thead>
+          <tr>
+            <th class="num">ฉบับ</th><th class="num">ร้าน</th>
+            <th class="lst">ฝั่งแนวนอน (x · ระยะ)</th><th class="lst">ฝั่งแนวตั้ง (y · ระยะ)</th><th class="num">ดีสุด</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stepRows.map((r) => (
+            <tr>
+              <td class="num">{r.i}</td>
+              <td class="num">{ptStr(r.at)}</td>
+              <td class="lst"><span>{r.rowList}</span></td>
+              <td class="lst"><span>{r.colList}</span></td>
+              <td class="num">{r.best}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+
+    <ZoomableDiagram caption={routeCaption}>
+      <svg viewBox={`0 0 ${RW} ${RH}`} xmlns="http://www.w3.org/2000/svg" role="img" style="display:block;margin:0 auto;max-width:600px" aria-label={`ตารางถนนของตัวอย่างในโจทย์ ร้านห้าร้าน และเส้นทางของแอร์เมสจาก (0, 0) ยาวรวม ${routeLen}`}>
+        <defs>
+          <marker id="hm-route" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0 0 L10 5 L0 10 z" fill="#6ee7a8" />
+          </marker>
+        </defs>
+        {rGridX.map((x) => (
+          <line x1={rsx(x)} y1={rsy(RY1)} x2={rsx(x)} y2={rsy(RY0)} stroke={x === 0 ? '#3a4560' : '#1f2940'} stroke-width={x === 0 ? 2 : 1} />
+        ))}
+        {rGridY.map((y) => (
+          <line x1={rsx(RX0)} y1={rsy(y)} x2={rsx(RX1)} y2={rsy(y)} stroke={y === 0 ? '#3a4560' : '#1f2940'} stroke-width={y === 0 ? 2 : 1} />
+        ))}
+        {rGridX.map((x) => (
+          <text x={rsx(x)} y={rsy(RY0) + 18} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">{x}</text>
+        ))}
+        {rGridY.map((y) => (
+          <text x={rsx(RX0) - 10} y={rsy(y) + 4} fill="#7b8397" font-size="11" text-anchor="end" font-family="monospace">{y}</text>
+        ))}
+        {routeSegs.map((s) => (
+          <line x1={rsx(s.a.x)} y1={rsy(s.a.y)} x2={rsx(s.b.x)} y2={rsy(s.b.y)} stroke="#6ee7a8" stroke-width="4" marker-end="url(#hm-route)" />
+        ))}
+        {cafeLabels.map((c) => (
+          <>
+            <rect x={rsx(c.at.x) - 13} y={rsy(c.at.y) - 11} width="26" height="22" rx="5" fill="#2a2210" stroke="#d6b25e" stroke-width="1.5" />
+            <text x={rsx(c.at.x)} y={rsy(c.at.y) + 5} fill="#f3d58a" font-size="12" text-anchor="middle" font-family="monospace">{c.ks.join(',')}</text>
+          </>
+        ))}
+        {drops.map((d) => (
+          <>
+            <circle cx={rsx(d.at.x)} cy={rsy(d.at.y)} r="9" fill="none" stroke="#eaf2ff" stroke-width="2" />
+            <text x={rsx(d.at.x) + 12} y={rsy(d.at.y) - 10} fill="#eaf2ff" font-size="12">ส่ง {d.ks.join(',')}</text>
+          </>
+        ))}
+        <circle cx={rsx(0)} cy={rsy(0)} r="6" fill="#2f9e5c" />
+        <text x={rsx(0) - 8} y={rsy(0) + 20} fill="#6ee7a8" font-size="12" text-anchor="end">เริ่ม</text>
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="hermes.cpp" />
+        <p>
+          ตารางเก็บแค่ชั้นล่าสุด ชั้นละสองแถว แถวละ {fmt(WID)} ช่อง รวมราวสิบหกกิโลไบต์
+          หน่วยความจำ 16 เมกะไบต์จึงเหลือเฟือ จุดที่ต้องระวังคือลำดับการอัปเดต
+          ทางเลี้ยวต้องหาจากแถวเก่าให้เสร็จก่อน แล้วค่อยบวกทางตรงลงแถว ถ้าสลับกัน ทางเลี้ยวจะไปอ่านค่าที่บวกไปแล้ว
+          ระยะรวมมากที่สุดราวสองหมื่นฉบับคูณสี่พัน คือแปดสิบล้าน ยังอยู่ใน <code>int</code>
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูท่าลองทุกจุด (ชุดย่อย N &lt; 80)</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="hermes_sub.cpp" />
+        <p>
+          ท่านี้ได้คะแนนชุดย่อย 50% ที่ <code>N &lt; 80</code> ส่วนที่เหลือจะหมดเวลา
+          มันไม่ได้ใช้ข้ออ้างเรื่องจุดที่ใกล้ที่สุดเลย จึงเป็นตัวเทียบที่ตรงประเด็นที่สุดของตอนที่ 3
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_hermes.cpp" />
+        <p>
+          ตัวตรวจเดินทีละก้าวบนตาราง ส่งจดหมายเมื่อยืนแนวเดียวกับร้าน ไม่รู้จักเรื่องถนนสองเส้นหรือจุดที่ใกล้ที่สุดเลย
+          ผมสุ่มจดหมายไม่เกิน 8 ฉบับ พิกัดอยู่ในช่วงแคบบ้างกว้างบ้างเพื่อให้ร้านอยู่แนวเดียวกันบ่อย ๆ รวม 600 เคส
+          เทียบทั้งสามโปรแกรมแล้วตรงกันหมด และตรงกับตัวอย่างในโจทย์
+          หน้าเว็บนี้ก็รันด่านตรวจแบบเดียวกันตอนบิลด์อีก {SWEEP_CASES} ชุด
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ท่าเต็มกับจดหมาย {fmt(N_MAX - 1)} ฉบับที่พิกัดสุ่มเต็มช่วงใช้ <strong>{T_FULL_BIG} วินาที</strong>
+      รวมเวลาอ่านอินพุตแล้ว จากลิมิต 3 วินาที
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ข้อนี้ใช้สองจังหวะ จังหวะแรกคือ<strong>อ่านกติกาว่ามันตรึงอะไรไว้ตอนจบแต่ละขั้น</strong>
+    การส่งจดหมายบังคับให้ยืนบนเส้นของร้าน พิกัดหนึ่งแกนจึงไม่ต้องจำ สถานะสองมิติเหลือมิติเดียว
+    จังหวะที่สองคือแยกต้นทุนของการเดินเป็นก้อนที่ต้องจ่ายแน่กับก้อนที่เลื่อนไปจ่ายทีหลังได้
+    แล้วจ่ายแค่ก้อนแรก ทางเลือกนับพันต่อสถานะจึงเหลือสองทาง
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ ที่ N = {fmt(N_MAX)}</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>สองแถวล่างนับหน่วยเดียวกัน คือจำนวนครั้งที่คำนวณระยะจากช่องหนึ่งไปจุดหนึ่ง แถวบนนับจำนวนช่องบนตารางเต็ม ซึ่งแต่ละช่องแตะเพื่อนบ้านอีกสี่ครั้ง จึงแพงกว่าที่เห็นอีก</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    หลังส่งแต่ละฉบับ แอร์เมสยืนบนเส้นใดเส้นหนึ่งของร้าน จำแค่ฝั่งกับพิกัดอีกแกน
+    แล้วจากทุกช่องเดินตรงไปจุดที่ใกล้ที่สุดของเส้นใหม่แต่ละเส้น ได้งานฉบับละราวแปดพันครั้ง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Hermes</i> บน programming.in.th ข้อ 2037
+      <a href="https://programming.in.th/tasks/2037" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2037
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>
+      ต้นฉบับคือโจทย์ <i>Hermes</i> ของ International Olympiad in Informatics ครั้งที่ 16 (IOI 2004, ประเทศกรีซ)
+      ตามที่ระบุไว้ในไฟล์โจทย์ของ programming.in.th
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลื่อนขั้น
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.hmrec{width:auto !important;table-layout:fixed;}
+  table.rec.hmrec th, table.rec.hmrec td{width:5rem;}
+  table.rec.hmrec th.lst, table.rec.hmrec td.lst{width:14rem;}
+  table.rec.hmrec td.lst{font-family:"Fira Code","Fira Mono",monospace;color:#cdd6ea;font-size:0.8rem;}
+  table.rec.hmrec td.lst span{display:block;width:0;min-width:100%;}
+  table.rec.hmrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.hmrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.hmrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .hm-board{display:grid;gap:2px;justify-content:center;margin:0.2rem auto 0.6rem;width:max-content;}
+  .hm-cell{
+    width:1.9rem;
+    height:1.9rem;
+    padding:0;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.72rem;
+    font-weight:700;
+    border-radius:4px;
+    border:1px solid #1f2940;
+    background:#0f1626;
+    color:#f3d58a;
+    cursor:pointer;
+    transition:background .15s, border-color .15s;
+  }
+  .hm-cell.line{background:#15233a;border-color:#294266;}
+  .hm-cell.cafe{background:#2a2210;border-color:#d6b25e;}
+  .hm-cell.cafe.next{box-shadow:0 0 0 2px #d6b25e;}
+  .hm-cell.done{color:#6b7280;background:#141a26;border-color:#2a3350;}
+  .hm-cell.origin{border-color:#2f9e5c;}
+  .hm-cell.me{background:#2f9e5c;border-color:#6ee7a8;color:#eaf2ff;}
+  .hm-cell.trail{border-color:#6ee7a8;}
+  @media (hover: hover){
+    .hm-cell:hover{border-color:#6ee7a8;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .hm-cell{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type HmPt = { x: number; y: number };
+  type HmPuzzle = { id: string; label: string; tease: string; pts: HmPt[]; best: number };
+
+  function isPuzzle(x: unknown): x is HmPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.best === 'number' && Array.isArray(o.pts) && typeof o.tease === 'string';
+  }
+
+  function initHermesGame(): void {
+    const maybeUi = cpGameUi('[data-hmgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isPuzzle);
+    if (puzzles.length === 0) return;
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-hm-board]'));
+
+    let pi = 0;
+    /* ประวัติการยืน ตัวแรกคือจุดเริ่ม ตัวละ { จุด, ส่งแล้วกี่ฉบับ, ระยะรวม } */
+    let hist: { at: HmPt; sent: number; total: number }[] = [];
+
+    const cur = (): { at: HmPt; sent: number; total: number } => hist[hist.length - 1];
+    const parse = (s: string): HmPt => {
+      const [x, y] = s.split(':').map(Number);
+      return { x, y };
+    };
+
+    /** ส่งทุกฉบับที่ส่งได้ ณ จุดที่ยืน ต่อกันไปจนเจอฉบับที่ยังไม่อยู่แนวเดียวกัน */
+    function deliver(p: HmPuzzle, at: HmPt, sent: number): number {
+      let k = sent;
+      while (k < p.pts.length && (p.pts[k].x === at.x || p.pts[k].y === at.y)) k++;
+      return k;
+    }
+
+    function render(): void {
+      const p = puzzles[pi];
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      const now = cur();
+      const nxt = now.sent < p.pts.length ? p.pts[now.sent] : null;
+      const trail = new Set(hist.map((h) => `${h.at.x}:${h.at.y}`));
+      for (const btn of Array.from(boards[pi].querySelectorAll<HTMLElement>('[data-hm-cell]'))) {
+        const key = btn.dataset.hmCell ?? '';
+        const q = parse(key);
+        const ks = p.pts.map((r, i) => (r.x === q.x && r.y === q.y ? i : -1)).filter((i) => i >= 0);
+        btn.classList.toggle('cafe', ks.length > 0 && ks.some((i) => i >= now.sent));
+        btn.classList.toggle('done', ks.length > 0 && ks.every((i) => i < now.sent));
+        btn.classList.toggle('next', nxt !== null && q.x === nxt.x && q.y === nxt.y);
+        btn.classList.toggle('line', nxt !== null && (q.x === nxt.x || q.y === nxt.y));
+        btn.classList.toggle('origin', q.x === 0 && q.y === 0);
+        btn.classList.toggle('me', q.x === now.at.x && q.y === now.at.y);
+        btn.classList.toggle('trail', trail.has(key));
+      }
+      ui.setScore(`ยืนที่ (${now.at.x}, ${now.at.y}) ส่งแล้ว ${now.sent} จาก ${p.pts.length} ฉบับ เดินรวม ${now.total}`);
+    }
+
+    function move(q: HmPt): void {
+      const p = puzzles[pi];
+      const now = cur();
+      if (now.sent >= p.pts.length) {
+        ui.setStatus('ส่งครบแล้วครับ กดเริ่มใหม่หรือย้อนหนึ่งก้าวเพื่อลองทางอื่น', 'plain');
+        return;
+      }
+      if (q.x === now.at.x && q.y === now.at.y) return;
+      const total = now.total + Math.abs(q.x - now.at.x) + Math.abs(q.y - now.at.y);
+      const sent = deliver(p, q, now.sent);
+      hist.push({ at: q, sent, total });
+      if (sent >= p.pts.length) {
+        if (total === p.best) ui.setStatus(`ส่งครบด้วยระยะ ${total} ต่ำสุดของชุดนี้แล้วครับ`, 'good');
+        else if (total > p.best) ui.setStatus(`ส่งครบแล้ว เดินรวม ${total} แต่ชุดนี้ทำได้ ${p.best} ลองย้อนดูว่าก้าวไหนเสียเปรียบ`, 'bad');
+      } else if (sent > now.sent) ui.setStatus(`ส่งได้ ${sent - now.sent} ฉบับตรงจุดนี้`, 'plain');
+      else ui.setStatus('จุดนี้ยังไม่อยู่แนวเดียวกับร้านถัดไป ยังส่งไม่ได้', 'plain');
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      const p = puzzles[pi];
+      const start: HmPt = { x: 0, y: 0 };
+      hist = [{ at: start, sent: deliver(p, start, 0), total: 0 }];
+      ui.selectTab(k);
+      ui.setTease(p.tease);
+      ui.setStatus(
+        hist[0].sent > 0 ? `จุดเริ่มอยู่แนวเดียวกับร้านแรกพอดี ส่งไปได้ ${hist[0].sent} ฉบับโดยไม่ต้องเดิน` : 'คลิกจุดบนตารางเพื่อเดินไปยืนตรงนั้น',
+      );
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-hm-cell]');
+      if (!(btn instanceof HTMLElement)) return;
+      move(parse(btn.dataset.hmCell ?? '0:0'));
+    });
+    ui.onClick('data-hm-undo', () => {
+      if (hist.length > 1) hist.pop();
+      ui.setStatus('ย้อนกลับไปหนึ่งก้าว');
+      render();
+    });
+    ui.onClick('data-hm-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initHermesGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-hmsim]');
+  });
+</script>

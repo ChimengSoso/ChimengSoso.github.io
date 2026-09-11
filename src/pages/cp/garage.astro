@@ -1,0 +1,910 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'garage/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** หนึ่งวันของโรงจอดรถ อาเรย์เริ่มที่ 0 แต่ช่อง s ของโจทย์คือ rate[s-1] และรถคัน k คือ w[k-1] */
+type Inst = { n: number; rate: number[]; w: number[]; ev: number[] };
+
+/** หนึ่งการกระทำของคนเฝ้าโรงจอด arr = รถมาถึง, dep = รถออก, seat = เรียกหัวคิวเข้าช่องที่เพิ่งว่าง
+ *  need คือคำตอบที่ถูก: เลขช่องที่ต้องให้จอด, 0 = ให้รอที่ทางเข้า, -1 = ปล่อยรถออกเฉย ๆ */
+type Action = { kind: 'arr' | 'dep' | 'seat'; car: number; need: number; who: number[]; q: number[]; fee: number; income: number };
+
+/** หนึ่งแถวต่อหนึ่งเหตุการณ์ในอินพุต ใช้กับตัวเดินทีละขั้นและแผนภาพ */
+type Row = { x: number; who: number[]; q: number[]; fee: number; run: number; seatCar: number; seatSpot: number };
+
+/** ท่าที่หน้านี้สอน: คิวหนึ่งอัน ตอนรถออกและมีคนรอ ให้หัวคิวเข้าช่องที่เพิ่งว่างทันที */
+function simulate(inst: Inst): { income: number; actions: Action[]; rows: Row[] } {
+  const who = new Array<number>(inst.n).fill(0);
+  const at = new Array<number>(inst.w.length + 1).fill(-1);
+  const q: number[] = [];
+  const actions: Action[] = [];
+  const rows: Row[] = [];
+  let income = 0;
+  const snap = (kind: Action['kind'], car: number, need: number, fee: number): void => {
+    actions.push({ kind, car, need, who: [...who], q: [...q], fee, income });
+  };
+  for (const x of inst.ev) {
+    let fee = 0;
+    let seatCar = 0;
+    let seatSpot = 0;
+    if (x > 0) {
+      const s = who.indexOf(0);
+      if (s >= 0) {
+        who[s] = x;
+        at[x] = s;
+        fee = inst.w[x - 1] * inst.rate[s];
+        income += fee;
+        seatCar = x;
+        seatSpot = s + 1;
+        snap('arr', x, s + 1, fee);
+      } else {
+        q.push(x);
+        snap('arr', x, 0, 0);
+      }
+    } else {
+      const s = at[-x];
+      who[s] = 0;
+      if (q.length > 0) {
+        /* ข้ออ้างของหน้านี้: มีคนรออยู่แปลว่าเมื่อกี้เต็มทุกช่อง ช่องที่เพิ่งว่างจึงเป็นช่องว่างช่องเดียว */
+        if (who.filter((c) => c === 0).length !== 1) throw new Error('garage: มีคนรอแต่ช่องว่างไม่ใช่ช่องเดียว');
+        snap('dep', -x, -1, 0);
+        const c = q.shift() as number;
+        who[s] = c;
+        at[c] = s;
+        fee = inst.w[c - 1] * inst.rate[s];
+        income += fee;
+        seatCar = c;
+        seatSpot = s + 1;
+        snap('seat', c, s + 1, fee);
+      } else {
+        snap('dep', -x, -1, 0);
+      }
+    }
+    rows.push({ x, who: [...who], q: [...q], fee, run: income, seatCar, seatSpot });
+  }
+  return { income, actions, rows };
+}
+
+/** ตัวตรวจ ไม่มีคิวและไม่เชื่อข้ออ้างเรื่องช่องที่เพิ่งว่าง
+ *  หลังทุกเหตุการณ์ ไล่จับคู่ซ้ำจนนิ่ง รถที่รออยู่และมาถึงเร็วสุดได้ช่องว่างเลขน้อยสุด */
+function bruteIncome(inst: Inst): number {
+  const m = inst.w.length;
+  const state = new Array<number>(m + 1).fill(-1);
+  const came = new Array<number>(m + 1).fill(0);
+  let income = 0;
+  inst.ev.forEach((x, e) => {
+    if (x > 0) {
+      state[x] = 0;
+      came[x] = e;
+    } else state[-x] = -2;
+    for (;;) {
+      let best = -1;
+      for (let k = 1; k <= m; k++) if (state[k] === 0 && (best < 0 || came[k] < came[best])) best = k;
+      let freeS = -1;
+      for (let s = 1; s <= inst.n && freeS < 0; s++) if (!state.includes(s)) freeS = s;
+      if (best < 0 || freeS < 0) break;
+      state[best] = freeS;
+      income += inst.w[best - 1] * inst.rate[freeS - 1];
+    }
+  });
+  return income;
+}
+
+/* ด่านตรวจตอนบิลด์ สุ่มวันทำงานเล็ก ๆ ถ้าท่าคิวไม่ตรงกับตัวตรวจ หน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 500;
+let sweepWaits = 0;
+{
+  let seed = 20352009;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 1 + rnd(4);
+    const m = 1 + rnd(8);
+    const rate = Array.from({ length: n }, () => 1 + rnd(t % 2 ? 3 : 100));
+    const w = Array.from({ length: m }, () => 1 + rnd(t % 2 ? 5 : 10000));
+    const ev: number[] = [];
+    const parked: number[] = [];
+    const waiting: number[] = [];
+    let next = 1;
+    let waited = false;
+    while (ev.length < 2 * m) {
+      if (next <= m && (parked.length === 0 || rnd(10) < 6)) {
+        ev.push(next);
+        if (parked.length < n) parked.push(next);
+        else {
+          waiting.push(next);
+          waited = true;
+        }
+        next++;
+      } else {
+        const c = parked.splice(rnd(parked.length), 1)[0];
+        ev.push(-c);
+        const h = waiting.shift();
+        if (h !== undefined) parked.push(h);
+      }
+    }
+    if (waited) sweepWaits++;
+    const inst: Inst = { n, rate, w, ev };
+    if (simulate(inst).income !== bruteIncome(inst))
+      throw new Error(`garage: ท่าคิวไม่ตรงกับตัวตรวจที่ ${JSON.stringify(inst)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ กับตัวอย่างที่มีคิวซึ่งผมแต่งเพิ่ม ---------- */
+const SAMPLE: Inst = { n: 3, rate: [2, 3, 5], w: [200, 100, 300, 800], ev: [3, 2, -3, 1, 4, -4, -2, -1] };
+const QUEUE: Inst = { n: 2, rate: [5, 2], w: [100, 500, 1000, 2000], ev: [3, 1, 2, 4, -1, -3, -2, -4] };
+const SAMPLE_RUN = simulate(SAMPLE);
+const QUEUE_RUN = simulate(QUEUE);
+if (SAMPLE_RUN.income !== 5300) throw new Error('garage: ตัวอย่างในโจทย์ต้องได้ 5300');
+if (QUEUE_RUN.income !== bruteIncome(QUEUE)) throw new Error('garage: ตัวอย่างที่มีคิวไม่ตรงกับตัวตรวจ');
+
+const fmt = (v: number): string => v.toLocaleString('en-US');
+const evLabel = (x: number): string => (x > 0 ? `คัน ${x} มา` : `คัน ${-x} ออก`);
+const sampleFees = SAMPLE_RUN.rows.filter((r) => r.seatCar > 0);
+const queueWaiters = QUEUE.ev.filter((x, i) => x > 0 && QUEUE_RUN.rows[i].seatCar !== x);
+const queueFees = QUEUE_RUN.rows.filter((r) => r.seatCar > 0);
+
+const QUEUE_CAR4 = QUEUE_RUN.rows.find((r) => r.seatCar === 4);
+if (!QUEUE_CAR4 || QUEUE_CAR4.seatSpot !== 1) throw new Error('garage: รูปบอกว่าคัน 4 ได้ช่อง 1');
+if (QUEUE_RUN.rows.find((r) => r.seatCar === 2)?.seatSpot !== 2) throw new Error('garage: รูปบอกว่าคัน 2 ได้ช่อง 2');
+/* ถ้าสลับให้คัน 3 ออกก่อนคัน 1 ตัวเลขทั้งวันจะเปลี่ยน */
+const QUEUE_SWAP: Inst = { ...QUEUE, ev: [3, 1, 2, 4, -3, -1, -2, -4] };
+const QUEUE_SWAP_RUN = simulate(QUEUE_SWAP);
+const SWAP_CAR4 = QUEUE_SWAP_RUN.rows.find((r) => r.seatCar === 4);
+if (!SWAP_CAR4 || QUEUE_SWAP_RUN.income !== bruteIncome(QUEUE_SWAP)) throw new Error('garage: ตัวอย่างสลับลำดับผิด');
+
+/* ---------- ตัวเดินทีละขั้น บนตัวอย่างที่มีคิว ---------- */
+const qSteps = QUEUE_RUN.rows.map((r) => {
+  const x = r.x;
+  let note: string;
+  if (x > 0 && r.seatCar === x)
+    note = `รถคัน <b>${x}</b> หนัก <b>${fmt(QUEUE.w[x - 1])}</b> กิโลกรัมมาถึง ช่องว่างเลขน้อยสุดคือช่อง <b>${r.seatSpot}</b> ราคา ${QUEUE.rate[r.seatSpot - 1]} ต่อกิโลกรัม ค่าจอดจึงเป็น <b>${fmt(r.fee)}</b> รวมเป็น <b>${fmt(r.run)}</b>`;
+  else if (x > 0)
+    note = `รถคัน <b>${x}</b> มาถึงแต่ทั้ง ${QUEUE.n} ช่องมีรถจอดเต็ม จึงต่อท้ายคิว ตอนนี้คิวคือ <b>${r.q.join(', ')}</b> ยังไม่ได้เงินเพิ่ม`;
+  else if (r.seatCar > 0)
+    note = `รถคัน <b>${-x}</b> ออก ช่อง <b>${r.seatSpot}</b> ว่างขึ้นมาเป็นช่องว่างช่องเดียว หัวคิวคือคัน <b>${r.seatCar}</b> เข้าจอดทันที ค่าจอด ${fmt(QUEUE.w[r.seatCar - 1])} คูณ ${QUEUE.rate[r.seatSpot - 1]} เท่ากับ <b>${fmt(r.fee)}</b> รวมเป็น <b>${fmt(r.run)}</b>`;
+  else note = `รถคัน <b>${-x}</b> ออก ไม่มีใครรออยู่ ช่องนั้นจึงว่างทิ้งไว้ ยอดรวมยังเป็น <b>${fmt(r.run)}</b> เพราะเงินเก็บตอนเข้าจอด ไม่ใช่ตอนออก`;
+  return { note };
+});
+
+/* ---------- แผนภาพเส้นเวลา ช่องละหนึ่งแถว ---------- */
+type Bar = { row: number; x1: number; x2: number; top: string; bottom: string; wait: boolean };
+type Gantt = { w: number; h: number; rows: string[]; bars: Bar[]; heads: { x: number; text: string }[]; grid: number[]; rowY: number[] };
+const G_X0 = 118;
+const G_COL = 78;
+const G_TOP = 40;
+const G_PITCH = 50;
+const G_BAR = 38;
+function gantt(inst: Inst): Gantt {
+  const run = simulate(inst);
+  const T = inst.ev.length;
+  const mid = (e: number): number => G_X0 + e * G_COL + G_COL / 2;
+  const seatAt = new Map<number, { e: number; spot: number; fee: number }>();
+  run.rows.forEach((r, e) => {
+    if (r.seatCar > 0) seatAt.set(r.seatCar, { e, spot: r.seatSpot, fee: r.fee });
+  });
+  const hasWait = run.rows.some((r) => r.q.length > 0);
+  const rows = inst.rate.map((r, s) => `ช่อง ${s + 1} · ราคา ${r}`);
+  if (hasWait) rows.push('คิวหน้าทางเข้า');
+  const bars: Bar[] = [];
+  inst.ev.forEach((x, e) => {
+    if (x > 0) {
+      const st = seatAt.get(x);
+      if (!st) throw new Error('garage: มีรถที่ไม่เคยได้จอด');
+      if (st.e > e) bars.push({ row: inst.n, x1: mid(e) + 2, x2: mid(st.e) - 2, top: `คัน ${x}`, bottom: 'รอ', wait: true });
+    } else {
+      const st = seatAt.get(-x);
+      if (!st) throw new Error('garage: มีรถที่ไม่เคยได้จอด');
+      bars.push({ row: st.spot - 1, x1: mid(st.e) + 2, x2: mid(e) - 2, top: `คัน ${-x}`, bottom: fmt(st.fee), wait: false });
+    }
+  });
+  const rowY = rows.map((_, i) => G_TOP + i * G_PITCH);
+  const right = G_X0 + T * G_COL;
+  const bottom = rowY[rowY.length - 1] + G_BAR;
+  return {
+    w: right + 12,
+    h: bottom + 34,
+    rows,
+    bars,
+    heads: inst.ev.map((x, e) => ({ x: mid(e), text: evLabel(x) })),
+    grid: Array.from({ length: T + 1 }, (_, e) => G_X0 + e * G_COL),
+    rowY,
+  };
+}
+const G_SAMPLE = gantt(SAMPLE);
+const G_QUEUE = gantt(QUEUE);
+
+/* ---------- มินิเกม เป็นคนเฝ้าโรงจอดเอง ---------- */
+type GamePuzzle = { id: string; label: string; tease: string; n: number; rate: number[]; w: number[]; ev: number[]; actions: Action[]; answer: number };
+function makePuzzle(id: string, label: string, tease: string, inst: Inst): GamePuzzle {
+  const run = simulate(inst);
+  const answer = bruteIncome(inst);
+  if (run.income !== answer) throw new Error(`garage: เฉลยเกม ${id} สองท่าไม่ตรงกัน`);
+  return { id, label, tease, ...inst, actions: run.actions, answer };
+}
+const PUZZLE_C: Inst = { n: 3, rate: [4, 1, 6], w: [300, 900, 200, 700, 500], ev: [1, 2, 3, 4, 5, -2, -1, -3, -5, -4] };
+const puzzles: GamePuzzle[] = [
+  makePuzzle('a', 'ตัวอย่างในโจทย์', `วันนี้ไม่มีใครต้องรอเลย ลองจัดให้ถูกทุกคันก่อน แล้วดูว่ารายได้ออกมา ${fmt(SAMPLE_RUN.income)} ไหม`, SAMPLE),
+  makePuzzle('b', 'วันที่รถล้น', 'สองช่อง สี่คัน รถสองคันหลังต้องรอหน้าทางเข้า ลองดูว่าพอมีรถออก คุณจะเรียกใครเข้าช่องไหน', QUEUE),
+  makePuzzle('c', 'ราคาไม่เรียง', 'ช่องราคาถูกอยู่ตรงกลาง รถหนักที่รอคิวอาจได้ช่องที่ไม่อยากให้ได้ กติกาไม่สนว่าใครหนัก', PUZZLE_C),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- ขอบเขตกับบิลค่าใช้จ่าย ---------- */
+const N_MAX = 100;
+const M_MAX = 2000;
+const R_MAX = 100;
+const W_MAX = 10000;
+const INCOME_MAX = M_MAX * R_MAX * W_MAX;
+const INT_MAX = 2147483647;
+const bill = [
+  { name: 'ตัวตรวจ ไล่จับคู่ซ้ำหลังทุกเหตุการณ์', work: `ไม่เกินราว ${fmt(2 * M_MAX * N_MAX * M_MAX)} ครั้ง`, time: '0.24 วินาที' },
+  { name: 'คิวหนึ่งอัน สแกนหาช่องว่างตอนรถมาถึง', work: `ไม่เกิน ${fmt(M_MAX * N_MAX)} ครั้ง`, time: '0.007 วินาที' },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, m; scanf("%d %d", &n, &m);
+    vector<long long> rate(n + 1), w(m + 1);
+    for(int s = 1; s <= n; s++) scanf("%lld", &rate[s]);
+    for(int k = 1; k <= m; k++) scanf("%lld", &w[k]);
+    vector<int> who(n + 1, 0);      // who[s] = รถที่จอดช่อง s อยู่ (0 = ว่าง)
+    vector<int> at(m + 1, 0);       // at[k] = ช่องที่รถคัน k จอด
+    queue<int> wait;                // รถที่รอหน้าทางเข้า เรียงตามลำดับที่มาถึง
+    long long income = 0;
+    auto park = [&](int car, int s){ who[s] = car; at[car] = s; income += w[car] * rate[s]; };
+    for(int e = 0; e < 2 * m; e++){
+        int x; scanf("%d", &x);
+        if(x > 0){
+            int s = 1; while(s <= n && who[s] != 0) s++;   // ช่องว่างเลขน้อยสุด
+            if(s <= n) park(x, s);
+            else wait.push(x);                             // เต็ม ต่อท้ายคิว
+        } else {
+            int s = at[-x]; who[s] = 0;
+            // มีคนรอแปลว่าก่อนหน้านี้เต็มทุกช่อง ช่องที่เพิ่งว่างจึงเป็นช่องว่างช่องเดียว
+            if(!wait.empty()){ park(wait.front(), s); wait.pop(); }
+        }
+    }
+    printf("%lld\\n", income);
+}`;
+
+const subCode = `// ชุดทดสอบ 40 คะแนน: รับประกันว่าไม่มีรถคันไหนต้องรอ จึงไม่ต้องมีคิวเลย
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, m; scanf("%d %d", &n, &m);
+    vector<long long> rate(n + 1), w(m + 1);
+    for(int s = 1; s <= n; s++) scanf("%lld", &rate[s]);
+    for(int k = 1; k <= m; k++) scanf("%lld", &w[k]);
+    vector<int> who(n + 1, 0), at(m + 1, 0);
+    long long income = 0;
+    for(int e = 0; e < 2 * m; e++){
+        int x; scanf("%d", &x);
+        if(x > 0){
+            int s = 1; while(who[s] != 0) s++;   // ชุดนี้รับประกันว่าเจอช่องว่างก่อนเลย n เสมอ
+            who[s] = x; at[x] = s; income += w[x] * rate[s];
+        } else who[at[-x]] = 0;
+    }
+    printf("%lld\\n", income);
+}`;
+
+const bruteCode = `// ตัวตรวจ ไม่มีคิว และไม่ใช้ข้อสังเกตเรื่องช่องที่เพิ่งว่าง
+// เก็บสถานะของรถทุกคันไว้เป็นตัวเลข แล้วหลังทุกเหตุการณ์ ไล่จับคู่ซ้ำจนนิ่ง
+// คือรถที่รออยู่และมาถึงเร็วที่สุด ได้ช่องว่างที่เลขน้อยที่สุด
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, m; scanf("%d %d", &n, &m);
+    vector<long long> rate(n + 1), w(m + 1);
+    for(int s = 1; s <= n; s++) scanf("%lld", &rate[s]);
+    for(int k = 1; k <= m; k++) scanf("%lld", &w[k]);
+    vector<int> state(m + 1, -1);   // -1 ยังไม่มา, 0 รออยู่, s > 0 จอดช่อง s, -2 ออกไปแล้ว
+    vector<int> came(m + 1, 0);     // ลำดับเหตุการณ์ที่รถคันนั้นมาถึง
+    long long income = 0;
+    for(int e = 0; e < 2 * m; e++){
+        int x; scanf("%d", &x);
+        if(x > 0){ state[x] = 0; came[x] = e; }
+        else state[-x] = -2;
+        while(true){
+            int best = -1;
+            for(int k = 1; k <= m; k++)
+                if(state[k] == 0 && (best < 0 || came[k] < came[best])) best = k;
+            int freeS = -1;
+            for(int s = 1; s <= n && freeS < 0; s++){
+                bool used = false;
+                for(int k = 1; k <= m; k++) if(state[k] == s) used = true;
+                if(!used) freeS = s;
+            }
+            if(best < 0 || freeS < 0) break;
+            state[best] = freeS; income += w[best] * rate[freeS];
+        }
+    }
+    printf("%lld\\n", income);
+}`;
+
+const coreSnippet = `// รถออก: ปล่อยช่องคืน แล้วถ้ามีคนรอ ให้หัวคิวเข้าช่องนี้เลย ไม่ต้องสแกนหา
+int s = at[-x]; who[s] = 0;
+if(!wait.empty()){ park(wait.front(), s); wait.pop(); }`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; เก็บค่าจอดรถทั้งวัน</h2>
+  <p>
+    โรงจอดรถแห่งหนึ่งมีที่จอด <code>N</code> ช่อง เลขที่ 1 ถึง <code>N</code> ทุกเช้าเปิดมาว่างเปล่า
+    แต่ละช่องมีอัตราค่าบริการของตัวเองเป็นดอลลาร์ต่อกิโลกรัม ค่าจอดของรถหนึ่งคันคือ
+    <strong>น้ำหนักรถคูณราคาของช่องที่มันได้จอด</strong> จอดนานแค่ไหนก็จ่ายเท่าเดิม
+  </p>
+  <p>
+    กติกาของคนเฝ้าโรงจอดมีสองข้อ รถที่มาถึงตอนมีช่องว่าง ให้จอดช่องว่างที่เลขน้อยที่สุด
+    ถ้าเต็มทุกช่อง ให้รอที่ทางเข้า และรถที่รอหลายคันจะต่อคิวตามลำดับที่มาถึง
+    พอมีช่องว่าง รถหัวคิวได้เข้าก่อน วันนี้เจ้าของรู้ล่วงหน้าว่ามีรถ <code>M</code> คัน
+    และรู้ลำดับการมาถึงกับการออกทั้งหมด งานของเราคือบอกว่าวันนี้เขาได้เงินรวมเท่าไร
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> กับ <code>M</code>
+        ต่อด้วย <code>N</code> บรรทัด บรรทัดที่ <code>s</code> คือราคาของช่อง <code>s</code>
+        ต่อด้วย <code>M</code> บรรทัด บรรทัดที่ <code>k</code> คือน้ำหนักของรถคัน <code>k</code>
+        แล้วปิดด้วย <code>2M</code> บรรทัดเรียงตามเวลา เลขบวก <code>i</code> คือรถคัน <code>i</code> มาถึง
+        เลขลบ <code>-i</code> คือรถคัน <code>i</code> ออก
+      </li>
+      <li>
+        <strong>รับประกัน:</strong> รถทุกคันโผล่สองครั้งพอดี มาก่อนแล้วค่อยออก
+        และไม่มีคันไหนออกไปทั้งที่ยังรอคิวอยู่
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {N_MAX}</code>, <code>1 &le; M &le; {fmt(M_MAX)}</code>,
+        ราคาแต่ละช่อง 1 ถึง {R_MAX} และน้ำหนักรถ 1 ถึง {fmt(W_MAX)} กิโลกรัม
+        เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li><strong>เอาต์พุต:</strong> รายได้รวมทั้งวันเป็นดอลลาร์ หนึ่งจำนวน</li>
+      <li>
+        <strong>ให้คะแนน:</strong> ชุดทดสอบมูลค่า 40 คะแนนรับประกันว่ารถทุกคันที่มาถึงมีช่องว่างรออยู่
+        คือไม่มีใครต้องรอเลย
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {SAMPLE.n} {SAMPLE.w.length}<br />
+          {SAMPLE.rate.map((v) => <>{v}<br /></>)}
+          {SAMPLE.w.map((v) => <>{v}<br /></>)}
+          {SAMPLE.ev.map((v) => <>{v}<br /></>)}
+        </td>
+        <td>{SAMPLE_RUN.income}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกบอกว่ามี {SAMPLE.n} ช่อง รถ {SAMPLE.w.length} คัน อีก {SAMPLE.n} บรรทัดถัดมาคือราคาช่อง 1 ถึง {SAMPLE.n}
+      ({SAMPLE.rate.join(', ')}) อีก {SAMPLE.w.length} บรรทัดคือน้ำหนักรถคัน 1 ถึง {SAMPLE.w.length}
+      ({SAMPLE.w.join(', ')}) ที่เหลือ {SAMPLE.ev.length} บรรทัดคือเหตุการณ์ตามเวลา
+      ระวังว่าเลขในส่วนนี้คือ<strong>เลขประจำรถ</strong> ไม่ใช่เลขช่อง บรรทัดแรกของส่วนนี้เป็น {SAMPLE.ev[0]}
+      จึงแปลว่ารถคัน {SAMPLE.ev[0]} มาถึงเป็นคันแรก ไม่ใช่รถคันแรกไปจอดช่อง {SAMPLE.ev[0]}
+    </p>
+    <p>
+      คำตอบมีหน่วยเป็นดอลลาร์ และนับเฉพาะตอนรถได้จอด
+      ในตัวอย่างนี้ได้จอด {sampleFees.length} ครั้ง คือ {sampleFees.map((r) => `คัน ${r.seatCar} ช่อง ${r.seatSpot} ได้ ${fmt(SAMPLE.w[r.seatCar - 1])} คูณ ${SAMPLE.rate[r.seatSpot - 1]} เท่ากับ ${fmt(r.fee)}`).join(' ')}
+      รวมเป็น {fmt(SAMPLE_RUN.income)} สังเกตว่ารถคัน 1 ได้ช่อง 1 ซึ่งถูกที่สุด เพราะคัน 3 เพิ่งออกไปพอดี
+      และไม่มีรถคันไหนต้องรอเลย ตัวอย่างนี้จึงอยู่ในชุด 40 คะแนน
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`เส้นเวลาของตัวอย่างในโจทย์ ช่องละหนึ่งแถว แถบหนึ่งแถบคือรถหนึ่งคันตั้งแต่ได้จอดจนออก ตัวเลขใต้ชื่อรถคือค่าจอดของมัน ช่อง 1 ถูกใช้สองรอบ เพราะคัน 3 ออกก่อนคัน 1 มาถึง รวมทุกแถบได้ ${fmt(SAMPLE_RUN.income)}`}>
+    <svg viewBox={`0 0 ${G_SAMPLE.w} ${G_SAMPLE.h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเส้นเวลาของโรงจอดสามช่อง แต่ละแถวเป็นหนึ่งช่อง แถบสีคือรถที่จอดอยู่ในช่วงเวลานั้น พร้อมค่าจอดของแต่ละคัน">
+      {G_SAMPLE.grid.map((gx) => (
+        <line x1={gx} y1={G_TOP - 8} x2={gx} y2={G_SAMPLE.h - 30} stroke="#1e2a40" stroke-width="1" />
+      ))}
+      {G_SAMPLE.heads.map((hd) => (
+        <text x={hd.x} y="22" fill="#9aa7bd" font-size="12" text-anchor="middle">{hd.text}</text>
+      ))}
+      {G_SAMPLE.rows.map((r, i) => (
+        <text x="8" y={G_SAMPLE.rowY[i] + 24} fill="#cdd6ea" font-size="13">{r}</text>
+      ))}
+      {G_SAMPLE.bars.map((b) => (
+        <>
+          <rect x={b.x1} y={G_SAMPLE.rowY[b.row]} width={b.x2 - b.x1} height={G_BAR} rx="6" fill="#163a2a" stroke="#2f9e5c" />
+          <text x={(b.x1 + b.x2) / 2} y={G_SAMPLE.rowY[b.row] + 16} fill="#eaf2ff" font-size="12" text-anchor="middle">{b.top}</text>
+          <text x={(b.x1 + b.x2) / 2} y={G_SAMPLE.rowY[b.row] + 31} fill="#a7f3c4" font-size="12" text-anchor="middle" font-family="monospace">{b.bottom}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ขอบเขตเล็กมาก ช่องไม่เกิน {N_MAX} รถไม่เกิน {fmt(M_MAX)} คัน ข้อนี้จึงไม่ได้วัดความเร็ว
+      มันวัดว่าเราจำลองกติกาครบทุกกรณีไหม ส่วนที่ตัวอย่างในโจทย์ไม่ได้โชว์ให้ดูเลยคือ<strong>วันที่รถล้น</strong>
+    </p>
+    <p>
+      ลองนึกภาพตอนที่มีรถรออยู่หน้าทางเข้า แล้วรถคันหนึ่งขับออก ตอนนั้นโรงจอดมีช่องว่างกี่ช่อง
+      และคุณต้องค้นหาช่องให้หัวคิวจริงหรือเปล่า
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; เป็นคนเฝ้าโรงจอดหนึ่งวัน</h2>
+  <div class="cpgame grgame" data-grgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกวันทำงาน">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+    <p class="gr-event" data-gr-event>&nbsp;</p>
+
+    <div class="cpg-scroll">
+      <div class="gr-lot" data-gr-lot></div>
+      <p class="gr-queue" data-gr-queue>&nbsp;</p>
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-gr-wait>ให้รอที่ทางเข้า</button>
+      <button type="button" class="cpg-btn main" data-gr-release>ปล่อยรถออก</button>
+      <button type="button" class="cpg-btn" data-gr-reset>เริ่มวันนี้ใหม่</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดช่องที่รถคันนี้ควรได้จอด หรือกดปุ่มด้านล่างถ้ามันต้องรอหรือกำลังจะออก</p>
+    <p class="cpg-score" data-cpg-score>รายได้ 0 ดอลลาร์</p>
+    <p class="cpg-hint">เงินเก็บตอนรถได้จอด คือน้ำหนักคูณราคาของช่องนั้น ไม่ได้เก็บตอนรถออก</p>
+  </div>
+  <p class="ns-cue">
+    ลองให้ครบทั้งสามวันก่อนนะครับ โดยเฉพาะวันที่รถล้น ช่วงที่มีรถออกตอนคิวยังไม่ว่าง คือช่วงที่เฉลยข้างล่างพูดถึง
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ตอนมีคนรอ ช่องที่เพิ่งว่างคือช่องว่างช่องเดียว</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้เป็นการจำลองล้วน ๆ ขอบเขตก็เล็ก ผมจึงไม่ได้ลองท่าอื่นแล้วทิ้ง สิ่งเดียวที่ทำให้ผมหยุดคิดคือ
+        กติกาสองข้อดูเหมือนจะชนกันได้ ข้อหนึ่งบอกให้จอดช่องเลขน้อยสุด อีกข้อบอกให้หัวคิวเข้าก่อน
+        ถ้าตอนรถออกมีช่องว่างพร้อมกันหลายช่อง หัวคิวควรได้ช่องไหน และต้องสแกนหาใหม่ไหม
+      </p>
+      <p>
+        คำตอบมาจากการถามย้อนว่า<strong>ทำไมถึงมีคนรอได้</strong> รถจะต่อคิวก็ต่อเมื่อตอนมันมาถึงไม่มีช่องว่างเลย
+        และตราบใดที่คิวยังไม่หมด ช่องไหนว่างขึ้นมาก็ถูกหัวคิวเอาไปทันที ช่องว่างจึงไม่มีทางสะสมได้ระหว่างที่มีคนรอ
+        ตอนรถคันหนึ่งออกในวันที่มีคิว โรงจอดจึงมีช่องว่างอยู่ช่องเดียว คือช่องที่รถคันนั้นเพิ่งปล่อยคืน
+        กติกาสองข้อไม่มีวันชนกัน
+      </p>
+      <p>
+        ผมไม่อยากให้โค้ดยืนอยู่บนเหตุผลที่เขียนในหัวอย่างเดียว ตัวตรวจที่ใช้เทียบจึงจงใจไม่เชื่อข้อนี้
+        มันไล่หาช่องว่างเลขน้อยสุดกับรถที่รอนานสุดใหม่ทุกครั้ง และหน้านี้ก็เช็กตอนบิลด์ด้วยว่า
+        ทุกครั้งที่หัวคิวได้เข้า ช่องว่างในโรงมีหนึ่งช่องพอดี ข้อสังเกตที่เอาไปใช้กับข้ออื่นได้คือ
+        เวลากติกาสองข้อดูจะขัดกัน ให้ถามว่าสถานะแบบไหนที่ทำให้ทั้งสองข้อต้องทำงานพร้อมกัน บ่อยครั้งมันเกิดไม่ได้เลย
+      </p>
+    </div>
+    <p>
+      ผลคือตอนรถออก เราไม่ต้องหาอะไรเลย ปล่อยช่องคืน แล้วถ้ามีคิว ให้หัวคิวเข้าช่องเดิมนั้น
+      งานค้นหาเหลือแค่ตอนรถมาถึง ซึ่งสแกนช่อง 1 ถึง <code>N</code> หาช่องแรกที่ว่าง
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ของที่ต้องจำระหว่างทางมีสามอย่าง คือช่องแต่ละช่องมีรถคันไหนจอดอยู่ รถแต่ละคันจอดช่องไหน
+      (ไว้ใช้ตอนเห็นเลข <code>-i</code> ซึ่งบอกแค่เลขรถ ไม่ได้บอกเลขช่อง) และคิวของรถที่รอ
+      คิวต้องเป็นแบบ<strong>มาก่อนได้ก่อน</strong> เพราะโจทย์บอกให้หัวคิวคือคันที่มาถึงก่อนที่สุด
+    </p>
+    <ZoomableDiagram caption={`เส้นเวลาของวันที่รถล้น สองช่อง สี่คัน คัน ${queueWaiters.join(' กับ ')} มาถึงตอนเต็มจึงรอ (แถบเส้นประ) พอคัน 1 ออก ช่อง 2 เป็นช่องว่างช่องเดียว หัวคิวคือคัน 2 จึงได้ช่อง 2 พอคัน 3 ออก คัน 4 ได้ช่อง 1 ที่แพงที่สุดไปด้วยค่าจอด ${fmt(QUEUE_CAR4.fee)} รวมทั้งวัน ${fmt(QUEUE_RUN.income)}`}>
+      <svg viewBox={`0 0 ${G_QUEUE.w} ${G_QUEUE.h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเส้นเวลาของโรงจอดสองช่องกับแถวคิวหน้าทางเข้า รถสองคันรอในคิวแล้วได้เข้าช่องที่เพิ่งว่างทีละคัน">
+        {G_QUEUE.grid.map((gx) => (
+          <line x1={gx} y1={G_TOP - 8} x2={gx} y2={G_QUEUE.h - 30} stroke="#1e2a40" stroke-width="1" />
+        ))}
+        {G_QUEUE.heads.map((hd) => (
+          <text x={hd.x} y="22" fill="#9aa7bd" font-size="12" text-anchor="middle">{hd.text}</text>
+        ))}
+        {G_QUEUE.rows.map((r, i) => (
+          <text x="8" y={G_QUEUE.rowY[i] + 24} fill="#cdd6ea" font-size="13">{r}</text>
+        ))}
+        {G_QUEUE.bars.map((b) => (
+          <>
+            <rect
+              x={b.x1}
+              y={G_QUEUE.rowY[b.row]}
+              width={b.x2 - b.x1}
+              height={G_BAR}
+              rx="6"
+              fill={b.wait ? '#2a1a1a' : '#163a2a'}
+              stroke={b.wait ? '#b23b3b' : '#2f9e5c'}
+              stroke-dasharray={b.wait ? '5 4' : undefined}
+            />
+            <text x={(b.x1 + b.x2) / 2} y={G_QUEUE.rowY[b.row] + 16} fill="#eaf2ff" font-size="12" text-anchor="middle">{b.top}</text>
+            <text x={(b.x1 + b.x2) / 2} y={G_QUEUE.rowY[b.row] + 31} fill={b.wait ? '#e8a3a3' : '#a7f3c4'} font-size="12" text-anchor="middle" font-family="monospace">{b.bottom}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      รูปนี้โชว์อีกอย่างที่คนมักพลาดตอนอ่านโจทย์ คือค่าจอดของคันที่รอคิวคิดจาก<strong>ช่องที่มันได้จริง</strong>
+      คัน 4 ได้ช่อง 1 ที่แพงที่สุดเพราะจังหวะล้วน ๆ รถที่ออกเป็นคันที่สองของวันคือคัน 3 ซึ่งจอดช่อง 1 อยู่พอดี
+      ถ้าสลับให้คัน 3 ออกก่อนคัน 1 หัวคิวคือคัน 2 จะได้ช่อง 1 ไปแทน คัน 4 เหลือช่อง {SWAP_CAR4.seatSpot}
+      ค่าจอดของมันจะเหลือ {fmt(SWAP_CAR4.fee)} และรายได้ทั้งวันจะเหลือ {fmt(QUEUE_SWAP_RUN.income)}
+    </p>
+  </Spoiler>
+
+  <h2>เดินวันที่รถล้นให้ดูทีละเหตุการณ์</h2>
+  <Spoiler>
+    <CpStepPlayer hook="grsim" steps={qSteps} label={`${QUEUE.n} ช่อง ราคา ${QUEUE.rate.join(" และ ")} รถ ${QUEUE.w.length} คัน หนัก ${QUEUE.w.map(fmt).join(", ")} กิโลกรัม`}>
+      <table class="rec grrec">
+        <caption>สถานะหลังแต่ละเหตุการณ์</caption>
+        <thead>
+          <tr>
+            <th>เหตุการณ์</th>
+            {QUEUE.rate.map((_, s) => <th class="num">ช่อง {s + 1}</th>)}
+            <th class="num">คิว</th><th class="num">ได้เพิ่ม</th><th class="num">รวม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {QUEUE_RUN.rows.map((r) => (
+            <tr>
+              <td>{evLabel(r.x)}</td>
+              {r.who.map((c) => <td class="num">{c > 0 ? `คัน ${c}` : 'ว่าง'}</td>)}
+              <td class="num">{r.q.length > 0 ? r.q.join(', ') : '·'}</td>
+              <td class="num">{r.fee > 0 ? fmt(r.fee) : '·'}</td>
+              <td class="num">{fmt(r.run)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ยอดสุดท้าย {fmt(QUEUE_RUN.income)} ตรงกับตัวตรวจที่ไล่จับคู่ใหม่หลังทุกเหตุการณ์
+      และทั้ง {queueFees.length} ครั้งที่มีรถได้จอด ไม่มีครั้งไหนที่ต้องเลือกระหว่างช่องว่างหลายช่องพร้อมกับมีคนรอ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม (ได้ 100 คะแนน)</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="garage.cpp" />
+        <p>
+          รายได้สูงสุดที่เป็นไปได้คือ {fmt(M_MAX)} คัน คูณราคา {R_MAX} คูณน้ำหนัก {fmt(W_MAX)}
+          ได้ {fmt(INCOME_MAX)} ซึ่ง{INCOME_MAX > INT_MAX ? 'เกิน' : 'ยังไม่เกิน'}เพดานของ <code>int</code> ที่ {fmt(INT_MAX)}
+          แต่เหลือที่ว่างอยู่นิดเดียว ผมจึงใช้ <code>long long</code> ไว้ก่อน ไม่ต้องมานั่งพิสูจน์ว่ารอด
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดชุด 40 คะแนน (ไม่มีรถรอ)</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="garage_40.cpp" />
+        <p>
+          พอรับประกันว่าไม่มีใครต้องรอ โจทย์เหลือแค่สองบรรทัด รถมาถึงก็หาช่องแรกที่ว่าง รถออกก็ปล่อยช่องคืน
+          ตัวอย่างในโจทย์อยู่ในชุดนี้พอดี โค้ดนี้จึงตอบ {fmt(SAMPLE_RUN.income)} ได้ถูก
+          แต่ถ้าเจอวันที่รถล้น ลูปหาช่องว่างจะวิ่งเลยช่อง <code>N</code> ออกไปนอกอาเรย์
+          โค้ดนี้จึงได้แค่ชุด 40 คะแนนเท่านั้น
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_garage.cpp" />
+        <p>
+          ตัวตรวจไม่มีคิวและไม่เชื่อว่าช่องที่เพิ่งว่างเป็นช่องเดียว มันจับคู่ตามกติกาตรง ๆ ซ้ำจนไม่มีอะไรขยับ
+          ผมสุ่มวันทำงานเล็ก ๆ (ไม่เกิน 5 ช่อง 8 คัน) 900 วัน ในนั้น 213 วันมีรถต้องรอ แล้วเทียบกับโค้ดเต็ม
+          ตรงกันหมด ส่วนโค้ดชุด 40 คะแนนเทียบเฉพาะ 300 วันที่ไม่มีใครรอ ก็ตรงกันหมดเช่นกัน
+          หน้าเว็บนี้รันด่านตรวจคล้ายกันตอนบิลด์อีก {SWEEP_CASES} วัน ซึ่งมีวันที่รถล้น {sweepWaits} วัน
+        </p>
+      </div>
+    </details>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม ชุดที่หนักที่สุดคือ {N_MAX} ช่อง รถ {fmt(M_MAX)} คันที่มาถึงหมดก่อนแล้วค่อยทยอยออก
+      ทำให้มีคนรอคิวยาวเกือบสองพันคัน โค้ดเต็มใช้เวลา <strong>0.007 วินาที</strong> จากลิมิต 1 วินาที
+      และตอบ {fmt(INCOME_MAX)} ตรงกับตัวตรวจ
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ข้อจำลองส่วนใหญ่ไม่ได้ยากที่อัลกอริทึม มันยากที่<strong>กรณีที่ตัวอย่างไม่ได้โชว์</strong>
+    ตัวอย่างของข้อนี้ไม่มีรถรอเลยสักคัน ใครที่เขียนแค่ให้ผ่านตัวอย่างจะได้ 40 คะแนนแล้วหยุด
+    นิสัยที่ช่วยได้คือเขียนวันทดสอบของตัวเองที่บังคับให้ทุกกติกาในโจทย์ได้ทำงานอย่างน้อยหนึ่งครั้ง
+  </p>
+  <p>
+    อีกท่าคือเวลากติกาสองข้อดูจะชนกัน ให้ถามว่าสถานะที่ทำให้มันชนกันเกิดขึ้นได้จริงไหม
+    ที่นี่มันเกิดไม่ได้ และพอรู้แบบนั้น โค้ดตอนรถออกก็เหลือบรรทัดเดียว
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th class="num">จำนวนครั้งที่ตรวจช่อง</th><th class="num">เวลาชุดหนักสุด</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td class="num">{r.work}</td><td class="num">{r.time}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>นับเป็นจำนวนครั้งที่ต้องดูว่าช่องหนึ่งช่องว่างหรือไม่ แถวบนต้องไล่รถทุกคันเพื่อตอบคำถามนั้นในทุกเหตุการณ์ แถวล่างดูตรง ๆ จากอาเรย์ ทั้งสองแถวผ่านลิมิตสบาย เวลาวัดจากชุดเดียวกันบนเครื่องเดียวกัน</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    จำลองตรง ๆ ด้วยอาเรย์สองตัวกับคิวหนึ่งอัน รถมาถึงก็หาช่องว่างแรก รถออกในวันที่มีคิวก็ยกช่องนั้นให้หัวคิวเลย
+    เพราะระหว่างที่มีคนรอ ช่องว่างไม่มีทางเกินหนึ่งช่อง
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>GARAGE</i> บน programming.in.th ข้อ 2035
+      <a href="https://programming.in.th/tasks/2035" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2035
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>ต้นฉบับจาก International Olympiad in Informatics ครั้งที่ 21 ปี 2009 วันที่สอง ตามที่ระบุไว้ท้ายโจทย์</li>
+    <li>ตัวอย่างวันที่รถล้นในหน้านี้ผมแต่งเพิ่มเอง เพราะตัวอย่างในโจทย์ภาษาไทยไม่มีรถรอเลย</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;white-space:nowrap;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.grrec{width:auto !important;table-layout:fixed;}
+  table.rec.grrec th, table.rec.grrec td{width:6.2rem;}
+  table.rec.grrec th:first-child, table.rec.grrec td:first-child{width:7.6rem;}
+  table.rec.grrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.grrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.grrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ช่องจอดสร้างด้วย JS จึงต้อง :global ---------- */
+  .gr-event{width:0;min-width:100%;margin:0 0 0.7rem;font-size:0.95rem;color:#e6edfb;}
+  .gr-lot{display:flex;gap:0.45rem;justify-content:center;flex-wrap:nowrap;margin:0.2rem auto 0.5rem;}
+  .gr-lot :global(.gr-spot){
+    /* ห้ามให้ช่องหดตามการ์ด บนจอแคบให้แถวล้นแล้ว .cpg-scroll เลื่อนแทน */
+    flex:0 0 auto;
+    width:6.2rem;
+    padding:0.45rem 0.3rem;
+    display:flex;flex-direction:column;align-items:center;gap:0.15rem;
+    border-radius:8px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .gr-lot :global(.gr-no){font-size:0.72rem;color:#9aa7bd;}
+  .gr-lot :global(.gr-rate){font-family:"Fira Code","Fira Mono",monospace;font-size:0.8rem;color:var(--dl-gold);}
+  .gr-lot :global(.gr-car){font-size:0.9rem;}
+  .gr-lot :global(.gr-spot.busy){background:#163a2a;border-color:#2f9e5c;color:#eaf2ff;}
+  .gr-lot :global(.gr-spot.flash){border-color:#b23b3b;}
+  .gr-queue{width:0;min-width:100%;text-align:center;margin:0;font-size:0.86rem;color:#e8a3a3;}
+  @media (prefers-reduced-motion: reduce){
+    .gr-lot :global(.gr-spot){transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type GrAction = { kind: 'arr' | 'dep' | 'seat'; car: number; need: number; who: number[]; q: number[]; fee: number; income: number };
+  type GrPuzzle = { id: string; label: string; tease: string; n: number; rate: number[]; w: number[]; ev: number[]; actions: GrAction[]; answer: number };
+
+  function initGarageGame(): void {
+    const maybeUi = cpGameUi('[data-grgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as GrPuzzle[];
+    const maybeLot = ui.root.querySelector<HTMLElement>('[data-gr-lot]');
+    const maybeQueue = ui.root.querySelector<HTMLElement>('[data-gr-queue]');
+    const maybeEvent = ui.root.querySelector<HTMLElement>('[data-gr-event]');
+    if (puzzles.length === 0 || !maybeLot || !maybeQueue || !maybeEvent) return;
+    const lot: HTMLElement = maybeLot;
+    const queueEl: HTMLElement = maybeQueue;
+    const eventEl: HTMLElement = maybeEvent;
+
+    let pi = 0;
+    let at = 0;
+    let slips = 0;
+    const fmt = (v: number): string => v.toLocaleString('en-US');
+    const pz = (): GrPuzzle => puzzles[pi];
+
+    /* สถานะก่อนการกระทำที่ at คือผลหลังการกระทำก่อนหน้า */
+    function before(): { who: number[]; q: number[]; income: number } {
+      if (at === 0) return { who: new Array<number>(pz().n).fill(0), q: [], income: 0 };
+      const a = pz().actions[at - 1];
+      return { who: a.who, q: a.q, income: a.income };
+    }
+
+    function render(): void {
+      const p = pz();
+      const st = before();
+      lot.textContent = '';
+      st.who.forEach((c, s) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = c > 0 ? 'gr-spot busy' : 'gr-spot';
+        b.dataset.grSpot = String(s + 1);
+        const no = document.createElement('span');
+        no.className = 'gr-no';
+        no.textContent = `ช่อง ${s + 1}`;
+        const rate = document.createElement('span');
+        rate.className = 'gr-rate';
+        rate.textContent = `ราคา ${p.rate[s]}`;
+        const car = document.createElement('span');
+        car.className = 'gr-car';
+        car.textContent = c > 0 ? `คัน ${c}` : 'ว่าง';
+        b.append(no, rate, car);
+        lot.append(b);
+      });
+      queueEl.textContent = st.q.length > 0 ? `คิวหน้าทางเข้า: ${st.q.map((c) => `คัน ${c}`).join(', ')}` : 'ไม่มีรถรอหน้าทางเข้า';
+      if (at >= p.actions.length) {
+        eventEl.textContent = 'หมดวันแล้ว ไม่มีรถเหลือในโรงจอด';
+      } else {
+        const a = p.actions[at];
+        if (a.kind === 'arr') eventEl.textContent = `รถคัน ${a.car} หนัก ${fmt(p.w[a.car - 1])} กิโลกรัม มาถึงหน้าทางเข้า`;
+        else if (a.kind === 'dep') eventEl.textContent = `รถคัน ${a.car} กำลังจะขับออก`;
+        else eventEl.textContent = `ช่องเพิ่งว่าง และมีรถรออยู่ รถหัวคิวคือคัน ${a.car} หนัก ${fmt(p.w[a.car - 1])} กิโลกรัม ให้มันจอดช่องไหน`;
+      }
+      ui.setScore(`รายได้ ${fmt(st.income)} ดอลลาร์ · พลาด ${slips} ครั้ง`);
+    }
+
+    function flash(s: number): void {
+      lot.querySelector(`[data-gr-spot="${s}"]`)?.classList.add('flash');
+    }
+
+    /* choice: เลขช่อง, 0 = ให้รอ, -1 = ปล่อยรถออก */
+    function act(choice: number): void {
+      const p = pz();
+      if (at >= p.actions.length) return;
+      const a = p.actions[at];
+      const st = before();
+      if (choice === a.need) {
+        at++;
+        render();
+        if (a.fee > 0) ui.setStatus(`ถูกครับ คัน ${a.car} จอดช่อง ${a.need} ได้ค่าจอด ${fmt(p.w[a.car - 1])} คูณ ${p.rate[a.need - 1]} เท่ากับ ${fmt(a.fee)}`, 'good');
+        else if (a.need === 0) ui.setStatus(`ถูกครับ เต็มทุกช่อง คัน ${a.car} ต่อท้ายคิว`, 'good');
+        else ui.setStatus(`คัน ${a.car} ออกไปแล้ว`, 'good');
+        if (at >= p.actions.length) {
+          const tail = slips === 0 ? 'ไม่พลาดเลยสักครั้ง' : `ระหว่างทางพลาดไป ${slips} ครั้ง`;
+          ui.setStatus(`จบวัน รายได้ ${fmt(p.answer)} ดอลลาร์ ตรงกับคำตอบ ${tail}`, 'good');
+        }
+        return;
+      }
+      slips++;
+      render();
+      if (a.kind === 'dep') {
+        ui.setStatus(`รถคัน ${a.car} กำลังจะออก ยังไม่ต้องจัดที่ให้ใคร กดปล่อยรถออกก่อน`, 'bad');
+      } else if (choice === -1) {
+        ui.setStatus(`ตอนนี้ไม่มีรถจะออก มีรถคัน ${a.car} รอให้คุณจัดที่อยู่`, 'bad');
+      } else if (choice === 0) {
+        ui.setStatus(a.kind === 'seat' ? `คัน ${a.car} รออยู่แล้ว และตอนนี้มีช่องว่าง ให้มันเข้าได้เลย` : 'ยังมีช่องว่างอยู่ ไม่ต้องให้รอ', 'bad');
+      } else if (st.who[choice - 1] > 0) {
+        flash(choice);
+        ui.setStatus(`ช่อง ${choice} มีคัน ${st.who[choice - 1]} จอดอยู่`, 'bad');
+      } else if (a.need === 0) {
+        ui.setStatus('ช่องนี้ว่างไม่ได้', 'bad');
+      } else {
+        flash(choice);
+        ui.setStatus(`ช่อง ${choice} ว่างก็จริง แต่ยังมีช่องว่างที่เลขน้อยกว่า กติกาบอกให้เลือกเลขน้อยสุด`, 'bad');
+      }
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      at = 0;
+      slips = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดช่องที่รถคันนี้ควรได้จอด หรือกดปุ่มด้านล่างถ้ามันต้องรอหรือกำลังจะออก');
+      render();
+    }
+
+    lot.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-gr-spot]');
+      if (!(btn instanceof HTMLElement)) return;
+      act(Number(btn.dataset.grSpot));
+    });
+    ui.onClick('data-gr-wait', () => act(0));
+    ui.onClick('data-gr-release', () => act(-1));
+    ui.onClick('data-gr-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initGarageGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-grsim]');
+  });
+</script>
