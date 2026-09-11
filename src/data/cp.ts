@@ -46,6 +46,7 @@ export const CP_TOPICS = [
   'offline',
   // โครงสร้างข้อมูล
   'stack',
+  'heap',
   'BIT',
   'segment tree',
   'prefix sum',
@@ -556,6 +557,17 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'stack', 'counting'],
     difficulty: 3,
     dateISO: '2026-09-09',
+    readingMinutes: 12,
+  },
+  {
+    href: 'hiring/',
+    setId: 'programming-in-th',
+    label: '2031',
+    title: 'จ้างคนงาน: คนเดียวในทีมเป็นคนตั้งราคาให้ทั้งทีม',
+    desc: 'ค่าจ้างต้องเป็นสัดส่วนกับคุณวุฒิ และทุกคนต้องได้ไม่ต่ำกว่าที่ขอ ห้าแสนคนจึงลองทีละทีมไม่ได้ บทนี้หาว่าใครคุมราคา แล้วเดินจากคนราคาถูกไปแพง พร้อมฮีปที่คอยทิ้งคนที่แพงที่สุดในมือ',
+    topics: ['greedy', 'heap'],
+    difficulty: 4,
+    dateISO: '2026-09-11',
     readingMinutes: 12,
   },
 ];
