@@ -1,0 +1,1111 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'maintain-trails/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+/** ทางหนึ่งเส้น เชื่อมจุด u กับ v ยาว z */
+type Edge = { u: number; v: number; z: number };
+/** ทางที่รู้แล้วว่าเจอสัปดาห์ไหน (w เริ่มที่ 1) */
+type WEdge = Edge & { w: number };
+
+/** ลำดับเดียวกับ array<int,3>{z, u, v} ในโค้ด C++ ที่หน้านี้ส่ง */
+const cmpE = (a: Edge, b: Edge): number => a.z - b.z || a.u - b.u || a.v - b.v;
+
+/** DSU ตัวเล็ก ๆ คืน unite ที่บอกว่ารวมสำเร็จไหม (false = สองปลายอยู่ก๊วนเดียวกันแล้ว) */
+function makeDsu(n: number): { unite: (a: number, b: number) => boolean } {
+  const p = Array.from({ length: n + 1 }, (_, i) => i);
+  const find = (x: number): number => (p[x] === x ? x : (p[x] = find(p[x])));
+  return {
+    unite(a: number, b: number): boolean {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra === rb) return false;
+      p[ra] = rb;
+      return true;
+    },
+  };
+}
+
+type WeekStep = { w: number; e: WEdge; tree: WEdge[]; dropped: WEdge[]; ans: number };
+
+/** ท่าเต็ม เก็บแค่ทางของต้นไม้ปัจจุบัน แทรกทางใหม่ลงรายการที่เรียงแล้ว แล้ว Kruskal บนรายการสั้น ๆ นั้น */
+function maintainWalk(n: number, edges: Edge[]): WeekStep[] {
+  let keep: WEdge[] = [];
+  const out: WeekStep[] = [];
+  edges.forEach((ed, k) => {
+    const e: WEdge = { ...ed, w: k + 1 };
+    let at = keep.findIndex((t) => cmpE(t, e) > 0);
+    if (at < 0) at = keep.length;
+    keep.splice(at, 0, e);
+    const d = makeDsu(n);
+    const tree: WEdge[] = [];
+    const dropped: WEdge[] = [];
+    for (const t of keep) (d.unite(t.u, t.v) ? tree : dropped).push(t);
+    keep = tree;
+    const ans = tree.length === n - 1 ? tree.reduce((s, t) => s + t.z, 0) : -1;
+    out.push({ w: k + 1, e, tree: [...tree], dropped, ans });
+  });
+  return out;
+}
+
+/** ท่าตรง ๆ Kruskal บนทุกทางที่เคยเจอ ใหม่หมดทุกสัปดาห์ */
+function kruskalAll(n: number, edges: Edge[]): number[] {
+  return edges.map((_, k) => {
+    const es = edges.slice(0, k + 1).sort(cmpE);
+    const d = makeDsu(n);
+    let used = 0;
+    let total = 0;
+    for (const t of es)
+      if (d.unite(t.u, t.v)) {
+        used++;
+        total += t.z;
+      }
+    return used === n - 1 ? total : -1;
+  });
+}
+
+/** ตัวตรวจ ลองทุกเซตย่อยของทางที่รู้จัก ไม่เรียง ไม่ทิ้ง ไม่มี Kruskal */
+function bruteAll(n: number, edges: Edge[]): number[] {
+  return edges.map((_, k) => {
+    const m = k + 1;
+    let best = -1;
+    for (let mask = 0; mask < 1 << m; mask++) {
+      const d = makeDsu(n);
+      let comps = n;
+      let s = 0;
+      for (let i = 0; i < m; i++)
+        if ((mask >> i) & 1) {
+          s += edges[i].z;
+          if (d.unite(edges[i].u, edges[i].v)) comps--;
+        }
+      if (comps === 1 && (best < 0 || s < best)) best = s;
+    }
+    return best;
+  });
+}
+
+/** ท่าที่ดูเข้าท่าแต่ผิด เก็บชุดเดิมไว้ แล้วรับทางใหม่เฉพาะตอนที่มันต่อสองก๊วนที่ยังไม่ถึงกัน ไม่เคยสลับ */
+function noSwap(n: number, edges: Edge[]): number[] {
+  const d = makeDsu(n);
+  let used = 0;
+  let total = 0;
+  return edges.map((e) => {
+    if (d.unite(e.u, e.v)) {
+      used++;
+      total += e.z;
+    }
+    return used === n - 1 ? total : -1;
+  });
+}
+
+/* ด่านตรวจตอนบิลด์ ทั้งท่าเต็มและท่าตรง ๆ ต้องตรงกับการลองทุกเซตย่อย ไม่งั้นหน้านี้ไม่ขึ้น */
+const SWEEP_CASES = 400;
+{
+  let seed = 20380911;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP_CASES; t++) {
+    const n = 2 + rnd(4);
+    const w = 1 + rnd(9);
+    const V = [3, 10, 50][rnd(3)];
+    const edges: Edge[] = Array.from({ length: w }, () => {
+      const u = 1 + rnd(n);
+      let v = 1 + rnd(n);
+      if (rnd(10) > 0) while (v === u) v = 1 + rnd(n);
+      return { u, v, z: 1 + rnd(V) };
+    });
+    const ref = bruteAll(n, edges).join(',');
+    if (maintainWalk(n, edges).map((s) => s.ans).join(',') !== ref || kruskalAll(n, edges).join(',') !== ref)
+      throw new Error(`maintain-trails: ท่าที่สอนไม่ตรงกับการลองทุกเซตย่อย n=${n} ${JSON.stringify(edges)}`);
+  }
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const S_N = 4;
+const S_EDGES: Edge[] = [
+  { u: 1, v: 2, z: 10 },
+  { u: 1, v: 3, z: 8 },
+  { u: 3, v: 2, z: 3 },
+  { u: 1, v: 4, z: 3 },
+  { u: 1, v: 3, z: 6 },
+  { u: 2, v: 1, z: 2 },
+];
+const S_OUT = [-1, -1, -1, 14, 12, 8];
+const S_WALK = maintainWalk(S_N, S_EDGES);
+if (S_WALK.map((s) => s.ans).join(',') !== S_OUT.join(',')) throw new Error('maintain-trails: ตัวอย่างไม่ตรงกับโจทย์');
+
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const eName = (e: Edge): string => `${e.u}-${e.v} (${e.z})`;
+
+/* อ่านตัวอย่าง สัปดาห์ที่ต้นไม้เพิ่งครบเป็นครั้งแรก */
+const FIRST_FULL = S_WALK.findIndex((s) => s.ans >= 0);
+const firstFull = S_WALK[FIRST_FULL];
+const reachesLast = S_EDGES.findIndex((e) => e.u === S_N || e.v === S_N) + 1;
+
+/* ---------- เรขาคณิตของกระดาน ใช้ทั้งเกมและแผนภาพ ---------- */
+type Pt = { x: number; y: number };
+type EdgeDraw = { i: number; u: number; v: number; z: number; d: string; lx: number; ly: number };
+const NODE_R = 15;
+
+/** ทางคู่ขนาน (จุดคู่เดียวกัน) โค้งออกคนละข้าง ป้ายตัวเลขเลื่อนตามเส้นตั้งฉาก จึงไม่ทับเส้นของตัวเอง */
+function layoutEdges(pos: Record<number, Pt>, edges: Edge[]): EdgeDraw[] {
+  const groups = new Map<string, number[]>();
+  edges.forEach((e, i) => {
+    const key = `${Math.min(e.u, e.v)}-${Math.max(e.u, e.v)}`;
+    groups.set(key, [...(groups.get(key) ?? []), i]);
+  });
+  return edges.map((e, i) => {
+    const a = pos[Math.min(e.u, e.v)];
+    const b = pos[Math.max(e.u, e.v)];
+    const g = groups.get(`${Math.min(e.u, e.v)}-${Math.max(e.u, e.v)}`) ?? [i];
+    const o = (g.indexOf(i) - (g.length - 1) / 2) * 34;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    let nx = dy / len;
+    let ny = -dx / len;
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const r1 = (x: number): number => Math.round(x * 10) / 10;
+    if (o === 0) {
+      if (nx < 0 || (nx === 0 && ny > 0)) {
+        nx = -nx;
+        ny = -ny;
+      }
+      return { i, ...e, d: `M${a.x} ${a.y} L${b.x} ${b.y}`, lx: r1(mx + nx * 13), ly: r1(my + ny * 13 + 4) };
+    }
+    const cx = mx + nx * o * 2;
+    const cy = my + ny * o * 2;
+    const side = Math.sign(o);
+    return {
+      i,
+      ...e,
+      d: `M${a.x} ${a.y} Q${r1(cx)} ${r1(cy)} ${b.x} ${b.y}`,
+      lx: r1(mx + nx * (o + side * 13)),
+      ly: r1(my + ny * (o + side * 13) + 4),
+    };
+  });
+}
+
+const POS_A: Record<number, Pt> = { 1: { x: 70, y: 80 }, 2: { x: 330, y: 80 }, 3: { x: 330, y: 260 }, 4: { x: 70, y: 260 } };
+const POS_B: Record<number, Pt> = Object.fromEntries(
+  [1, 2, 3, 4, 5].map((k) => {
+    const ang = ((-90 + 72 * (k - 1)) * Math.PI) / 180;
+    return [k, { x: Math.round(185 + 120 * Math.cos(ang)), y: Math.round(170 + 120 * Math.sin(ang)) }];
+  }),
+);
+const POS_C: Record<number, Pt> = { 1: { x: 70, y: 70 }, 2: { x: 310, y: 70 }, 3: { x: 190, y: 170 }, 4: { x: 310, y: 290 }, 5: { x: 70, y: 290 } };
+
+/* ---------- มินิเกม ---------- */
+type GamePuzzle = { label: string; tease: string; n: number; edges: Edge[]; ans: number[] };
+type Board = { pos: Record<number, Pt>; draws: EdgeDraw[]; w: number; h: number; nodes: number[] };
+
+function makePuzzle(label: string, tease: string, n: number, edges: Edge[], trap: boolean): GamePuzzle {
+  const ans = bruteAll(n, edges);
+  if (maintainWalk(n, edges).map((s) => s.ans).join(',') !== ans.join(','))
+    throw new Error(`maintain-trails: เฉลยเกม ${label} สองท่าไม่ตรงกัน`);
+  if (trap && noSwap(n, edges).join(',') === ans.join(','))
+    throw new Error(`maintain-trails: ชุด ${label} ควรทำให้ท่าไม่สลับทางแพ้ แต่ไม่แพ้`);
+  return { label, tease, n, edges, ans };
+}
+function makeBoard(p: GamePuzzle, pos: Record<number, Pt>): Board {
+  const xs = Object.values(pos).map((q) => q.x);
+  const ys = Object.values(pos).map((q) => q.y);
+  return {
+    pos,
+    draws: layoutEdges(pos, p.edges),
+    w: Math.max(...xs) + NODE_R + 24,
+    h: Math.max(...ys) + NODE_R + 22,
+    nodes: Array.from({ length: p.n }, (_, i) => i + 1),
+  };
+}
+
+const PZ_B: Edge[] = [
+  { u: 1, v: 2, z: 5 },
+  { u: 2, v: 3, z: 7 },
+  { u: 3, v: 4, z: 4 },
+  { u: 4, v: 5, z: 9 },
+  { u: 5, v: 1, z: 3 },
+  { u: 2, v: 4, z: 6 },
+  { u: 1, v: 3, z: 1 },
+];
+const PZ_C: Edge[] = [
+  { u: 1, v: 2, z: 4 },
+  { u: 2, v: 3, z: 4 },
+  { u: 3, v: 1, z: 4 },
+  { u: 4, v: 5, z: 1 },
+  { u: 3, v: 4, z: 8 },
+  { u: 1, v: 5, z: 2 },
+];
+const puzzles: GamePuzzle[] = [
+  makePuzzle('ตัวอย่างในโจทย์', 'สี่จุด หกสัปดาห์ ชุดเดียวกับตัวอย่างข้างบน ลองเลือกทางทีละสัปดาห์แล้วดูว่าคำตอบของคุณตรงกับเอาต์พุตไหม', S_N, S_EDGES, true),
+  makePuzzle('ห้าเหลี่ยม', 'ห้าจุดล้อมเป็นวง ทางใหม่สองสัปดาห์สุดท้ายสั้นกว่าของเดิม สังเกตว่าทางที่ต้องปล่อยทิ้งอยู่ตรงไหน', 5, PZ_B, true),
+  makePuzzle('ทางยาวที่รอวันถูกแทน', 'ชุดนี้มีทางยาวเท่ากันหลายเส้น และมีทางยาวเส้นหนึ่งที่จำเป็นอยู่แค่สัปดาห์เดียว', 5, PZ_C, true),
+];
+const boards: Board[] = [makeBoard(puzzles[0], POS_A), makeBoard(puzzles[1], POS_B), makeBoard(puzzles[2], POS_C)];
+const puzzlesJson = JSON.stringify(puzzles);
+const pzCnoSwap = noSwap(5, PZ_C);
+
+/* ข้อความในกล่องกับดัก งอกจากการเดินจริงของสองชุดท้าย */
+const walkB = maintainWalk(5, PZ_B);
+const bLast = walkB[walkB.length - 1];
+const bDrop = bLast.dropped[0];
+if (!bDrop || PZ_B.slice(0, -1).some((e) => Math.min(e.u, e.v) === Math.min(bLast.e.u, bLast.e.v) && Math.max(e.u, e.v) === Math.max(bLast.e.u, bLast.e.v)))
+  throw new Error('maintain-trails: ชุดห้าเหลี่ยมควรจบด้วยทางใหม่ที่ไม่มีทางคู่ขนาน และมีทางถูกทิ้ง');
+const walkC = maintainWalk(5, PZ_C);
+const cLast = walkC[walkC.length - 1];
+const cDrop = cLast.dropped[0];
+if (!cDrop || pzCnoSwap[PZ_C.length - 1] === cLast.ans) throw new Error('maintain-trails: ชุดสุดท้ายควรทำให้ท่าไม่สลับทางแพ้ในสัปดาห์สุดท้าย');
+
+/* ---------- แผนภาพสัปดาห์ที่ 6 ของตัวอย่าง ---------- */
+const DG_WEEK = S_EDGES.length; // สัปดาห์สุดท้าย
+const dgBefore = S_WALK[DG_WEEK - 2];
+const dgNow = S_WALK[DG_WEEK - 1];
+const dgNew = dgNow.e;
+const dgDrop = dgNow.dropped;
+if (dgDrop.length !== 1) throw new Error('maintain-trails: แผนภาพสัปดาห์สุดท้ายคาดว่ามีทางถูกทิ้งหนึ่งเส้นพอดี');
+/** ทางในต้นไม้เก่าที่อยู่บนเส้นทางระหว่างสองปลายของทางใหม่ (รวมกับทางใหม่แล้วเป็นวง) */
+function treePath(tree: WEdge[], from: number, to: number): WEdge[] {
+  const walk = (at: number, prev: number, path: WEdge[]): WEdge[] | null => {
+    if (at === to) return path;
+    for (const t of tree) {
+      const nxt = t.u === at ? t.v : t.v === at ? t.u : -1;
+      if (nxt < 0 || nxt === prev) continue;
+      const r = walk(nxt, at, [...path, t]);
+      if (r) return r;
+    }
+    return null;
+  };
+  return walk(from, 0, []) ?? [];
+}
+const dgCycle = [...treePath(dgBefore.tree, dgNew.u, dgNew.v), dgNew];
+const dgCycleMax = dgCycle.reduce((a, b) => (cmpE(b, a) > 0 ? b : a));
+if (dgCycleMax.w !== dgDrop[0].w) throw new Error('maintain-trails: ทางที่ทิ้งควรเป็นทางยาวสุดในวง');
+/** สัปดาห์ที่ทางแต่ละเส้นถูกทิ้ง (0 = ยังอยู่ในต้นไม้) */
+const droppedAt: number[] = S_EDGES.map((_, i) => {
+  const st = S_WALK.find((s) => s.dropped.some((t) => t.w === i + 1));
+  return st ? st.w : 0;
+});
+const dgDraws = layoutEdges(POS_A, S_EDGES);
+type DgKind = 'tree' | 'new' | 'drop' | 'gone';
+const dgKind: DgKind[] = S_EDGES.map((_, i) => {
+  if (i + 1 === dgNew.w) return 'new';
+  if (i + 1 === dgDrop[0].w) return 'drop';
+  if (droppedAt[i] > 0) return 'gone';
+  return 'tree';
+});
+const DG_STYLE: Record<DgKind, { stroke: string; width: number; dash?: string; label: string }> = {
+  tree: { stroke: '#6ee7a8', width: 3, label: '#6ee7a8' },
+  new: { stroke: '#e0b44c', width: 3.4, label: '#e0b44c' },
+  drop: { stroke: '#e06a6a', width: 2.6, dash: '7 5', label: '#e06a6a' },
+  gone: { stroke: '#4a5468', width: 1.6, dash: '4 5', label: '#7b8397' },
+};
+const dgOnCycle = S_EDGES.map((_, i) => dgCycle.some((t) => t.w === i + 1));
+const dgGone = S_EDGES.map((e, i) => ({ e, at: droppedAt[i] })).filter((g) => g.at > 0 && g.at < DG_WEEK);
+const LEG_X = 400;
+const legend: { kind: DgKind | 'cycle'; text: string }[] = [
+  { kind: 'cycle', text: 'วงที่เพิ่งเกิดในสัปดาห์นี้' },
+  { kind: 'new', text: `ทางใหม่ ${eName(dgNew)}` },
+  { kind: 'drop', text: `ยาวสุดในวง ทิ้งถาวร` },
+  { kind: 'tree', text: 'ต้นไม้หลังจบสัปดาห์' },
+  { kind: 'gone', text: 'ถูกทิ้งไปตั้งแต่สัปดาห์ก่อน' },
+];
+const DG_W = 600; // วัดในเบราว์เซอร์ ขอบขวาของเนื้อหาอยู่ที่ราว 588
+const DG_H = 309;
+
+/* ---------- ตัวเล่นทีละสัปดาห์ ---------- */
+const walkSteps = S_WALK.map((st) => {
+  const head = `สัปดาห์ที่ <b>${st.w}</b> วัวเจอทาง <b>${eName(st.e)}</b> แทรกลงรายการที่เรียงอยู่แล้ว แล้วเดิน Kruskal บนรายการนั้น `;
+  const drop =
+    st.dropped.length === 0
+      ? 'ไม่มีทางไหนปิดวง ทุกเส้นในรายการได้อยู่ต่อ '
+      : `ทาง <b>${st.dropped.map(eName).join(' กับ ')}</b> สองปลายถึงกันแล้วด้วยทางที่สั้นกว่าที่เดินผ่านมา จึงถูกทิ้งถาวร `;
+  const tail =
+    st.ans < 0
+      ? `ต้นไม้ยังมีแค่ ${st.tree.length} เส้น ต้องมี ${S_N - 1} เส้นถึงจะไปได้ทุกจุด คำตอบสัปดาห์นี้คือ <b>-1</b>`
+      : `เหลือ ${st.tree.length} เส้นพอดี ยาวรวม <b>${st.ans}</b>`;
+  return { note: head + drop + tail };
+});
+
+/* ---------- บิลค่าใช้จ่าย ---------- */
+const N_MAX = 200;
+const W_MAX = 6000;
+const touchNaive = (W_MAX * (W_MAX + 1)) / 2;
+const touchKeep = W_MAX * N_MAX;
+/* เวลาที่วัดจริงบนเครื่องผม (MinGW g++ -O2) อินพุต N = 200, W = 5,999 */
+const T_NAIVE_RAND = '0.75';
+const T_NAIVE_TIES = '1.10';
+const T_KEEP = '0.02';
+const bill = [
+  { name: 'Kruskal ใหม่บนทุกทางที่เคยเจอ', work: `${fmt(touchNaive)} เส้น (ยังไม่นับการเรียงทุกสัปดาห์)`, time: `${T_NAIVE_RAND} ถึง ${T_NAIVE_TIES} วินาที` },
+  { name: 'เก็บแค่ทางของต้นไม้ แทรกทางใหม่แล้ว Kruskal', work: `ไม่เกิน ${fmt(touchKeep)} เส้น`, time: `${T_KEEP} วินาที` },
+];
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+int par[205];
+int findp(int x){ return par[x] == x ? x : par[x] = findp(par[x]); }
+int main(){
+    int n, w;
+    if(scanf("%d %d", &n, &w) != 2) return 0;
+    // เก็บแค่เส้นของต้นไม้ปัจจุบัน เรียงจากสั้นไปยาว เป็น (ความยาว, ปลาย, ปลาย)
+    vector<array<int,3>> keep;
+    for(int week = 0; week < w; week++){
+        int u, v, z;
+        scanf("%d %d %d", &u, &v, &z);
+        // แทรกเส้นใหม่ลงตำแหน่งของมัน รายการจึงเรียงอยู่เสมอ ไม่ต้อง sort ใหม่
+        array<int,3> e = {z, u, v};
+        keep.insert(upper_bound(keep.begin(), keep.end(), e), e);
+        // Kruskal บนเส้นไม่เกิน N เส้น
+        for(int i = 1; i <= n; i++) par[i] = i;
+        vector<array<int,3>> tree;
+        long long total = 0;
+        for(auto &t : keep){
+            int a = findp(t[1]), b = findp(t[2]);
+            if(a == b) continue;   // เส้นนี้ปิดวง และยาวที่สุดในวงนั้น ทิ้งถาวร
+            par[a] = b;
+            tree.push_back(t);
+            total += t[0];
+        }
+        keep = tree;
+        if((int)tree.size() == n - 1) printf("%lld\\n", total);
+        else printf("-1\\n");
+    }
+}`;
+
+const naiveCode = `#include <bits/stdc++.h>
+using namespace std;
+int par[205];
+int findp(int x){ return par[x] == x ? x : par[x] = findp(par[x]); }
+int main(){
+    int n, w;
+    if(scanf("%d %d", &n, &w) != 2) return 0;
+    vector<array<int,3>> all;   // ทุกเส้นที่เคยเจอ ไม่ทิ้งอะไรเลย
+    for(int week = 0; week < w; week++){
+        int u, v, z;
+        scanf("%d %d %d", &u, &v, &z);
+        all.push_back({z, u, v});
+        // Kruskal ใหม่หมดทุกสัปดาห์ เรียงสำเนาของทุกเส้นที่เคยเจอ
+        vector<array<int,3>> es = all;
+        sort(es.begin(), es.end());
+        for(int i = 1; i <= n; i++) par[i] = i;
+        int used = 0;
+        long long total = 0;
+        for(auto &t : es){
+            int a = findp(t[1]), b = findp(t[2]);
+            if(a == b) continue;
+            par[a] = b;
+            used++;
+            total += t[0];
+        }
+        if(used == n - 1) printf("%lld\\n", total);
+        else printf("-1\\n");
+    }
+}`;
+
+const bruteCode = `// ตัวตรวจ ลองทุกเซตย่อยของเส้นที่รู้จัก เลือกเซตที่ทำให้ทุกจุดถึงกันแล้วยาวรวมน้อยที่สุด
+// ไม่เรียงเส้น ไม่ทิ้งเส้น ไม่มี Kruskal ใช้ได้กับกราฟเล็ก ๆ เท่านั้น
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n, w;
+    scanf("%d %d", &n, &w);
+    vector<int> U(w), V(w), Z(w);
+    for(int k = 0; k < w; k++){
+        scanf("%d %d %d", &U[k], &V[k], &Z[k]);
+        int m = k + 1;
+        long long best = -1;
+        for(int mask = 0; mask < (1 << m); mask++){
+            // เริ่มจากจุด 1 แล้วแผ่ไปตามเส้นในเซตนี้ซ้ำ ๆ จนไม่มีจุดใหม่
+            vector<int> seen(n + 1, 0);
+            seen[1] = 1;
+            bool grow = true;
+            while(grow){
+                grow = false;
+                for(int i = 0; i < m; i++) if(mask >> i & 1)
+                    if(seen[U[i]] != seen[V[i]]){ seen[U[i]] = seen[V[i]] = 1; grow = true; }
+            }
+            if(count(seen.begin() + 1, seen.end(), 1) != n) continue;
+            long long s = 0;
+            for(int i = 0; i < m; i++) if(mask >> i & 1) s += Z[i];
+            if(best < 0 || s < best) best = s;
+        }
+        printf("%lld\\n", best);
+    }
+}`;
+
+const coreSnippet = `// ของที่ต้องจำข้ามสัปดาห์มีแค่ต้นไม้ล่าสุด ไม่เกิน N - 1 เส้น
+keep.insert(upper_bound(keep.begin(), keep.end(), e), e);   // + ทางใหม่ 1 เส้น
+// Kruskal บนรายการนี้ ทางที่ปิดวงถูกทิ้ง และไม่ต้องเก็บไว้อีกเลย`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ดูแลทางเดินให้วัวไปได้ทุกจุด</h2>
+  <p>
+    ฟาร์มของชาวนาจอห์นมีจุดสำคัญ <code>N</code> จุด แต่ละจุดถูกป่ากั้นไว้ วัวอยากเลือก<strong>ดูแลรักษา</strong>ทางเดินบางเส้น
+    ให้เดินจากจุดไหนไปจุดไหนก็ได้ ทางเดินสองทิศทาง และแม้ทางจะตัดกันได้ วัวก็ไม่เปลี่ยนทางกลางทาง
+    จุดที่เปลี่ยนทางได้จึงมีแค่ที่ <code>N</code> จุดนั้น
+  </p>
+  <p>
+    ทุกสัปดาห์วัวค้นพบทางใหม่หนึ่งเส้น แล้วต้องเลือกว่าสัปดาห์นี้จะดูแลทางไหนบ้าง จากทุกทางที่เคยรู้จักมา
+    เลือกใหม่ได้ทุกสัปดาห์ ทางที่ไม่ได้ดูแลเมื่อสัปดาห์ก่อนก็หยิบกลับมาได้ วัวอยากให้ความยาวรวมของทางที่ดูแลสั้นที่สุด
+    ทางใหม่อาจเชื่อมจุดคู่เดิมที่เคยมีทางแล้ว และสั้นกว่าเดิมก็ได้ เพราะทางในป่าไม่ได้เป็นเส้นตรง
+  </p>
+  <p>
+    ชื่อโจทย์ <i>maintain</i> <strong>อ่านว่า "เมนเทน" แปลว่าดูแลรักษาให้คงสภาพ</strong>
+    มาจากภาษาละตินที่แปลตรง ๆ ว่า "ถือไว้ในมือ" (<i>manu tenere</i>) ซึ่งเข้ากับข้อนี้พอดี
+    เพราะทั้งข้อคือคำถามว่าต้องถืออะไรไว้ในมือข้ามสัปดาห์บ้าง
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> กับ <code>W</code> (จำนวนจุด และจำนวนสัปดาห์)
+        จากนั้นอีก <code>W</code> บรรทัด บรรทัดละสามจำนวน คือสองจุดที่ทางเชื่อม และความยาว <code>Z</code> ของทางนั้น
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>N</code> ไม่เกิน {N_MAX}, <code>W</code> ไม่เกิน {fmt(W_MAX)},
+        <code>Z</code> ไม่เกิน 10,000 เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> ทันทีหลังรับทางของแต่ละสัปดาห์ ให้พิมพ์หนึ่งบรรทัด คือความยาวรวมที่น้อยที่สุดของทางที่ต้องดูแล
+        ให้ทุกจุดถึงกัน ถ้ายังไม่มีทางไหนพาไปถึงทุกจุดได้ ให้พิมพ์ <code>-1</code>
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{S_N} {S_EDGES.length}<br />{S_EDGES.map((e) => <>{e.u} {e.v} {e.z}<br /></>)}</td>
+        <td>{S_OUT.map((o) => <>{o}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      สี่จุด หกสัปดาห์ บรรทัดที่ <code>k</code> ของอินพุตคือทางที่เจอในสัปดาห์ที่ <code>k</code>
+      และบรรทัดที่ <code>k</code> ของเอาต์พุตคือคำตอบของสัปดาห์นั้น เอาต์พุตจึงมีหกบรรทัดเท่าจำนวนสัปดาห์
+      หน่วยของคำตอบคือ<strong>ความยาวรวม</strong> ไม่ใช่จำนวนทาง
+    </p>
+    <p>
+      {reachesLast - 1} สัปดาห์แรกตอบ <code>-1</code> เพราะยังไม่มีทางไหนแตะจุด {S_N} เลย ทางแรกที่แตะจุด {S_N} มาในสัปดาห์ที่ {reachesLast}
+      สัปดาห์นั้นมีทางให้เลือก {firstFull.w} เส้น ชุดที่สั้นที่สุดคือ {firstFull.tree.map(eName).join(', ')}
+      ยาวรวม {firstFull.ans} อีกสองสัปดาห์ที่เหลือลองคิดเองก่อนนะครับ เกมข้างล่างใช้ชุดนี้เป็นด่านแรก
+    </p>
+  </div>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      คำตอบของแต่ละสัปดาห์คือต้นไม้แผ่ทั่วที่เบาที่สุดของทุกทางที่รู้จักตอนนั้น
+      ถ้ายังไม่เคยเจอวิธีหามัน บทปูพื้นฐาน <a href="/cp/dsu/">DSU</a> ฝึกข้อ 3 เล่าไว้แล้ว
+    </p>
+    <p>
+      ส่วนที่ข้อนี้ถามจริง ๆ คือเรื่องเวลา ทำใหม่หมดทุกสัปดาห์ต้องแตะทางกี่เส้น
+      และทางที่สัปดาห์นี้ไม่ได้ใช้ มีโอกาสกลับมาถูกใช้ในสัปดาห์หน้าไหม
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; เลือกทางให้สั้นที่สุดทีละสัปดาห์</h2>
+  <div class="cpgame mtgame" data-mtgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดทางเดิน">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      {boards.map((b, k) => (
+        <div class="mt-board" data-mt-board={String(k)} hidden={k !== 0}>
+        <svg
+          class="mt-svg"
+          viewBox={`0 0 ${b.w} ${b.h}`}
+          width={b.w}
+          height={b.h}
+          xmlns="http://www.w3.org/2000/svg"
+          role="group"
+          aria-label={`กระดานชุด ${puzzles[k].label} กดทางเพื่อเลือกหรือเลิกเลือก`}
+        >
+          {b.draws.map((e) => (
+            <g class="mt-edge" data-mt-e={String(e.i)} tabindex="0" role="button" aria-pressed="false" aria-label={`ทาง ${e.u}-${e.v} ยาว ${e.z}`}>
+              <path class="mt-hit" d={e.d} />
+              <path class="mt-line" d={e.d} />
+              <text class="mt-lbl" x={e.lx} y={e.ly} text-anchor="middle">{e.z}</text>
+            </g>
+          ))}
+          {b.nodes.map((v) => (
+            <>
+              <circle class="mt-node" cx={b.pos[v].x} cy={b.pos[v].y} r={NODE_R} />
+              <text class="mt-nlbl" x={b.pos[v].x} y={b.pos[v].y + 5} text-anchor="middle">{v}</text>
+            </>
+          ))}
+        </svg>
+        </div>
+      ))}
+    </div>
+
+    <p class="cpg-score" data-cpg-score>&nbsp;</p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-mt-clear>ล้างที่เลือก</button>
+      <button type="button" class="cpg-btn" data-mt-none>ยังไปไม่ถึงทุกจุด (-1)</button>
+      <button type="button" class="cpg-btn main" data-mt-check>ส่งชุดนี้</button>
+      <button type="button" class="cpg-btn" data-mt-next>สัปดาห์ถัดไป</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดที่ทางเพื่อเลือกดูแลหรือเลิกดูแล ทางสีทองคือทางที่เพิ่งเจอในสัปดาห์นี้</p>
+    <p class="cpg-hint">พอไปสัปดาห์ถัดไป ทางที่เลือกไว้ยังค้างอยู่ ลองสังเกตว่าแต่ละสัปดาห์คุณต้องแก้ชุดเดิมมากแค่ไหน</p>
+  </div>
+  <p class="ns-cue">
+    ลองให้ครบทั้งสามชุดก่อนนะครับ โดยเฉพาะสัปดาห์สุดท้ายของชุดสุดท้าย ที่ชุดทางเมื่อสัปดาห์ก่อนดูเหมือนไม่มีอะไรต้องแก้
+    พอมีคำตอบในใจแล้ว ค่อยเปิดเฉลย
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ทำใหม่หมดทุกสัปดาห์ ถูกแต่เฉียดเวลา</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ข้อนี้ผมจำได้ตั้งแต่อ่านจบว่าเป็นโจทย์ IOI 2003 แต่ก่อนเขียนก็ยังตีราคาท่าตรง ๆ ก่อน
+        เพราะถ้าท่าตรง ๆ ผ่านเวลา ก็ไม่มีเหตุผลต้องคิดอะไรเพิ่ม ท่าตรง ๆ คือทุกสัปดาห์เอาทุกทางที่เคยเจอมาเรียงใหม่
+        แล้วรัน Kruskal ใหม่หมด
+      </p>
+      <p>
+        สัปดาห์ที่ <code>k</code> มีทาง <code>k</code> เส้น รวมทั้งหกพันสัปดาห์คือ {fmt(touchNaive)} เส้น
+        แล้วยังต้องเรียงทุกสัปดาห์อีก ตัวเลขนี้อยู่ในโซนที่คูณในหัวแล้วตัดสินไม่ได้ ผมจึงเขียนมันจริงแล้ววัด
+        อินพุตสุ่มเต็มขอบเขตใช้ {T_NAIVE_RAND} วินาที ส่วนอินพุตที่ความยาวซ้ำกันเยอะ (มีแค่ 1 ถึง 3) ใช้ {T_NAIVE_TIES} วินาที
+        เกินลิมิต 1 วินาทีไปแล้ว บนเครื่องตรวจที่ช้ากว่าเครื่องผมก็ยิ่งไม่รอด
+      </p>
+      <p>
+        บทเรียนที่ยกไปข้ออื่นได้คือ ตัวเลขที่อยู่ระหว่างสิบล้านถึงร้อยล้าน อย่าเดาว่าผ่านหรือไม่ผ่าน ให้วัด
+      </p>
+    </div>
+    <p>
+      ท่านี้ถูกเสมอ เพราะมันตอบตามนิยามของสัปดาห์นั้นตรง ๆ ผมเก็บมันไว้เป็นตัวเทียบในส่วนโค้ด
+      สิ่งที่ต้องหาต่อจึงเหลือคำถามเดียว คืองานของสัปดาห์ที่แล้ว มีส่วนไหนเอามาใช้ต่อได้บ้าง
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ทางที่ถูกทิ้งไปแล้ว ไม่มีวันกลับมา</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        แรงกดดันมาจากตัวเลขในตอนที่ 1 งานเกือบทั้งหมดหมดไปกับทางที่ Kruskal เดินผ่านแล้วข้าม
+        เพราะต้นไม้มีแค่ <code>N - 1</code> เส้น ที่เหลือหลายพันเส้นถูกหยิบมาดูทุกสัปดาห์เพื่อจะถูกข้ามซ้ำ
+        ผมจึงถามว่าทางที่ถูกข้ามในสัปดาห์นี้ มีโอกาสกลับมาถูกใช้ไหม
+      </p>
+      <p>
+        จุดที่ทำให้ตอบได้คือโจทย์มีแต่<strong>เพิ่ม</strong>ทาง ไม่เคยลบทาง ทางที่ถูกข้ามแปลว่าสองปลายของมันถึงกันแล้ว
+        ด้วยทางที่สั้นกว่า และทางพวกนั้นไม่มีวันหายไปจากชุดที่รู้จัก ข้อสรุปคือของที่ต้องถือข้ามสัปดาห์มีแค่ต้นไม้ล่าสุด
+        บทเรียนคือ พอข้อมูลมีแต่เพิ่ม ให้ถามว่าอะไรที่ถูกตัดสินว่าไร้ประโยชน์ไปแล้ว จะถูกตัดสินแบบเดิมตลอดไปหรือเปล่า
+      </p>
+    </div>
+    <p>
+      ลองดูสัปดาห์สุดท้ายของตัวอย่าง ก่อนสัปดาห์นี้ต้นไม้คือ {dgBefore.tree.map(eName).join(', ')}
+      ทางใหม่ {eName(dgNew)} เชื่อมสองจุดที่ในต้นไม้ถึงกันอยู่แล้ว มันจึงสร้างวงขึ้นมาหนึ่งวงพอดี
+      คือ {dgCycle.map(eName).join(', ')} วงนี้มีทางเกินมาหนึ่งเส้น ต้องทิ้งหนึ่งเส้นเพื่อกลับเป็นต้นไม้
+      และเส้นที่ควรทิ้งคือเส้นที่ยาวที่สุดในวง คือ {eName(dgDrop[0])} คำตอบจึงลดจาก {dgBefore.ans} เหลือ {dgNow.ans}
+    </p>
+
+    <ZoomableDiagram caption={`สัปดาห์ที่ ${DG_WEEK} ของตัวอย่าง ทางใหม่ ${eName(dgNew)} ปิดวงกับต้นไม้เดิม ทางที่ยาวที่สุดในวงคือ ${eName(dgDrop[0])} จึงถูกทิ้ง ส่วนทาง ${dgGone.map((g) => `${eName(g.e)} (ทิ้งสัปดาห์ที่ ${g.at})`).join(' กับ ')} ถูกทิ้งไปก่อนแล้ว และไม่ถูกหยิบมาคิดอีกเลย`}>
+      <svg viewBox={`0 0 ${DG_W} ${DG_H}`} xmlns="http://www.w3.org/2000/svg" role="img" style="display:block;margin:0 auto;max-width:760px" aria-label={`กราฟสี่จุดของตัวอย่างในสัปดาห์ที่ ${DG_WEEK} ทางใหม่ปิดวง ทางยาวสุดในวงถูกทิ้ง`}>
+        {dgDraws.map((e) => dgOnCycle[e.i] && <path d={e.d} fill="none" stroke="#2f9e5c" stroke-opacity="0.28" stroke-width="14" stroke-linecap="round" />)}
+        {dgDraws.map((e) => (
+          <>
+            <path d={e.d} fill="none" stroke={DG_STYLE[dgKind[e.i]].stroke} stroke-width={DG_STYLE[dgKind[e.i]].width} stroke-dasharray={DG_STYLE[dgKind[e.i]].dash} />
+            <text x={e.lx} y={e.ly} fill={DG_STYLE[dgKind[e.i]].label} font-size="13" text-anchor="middle" font-family="monospace" stroke="#0b1220" stroke-width="4" paint-order="stroke">{e.z}</text>
+          </>
+        ))}
+        {[1, 2, 3, 4].map((v) => (
+          <>
+            <circle cx={POS_A[v].x} cy={POS_A[v].y} r={NODE_R} fill="#1b2436" stroke="#7b8397" stroke-width="1.6" />
+            <text x={POS_A[v].x} y={POS_A[v].y + 5} fill="#cdd6ea" font-size="14" text-anchor="middle" font-family="monospace">{v}</text>
+          </>
+        ))}
+        {legend.map((l, k) => (
+          <>
+            {l.kind === 'cycle' ? (
+              <line x1={LEG_X} y1={96 + k * 36} x2={LEG_X + 40} y2={96 + k * 36} stroke="#2f9e5c" stroke-opacity="0.28" stroke-width="14" stroke-linecap="round" />
+            ) : (
+              <line x1={LEG_X} y1={96 + k * 36} x2={LEG_X + 40} y2={96 + k * 36} stroke={DG_STYLE[l.kind].stroke} stroke-width={DG_STYLE[l.kind].width} stroke-dasharray={DG_STYLE[l.kind].dash} />
+            )}
+            <text x={LEG_X + 54} y={101 + k * 36} fill="#cdd6ea" font-size="13">{l.text}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      กฎข้อนี้มีชื่อ เรียกว่า<strong>สมบัติของวง (cycle property)</strong>
+      ในวงไหนก็ตาม ทางที่ยาวที่สุดในวงไม่จำเป็นต่อต้นไม้ที่เบาที่สุด เพราะตัดมันออกแล้ว สองปลายของมันยังถึงกันได้
+      ด้วยทางที่เหลือในวงซึ่งสั้นกว่าทั้งหมด
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แกะคำศัพท์ &middot; cycle</p>
+      <p>
+        <i>cycle</i> <strong>อ่านว่า "ไซเคิล" แปลว่าวง</strong> คือเดินตามทางแล้ววนกลับมาจุดเดิมได้โดยไม่ใช้ทางซ้ำ
+        รากเดียวกับ <i>bicycle</i> ที่แปลว่าสองวงล้อ มาจากคำกรีกที่แปลว่าวงกลม
+      </p>
+    </div>
+    <p>
+      ที่ทำให้ข้อนี้ง่ายลงมาก คือทางที่ถูกทิ้งเพราะกฎนี้ ถูกทิ้งได้<strong>ถาวร</strong>
+      วงที่ทำให้มันถูกทิ้งประกอบด้วยทางที่สั้นกว่ามัน และในอนาคตมีแต่ทางเพิ่ม ทางที่สั้นกว่าเหล่านั้นอาจโดนทิ้งตามไปบ้าง
+      แต่ทุกเส้นที่โดนทิ้งก็มีทางที่สั้นกว่ามาต่อแทนเสมอ สองปลายของทางที่ถูกทิ้งไปจึงถึงกันด้วยทางที่สั้นกว่ามันไปตลอด
+      ของที่ต้องจำข้ามสัปดาห์จึงเหลือแค่ต้นไม้ล่าสุด ไม่เกิน <code>N - 1</code> เส้น
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ของที่ถือข้ามสัปดาห์" />
+    <p>
+      งานต่อสัปดาห์เหลือแค่แทรกทางใหม่ลงรายการที่เรียงอยู่แล้ว (เลื่อนของไม่เกิน <code>N</code> ช่อง)
+      แล้วเดิน Kruskal บนรายการที่ยาวไม่เกิน <code>N</code> เส้น ทางที่ปิดวงในรอบนี้ก็ทิ้งไปเลย
+      ไม่ต้องหาว่าวงอยู่ตรงไหน เพราะ Kruskal ที่เดินจากสั้นไปยาวจะข้ามทางที่ยาวที่สุดของวงให้เอง
+    </p>
+    <details class="expander">
+      <summary>ทำไมทางที่ถูกทิ้ง ไม่ต้องเรียกกลับเลย</summary>
+      <div class="expander-body">
+        <p>
+          เรียงทางทุกเส้นด้วยลำดับเดียวกับโค้ด คือความยาวก่อน แล้วตัดสินเสมอด้วยหมายเลขปลาย
+          ข้ออ้างคือ ตลอดเวลา ทุกทาง <code>e</code> ที่เคยเจอ ถ้าไม่อยู่ในรายการ <code>keep</code>
+          แล้ว สองปลายของ <code>e</code> ถึงกันได้ด้วยทางใน <code>keep</code> ที่มาก่อน <code>e</code> ในลำดับ
+        </p>
+        <p>
+          ตอน <code>e</code> ถูกทิ้ง Kruskal เพิ่งเดินผ่านทางที่มาก่อนมันเท่านั้น และสองปลายถึงกันแล้วด้วยทางที่รับเข้าต้นไม้ไป
+          ข้ออ้างจึงจริงตอนนั้น หลังจากนั้นถ้ามีทาง <code>f</code> บนเส้นทางดังกล่าวถูกทิ้ง ก็ใช้ข้ออ้างเดียวกันกับ <code>f</code>
+          สองปลายของ <code>f</code> ถึงกันด้วยทางที่มาก่อน <code>f</code> ซึ่งก็มาก่อน <code>e</code> ด้วย
+          ต่อแทน <code>f</code> เข้าไปแล้วข้ออ้างของ <code>e</code> ยังจริง
+        </p>
+        <p>
+          ผลคือ ถ้าเอาทางที่ถูกทิ้งทั้งหมดกลับมาใส่รายการ Kruskal ก็จะข้ามพวกมันทุกเส้นอยู่ดี
+          คำตอบของรายการสั้นจึงเท่ากับคำตอบของทุกทางที่เคยเจอ
+        </p>
+        <p>
+          ผมไม่ได้เชื่อบทพิสูจน์นี้อย่างเดียว หน้าเว็บนี้รันด่านตรวจตอนบิลด์ {SWEEP_CASES} ชุด
+          เทียบท่านี้กับการลองทุกเซตย่อยของทาง ถ้าไม่ตรงแม้ชุดเดียว หน้านี้จะบิลด์ไม่ผ่าน
+        </p>
+      </div>
+    </details>
+    <p class="pull">
+      ข้อมูลมีแต่เพิ่ม ทางที่ถูกตัดสินว่ายาวเกินไปแล้วจึงยาวเกินไปตลอดกาล ของที่ต้องถือไว้ในมือมีแค่ต้นไม้ {S_N - 1} เส้นของตัวอย่าง หรือ N - 1 เส้นของข้อจริง
+    </p>
+  </Spoiler>
+
+  <h2>เดินตัวอย่างทีละสัปดาห์</h2>
+  <Spoiler>
+    <CpStepPlayer hook="mtsim" steps={walkSteps} label="เดินตัวอย่างในโจทย์ ถือแค่ต้นไม้ล่าสุดข้ามสัปดาห์">
+      <table class="rec mtrec">
+        <caption>ตัวอย่างในโจทย์ ทีละสัปดาห์</caption>
+        <thead>
+          <tr>
+            <th class="num">สัปดาห์</th><th class="num">ทางใหม่</th><th class="hand">ต้นไม้ที่ถือไว้</th><th class="num">ทิ้ง</th><th class="num">คำตอบ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {S_WALK.map((st) => (
+            <tr>
+              <td class="num">{st.w}</td>
+              <td class="num">{eName(st.e)}</td>
+              <td class="hand"><span>{st.tree.map(eName).join(', ')}</span></td>
+              <td class="num">{st.dropped.length ? st.dropped.map(eName).join(', ') : '·'}</td>
+              <td class="num">{st.ans}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      คอลัมน์ต้นไม้ไม่เคยยาวเกิน {S_N - 1} เส้น ส่วนคอลัมน์ทิ้งคือทุกอย่างที่ท่าตรง ๆ ต้องหยิบมาดูซ้ำทุกสัปดาห์
+      คำตอบทั้งหกบรรทัดคือ {S_WALK.map((s) => s.ans).join(', ')} ตรงกับเอาต์พุตของโจทย์
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="maintain.cpp" />
+        <p>
+          ใช้ <code>upper_bound</code> หาที่แทรก รายการจึงเรียงอยู่ตลอด ไม่ต้องเรียงใหม่ทั้งก้อน
+          ส่วน DSU รีเซ็ตใหม่ทุกสัปดาห์ เพราะต้นไม้ของสัปดาห์นี้อาจไม่ใช่ต้นไม้เดิมบวกหนึ่งเส้น
+          ผลรวมอยู่ไม่เกิน 199 คูณ 10,000 ใส่ <code>int</code> ได้ แต่ผมใช้ <code>long long</code> ไว้ก่อน ไม่เสียอะไร
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูท่าทำใหม่หมดทุกสัปดาห์ (ตัวเทียบ)</summary>
+      <div class="expander-body">
+        <CodeBlock code={naiveCode} lang="cpp" title="maintain_naive.cpp" />
+        <p>
+          โจทย์ข้อนี้ไม่มีชุดคะแนนย่อย ท่านี้ตอบถูกทุกเคสที่ผมทดสอบ แต่เวลาที่วัดได้ ({T_NAIVE_RAND} ถึง {T_NAIVE_TIES} วินาที)
+          เฉียดหรือเกินลิมิต จึงไม่ควรส่ง มันมีค่าในฐานะตัวเทียบ เพราะมันไม่ได้ทิ้งทางไหนเลย
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_maintain.cpp" />
+        <p>
+          ตัวตรวจลองทุกเซตย่อยของทางที่รู้จัก แล้วเลือกเซตที่แผ่ไปถึงทุกจุดและยาวรวมน้อยที่สุด
+          ไม่มี Kruskal ไม่มีการเรียง และไม่เชื่อเรื่องทิ้งถาวรเลย ผมสุ่มกราฟ 2 ถึง 5 จุด ทางไม่เกิน 12 เส้น
+          ความยาวมีทั้งช่วงแคบให้ชนกันบ่อยและช่วงกว้าง บางเคสมีทางที่วนกลับเข้าจุดเดิม รวม 600 เคส
+          ทั้งสองโปรแกรมตรงกับตัวตรวจทุกเคส และตรงกับตัวอย่างในโจทย์
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ท่าที่ดูเข้าท่า แต่ผิด</summary>
+      <div class="expander-body">
+        <p>
+          <strong>เก็บชุดเดิมไว้ทั้งหมด แล้วรับทางใหม่เฉพาะตอนที่มันต่อสองก๊วนที่ยังไม่ถึงกัน</strong>
+          ท่านี้ไม่เคยสลับทางเก่าออก ชุดสุดท้ายในเกม ({puzzles[2].label}) ท่านี้ตอบ {pzCnoSwap.join(', ')}
+          ขณะที่คำตอบจริงคือ {puzzles[2].ans.join(', ')} ทาง {eName(cDrop)} ถูกรับเข้ามาในสัปดาห์ที่ {cDrop.w} ตอนที่มันจำเป็นจริง
+          แล้วไม่เคยถูกปล่อย แม้ทาง {eName(cLast.e)} จะมาต่อแทนได้ในสัปดาห์ที่ {cLast.w}
+        </p>
+        <p>
+          อีกท่าที่ใกล้เคียงคือ<strong>เทียบทางใหม่กับทางเดิมที่เชื่อมจุดคู่เดียวกันเท่านั้น</strong>
+          ชุดห้าเหลี่ยมหักท่านี้ ทางใหม่ {eName(bLast.e)} ไม่มีทางเดิมที่เชื่อมคู่เดียวกันเลย
+          แต่ทางที่ต้องออกคือ {eName(bDrop)} ที่อยู่อีกฟากของวง จึงต้องมองทั้งวง การมองแค่ทางคู่ขนานไม่พอ
+        </p>
+        <p>
+          ด่านตรวจตอนบิลด์ยืนยันว่าท่าไม่สลับทางแพ้ในทั้งสามชุดของเกม
+        </p>
+      </div>
+    </details>
+    <p>
+      มีอีกท่าที่เร็วพอกัน คือถือต้นไม้ไว้เป็นกราฟ พอทางใหม่มาก็เดินหาเส้นทางในต้นไม้ระหว่างสองปลายของมัน
+      แล้วเทียบทางที่ยาวที่สุดบนเส้นทางนั้นกับทางใหม่ ตรงกับภาพข้างบนทุกประการ แต่เขียนยาวกว่าและผมไม่ได้เขียนมันเป็นโค้ดทดสอบ
+      จึงไม่ได้ใส่ไว้ในหน้านี้
+    </p>
+    <p>
+      เวลาที่วัดได้บนเครื่องผม อินพุต {N_MAX} จุด {fmt(W_MAX - 1)} สัปดาห์ ท่าเต็มใช้ราว <strong>{T_KEEP} วินาที</strong>
+      ทั้งแบบความยาวสุ่ม แบบความยาวซ้ำกันเยอะ และแบบที่ทางใหม่สั้นลงทุกสัปดาห์จนต้นไม้ถูกเปลี่ยนตลอด
+      ท่าทำใหม่หมดใช้ {T_NAIVE_RAND} วินาทีกับชุดแรก และ {T_NAIVE_TIES} วินาทีกับชุดที่สอง
+      (ชุดที่สามเร็วกว่ามาก เพราะรายการที่ต้องเรียงแทบจะเรียงอยู่แล้ว) ทั้งสองท่าตอบตรงกันทุกบรรทัดในทั้งสามชุด
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    โจทย์ที่ข้อมูล<strong>มีแต่เพิ่ม</strong>และต้องตอบทุกครั้งที่เพิ่ม ให้ถามก่อนว่าอะไรที่เคยถูกตัดสินว่าไม่ใช้
+    จะถูกตัดสินแบบเดิมตลอดไปหรือเปล่า ถ้าใช่ ของที่ต้องถือข้ามรอบจะเล็กลงมาก
+    ที่นี่คือจากทุกทางที่เคยเจอ เหลือแค่ต้นไม้ล่าสุด ส่วนของที่เหลือทำแบบเดิมได้ทั้งหมด
+  </p>
+
+  <figure class="tbl">
+    <table class="rec">
+      <caption>บิลค่าใช้จ่าย</caption>
+      <thead>
+        <tr><th>ทาง</th><th class="num">ทางที่แตะรวมทุกสัปดาห์</th><th class="num">เวลาที่วัดจริง</th></tr>
+      </thead>
+      <tbody>
+        {bill.map((r) => (
+          <tr><td>{r.name}</td><td class="num">{r.work}</td><td class="num">{r.time}</td></tr>
+        ))}
+      </tbody>
+    </table>
+    <figcaption>ทั้งสองแถวนับหน่วยเดียวกัน คือจำนวนครั้งที่ Kruskal หยิบทางหนึ่งเส้นขึ้นมาถาม DSU ที่ขอบเขตเต็ม {N_MAX} จุด {fmt(W_MAX)} สัปดาห์ แถวบนยังต้องเรียงทุกทางใหม่ทุกสัปดาห์ด้วย แถวล่างแค่แทรกทีละเส้น</figcaption>
+  </figure>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ทางที่ปิดวงแล้วยาวที่สุดในวงนั้นไม่มีวันถูกใช้อีก จึงถือแค่ต้นไม้ล่าสุดไว้ แทรกทางใหม่เข้าไป แล้วรัน Kruskal บนไม่เกิน N เส้นทุกสัปดาห์
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Maintain</i> บน programming.in.th ข้อ 2038
+      <a href="https://programming.in.th/tasks/2038" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2038
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>
+      ต้นฉบับคือโจทย์ <i>maintain</i> วันแรกของ International Olympiad in Informatics 2003 ที่สหรัฐอเมริกา
+      ตามที่ฉบับบน programming.in.th อ้างไว้
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนไฮไลต์เปลี่ยนแถว
+     ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
+  table.rec.mtrec{width:auto !important;table-layout:fixed;}
+  table.rec.mtrec th, table.rec.mtrec td{width:6.4rem;}
+  table.rec.mtrec th.hand, table.rec.mtrec td.hand{width:15rem;}
+  table.rec.mtrec td.hand{font-family:"Fira Code","Fira Mono",monospace;color:#cdd6ea;}
+  table.rec.mtrec td.hand span{display:block;width:0;min-width:100%;}
+  table.rec.mtrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.mtrec tbody tr.is-now td{background:#163a2a;}
+  table.rec.mtrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  .mt-svg{display:block;margin:0.2rem auto 0.4rem;max-width:none;}
+  .mt-edge{cursor:pointer;outline:none;}
+  .mt-hit{fill:none;stroke:transparent;stroke-width:18;pointer-events:stroke;}
+  .mt-line{fill:none;stroke:#56627d;stroke-width:2.2;pointer-events:none;transition:stroke .15s, stroke-width .15s;}
+  .mt-lbl{
+    fill:#9aa6c0;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:13px;
+    stroke:#0b1220;
+    stroke-width:4px;
+    paint-order:stroke;
+    pointer-events:none;
+  }
+  .mt-edge.new .mt-line{stroke:var(--dl-gold);stroke-dasharray:6 4;}
+  .mt-edge.new .mt-lbl{fill:var(--dl-gold);}
+  .mt-edge.on .mt-line{stroke:#6ee7a8;stroke-width:4.2;stroke-dasharray:none;}
+  .mt-edge.on .mt-lbl{fill:#6ee7a8;font-weight:700;}
+  .mt-edge:focus-visible .mt-hit{stroke:rgba(110,231,168,0.25);}
+  .mt-node{fill:#1b2436;stroke:#7b8397;stroke-width:1.6;}
+  .mt-nlbl{fill:#cdd6ea;font-family:"Fira Code","Fira Mono",monospace;font-size:14px;pointer-events:none;}
+  @media (prefers-reduced-motion: reduce){
+    .mt-line{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type MtEdge = { u: number; v: number; z: number };
+  type MtPuzzle = { label: string; tease: string; n: number; edges: MtEdge[]; ans: number[] };
+
+  function isPuzzle(x: unknown): x is MtPuzzle {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.n === 'number' && Array.isArray(o.edges) && Array.isArray(o.ans) && typeof o.tease === 'string';
+  }
+
+  function initMaintainGame(): void {
+    const maybeUi = cpGameUi('[data-mtgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root).filter(isPuzzle);
+    if (puzzles.length === 0) return;
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-mt-board]'));
+    const nextBtn = ui.root.querySelector<HTMLButtonElement>('[data-mt-next]');
+
+    let pi = 0;
+    let week = 0;
+    let sel = new Set<number>();
+    let solved: boolean[] = [];
+
+    /** นับก๊วนของทางที่เลือก คืนจำนวนก๊วนที่เหลือ (1 = ถึงกันทุกจุด) */
+    function components(p: MtPuzzle): number {
+      const par = Array.from({ length: p.n + 1 }, (_, i) => i);
+      const find = (x: number): number => (par[x] === x ? x : (par[x] = find(par[x])));
+      let comps = p.n;
+      for (const i of sel) {
+        const a = find(p.edges[i].u);
+        const b = find(p.edges[i].v);
+        if (a !== b) {
+          par[a] = b;
+          comps--;
+        }
+      }
+      return comps;
+    }
+    const total = (p: MtPuzzle): number => [...sel].reduce((s, i) => s + p.edges[i].z, 0);
+
+    function render(): void {
+      const p = puzzles[pi];
+      boards.forEach((b, k) => {
+        b.hidden = k !== pi;
+      });
+      for (const g of Array.from(boards[pi].querySelectorAll<SVGGElement>('[data-mt-e]'))) {
+        const i = Number(g.dataset.mtE);
+        g.toggleAttribute('hidden', i > week);
+        g.classList.toggle('new', i === week);
+        g.classList.toggle('on', sel.has(i));
+        g.setAttribute('aria-pressed', sel.has(i) ? 'true' : 'false');
+      }
+      const done = solved.filter(Boolean).length;
+      ui.setScore(
+        `สัปดาห์ที่ ${week + 1} จาก ${p.edges.length} · เลือกไว้ ${sel.size} ทาง ยาวรวม ${total(p)} · ผ่านแล้ว ${done} สัปดาห์`,
+      );
+      if (nextBtn) nextBtn.disabled = week >= p.edges.length - 1;
+    }
+
+    function pass(msg: string): void {
+      solved[week] = true;
+      const p = puzzles[pi];
+      const all = solved.filter(Boolean).length === p.edges.length;
+      ui.setStatus(all ? `${msg} ครบทุกสัปดาห์ของชุดนี้แล้วครับ` : msg, 'good');
+      render();
+    }
+
+    function check(): void {
+      const p = puzzles[pi];
+      const ans = p.ans[week];
+      if (ans < 0) {
+        ui.setStatus('สัปดาห์นี้ยังไม่มีชุดทางไหนพาไปถึงทุกจุดได้เลยครับ ดูว่าจุดไหนยังไม่มีทางแตะ', 'bad');
+        return;
+      }
+      if (components(p) > 1) {
+        ui.setStatus('ยังมีจุดที่เดินไปไม่ถึง ลองเลือกทางเพิ่ม', 'bad');
+        return;
+      }
+      const s = total(p);
+      if (s === ans) pass(`ถูกต้อง ยาวรวม ${ans} สั้นที่สุดของสัปดาห์นี้แล้ว`);
+      else ui.setStatus(`ถึงกันครบแล้ว ยาวรวม ${s} แต่สัปดาห์นี้ทำให้สั้นกว่านั้นได้`, 'plain');
+    }
+
+    function checkNone(): void {
+      const p = puzzles[pi];
+      if (p.ans[week] < 0) pass('ถูกครับ สัปดาห์นี้ต้องตอบ -1');
+      else ui.setStatus('สัปดาห์นี้มีชุดทางที่พาไปถึงทุกจุดได้แล้วครับ ลองหาดู', 'bad');
+    }
+
+    function nextWeek(): void {
+      const p = puzzles[pi];
+      if (week >= p.edges.length - 1) return;
+      week++;
+      const e = p.edges[week];
+      ui.setStatus(`ทางใหม่ของสัปดาห์นี้คือ ${e.u}-${e.v} ยาว ${e.z} (สีทอง) ทางที่เลือกไว้เมื่อสัปดาห์ก่อนยังค้างอยู่`, 'plain');
+      render();
+    }
+
+    function toggle(i: number): void {
+      if (i > week) return;
+      if (sel.has(i)) sel.delete(i);
+      else sel.add(i);
+      ui.setStatus('เลือกเสร็จแล้วกดส่งชุดนี้ หรือถ้าคิดว่ายังไปไม่ถึงทุกจุด กดปุ่ม -1', 'plain');
+      render();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      week = 0;
+      sel = new Set<number>();
+      solved = puzzles[pi].edges.map(() => false);
+      ui.selectTab(k);
+      ui.setTease(puzzles[pi].tease);
+      ui.setStatus('กดที่ทางเพื่อเลือกดูแลหรือเลิกดูแล ทางสีทองคือทางที่เพิ่งเจอในสัปดาห์นี้');
+      render();
+    }
+
+    function edgeFrom(t: EventTarget | null): number | null {
+      if (!(t instanceof Element)) return null;
+      const g = t.closest('[data-mt-e]');
+      if (!(g instanceof SVGGElement)) return null;
+      return Number(g.dataset.mtE);
+    }
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      const i = edgeFrom(e.target);
+      if (i !== null) toggle(i);
+    });
+    ui.root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const i = edgeFrom(e.target);
+      if (i === null) return;
+      e.preventDefault();
+      toggle(i);
+    });
+
+    ui.onClick('data-mt-clear', () => {
+      sel = new Set<number>();
+      render();
+    });
+    ui.onClick('data-mt-check', check);
+    ui.onClick('data-mt-none', checkNone);
+    ui.onClick('data-mt-next', nextWeek);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initMaintainGame);
+</script>
+
+<script>
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
+
+  document.addEventListener('astro:page-load', () => {
+    initCpRowPlayers('[data-mtsim]');
+  });
+</script>
