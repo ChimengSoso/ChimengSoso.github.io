@@ -284,7 +284,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dsu', 'segment tree', 'offline', 'divide and conquer', 'พื้นฐาน'],
     difficulty: 4,
     dateISO: '2026-09-10',
-    readingMinutes: 27,
+    readingMinutes: 32,
   },
   {
     href: 'pick-books/',
