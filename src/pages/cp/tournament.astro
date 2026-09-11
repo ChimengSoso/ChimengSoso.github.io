@@ -1,0 +1,1351 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'tournament/';
+
+/* ===================================================================
+   โมเดลของโจทย์ ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ห้ามพิมพ์มือ
+
+   หน้านี้สอนวิธี "ก้อนของตำแหน่งตั้งต้น + บิตชนะต่อรอบ + กวาดครั้งเดียว"
+   เฉลยของทุกรูปและทุกชุดในเกมจึงคิดด้วยวิธีที่ไม่ได้สอน คือจำลองแถวจริง
+   ทีละตำแหน่ง แล้วเอาสองวิธีมาชนกันตอนบิลด์ ถ้าไม่ตรงหน้านี้จะไม่ขึ้น
+   =================================================================== */
+
+type Rnd = { s: number; e: number };
+type Case = { N: number; R: number; K: number[]; rounds: Rnd[] };
+type Res = 'win' | 'lose' | 'skip' | 'gone' | 'none';
+type Step = { line: number[]; fight: Rnd | null; res: Res; winIdx: number };
+
+const rd = (s: number, e: number): Rnd => ({ s, e });
+
+/** แถวจริงเมื่อแทรกคนมาสายไว้ที่ช่อง p */
+function lineFor(c: Case, p: number): number[] {
+  const line: number[] = [];
+  for (let i = 0; i < p; i++) line.push(c.K[i]);
+  line.push(c.R);
+  for (let i = p; i + 1 < c.N; i++) line.push(c.K[i]);
+  return line;
+}
+
+/** ตัวตรวจ จำลองตามตัวหนังสือของโจทย์ ไม่มีก้อน ไม่มีบิต ไม่มีอะไรร่วมกับเฉลย */
+function walk(c: Case, p: number): Step[] {
+  let line = lineFor(c, p);
+  let alive = true;
+  const steps: Step[] = [];
+  for (const r of c.rounds) {
+    if (!(r.s >= 0 && r.s < r.e && r.e < line.length)) throw new Error('tournament: รอบไม่ถูกต้อง');
+    let mi = r.s;
+    let here = false;
+    for (let i = r.s; i <= r.e; i++) {
+      if (line[i] > line[mi]) mi = i;
+      if (line[i] === c.R) here = true;
+    }
+    let res: Res;
+    if (!alive) res = 'gone';
+    else if (!here) res = 'skip';
+    else if (line[mi] === c.R) res = 'win';
+    else {
+      res = 'lose';
+      alive = false;
+    }
+    const nl = line.slice(0, r.s);
+    nl.push(line[mi]);
+    for (let i = r.e + 1; i < line.length; i++) nl.push(line[i]);
+    steps.push({ line: [...line], fight: r, res, winIdx: mi });
+    line = nl;
+  }
+  steps.push({ line, fight: null, res: 'none', winIdx: -1 });
+  return steps;
+}
+
+/** จำนวนรอบที่คนมาสายชนะ ถ้าแทรกที่ช่อง p ทุกค่า p */
+function winsLiteral(c: Case): number[] {
+  return Array.from({ length: c.N }, (_, p) => walk(c, p).filter((s) => s.res === 'win').length);
+}
+
+/** วิธีที่หน้านี้สอน ขั้นที่หนึ่ง ก้อนของตำแหน่งตั้งต้นที่แต่ละรอบยุบรวมกัน */
+function blocksOf(c: Case): { a: number; b: number }[] {
+  let lo = Array.from({ length: c.N }, (_, i) => i);
+  let hi = Array.from({ length: c.N }, (_, i) => i);
+  const out: { a: number; b: number }[] = [];
+  for (const r of c.rounds) {
+    const a = lo[r.s];
+    const b = hi[r.e];
+    out.push({ a, b });
+    const nlo = lo.slice(0, r.s);
+    const nhi = hi.slice(0, r.s);
+    nlo.push(a);
+    nhi.push(b);
+    for (let i = r.e + 1; i < lo.length; i++) {
+      nlo.push(lo[i]);
+      nhi.push(hi[i]);
+    }
+    lo = nlo;
+    hi = nhi;
+  }
+  return out;
+}
+
+/** วิธีที่หน้านี้สอน ครบสามขั้น เขียนแบบตรงไปตรงมาเพราะตัวอย่างเล็ก */
+function winsTaught(c: Case): { ans: number[]; blk: { a: number; b: number }[]; win: boolean[]; pre: number[] } {
+  const blk = blocksOf(c);
+  const pre = new Array<number>(c.N).fill(0);
+  for (let i = 0; i + 1 < c.N; i++) pre[i + 1] = pre[i] + (c.K[i] > c.R ? 1 : 0);
+  const win = blk.map((b) => pre[b.b] - pre[b.a] === 0);
+  const ans = new Array<number>(c.N).fill(-1);
+  const add = new Array<number>(c.N).fill(0);
+  const dead = new Array<boolean>(c.N).fill(false);
+  blk.forEach((b, j) => {
+    for (let p = b.a; p <= b.b; p++) {
+      if (dead[p]) continue;
+      if (win[j]) add[p]++;
+      else {
+        ans[p] = add[p];
+        dead[p] = true;
+      }
+    }
+  });
+  for (let p = 0; p < c.N; p++) if (ans[p] < 0) ans[p] = add[p];
+  return { ans, blk, win, pre };
+}
+
+/** ค่าพลังทั้งกองต้องเป็น {0,...,N-1} พอดี บรรทัดขอบเขตในไฟล์โจทย์ถูกตัดกลางประโยค
+ *  ข้อนี้จึงเป็นสิ่งที่ผมตรวจเองจากตัวอย่าง ไม่ใช่สิ่งที่โจทย์เขียนไว้ครบ */
+function isFullPermutation(c: Case): boolean {
+  const all = [...c.K, c.R].sort((x, y) => x - y);
+  return all.length === c.N && all.every((v, i) => v === i);
+}
+
+const same = (x: number[], y: number[]): boolean => x.length === y.length && x.every((v, i) => v === y[i]);
+
+/** ด่านตรวจกลาง ใช้กับทั้งตัวอย่างในโจทย์และทุกชุดของเกม */
+function verify(tag: string, c: Case, expect: number[]): number[] {
+  if (c.K.length !== c.N - 1) throw new Error(`tournament ${tag}: จำนวนอัศวินเดิมต้องเป็น N-1`);
+  if (!isFullPermutation(c)) throw new Error(`tournament ${tag}: ค่าพลังไม่ครบ 0 ถึง N-1`);
+  if (!(c.rounds.length > 1 && c.rounds.length < c.N - 1)) throw new Error(`tournament ${tag}: C ต้องอยู่ในช่วง 1 < C < N-1`);
+  const lit = winsLiteral(c);
+  if (!same(lit, expect)) throw new Error(`tournament ${tag}: ตัวตรวจได้ ${lit.join(',')} ไม่ตรงกับค่าที่หน้านี้อ้างคือ ${expect.join(',')}`);
+  if (!same(lit, winsTaught(c).ans)) throw new Error(`tournament ${tag}: วิธีที่สอนไม่ตรงกับตัวตรวจ`);
+  return lit;
+}
+
+/* ---------- ตัวอย่างในโจทย์ ---------- */
+const S1: Case = { N: 5, R: 3, K: [1, 0, 2, 4], rounds: [rd(1, 3), rd(0, 1), rd(0, 1)] };
+const S2: Case = {
+  N: 10,
+  R: 3,
+  K: [6, 2, 9, 8, 1, 5, 4, 0, 7],
+  rounds: [rd(4, 5), rd(1, 2), rd(0, 1), rd(4, 5), rd(3, 5), rd(1, 3), rd(0, 1)],
+};
+const S1_WINS = verify('ตัวอย่าง 1', S1, [1, 2, 2, 2, 0]);
+const S2_WINS = verify('ตัวอย่าง 2', S2, [0, 1, 1, 0, 1, 1, 0, 1, 1, 0]);
+
+const maxOf = (w: number[]): number => w.reduce((a, b) => (b > a ? b : a), w[0]);
+const S1_MAX = maxOf(S1_WINS);
+const S1_BEST = S1_WINS.indexOf(S1_MAX);
+const S1_TIES = S1_WINS.filter((v) => v === S1_MAX).length;
+const S2_MAX = maxOf(S2_WINS);
+const S2_BEST = S2_WINS.indexOf(S2_MAX);
+const S2_TIES = S2_WINS.filter((v) => v === S2_MAX).length;
+const SAMPLE_OUT = 1;
+if (S1_BEST !== SAMPLE_OUT || S2_BEST !== SAMPLE_OUT) throw new Error('tournament: ตำแหน่งเลขน้อยสุดของทั้งสองตัวอย่างต้องเป็น 1');
+/* ตัวอย่างที่ 1 คือชุดที่ชี้ขาดว่าเอาต์พุตคือตำแหน่ง ไม่ใช่จำนวนรอบที่ชนะ */
+if (S1_MAX === SAMPLE_OUT) throw new Error('tournament: ตัวอย่าง 1 ต้องมีจำนวนรอบสูงสุดไม่เท่ากับเอาต์พุต ไม่งั้นมันไม่ได้ชี้ขาดอะไร');
+/* ส่วนตัวอย่างที่ 2 แยกสองความหมายนี้ไม่ออก เพราะบังเอิญค่าเท่ากัน */
+const S2_AMBIGUOUS = S2_MAX === SAMPLE_OUT;
+if (!S2_AMBIGUOUS) throw new Error('tournament: ตัวอย่าง 2 ควรแยกสองความหมายไม่ออก');
+
+/* ---------- ด่านตรวจตอนบิลด์ สุ่มเคสเล็กแล้วชนสองวิธี ---------- */
+const SWEEP = 4000;
+let sweepDone = 0;
+{
+  let seed = 1357924680;
+  const rnd = (m: number): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % m;
+  };
+  for (let t = 0; t < SWEEP; t++) {
+    const N = 3 + rnd(7);
+    const C = 2 + rnd(Math.max(1, N - 3));
+    if (!(C < N - 1)) continue;
+    const perm = Array.from({ length: N }, (_, i) => i);
+    for (let i = N - 1; i > 0; i--) {
+      const j = rnd(i + 1);
+      const tmp = perm[i];
+      perm[i] = perm[j];
+      perm[j] = tmp;
+    }
+    let cnt = N;
+    const rounds: Rnd[] = [];
+    let ok = true;
+    for (let j = 0; j < C; j++) {
+      if (cnt < 2) {
+        ok = false;
+        break;
+      }
+      const s = rnd(cnt - 1);
+      const e = s + 1 + rnd(cnt - 1 - s);
+      rounds.push(rd(s, e));
+      cnt -= e - s;
+    }
+    if (!ok) continue;
+    const c: Case = { N, R: perm[0], K: perm.slice(1), rounds };
+    if (!same(winsLiteral(c), winsTaught(c).ans)) throw new Error('tournament: วิธีที่สอนไม่ตรงกับตัวตรวจในด่านสุ่ม');
+    sweepDone++;
+  }
+}
+
+/* ---------- ร่องรอยของตัวอย่างที่ 1 สำหรับรูปแรก ---------- */
+const D1_CELL = 40;
+const D1_PITCH = 46;
+const D1_X0 = 54;
+const D1_RH = 30;
+const D1_ROWY = [40, 88, 136, 184];
+const D1_PANEL = 372;
+const RES_TH: Record<Res, string> = { win: 'ชนะ', lose: 'แพ้', skip: 'ไม่ได้ลง', gone: 'ตกไปแล้ว', none: '' };
+
+type D1Cell = { x: number; v: number; late: boolean; fight: boolean; won: boolean };
+type D1Row = { y: number; label: string; res: string; kind: Res; cells: D1Cell[] };
+type D1Panel = { ox: number; title: string; rows: D1Row[]; ruler: { x: number; i: number }[] };
+
+function panel1(p: number, ox: number): D1Panel {
+  const steps = walk(S1, p);
+  const wins = steps.filter((s) => s.res === 'win').length;
+  const rows: D1Row[] = steps.map((st, i) => ({
+    y: D1_ROWY[i],
+    label: st.fight ? `รอบ ${i + 1}` : 'จบ',
+    res: RES_TH[st.res],
+    kind: st.res,
+    cells: st.line.map((v, j) => ({
+      x: ox + D1_X0 + j * D1_PITCH,
+      v,
+      late: v === S1.R,
+      fight: st.fight !== null && j >= st.fight.s && j <= st.fight.e,
+      won: st.fight !== null && j === st.winIdx,
+    })),
+  }));
+  return {
+    ox,
+    title: `แทรกที่ช่อง ${p} ${String.fromCharCode(183)} ชนะ ${wins} รอบ`,
+    rows,
+    ruler: Array.from({ length: S1.N }, (_, j) => ({ x: ox + D1_X0 + j * D1_PITCH + D1_CELL / 2, i: j })),
+  };
+}
+const D1_PANELS = [panel1(S1_BEST, 0), panel1(S1.N - 1, D1_PANEL)];
+const D1_W = D1_PANEL + D1_X0 + 4 * D1_PITCH + D1_CELL + 10 + 48 + 12;
+const D1_H = D1_ROWY[D1_ROWY.length - 1] + D1_RH + 34;
+const D1_FAR_WINS = S1_WINS[S1.N - 1];
+
+/* ---------- รูปที่สอง ก้อนของตำแหน่งตั้งต้น ---------- */
+const S1_T = winsTaught(S1);
+const D2_X0 = 100;
+const D2_SW = 106;
+const D2_SLOTY = 30;
+const D2_SLOTH = 30;
+const D2_KY = 70;
+const D2_KH = 26;
+const D2_BARY = [108, 148, 188];
+const D2_BARH = 30;
+const D2_SLOTS = Array.from({ length: S1.N }, (_, i) => ({ x: D2_X0 + i * D2_SW, i }));
+const D2_KS = S1.K.map((v, i) => ({ x: D2_X0 + i * D2_SW + D2_SW / 2, v, i, strong: v > S1.R }));
+const D2_BARS = S1_T.blk.map((b, j) => {
+  const strong = S1_T.pre[b.b] - S1_T.pre[b.a];
+  const dot = String.fromCharCode(183);
+  return {
+    x: D2_X0 + b.a * D2_SW,
+    w: (b.b - b.a + 1) * D2_SW,
+    y: D2_BARY[j],
+    win: S1_T.win[j],
+    text: S1_T.win[j]
+      ? `รอบ ${j + 1} ${dot} ก้อน [${b.a}, ${b.b}] ${dot} ไม่มีใครแรงกว่า ${S1.R} ${dot} ชนะ`
+      : `รอบ ${j + 1} ${dot} ก้อน [${b.a}, ${b.b}] ${dot} มีคนแรงกว่า ${S1.R} อยู่ ${strong} คน ${dot} แพ้`,
+  };
+});
+const D2_W = D2_X0 + S1.N * D2_SW + 12;
+const D2_H = D2_BARY[D2_BARY.length - 1] + D2_BARH + 34;
+
+/* ---------- ตารางกวาดของตัวอย่างที่ 1 ---------- */
+const sweepRows = S1_T.blk.map((b, j) => {
+  const inBlock = Array.from({ length: b.b - b.a + 1 }, (_, k) => b.a + k);
+  return {
+    j: j + 1,
+    se: `${S1.rounds[j].s} ถึง ${S1.rounds[j].e}`,
+    block: `[${b.a}, ${b.b}]`,
+    strong: S1_T.pre[b.b] - S1_T.pre[b.a],
+    win: S1_T.win[j],
+    effect: S1_T.win[j]
+      ? `บวก 1 ให้ช่อง ${inBlock.join(', ')} ที่ยังไม่ตาย`
+      : `ช่อง ${inBlock.join(', ')} ที่ยังไม่ตาย ตกรอบพร้อมกัน ล็อกคะแนนไว้ตรงนั้น`,
+  };
+});
+
+/* ---------- มินิเกม เฉลยของทุกชุดคิดด้วยการจำลองตรง ๆ ---------- */
+type Chip = { t: string; k: Res };
+type TrapKind = 'far' | 'weak';
+type Puzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  N: number;
+  R: number;
+  K: number[];
+  rounds: [number, number][];
+  wins: number[];
+  max: number;
+  best: number;
+  ties: number;
+  chips: Chip[][];
+  trapP: number;
+  trapWhy: string;
+};
+
+const TRAP_WHY: Record<TrapKind, string> = {
+  far: 'ไปยืนสุดปลายแถวเพราะคิดว่าจะได้เจอการต่อสู้น้อยที่สุด',
+  weak: 'ไปยืนข้างคนที่อ่อนที่สุดในแถวเพราะคิดว่าจะชนะง่ายที่สุด',
+};
+
+function makePuzzle(id: string, label: string, tease: string, c: Case, expect: number[], trap: TrapKind): Puzzle {
+  const wins = verify(`ชุด ${id}`, c, expect);
+  const max = maxOf(wins);
+  const trapP = trap === 'far' ? c.N - 1 : c.K.indexOf(Math.min(...c.K));
+  if (wins[trapP] >= max)
+    throw new Error(`tournament ชุด ${id}: ท่าที่ควรเป็นกับดักได้ ${wins[trapP]} รอบ ซึ่งไม่แพ้ค่าสูงสุด ${max} จึงไม่ใช่กับดักจริง`);
+  const chips = Array.from({ length: c.N }, (_, p) =>
+    walk(c, p)
+      .filter((s) => s.fight !== null)
+      .map((s, j) => ({ t: `รอบ ${j + 1}`, k: s.res })),
+  );
+  return {
+    id,
+    label,
+    tease,
+    N: c.N,
+    R: c.R,
+    K: c.K,
+    rounds: c.rounds.map((r): [number, number] => [r.s, r.e]),
+    wins,
+    max,
+    best: wins.indexOf(max),
+    ties: wins.filter((v) => v === max).length,
+    chips,
+    trapP,
+    trapWhy: TRAP_WHY[trap],
+  };
+}
+
+const P_B: Case = { N: 7, R: 5, K: [6, 1, 4, 0, 2, 3], rounds: [rd(4, 5), rd(4, 5), rd(0, 1), rd(0, 3)] };
+const P_C: Case = { N: 7, R: 6, K: [2, 3, 4, 5, 0, 1], rounds: [rd(2, 3), rd(1, 2), rd(0, 1), rd(2, 3)] };
+const P_D: Case = { N: 8, R: 6, K: [5, 3, 7, 4, 2, 1, 0], rounds: [rd(3, 4), rd(4, 5), rd(3, 4), rd(0, 1), rd(0, 3)] };
+
+const puzzles: Puzzle[] = [
+  makePuzzle(
+    'a',
+    'ตัวอย่างในโจทย์',
+    'ชุดอุ่นเครื่อง เดินตามที่อ่านมาข้างบนได้เลย ลองกดช่องท้ายแถวดูด้วยว่าเกิดอะไรขึ้น',
+    S1,
+    S1_WINS,
+    'far',
+  ),
+  makePuzzle(
+    'b',
+    'มีคนแรงกว่ายืนขวางอยู่',
+    'ในแถวนี้มีอัศวินที่แรงกว่าคนมาสายอยู่หนึ่งคน ถ้าทั้งคู่โดนเรียกลงสนามพร้อมกันเมื่อไร จบทันที',
+    P_B,
+    [0, 0, 0, 0, 2, 2, 1],
+    'weak',
+  ),
+  makePuzzle(
+    'c',
+    'คนมาสายแรงที่สุดในสนาม',
+    'ชุดนี้คนมาสายแรงที่สุด เขาไม่มีทางแพ้เลยสักรอบ แล้วทำไมบางช่องยังได้ศูนย์',
+    P_C,
+    [1, 2, 3, 3, 0, 1, 1],
+    'weak',
+  ),
+  makePuzzle(
+    'd',
+    'ดีเท่ากันหลายช่อง',
+    'ชุดนี้มีหลายช่องที่ให้ผลดีที่สุดเท่ากัน หาให้เจอว่ามีกี่ช่อง แล้วช่องไหนคือคำตอบที่ต้องพิมพ์',
+    P_D,
+    [1, 1, 0, 2, 2, 2, 2, 0],
+    'far',
+  ),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+const PB = puzzles[1];
+const PC = puzzles[2];
+const PD = puzzles[3];
+
+/* ---------- ขอบเขตกับบิลค่าใช้จ่าย ---------- */
+const N_MAX = 99999;
+const C_MAX = N_MAX - 2;
+const NAIVE_PAIRS = N_MAX * C_MAX;
+const TIME_LIMIT = 1.0;
+const MEASURED_LO = 0.03;
+const MEASURED_HI = 0.07;
+const EXH_CASES = 25929102;
+const STRESS_CASES = 12144;
+const TOTAL_CASES = EXH_CASES + STRESS_CASES;
+if (TOTAL_CASES !== 25941246) throw new Error('tournament: จำนวนเคสที่ตรวจรวมไม่ตรงกับที่รันจริง');
+const fmt = (v: number): string => v.toLocaleString('en-US');
+
+const solution = `// IOI 2012 "Tournament" (programming.in.th task 2040) - full solution, O((N + C) log N)
+//
+// Idea:
+//   1) The merge structure is independent of the strengths and of the insert position.
+//      Every surviving knight represents a contiguous block of INITIAL positions 0..N-1,
+//      so round j merges current elements S_j..E_j into one block [A_j, B_j] of initial
+//      positions.  A Fenwick tree with find-kth gives A_j, B_j in O(log N) each.
+//   2) Treat the late knight as immortal.  Up to and including the first round he loses,
+//      the immortal run is identical to the real run, so counting his wins in the immortal
+//      run until the first loss is exactly the answer.
+//   3) Inserting him at position p means he occupies initial position p.  He takes part in
+//      round j iff p is in [A_j, B_j], and (during the prefix before his first loss) he wins
+//      iff no knight stronger than R sits anywhere in [A_j, B_j] other than himself, i.e.
+//      iff sum f[A_j .. B_j - 1] == 0 where f[i] = (K[i] > R).  That condition does not
+//      depend on p, only on the round -> one bit per round.
+//   4) Sweep the rounds in order: a winning round adds +1 to every still-alive p in
+//      [A_j, B_j] (range-add / point-query Fenwick), a losing round kills every still-alive
+//      p in the range (DSU "next alive" pointer), freezing its answer.  Each p dies once.
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace fastsol {
+
+struct Fen {
+    int n;
+    vector<int> t;
+    void init(int n_) { n = n_; t.assign(n + 1, 0); }
+    void add(int i, int v) { for (++i; i <= n; i += i & -i) t[i] += v; }
+    int sum(int i) const { int s = 0; for (++i; i > 0; i -= i & -i) s += t[i]; return s; }
+    // 0-indexed k-th set position (assumes it exists)
+    int kth(int k) const {
+        int pos = 0, rem = k + 1, LOG = 0;
+        while ((1 << (LOG + 1)) <= n) ++LOG;
+        for (int pw = 1 << LOG; pw > 0; pw >>= 1) {
+            if (pos + pw <= n && t[pos + pw] < rem) { pos += pw; rem -= t[pos]; }
+        }
+        return pos;
+    }
+};
+
+// returns {best insert position (smallest one achieving the max), max number of wins}
+pair<int, int> solve(int N, int C, int R, const vector<int>& K,
+                     const vector<pair<int, int>>& rounds,
+                     vector<int>* out = nullptr) {
+    // ---- 1) block of initial positions merged by each round -------------------
+    Fen act;
+    act.init(N);
+    for (int i = 0; i < N; ++i) act.add(i, 1);
+    int cnt = N;
+    vector<int> A(C), B(C);
+    for (int j = 0; j < C; ++j) {
+        int S = rounds[j].first, E = rounds[j].second;
+        int a = act.kth(S);
+        int b = (E + 1 < cnt) ? act.kth(E + 1) - 1 : N - 1;
+        A[j] = a; B[j] = b;
+        for (int r = S + 1; r <= E; ++r) act.add(act.kth(S + 1), -1); // absorb the losers
+        cnt -= (E - S);
+    }
+
+    // ---- 2) per-round win flag ------------------------------------------------
+    // pre[i] = number of original knights among K[0..i-1] that are stronger than R
+    vector<int> pre(N, 0);                       // K has N-1 entries, so pre has N entries
+    for (int i = 0; i + 1 < N; ++i) pre[i + 1] = pre[i] + (K[i] > R ? 1 : 0);
+    vector<char> win(C);
+    for (int j = 0; j < C; ++j) win[j] = (pre[B[j]] - pre[A[j]] == 0);
+
+    // ---- 3) sweep -------------------------------------------------------------
+    Fen diff;                 // range add, point query
+    diff.init(N + 1);
+    vector<int> nxt(N + 2);   // DSU: next still-alive position >= i
+    for (int i = 0; i < N + 2; ++i) nxt[i] = i;
+    function<int(int)> find = [&](int x) {
+        while (nxt[x] != x) { nxt[x] = nxt[nxt[x]]; x = nxt[x]; }
+        return x;
+    };
+    vector<int> ans(N, -1);
+
+    for (int j = 0; j < C; ++j) {
+        int a = A[j], b = B[j];
+        if (win[j]) {
+            diff.add(a, 1);
+            if (b + 1 <= N) diff.add(b + 1, -1);
+        } else {
+            for (int p = find(a); p <= b; p = find(p + 1)) {
+                ans[p] = diff.sum(p);   // frozen at the moment he is knocked out
+                nxt[p] = p + 1;         // dead
+            }
+        }
+    }
+    for (int p = 0; p < N; ++p) if (ans[p] < 0) ans[p] = diff.sum(p);
+
+    int bestP = 0, bestV = ans[0];
+    for (int p = 1; p < N; ++p) if (ans[p] > bestV) { bestV = ans[p]; bestP = p; }
+    if (out) *out = ans;
+    return {bestP, bestV};
+}
+
+} // namespace fastsol
+
+#ifndef STRESS_BUILD
+int main() {
+    int N, C, R;
+    if (scanf("%d %d %d", &N, &C, &R) != 3) return 0;
+    vector<int> K(N - 1);
+    for (int i = 0; i + 1 < N; ++i) scanf("%d", &K[i]);
+    vector<pair<int, int>> rounds(C);
+    for (int j = 0; j < C; ++j) scanf("%d %d", &rounds[j].first, &rounds[j].second);
+    pair<int, int> r = fastsol::solve(N, C, R, K, rounds);
+    printf("%d\\n", r.first);
+    return 0;
+}
+#endif`;
+const bruteCode = `// IOI 2012 "Tournament" - honest brute force oracle.
+// For each of the N insert positions, build the explicit line and simulate every round
+// literally: scan the range S..E, find the strongest, rebuild the line with only that
+// knight kept in the range.  Count a win whenever the late knight is inside the range and
+// turns out to be the strongest.  No structure is shared with the fast solution.
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace brutesol {
+
+pair<int, int> solve(int N, int C, int R, const vector<int>& K,
+                     const vector<pair<int, int>>& rounds,
+                     vector<int>* out = nullptr) {
+    int bestP = -1, bestV = -1;
+    if (out) out->assign(N, 0);
+    for (int p = 0; p < N; ++p) {
+        vector<int> line;
+        line.reserve(N);
+        for (int i = 0; i < p; ++i) line.push_back(K[i]);
+        line.push_back(R);
+        for (int i = p; i + 1 < N; ++i) line.push_back(K[i]);
+
+        int wins = 0;
+        for (int j = 0; j < C; ++j) {
+            int S = rounds[j].first, E = rounds[j].second;
+            if (E >= (int)line.size()) { fprintf(stderr, "invalid round\\n"); exit(1); }
+            int mi = S;
+            bool lateHere = false;
+            for (int i = S; i <= E; ++i) {
+                if (line[i] > line[mi]) mi = i;
+                if (line[i] == R) lateHere = true;
+            }
+            if (lateHere && line[mi] == R) ++wins;
+            vector<int> nl;
+            nl.reserve(line.size());
+            for (int i = 0; i < S; ++i) nl.push_back(line[i]);
+            nl.push_back(line[mi]);
+            for (int i = E + 1; i < (int)line.size(); ++i) nl.push_back(line[i]);
+            line.swap(nl);
+        }
+        if (out) (*out)[p] = wins;
+        if (wins > bestV) { bestV = wins; bestP = p; }
+    }
+    return {bestP, bestV};
+}
+
+} // namespace brutesol
+
+#ifndef STRESS_BUILD
+int main() {
+    int N, C, R;
+    if (scanf("%d %d %d", &N, &C, &R) != 3) return 0;
+    vector<int> K(N - 1);
+    for (int i = 0; i + 1 < N; ++i) scanf("%d", &K[i]);
+    vector<pair<int, int>> rounds(C);
+    for (int j = 0; j < C; ++j) scanf("%d %d", &rounds[j].first, &rounds[j].second);
+    pair<int, int> r = brutesol::solve(N, C, R, K, rounds);
+    printf("%d\\n", r.first);
+    return 0;
+}
+#endif`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; อัศวินมาสาย</h2>
+  <p>
+    ทหาร <code>N</code> คนยืนเรียงเป็นเส้นตรง นับตำแหน่งจาก <code>0</code> ถึง <code>N-1</code>
+    ทุกคนมีค่าพลังไม่ซ้ำกัน ตั้งแต่ <code>0</code> คืออ่อนที่สุด ถึง <code>N-1</code> คือแรงที่สุด
+    เจ้าของงานจะเรียกประลองทั้งหมด <code>C</code> รอบ รอบหนึ่งเขาเอ่ยเลขสองตัวคือ <code>S</code> กับ <code>E</code>
+    ทุกคนที่ยืนอยู่ในช่วง <code>S</code> ถึง <code>E</code> ของแถว<strong>ตอนนั้น</strong> ต้องสู้กัน
+    คนที่พลังมากที่สุดชนะและยืนอยู่ที่เดิม ที่เหลือออกจากสนาม แล้วคนที่ยังอยู่ก็เบียดเข้าหากันและนับเลขตำแหน่งกันใหม่
+  </p>
+  <p>
+    ตอนนี้มีคนยืนอยู่แล้ว <code>N-1</code> คน ตามลำดับที่โจทย์ให้มา เหลืออัศวินหนึ่งคนที่มาสาย
+    พลังของเขาคือ <code>R</code> เราเลือกได้ว่าจะให้เขาไปแทรกตรงไหนของแถว
+    เป้าหมายคือให้เขา<strong>ชนะให้ได้มากรอบที่สุด</strong> รอบที่เขาไม่ได้ถูกเรียกลงสนามไม่นับ
+    และพอเขาแพ้ครั้งแรกเขาก็ออกจากสนามเหมือนคนอื่น
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> <code>C</code> <code>R</code>
+        ต่อด้วย <code>N-1</code> บรรทัด บรรทัดที่ <code>i</code> คือค่าพลังของคนที่ยืนอยู่ตำแหน่งที่ <code>i</code> ตั้งแต่แรก
+        แล้วปิดด้วย <code>C</code> บรรทัด บรรทัดละ <code>S</code> กับ <code>E</code> เรียงตามลำดับรอบ
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &lt; N &lt; 100000</code>, <code>1 &lt; C &lt; N-1</code>,
+        เวลา {TIME_LIMIT} วินาที หน่วยความจำ 64 เมกะไบต์ และในแต่ละรอบ <code>0 &le; S &lt; E</code>
+        โดย <code>E</code> ไม่เกินตำแหน่งสุดท้ายของแถวตอนนั้น
+      </li>
+      <li>
+        <strong>ข้อที่ผมตรวจเอง:</strong> บรรทัดขอบเขตของค่าพลังในไฟล์โจทย์ถูกตัดกลางอสมการ
+        ผมจึงเช็กกับตัวอย่างทั้งสองชุดเองว่า ค่าพลังของ <code>N-1</code> คนรวมกับ <code>R</code>
+        เป็นเลข <code>0</code> ถึง <code>N-1</code> ครบพอดีไม่ซ้ำกัน หน้านี้เช็กซ้ำตอนบิลด์ทุกครั้ง
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> <strong>ตำแหน่งที่ควรแทรก</strong> หนึ่งจำนวน
+        ไม่ใช่จำนวนรอบที่ชนะ อ่านกล่องถัดไปให้จบก่อนเขียนโค้ด
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {S1.N} {S1.rounds.length} {S1.R}<br />
+          {S1.K.map((v) => <>{v}<br /></>)}
+          {S1.rounds.map((r) => <>{r.s} {r.e}<br /></>)}
+        </td>
+        <td>{SAMPLE_OUT}</td>
+      </tr>
+      <tr>
+        <td>
+          {S2.N} {S2.rounds.length} {S2.R}<br />
+          {S2.K.map((v) => <>{v}<br /></>)}
+          {S2.rounds.map((r) => <>{r.s} {r.e}<br /></>)}
+        </td>
+        <td>{SAMPLE_OUT}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      ชุดแรกอ่านว่า มีคน {S1.N} คน ประลอง {S1.rounds.length} รอบ คนมาสายมีพลัง {S1.R}
+      อีก {S1.K.length} บรรทัดถัดมาคือแถวเดิม ({S1.K.join(', ')}) แล้ว {S1.rounds.length} บรรทัดสุดท้าย
+      คือคู่ <code>S E</code> ของแต่ละรอบ ({S1.rounds.map((r) => `${r.s} ${r.e}`).join(' / ')})
+      เลขคู่นี้เป็นตำแหน่งในแถว<strong>ขณะนั้น</strong> ไม่ใช่ตำแหน่งตั้งต้น พอจบรอบหนึ่งแถวสั้นลงและนับเลขใหม่
+      รอบต่อไปคำว่า "ตำแหน่ง 0" จึงหมายถึงคนละคนกับรอบที่แล้วได้
+    </p>
+    <p>
+      ทีนี้ถึงจุดที่พลาดกันมากที่สุด <strong>เอาต์พุตมีหน่วยเป็นตำแหน่งที่แทรก ไม่ใช่จำนวนรอบที่ชนะ</strong>
+      ถ้าเราลองแทรกครบทุกช่องของชุดแรก จำนวนรอบที่เขาชนะคือ {S1_WINS.join(', ')} ตามลำดับช่อง {0} ถึง {S1.N - 1}
+      ค่ามากที่สุดคือ {S1_MAX} แต่คำตอบที่โจทย์เฉลยคือ {SAMPLE_OUT} ใครที่คิดถูกทุกอย่างแล้วพิมพ์ {S1_MAX} ออกไปจะผิด
+      ทั้งที่คิดไม่ผิดเลย เลข {SAMPLE_OUT} มาจากช่องที่ได้ {S1_MAX} รอบซึ่งมีอยู่ {S1_TIES} ช่อง
+      (ช่อง {S1_WINS.map((v, i) => (v === S1_MAX ? i : -1)).filter((i) => i >= 0).join(', ')}) แล้วหยิบช่องที่เลขน้อยที่สุด
+    </p>
+    <p>
+      กฎ "เท่ากันให้เอาช่องเลขน้อยสุด" ตรงนี้ผม<strong>อนุมานจากตัวอย่างสองชุด</strong> ไม่ได้อ่านเจอในโจทย์
+      และชุดที่ชี้ขาดคือชุดแรกชุดเดียว เพราะชุดที่สองจำนวนรอบสูงสุดคือ {S2_MAX} ซึ่งบังเอิญเท่ากับเลขคำตอบพอดี
+      มันจึงแยกสองความหมายไม่ออก (ชุดที่สองมีช่องที่ดีที่สุดอยู่ {S2_TIES} ช่อง และช่องเลขน้อยสุดในนั้นคือ {S2_BEST})
+      ต้นฉบับของโจทย์นี้รับตำแหน่งที่ดีที่สุดช่องไหนก็ได้ ถ้าส่งแล้วโดนตีกลับทั้งที่มั่นใจในอัลกอริทึม
+      ให้สงสัยกติกาการตัดสินเสมอกันก่อนสงสัยอัลกอริทึม
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`เดินตัวอย่างชุดแรกสองแบบ ซ้ายคือแทรกที่ช่อง ${S1_BEST} ซึ่งเป็นคำตอบ ขวาคือแทรกสุดปลายแถว กรอบทองคือคนมาสาย กรอบเขียวคือคนที่ถูกเรียกลงสนามรอบนั้น กรอบเขียวหนาคือผู้ชนะของรอบ เลขบนสุดคือตำแหน่งตั้งต้น แบบขวาไม่ได้ลงสนามสองรอบแรกเลย พอโดนเรียกก็เจอ 4 ทันที จึงได้ ${D1_FAR_WINS} รอบ`}>
+    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="เปรียบเทียบการเดินแถวของตัวอย่างชุดแรก เมื่อแทรกอัศวินที่มาสายไว้สองตำแหน่งต่างกัน">
+      {D1_PANELS.map((pn) => (
+        <>
+          <text x={pn.ox + 4} y="14" fill="#cdd6ea" font-size="12" font-weight="700">{pn.title}</text>
+          {pn.ruler.map((t) => (
+            <text x={t.x} y="32" fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">{t.i}</text>
+          ))}
+          {pn.rows.map((row) => (
+            <>
+              <text x={pn.ox + 4} y={row.y + 20} fill="#9aa7bd" font-size="11">{row.label}</text>
+              {row.cells.map((cl) => (
+                <>
+                  <rect
+                    x={cl.x}
+                    y={row.y}
+                    width={D1_CELL}
+                    height={D1_RH}
+                    rx="6"
+                    fill={cl.late ? '#2a2410' : '#121a2b'}
+                    stroke={cl.fight ? (cl.won ? '#4ade80' : '#2f9e5c') : cl.late ? '#d9a441' : '#2a3350'}
+                    stroke-width={cl.won ? 2 : 1}
+                  />
+                  <text
+                    x={cl.x + D1_CELL / 2}
+                    y={row.y + 20}
+                    fill={cl.late ? '#f5d98a' : '#cdd6ea'}
+                    font-size="13"
+                    text-anchor="middle"
+                    font-family="monospace"
+                  >{cl.v}</text>
+                </>
+              ))}
+              <text
+                x={pn.ox + D1_X0 + 4 * D1_PITCH + D1_CELL + 10}
+                y={row.y + 20}
+                fill={row.kind === 'win' ? '#4ade80' : row.kind === 'lose' ? '#f0a6a6' : '#7b8397'}
+                font-size="11"
+              >{row.res}</text>
+            </>
+          ))}
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ท่าที่ตรงที่สุดคือลองแทรกให้ครบทุกช่องแล้วจำลองแถวดู แต่มีช่องให้ลอง <code>N</code> ช่อง
+      แต่ละช่องต้องเดิน <code>C</code> รอบ แค่คูณสองตัวนี้ที่ขอบเขตใหญ่สุดก็เป็น {fmt(NAIVE_PAIRS)} ครั้งแล้ว
+      ยังไม่นับว่าการเดินหนึ่งรอบต้องกวาดคนในช่วง <code>S</code> ถึง <code>E</code> อีก
+    </p>
+    <p>
+      ลองกลับไปดูรูปข้างบนอีกที เทียบสองฝั่งดูว่ารอบที่หนึ่งกินคนกลุ่มไหนของแถว<strong>ตั้งต้น</strong>
+      ฝั่งซ้ายมันกินช่อง 1 ถึง 3 ฝั่งขวามันกินช่องอะไร แล้วสองฝั่งนี้เหมือนกันหรือต่างกัน
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; เลือกช่องให้อัศวินที่มาสาย</h2>
+  <div class="cpgame trngame" data-trngame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+    <p class="trn-rounds" data-trn-rounds>&nbsp;</p>
+
+    <div class="cpg-scroll">
+      <div class="trn-line" data-trn-line></div>
+    </div>
+
+    <div class="trn-trace" data-trn-trace></div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-trn-reset>ลืมที่ลองไปแล้ว</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดช่องสีเทาช่องใดช่องหนึ่งเพื่อแทรกอัศวินที่มาสายลงตรงนั้น</p>
+    <p class="cpg-score" data-cpg-score></p>
+    <p class="cpg-hint">ช่องที่ลองแล้วจะติดเลขจำนวนรอบที่ชนะไว้ กดซ้ำได้ไม่จำกัด</p>
+    <p class="cpg-cap">
+      แถวสีน้ำเงินคืออัศวินที่ยืนอยู่แล้วพร้อมค่าพลัง ช่องสีเทาคั่นระหว่างพวกเขาคือที่ว่างที่แทรกได้
+      รายการรอบอยู่เหนือกระดาน ตัวเลข <code>S</code> กับ <code>E</code> นับบนแถว ณ ตอนนั้น
+    </p>
+  </div>
+  <p class="ns-cue">
+    ลองให้ครบทั้งสี่ชุดก่อนนะครับ โดยเฉพาะชุดที่สองกับชุดที่สาม
+    พอเริ่มเดาถูกว่าช่องไหนดีก่อนกด ค่อยไปดูเฉลย
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; แต่ละรอบยุบก้อนเดิม ไม่ว่าจะแทรกตรงไหน</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมไม่ได้ลองท่าอื่นแล้วทิ้ง เพราะท่าตรง ๆ ตายตั้งแต่คูณเลข ช่องให้แทรกมี <code>N</code> ช่อง
+        รอบมี <code>C</code> รอบ และขอบเขตบอกว่า <code>C</code> ไปได้ถึง <code>N-2</code>
+        แค่ {fmt(N_MAX)} คูณ {fmt(C_MAX)} ก็ {fmt(NAIVE_PAIRS)} แล้ว ยังไม่นับการกวาดช่วงในแต่ละรอบ
+        สิ่งที่ผมต้องหาจึงไม่ใช่ท่าที่เร็วขึ้นนิดหน่อย แต่เป็นของบางอย่างที่คิดครั้งเดียวแล้วใช้ได้กับทุกช่องพร้อมกัน
+      </p>
+      <p>
+        แรงกดดันนั้นพาไปสู่คำถามว่า อะไรในโจทย์ที่<strong>ไม่</strong>เปลี่ยนเมื่อเราย้ายที่แทรก
+        ลองนั่งเทียบสองฝั่งของรูปข้างบน จะเห็นว่าคนที่รอดต่างกันแน่นอน ฝั่งซ้ายรอบแรกเหลือ 3 ฝั่งขวาเหลือ 4
+        แต่<strong>ขอบของกลุ่มคนที่ถูกยุบรวมกัน</strong> อยู่ที่เดิมทั้งสองฝั่ง
+        ตรงนี้เป็นจุดที่คิดกลับด้านกันง่ายมาก เพราะสัญชาตญาณบอกว่าถ้าคนรอดเปลี่ยน ทุกอย่างข้างหลังก็ต้องเปลี่ยนตาม
+      </p>
+      <p>
+        บทเรียนที่เอาไปใช้ข้ออื่นได้คือ เวลาต้องตอบคำถามเดิมซ้ำ ๆ กับอินพุตที่ต่างกันนิดเดียว
+        ให้ไล่หาว่าส่วนไหนของกระบวนการเป็นของกลาง แล้วคิดส่วนนั้นให้จบก่อนครั้งเดียว
+      </p>
+    </div>
+    <p>
+      ตกลงกันเรื่องคำก่อน คำว่า<strong>ก้อน</strong>ในที่นี้หมายถึงช่วงของตำแหน่ง<strong>ตั้งต้น</strong>
+      คือเลข <code>0</code> ถึง <code>N-1</code> ของแถวก่อนประลองรอบแรก ไม่ใช่เลขตำแหน่งที่ขยับไปมาระหว่างเกม
+      ทุกคนที่ยังยืนอยู่ในสนามเป็นตัวแทนของก้อนหนึ่งก้อน ตอนเริ่มเกมทุกคนเป็นตัวแทนของก้อนขนาดหนึ่งคือตัวเอง
+      พอจบรอบที่กิน <code>S</code> ถึง <code>E</code> ก้อนของคนเหล่านั้นก็เชื่อมต่อกันเป็นก้อนเดียว
+      โดยมีผู้ชนะเป็นตัวแทนคนใหม่
+    </p>
+    <p>
+      ประเด็นอยู่ตรงนี้ ก้อนใหม่คือ <code>[A, B]</code> เดิมเสมอ ไม่ว่าใครจะเป็นคนชนะ
+      เพราะการชนะเปลี่ยนแค่ว่าใครถือก้อนนี้ไว้ ไม่ได้เปลี่ยนว่าก้อนกินตำแหน่งตั้งต้นไหนบ้าง
+      และค่าพลังของใครก็ไม่เกี่ยวกับเรื่องนี้เลย ลำดับของก้อนจึงคิดครั้งเดียวจบ ใช้ได้กับทั้ง <code>N</code> ช่องพร้อมกัน
+    </p>
+
+    <ZoomableDiagram caption={`ก้อนของตัวอย่างชุดแรก แถวบนคือช่องตั้งต้น 0 ถึง ${S1.N - 1} แถวกลางคืออัศวินเดิมทั้ง ${S1.K.length} คน วาดคร่อมรอยต่อของช่อง เพราะ K[i] จะไปอยู่ช่อง i หรือช่อง i+1 ก็ได้ แล้วแต่ว่าแทรกคนมาสายไว้ตรงไหน แถบล่างคือก้อนที่แต่ละรอบยุบรวม สังเกตว่าคนที่อยู่ในก้อน [A, B] ครบทั้งคนคือ K[A] ถึง K[B-1] เสมอ ไม่ขึ้นกับที่แทรก กล่องแดงคือคนที่แรงกว่า ${S1.R} ซึ่งเข้ามาอยู่ในก้อนครั้งแรกตอนรอบที่ ${S1_T.win.indexOf(false) + 1}`}>
+      <svg viewBox={`0 0 ${D2_W} ${D2_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="แผนภาพก้อนของตำแหน่งตั้งต้นที่แต่ละรอบยุบรวมกัน พร้อมตำแหน่งของอัศวินเดิมที่คร่อมรอยต่อของช่อง">
+        <text x="4" y={D2_SLOTY + 20} fill="#9aa7bd" font-size="11">ช่องตั้งต้น</text>
+        <text x="4" y={D2_KY + 18} fill="#9aa7bd" font-size="11">อัศวินเดิม</text>
+        {D2_SLOTS.map((s) => (
+          <>
+            <rect x={s.x} y={D2_SLOTY} width={D2_SW} height={D2_SLOTH} rx="6" fill="#121a2b" stroke="#2a3350" />
+            <text x={s.x + D2_SW / 2} y={D2_SLOTY + 20} fill="#cdd6ea" font-size="13" text-anchor="middle" font-family="monospace">{s.i}</text>
+          </>
+        ))}
+        {D2_KS.map((k) => (
+          <>
+            <rect
+              x={k.x}
+              y={D2_KY}
+              width={D2_SW}
+              height={D2_KH}
+              rx="6"
+              fill={k.strong ? '#2a1414' : '#101827'}
+              stroke={k.strong ? '#b23b3b' : '#2a3350'}
+            />
+            <text
+              x={k.x + D2_SW / 2}
+              y={D2_KY + 18}
+              fill={k.strong ? '#f0a6a6' : '#9aa7bd'}
+              font-size="11"
+              text-anchor="middle"
+              font-family="monospace"
+            >K{k.i} = {k.v}</text>
+          </>
+        ))}
+        {D2_BARS.map((b) => (
+          <>
+            <rect
+              x={b.x}
+              y={b.y}
+              width={b.w}
+              height={D2_BARH}
+              rx="6"
+              fill={b.win ? '#163a2a' : '#2a1414'}
+              stroke={b.win ? '#2f9e5c' : '#b23b3b'}
+            />
+            <text
+              x={b.x + b.w / 2}
+              y={b.y + 20}
+              fill={b.win ? '#a7f3c4' : '#f0a6a6'}
+              font-size="11"
+              text-anchor="middle"
+            >{b.text}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      การหาขอบ <code>[A, B]</code> ของแต่ละรอบก็แค่ถามว่า คนที่ยืนอยู่ตำแหน่งที่ <code>S</code> ของแถวตอนนี้
+      คือตัวแทนของก้อนที่เริ่มตรงไหน และคนที่ตำแหน่ง <code>E</code> คือก้อนที่จบตรงไหน
+      ท่ามาตรฐานคือทำเครื่องหมายว่าช่องตั้งต้นไหน "ยังเป็นหัวก้อนอยู่" แล้วถามหาหัวก้อนลำดับที่ <code>S</code>
+      ซึ่งเป็นคำถามที่ <a href="/cp/prefix-sums/">BIT</a> ตอบได้ด้วยการไต่ลงจากบนสุด
+      ใช้เวลา <code>log N</code> ต่อครั้ง ทั้งหมดจึงเป็น <code>C log N</code>
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; สมมติไปเลยว่าเขาไม่มีวันตาย</h2>
+  <Spoiler>
+    <p>
+      ปัญหาที่เหลือคือ พอคนมาสายแพ้แล้วเขาจะถูกถอดออกจากแถว แถวหลังจากนั้นก็เลยขึ้นกับว่าเราแทรกเขาไว้ตรงไหน
+      ก้อนที่เราเพิ่งคิดไว้ใช้ได้เพราะมันไม่ขึ้นกับค่าพลัง แต่มันคิดจากแถวที่มีเขาอยู่ตลอดเวลา
+    </p>
+    <p>
+      ทางออกคือสมมติว่าเขาอมตะ คือปล่อยให้เขาอยู่ในแถวต่อไปแม้แพ้แล้ว แล้วนับเฉพาะช่วงก่อนที่เขาจะแพ้ครั้งแรก
+      เหตุผลคือ<strong>ก่อนถึงรอบที่เขาแพ้ครั้งแรก แถวอมตะกับแถวจริงเหมือนกันทุกประการ</strong>
+      เขายังไม่เคยถูกถอด ทุกอย่างจึงเดินเหมือนกันเป๊ะ และรอบที่เขาแพ้ก็ยังเป็นรอบเดียวกัน
+      สิ่งที่ต่างกันเริ่มตั้งแต่<strong>หลัง</strong>รอบนั้น ซึ่งเป็นช่วงที่เราไม่นับคะแนนอยู่แล้ว
+    </p>
+    <p>
+      พูดอีกแบบ คำตอบของช่อง <code>p</code> คือจำนวนรอบที่เขาชนะในแถวอมตะ นับไปจนถึงรอบแรกที่เขาแพ้แล้วหยุด
+      พอคิดแบบนี้ได้ ก้อนชุดเดิมก็ใช้ได้ตลอดทั้งเกม เพราะแถวอมตะมีคนเท่าเดิมเสมอไม่ว่าจะแทรกตรงไหน
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; หนึ่งบิตต่อรอบ แล้วกวาดทีเดียว</h2>
+  <Spoiler>
+    <p>
+      สมมติเราแทรกเขาไว้ช่อง <code>p</code> เขาก็ยึดช่องตั้งต้นหมายเลข <code>p</code>
+      เขาจะได้ลงสนามในรอบที่ <code>j</code> ก็ต่อเมื่อ <code>p</code> อยู่ในก้อน <code>[A, B]</code> ของรอบนั้น
+      และเขาจะชนะรอบนั้นก็ต่อเมื่อในก้อนนั้นไม่มีใครแรงกว่าเขาเลย
+    </p>
+    <p>
+      คำถามคือ "ในก้อนนั้นมีใครบ้าง" คำตอบสวยกว่าที่คิด ถ้าแทรกเขาที่ช่อง <code>p</code>
+      ช่องตั้งต้นหมายเลข <code>i</code> จะถูกครองโดย <code>K[i]</code> เมื่อ <code>i</code> มาก่อน <code>p</code>
+      และถูกครองโดย <code>K[i-1]</code> เมื่อ <code>i</code> มาหลัง <code>p</code>
+      ดังนั้นคนที่อยู่ในก้อน <code>[A, B]</code> นอกจากตัวเขาเองก็คือ <code>K[A]</code> ถึง <code>K[B-1]</code> พอดี
+      ไม่ว่า <code>p</code> จะเป็นเท่าไร นี่คือสิ่งที่รูปที่สองพยายามบอกด้วยการวาดกล่องอัศวินคร่อมรอยต่อของช่อง
+    </p>
+    <p>
+      เงื่อนไขชนะจึงกลายเป็น "ผลรวมของ <code>K[A]</code> ถึง <code>K[B-1]</code> ที่แรงกว่า <code>R</code> เท่ากับศูนย์"
+      ซึ่งเป็นคำถามผลรวมช่วงบนอาเรย์คงที่ ตอบด้วยผลรวมสะสมได้ใน <code>O(1)</code>
+      และไม่มี <code>p</code> โผล่มาในเงื่อนไขเลย แต่ละรอบจึงเหลือ<strong>ข้อมูลแค่บิตเดียว</strong>
+      คือรอบนี้เป็นรอบที่ชนะหรือรอบที่แพ้ สำหรับทุกคนที่อยู่ในก้อนพร้อมกัน
+    </p>
+    <p>
+      ที่เหลือคือกวาดรอบตามลำดับแล้วดูแลช่องทั้ง <code>N</code> ช่องไปพร้อมกัน รอบที่เป็นบิตชนะ
+      แปลว่าทุกช่องในก้อนที่ยังไม่ตายได้แต้มเพิ่มหนึ่ง ซึ่งคือการบวกทั้งช่วงแล้วถามทีละจุด
+      ส่วนรอบที่เป็นบิตแพ้ แปลว่าทุกช่องในก้อนที่ยังไม่ตาย ตายพร้อมกันตรงนั้น และคะแนนของมันถูกล็อกไว้
+      การไล่เก็บเฉพาะช่องที่ยังไม่ตายในช่วงหนึ่ง คือตัวชี้ "ช่องที่ยังไม่ตายถัดไป" แบบ
+      <a href="/cp/dsu/">DSU</a> ซึ่งแต่ละช่องถูกแตะตอนตายครั้งเดียวในชีวิต รวมทั้งหมดจึงเป็น <code>N</code> ครั้ง
+    </p>
+
+    <figure class="tbl">
+      <table class="rec trn-sweep">
+        <caption>กวาดตัวอย่างชุดแรก</caption>
+        <thead>
+          <tr>
+            <th>รอบ</th>
+            <th>S ถึง E (แถวตอนนั้น)</th>
+            <th>ก้อนของช่องตั้งต้น</th>
+            <th class="num">คนแรงกว่า R ในก้อน</th>
+            <th>บิต</th>
+            <th>ผลต่อทุกช่องที่ยังไม่ตาย</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sweepRows.map((r) => (
+            <tr>
+              <td>{r.j}</td>
+              <td>{r.se}</td>
+              <td>{r.block}</td>
+              <td class="num">{r.strong}</td>
+              <td>{r.win ? 'ชนะ' : 'แพ้'}</td>
+              <td>{r.effect}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ค่าพลังของอัศวินเดิมคือ {S1.K.join(', ')} และคนมาสายมีพลัง {S1.R}
+        มีคนเดียวที่แรงกว่าเขาคือ {S1.K.filter((v) => v > S1.R).join(', ')} ซึ่งนั่งอยู่ปลายแถว
+        ก้อนสองรอบแรกจึงยังไม่แตะเขา รอบที่ {S1_T.win.indexOf(false) + 1} ก้อนกินทั้งแถวพอดี บิตจึงพลิกเป็นแพ้
+      </figcaption>
+    </figure>
+
+    <figure class="tbl">
+      <table class="rec trn-sweep">
+        <caption>ผลลัพธ์ต่อช่อง</caption>
+        <thead>
+          <tr>
+            <th>ช่องที่แทรก</th>
+            {S1_WINS.map((_, i) => <th class="num">{i}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>จำนวนรอบที่ชนะ</td>
+            {S1_WINS.map((v) => <td class="num">{v}</td>)}
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ช่อง 0 ไม่ได้อยู่ในก้อนของรอบแรก จึงได้แค่รอบที่สอง ช่อง {S1.N - 1} อยู่นอกก้อนสองรอบแรกทั้งคู่
+        พอถึงรอบสุดท้ายก้อนกินทั้งแถว เขาเลยลงสนามครั้งเดียวแล้วแพ้เลย ได้ {D1_FAR_WINS}
+        ค่าสูงสุดคือ {S1_MAX} มีอยู่ {S1_TIES} ช่อง คำตอบที่ต้องพิมพ์คือช่องเลขน้อยสุดในนั้น ได้ {SAMPLE_OUT}
+        ตัวเลขแถวนี้คิดจากการจำลองแถวตรง ๆ ตอนบิลด์ แล้วเทียบกับวิธีข้างบนว่าตรงกัน
+      </figcaption>
+    </figure>
+
+    <p>
+      รวมค่าใช้จ่ายทั้งหมด หาก้อนด้วย BIT เป็น <code>C log N</code> ตรวจบิตด้วยผลรวมสะสมเป็น <code>C</code>
+      บวกแต้มทั้งช่วงด้วย BIT อีกตัวเป็น <code>C log N</code> และถามทีละจุดตอนตายอีก <code>N log N</code>
+      รวมเป็น <code>O((N + C) log N)</code> ซึ่งพอสำหรับขอบเขตนี้แบบเหลือ ๆ
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 &middot; ทำไมสัญชาตญาณในเกมถึงพาไปผิดทาง</h2>
+  <Spoiler>
+    <p>
+      ชุด "{PB.label}" ในเกมเป็นชุดที่ลงโทษท่า{PB.trapWhy} ตำแหน่งที่สัญชาตญาณนั้นพาไปคือช่อง {PB.trapP}
+      ซึ่งได้ {PB.wins[PB.trapP]} รอบ ขณะที่ช่อง {PB.best} ได้ {PB.max} รอบ
+      เหตุผลอ่านออกจากก้อนได้ตรง ๆ คือการอยู่ข้างคนอ่อนไม่ได้แปลว่าจะได้สู้กับคนอ่อน
+      เพราะรอบหนึ่งกินทั้งก้อน ไม่ได้กินแค่เพื่อนบ้านสองข้าง สิ่งที่ต้องดูคือ
+      ก้อนที่ครอบช่องนั้นมีคนแรงกว่าเขาอยู่หรือเปล่า
+    </p>
+    <p>
+      ชุด "{PC.label}" เป็นอีกมุมหนึ่ง คนมาสายมีพลัง {PC.R} ซึ่งแรงที่สุดในสนาม บิตของทุกรอบจึงเป็นชนะหมด
+      คำถามเลยกลายเป็นว่าช่องไหนอยู่ในก้อนของรอบมากที่สุด ช่อง {PC.trapP} อยู่ในก้อนแค่ {PC.wins[PC.trapP]} รอบ
+      ส่วนช่อง {PC.best} อยู่ครบ {PC.max} รอบ ชุดนี้แยกสองเรื่องที่มักปนกันออกจากกัน
+      คือ "แพ้หรือไม่แพ้" กับ "ได้ลงสนามหรือไม่ได้ลง"
+    </p>
+    <p>
+      ส่วนชุด "{PD.label}" มีช่องที่ดีที่สุดอยู่ {PD.ties} ช่อง คือช่อง{' '}
+      {PD.wins.map((v, i) => (v === PD.max ? i : -1)).filter((i) => i >= 0).join(', ')}
+      ทุกช่องได้ {PD.max} รอบเท่ากัน คำตอบที่ต้องพิมพ์คือ {PD.best} ซึ่งเป็นช่องเลขน้อยที่สุดในกลุ่มนั้น
+      ตามกติกาที่ผมอนุมานไว้ตั้งแต่ต้นหน้า
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็มขอบเขต</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="tournament.cpp" />
+        <p>
+          ตัว <code>solve</code> ถูกแยกออกมาเป็นฟังก์ชันในเนมสเปซ และ <code>main</code> ถูกครอบด้วย
+          <code>#ifndef STRESS_BUILD</code> เพราะไฟล์นี้ถูกลิงก์เข้าไปในตัวรันสเตรสเทสต์ตัวเดียวกับตัวตรวจ
+          จะได้ไม่ต้องสร้างโพรเซสใหม่ทีละเคส ถ้าเอาไปส่งจริงก็คอมไพล์ตรง ๆ ได้เลย เพราะไม่มีใครนิยาม
+          <code>STRESS_BUILD</code> ให้ พารามิเตอร์ <code>out</code> มีไว้ให้สเตรสเทสต์ขอเวกเตอร์คำตอบทุกช่อง
+          ไม่ใช่แค่ช่องที่ดีที่สุด จะได้เทียบกันได้ทั้งแถว
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้สเตรสเทสต์</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_tournament.cpp" />
+        <p>
+          ตัวตรวจสร้างแถวขึ้นมาจริงทีละช่องที่แทรก แล้วเดินทุกรอบตามตัวหนังสือของโจทย์
+          คือกวาดหาคนแรงสุดในช่วง แล้วสร้างแถวใหม่ที่เหลือแค่คนนั้นในช่วงนั้น
+          จุดสำคัญคือมัน<strong>ไม่รู้จักคำว่าก้อนเลย</strong> ข้ออ้างหลักของหน้านี้คือก้อนเหมือนกันทุกช่องที่แทรก
+          ถ้าตัวตรวจใช้ข้ออ้างเดียวกัน มันก็จะตรวจได้แค่ว่าผมพิมพ์โค้ดถูกไหม ไม่ได้ตรวจว่าข้ออ้างนั้นจริงไหม
+        </p>
+      </div>
+    </details>
+    <p class="io-note">
+      ที่รันจริง: ไล่ครบทุกกรณีของ <code>N</code> ตั้งแต่ 3 ถึง 7 ทุกค่า <code>R</code>
+      ทุกการสลับของค่าพลังที่เหลือ และทุกลำดับรอบที่ถูกกติกา รวม {fmt(EXH_CASES)} เคส
+      เทียบเวกเตอร์คำตอบทุกช่องกับตัวตรวจ ไม่ต่างกันสักเคส จากนั้นสุ่มเพิ่มอีก {fmt(STRESS_CASES)} เคส
+      ครอบคลุมรูปแบบรอบสี่แบบ โดยบังคับให้ <code>R</code> เป็นคนแรงสุด อ่อนสุด แรงรองสุด และสุ่ม
+      ก็ไม่ต่างกันอีก รวมทั้งหมด {fmt(TOTAL_CASES)} ครั้งที่เทียบกัน และตัวอย่างทั้งสองชุดในโจทย์ตอบ {SAMPLE_OUT} ถูกต้อง
+      ส่วนเวลา ที่ <code>N</code> เท่ากับ 100000 และ <code>C</code> เท่ากับ 99998 วัดได้ {MEASURED_LO} ถึง {MEASURED_HI} วินาที
+      จากชุดหนักที่จัดรูปไว้ห้าแบบ เทียบกับลิมิต {TIME_LIMIT} วินาที
+      (สังเกตว่า <code>C</code> ไม่เกิน <code>N-2</code> ชุดที่ <code>N</code> กับ <code>C</code> เท่ากันเป๊ะจึงสร้างไม่ได้)
+      หน้านี้ยังรันด่านตรวจของตัวเองตอนบิลด์อีก {fmt(sweepDone)} เคสสุ่ม เทียบวิธีที่สอนกับการจำลองตรง ๆ
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าแรกคือ เวลาต้องตอบคำถามเดิมซ้ำกับอินพุตที่ต่างกันนิดเดียว ให้มองหาโครงสร้างที่เป็นของกลาง
+    ที่นี่คือลำดับของก้อน ซึ่งไม่สนใจทั้งค่าพลังและตำแหน่งที่แทรก พอแยกของกลางออกมาได้
+    งานที่เหลือต่อหนึ่งช่องก็เล็กลงจนกวาดทีเดียวได้ทั้งหมด
+  </p>
+  <p>
+    ท่าที่สองคือ การสมมติให้ตัวละครอมตะเพื่อให้กระบวนการเป็นของกลาง ใช้ได้ทุกครั้งที่การตายของตัวละคร
+    เกิดขึ้นแค่ครั้งเดียวและเราสนใจแค่ช่วงก่อนหน้านั้น เงื่อนไขที่ต้องเช็กให้ชัดคือ
+    โลกอมตะกับโลกจริงต้องเหมือนกันจนถึงจุดที่เราหยุดนับ ถ้าเงื่อนไขนี้ไม่จริง ท่านี้ใช้ไม่ได้
+  </p>
+  <p>
+    ท่าที่สามเป็นเรื่องนิสัยมากกว่าอัลกอริทึม คือ<strong>อ่านให้ชัดว่าโจทย์ขออะไรเป็นเอาต์พุต</strong>
+    ข้อนี้ตัวอย่างชุดที่สองปิดบังความต่างไว้พอดีเพราะเลขบังเอิญเท่ากัน เหลือชุดแรกชุดเดียวที่ชี้ขาด
+    เวลาเจอโจทย์ที่คำตอบเป็น "ตำแหน่งที่ดีที่สุด" ให้เช็กตัวอย่างทุกชุดว่ามันแยก
+    "ค่าที่ดีที่สุด" กับ "ตำแหน่งที่ให้ค่านั้น" ออกจากกันได้จริงไหม
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    หาลำดับก้อนของตำแหน่งตั้งต้นครั้งเดียวด้วย BIT เปลี่ยนแต่ละรอบให้เหลือบิตเดียวว่าชนะหรือแพ้
+    ด้วยผลรวมสะสมของคนที่แรงกว่า <code>R</code> แล้วกวาดรอบทีเดียวโดยบวกแต้มทั้งช่วงเวลาชนะ
+    และฆ่าทั้งช่วงเวลาแพ้ ปิดท้ายด้วยการตอบ<strong>ตำแหน่ง</strong>ที่เลขน้อยที่สุดในบรรดาช่องที่ดีที่สุด
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>Tournament</i> บน programming.in.th ข้อ 2040
+      <a href="https://programming.in.th/tasks/2040" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2040
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>
+      ต้นฉบับคือ <i>Jousting tournament</i> ของ International Olympiad in Informatics 2012
+      ที่เมือง Sirmione และ Montichiari ประเทศอิตาลี เป็นโจทย์ของวันแข่งที่สอง
+      <a href="http://www.ioi2012.org/competition/tasks/" target="_blank" rel="noopener noreferrer">
+        ioi2012.org/competition/tasks
+      </a>
+    </li>
+    <li>
+      ฉบับที่ยังส่งโค้ดไปตรวจได้อยู่ ใช้ชื่อ <i>IOI12_tournament</i>
+      <a href="https://oj.uz/problem/view/IOI12_tournament" target="_blank" rel="noopener noreferrer">
+        oj.uz/problem/view/IOI12_tournament
+      </a>
+    </li>
+    <li>
+      กติกา "ถ้าดีเท่ากันให้ตอบช่องเลขน้อยสุด" ในหน้านี้ ผมอนุมานจากตัวอย่างสองชุดของ programming.in.th
+      ไม่ใช่ข้อความที่เขียนไว้ในโจทย์ ต้นฉบับของ IOI รับตำแหน่งที่ดีที่สุดช่องไหนก็ได้
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;white-space:nowrap;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* ---------- กระดานของมินิเกม ----------
+     ช่องทั้งหมดสร้างด้วย JS จึงไม่มี data-astro-cid ต้องเดินผ่านคอนเทนเนอร์ที่เขียนในเทมเพลต
+     แล้วครอบลูกด้วย :global ไม่งั้นกฎจะถูกตัดทิ้งตอนบิลด์โดยไม่มีใครฟ้อง */
+  .trn-rounds{
+    width:0;min-width:100%;
+    margin:0 0 0.7rem;
+    font-size:0.84rem;
+    color:#cdd6ea;
+    font-family:"Fira Code","Fira Mono",monospace;
+    line-height:1.7;
+  }
+  .trn-line{display:flex;gap:0.3rem;align-items:stretch;justify-content:center;flex-wrap:nowrap;margin:0.2rem auto 0.2rem;width:max-content;}
+  .trn-line :global(.trn-slot){
+    /* ห้ามให้ช่องหดตามการ์ด บนจอแคบให้ล้นแล้ว .cpg-scroll เลื่อนแทน */
+    flex:0 0 auto;
+    width:2.7rem;
+    min-height:3.3rem;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.1rem;
+    border-radius:8px;
+    border:1px dashed #3d4a66;
+    background:#101827;
+    color:#9aa7bd;
+    cursor:pointer;
+    font:inherit;
+    font-size:0.72rem;
+  }
+  .trn-line :global(.trn-slot:hover){border-color:var(--dl-emerald);color:#fff;}
+  .trn-line :global(.trn-slot.tried){background:#132235;border-style:solid;border-color:#3d5a80;color:#cdd6ea;}
+  .trn-line :global(.trn-slot.top){background:#163a2a;border-color:#2f9e5c;color:#eaf2ff;}
+  .trn-line :global(.trn-slot.pick){box-shadow:0 0 0 2px var(--dl-emerald-bright);}
+  .trn-line :global(.trn-badge){font-family:"Fira Code","Fira Mono",monospace;font-size:0.9rem;}
+  .trn-line :global(.trn-k){
+    flex:0 0 auto;
+    width:3rem;
+    min-height:3.3rem;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.1rem;
+    border-radius:8px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+  }
+  .trn-line :global(.trn-k.strong){border-color:#b23b3b;background:#2a1414;color:#f0a6a6;}
+  .trn-line :global(.trn-k small){font-size:0.62rem;color:#7b8397;}
+  .trn-line :global(.trn-k b){font-family:"Fira Code","Fira Mono",monospace;font-size:1rem;font-weight:700;}
+  .trn-trace{display:flex;flex-wrap:wrap;gap:0.35rem;margin:0.7rem 0 0.2rem;min-height:1.9rem;}
+  .trn-trace :global(.trn-chip){
+    font-size:0.76rem;
+    padding:0.18rem 0.5rem;
+    border-radius:999px;
+    border:1px solid #2a3350;
+    background:#101827;
+    color:#9aa7bd;
+  }
+  .trn-trace :global(.trn-chip.win){border-color:#2f9e5c;background:#163a2a;color:#a7f3c4;}
+  .trn-trace :global(.trn-chip.lose){border-color:#b23b3b;background:#2a1414;color:#f0a6a6;}
+  @media (prefers-reduced-motion: reduce){
+    .trn-line :global(.trn-slot){transition:none;}
+  }
+  /* ตารางกวาดตัวอย่างมีหลายคอลัมน์ ถ้าปล่อย nowrap มันจะกว้าง 1123 แล้วลาก .panel
+     (ซึ่งเป็น width:fit-content) ไปถึง 1219 ทั้งที่หน้าอื่นในคลังอยู่ราว 1040
+     จึงบังคับ layout คงที่ และให้คอลัมน์ข้อความตัดบรรทัดได้ ส่วนคอลัมน์เลขยังคง nowrap */
+  /* !important เพราะกฎของ layout คือ body .panel figure.tbl table.rec{width:auto}
+     ซึ่งเป็น selector ที่ยาวกว่ากฎในหน้านี้ จึงชนะถ้าไม่ประกาศ */
+  table.rec.trn-sweep{table-layout:fixed;width:940px !important;max-width:100%;}
+  table.rec.trn-sweep th, table.rec.trn-sweep td{white-space:normal;}
+  table.rec.trn-sweep td.num{white-space:nowrap;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type Chip = { t: string; k: 'win' | 'lose' | 'skip' | 'gone' | 'none' };
+  type TrnPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    N: number;
+    R: number;
+    K: number[];
+    rounds: [number, number][];
+    wins: number[];
+    max: number;
+    best: number;
+    ties: number;
+    chips: Chip[][];
+    trapP: number;
+    trapWhy: string;
+  };
+
+  function initTournamentGame(): void {
+    const maybeUi = cpGameUi('[data-trngame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่ตรงนี้ เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TrnPuzzle[];
+    const maybeLine = ui.root.querySelector<HTMLElement>('[data-trn-line]');
+    const maybeRounds = ui.root.querySelector<HTMLElement>('[data-trn-rounds]');
+    const maybeTrace = ui.root.querySelector<HTMLElement>('[data-trn-trace]');
+    if (puzzles.length === 0 || !maybeLine || !maybeRounds || !maybeTrace) return;
+    const lineEl: HTMLElement = maybeLine;
+    const roundsEl: HTMLElement = maybeRounds;
+    const traceEl: HTMLElement = maybeTrace;
+
+    let pi = 0;
+    let tried: number[] = [];
+    let picked = -1;
+    const pz = (): TrnPuzzle => puzzles[pi];
+
+    function renderLine(): void {
+      const p = pz();
+      lineEl.textContent = '';
+      for (let s = 0; s < p.N; s++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        const seen = tried.indexOf(s) >= 0;
+        const top = seen && p.wins[s] === p.max;
+        b.className = `trn-slot${seen ? ' tried' : ''}${top ? ' top' : ''}${s === picked ? ' pick' : ''}`;
+        b.dataset.trnSlot = String(s);
+        b.setAttribute('aria-label', `แทรกที่ช่อง ${s}`);
+        const no = document.createElement('span');
+        no.textContent = `ช่อง ${s}`;
+        const badge = document.createElement('span');
+        badge.className = 'trn-badge';
+        badge.textContent = seen ? String(p.wins[s]) : '?';
+        b.append(no, badge);
+        lineEl.append(b);
+        if (s + 1 < p.N) {
+          const k = document.createElement('div');
+          k.className = p.K[s] > p.R ? 'trn-k strong' : 'trn-k';
+          const cap = document.createElement('small');
+          cap.textContent = 'พลัง';
+          const val = document.createElement('b');
+          val.textContent = String(p.K[s]);
+          k.append(cap, val);
+          lineEl.append(k);
+        }
+      }
+    }
+
+    function renderTrace(): void {
+      const p = pz();
+      traceEl.textContent = '';
+      if (picked < 0) return;
+      p.chips[picked].forEach((c) => {
+        const el = document.createElement('span');
+        const tone = c.k === 'win' ? ' win' : c.k === 'lose' ? ' lose' : '';
+        el.className = `trn-chip${tone}`;
+        const word = c.k === 'win' ? 'ชนะ' : c.k === 'lose' ? 'แพ้และตกรอบ' : c.k === 'skip' ? 'ไม่ได้ลง' : 'ตกไปแล้ว';
+        el.textContent = `${c.t} ${word}`;
+        traceEl.append(el);
+      });
+    }
+
+    function renderScore(): void {
+      const p = pz();
+      const bestSeen = tried.reduce((a, s) => (p.wins[s] > a ? p.wins[s] : a), -1);
+      const seenBest = bestSeen === p.max;
+      const head = `ลองไปแล้ว ${tried.length} จาก ${p.N} ช่อง`;
+      ui.setScore(seenBest ? `${head} · ดีที่สุดที่เจอคือ ${bestSeen} รอบ ซึ่งคือค่าสูงสุดของชุดนี้` : `${head} · ดีที่สุดที่เจอคือ ${tried.length === 0 ? 0 : bestSeen} รอบ`);
+    }
+
+    function pick(s: number): void {
+      const p = pz();
+      picked = s;
+      if (tried.indexOf(s) < 0) tried.push(s);
+      renderLine();
+      renderTrace();
+      renderScore();
+      const w = p.wins[s];
+      if (w === p.max) {
+        const tie = p.ties > 1 ? ` ชุดนี้มีช่องที่ได้ ${p.max} รอบเท่ากันอยู่ ${p.ties} ช่อง คำตอบที่ต้องพิมพ์คือช่องเลขน้อยสุดในนั้น คือ ${p.best}` : ` และเป็นช่องเดียวที่ทำได้ คำตอบที่ต้องพิมพ์คือ ${p.best}`;
+        ui.setStatus(`ช่อง ${s} ชนะ ${w} รอบ ซึ่งมากที่สุดเท่าที่เป็นไปได้แล้ว${tie}`, 'good');
+        return;
+      }
+      if (s === p.trapP) {
+        ui.setStatus(`ช่อง ${s} ชนะ ${w} รอบ ช่องนี้คือท่า${p.trapWhy} ซึ่งชุดนี้ตั้งใจลงโทษไว้ ยังมีช่องที่ดีกว่านี้อยู่`, 'bad');
+        return;
+      }
+      ui.setStatus(`ช่อง ${s} ชนะ ${w} รอบ ยังไม่ใช่ค่าที่ดีที่สุด ลองดูว่ารอบไหนที่เขาไม่ได้ลงสนาม และรอบไหนที่เขาเจอคนแรงกว่า`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      tried = [];
+      picked = -1;
+      const p = pz();
+      ui.selectTab(k);
+      ui.setTease(p.tease);
+      roundsEl.textContent = `รอบทั้งหมด: ${p.rounds.map((r, j) => `${j + 1}) S=${r[0]} E=${r[1]}`).join('   ')}   ·   พลังของคนมาสาย R=${p.R}`;
+      ui.setStatus('กดช่องสีเทาช่องใดช่องหนึ่งเพื่อแทรกอัศวินที่มาสายลงตรงนั้น');
+      renderLine();
+      renderTrace();
+      renderScore();
+    }
+
+    lineEl.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-trn-slot]');
+      if (!(btn instanceof HTMLElement)) return;
+      pick(Number(btn.dataset.trnSlot));
+    });
+    ui.onClick('data-trn-reset', () => selectPuzzle(pi));
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initTournamentGame);
+</script>

@@ -1,21 +1,32 @@
---- คัดลอกไฟล์นี้ไปเป็น src/pages/cp/<slug>.astro แล้วลบสองบรรทัดหัวนี้ทิ้ง ---
+--- คัดลอกไฟล์นี้ไปเป็น src/pages/cp/<slug>.astro แล้วลบหัวนี้ทิ้งทั้งหมด ---
 --- มาตรฐานของหน้าโจทย์ (ตัวเลขคิดใน frontmatter, กับดัก max-content ภาษาไทย, กฎ CSS ของตัวเล่น, เช็กลิสต์ตรวจ) อยู่ใน CLAUDE.md หัวข้อ "Standards every /cp/ page follows" อ่านก่อนเริ่ม ---
 --- อีกครึ่งของงานคือเพิ่ม entry ใน src/data/cp.ts ชิปตัวกรอง หัวข้อ ระดับ ชุด การเรียง การ์ดแชร์ และลิงก์ก่อนหน้า/ถัดไป งอกจาก entry นั้นเองทั้งหมด ห้ามไปแก้หน้า /cp/ ด้วยมือ ---
 --- topics เลือกจาก CP_TOPICS เท่านั้น พิมพ์ผิดจะเป็น error ตอน npm run check ส่วนการต่อสายผิด (href ซ้ำ, ไม่มีไฟล์, ไม่มี entry) จะทำให้ npm run build ล้มพร้อมข้อความบอกว่าผิดตรงไหน ---
+--- ลำดับของหน้าเป็น DAG ของข้อมูล: เรื่อง -> สเปก -> ตัวอย่าง -> อ่านตัวอย่างยังไง -> รูป -> ใบ้ -> ให้ลองเอง -> ค่อยเฉลย ห้ามสลับ ---
+--- สามบล็อกที่เคยหายไปจากเทมเพลตเก่าจนหน้าใหม่ทำตกกันบ่อย และตอนนี้ใส่ไว้ให้แล้ว ห้ามลบ: (1) callout "อ่านตัวอย่างนี้ยังไง" (2) บล็อก "ลองเอง" (3) callout "ที่มาของแนวคิดนี้" ที่ต้องเป็นลูกตัวแรกใน <Spoiler> ของเฉลย ---
 ---
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { cpGameUi, readPuzzles } from '../../lib/cpGame';
 
 // href ต้องตรงกับ entry ใน src/data/cp.ts (ชื่อเรื่อง/วันที่/ชุด ดึงจากที่นั่น)
 const href = '<slug>/';
 
-const solution = `# โค้ดเฉลย
-print(0)`;
+// ตัวเลขทุกตัวที่โผล่ในหน้า ให้คิดจากโมเดลตรงนี้ ห้ามพิมพ์มือ
+// เฉลยของเกม/ตัวอย่าง ให้คิดด้วยวิธีที่หน้านี้ "ไม่ได้" สอน แล้ว throw ถ้าไม่ตรงกับที่หน้าอ้าง
+const SAMPLE_IN = `10`;
+const SAMPLE_OUT = [25];
+
+const solution = `// โค้ดเฉลยเต็มขอบเขต ต้องคอมไพล์และ stress test จริงก่อนวาง`;
+const subCode = `// โค้ดของ subtask ถ้าโจทย์แบ่ง subtask ไว้`;
+const bruteCode = `// ตัวตรวจที่ไม่ใช้แนวคิดเดียวกับเฉลย`;
+
+const puzzlesJson = JSON.stringify([]);
 ---
 <CpProblemLayout href={href}>
-  <h2>โจทย์</h2>
+  <h2>โจทย์ &middot; ...</h2>
   <p>เล่าเรื่องโจทย์ด้วยภาษาคน ให้เห็นภาพก่อนเห็นสูตร</p>
 
   <div class="callout callout-note spec">
@@ -30,29 +41,112 @@ print(0)`;
   <table class="io">
     <caption>EXAMPLE</caption>
     <thead><tr><th>Input</th><th>Output</th></tr></thead>
-    <tbody><tr><td>10</td><td>25</td></tr></tbody>
+    <tbody><tr><td>{SAMPLE_IN}</td><td>{SAMPLE_OUT[0]}</td></tr></tbody>
   </table>
+
+  {/* บังคับ: ทุกโจทย์ต้องมีกล่องนี้ และต้องอยู่ระหว่างตารางตัวอย่างกับใบ้ */}
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      (ก) อินพุตแต่ละบรรทัดแปลว่าอะไร (ข) เอาต์พุตมีหน่วยเป็นอะไร ตรงนี้คือจุดที่คนอ่านพลาดบ่อยที่สุด
+      บอกให้ชัดว่านับอะไร ไม่ใช่นับอะไร แล้วใช้รูปนี้ได้ครั้งเดียวต่อกล่อง
+      (ค) เดินตัวอย่างชุดนี้จากอินพุตไปถึงคำตอบ ให้ครบทุกเหตุการณ์ ไม่ใช่ยกมาเป็นตัวแทนบางอัน
+      ถ้าโจทย์มีกรอบที่ตัดคำตอบบางค่าทิ้ง (เช่น นับเฉพาะค่าในช่วง 1 ถึง n) ต้องบอกกรอบนั้นตรงนี้
+      พร้อมยกเคสที่ถูกตัดออกมาหนึ่งตัว ไม่งั้นคนอ่านที่คิดตามจะเจอค่านั้นแล้วงง
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`คำอธิบายรูป ตัวเลขในนี้ดึงจากโมเดลใน frontmatter`}>
+    <svg viewBox="0 0 700 240" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="...">
+      {/* viewBox กว้าง = ขอบขวาสุดของเนื้อหา + 12, สูง = ขอบล่างสุด + 34 (เว้นมุมขวาล่างให้ปุ่มขยาย) */}
+    </svg>
+  </ZoomableDiagram>
 
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>ชี้ทางโดยไม่เฉลย แล้วปิดด้วยคำถามที่คนอ่านควรกำลังถาม</p>
   </div>
 
-  <h2>เฉลย</h2>
+  {/* บังคับ: ทุกหน้ามีรอบให้เล่นก่อนเฉลย บล็อกนี้อยู่นอก Spoiler เสมอ */}
+  <h2>ลองเอง &middot; ...</h2>
+  <div class="cpgame xxgame" data-xxgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุด"></div>
+    <p class="cpg-tease" data-cpg-tease></p>
+    <div class="cpg-scroll">{/* กระดานของหน้านี้ เซลล์ flex ต้อง flex:0 0 auto ไม่งั้นบีบจนอ่านไม่ออกบนมือถือ */}</div>
+    <p class="cpg-status" data-cpg-status></p>
+    <p class="cpg-cap">คำบรรยายต้องอยู่ในการ์ด ไม่ใช่เป็น sibling ข้างนอก</p>
+  </div>
+  <p class="ns-cue">ลองเล่นดูก่อนนะครับ พอมีคำตอบในใจแล้ว ค่อยไปดูเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ...</h2>
   <Spoiler>
+    {/* บังคับ: ลูกตัวแรกใน Spoiler ของเฉลย เล่าว่าคิดได้ยังไง ไม่ใช่เฉลยเฉย ๆ */}
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        เล่าตามลำดับที่เกิดขึ้นจริง ไม่ใช่ลำดับที่สวย ให้ตัวเลขที่ผลักการตัดสินใจแต่ละครั้ง
+        (เช่น "คูณออกมาแล้วยังหมื่นล้าน" ดีกว่า "มันช้าเกินไป") ปิดด้วยบทเรียนหนึ่งประโยคที่เอาไปใช้ข้ออื่นได้
+        ห้ามแต่งความล้มเหลวที่ไม่ได้เกิดขึ้นจริง ถ้ารู้ท่านี้อยู่แล้วให้บอกว่ารู้อยู่แล้ว
+        แล้วเล่าแรงกดดันที่ทำให้เลือกท่านี้แทน
+      </p>
+    </div>
     <p>แนวคิด + ที่มาของสูตร</p>
   </Spoiler>
 
   {/* กล่องเบลอที่ไม่มีปุ่ม จะถูกปลดพร้อมกล่องบนสุด (จนกว่าจะเจอ hr หรือ h2 ถัดไป) */}
+  {/* ใช้ได้เฉพาะเมื่อมีกล่องที่มีปุ่มอยู่ "ก่อนหน้า" ในหัวข้อเดียวกัน ไม่งั้นจะเบลอค้างตลอดกาล */}
   <Spoiler linked>
     <p class="io-note">แกะตัวอย่างข้างบน: ...</p>
   </Spoiler>
 
   <h2>โค้ด</h2>
-  <details class="expander">
-    <summary>ดูโค้ด Python</summary>
-    <div class="expander-body">
-      <CodeBlock code={solution} lang="python" title="solution.py" />
-    </div>
-  </details>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็มขอบเขต</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="<slug>.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดของ subtask</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="<slug>_sub.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้ stress test</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_<slug>.cpp" />
+      </div>
+    </details>
+    <p class="io-note">
+      บอกจำนวนรอบที่ตรวจจริง และเวลาที่วัดได้จริง ห้ามอ้างตัวเลขที่ไม่ได้รัน
+      และให้ดึงโค้ดออกจาก dist/cp/&lt;slug&gt;/index.html มาคอมไพล์ซ้ำ เพราะสิ่งที่หน้าส่งคือสิ่งที่อยู่ในหน้า ไม่ใช่ไฟล์ที่เทสต์
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>...</p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>...</p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>...</li>
+  </ol>
 </CpProblemLayout>
+
+<style>
+  /* คลาสที่มากกว่าหนึ่งหน้าใช้ ต้องไปอยู่ใน CpProblemLayout ไม่ใช่ตรงนี้ */
+  /* ข้อความไทยในกล่อง fit-content ต้อง width:0; min-width:100% ไม่งั้นความกว้างการ์ดจะเด้งตามความยาวประโยค */
+</style>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    const maybeUi = cpGameUi('[data-xxgame]');
+    if (!maybeUi) return;
+    // TS ไม่ narrow const ข้าม function declaration ที่ถูก hoist ให้ผูกตัวแปรใหม่ตรงนี้
+    // const ui: CpGameUi = maybeUi;
+  });
+</script>
