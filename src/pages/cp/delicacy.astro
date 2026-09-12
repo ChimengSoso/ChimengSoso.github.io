@@ -1,0 +1,1532 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'delicacy/';
+
+/* ---------- โมเดลของโจทย์ ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Road = { u: number; v: number; w: number };
+type Fest = { t: number; x: number; y: number };
+/** อาณาจักรหนึ่งชุด เมืองนับ 1..n ส่วน C[0] ไม่ได้ใช้ ให้ดัชนีตรงกับเลขเมือง */
+type Kingdom = { n: number; C: number[]; roads: Road[]; fest: Fest[]; T: number };
+/** หนึ่งครั้งที่เขาเหยียบเมือง gain คือความพึงพอใจของเมือง bonus คือของเทศกาล */
+type Stop = { day: number; city: number; gain: number; bonus: number; run: number };
+
+const road = (u: number, v: number, w: number): Road => ({ u, v, w });
+const fmt = (v: number): string => v.toLocaleString('en-US');
+
+function festBonus(k: Kingdom, day: number, city: number): number {
+  let s = 0;
+  for (const f of k.fest) if (f.t === day && f.x === city) s += f.y;
+  return s;
+}
+
+/** ตัวตรวจของหน้านี้ ไล่ทุกเส้นทางที่เดินได้จริงจากเมือง 1 วันที่ 0
+ *  ไม่มีตารางเก็บค่า ไม่มีการหั่นเมือง ไม่มีเมทริกซ์ คือไม่ใช้อะไรที่หน้านี้กำลังจะสอนเลย
+ *  คืน -1 เมื่อไม่มีเส้นทางไหนกลับถึงเมือง 1 ในวันที่ T พอดี */
+function walkBest(k: Kingdom): { best: number; path: number[] } {
+  let best = -1;
+  let bestPath: number[] = [];
+  const cur: number[] = [];
+  const rec = (day: number, city: number, sum: number): void => {
+    if (day === k.T) {
+      if (city === 1 && sum > best) {
+        best = sum;
+        bestPath = [...cur];
+      }
+      return;
+    }
+    k.roads.forEach((r, i) => {
+      if (r.u !== city) return;
+      const nd = day + r.w;
+      if (nd > k.T) return;
+      cur.push(i);
+      rec(nd, r.v, sum + k.C[r.v] + festBonus(k, nd, r.v));
+      cur.pop();
+    });
+  };
+  rec(0, 1, k.C[1] + festBonus(k, 0, 1));
+  return { best, path: bestPath };
+}
+
+/** กางเส้นทาง (ลิสต์ดัชนีถนน) ออกเป็นรายการการเหยียบเมืองพร้อมยอดสะสม */
+function walkStops(k: Kingdom, path: number[]): Stop[] {
+  const b0 = festBonus(k, 0, 1);
+  let run = k.C[1] + b0;
+  const stops: Stop[] = [{ day: 0, city: 1, gain: k.C[1], bonus: b0, run }];
+  let day = 0;
+  for (const i of path) {
+    const r = k.roads[i];
+    day += r.w;
+    const city = r.v;
+    const b = festBonus(k, day, city);
+    run += k.C[city] + b;
+    stops.push({ day, city, gain: k.C[city], bonus: b, run });
+  }
+  return stops;
+}
+
+/** ท่าตะกละ: เลือกถนนที่ให้ความพึงพอใจต่อวันมากที่สุด เสมอกันเอาเส้นที่สั้นกว่า
+ *  ไม่คิดเรื่องวันกลับบ้านเลย มีไว้เพื่อพิสูจน์ว่าชุดกับดักลงโทษท่านี้จริง */
+function greedyRun(k: Kingdom): { day: number; city: number; sum: number } {
+  let day = 0;
+  let city = 1;
+  let sum = k.C[1] + festBonus(k, 0, 1);
+  for (;;) {
+    if (day === k.T) break;
+    const cand = k.roads.filter((r) => r.u === city && day + r.w <= k.T);
+    if (cand.length === 0) break;
+    cand.sort((a, b) => k.C[b.v] / b.w - k.C[a.v] / a.w || a.w - b.w);
+    const r = cand[0];
+    day += r.w;
+    city = r.v;
+    sum += k.C[city] + festBonus(k, day, city);
+  }
+  return { day, city, sum };
+}
+
+/* ---------- ตัวอย่างสองชุดในโจทย์ ---------- */
+
+const SAMPLE1: Kingdom = {
+  n: 3,
+  C: [0, 1, 3, 4],
+  roads: [road(1, 2, 1), road(2, 1, 3), road(2, 3, 2), road(3, 1, 4)],
+  fest: [],
+  T: 11,
+};
+const SAMPLE2: Kingdom = {
+  n: 4,
+  C: [0, 3, 1, 2, 4],
+  roads: [
+    road(1, 2, 1),
+    road(1, 3, 1),
+    road(1, 3, 2),
+    road(3, 4, 3),
+    road(2, 3, 2),
+    road(3, 2, 1),
+    road(4, 2, 1),
+    road(4, 1, 5),
+  ],
+  fest: [
+    { t: 3, x: 3, y: 5 },
+    { t: 1, x: 2, y: 5 },
+    { t: 5, x: 4, y: 20 },
+  ],
+  T: 16,
+};
+
+const S1_BEST = walkBest(SAMPLE1);
+const S2_BEST = walkBest(SAMPLE2);
+if (S1_BEST.best !== 13) throw new Error(`delicacy: ตัวอย่างที่หนึ่งต้องได้ 13 แต่ตัวตรวจได้ ${S1_BEST.best}`);
+if (S2_BEST.best !== 39) throw new Error(`delicacy: ตัวอย่างที่สองต้องได้ 39 แต่ตัวตรวจได้ ${S2_BEST.best}`);
+
+/* แผนเดินทางที่โจทย์เขียนไว้ในคำอธิบาย เก็บเป็นดัชนีถนน แล้วเช็กว่าได้ค่าเท่าคำตอบจริง */
+const S1_STOPS = walkStops(SAMPLE1, [0, 1, 0, 2, 3]);
+const S2_STOPS = walkStops(SAMPLE2, [2, 3, 6, 4, 3, 7]);
+const S1_LAST = S1_STOPS[S1_STOPS.length - 1];
+const S2_LAST = S2_STOPS[S2_STOPS.length - 1];
+if (S1_LAST.run !== 13 || S1_LAST.day !== SAMPLE1.T || S1_LAST.city !== 1)
+  throw new Error('delicacy: แผนเดินทางของตัวอย่างที่หนึ่งไม่ตรงกับที่โจทย์เล่า');
+if (S2_LAST.run !== 39 || S2_LAST.day !== SAMPLE2.T || S2_LAST.city !== 1)
+  throw new Error('delicacy: แผนเดินทางของตัวอย่างที่สองไม่ตรงกับที่โจทย์เล่า');
+
+const S1_PLAN = S1_STOPS.map((s) => s.city).join(' → ');
+const S2_PLAN = S2_STOPS.map((s) => s.city).join(' → ');
+const S1_WALK = S1_STOPS.map((s) => `วันที่ ${s.day} อยู่เมือง ${s.city} ได้ ${s.gain}`).join(' จากนั้น');
+const S1_SUM = S1_STOPS.map((s) => s.gain).join(' + ');
+const S2_FEST_DAYS = SAMPLE2.fest.map((f) => f.t).join(', ');
+const S2_FEST_SORTED = [...SAMPLE2.fest].sort((a, b) => a.t - b.t);
+const S2_HIT = S2_STOPS.filter((s) => s.bonus > 0);
+const S2_MISS = S2_FEST_SORTED.filter((f) => !S2_STOPS.some((s) => s.day === f.t && s.city === f.x));
+
+/* ช่วงเวลาระหว่างเทศกาลของตัวอย่างที่สอง ใช้วาดรูปที่สาม */
+const gapBits = (g: number): number[] => {
+  const out: number[] = [];
+  for (let b = 0; (1 << b) <= g; b++) if ((g >> b) & 1) out.push(1 << b);
+  return out.reverse();
+};
+type Gap = { from: number; to: number; len: number; bits: number[] };
+const S2_GAPS: Gap[] = [];
+{
+  let now = 0;
+  for (const f of S2_FEST_SORTED) {
+    S2_GAPS.push({ from: now, to: f.t, len: f.t - now, bits: gapBits(f.t - now) });
+    now = f.t;
+  }
+  S2_GAPS.push({ from: now, to: SAMPLE2.T, len: SAMPLE2.T - now, bits: gapBits(SAMPLE2.T - now) });
+}
+const S2_LONG_GAP = S2_GAPS[S2_GAPS.length - 1];
+
+/* ---------- ขอบเขตกับบิลค่าใช้จ่าย ---------- */
+const N_MAX = 50;
+const M_MAX = 501;
+const T_MAX = 1000000000;
+const K_MAX = 200;
+const C_MAX = 52501;
+const W_MAX = 5;
+const T_SUB = 52501;
+const STATES = N_MAX * W_MAX;
+const MUL_COST = STATES * STATES * STATES;
+const VMUL_COST = STATES * STATES;
+const bitsOf = (T: number): number => Math.floor(Math.log2(T)) + 1;
+const dayOps = (T: number): number => T * M_MAX;
+const matOps = (T: number): number => (bitsOf(T) - 1) * MUL_COST + (K_MAX + 1) * bitsOf(T) * VMUL_COST;
+const MEM_MATRIX = bitsOf(T_MAX) * VMUL_COST * 8;
+const MEM_DAYDP = (T_SUB + 1) * N_MAX * 8;
+const bill = [
+  { name: 'ไล่ทีละวัน ทุกวันผ่อนถนนทุกเส้น', a: dayOps(T_SUB), b: dayOps(T_MAX) },
+  { name: 'หั่นเมืองแล้วคูณเมทริกซ์ ยกกำลังทวิภาค', a: matOps(T_SUB), b: matOps(T_MAX) },
+];
+if (matOps(T_MAX) !== 830000000) throw new Error('delicacy: บิลค่าใช้จ่ายของท่าเมทริกซ์เปลี่ยนไปจากที่หน้านี้อ้าง');
+
+/* ---------- มินิเกม พาเขาเที่ยวเอง ---------- */
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  n: number;
+  C: number[];
+  roads: Road[];
+  fest: Fest[];
+  T: number;
+  answer: number;
+};
+function makePuzzle(id: string, label: string, tease: string, k: Kingdom, expect: number): GamePuzzle {
+  const r = walkBest(k);
+  if (r.best !== expect) throw new Error(`delicacy: ชุด ${id} ตัวตรวจได้ ${r.best} แต่หน้านี้อ้าง ${expect}`);
+  return { id, label, tease, ...k, answer: r.best };
+}
+
+/* ชุดกับดัก: เมือง 3 อร่อยที่สุด เด้ง 2 กับ 3 ไปมาได้วันละเยอะ
+   แต่ทางกลับบ้านจากเมือง 3 ยาว 3 วัน คนที่เด้งเพลินจะกลับไม่ทัน */
+const TRAP: Kingdom = {
+  n: 3,
+  C: [0, 1, 4, 12],
+  roads: [road(1, 2, 1), road(2, 1, 1), road(2, 3, 1), road(3, 2, 1), road(3, 1, 3)],
+  fest: [],
+  T: 9,
+};
+/* ชุดเทศกาล: ถ้าไม่มีเทศกาล วนสี่เมืองรวดเดียวดีที่สุด แต่พอมีเทศกาลวันที่ 5 ที่เมือง 4
+   ต้องยอมวนใกล้บ้านก่อนเพื่อไปถึงเมือง 4 ให้ตรงวัน */
+const FEST: Kingdom = {
+  n: 4,
+  C: [0, 1, 2, 3, 2],
+  roads: [road(1, 2, 1), road(2, 3, 1), road(3, 4, 1), road(4, 1, 1), road(1, 3, 2), road(3, 1, 2), road(2, 1, 1)],
+  fest: [{ t: 5, x: 4, y: 15 }],
+  T: 8,
+};
+/* ชุดที่ทำไม่ได้: ทุกวงรอบที่ผ่านเมือง 1 ยาวเป็นเลขคู่ ส่วน T เป็นเลขคี่ */
+const NONE: Kingdom = {
+  n: 3,
+  C: [0, 1, 5, 4],
+  roads: [road(1, 2, 1), road(2, 1, 1), road(2, 3, 1), road(3, 2, 1), road(1, 3, 2), road(3, 1, 2)],
+  fest: [],
+  T: 7,
+};
+
+const TRAP_GREEDY = greedyRun(TRAP);
+if (TRAP_GREEDY.city === 1 || TRAP_GREEDY.day !== TRAP.T || TRAP_GREEDY.sum !== 69)
+  throw new Error('delicacy: ชุดกับดักต้องทำให้คนเดินแบบตะกละจบวันสุดท้ายนอกเมือง 1');
+
+const FEST_BEST = walkBest(FEST);
+const FEST_STOPS = walkStops(FEST, FEST_BEST.path);
+const FEST_BONUS = FEST_STOPS.reduce((s, x) => s + x.bonus, 0);
+const FEST_BASE = FEST_BEST.best - FEST_BONUS;
+const FEST_OFF = walkBest({ ...FEST, fest: [] });
+if (FEST_OFF.best !== 17) throw new Error(`delicacy: ชุดเทศกาลถ้าไม่มีเทศกาลต้องได้ 17 แต่ได้ ${FEST_OFF.best}`);
+if (FEST_BASE >= FEST_OFF.best)
+  throw new Error('delicacy: ชุดเทศกาลต้องเป็นชุดที่เส้นทางชนะเปลี่ยนเพราะเทศกาล');
+
+const puzzles: GamePuzzle[] = [
+  makePuzzle('s1', 'ตัวอย่างในโจทย์', 'อาณาจักรเดียวกับตัวอย่างแรก ลองเดินให้กลับถึงเมือง 1 พอดีวันที่ 11 ก่อน แล้วค่อยไล่หายอดที่มากที่สุด', SAMPLE1, 13),
+  makePuzzle('trap', 'เมืองอร่อยที่สุด', 'เมือง 3 ให้เยอะที่สุดและเด้งไปมากับเมือง 2 ได้เรื่อย ๆ ลองเก็บให้เต็มที่ดู แล้วดูว่าวันสุดท้ายคุณยืนอยู่ตรงไหน', TRAP, 50),
+  makePuzzle('fest', 'มีเทศกาลคั่น', 'ชุดนี้มีเทศกาลหนึ่งงาน ต้องไปยืนให้ตรงเมืองตรงวัน ซึ่งแปลว่าบางทีต้องยอมเดินอ้อมก่อน', FEST, 30),
+  makePuzzle('none', 'ชุดสุดท้าย', 'ชุดนี้ผมไม่บอกอะไรเลย ลองหาเส้นทางที่กลับถึงเมือง 1 พอดีวันสุดท้ายให้ได้', NONE, -1),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- แผนที่อาณาจักร ใช้ทั้งในรูปแรกและในกระดานของเกม ---------- */
+type MapNode = { city: number; x: number; y: number; c: number; home: boolean };
+type MapArc = { d: string; head: string; lx: number; ly: number; text: string };
+type MapView = { nodes: MapNode[]; arcs: MapArc[]; box: { x: number; y: number; w: number; h: number } };
+const NODE_R = 30;
+const rn = (v: number): number => Math.round(v * 10) / 10;
+
+function buildMap(k: Kingdom): MapView {
+  const cx = 200;
+  const cy = 170;
+  const R = 105;
+  const pos = (i: number): { x: number; y: number } => {
+    const a = Math.PI - (2 * Math.PI * i) / k.n;
+    return { x: cx + R * Math.cos(a), y: cy - R * Math.sin(a) };
+  };
+  const nodes: MapNode[] = [];
+  for (let i = 0; i < k.n; i++) {
+    const p = pos(i);
+    nodes.push({ city: i + 1, x: rn(p.x), y: rn(p.y), c: k.C[i + 1], home: i === 0 });
+  }
+  const pts: { x: number; y: number }[] = [];
+  for (const nd of nodes) {
+    pts.push({ x: nd.x - NODE_R, y: nd.y - NODE_R }, { x: nd.x + NODE_R, y: nd.y + NODE_R });
+  }
+  const arcs: MapArc[] = k.roads.map((r) => {
+    const P0 = pos(r.u - 1);
+    const P2 = pos(r.v - 1);
+    const dx = P2.x - P0.x;
+    const dy = P2.y - P0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    /* ตั้งฉากหันข้างเดียวกันเสมอ ถนนที่สวนทางกันจึงโค้งคนละข้าง ไม่ทับกัน */
+    const nx = dy / len;
+    const ny = -dx / len;
+    const bow = 36;
+    const cpx = (P0.x + P2.x) / 2 + nx * bow;
+    const cpy = (P0.y + P2.y) / 2 + ny * bow;
+    const away = (P: { x: number; y: number }, d: number): { x: number; y: number } => {
+      const ax = cpx - P.x;
+      const ay = cpy - P.y;
+      const al = Math.hypot(ax, ay) || 1;
+      return { x: P.x + (ax / al) * d, y: P.y + (ay / al) * d };
+    };
+    const s = away(P0, NODE_R + 2);
+    const e = away(P2, NODE_R + 11);
+    const tip = away(P2, NODE_R + 1);
+    const hx = tip.x - e.x;
+    const hy = tip.y - e.y;
+    const hl = Math.hypot(hx, hy) || 1;
+    const px = -hy / hl;
+    const py = hx / hl;
+    const b1 = { x: e.x + px * 5.5, y: e.y + py * 5.5 };
+    const b2 = { x: e.x - px * 5.5, y: e.y - py * 5.5 };
+    const midx = 0.25 * s.x + 0.5 * cpx + 0.25 * e.x + nx * 13;
+    const midy = 0.25 * s.y + 0.5 * cpy + 0.25 * e.y + ny * 13;
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const q = (1 - t) * (1 - t);
+      pts.push({
+        x: q * s.x + 2 * (1 - t) * t * cpx + t * t * e.x,
+        y: q * s.y + 2 * (1 - t) * t * cpy + t * t * e.y,
+      });
+    }
+    pts.push({ x: midx - 22, y: midy - 11 }, { x: midx + 22, y: midy + 11 });
+    return {
+      d: `M ${rn(s.x)} ${rn(s.y)} Q ${rn(cpx)} ${rn(cpy)} ${rn(e.x)} ${rn(e.y)}`,
+      head: `M ${rn(tip.x)} ${rn(tip.y)} L ${rn(b1.x)} ${rn(b1.y)} L ${rn(b2.x)} ${rn(b2.y)} Z`,
+      lx: rn(midx),
+      ly: rn(midy),
+      text: `${r.w} วัน`,
+    };
+  });
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const x = Math.floor(Math.min(...xs)) - 8;
+  const y = Math.floor(Math.min(...ys)) - 8;
+  return {
+    nodes,
+    arcs,
+    box: { x, y, w: Math.ceil(Math.max(...xs)) + 8 - x, h: Math.ceil(Math.max(...ys)) + 8 - y },
+  };
+}
+
+const MAPS: MapView[] = puzzles.map((p) => buildMap({ n: p.n, C: p.C, roads: p.roads, fest: p.fest, T: p.T }));
+const mapVb = (m: MapView): string => `${m.box.x} ${m.box.y} ${m.box.w} ${m.box.h}`;
+const festLine = (p: GamePuzzle): string =>
+  p.fest.length === 0
+    ? 'ชุดนี้ไม่มีเทศกาล'
+    : `เทศกาล: ${p.fest.map((f) => `วันที่ ${f.t} ที่เมือง ${f.x} ได้เพิ่ม ${f.y}`).join(' และ ')}`;
+
+/* ---------- รูปที่หนึ่ง แผนที่ของตัวอย่างแรก กับบัญชีหกบรรทัด ---------- */
+const D1_MAP = MAPS[0];
+const D1_LEDGER_X = D1_MAP.box.w + 34;
+const D1_ROW_Y = S1_STOPS.map((_, i) => 64 + i * 38);
+const D1_COL = { day: D1_LEDGER_X, city: D1_LEDGER_X + 74, gain: D1_LEDGER_X + 168, run: D1_LEDGER_X + 246 };
+const D1_W = D1_COL.run + 34 + 12;
+const D1_H = Math.max(D1_MAP.box.h, D1_ROW_Y[D1_ROW_Y.length - 1] + 10) + 34;
+
+/* ---------- รูปที่สอง ถนนหนึ่งเส้นกลายเป็นการก้าววันละครั้ง ---------- */
+type ChainNode = { label: string; day: number; landed: boolean; x: number; gain: number; road: string };
+const CHAIN_X0 = 12;
+const CHAIN_STEP = 100;
+const CHAIN_W = 74;
+const CHAIN_TOP = 52;
+const CHAIN_H = 50;
+const chain: ChainNode[] = [];
+{
+  /* ขาสุดท้ายของตัวอย่างแรก: วันที่ 5 อยู่เมือง 2 แล้วไปเมือง 3 (2 วัน) ต่อด้วยเมือง 1 (4 วัน) */
+  const legs = [
+    { from: 2, to: 3, w: 2, gain: SAMPLE1.C[3] },
+    { from: 3, to: 1, w: 4, gain: SAMPLE1.C[1] },
+  ];
+  let day = 5;
+  let i = 0;
+  chain.push({ label: '(2,0)', day, landed: true, x: CHAIN_X0, gain: 0, road: '' });
+  for (const leg of legs) {
+    for (let j = leg.w - 1; j >= 0; j--) {
+      day += 1;
+      i += 1;
+      chain.push({
+        label: `(${leg.to},${j})`,
+        day,
+        landed: j === 0,
+        x: CHAIN_X0 + i * CHAIN_STEP,
+        gain: j === leg.w - 1 ? leg.gain : 0,
+        road: j === leg.w - 1 ? `ถนน ${leg.from}→${leg.to}` : '',
+      });
+    }
+  }
+}
+const CHAIN_LAST = chain[chain.length - 1];
+if (CHAIN_LAST.day !== SAMPLE1.T || CHAIN_LAST.label !== '(1,0)')
+  throw new Error('delicacy: โซ่สำเนาเมืองต้องจบที่ (1,0) วันที่ T');
+const CHAIN_VB_W = CHAIN_LAST.x + CHAIN_W + 12;
+const CHAIN_VB_H = CHAIN_TOP + CHAIN_H + 34;
+
+/* ---------- รูปที่สาม เส้นเวลาของตัวอย่างที่สอง ถูกเทศกาลหั่นเป็นช่วง ---------- */
+const AX_X0 = 26;
+const AX_X1 = 648;
+const AX_Y = 104;
+const axX = (d: number): number => rn(AX_X0 + ((AX_X1 - AX_X0) * d) / SAMPLE2.T);
+const AX_TICKS = Array.from({ length: SAMPLE2.T + 1 }, (_, d) => ({ d, x: axX(d) }));
+const AX_FEST = S2_FEST_SORTED.map((f, i) => ({
+  x: axX(f.t),
+  y: i % 2 === 0 ? 44 : 26,
+  text: `เมือง ${f.x} +${f.y}`,
+  day: f.t,
+}));
+const AX_GAPS = S2_GAPS.map((g, i) => ({
+  x1: axX(g.from),
+  x2: axX(g.to),
+  mid: rn((axX(g.from) + axX(g.to)) / 2),
+  y: i % 2 === 0 ? 140 : 158,
+  text: g.bits.length > 1 ? `${g.len} วัน = ${g.bits.join(' + ')}` : `${g.len} วัน`,
+}));
+const AX_H = 158 + 34;
+
+/* ---------- โค้ด ยกมาทั้งไฟล์ตามที่คอมไพล์และทดสอบจริง ---------- */
+const caseCode = `// Shared *data* declaration only (no algorithm code) so that the three
+// independent solvers can be linked into one stress-test binary verbatim.
+#ifndef DL_CASE_H
+#define DL_CASE_H
+#include <vector>
+#include <array>
+#include <cstdio>
+
+struct Case {
+    int n = 0, m = 0, k = 0;
+    long long T = 0;
+    std::vector<long long> C;                // C[i], cities 0-indexed
+    std::vector<std::array<int, 3>> E;       // {u, v, w}, cities 0-indexed
+    std::vector<std::array<long long, 3>> F; // {t, x, y}, x 0-indexed
+};
+
+inline Case readCase() {
+    Case c;
+    long long T = 0;
+    if (scanf("%d %d %lld %d", &c.n, &c.m, &T, &c.k) != 4) return c;
+    c.T = T;
+    c.C.assign(c.n, 0);
+    for (int i = 0; i < c.n; i++) {
+        if (scanf("%lld", &c.C[i]) != 1) return c;
+    }
+    c.E.assign(c.m, {0, 0, 0});
+    for (int i = 0; i < c.m; i++) {
+        int u = 0, v = 0, w = 0;
+        if (scanf("%d %d %d", &u, &v, &w) != 3) return c;
+        c.E[i] = {u - 1, v - 1, w};
+    }
+    c.F.assign(c.k, {0, 0, 0});
+    for (int i = 0; i < c.k; i++) {
+        long long t = 0, x = 0, y = 0;
+        if (scanf("%lld %lld %lld", &t, &x, &y) != 3) return c;
+        c.F[i] = {t, x - 1, y};
+    }
+    return c;
+}
+#endif`;
+
+const solution = `// NOI 2020 "Delicacy" (programming.in.th 2041) - full constraints.
+// (max,+) matrix exponentiation over a time-expanded graph.
+//
+// Every edge weight is 1..5, so split each city v into W copies (v,j),
+// j = 0..W-1, where W = max edge weight.  State (v,j) means "I will land on
+// city v in j more days".  (v,0) means "I am standing on v right now".
+// One day = one application of the matrix A:
+//     (u,0) --edge u->v of weight w--> (v, w-1)   gaining C[v]
+//     (v,j) --> (v,j-1)  (j >= 1)                 gaining 0
+// The reward C[v] is paid the moment the trip is committed; that is fine
+// because a walk is only ever read off at a (x,0) state, where no trip is
+// pending.
+//
+// Start vector: (1,0) = C[1], everything else unreachable.
+// Advance day by day with binary lifting over A^(2^b); at each festival day t
+// hop to day t, add y to the entry of state (x,0), continue.  Answer is the
+// entry of (1,0) after exactly T days.
+#include "dl_case.h"
+#include <algorithm>
+#include <vector>
+#include <cstdio>
+
+namespace dlfull {
+
+using ll = long long;
+static const ll NEG = -1000000000000000000LL;  // "unreachable"
+static const ll HALF = -500000000000000000LL;  // anything <= HALF is unreachable
+                                               // (every real value is >= 0)
+
+struct MaxPlus {
+    int S = 0;
+
+    // C = A (max,+) B
+    void mul(const std::vector<ll> &A, const std::vector<ll> &B, std::vector<ll> &C) const {
+        for (int i = 0; i < S; i++) {
+            ll *c = &C[(size_t)i * S];
+            for (int j = 0; j < S; j++) c[j] = NEG;
+            const ll *a = &A[(size_t)i * S];
+            for (int k = 0; k < S; k++) {
+                ll av = a[k];
+                if (av <= HALF) continue;
+                const ll *b = &B[(size_t)k * S];
+                for (int j = 0; j < S; j++) {
+                    ll t = av + b[j];
+                    if (t > c[j]) c[j] = t;
+                }
+            }
+            // Re-normalise: finite + NEG is still astronomically negative but
+            // not exactly NEG; snapping it back stops it creeping upward over
+            // the ~35 products we chain together.
+            for (int j = 0; j < S; j++)
+                if (c[j] <= HALF) c[j] = NEG;
+        }
+    }
+
+    // out = v (max,+) B   (v is a row vector)
+    void vmul(const std::vector<ll> &v, const std::vector<ll> &B, std::vector<ll> &out) const {
+        for (int j = 0; j < S; j++) out[j] = NEG;
+        for (int i = 0; i < S; i++) {
+            ll av = v[i];
+            if (av <= HALF) continue;
+            const ll *b = &B[(size_t)i * S];
+            for (int j = 0; j < S; j++) {
+                ll t = av + b[j];
+                if (t > out[j]) out[j] = t;
+            }
+        }
+        for (int j = 0; j < S; j++)
+            if (out[j] <= HALF) out[j] = NEG;
+    }
+};
+
+ll solve(const Case &cs) {
+    const int n = cs.n;
+    const ll T = cs.T;
+
+    int W = 1;
+    for (const auto &e : cs.E) W = std::max(W, e[2]);
+
+    MaxPlus mp;
+    mp.S = n * W;
+    const int S = mp.S;
+    auto id = [&](int v, int j) { return v * W + j; };
+
+    // A = one-day transition matrix.
+    std::vector<ll> A((size_t)S * S, NEG);
+    for (const auto &e : cs.E) {
+        int u = e[0], v = e[1], w = e[2];
+        ll &cell = A[(size_t)id(u, 0) * S + id(v, w - 1)];
+        cell = std::max(cell, cs.C[v]);
+    }
+    for (int v = 0; v < n; v++)
+        for (int j = 1; j < W; j++) A[(size_t)id(v, j) * S + id(v, j - 1)] = 0;
+
+    // Binary powers of A up to the highest bit of T.
+    int B = 0;
+    while ((1LL << (B + 1)) <= T) B++;
+    std::vector<std::vector<ll>> pw;
+    pw.push_back(A);
+    for (int b = 1; b <= B; b++) {
+        std::vector<ll> nxt((size_t)S * S);
+        mp.mul(pw[b - 1], pw[b - 1], nxt);
+        pw.push_back(std::move(nxt));
+    }
+
+    std::vector<ll> vec((size_t)S, NEG), tmp((size_t)S);
+    vec[id(0, 0)] = cs.C[0];  // day 0: standing on city 1, already eaten there
+
+    auto advance = [&](ll d) {
+        for (int b = 0; d > 0; b++, d >>= 1) {
+            if (d & 1) {
+                mp.vmul(vec, pw[b], tmp);
+                vec.swap(tmp);
+            }
+        }
+    };
+
+    std::vector<std::array<ll, 3>> F = cs.F;
+    std::sort(F.begin(), F.end(),
+              [](const std::array<ll, 3> &a, const std::array<ll, 3> &b) { return a[0] < b[0]; });
+
+    ll now = 0;
+    for (size_t i = 0; i < F.size(); i++) {
+        ll t = F[i][0];
+        if (t > T || t < now) continue;  // defensive; the statement gives 1 <= t <= T
+        advance(t - now);
+        now = t;
+        // Apply every festival held on day t.  Two festivals on the same day in
+        // the same city stack; in different cities they simply land on
+        // different states, which is exactly right.
+        size_t j = i;
+        while (j < F.size() && F[j][0] == t) {
+            int x = (int)F[j][1];
+            ll &cell = vec[id(x, 0)];
+            if (cell > HALF) cell += F[j][2];
+            j++;
+        }
+        i = j - 1;
+    }
+    advance(T - now);
+
+    ll ans = vec[id(0, 0)];
+    return ans <= HALF ? -1 : ans;
+}
+
+}  // namespace dlfull
+
+#ifndef DL_NO_MAIN
+int main() {
+    Case cs = readCase();
+    printf("%lld\\n", dlfull::solve(cs));
+    return 0;
+}
+#endif`;
+
+const subCode = `// NOI 2020 "Delicacy" - subtask solver for T <= 52501 (also used as an oracle).
+// Plain forward DP over days.  dp[d][v] = best satisfaction for being on city v
+// on day d, already counting C[v] and any festival bonus of day d.
+// Every edge costs at least 1 day, so day d is complete before it is expanded.
+#include "dl_case.h"
+#include <algorithm>
+#include <vector>
+#include <cstdio>
+
+namespace dlsub {
+
+using ll = long long;
+static const ll NONE = -1;  // unreachable (real values are always >= 0)
+
+ll solve(const Case &cs) {
+    const int n = cs.n;
+    const ll T = cs.T;
+
+    // adjacency by source city
+    std::vector<std::vector<std::pair<int, int>>> adj(n);  // (dest, weight)
+    for (const auto &e : cs.E) adj[e[0]].push_back({e[1], e[2]});
+
+    // festivals bucketed by day
+    std::vector<std::vector<std::pair<int, ll>>> fest((size_t)T + 1);  // (city, bonus)
+    for (const auto &f : cs.F) {
+        if (f[0] >= 0 && f[0] <= T) fest[(size_t)f[0]].push_back({(int)f[1], f[2]});
+    }
+
+    std::vector<std::vector<ll>> dp((size_t)T + 1, std::vector<ll>(n, NONE));
+    dp[0][0] = cs.C[0];
+
+    for (ll d = 0; d <= T; d++) {
+        for (const auto &fb : fest[(size_t)d]) {
+            if (dp[(size_t)d][fb.first] != NONE) dp[(size_t)d][fb.first] += fb.second;
+        }
+        if (d == T) break;
+        for (int v = 0; v < n; v++) {
+            ll cur = dp[(size_t)d][v];
+            if (cur == NONE) continue;
+            for (const auto &pr : adj[v]) {
+                ll nd = d + pr.second;
+                if (nd > T) continue;
+                ll cand = cur + cs.C[pr.first];
+                if (cand > dp[(size_t)nd][pr.first]) dp[(size_t)nd][pr.first] = cand;
+            }
+        }
+    }
+    return dp[(size_t)T][0];  // NONE == -1, which is exactly the required output
+}
+
+}  // namespace dlsub
+
+#ifndef DL_NO_MAIN
+int main() {
+    Case cs = readCase();
+    printf("%lld\\n", dlsub::solve(cs));
+    return 0;
+}
+#endif`;
+
+const bruteCode = `// NOI 2020 "Delicacy" - brute force for tiny cases.
+// Literally enumerates every walk out of city 1: at each city pick an outgoing
+// road, recurse, stop when day == T.  No DP table, no memoisation, no matrix -
+// it shares nothing with the other two solvers except the input struct.
+#include "dl_case.h"
+#include <algorithm>
+#include <vector>
+#include <cstdio>
+
+namespace dlbrute {
+
+using ll = long long;
+
+struct Runner {
+    const Case *cs = nullptr;
+    std::vector<std::vector<std::pair<int, int>>> adj;
+    ll best = -1;
+
+    ll bonusAt(ll day, int city) const {
+        ll s = 0;
+        for (const auto &f : cs->F)
+            if (f[0] == day && (int)f[1] == city) s += f[2];
+        return s;
+    }
+
+    void rec(ll day, int city, ll sum) {
+        if (day == cs->T) {
+            if (city == 0 && sum > best) best = sum;
+            return;
+        }
+        for (const auto &pr : adj[city]) {
+            ll nd = day + pr.second;
+            if (nd > cs->T) continue;
+            rec(nd, pr.first, sum + cs->C[pr.first] + bonusAt(nd, pr.first));
+        }
+    }
+};
+
+ll solve(const Case &cs) {
+    Runner r;
+    r.cs = &cs;
+    r.adj.assign(cs.n, {});
+    for (const auto &e : cs.E) r.adj[e[0]].push_back({e[1], e[2]});
+    r.rec(0, 0, cs.C[0] + r.bonusAt(0, 0));
+    return r.best;
+}
+
+}  // namespace dlbrute
+
+#ifndef DL_NO_MAIN
+int main() {
+    Case cs = readCase();
+    printf("%lld\\n", dlbrute::solve(cs));
+    return 0;
+}
+#endif`;
+
+const mulSnippet = `// หนึ่งวันคือการคูณหนึ่งครั้ง แต่บวกกลายเป็นมากสุด และคูณกลายเป็นบวก
+// C[i][j] = ค่ามากที่สุดของ A[i][k] + B[k][j] เมื่อไล่ k ทุกตัว
+for (int i = 0; i < S; i++)
+    for (int k = 0; k < S; k++) {
+        if (A[i][k] <= HALF) continue;          // ไปจากสถานะ i ถึง k ไม่ได้ ข้าม
+        for (int j = 0; j < S; j++)
+            C[i][j] = max(C[i][j], A[i][k] + B[k][j]);
+    }`;
+
+const buildSnippet = `// สร้างเมทริกซ์ของหนึ่งวัน จากถนนกับโซ่สำเนาเมือง
+// id(v, j) = หมายเลขสถานะของสำเนาที่ j ของเมือง v
+for (auto [u, v, w] : edges)
+    A[id(u, 0)][id(v, w - 1)] = max(A[id(u, 0)][id(v, w - 1)], C[v]);  // ออกเดินทาง จ่ายรางวัลตรงนี้
+for (int v = 0; v < n; v++)
+    for (int j = 1; j < W; j++)
+        A[id(v, j)][id(v, j - 1)] = 0;                                  // อยู่ระหว่างทาง ผ่านไปหนึ่งวัน`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; นักชิมที่ต้องกลับถึงบ้านให้พอดีวัน</h2>
+  <p>
+    อาณาจักรเอลฟ์มี <code>N</code> เมือง เมืองที่ <code>i</code> ทำอาหารที่ให้ความพึงพอใจ <code>C[i]</code> หน่วย
+    ถนนในอาณาจักรเป็นทางเดียวทั้งหมด <code>M</code> เส้น ถนนเส้นหนึ่งพาจากเมือง <code>u</code> ไปเมือง <code>v</code>
+    และใช้เวลา <code>w</code> วัน ออกจาก <code>u</code> วันที่ <code>d</code> ก็ไปถึง <code>v</code> วันที่ <code>d + w</code>
+  </p>
+  <p>
+    นักชิม W เริ่มที่เมือง 1 ในวันที่ 0 และต้องกลับมารายงานตัวที่เมือง 1 ในวันที่ <code>T</code> พอดี ห้ามหยุดพักระหว่างทาง
+    พอถึงเมืองไหนเขาชิมทันทีแล้วออกเดินทางต่อในวันนั้นเลย กลับมาเมืองเดิมกี่รอบก็ได้ความพึงพอใจเท่าเดิมทุกรอบ
+    นอกจากนี้ยังมีเทศกาลอาหาร <code>k</code> งาน งานที่ <code>i</code> จัดวันที่ <code>t</code> ที่เมือง <code>x</code>
+    ถ้าเขาอยู่ที่เมืองนั้นพอดีวันนั้นก็ได้เพิ่มอีก <code>y</code> หน่วย เราต้องบอกว่าความพึงพอใจรวมที่มากที่สุดเป็นเท่าไร
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N M T k</code> บรรทัดที่สองคือ <code>C[1..N]</code>
+        ต่อด้วย <code>M</code> บรรทัด บรรทัดละ <code>u v w</code> แทนถนนทางเดียวจาก <code>u</code> ไป <code>v</code>
+        ใช้เวลา <code>w</code> วัน แล้วปิดด้วย <code>k</code> บรรทัด บรรทัดละ <code>t x y</code> แทนเทศกาล
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {N_MAX}</code>, <code>N &le; M &le; {M_MAX}</code>,
+        <code>1 &le; T &le; {fmt(T_MAX)}</code>, <code>0 &le; k &le; {K_MAX}</code>,
+        <code>1 &le; C[i] &le; {fmt(C_MAX)}</code>, <code>1 &le; w &le; {W_MAX}</code>,
+        <code>1 &le; t &le; T</code> และ <code>1 &le; y &le; {fmt(T_MAX)}</code>
+        เวลา 2 วินาที หน่วยความจำ 512 เมกะไบต์
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> บรรทัดเดียว คือความพึงพอใจรวมที่มากที่สุด
+        และถ้ากลับมาถึงเมือง 1 ในวันที่ <code>T</code> พอดีไม่ได้เลย ให้ตอบ <code>-1</code>
+      </li>
+      <li>
+        <strong>ให้คะแนน:</strong> 20% ของข้อมูลทดสอบมี <code>N &le; 5</code>, <code>M &le; 50</code> และ <code>T &le; 5</code>
+        อีก 20% มี <code>M &le; 50</code> และ <code>T &le; {fmt(T_SUB)}</code>
+        อีก 10% มี <code>M &le; 50</code> โดยที่ <code>N = M</code>, <code>u[i] = i</code> และ <code>v[i] = (i mod N) + 1</code>
+        อีก 15% มี <code>M &le; 50</code> และ <code>k = 0</code>
+        อีก 10% มี <code>M &le; 50</code> และ <code>k &le; 10</code>
+        อีก 10% มี <code>M &le; 50</code> เฉย ๆ
+        และอีก 15% ไม่มีเงื่อนไขเพิ่มเติม
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {SAMPLE1.n} {SAMPLE1.roads.length} {SAMPLE1.T} {SAMPLE1.fest.length}<br />
+          {SAMPLE1.C.slice(1).join(' ')}<br />
+          {SAMPLE1.roads.map((r) => <>{[r.u, r.v, r.w].join(' ')}<br /></>)}
+        </td>
+        <td>{S1_BEST.best}</td>
+      </tr>
+      <tr>
+        <td>
+          {SAMPLE2.n} {SAMPLE2.roads.length} {SAMPLE2.T} {SAMPLE2.fest.length}<br />
+          {SAMPLE2.C.slice(1).join(' ')}<br />
+          {SAMPLE2.roads.map((r) => <>{[r.u, r.v, r.w].join(' ')}<br /></>)}
+          {SAMPLE2.fest.map((f) => <>{[f.t, f.x, f.y].join(' ')}<br /></>)}
+        </td>
+        <td>{S2_BEST.best}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      ชุดแรกบรรทัดบนสุดอ่านว่ามี {SAMPLE1.n} เมือง ถนน {SAMPLE1.roads.length} เส้น แข่งกัน {SAMPLE1.T} วัน
+      และไม่มีเทศกาลเลย บรรทัดถัดมาคือความพึงพอใจของเมือง 1 ถึงเมือง {SAMPLE1.n} เรียงตามลำดับ
+      คือ {SAMPLE1.C.slice(1).join(', ')} ส่วนอีก {SAMPLE1.roads.length} บรรทัดคือถนน
+      เลขสามตัวในบรรทัดคือต้นทาง ปลายทาง และจำนวนวัน ระวังว่าถนนเป็น<strong>ทางเดียว</strong>
+      บรรทัด <code>2 1 3</code> แปลว่าไปจากเมือง 2 กลับเมือง 1 ได้ใน 3 วัน แต่ไม่ได้แปลว่าเดินสวนทางได้
+    </p>
+    <p>
+      คำตอบมีหน่วยเป็นความพึงพอใจรวม ไม่ใช่จำนวนวันและไม่ใช่จำนวนเมืองที่แวะ
+      และเป็น <code>-1</code> เมื่อไม่มีทางกลับถึงเมือง 1 ในวันที่ <code>T</code> พอดี
+      สิ่งที่คนอ่านพลาดบ่อยที่สุดคือนับวันที่ 0 กับวันที่ <code>T</code> ยังไง คำตอบคือนับทั้งสองวัน
+      เพราะเขาชิมตั้งแต่วันแรกที่ยืนอยู่เมือง 1 และชิมอีกครั้งตอนกลับถึง
+    </p>
+    <p>
+      แผนที่โจทย์ยกมาคือ {S1_PLAN} เดินแล้วได้แบบนี้: {S1_WALK} รวมทั้งหมด {S1_SUM} เท่ากับ {S1_LAST.run} หน่วย
+      สังเกตว่าเขาเหยียบเมือง 1 สามครั้งและได้ {SAMPLE1.C[1]} หน่วยทุกครั้ง เพราะโจทย์บอกว่าชิมซ้ำก็ได้เท่าเดิม
+      ส่วนชุดที่สองมีเทศกาล {SAMPLE2.fest.length} งาน จัดวันที่ {S2_FEST_DAYS} ตามลำดับที่อินพุตให้มา
+      ซึ่ง<strong>ไม่ได้เรียงตามวัน</strong> แผนที่ชนะคือ {S2_PLAN} และมันไปตรงงานเดียวคือวันที่{' '}
+      {S2_HIT.map((s) => `${s.day} ที่เมือง ${s.city} ได้เพิ่ม ${s.bonus}`).join(' ')} ส่วนอีก {S2_MISS.length} งาน
+      เขายอมทิ้งเพราะแวะไม่คุ้ม รวมแล้วได้ {S2_LAST.run} หน่วย
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`อาณาจักรของตัวอย่างแรก ตัวเลขขาวในวงคือหมายเลขเมือง ตัวเลขทองคือความพึงพอใจของเมืองนั้น ลูกศรคือถนนทางเดียวพร้อมจำนวนวันที่ใช้ ทางขวาคือบัญชีของแผน ${S1_PLAN} ทีละครั้งที่เหยียบเมือง จนได้ ${S1_LAST.run} หน่วยในวันที่ ${SAMPLE1.T}`}>
+    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:740px" role="img" aria-label="แผนที่สามเมืองของตัวอย่างแรก พร้อมบัญชีความพึงพอใจหกบรรทัดตามแผนเดินทางที่โจทย์ยกมา">
+      <g transform={`translate(${-D1_MAP.box.x}, ${-D1_MAP.box.y})`}>
+        {D1_MAP.arcs.map((a) => (
+          <g>
+            <path d={a.d} fill="none" stroke="#37456b" stroke-width="2" />
+            <path d={a.head} fill="#37456b" />
+            <rect x={a.lx - 21} y={a.ly - 9} width="42" height="18" rx="5" fill="#0b1220" />
+            <text x={a.lx} y={a.ly + 4} fill="#9aa7bd" font-size="11" text-anchor="middle">{a.text}</text>
+          </g>
+        ))}
+        {D1_MAP.nodes.map((nd) => (
+          <g>
+            <circle cx={nd.x} cy={nd.y} r={NODE_R} fill="#121a2b" stroke={nd.home ? '#e7b455' : '#2a3350'} stroke-width="2" />
+            <text x={nd.x} y={nd.y - 1} fill="#eaf2ff" font-size="15" text-anchor="middle">{nd.city}</text>
+            <text x={nd.x} y={nd.y + 16} fill="#e7b455" font-size="12" text-anchor="middle" font-family="monospace">{nd.c}</text>
+          </g>
+        ))}
+      </g>
+      <text x={D1_COL.day} y="34" fill="#9aa7bd" font-size="12">วันที่</text>
+      <text x={D1_COL.city} y="34" fill="#9aa7bd" font-size="12">อยู่เมือง</text>
+      <text x={D1_COL.gain} y="34" fill="#9aa7bd" font-size="12">ได้เพิ่ม</text>
+      <text x={D1_COL.run} y="34" fill="#9aa7bd" font-size="12">รวม</text>
+      <line x1={D1_COL.day} y1="42" x2={D1_COL.run + 34} y2="42" stroke="#1e2a40" stroke-width="1" />
+      {S1_STOPS.map((s, i) => (
+        <g>
+          <text x={D1_COL.day} y={D1_ROW_Y[i]} fill="#cdd6ea" font-size="13" font-family="monospace">{s.day}</text>
+          <text x={D1_COL.city} y={D1_ROW_Y[i]} fill="#cdd6ea" font-size="13">เมือง {s.city}</text>
+          <text x={D1_COL.gain} y={D1_ROW_Y[i]} fill="#e7b455" font-size="13" font-family="monospace">+{s.gain}</text>
+          <text x={D1_COL.run} y={D1_ROW_Y[i]} fill="#a7f3c4" font-size="13" font-family="monospace">{s.run}</text>
+        </g>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถ้า <code>T</code> เล็ก ข้อนี้คือตารางธรรมดา ช่องหนึ่งช่องคือ &ldquo;วันที่ <code>d</code> ยืนอยู่เมือง <code>v</code>
+      แล้วได้มากที่สุดเท่าไร&rdquo; ไล่จากวันที่ 0 ไปข้างหน้าจนถึงวันที่ <code>T</code> แล้วอ่านคำตอบที่ช่องของเมือง 1
+      ปัญหาคือ <code>T</code> ใหญ่ได้ถึง {fmt(T_MAX)} ตารางนั้นจึงมีแถวเป็นพันล้านแถว
+    </p>
+    <p>
+      ทีนี้ลองสังเกตขอบเขตสองตัวที่ดูเล็กจนน่าสงสัย คือเมืองไม่เกิน {N_MAX} เมือง และถนนยาวไม่เกิน {W_MAX} วัน
+      สองตัวนี้เล็กจนแทบไม่มีเหตุผลอื่นนอกจากผู้ออกโจทย์อยากให้เราเอาไปใช้ ถ้าถนนทุกเส้นยาว 1 วันเท่ากันหมด
+      หนึ่งวันจะเป็นการก้าวแบบเดียวกันเสมอ และของที่ซ้ำเหมือนกันทุกครั้งมักกระโดดข้ามทีละเยอะได้
+      แล้วถนนที่ยาวไม่เท่ากันล่ะ จะทำให้มันยาวเท่ากันได้ไหม
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; พาเขาเที่ยวเองสี่อาณาจักร</h2>
+  <div class="cpgame dlcgame" data-dlcgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกอาณาจักร">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+    <p class="dlc-day" data-dlc-day>&nbsp;</p>
+
+    <div class="cpg-scroll">
+      {MAPS.map((m, i) => (
+        <div class="dlc-board" data-dlc-board={String(i)} hidden={i !== 0}>
+          <svg class="dlc-map" viewBox={mapVb(m)} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนที่อาณาจักรชุด ${puzzles[i].label} มี ${puzzles[i].n} เมือง เชื่อมกันด้วยถนนทางเดียว ${puzzles[i].roads.length} เส้น`}>
+            {m.arcs.map((a) => (
+              <g>
+                <path d={a.d} fill="none" stroke="#37456b" stroke-width="2" />
+                <path d={a.head} fill="#37456b" />
+                <rect x={a.lx - 21} y={a.ly - 9} width="42" height="18" rx="5" fill="#0b1220" />
+                <text x={a.lx} y={a.ly + 4} fill="#9aa7bd" font-size="11" text-anchor="middle">{a.text}</text>
+              </g>
+            ))}
+            {m.nodes.map((nd) => (
+              <g class={nd.home ? 'dlc-node is-home' : 'dlc-node'} data-dlc-city={String(nd.city)}>
+                <circle cx={nd.x} cy={nd.y} r={NODE_R} fill="#121a2b" stroke="#2a3350" stroke-width="2" />
+                <text x={nd.x} y={nd.y - 1} fill="#eaf2ff" font-size="15" text-anchor="middle">{nd.city}</text>
+                <text x={nd.x} y={nd.y + 16} fill="#e7b455" font-size="12" text-anchor="middle" font-family="monospace">{nd.c}</text>
+              </g>
+            ))}
+          </svg>
+          <p class="dlc-fest">{festLine(puzzles[i])}</p>
+        </div>
+      ))}
+    </div>
+
+    <p class="dlc-route" data-dlc-route>&nbsp;</p>
+
+    <div class="dlc-roads-wrap">
+      {puzzles.map((p, i) => (
+        <div class="dlc-roads" data-dlc-roads={String(i)} hidden={i !== 0}>
+          {p.roads.map((r, ri) => (
+            <button type="button" class="dlc-road" data-dlc-road={String(ri)} data-dlc-src={String(r.u)} hidden>
+              ไปเมือง {r.v} &middot; {r.w} วัน
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-dlc-undo>ถอยหนึ่งก้าว</button>
+      <button type="button" class="cpg-btn main" data-dlc-reset>เริ่มทริปใหม่</button>
+      <button type="button" class="cpg-btn" data-dlc-none>ชุดนี้ทำไม่ได้</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>กดถนนที่อยากไป วงกลมสีทองคือเมือง 1 ซึ่งเป็นทั้งจุดเริ่มและจุดจบ</p>
+    <p class="cpg-score" data-cpg-score>&nbsp;</p>
+    <p class="cpg-hint">
+      ได้ความพึงพอใจทุกครั้งที่เหยียบเมือง รวมวันที่ 0 และวันสุดท้ายด้วย
+      แต่ทริปจะนับก็ต่อเมื่อวันสุดท้ายคุณยืนอยู่ที่เมือง 1 พอดี
+    </p>
+  </div>
+  <p class="ns-cue">
+    ลองให้ครบทั้งสี่ชุดนะครับ โดยเฉพาะชุดสุดท้าย ถ้าลองแล้วรู้สึกว่ามันแปลก ๆ ความรู้สึกนั้นถูกแล้ว
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; หั่นเมืองจนถนนทุกเส้นยาวหนึ่งวันเท่ากัน</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมรู้จักท่ายกกำลังเมทริกซ์อยู่ก่อนแล้ว สิ่งที่ต้องตัดสินใจจริงในข้อนี้จึงไม่ใช่ว่าจะใช้ท่าไหน
+        แต่คือจะทำยังไงให้ &ldquo;หนึ่งวัน&rdquo; เป็นก้าวแบบเดียวกันทุกครั้ง ตัวเลขที่ผลักคือ <code>T</code> ถึง {fmt(T_MAX)}
+        ตารางไล่ทีละวันซึ่งเป็นสิ่งแรกที่ผมเขียน ต้องผ่อนถนนทุกเส้นในทุกวัน คูณออกมาได้ {fmt(dayOps(T_MAX))} ครั้ง
+        และตารางเองก็กินหน่วยความจำระดับหลายแสนเมกะไบต์ ไม่ใช่เรื่องปรับจูนให้เร็วขึ้นอีกนิด แต่ต้องเปลี่ยนหน่วยของการคิด
+      </p>
+      <p>
+        อุปสรรคเดียวที่ขวางอยู่คือถนนยาวไม่เท่ากัน ถ้าทุกเส้นยาว 1 วัน หนึ่งวันก็คือการก้าวหนึ่งครั้งบนกราฟเดิม
+        ซึ่งยกกำลังได้ทันที พอถนนยาว 1 ถึง 5 วัน วันหนึ่งวันจึงไม่ใช่การก้าวที่เหมือนกันอีกต่อไป
+        ตัวเลขที่ทำให้กล้าหั่นเมืองเป็นสำเนาคือ <code>w</code> ไม่เกิน {W_MAX} กับ <code>N</code> ไม่เกิน {N_MAX}
+        คูณกันแล้วได้สถานะแค่ {STATES} ตัว ซึ่งยกกำลังสามแล้วยังอยู่ในหลักสิบล้าน คือยังไหว
+        ถ้า <code>w</code> ถึงหลักพันเมื่อไร ท่านี้ตายทันที
+      </p>
+      <p>
+        สิ่งเดียวที่ผมไม่สบายใจตอนเขียนเสร็จคือรางวัลของเมืองถูกจ่ายตั้งแต่ตอนออกเดินทาง ไม่ใช่ตอนไปถึง
+        ซึ่งอ่านดูเหมือนนับเกิน ผมเลยไม่ยอมตัดสินด้วยเหตุผลในหัวอย่างเดียว แต่เอาไปชนกับตัวไล่ทุกเส้นทาง
+        ที่ไม่รู้จักทั้งการหั่นเมืองและเมทริกซ์ (เหตุผลว่าทำไมมันไม่นับเกิน อยู่ในตอนที่ 4)
+        บทเรียนที่เอาไปใช้ข้ออื่นได้คือ ถ้าอยากกระโดดข้ามเวลาเป็นก้อนใหญ่ ต้องทำให้หนึ่งหน่วยเวลาเป็นก้าวเดียวกันเสมอก่อน
+        แล้ววิธีกระโดดจะตามมาเอง
+      </p>
+    </div>
+    <p>
+      ท่าคือ<strong>หั่นเมืองหนึ่งเมืองออกเป็นสำเนา</strong> เมืองละ <code>W</code> ตัว เมื่อ <code>W</code> คือความยาวถนนที่มากที่สุด
+      สำเนาที่ <code>j</code> ของเมือง <code>v</code> เขียนเป็น <code>(v, j)</code> แปลว่า &ldquo;อีก <code>j</code> วันข้างหน้าฉันจะเหยียบเมือง
+      <code>v</code>&rdquo; สำเนา <code>(v, 0)</code> จึงแปลว่ากำลังยืนอยู่ที่เมือง <code>v</code> จริง ๆ ในวันนี้
+    </p>
+    <p>
+      เมื่อมองแบบนี้ การเดินทางทั้งอาณาจักรเหลือกฎแค่สองข้อ และทั้งสองข้อใช้เวลาหนึ่งวันเท่ากัน
+      ข้อแรก ถนนจากเมือง <code>u</code> ไปเมือง <code>v</code> ที่ยาว <code>w</code> วัน กลายเป็นการก้าวจาก <code>(u, 0)</code>
+      ไป <code>(v, w - 1)</code> คือตัดสินใจออกเดินทางวันนี้ แล้วเหลืออีก <code>w - 1</code> วันจะถึง
+      ข้อสอง สำเนา <code>(v, j)</code> เมื่อ <code>j</code> มากกว่า 0 ก้าวไป <code>(v, j - 1)</code> ได้อย่างเดียว
+      คืออยู่ระหว่างทางแล้วเวลาผ่านไปหนึ่งวัน
+    </p>
+    <CodeBlock code={buildSnippet} lang="cpp" title="กฎสองข้อของหนึ่งวัน" />
+    <p>
+      รางวัล <code>C[v]</code> ถูกบวกที่การก้าวข้อแรก คือตอนออกเดินทาง ไม่ใช่ตอนไปถึง ส่วนการก้าวข้อสองได้ 0
+      จำนวนสถานะทั้งหมดคือ <code>N</code> คูณ <code>W</code> ซึ่งที่ขอบเขตใหญ่สุดคือ {N_MAX} คูณ {W_MAX} เท่ากับ {STATES} ตัว
+      และตอนนี้หนึ่งวันคือการก้าวหนึ่งครั้งบนกราฟที่มีแค่ {STATES} จุด เหมือนกันทุกวัน
+    </p>
+    <ZoomableDiagram caption={`ขาสุดท้ายของตัวอย่างแรก กางเป็นการก้าววันละครั้ง กล่องเขียวคือสำเนา j = 0 ซึ่งแปลว่าเหยียบเมืองนั้นจริงในวันนั้น กล่องเทาคือยังอยู่ระหว่างทาง ลูกศรทุกเส้นยาวหนึ่งวันเท่ากัน ถนน 3→1 ที่ยาว 4 วันจึงกลายเป็นการก้าวสี่ครั้ง โดยรางวัล +${SAMPLE1.C[1]} ของเมือง 1 ถูกจ่ายตั้งแต่ก้าวแรกของทั้งสี่ก้าว`}>
+      <svg viewBox={`0 0 ${CHAIN_VB_W} ${CHAIN_VB_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="แผนภาพโซ่สำเนาเมือง แสดงถนนยาวสองวันและสี่วันที่ถูกกางออกเป็นการก้าววันละครั้ง">
+        {chain.map((nd, i) => (
+          <g>
+            <rect x={nd.x} y={CHAIN_TOP} width={CHAIN_W} height={CHAIN_H} rx="8" fill={nd.landed ? '#163a2a' : '#141b2b'} stroke={nd.landed ? '#2f9e5c' : '#2a3350'} stroke-width="1.5" />
+            <text x={nd.x + CHAIN_W / 2} y={CHAIN_TOP + 21} fill="#eaf2ff" font-size="13" text-anchor="middle" font-family="monospace">{nd.label}</text>
+            <text x={nd.x + CHAIN_W / 2} y={CHAIN_TOP + 38} fill="#9aa7bd" font-size="11" text-anchor="middle">วันที่ {nd.day}</text>
+            {i > 0 && (
+              <line x1={nd.x - CHAIN_STEP + CHAIN_W + 3} y1={CHAIN_TOP + CHAIN_H / 2} x2={nd.x - 7} y2={CHAIN_TOP + CHAIN_H / 2} stroke="#37456b" stroke-width="2" marker-end="" />
+            )}
+            {i > 0 && (
+              <path d={`M ${nd.x - 2} ${CHAIN_TOP + CHAIN_H / 2} L ${nd.x - 9} ${CHAIN_TOP + CHAIN_H / 2 - 4.5} L ${nd.x - 9} ${CHAIN_TOP + CHAIN_H / 2 + 4.5} Z`} fill="#37456b" />
+            )}
+            {nd.gain > 0 && (
+              <text x={nd.x - CHAIN_STEP / 2 + CHAIN_W / 2 + 6} y={CHAIN_TOP - 22} fill="#e7b455" font-size="12" text-anchor="middle" font-family="monospace">+{nd.gain}</text>
+            )}
+            {nd.road !== '' && (
+              <text x={nd.x - CHAIN_STEP / 2 + CHAIN_W / 2 + 6} y={CHAIN_TOP - 8} fill="#9aa7bd" font-size="10.5" text-anchor="middle">{nd.road}</text>
+            )}
+          </g>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; หนึ่งวันคือการคูณเมทริกซ์หนึ่งครั้ง</h2>
+  <Spoiler>
+    <p>
+      พอหนึ่งวันเป็นก้าวเดียวกันเสมอ เราเขียนกฎของหนึ่งวันลงเป็นตารางตัวเลขสี่เหลี่ยมที่เรียกว่า<strong>เมทริกซ์</strong>
+      (<i>matrix</i> อ่านว่า &ldquo;เมทริกซ์&rdquo; คำนี้มาจากภาษาละติน <i>mātrix</i> ที่แปลว่าแม่พันธุ์หรือครรภ์
+      คือที่ที่อะไรบางอย่างงอกออกมา ก่อนจะถูกยืมมาใช้เรียกตารางตัวเลขในคณิตศาสตร์) ได้ตารางขนาด {STATES} คูณ {STATES}
+      ช่องแถว <code>p</code> หลัก <code>q</code> เก็บว่าก้าวจากสถานะ <code>p</code> ไป <code>q</code> ในหนึ่งวันแล้วได้กี่หน่วย
+      ถ้าก้าวไม่ได้ก็ใส่ค่าลบมหาศาลไว้แทนคำว่าไปไม่ได้
+    </p>
+    <p>
+      ทีนี้คำถามว่า &ldquo;เดิน <code>a + b</code> วันแล้วได้มากที่สุดเท่าไร&rdquo; ตอบได้จากคำตอบของ <code>a</code> วัน
+      กับ <code>b</code> วัน โดยไล่ดูว่าจุดพักตรงกลางอยู่ที่สถานะไหน แล้วเอาสองท่อนมาบวกกัน เลือกอันที่มากที่สุด
+      รูปแบบนี้หน้าตาเหมือนการคูณเมทริกซ์เป๊ะ ๆ ต่างกันแค่เปลี่ยนเครื่องหมาย: ที่เดิมต้องบวกให้เปลี่ยนเป็นเอามากสุด
+      และที่เดิมต้องคูณให้เปลี่ยนเป็นบวก ระบบตัวเลขที่สลับเครื่องหมายแบบนี้เรียกว่า<strong>พีชคณิตมากสุดบวก</strong>
+      (<i>max-plus algebra</i> อ่านว่า &ldquo;แม็กซ์-พลัส&rdquo; บางตำราเรียกพีชคณิตเขตร้อน เพราะคนที่ศึกษาเรื่องนี้ยุคแรกเป็นชาวบราซิล)
+    </p>
+    <CodeBlock code={mulSnippet} lang="cpp" title="คูณเมทริกซ์แบบมากสุดบวก" />
+    <p>
+      ของดีของการเขียนหนึ่งวันเป็นเมทริกซ์คือมันยกกำลังได้ เมทริกซ์ของ 2 วันคือเมทริกซ์ของ 1 วันคูณตัวเอง
+      ของ 4 วันคือของ 2 วันคูณตัวเอง ไล่ไปเรื่อย ๆ เก็บไว้เป็นตารางกระโดดสองยกกำลัง ซึ่งเป็นท่าเดียวกับที่
+      <a href="/cp/convention-centre/">ข้อศูนย์ประชุม</a>ใช้กระโดดข้ามงานทีละก้อน ที่ <code>T</code> ถึง {fmt(T_MAX)}
+      เราต้องการกำลังถึง {bitsOf(T_MAX)} ชั้น คือยกกำลังสองซ้ำ {bitsOf(T_MAX) - 1} ครั้ง
+      แต่ละครั้งเป็นการคูณเมทริกซ์ {STATES} คูณ {STATES} หนึ่งที ราคา {fmt(MUL_COST)} ครั้ง
+      ชั้นทั้งหมดกินหน่วยความจำ {fmt(MEM_MATRIX / 1000000)} เมกะไบต์ ซึ่งเทียบกับลิมิต 512 แล้วเหลือเฟือ
+    </p>
+    <p>
+      พอมีตารางชั้นแล้ว การเดินหน้าไป <code>d</code> วันก็แค่ดูว่า <code>d</code> เขียนเป็นเลขฐานสองแล้วมีบิตไหนติดบ้าง
+      แล้วเอาเวกเตอร์คำตอบปัจจุบันคูณกับชั้นนั้น ๆ ตามลำดับ ตรงนี้เป็นการคูณเวกเตอร์กับเมทริกซ์
+      ซึ่งราคาแค่ {fmt(VMUL_COST)} ครั้ง ถูกกว่าการคูณเมทริกซ์เต็ม ๆ อยู่ {STATES} เท่า
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>COST</caption>
+        <thead>
+          <tr><th>ทาง</th><th class="num">ที่ T = {fmt(T_SUB)}</th><th class="num">ที่ T = {fmt(T_MAX)}</th></tr>
+        </thead>
+        <tbody>
+          {bill.map((r) => (
+            <tr><td>{r.name}</td><td class="num">{fmt(r.a)}</td><td class="num">{fmt(r.b)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สองแถวนับด้วยหน่วยเดียวกัน คือจำนวนครั้งที่ต้องบวกเลขหนึ่งครั้งแล้วเทียบว่ามากกว่าค่าเดิมไหม
+        คิดที่ขอบเขตใหญ่สุดของโจทย์คือถนน {M_MAX} เส้น เมือง {N_MAX} เมือง และเทศกาล {K_MAX} งาน
+        สังเกตว่าที่ T เท่ากับ {fmt(T_SUB)} ทางไล่ทีละวันถูกกว่าเกือบยี่สิบเท่า นั่นคือเหตุผลที่ชุดทดสอบชุดนั้นมีอยู่
+        แต่พอ T โตเป็นพันล้าน ทางแรกโตตามไปตรง ๆ ส่วนทางที่สองโตตามจำนวนบิตของ T ซึ่งเพิ่มจาก {bitsOf(T_SUB)} เป็น {bitsOf(T_MAX)} เท่านั้น
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; เทศกาลหั่นเส้นเวลาออกเป็นช่วง</h2>
+  <Spoiler>
+    <p>
+      ถ้าไม่มีเทศกาลเลย ทั้งข้อจบตรงนี้ คือยกเวกเตอร์เริ่มต้นไป <code>T</code> วันรวดเดียวแล้วอ่านคำตอบ
+      เทศกาลทำให้ทำแบบนั้นไม่ได้ เพราะรางวัล <code>y</code> ผูกกับวันที่แน่นอนวันเดียว การกระโดดข้ามวันนั้นไปเลย
+      จะทำให้ไม่มีจังหวะใส่รางวัลเข้าไป
+    </p>
+    <p>
+      แต่เทศกาลมีไม่เกิน {K_MAX} งาน มันจึงหั่นเส้นเวลาออกเป็นช่วงได้ไม่เกิน {K_MAX + 1} ช่วงเท่านั้น
+      วิธีทำคือเรียงเทศกาลตามวัน (อินพุตไม่ได้เรียงมาให้ อย่างตัวอย่างที่สองให้มาเป็นวันที่ {S2_FEST_DAYS})
+      แล้วเดินหน้าทีละช่วงด้วยตารางกระโดด พอถึงวันที่มีงาน ก็เอา <code>y</code> บวกเข้าช่องของสถานะ <code>(x, 0)</code>
+      ตรง ๆ ซึ่งแปลว่ายืนอยู่เมือง <code>x</code> พอดีวันนั้น แล้วเดินหน้าต่อ
+    </p>
+    <p>
+      สามอย่างที่ต้องระวังตอนบวก อย่างแรกคือถ้าช่องนั้นยังเป็นค่าลบมหาศาลอยู่ แปลว่าวันนั้นไปยืนที่เมืองนั้นไม่ได้เลย
+      ห้ามบวกเข้าไป ไม่งั้นค่าขยะจะกลายเป็นค่าที่ดูใช้ได้ อย่างที่สองคืองานหลายงานอาจจัดวันเดียวกัน
+      ต้องบวกให้ครบทุกงานก่อนจะเดินหน้าต่อ ถ้าสองงานอยู่เมืองเดียวกันวันเดียวกันก็ทบกันไป ซึ่งถูกแล้วตามโจทย์
+      อย่างที่สามคือช่วงยาวศูนย์วัน (สองงานติดกันในวันเดียวกัน) ต้องไม่ทำให้โค้ดเดินหน้าผิด
+    </p>
+    <ZoomableDiagram caption={`เส้นเวลาของตัวอย่างที่สอง งาน ${SAMPLE2.fest.length} งานหั่น ${SAMPLE2.T} วันออกเป็น ${S2_GAPS.length} ช่วง แต่ละช่วงข้ามด้วยตารางกระโดดตามบิตของความยาวช่วง ช่วงสุดท้ายยาว ${S2_LONG_GAP.len} วัน จึงกระโดด ${S2_LONG_GAP.bits.length} ครั้งคือ ${S2_LONG_GAP.bits.join(' แล้ว ')} ที่ T เป็นพันล้าน ช่วงหนึ่งช่วงก็ยังใช้การกระโดดไม่เกิน ${bitsOf(T_MAX)} ครั้งเท่านั้น`}>
+      <svg viewBox={`0 0 660 ${AX_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="เส้นเวลาสิบหกวันของตัวอย่างที่สอง มีเทศกาลสามงานคั่น แบ่งเส้นเวลาเป็นสี่ช่วง พร้อมการแตกความยาวช่วงเป็นเลขฐานสอง">
+        <line x1={AX_X0} y1={AX_Y} x2={AX_X1} y2={AX_Y} stroke="#37456b" stroke-width="2" />
+        {AX_TICKS.map((t) => (
+          <g>
+            <line x1={t.x} y1={AX_Y - 5} x2={t.x} y2={AX_Y + 5} stroke="#2a3350" stroke-width="1" />
+            <text x={t.x} y={AX_Y + 20} fill="#7b8397" font-size="9.5" text-anchor="middle" font-family="monospace">{t.d}</text>
+          </g>
+        ))}
+        {AX_FEST.map((f) => (
+          <g>
+            <line x1={f.x} y1={f.y + 6} x2={f.x} y2={AX_Y - 6} stroke="#e7b455" stroke-width="1" stroke-dasharray="3 3" />
+            <circle cx={f.x} cy={AX_Y} r="5" fill="#e7b455" />
+            <text x={f.x} y={f.y} fill="#e7b455" font-size="11" text-anchor="middle">{f.text}</text>
+          </g>
+        ))}
+        {AX_GAPS.map((g) => (
+          <g>
+            <line x1={g.x1 + 2} y1={g.y - 14} x2={g.x2 - 2} y2={g.y - 14} stroke="#2f9e5c" stroke-width="2" />
+            <line x1={g.x1 + 2} y1={g.y - 19} x2={g.x1 + 2} y2={g.y - 9} stroke="#2f9e5c" stroke-width="2" />
+            <line x1={g.x2 - 2} y1={g.y - 19} x2={g.x2 - 2} y2={g.y - 9} stroke="#2f9e5c" stroke-width="2" />
+            <text x={g.mid} y={g.y} fill="#a7f3c4" font-size="11" text-anchor="middle" font-family="monospace">{g.text}</text>
+          </g>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 &middot; จ่ายรางวัลตั้งแต่ออกเดินทาง ทำไมถึงไม่นับเกิน</h2>
+  <Spoiler>
+    <p>
+      จุดที่ดูน่าสงสัยที่สุดของท่านี้คือ เราบวก <code>C[v]</code> ตอนก้าวจาก <code>(u, 0)</code> ไป <code>(v, w - 1)</code>
+      ซึ่งคือวันที่เขา<strong>ออกเดินทาง</strong> ไม่ใช่วันที่ไปถึง ถ้า <code>T</code> มาถึงก่อนที่เขาจะเดินทางถึงเมือง <code>v</code>
+      เท่ากับเราแจกความพึงพอใจของมื้อที่เขายังไม่ได้กินไปแล้ว
+    </p>
+    <p>
+      เหตุผลที่มันไม่พังอยู่ที่จุดเดียว คือเราอ่านคำตอบจากช่องของสถานะ <code>(1, 0)</code> เท่านั้น
+      และจากสถานะ <code>(v, j)</code> ที่ <code>j</code> มากกว่า 0 ทางออกมีทางเดียวคือ <code>(v, j - 1)</code>
+      ไม่มีถนนเส้นไหนออกจากสำเนาที่ยังค้างอยู่ระหว่างทางได้เลย แปลว่าค่าที่ค้างอยู่ในสถานะกลางทางในวันสุดท้าย
+      ไม่มีทางไหลมาถึงช่อง <code>(1, 0)</code> ได้ มันถูกทิ้งไปพร้อมกับช่องของตัวเอง
+    </p>
+    <p>
+      พูดอีกแบบคือการยืนอยู่ที่ <code>(1, 0)</code> ในวันที่ <code>T</code> เป็นหลักฐานในตัวมันเองว่า
+      ทุกการเดินทางที่เคยตัดสินใจไว้ได้ลงจอดครบแล้ว เพราะถ้ามีสักเส้นที่ยังค้าง เขาจะยังติดอยู่ในสำเนา <code>(v, j)</code> บางตัว
+      ไม่ใช่ที่ <code>(1, 0)</code> การจ่ายล่วงหน้าจึงเป็นแค่เรื่องของจังหวะการบันทึกบัญชี ไม่ใช่การแจกของฟรี
+    </p>
+    <p>
+      ผมชอบให้ข้ออ้างแบบนี้มีตัวตรวจคอยยืนยัน มากกว่าจะเชื่อเหตุผลที่เขียนไว้เฉย ๆ ตัวไล่ทุกเส้นทางที่ใช้เทียบ
+      จึงไม่รู้จักทั้งสำเนาเมืองและเมทริกซ์ มันเดินจริงทีละเส้นทาง บวกความพึงพอใจตอนไปถึงจริง ๆ
+      แล้วเก็บค่ามากที่สุดของเส้นทางที่จบที่เมือง 1 ในวันที่ <code>T</code> พอดี
+      ถ้าการจ่ายล่วงหน้านับเกินจริง ตัวเลขสองฝั่งจะแยกกันทันทีในเทสเล็ก ๆ ไม่กี่รอบ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็มขอบเขต</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="dl_full.cpp" />
+        <p>
+          ค่ามากที่สุดที่เป็นไปได้คือความพึงพอใจ {fmt(C_MAX)} ต่อวัน คูณ {fmt(T_MAX)} วัน บวกเทศกาลอีก {K_MAX} งาน งานละถึง {fmt(T_MAX)}
+          รวมแล้วเกินขอบเขตของ <code>int</code> ไปไกลมาก ทุกอย่างจึงเป็น <code>long long</code>
+          ส่วนค่าที่แทนคำว่าไปไม่ได้ต้องเป็นลบมากพอที่บวกกันหลายทอดแล้วยังไม่มีทางแซงค่าจริงได้
+          และต้องดึงกลับมาที่ค่าเดิมทุกครั้งหลังคูณ ไม่งั้นมันจะค่อย ๆ ไต่ขึ้นทีละนิดตลอด 35 ทอดที่เราคูณต่อกัน
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดของชุดที่ T ไม่เกิน {fmt(T_SUB)}</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="dl_sub.cpp" />
+        <p>
+          นี่คือตารางไล่ทีละวันตรง ๆ ซึ่งเป็นท่าแรกที่ควรเขียน ที่ <code>T</code> ไม่เกิน {fmt(T_SUB)} และถนนไม่เกิน 50 เส้น
+          มันทำงาน {fmt(T_SUB * 50)} ครั้ง และตารางกิน {fmt(Math.round(MEM_DAYDP / 1000000))} เมกะไบต์ ซึ่งอยู่ในลิมิตสบาย
+          ตามเงื่อนไขของชุดทดสอบ โค้ดนี้ครอบชุด 20% ที่ <code>T</code> ไม่เกิน 5 และชุด 20% ที่ <code>T</code> ไม่เกิน {fmt(T_SUB)}
+          รวมเป็น 40% ส่วนชุดที่เหลือปลด <code>T</code> ไว้ถึงพันล้าน ตารางนี้จึงจองหน่วยความจำไม่ไหวตั้งแต่แรก
+          ผมใช้มันเป็นตัวตรวจของชุดใหญ่ด้วย เพราะมันคิดคนละทางกับเมทริกซ์แต่รับอินพุตชุดเดียวกัน
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวไล่ทุกเส้นทางที่ใช้เทียบ</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="dl_brute.cpp" />
+        <p>
+          ตัวนี้ไม่มีตาราง ไม่มีการจำค่าที่เคยคิดแล้ว และไม่มีสำเนาเมือง มันเลือกถนนออกจากเมืองปัจจุบันทีละเส้น
+          เรียกตัวเองต่อไปเรื่อย ๆ จนวันครบ <code>T</code> แล้วค่อยดูว่าจบที่เมือง 1 ไหม
+          ที่สำคัญคือมันบวกความพึงพอใจ<strong>ตอนไปถึงจริง</strong> ไม่ใช่ตอนออกเดินทาง
+          มันจึงไม่ได้ใช้ข้ออ้างในตอนที่ 4 ร่วมกับเฉลยเลย ซึ่งเป็นเงื่อนไขที่ทำให้มันเป็นตัวตรวจที่มีความหมาย
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูส่วนอ่านอินพุตที่ทั้งสามโปรแกรมใช้ร่วมกัน</summary>
+      <div class="expander-body">
+        <CodeBlock code={caseCode} lang="cpp" title="dl_case.h" />
+        <p>
+          ไฟล์นี้มีแต่โครงสร้างข้อมูลกับตัวอ่านอินพุต ไม่มีอัลกอริทึมสักบรรทัด
+          ที่แยกออกมาเพราะตอน stress test ผมลิงก์ทั้งสามโปรแกรมเข้าเป็นไบนารีเดียว
+          จะได้ไม่ต้องเปิดกระบวนการใหม่ทีละเทส ซึ่งช้ากว่ากันหลายสิบเท่า
+          และทั้งสามตัวต้องอ่านเคสเดียวกันแบบเดียวกันเป๊ะ ๆ ถึงจะเทียบผลกันได้อย่างมีความหมาย
+        </p>
+      </div>
+    </details>
+    <p class="io-note">
+      คอมไพล์ทั้งสามโปรแกรมแล้วรันกับตัวอย่างสองชุดในโจทย์ ได้ {S1_BEST.best} กับ {S2_BEST.best} ตรงกันทั้งสามตัว
+      ตัวเฉลยผ่านการสุ่มทดสอบ 57,000 รอบโดยไม่มีรอบไหนไม่ตรง และผมรันซ้ำด้วยเมล็ดสุ่มของตัวเองอีก 6,000 รอบ
+      ก็ไม่ต่างกันสักรอบ ในจำนวนนั้น 3,493 รอบเทียบกับตัวไล่ทุกเส้นทาง นอกจากนี้ยังมีอีก 600 รอบที่เทียบกับสูตรปิด
+      บนอาณาจักรที่บังคับให้เดินได้ทางเดียว โดยดัน T ถึงพันล้านจนได้ใช้บิตกระโดดครบทั้ง {bitsOf(T_MAX)} บิต
+      อีก 60 รอบที่ขนาดเต็มคือ N = {N_MAX}, M = {M_MAX}, k = {K_MAX} เทียบกับตารางไล่ทีละวัน
+      และเคสขอบอีกแปดเคสที่คำนวณด้วยมือ เช่น เมืองเดียวที่มีถนนวนกลับตัวเองยาว 1 วันแล้ว T เป็นพันล้าน
+      T คี่กับถนนวนกลับตัวเองยาว 2 วันซึ่งต้องตอบ -1 เทศกาลที่จัดตรงวันที่ T พอดี และเมืองที่ไม่มีถนนออกเลย
+      ทั้งหมดตรงกันหมด เวลาที่แย่ที่สุดที่วัดได้คือ <strong>0.55 วินาที</strong> จากลิมิต 2 วินาที
+      บนเคสที่จงใจสร้างให้หนักที่สุด (N = {N_MAX}, M = {M_MAX}, T = {fmt(T_MAX)}, k = {K_MAX} และจัดวันเทศกาลให้ห่างกัน
+      2 ยกกำลัง 22 ลบหนึ่งวัน เพื่อให้ต้องคูณเวกเตอร์กับเมทริกซ์มากที่สุด) หน่วยความจำสูงสุด 18 เมกะไบต์จาก 512
+      ทั้งหมดนี้เทียบกับตัวตรวจของเราเองกับตัวอย่างสองชุดในโจทย์ ไม่ใช่ข้อมูลทดสอบจริงของผู้จัด
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าแรกคือ<strong>ทำให้หนึ่งหน่วยเวลาเป็นก้าวเดียวกันเสมอ ด้วยการเพิ่มสถานะ</strong>
+    เวลาเจอโจทย์ที่เวลาใหญ่มากแต่โครงสร้างเล็ก สิ่งที่ขวางการกระโดดข้ามเวลามักไม่ใช่ขนาด แต่เป็นความไม่สม่ำเสมอ
+    ถนนยาวไม่เท่ากันคือความไม่สม่ำเสมอแบบหนึ่ง และมันซื้อกลับมาได้ด้วยสำเนาของเมืองตามจำนวนวันที่ค้างอยู่
+    ราคาคือจำนวนสถานะคูณขึ้นตามความยาวมากสุด ซึ่งจ่ายไหวก็ต่อเมื่อความยาวมากสุดเล็ก อย่างข้อนี้ที่ให้มาแค่ {W_MAX}
+  </p>
+  <p>
+    ท่าที่สองคือ<strong>เปลี่ยนเครื่องหมายแล้วใช้ท่าเดิม</strong> คำถามหาเส้นทางที่ดีที่สุดในจำนวนก้าวที่กำหนดพอดี
+    มีหน้าตาเหมือนการคูณเมทริกซ์ทุกประการ ต่างแค่บวกกลายเป็นมากสุดและคูณกลายเป็นบวก
+    พอมันเป็นการคูณ มันก็ยกกำลังได้ และท่ายกกำลังเร็วที่เคยใช้กับเลขธรรมดาก็ย้ายมาใช้ได้ทั้งดุ้น
+    (ข้อ <a href="/cp/rolling-state-dp/">ยุบสถานะให้เหลือแถวเดียว</a> ทิ้งท้ายไว้ว่าถ้า <code>n</code> ใหญ่กว่านั้นต้องใช้ท่านี้ ข้อนี้คือท่านั้น)
+  </p>
+  <p>
+    ท่าที่สามคือ<strong>เหตุการณ์เฉพาะจุดหั่นเส้นเวลาเป็นช่วง</strong> อะไรที่ผูกกับเวลาจุดเดียวและมีจำนวนน้อย
+    ไม่ได้ทำลายท่ากระโดด มันแค่บังคับให้เราหยุดที่จุดนั้นแล้วจัดการด้วยมือ ก่อนจะกระโดดต่อ
+    ค่าใช้จ่ายรวมจึงเป็นจำนวนเหตุการณ์คูณราคาการกระโดดหนึ่งครั้ง
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    หั่นเมืองเป็นสำเนาตามจำนวนวันที่ยังต้องเดินอีก จนถนนทุกเส้นยาวหนึ่งวันเท่ากัน
+    แล้วหนึ่งวันจะกลายเป็นการคูณเมทริกซ์แบบมากสุดบวกหนึ่งครั้ง ที่เหลือคือยกกำลังข้ามช่วงที่ไม่มีเทศกาล
+    แล้วหยุดใส่รางวัลด้วยมือทีละงาน
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>นักชิม (Delicacy)</i> บน programming.in.th ข้อ 2041
+      <a href="https://programming.in.th/tasks/2041" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2041
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>ต้นฉบับจาก The 37th CCF National Olympiad in Informatics (NOI 2020) ตามที่ระบุไว้ท้ายโจทย์</li>
+    <li>
+      อาณาจักรสามชุดหลังในกล่อง &ldquo;ลองเอง&rdquo; ผมแต่งขึ้นเอง เพราะตัวอย่างในโจทย์ไม่มีชุดที่ตอบ -1
+      และไม่มีชุดที่ลงโทษการเดินแบบตะกละ คำตอบของทั้งสี่ชุดคิดด้วยการไล่ทุกเส้นทางตอนบิลด์
+      ถ้าไม่ตรงกับที่หน้านี้อ้าง หน้านี้จะไม่ถูกสร้าง
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  /* ตารางข้อมูล (รูปแบบเดียวกับหน้าโจทย์อื่นในคลัง) */
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;white-space:nowrap;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* ---------- กระดานของมินิเกม ---------- */
+  /* ข้อความไทยในการ์ดที่หดตามเนื้อหา ต้องไม่ส่งความกว้างของตัวเองเข้าไปคิด */
+  .dlc-day{width:0;min-width:100%;margin:0 0 0.6rem;font-size:0.95rem;color:#e6edfb;}
+  .dlc-route{width:0;min-width:100%;margin:0.5rem 0 0.2rem;font-size:0.86rem;color:#9aa7bd;}
+  .dlc-fest{width:0;min-width:100%;margin:0.3rem 0 0;text-align:center;font-size:0.82rem;color:var(--dl-gold);}
+  .dlc-board{display:block;}
+  .dlc-board[hidden]{display:none;}
+  /* viewBox ของกระดานกว้างราว 340 ถ้าปล่อยเต็มการ์ด 52rem ตัวอักษรจะโป่งเกือบสามเท่า */
+  .dlc-map{display:block;margin:0 auto;width:100%;max-width:460px;}
+  @media (max-width:640px){
+    /* บนมือถือห้ามให้กระดานหดจนป้ายอ่านไม่ออก ให้ล้นแล้ว .cpg-scroll เลื่อนแทน */
+    .dlc-map{min-width:340px;}
+  }
+  .dlc-node.is-home circle{stroke:#e7b455;}
+  .dlc-map .dlc-node.is-here circle{fill:#163a2a;stroke:#2f9e5c;stroke-width:3;}
+
+  .dlc-roads-wrap{margin:0.4rem 0 0.2rem;}
+  .dlc-roads{display:flex;flex-wrap:wrap;gap:0.4rem;justify-content:center;}
+  .dlc-roads[hidden]{display:none;}
+  .dlc-road{
+    /* ห้ามหดตามการ์ด ไม่งั้นบนจอแคบปุ่มจะบีบจนอ่านไม่ออก */
+    flex:0 0 auto;
+    padding:0.4rem 0.7rem;
+    border-radius:8px;
+    border:1px solid #2a3350;
+    background:#121a2b;
+    color:#cdd6ea;
+    font:inherit;
+    font-size:0.84rem;
+    cursor:pointer;
+  }
+  .dlc-road[hidden]{display:none;}
+  @media (hover: hover){
+    .dlc-road:hover{border-color:#2f9e5c;color:#eaf2ff;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .dlc-road{transition:none;}
+    .dlc-map .dlc-node circle{transition:none;}
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type DlRoad = { u: number; v: number; w: number };
+  type DlFest = { t: number; x: number; y: number };
+  type DlPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    n: number;
+    C: number[];
+    roads: DlRoad[];
+    fest: DlFest[];
+    T: number;
+    answer: number;
+  };
+
+  function initDelicacyGame(): void {
+    const maybeUi = cpGameUi('[data-dlcgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as DlPuzzle[];
+    const maybeDay = ui.root.querySelector<HTMLElement>('[data-dlc-day]');
+    const maybeRoute = ui.root.querySelector<HTMLElement>('[data-dlc-route]');
+    if (puzzles.length === 0 || !maybeDay || !maybeRoute) return;
+    const dayEl: HTMLElement = maybeDay;
+    const routeEl: HTMLElement = maybeRoute;
+
+    let pi = 0;
+    let steps: number[] = [];
+    const pz = (): DlPuzzle => puzzles[pi];
+
+    function bonusAt(p: DlPuzzle, day: number, city: number): number {
+      let s = 0;
+      for (const f of p.fest) if (f.t === day && f.x === city) s += f.y;
+      return s;
+    }
+
+    /* เดินซ้ำจากศูนย์ทุกครั้ง ทำให้ปุ่มถอยหนึ่งก้าวเหลือแค่ตัดสมาชิกท้ายทิ้ง */
+    function replay(): { day: number; city: number; sum: number; cities: number[] } {
+      const p = pz();
+      let day = 0;
+      let city = 1;
+      let sum = p.C[1] + bonusAt(p, 0, 1);
+      const cities = [1];
+      for (const ri of steps) {
+        const r = p.roads[ri];
+        day += r.w;
+        city = r.v;
+        sum += p.C[city] + bonusAt(p, day, city);
+        cities.push(city);
+      }
+      return { day, city, sum, cities };
+    }
+
+    function render(): void {
+      const p = pz();
+      const st = replay();
+      ui.root.querySelectorAll<HTMLElement>('[data-dlc-board]').forEach((b) => {
+        b.hidden = Number(b.dataset.dlcBoard) !== pi;
+      });
+      ui.root.querySelectorAll<HTMLElement>('[data-dlc-roads]').forEach((b) => {
+        b.hidden = Number(b.dataset.dlcRoads) !== pi;
+      });
+      const board = ui.root.querySelector<HTMLElement>(`[data-dlc-board="${pi}"]`);
+      board?.querySelectorAll<HTMLElement>('[data-dlc-city]').forEach((g) => {
+        g.classList.toggle('is-here', Number(g.dataset.dlcCity) === st.city);
+      });
+      const done = st.day === p.T;
+      ui.root.querySelectorAll<HTMLElement>(`[data-dlc-roads="${pi}"] [data-dlc-road]`).forEach((b) => {
+        b.hidden = done || Number(b.dataset.dlcSrc) !== st.city;
+      });
+      dayEl.textContent = done
+        ? `วันที่ ${p.T} จาก ${p.T} ยืนอยู่เมือง ${st.city}`
+        : `วันที่ ${st.day} จาก ${p.T} ยืนอยู่เมือง ${st.city} เหลืออีก ${p.T - st.day} วัน`;
+      routeEl.textContent = `เส้นทาง ${st.cities.join(' → ')}`;
+      ui.setScore(`เก็บได้ ${st.sum} หน่วย`);
+    }
+
+    function finish(): void {
+      const p = pz();
+      const st = replay();
+      if (st.city !== 1) {
+        ui.setStatus(
+          `ครบ ${p.T} วันแล้วแต่คุณยืนอยู่เมือง ${st.city} ทริปนี้ไม่นับ ถึงจะเก็บมาได้ ${st.sum} หน่วยก็ตาม`,
+          'bad',
+        );
+        return;
+      }
+      if (st.sum === p.answer) {
+        ui.setStatus(`กลับถึงบ้านพอดีวัน ได้ ${st.sum} หน่วย ซึ่งเป็นค่ามากที่สุดของชุดนี้`, 'good');
+        return;
+      }
+      ui.setStatus(`กลับถึงบ้านพอดีวัน ได้ ${st.sum} หน่วย แต่ยังมีเส้นทางที่ได้ถึง ${p.answer} ลองอีกรอบ`, 'bad');
+    }
+
+    function take(ri: number): void {
+      const p = pz();
+      const st = replay();
+      const r = p.roads[ri];
+      if (st.day === p.T) return;
+      if (r.u !== st.city) return;
+      if (st.day + r.w > p.T) {
+        ui.setStatus(`ถนนเส้นนี้ใช้ ${r.w} วัน แต่เหลืออีกแค่ ${p.T - st.day} วัน ไปแล้วจะเลยวันที่ ${p.T}`, 'bad');
+        return;
+      }
+      steps.push(ri);
+      const now = replay();
+      render();
+      if (now.day === p.T) {
+        finish();
+        return;
+      }
+      const out = p.roads.filter((e) => e.u === now.city && now.day + e.w <= p.T);
+      if (out.length === 0) {
+        ui.setStatus(
+          `ถึงเมือง ${now.city} วันที่ ${now.day} แล้วไปต่อไม่ได้เลย ถนนทุกเส้นจากที่นี่ยาวเกินวันที่เหลือ`,
+          'bad',
+        );
+        return;
+      }
+      const gain = p.C[now.city] + bonusAt(p, now.day, now.city);
+      ui.setStatus(`ถึงเมือง ${now.city} วันที่ ${now.day} ได้เพิ่ม ${gain} หน่วย`, 'good');
+    }
+
+    function undo(): void {
+      if (steps.length === 0) {
+        ui.setStatus('ยังไม่ได้ออกเดินทางเลย ถอยไม่ได้', 'bad');
+        return;
+      }
+      steps.pop();
+      render();
+      ui.setStatus('ถอยกลับมาหนึ่งก้าวแล้ว');
+    }
+
+    function claimNone(): void {
+      const p = pz();
+      if (p.answer === -1) {
+        ui.setStatus(
+          `ถูกครับ ชุดนี้ตอบ -1 ทุกวงรอบที่ผ่านเมือง 1 ยาวเป็นเลขคู่ ส่วน T เท่ากับ ${p.T} ซึ่งเป็นเลขคี่`,
+          'good',
+        );
+        return;
+      }
+      ui.setStatus(`ชุดนี้มีทางกลับถึงบ้านพอดีวันนะครับ และทางที่ดีที่สุดได้ ${p.answer} หน่วย`, 'bad');
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      steps = [];
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      ui.setStatus('กดถนนที่อยากไป วงกลมสีทองคือเมือง 1 ซึ่งเป็นทั้งจุดเริ่มและจุดจบ');
+      render();
+    }
+
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const btn = e.target.closest('[data-dlc-road]');
+      if (!(btn instanceof HTMLElement)) return;
+      take(Number(btn.dataset.dlcRoad));
+    });
+    ui.onClick('data-dlc-undo', undo);
+    ui.onClick('data-dlc-reset', () => selectPuzzle(pi));
+    ui.onClick('data-dlc-none', claimNone);
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initDelicacyGame);
+</script>

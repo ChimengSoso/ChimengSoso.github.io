@@ -1,0 +1,1355 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { mc, texCode } from '../../lib/math';
+
+const href = 'destiny/';
+
+/* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Edge = [number, number];
+type ReqPair = [number, number];
+type Tree = { n: number; edges: Edge[]; pairs: ReqPair[] };
+type Rooted = { par: number[]; dep: number[]; pedge: number[]; order: number[]; kids: number[][] };
+
+/** ปักรากที่จุด 1 คืนพ่อ ความลึก (รากลึก 1) เลขเส้นที่ต่อกับพ่อ และลำดับ BFS */
+function rootTree(t: Tree): Rooted {
+  const adj: { to: number; id: number }[][] = Array.from({ length: t.n + 1 }, () => []);
+  t.edges.forEach(([a, b], i) => {
+    adj[a].push({ to: b, id: i });
+    adj[b].push({ to: a, id: i });
+  });
+  const par = new Array<number>(t.n + 1).fill(0);
+  const dep = new Array<number>(t.n + 1).fill(0);
+  const pedge = new Array<number>(t.n + 1).fill(-1);
+  const kids: number[][] = Array.from({ length: t.n + 1 }, () => []);
+  const order: number[] = [1];
+  dep[1] = 1;
+  for (let i = 0; i < order.length; i++) {
+    const x = order[i];
+    for (const e of adj[x]) {
+      if (dep[e.to] !== 0) continue;
+      dep[e.to] = dep[x] + 1;
+      par[e.to] = x;
+      pedge[e.to] = e.id;
+      kids[x].push(e.to);
+      order.push(e.to);
+    }
+  }
+  if (order.length !== t.n) throw new Error('destiny: อินพุตไม่ใช่ต้นไม้ที่เชื่อมถึงกันหมด');
+  return { par, dep, pedge, order, kids };
+}
+
+/** เส้นทุกเส้นบนวิถีจาก v ไต่ขึ้นไปหา u (u ต้องเป็นบรรพบุรุษแท้ของ v) */
+function pathEdges(r: Rooted, u: number, v: number): number[] {
+  const out: number[] = [];
+  let w = v;
+  while (w !== u) {
+    if (w === 0) throw new Error('destiny: u ไม่ใช่บรรพบุรุษของ v');
+    out.push(r.pedge[w]);
+    w = r.par[w];
+  }
+  return out;
+}
+
+/** ตัวตรวจของทั้งหน้า ไล่ทุกการกำหนดค่า 2^(n-1) ตรง ๆ ตามนิยามในโจทย์
+ *  ไม่มีความลึก ไม่มีสถานะ ไม่มีอะไรที่หน้านี้สอนเลย คืนเลขมาสก์ของแบบที่ผ่าน */
+function enumerateValid(t: Tree): number[] {
+  const r = rootTree(t);
+  const need = t.pairs.map(([u, v]) => pathEdges(r, u, v));
+  const good: number[] = [];
+  for (let mask = 0; mask < 1 << (t.n - 1); mask++) {
+    if (need.every((es) => es.some((e) => (mask >> e) & 1))) good.push(mask);
+  }
+  return good;
+}
+
+type DpRun = { dp: number[][]; att: number[]; order: number[]; dep: number[]; answer: number };
+
+/** ท่าที่หน้านี้สอน ฉบับตารางเต็ม ตรงกับ destiny_slow.cpp ทีละบรรทัด
+ *  ต้นไม้ในหน้านี้เล็กมาก ตัวเลขจึงไม่ล้น ไม่ต้องมอด (โค้ดจริงมอดด้วย 998244353) */
+function dpTables(t: Tree): DpRun {
+  const r = rootTree(t);
+  const att = new Array<number>(t.n + 1).fill(0);
+  for (const [u, v] of t.pairs) att[v] = Math.max(att[v], r.dep[u]);
+  const dp: number[][] = Array.from({ length: t.n + 1 }, () => []);
+  for (let i = r.order.length - 1; i >= 0; i--) {
+    const v = r.order[i];
+    const D = r.dep[v];
+    let cur = new Array<number>(D).fill(0);
+    cur[0] = 1;
+    for (const c of r.kids[v]) {
+      const d = dp[c];
+      const S = d.reduce((a, b) => a + b, 0);
+      const g = new Array<number>(D).fill(0);
+      g[0] = d[0] + S;
+      for (let j = 1; j < D; j++) g[j] = d[j];
+      const C = new Array<number>(D).fill(0);
+      let pa = 0;
+      let pb = 0;
+      for (let j = 0; j < D; j++) {
+        const pbj = pb + g[j];
+        C[j] = cur[j] * pbj + pa * g[j];
+        pa += cur[j];
+        pb = pbj;
+      }
+      cur = C;
+    }
+    const b = att[v];
+    if (b >= 1) {
+      let acc = 0;
+      for (let j = 0; j < b; j++) {
+        acc += cur[j];
+        cur[j] = 0;
+      }
+      cur[b] += acc;
+    }
+    dp[v] = cur;
+  }
+  return { dp, att: att, order: r.order, dep: r.dep, answer: dp[1].reduce((a, b) => a + b, 0) };
+}
+
+/** ด่านตรวจตอนบิลด์ ถ้าตัวไล่ทุกแบบกับท่า dp ไม่ตรงกัน หรือไม่ตรงกับค่าที่หน้านี้อ้าง หน้านี้ไม่ขึ้น */
+function checkTree(t: Tree, name: string, expected: number): number {
+  const byEnum = enumerateValid(t).length;
+  const byDp = dpTables(t).answer;
+  if (byEnum !== expected) throw new Error(`destiny: ${name} ไล่ทุกแบบได้ ${byEnum} ไม่ใช่ ${expected}`);
+  if (byDp !== expected) throw new Error(`destiny: ${name} ท่า dp ได้ ${byDp} ไม่ตรงกับตัวไล่ทุกแบบ`);
+  return byEnum;
+}
+
+/* ---------- ตัวอย่างสองชุดในโจทย์ ---------- */
+const SAMPLE: Tree = {
+  n: 5,
+  edges: [
+    [1, 2],
+    [2, 3],
+    [3, 4],
+    [3, 5],
+  ],
+  pairs: [
+    [1, 3],
+    [2, 5],
+  ],
+};
+const SAMPLE2: Tree = {
+  n: 15,
+  edges: [
+    [2, 1],
+    [3, 1],
+    [4, 3],
+    [5, 2],
+    [6, 3],
+    [7, 6],
+    [8, 4],
+    [9, 5],
+    [10, 7],
+    [11, 5],
+    [12, 10],
+    [13, 3],
+    [14, 9],
+    [15, 8],
+  ],
+  pairs: [
+    [3, 12],
+    [5, 11],
+    [2, 5],
+    [3, 13],
+    [8, 15],
+    [1, 13],
+  ],
+};
+const SAMPLE_ANS = checkTree(SAMPLE, 'ตัวอย่างที่หนึ่ง', 10);
+const SAMPLE2_ANS = checkTree(SAMPLE2, 'ตัวอย่างที่สอง', 960);
+const SAMPLE_TOTAL = 1 << (SAMPLE.n - 1);
+
+const MODULUS = 998244353;
+const N_MAX = 500000;
+const M_MAX = 500000;
+const fmt = (v: number): string => v.toLocaleString('en-US');
+const edgeName = (e: Edge): string => `${e[0]}-${e[1]}`;
+
+/* แกะตัวอย่างที่หนึ่ง: เส้น 2-3 อยู่บนวิถีของทั้งสองคู่ มันจึงเป็นตัวแบ่งคำตอบ */
+const SAMPLE_R = rootTree(SAMPLE);
+const E_KEY = SAMPLE.edges.findIndex((e) => (e[0] === 2 && e[1] === 3) || (e[0] === 3 && e[1] === 2));
+const E_UP = SAMPLE.edges.findIndex((e) => (e[0] === 1 && e[1] === 2) || (e[0] === 2 && e[1] === 1));
+const E_DOWN = SAMPLE.edges.findIndex((e) => (e[0] === 3 && e[1] === 5) || (e[0] === 5 && e[1] === 3));
+const E_FREE = SAMPLE.edges.findIndex((e) => (e[0] === 3 && e[1] === 4) || (e[0] === 4 && e[1] === 3));
+if (E_KEY < 0 || E_UP < 0 || E_DOWN < 0 || E_FREE < 0) throw new Error('destiny: หาเส้นในตัวอย่างที่หนึ่งไม่เจอ');
+const SAMPLE_GOOD = new Set(enumerateValid(SAMPLE));
+const SAMPLE_ALL = Array.from({ length: SAMPLE_TOTAL }, (_, m) => m);
+const SAMPLE_BAD = SAMPLE_ALL.filter((m) => !SAMPLE_GOOD.has(m));
+const KEY_ON = SAMPLE_ALL.filter((m) => (m >> E_KEY) & 1);
+const KEY_OFF = SAMPLE_ALL.filter((m) => !((m >> E_KEY) & 1));
+const KEY_OFF_GOOD = KEY_OFF.filter((m) => SAMPLE_GOOD.has(m));
+if (!KEY_ON.every((m) => SAMPLE_GOOD.has(m))) throw new Error('destiny: เส้น 2-3 เป็น 1 แล้วควรผ่านทุกแบบ');
+if (!SAMPLE_BAD.every((m) => !((m >> E_KEY) & 1))) throw new Error('destiny: แบบที่ตกต้องมีเส้น 2-3 เป็น 0 ทุกอัน');
+if (!KEY_OFF_GOOD.every((m) => (m >> E_UP) & 1 && (m >> E_DOWN) & 1))
+  throw new Error('destiny: แบบที่รอดทั้งที่เส้น 2-3 เป็น 0 ต้องเปิดทั้ง 1-2 และ 3-5');
+if (KEY_ON.length + KEY_OFF_GOOD.length !== SAMPLE_ANS) throw new Error('destiny: แยกกรณีแล้วบวกไม่ตรงกับคำตอบ');
+
+/* ---------- ตารางเดินท่า dp บนตัวอย่างที่หนึ่ง ---------- */
+const SAMPLE_DP = dpTables(SAMPLE);
+const DP_MAXJ = SAMPLE.n - 2;
+const dpRows = SAMPLE_DP.order
+  .slice()
+  .reverse()
+  .map((v) => ({
+    v,
+    dep: SAMPLE_DP.dep[v],
+    att: SAMPLE_DP.att[v],
+    cells: Array.from({ length: DP_MAXJ + 1 }, (_, j) => (j < SAMPLE_DP.dp[v].length ? String(SAMPLE_DP.dp[v][j]) : '·')),
+  }));
+if (dpRows[dpRows.length - 1].cells[0] !== String(SAMPLE_ANS)) throw new Error('destiny: แถวสุดท้ายของตาราง dp ต้องเป็นคำตอบ');
+/* ตัวเลขที่ย่อหน้าหลังตารางพูดถึง ดึงจากตารางเดียวกัน ไม่พิมพ์มือ */
+const DP3 = SAMPLE_DP.dp[3];
+const DP2 = SAMPLE_DP.dp[2];
+const DIE_AT_3 = DP3[SAMPLE_DP.dep[3] - 1];
+const DIE_AT_2 = DP2[SAMPLE_DP.dep[2] - 1];
+const SUM_DP2 = DP2.reduce((a, b) => a + b, 0);
+if (DP2[0] + SUM_DP2 !== SAMPLE_ANS) throw new Error('destiny: สองทางเลือกที่ขอบ 1-2 บวกกันไม่เท่าคำตอบ');
+
+/* ---------- รูปที่หนึ่ง ต้นไม้ของตัวอย่าง กับตาราง 16 แบบ ---------- */
+const D1_DX = 84;
+const D1_DY = 70;
+const D1_TOP = 56;
+const D1_R = 17;
+const D1_X0 = 40;
+type Pt = { x: number; y: number };
+const d1Slot: Record<number, number> = { 4: 0, 5: 1, 3: 0.5, 2: 0.5, 1: 0.5 };
+const d1Pos: Record<number, Pt> = {};
+for (let v = 1; v <= SAMPLE.n; v++) d1Pos[v] = { x: D1_X0 + d1Slot[v] * D1_DX, y: D1_TOP + (SAMPLE_R.dep[v] - 1) * D1_DY };
+/** จุดวางป้ายชื่อเส้น เลื่อนออกตามแนวตั้งฉากของเส้นนั้น ไม่ใช่เลื่อนตามแกน x ค่าคงที่
+ *  (เลื่อนตามแกน x จะทับเส้นทแยงทุกครั้ง) */
+function labelAt(a: Pt, b: Pt, off: number): Pt {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  let nx = dy / len;
+  let ny = -dx / len;
+  if (nx < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  return { x: (a.x + b.x) / 2 + nx * off, y: (a.y + b.y) / 2 + ny * off };
+}
+const EDGE_TAG = ['ก', 'ข', 'ค', 'ง'];
+const d1Edges = SAMPLE.edges.map((e, i) => {
+  const a = d1Pos[e[0]];
+  const b = d1Pos[e[1]];
+  const l = labelAt(a, b, 20);
+  return { i, tag: EDGE_TAG[i], name: edgeName(e), x1: a.x, y1: a.y, x2: b.x, y2: b.y, lx: l.x, ly: l.y };
+});
+const GRID_X0 = 236;
+const GRID_Y0 = 56;
+const GRID_CW = 104;
+const GRID_CH = 48;
+const GRID_GX = 112;
+const GRID_GY = 56;
+const gridCells = SAMPLE_ALL.map((m) => ({
+  m,
+  x: GRID_X0 + (m % 4) * GRID_GX,
+  y: GRID_Y0 + Math.floor(m / 4) * GRID_GY,
+  bits: SAMPLE.edges.map((_, i) => ((m >> i) & 1 ? '1' : '0')).join(' '),
+  ok: SAMPLE_GOOD.has(m),
+}));
+const D1_RIGHT = GRID_X0 + 3 * GRID_GX + GRID_CW;
+const D1_BOTTOM = Math.max(d1Pos[4].y + D1_R + 4, GRID_Y0 + 3 * GRID_GY + GRID_CH);
+const D1_W = D1_RIGHT + 12;
+const D1_H = D1_BOTTOM + 34;
+
+/* ---------- รูปที่สอง สองทางเลือกที่ขอบเดียวกัน ---------- */
+const D2_DEPTHS = 5;
+const D2_VDEP = 5;
+const D2_UA = 2;
+const D2_UB = 4;
+const D2_DY = 62;
+const D2_TOP = 66;
+const D2_R = 15;
+/** ผลของการเลือกที่ขอบเหนือ v: f=1 ล้างทุกอย่าง f=0 เก็บระดับเดิม เว้นระดับที่ตรงกับพ่อพอดี */
+function afterEdge(j: number, depV: number, one: boolean): string {
+  if (one) return 'ระดับค้าง 0';
+  return j === depV - 1 ? 'ตาย' : `ระดับค้าง ${j}`;
+}
+const d2Panels = [D2_UA, D2_UB].map((ud, k) => {
+  const ox = 20 + k * 350;
+  return {
+    ox,
+    ud,
+    title: `ข้อบังคับที่ u อยู่ลึก ${ud}`,
+    chainX: ox + 74,
+    nodes: Array.from({ length: D2_DEPTHS }, (_, i) => ({ d: i + 1, y: D2_TOP + i * D2_DY })),
+    one: afterEdge(ud, D2_VDEP, true),
+    zero: afterEdge(ud, D2_VDEP, false),
+    dead: ud === D2_VDEP - 1,
+  };
+});
+const D2_W = 20 + 350 + 268 + 12;
+const D2_H = D2_TOP + (D2_DEPTHS - 1) * D2_DY + D2_R + 30 + 34;
+
+/* ---------- สูตร ---------- */
+const DPF = mc.fn('dp');
+const GF = mc.fn('g');
+const SF = mc.fn('S');
+const AF = mc.fn('A');
+const BF = mc.fn('B');
+const CF = mc.fn('C');
+const PAF = mc.fn('preA');
+const PBF = mc.fn('preB');
+const EQ = mc.op('=');
+const PLUS = mc.op('+');
+const MINUS = mc.op('-');
+const LE = mc.op('\\le');
+const CDOT = mc.op('\\cdot');
+const ZERO = mc.num('0');
+const ONE = mc.num('1');
+
+const texSum = texCode(`${SF} ${EQ} \\sum_{j} ${DPF}[c][j]`);
+const texEdge = texCode(
+  `\\begin{aligned} ${GF}[${ZERO}] &${EQ} ${DPF}[c][${ZERO}] \\; ${PLUS} \\; ${SF} \\\\` +
+    `${GF}[j] &${EQ} ${DPF}[c][j] \\qquad (${ONE} ${LE} j ${LE} D ${MINUS} ${ONE}) \\end{aligned}`,
+);
+const texPre = texCode(`${PAF}[j] ${EQ} \\sum_{i ${LE} j} ${AF}[i] \\qquad ${PBF}[j] ${EQ} \\sum_{i ${LE} j} ${BF}[i]`);
+const texMerge = texCode(
+  `${CF}[j] ${EQ} ${AF}[j] \\, ${CDOT} \\, ${PBF}[j] \\; ${PLUS} \\; ${PAF}[j ${MINUS} ${ONE}] \\, ${CDOT} \\, ${BF}[j]`,
+);
+
+/* ---------- มินิเกม กระดานสร้างจากโมเดลเดียวกับรูป ---------- */
+const BD_W = 217;
+const BD_DX = 92;
+const BD_DY = 76;
+const BD_TOP = 34;
+const BD_R = 17;
+type GameNode = { id: number; x: number; y: number };
+type GameEdge = { id: number; name: string; x1: number; y1: number; x2: number; y2: number; lx: number; ly: number };
+type GamePair = { u: number; v: number; edges: number[] };
+type GamePuzzle = {
+  id: string;
+  label: string;
+  tease: string;
+  hint: string;
+  w: number;
+  h: number;
+  nodes: GameNode[];
+  edges: GameEdge[];
+  pairs: GamePair[];
+  total: number;
+  answer: number;
+};
+
+function boardOf(t: Tree): { nodes: GameNode[]; edges: GameEdge[]; w: number; h: number } {
+  const r = rootTree(t);
+  const slot = new Array<number>(t.n + 1).fill(0);
+  let next = 0;
+  const assign = (v: number): number => {
+    if (r.kids[v].length === 0) {
+      slot[v] = next++;
+      return slot[v];
+    }
+    const xs = r.kids[v].map(assign);
+    slot[v] = xs.reduce((a, b) => a + b, 0) / xs.length;
+    return slot[v];
+  };
+  assign(1);
+  const span = (next - 1) * BD_DX;
+  const x0 = (BD_W - span) / 2;
+  const maxDep = Math.max(...r.dep.slice(1));
+  const pos: Pt[] = new Array(t.n + 1).fill(null).map(() => ({ x: 0, y: 0 }));
+  for (let v = 1; v <= t.n; v++) pos[v] = { x: x0 + slot[v] * BD_DX, y: BD_TOP + (r.dep[v] - 1) * BD_DY };
+  const nodes: GameNode[] = Array.from({ length: t.n }, (_, i) => ({ id: i + 1, x: pos[i + 1].x, y: pos[i + 1].y }));
+  const edges: GameEdge[] = t.edges.map((e, i) => {
+    const a = pos[e[0]];
+    const b = pos[e[1]];
+    const l = labelAt(a, b, 21);
+    return { id: i, name: edgeName(e), x1: a.x, y1: a.y, x2: b.x, y2: b.y, lx: l.x, ly: l.y };
+  });
+  return { nodes, edges, w: BD_W, h: BD_TOP + (maxDep - 1) * BD_DY + BD_R + 18 };
+}
+
+function makePuzzle(id: string, label: string, tease: string, hint: string, t: Tree, expected: number): GamePuzzle {
+  const answer = checkTree(t, `ปริศนา ${label}`, expected);
+  const r = rootTree(t);
+  const board = boardOf(t);
+  return {
+    id,
+    label,
+    tease,
+    hint,
+    ...board,
+    pairs: t.pairs.map(([u, v]) => ({ u, v, edges: pathEdges(r, u, v) })),
+    total: 1 << (t.n - 1),
+    answer,
+  };
+}
+
+const PZ_DEEPEST: Tree = {
+  n: 5,
+  edges: [
+    [1, 2],
+    [2, 3],
+    [3, 4],
+    [2, 5],
+  ],
+  pairs: [
+    [1, 4],
+    [2, 4],
+  ],
+};
+const PZ_STEM: Tree = {
+  n: 6,
+  edges: [
+    [1, 2],
+    [2, 3],
+    [3, 4],
+    [2, 5],
+    [5, 6],
+  ],
+  pairs: [
+    [1, 4],
+    [1, 6],
+  ],
+};
+const PZ_THREE: Tree = {
+  n: 7,
+  edges: [
+    [1, 2],
+    [2, 3],
+    [3, 4],
+    [2, 5],
+    [5, 6],
+    [2, 7],
+  ],
+  pairs: [
+    [1, 4],
+    [1, 6],
+    [1, 7],
+  ],
+};
+const puzzles: GamePuzzle[] = [
+  makePuzzle(
+    'a',
+    'ตัวอย่างในโจทย์',
+    'ต้นไม้เดียวกับตัวอย่างข้างบน ลองระบายให้ผ่านทั้งสองคู่ดูก่อน แล้วดูว่าการ์ดบอกจำนวนแบบทั้งหมดว่าเท่าไร',
+    'เส้น 2-3 อยู่บนวิถีของทั้งสองคู่ ลองเปิดมันเส้นเดียวดู',
+    SAMPLE,
+    SAMPLE_ANS,
+  ),
+  makePuzzle(
+    'b',
+    'สองคู่จบที่จุดเดียวกัน',
+    'สองคู่นี้จบที่จุด 4 เหมือนกัน ต่างกันแค่ต้นทาง ลองเดาก่อนว่าต้องดูทั้งสองคู่จริงไหม',
+    'คู่ (2, 4) มีวิถีสั้นกว่าและอยู่ในวิถีของคู่ (1, 4) พอดี',
+    PZ_DEEPEST,
+    12,
+  ),
+  makePuzzle(
+    'c',
+    'ก้านเดียวคุมสองกิ่ง',
+    'สองคู่วิ่งลงคนละกิ่ง แต่ออกจากจุด 1 เหมือนกัน ลองหาแบบที่ใช้เส้น 1 เพียงเส้นเดียวให้ได้',
+    'วิถีทั้งสองเส้นใช้เส้น 1-2 ร่วมกัน',
+    PZ_STEM,
+    25,
+  ),
+  makePuzzle(
+    'd',
+    'สามคู่ กับกิ่งที่สั้นมาก',
+    'คราวนี้สามคู่ และคู่ (1, 7) มีวิถียาวแค่สองเส้น ลองดูว่าถ้าไม่เปิดเส้น 1-2 คุณเหลือทางเลือกกี่ทาง',
+    'ถ้าปิดเส้น 1-2 คู่ (1, 7) เหลือทางรอดทางเดียว',
+    PZ_THREE,
+    41,
+  ),
+];
+const puzzlesJson = JSON.stringify(puzzles);
+
+/* ---------- เวลาที่วัดได้จริง ----------
+   วัดบน WSL Ubuntu 22.04, g++ 11.4.0, คอมไพล์ด้วย -O2, /usr/bin/time, เอาค่าที่แย่ที่สุดจากสามรอบ
+   ชุดทดสอบสร้างด้วย destiny_genbig.cpp ทุกชุด N = M = 500,000 ยกเว้นแถวสองแถวล่าง */
+type Bill = { name: string; who: string; time: string; mem: string };
+const bills: Bill[] = [
+  { name: 'ต้นไม้สุ่ม', who: 'โค้ดเต็ม', time: '0.79 วินาที', mem: '46 เมกะไบต์' },
+  { name: 'ไบนารีสมบูรณ์', who: 'โค้ดเต็ม', time: '0.41 วินาที', mem: '84 เมกะไบต์' },
+  { name: 'เส้นตรง (ลึก 500,000)', who: 'โค้ดเต็ม', time: '0.42 วินาที', mem: '32 เมกะไบต์' },
+  { name: 'ดาว (ลึก 2)', who: 'โค้ดเต็ม', time: '0.33 วินาที', mem: '32 เมกะไบต์' },
+  { name: 'ไม้กวาด (ก้านยาวครึ่งหนึ่ง)', who: 'โค้ดเต็ม', time: '0.42 วินาที', mem: '32 เมกะไบต์' },
+  { name: 'พุ่มลึก (พ่อห่างขึ้นไป 1 ถึง 5)', who: 'โค้ดเต็ม', time: '0.31 วินาที', mem: '32 เมกะไบต์' },
+  { name: 'เส้นตรง N = M = 100,000', who: 'ตารางเต็ม', time: '58.93 วินาที', mem: '11 เมกะไบต์' },
+  { name: 'เส้นตรง N = M = 100,000', who: 'โค้ดเต็ม', time: '0.04 วินาที', mem: '8 เมกะไบต์' },
+];
+const TIME_LIMIT = '2 วินาที';
+const MEM_LIMIT = '512 เมกะไบต์';
+const STRESS_ROUNDS = 3000;
+const STRESS_MAXN = 12;
+const STRESS_SEED = 20260911;
+const STRESS_MULTI = 758;
+const STRESS_DUP = 2283;
+
+const codeFull = `/*@@FULL@@*/`;
+const codeSlow = `/*@@SLOW@@*/`;
+const codeBrute = `/*@@BRUTE@@*/`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; ระบายเส้นบนต้นไม้ให้ทุกคู่ที่สั่งไว้มีเส้นสำคัญคั่น</h2>
+  <p>
+    โจทย์เล่าว่าโชคชะตาของคนหนึ่งคนคือต้นไม้ที่ปักรากไว้ที่จุด 1 รากคือการเกิด ใบคือการตาย
+    และการเดินจากจุดหนึ่งลงไปหาอีกจุดหนึ่งคือช่วงชีวิตช่วงหนึ่ง เมื่อเราหยิบคู่ <code>(u, v)</code> ที่
+    <code>u</code> เป็น<strong>บรรพบุรุษ</strong> (ancestor อ่านว่า "แอนเซสเตอร์" แปลว่าผู้ที่มาก่อน)
+    ของ <code>v</code> วิถีจาก <code>u</code> ลงไปถึง <code>v</code> ก็คือประสบการณ์ชีวิตหนึ่งชิ้น
+  </p>
+  <p>
+    ทีนี้เราจะระบายเส้นเชื่อมทุกเส้นในต้นไม้ ด้วยเลข 0 หรือ 1 เส้นที่ได้ 1 โจทย์เรียกว่า
+    <strong>เส้นสำคัญ</strong> เงื่อนไขมีข้อเดียว คือคู่ <code>(u, v)</code> ทุกคู่ที่โจทย์ระบุมา
+    วิถีของมันต้องมีเส้นสำคัญอย่างน้อยหนึ่งเส้น คำถามคือระบายได้ทั้งหมดกี่แบบ
+    คู่ที่โจทย์ให้มาซ้ำกันได้ และคำตอบใหญ่มากจนต้องตอบเป็นเศษจากการหารด้วย {fmt(MODULUS)}
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li>
+        <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จำนวนจุดยอด ต่อด้วย <code>N - 1</code> บรรทัด
+        แต่ละบรรทัดคือ <code>x</code> กับ <code>y</code> แทนเส้นเชื่อมระหว่างสองจุดนั้น (ไม่บอกทิศทาง)
+        บรรทัดถัดมาคือ <code>M</code> แล้วปิดด้วย <code>M</code> บรรทัด แต่ละบรรทัดคือคู่ <code>u</code> กับ <code>v</code>
+      </li>
+      <li>
+        <strong>รับประกัน:</strong> ต้นไม้ปักรากที่จุด 1 และทุกคู่มี <code>u &ne; v</code> โดย <code>u</code>
+        เป็นบรรพบุรุษของ <code>v</code> จริง คู่เดิมโผล่ซ้ำได้
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 &le; N &le; {fmt(N_MAX)}</code>, <code>1 &le; M &le; {fmt(M_MAX)}</code>,
+        เวลา {TIME_LIMIT} หน่วยความจำ {MEM_LIMIT}
+      </li>
+      <li>
+        <strong>เอาต์พุต:</strong> บรรทัดเดียว คือ<strong>จำนวนวิธี</strong>ระบายที่ถูกเงื่อนไขทั้งหมด
+        หารด้วย {fmt(MODULUS)} แล้วเอาเศษ
+      </li>
+      <li>
+        <strong>ให้คะแนน:</strong> โจทย์แบ่งเป็นหลายชุดย่อย ชุดเล็กสุด 16% คือ <code>N &le; 10</code> และ
+        <code>M &le; 10</code> แล้วไล่ขึ้นไปเป็นชุดที่ <code>N &le; 2{' '}000</code> (8%) ชุดที่
+        <code>M &le; 2{' '}000</code> (8%) ชุดที่ต้นไม้เป็นไบนารีสมบูรณ์และ <code>N, M &le; 10^5</code> (8%)
+        และชุดสุดท้าย 12% ที่ไม่มีเงื่อนไขเพิ่มเลย
+      </li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {SAMPLE.n}<br />
+          {SAMPLE.edges.map((e) => <>{[e[0], e[1]].join(' ')}<br /></>)}
+          {SAMPLE.pairs.length}<br />
+          {SAMPLE.pairs.map((p) => <>{[p[0], p[1]].join(' ')}<br /></>)}
+        </td>
+        <td>{SAMPLE_ANS}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="io-note">
+    โจทย์มีตัวอย่างที่สองด้วย ต้นไม้ {SAMPLE2.n} จุดกับ {SAMPLE2.pairs.length} คู่ คำตอบคือ {SAMPLE2_ANS}
+    หน้านี้ใช้มันเป็นด่านตรวจตอนบิลด์อีกชุด
+  </p>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกบอกว่ามี {SAMPLE.n} จุด อีก {SAMPLE.n - 1} บรรทัดคือเส้นเชื่อม ({SAMPLE.edges.map(edgeName).join(', ')})
+      ซึ่งพอปักรากที่จุด 1 แล้วได้โซ่ 1 ไป 2 ไป 3 แล้วแตกเป็นใบ 4 กับใบ 5 บรรทัดถัดมาคือ {SAMPLE.pairs.length}
+      แปลว่ามีข้อบังคับสองข้อ แล้วสองบรรทัดสุดท้ายคือคู่ {SAMPLE.pairs.map((p) => `(${p[0]}, ${p[1]})`).join(' กับ ')}
+      สังเกตว่าเลขในสองบรรทัดนี้เป็น<strong>เลขจุดยอด</strong> ไม่ใช่เลขเส้น และตัวหน้าคือบรรพบุรุษเสมอ
+    </p>
+    <p>
+      เอาต์พุตมีหน่วยเป็น<strong>จำนวนแบบของการระบาย</strong> หารด้วย {fmt(MODULUS)} แล้วเอาเศษ
+      จุดที่คนอ่านพลาดบ่อยที่สุดคือตรงนี้ โจทย์ไม่ได้ถามว่าต้องใช้เส้นสำคัญน้อยที่สุดกี่เส้น
+      (ในตัวอย่างนี้คำตอบของคำถามนั้นคือ 1 เส้น) และไม่ได้ถามว่าเส้นไหนบ้าง มันถามว่ามีทั้งหมดกี่แบบ
+      ต้นไม้นี้มี {SAMPLE.n - 1} เส้น จึงมีวิธีระบายทั้งหมด {SAMPLE_TOTAL} แบบ ก่อนเอาเงื่อนไขมากรอง
+    </p>
+    <p>
+      วิถีของคู่ ({SAMPLE.pairs[0][0]}, {SAMPLE.pairs[0][1]}) คือเส้น {edgeName(SAMPLE.edges[E_UP])} กับ
+      {' '}{edgeName(SAMPLE.edges[E_KEY])} ส่วนวิถีของคู่ ({SAMPLE.pairs[1][0]}, {SAMPLE.pairs[1][1]}) คือเส้น
+      {' '}{edgeName(SAMPLE.edges[E_KEY])} กับ {edgeName(SAMPLE.edges[E_DOWN])} เส้น {edgeName(SAMPLE.edges[E_KEY])}
+      อยู่บนวิถีของทั้งสองคู่ มันจึงแบ่งคำตอบออกเป็นสองกอง กองแรกคือ {KEY_ON.length} แบบที่ระบายเส้น
+      {' '}{edgeName(SAMPLE.edges[E_KEY])} เป็น 1 กองนี้ผ่านหมดทุกแบบเพราะเส้นเดียวคุมทั้งสองคู่
+      กองที่สองคือ {KEY_OFF.length} แบบที่ระบายมันเป็น 0 กองนี้รอดแค่ {KEY_OFF_GOOD.length} แบบ
+      คือแบบที่เปิดทั้งเส้น {edgeName(SAMPLE.edges[E_UP])} และเส้น {edgeName(SAMPLE.edges[E_DOWN])} พร้อมกัน
+      ส่วนเส้น {edgeName(SAMPLE.edges[E_FREE])} จะเป็นอะไรก็ได้เพราะไม่มีคู่ไหนวิ่งผ่านมัน
+      รวมสองกองได้ {KEY_ON.length} บวก {KEY_OFF_GOOD.length} เท่ากับ {SAMPLE_ANS} ตรงกับเอาต์พุต
+      และอีก {SAMPLE_BAD.length} แบบที่ตก ทุกแบบมีเส้น {edgeName(SAMPLE.edges[E_KEY])} เป็น 0 เหมือนกันหมด
+    </p>
+  </div>
+
+  <ZoomableDiagram
+    caption={`ซ้ายคือต้นไม้ของตัวอย่างที่หนึ่ง เส้นทั้ง ${SAMPLE.n - 1} เส้นชื่อ ${EDGE_TAG.join(' ')} ตามลำดับในอินพุต ขวาคือการระบายทั้ง ${SAMPLE_TOTAL} แบบ เรียงตามค่า ก ข ค ง กรอบเขียวคือ ${SAMPLE_ANS} แบบที่ผ่าน กรอบแดงคือ ${SAMPLE_BAD.length} แบบที่ตก สังเกตว่าแบบที่ตกอยู่รวมกันเป็นกลุ่มที่เส้น ข เป็น 0`}
+  >
+    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้ของตัวอย่างที่หนึ่งพร้อมชื่อเส้นสี่เส้น และตารางการระบายสิบหกแบบที่แยกแบบที่ผ่านกับแบบที่ตกด้วยสี">
+      <text x="16" y="30" fill="#9aa7bd" font-size="13">ต้นไม้ของตัวอย่างที่หนึ่ง</text>
+      <text x={GRID_X0} y="30" fill="#9aa7bd" font-size="13">การระบายทั้ง {SAMPLE_TOTAL} แบบ เรียงเป็น ก ข ค ง</text>
+      {d1Edges.map((e) => (
+        <>
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#39425e" stroke-width="2.5" />
+          <text x={e.lx} y={e.ly + 4} fill="#e0b400" font-size="13" text-anchor="middle">{e.tag}</text>
+        </>
+      ))}
+      {Object.keys(d1Pos).map((k) => (
+        <>
+          <circle cx={d1Pos[Number(k)].x} cy={d1Pos[Number(k)].y} r={D1_R} fill="#121a2b" stroke="#2f9e5c" stroke-width="1.5" />
+          <text x={d1Pos[Number(k)].x} y={d1Pos[Number(k)].y + 5} fill="#eaf2ff" font-size="13" text-anchor="middle">{k}</text>
+        </>
+      ))}
+      {gridCells.map((c) => (
+        <>
+          <rect
+            x={c.x}
+            y={c.y}
+            width={GRID_CW}
+            height={GRID_CH}
+            rx="7"
+            fill={c.ok ? '#10291d' : '#2a1616'}
+            stroke={c.ok ? '#2f9e5c' : '#b23b3b'}
+            stroke-width="1.2"
+          />
+          <text x={c.x + GRID_CW / 2} y={c.y + 21} fill="#eaf2ff" font-size="13" text-anchor="middle" font-family="monospace" letter-spacing="2">{c.bits}</text>
+          <text x={c.x + GRID_CW / 2} y={c.y + 38} fill={c.ok ? '#a7f3c4' : '#e8a3a3'} font-size="11" text-anchor="middle">{c.ok ? 'ผ่าน' : 'ตก'}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ขอบเขตปิดทางนับตรง ๆ ตั้งแต่แรก จำนวนการระบายคือ 2 ยกกำลัง {fmt(N_MAX - 1)} และการแยกกรณีตามข้อบังคับ
+      ทีละข้อก็ได้ 2 ยกกำลัง {fmt(M_MAX)} กอง สองอย่างนี้ไม่ใช่ตัวเลขที่เขียนลงกระดาษได้
+      สิ่งที่เหลือคือไล่ต้นไม้จากใบขึ้นไปหาราก แล้วสรุปทุกอย่างที่อยู่ข้างล่างให้เป็นของชิ้นเล็ก ๆ ชิ้นเดียว
+    </p>
+    <p>
+      ลองยืนที่จุดหนึ่งแล้วถามว่า ของที่คุณต้องหอบขึ้นไปให้พ่อของมันคืออะไร ข้อบังคับที่จบอยู่ในกิ่งนี้แล้วจัดการเสร็จ
+      ไม่ต้องหอบไปด้วย เหลือแต่ข้อบังคับที่ยังค้าง ซึ่งแต่ละข้อพูดเรื่องเดียวกันหมด คือ
+      "ต้องมีเส้นสำคัญโผล่ก่อนไต่พ้นความลึกเท่านี้" ถ้ามีข้อค้างหลายข้อพร้อมกัน คุณต้องจำทุกข้อจริงหรือเปล่า
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; ระบายเส้นเอง แล้วดูว่ามีกี่แบบ</h2>
+  <div class="cpgame dstgame" data-dstgame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกต้นไม้">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>
+          {p.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+
+    <div class="cpg-scroll">
+      <div class="dst-board" data-dst-board></div>
+    </div>
+    <p class="dst-pairs" data-dst-pairs></p>
+
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn main" data-dst-all>ตั้งทุกเส้นเป็น 1</button>
+      <button type="button" class="cpg-btn" data-dst-clear>ล้างเป็น 0 ทั้งหมด</button>
+    </div>
+
+    <p class="cpg-status" data-cpg-status>แตะที่ป้ายบนเส้นเพื่อสลับระหว่าง 0 กับ 1</p>
+    <p class="cpg-score" data-cpg-score></p>
+    <p class="cpg-hint">
+      โจทย์ถามจำนวนแบบ ไม่ได้ถามจำนวนเส้นที่น้อยที่สุด พอหาแบบที่ผ่านได้แล้ว การ์ดจะบอกว่าต้นไม้นั้นมีทั้งหมดกี่แบบ
+    </p>
+    <p class="cpg-cap">
+      ชิปใต้กระดานคือคู่ที่โจทย์สั่งไว้ คู่ที่ยังไม่ผ่านจะมีวิถีของมันเน้นสีแดงบนกระดาน
+    </p>
+  </div>
+  <p class="ns-cue">
+    ลองให้ครบทั้งสี่ต้นก่อนนะครับ โดยเฉพาะต้นที่สองกับต้นที่สาม เพราะสองอันนั้นคือสิ่งที่เฉลยข้างล่างจะพูดถึง
+  </p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; จำแค่ข้อบังคับที่ค้างอยู่ลึกที่สุด</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมรู้ตั้งแต่อ่านโจทย์จบว่านี่เป็น dp บนต้นไม้ ไม่ได้ลองท่าอื่นแล้วทิ้ง แต่สิ่งที่ยังไม่รู้คือ
+        สถานะต้องเป็นอะไร แรงกดดันที่บีบให้เลือกสถานะนี้มาจากการนับ ถ้าจะแยกกรณีตามข้อบังคับทีละข้อ
+        จำนวนกองคือ 2 ยกกำลัง {fmt(M_MAX)} และถ้าจะเก็บว่า "ข้อไหนยังค้างอยู่บ้าง" เป็นเซตในสถานะ
+        จุดหนึ่งจุดก็อาจมีข้อค้างเป็นแสนข้อ สถานะจึงต้องยุบเซตนั้นให้เหลือตัวเลขตัวเดียวให้ได้
+      </p>
+      <p>
+        ทางออกมาจากการสังเกตว่าข้อค้างทุกข้อพูดเรื่องเดียวกันหมด ข้อบังคับ <code>(u, v)</code> ที่ยังไม่ถูกปิด
+        แปลว่าต้องมีเส้นสำคัญโผล่ก่อนที่เราจะไต่พ้น <code>u</code> ขึ้นไป ซึ่งเป็นข้อความเกี่ยวกับ
+        <strong>ความลึกของ <code>u</code></strong> อย่างเดียว และถนนจากจุดที่เรายืนขึ้นไปข้างบนมีสายเดียว
+        ข้อที่ <code>u</code> ลึกที่สุดจึงเป็นข้อที่เข้มงวดที่สุด ปิดข้อนั้นได้เมื่อไร ข้อที่ตื้นกว่าปิดตามทันที
+        เซตของข้อค้างยุบเหลือเลขเดียวได้ คือความลึกที่มากที่สุดในเซตนั้น
+      </p>
+      <p>
+        ส่วนการเปลี่ยนจากตารางเต็มไปเป็นเซกเมนต์ทรี ผมไม่ได้เดาว่ามันช้า ผมวัด ตารางเต็มบนต้นไม้ที่เป็น
+        เส้นตรงยาว 100,000 จุด ใช้เวลา <strong>58.93 วินาที</strong> ทั้งที่ลิมิตคือ {TIME_LIMIT}
+        และขอบเขตจริงใหญ่กว่านั้นอีกห้าเท่า บทเรียนที่เอาไปใช้ข้ออื่นได้คือ เวลาสถานะของคุณเป็น "เซตของสิ่งที่ค้างอยู่"
+        ให้ถามก่อนว่าของในเซตเทียบกันได้ไหม ถ้ามันเรียงลำดับความเข้มงวดได้ เซตทั้งเซตมักยุบเหลือตัวแทนตัวเดียว
+      </p>
+    </div>
+
+    <p>
+      นิยามที่จะใช้ทั้งหน้า ให้ <code>ความลึก</code> ของรากเป็น 1 แล้ว
+      <code>dp[v][j]</code> คือจำนวนวิธีระบายเส้นที่อยู่<strong>ข้างในกิ่งของ <code>v</code></strong> ล้วน ๆ
+      โดยข้อบังคับทุกข้อที่มีปลายทั้งสองอยู่ในกิ่งนี้ถูกปิดเรียบร้อยแล้ว และในบรรดาข้อบังคับที่ยังค้าง
+      (คือข้อ <code>(u, x)</code> ที่ <code>x</code> อยู่ในกิ่งนี้ แต่ <code>u</code> อยู่เหนือ <code>v</code> ขึ้นไป)
+      ข้อที่ <code>u</code> ลึกที่สุดอยู่ที่ความลึก <code>j</code> พอดี ผมจะเรียก <code>j</code> ว่า
+      <strong>ระดับค้าง</strong> และ <code>j = 0</code> แปลว่าไม่มีอะไรค้างเลย
+    </p>
+    <p>
+      ระดับค้างของ <code>v</code> จึงอยู่ในช่วง 0 ถึง <code>ความลึกของ v</code> ลบหนึ่ง เพราะ <code>u</code>
+      ต้องเป็นบรรพบุรุษแท้ จึงตื้นกว่า <code>v</code> เสมอ ข้อดีของการเก็บแค่ตัวที่ลึกที่สุด
+      เห็นได้ชัดที่สุดตอนมีข้อบังคับหลายข้อจบที่จุดเดียวกัน ต้นที่สองในเกมข้างบนเป็นกรณีนั้นพอดี
+      คู่ ({PZ_DEEPEST.pairs[0][0]}, {PZ_DEEPEST.pairs[0][1]}) กับคู่ ({PZ_DEEPEST.pairs[1][0]},{' '}
+      {PZ_DEEPEST.pairs[1][1]}) จบที่จุด {PZ_DEEPEST.pairs[0][1]} เหมือนกัน วิถีของคู่หลังสั้นกว่าและซ้อนอยู่ในวิถีของคู่แรก
+      ปิดคู่หลังได้เมื่อไรคู่แรกก็ปิดตาม เราจึงโยนคู่แรกทิ้งได้เลย เหลือเลขเดียวคือความลึกของจุด{' '}
+      {PZ_DEEPEST.pairs[1][0]} โค้ดทำสิ่งนี้ด้วยบรรทัดเดียว คือเก็บ <code>att[v]</code> เป็นค่ามากสุดของ
+      ความลึกของ <code>u</code> ทุกตัวที่จบที่ <code>v</code> ซึ่งเป็นเหตุผลเดียวกับที่คู่ซ้ำไม่ต้องนับสองรอบ
+    </p>
+
+    <ZoomableDiagram
+      caption={`โซ่ที่ ${D2_DEPTHS} ระดับ จุดล่างสุดคือ v เส้นหนาคือขอบที่ต่อ v กับพ่อของมัน ซ้ายคือข้อบังคับที่ u อยู่ลึก ${D2_UA} ระบาย 0 แล้วยังค้างที่ระดับ ${D2_UA} ต่อได้ ขวาคือข้อบังคับที่ u เป็นพ่อของ v พอดี (ลึก ${D2_UB}) ขอบนี้เป็นโอกาสสุดท้ายของมัน ระบาย 0 แล้วสายนี้ตายทันที`}
+    >
+      <svg viewBox={`0 0 ${D2_W} ${D2_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="สองแผงเปรียบเทียบ แต่ละแผงเป็นโซ่ห้าระดับ แสดงว่าการระบายขอบเหนือ v เป็น 1 หรือ 0 ทำให้ระดับค้างกลายเป็นอะไร">
+        {d2Panels.map((pn) => (
+          <>
+            <text x={pn.ox} y="28" fill="#e0b400" font-size="13">{pn.title}</text>
+            {pn.nodes.map((nd) => (
+              <text x={pn.ox} y={nd.y + 5} fill="#7b8397" font-size="11">ลึก {nd.d}</text>
+            ))}
+            {pn.nodes.slice(0, -1).map((nd, i) => (
+              <line
+                x1={pn.chainX}
+                y1={nd.y}
+                x2={pn.chainX}
+                y2={pn.nodes[i + 1].y}
+                stroke={i === D2_DEPTHS - 2 ? '#e0b400' : '#39425e'}
+                stroke-width={i === D2_DEPTHS - 2 ? '4' : '2'}
+              />
+            ))}
+            <path
+              d={`M ${pn.chainX + 16} ${D2_TOP + (pn.ud - 1) * D2_DY} C ${pn.chainX + 58} ${D2_TOP + (pn.ud - 1) * D2_DY}, ${pn.chainX + 58} ${D2_TOP + (D2_VDEP - 1) * D2_DY}, ${pn.chainX + 16} ${D2_TOP + (D2_VDEP - 1) * D2_DY}`}
+              fill="none"
+              stroke="#b23b3b"
+              stroke-width="2"
+              stroke-dasharray="5 4"
+            />
+            <text x={pn.chainX + 64} y={D2_TOP + (pn.ud + D2_VDEP - 2) * D2_DY / 2 + 4} fill="#e8a3a3" font-size="11">ข้อบังคับยังค้าง</text>
+            {pn.nodes.map((nd) => (
+              <>
+                <circle cx={pn.chainX} cy={nd.y} r={D2_R} fill="#121a2b" stroke="#2f9e5c" stroke-width="1.4" />
+                <text x={pn.chainX} y={nd.y + 4} fill="#eaf2ff" font-size="11" text-anchor="middle">
+                  {nd.d === D2_VDEP ? 'v' : nd.d === pn.ud ? 'u' : ''}
+                </text>
+              </>
+            ))}
+            <rect x={pn.ox + 150} y={D2_TOP + (D2_DEPTHS - 2) * D2_DY - 18} width="118" height="30" rx="7" fill="#10291d" stroke="#2f9e5c" stroke-width="1.2" />
+            <text x={pn.ox + 209} y={D2_TOP + (D2_DEPTHS - 2) * D2_DY + 2} fill="#a7f3c4" font-size="11" text-anchor="middle">ระบาย 1 &gt; {pn.one}</text>
+            <rect
+              x={pn.ox + 150}
+              y={D2_TOP + (D2_DEPTHS - 2) * D2_DY + 20}
+              width="118"
+              height="30"
+              rx="7"
+              fill={pn.dead ? '#2a1616' : '#1a2136'}
+              stroke={pn.dead ? '#b23b3b' : '#39425e'}
+              stroke-width="1.2"
+            />
+            <text
+              x={pn.ox + 209}
+              y={D2_TOP + (D2_DEPTHS - 2) * D2_DY + 40}
+              fill={pn.dead ? '#e8a3a3' : '#cdd6ea'}
+              font-size="11"
+              text-anchor="middle"
+            >
+              ระบาย 0 &gt; {pn.zero}
+            </text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; สองทางเลือกที่ขอบ กับการรวมสองกิ่งเข้าด้วยกัน</h2>
+  <Spoiler>
+    <p>
+      พอสถานะเป็นเลขตัวเดียว การเดินขึ้นก็เหลือสองเรื่อง เรื่องแรกคือขอบที่ต่อจุด <code>c</code> กับพ่อของมัน
+      ให้ <code>D</code> เป็นความลึกของพ่อ ตารางที่ <code>c</code> ส่งขึ้นไปให้พ่อคือ <code>g</code> ซึ่งมีช่อง
+      0 ถึง <code>D - 1</code> และให้ <code>S</code> เป็นผลรวมทั้งตารางของลูก
+    </p>
+    <Fragment set:html={texSum} />
+    <Fragment set:html={texEdge} />
+    <p>
+      อ่านสูตรนี้แบบยืนที่ช่องปลายทางแล้วถามว่ามีอะไรไหลเข้ามาบ้าง ดัชนีในตารางเป็น<strong>ความลึก</strong>
+      ไม่ใช่ระยะทาง มันจึงไม่ขยับตอนเราไต่ขึ้นหนึ่งขั้น สิ่งที่เปลี่ยนคือช่วงที่ยังใช้ได้หดลงหนึ่งช่อง
+    </p>
+    <ul>
+      <li>
+        ช่อง <code>0</code> รับ <code>S</code> มาจากการ<strong>ระบายขอบนี้เป็น 1</strong> ข้อค้างทุกข้อที่หอบขึ้นมา
+        ถูกปิดตรงนี้พร้อมกันหมด ไม่ว่าก่อนหน้านี้จะค้างอยู่ระดับไหน ตารางทั้งตารางจึงยุบมาลงช่องเดียว
+      </li>
+      <li>
+        ช่อง <code>0</code> รับ <code>dp[c][0]</code> เพิ่มอีกทาง จากการระบายเป็น 0 ตอนที่ไม่มีอะไรค้างอยู่แล้ว
+        ไม่มีอะไรให้หอบ มันก็ยังไม่มีอะไรให้หอบต่อ
+      </li>
+      <li>
+        ช่อง <code>j</code> ตั้งแต่ 1 ถึง <code>D - 1</code> รับ <code>dp[c][j]</code> ตรง ๆ จากการระบายเป็น 0
+        ทั้งที่ยังค้างอยู่ที่ระดับ <code>j</code> เส้นตายไม่เลื่อน เพราะมันผูกกับความลึกของ <code>u</code>
+        เราแค่ปล่อยโอกาสหนึ่งครั้งทิ้งไป
+      </li>
+      <li>
+        ช่อง <code>dp[c][D]</code> ไม่ไหลไปไหนเลยในทางระบาย 0 เพราะ <code>D</code> คือความลึกของพ่อ
+        แปลว่าข้อค้างนั้นมี <code>u</code> เป็นพ่อของ <code>c</code> พอดี ขอบนี้คือเส้นสุดท้ายบนวิถีของมัน
+        ระบาย 0 คือยอมแพ้ (ส่วนทางระบาย 1 นับมันไปแล้วใน <code>S</code>)
+      </li>
+    </ul>
+    <p>
+      ผลที่ตามมาคือช่อง 0 เป็นช่องเดียวที่มีทางเข้าสองทาง ช่องอื่นมีทางเดียว และมีของหายไปหนึ่งช่องต่อหนึ่งขอบเสมอ
+    </p>
+
+    <p>
+      เรื่องที่สองคือจุดที่มีลูกหลายตัว กิ่งแต่ละกิ่งหอบระดับค้างของตัวเองขึ้นมา แต่ถนนที่อยู่เหนือจุดนี้มีสายเดียว
+      ข้อที่ลึกที่สุดในบรรดาทุกกิ่งจึงเป็นตัวที่เข้มงวดที่สุด การรวมสองตารางเข้าด้วยกันจึงคือการรวมแบบ
+      <strong>เอาค่ามากสุด</strong> ให้ <code>A</code> กับ <code>B</code> เป็นสองตารางที่จะรวม และ
+      <code>preA</code> กับ <code>preB</code> เป็นผลรวมสะสม
+    </p>
+    <Fragment set:html={texPre} />
+    <Fragment set:html={texMerge} />
+    <ul>
+      <li>
+        พจน์แรกคือกรณีที่ <code>A</code> ค้างอยู่ที่ <code>j</code> พอดี ส่วน <code>B</code> ค้างที่ไหนก็ได้
+        ที่ไม่เกิน <code>j</code> ค่ามากสุดจึงเป็น <code>j</code>
+      </li>
+      <li>
+        พจน์ที่สองคือกรณีที่ <code>B</code> ค้างอยู่ที่ <code>j</code> พอดี ส่วน <code>A</code> ค้าง
+        <strong>น้อยกว่า</strong> <code>j</code> จริง ๆ ที่ต้องเป็น "น้อยกว่า" ไม่ใช่ "ไม่เกิน"
+        ก็เพราะกรณีที่ทั้งคู่เท่ากับ <code>j</code> ถูกนับไปแล้วในพจน์แรก นับซ้ำเมื่อไรคำตอบพัง
+      </li>
+    </ul>
+    <p>
+      สุดท้ายคือการแขวนข้อบังคับที่จบที่จุดนี้ ทำหลังรวมลูกครบแล้ว ให้ <code>b</code> คือความลึกของ
+      <code>u</code> ที่ลึกที่สุดในบรรดาคู่ที่จบที่จุดนี้ ทุกช่อง <code>j</code> ที่น้อยกว่า <code>b</code>
+      ถูกกวาดมารวมกันแล้วเทลงช่อง <code>b</code> เพราะเงื่อนไขใหม่เข้มกว่าของเดิม ส่วนช่องที่ <code>j</code>
+      มากกว่าหรือเท่ากับ <code>b</code> อยู่แล้วไม่ต้องแตะ เพราะของเดิมเข้มกว่า นี่ก็คือการเอาค่ามากสุดอีกครั้ง
+      แค่ทำกับเลขตัวเดียวแทนที่จะทำกับอีกตาราง
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตาราง dp ของตัวอย่างที่หนึ่ง</caption>
+        <thead>
+          <tr>
+            <th>จุด</th>
+            <th class="num">ความลึก</th>
+            <th class="num">att</th>
+            {Array.from({ length: DP_MAXJ + 1 }, (_, j) => <th class="num">j = {j}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {dpRows.map((r) => (
+            <tr>
+              <td>{r.v}</td>
+              <td class="num">{r.dep}</td>
+              <td class="num">{r.att > 0 ? r.att : '·'}</td>
+              {r.cells.map((c) => <td class="num">{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ค่าหลังจากรวมลูกครบและแขวนข้อบังคับของจุดนั้นแล้ว เรียงตามลำดับที่โปรแกรมคำนวณจริง คือจากใบขึ้นไปหาราก
+        จุด "·" คือช่องที่ไม่มีอยู่ เพราะระดับค้างต้องตื้นกว่าตัวจุดเอง แถวสุดท้ายคือคำตอบ
+      </figcaption>
+    </figure>
+
+    <p>
+      เดินตามตารางนี้จะเห็นสูตรทั้งสองทำงานจริง จุด {dpRows[0].v} มี <code>att</code> เท่ากับ{' '}
+      {SAMPLE_DP.att[5]} เพราะคู่ ({SAMPLE.pairs[1][0]}, {SAMPLE.pairs[1][1]}) จบที่นั่น ของทั้งหมดจึงถูกกวาดไปไว้ที่ช่อง{' '}
+      {SAMPLE_DP.att[5]} ตั้งแต่แรก ส่วนจุด {dpRows[1].v} ไม่มีข้อบังคับ ของจึงค้างอยู่ที่ช่อง 0
+      พอทั้งสองไหลขึ้นมารวมกันที่จุด 3 แล้วแขวนคู่ ({SAMPLE.pairs[0][0]}, {SAMPLE.pairs[0][1]}) ทับอีกที
+      แถวของจุด 3 จึงเป็น {DP3.join(', ')}
+    </p>
+    <p>
+      สองแถวบนสุดในการไต่ขึ้นคือจุดที่ของหายจริง ตอนไต่จากจุด 3 ขึ้นไปหาจุด 2 ช่อง{' '}
+      {SAMPLE_DP.dep[3] - 1} ของจุด 3 ซึ่งมีค่า {DIE_AT_3} จะหายไปในทางระบาย 0 เพราะระดับค้าง{' '}
+      {SAMPLE_DP.dep[3] - 1} หมายถึง <code>u</code> คือจุด 2 พอดี และตอนไต่จากจุด 2 ขึ้นไปหาราก ช่อง{' '}
+      {SAMPLE_DP.dep[2] - 1} ซึ่งมีค่า {DIE_AT_2} ก็หายไปด้วยเหตุผลเดียวกัน คำตอบสุดท้ายจึงเป็น
+      ผลรวมทั้งแถวของจุด 2 ซึ่งเท่ากับ {SUM_DP2} (ทางระบาย 1) บวกช่อง 0 ของมันซึ่งเท่ากับ {DP2[0]}
+      (ทางระบาย 0 ที่ไม่มีอะไรค้าง) รวมเป็น {SAMPLE_ANS}
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; ตารางเต็มตายที่ต้นไม้ลึก เซกเมนต์ทรีที่ควบรวมได้ช่วยตรงนี้</h2>
+  <Spoiler>
+    <p>
+      เขียนตามสูตรข้างบนตรง ๆ จะได้โปรแกรมที่ทำงานเป็นสัดส่วนกับ<strong>ผลรวมความลึกของทุกจุด</strong>
+      เพราะจุดที่ลึก <code>d</code> ถือตารางยาว <code>d</code> ช่อง ต้นไม้ที่เป็นดาวไม่มีปัญหาเลย
+      ผลรวมความลึกแค่ประมาณ <code>2N</code> แต่ต้นไม้ที่เป็นเส้นตรงยาว <code>N</code> จุด
+      ผลรวมความลึกคือ <code>N</code> กำลังสองหารสอง ที่ <code>N</code> เท่ากับ {fmt(N_MAX)}
+      นั่นคือราว {fmt(125000000000)} ช่อง ซึ่งไม่ใช่แค่ช้า แต่ใส่ในหน่วยความจำไม่ลงด้วยซ้ำ
+    </p>
+    <p>
+      ทางแก้คือเก็บตารางเป็น<strong>เซกเมนต์ทรีแบบสร้างปมเมื่อจำเป็น</strong> บนแกน <code>j</code>
+      แล้วรวมสองตารางด้วยการ<strong>ควบรวมเซกเมนต์ทรี</strong> (segment tree merging อ่านว่า
+      "เซกเมนต์ ทรี เมิร์จจิ้ง" แปลว่าเดินสองต้นพร้อมกันแล้วยุบเป็นต้นเดียว) หัวใจของมันคือ
+      เวลาเดินลงไปเจอช่วงที่ต้นหนึ่งไม่มีปมเลย ฝั่งนั้นไม่มีของ ผลรวมสะสมของมันในช่วงนั้นจึงเป็น
+      <strong>ค่าคงที่</strong> สูตรรวมข้างบนเลยกลายเป็นการคูณทั้งช่วงด้วยค่าคงที่ตัวเดียว
+      ซึ่งเป็นงานที่เซกเมนต์ทรีทำได้ด้วยป้ายค้างหนึ่งป้าย ไม่ต้องเดินลงไปแตะทุกใบ
+    </p>
+    <p>
+      เวลาทั้งหมดจึงคุมด้วยจำนวนปมที่เคย<strong>ถูกสร้าง</strong> ไม่ใช่ความยาวของตาราง
+      ทุกครั้งที่การควบรวมเดินลึกลงไปหนึ่งชั้น มันทำลายปมทิ้งไปหนึ่งปมเสมอ และปมถูกสร้างเพิ่ม
+      เฉพาะตอนแขวนข้อบังคับ ซึ่งเกิดไม่เกินหนึ่งครั้งต่อจุด รวมแล้วเป็น <code>O((N + M) log N)</code>
+    </p>
+    <p>
+      รายละเอียดที่โค้ดเต็มทำต่างจากสูตรอยู่สองที่ ที่แรกคือช่อง <code>j = 0</code> ไม่ได้อยู่ในเซกเมนต์ทรี
+      มันเป็นตัวแปรธรรมดาชื่อ <code>s[v]</code> เพราะทางระบาย 1 ยุบทุกอย่างมาลงช่องนี้ทุกขอบ
+      ถ้าปล่อยให้มันอยู่ในต้นไม้ ทุกขอบจะต้องสร้างปมใหม่ ที่สองคือปมที่ปล่อยแล้วถูกเก็บเข้ากองว่าง
+      (<code>freeList</code>) เอามาใช้ซ้ำ แทนที่จะปล่อยให้อาเรย์โตไปเรื่อย ๆ
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็มขอบเขต (เซกเมนต์ทรีควบรวม)</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeFull} lang="cpp" title="destiny_full.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดตารางเต็ม (ชุดย่อยที่ N เล็ก หรือต้นไม้ตื้น)</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeSlow} lang="cpp" title="destiny_slow.cpp" />
+        <p>
+          โค้ดนี้คือสูตรในเฉลยตอนที่ 2 แบบเขียนตรง ๆ ด้วย <code>vector</code> หนึ่งอันต่อหนึ่งจุด
+          มันชนะชุดที่ <code>N</code> เล็ก และชนะชุดต้นไม้ไบนารีสมบูรณ์ด้วย เพราะความลึกแค่ราว
+          <code>log N</code> ผมวัดชุดไบนารีสมบูรณ์ที่ <code>N = M = 100,000</code> ได้ 0.05 วินาที
+          และตอบตรงกับโค้ดเต็ม แต่พอต้นไม้ลึก มันตายทันที ดูแถวล่างสุดของตารางเวลา
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ไล่ทุกการระบาย</summary>
+      <div class="expander-body">
+        <CodeBlock code={codeBrute} lang="cpp" title="destiny_brute.cpp" />
+        <p>
+          ตัวตรวจไม่ใช้ความลึก ไม่มีสถานะ ไม่มีการยุบข้อบังคับ มันไล่ทุกมาสก์ของ
+          <code>2</code> ยกกำลัง <code>N - 1</code> แล้วเดินวิถีของทุกคู่ตามนิยามในโจทย์ตรง ๆ
+          จงใจไม่ใช้ข้ออ้างใด ๆ ที่หน้านี้พิสูจน์ไว้ หน้าเว็บนี้ก็รันตัวตรวจแบบเดียวกันตอนบิลด์
+          กับต้นไม้ทั้งสี่ต้นในเกมและตัวอย่างทั้งสองชุด แล้วเทียบกับท่า dp ถ้าไม่ตรงกันหน้านี้ไม่ขึ้น
+        </p>
+      </div>
+    </details>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เวลาที่วัดได้จริง</caption>
+        <thead>
+          <tr><th>ชุดทดสอบ</th><th>โปรแกรม</th><th class="num">เวลา</th><th class="num">หน่วยความจำสูงสุด</th></tr>
+        </thead>
+        <tbody>
+          {bills.map((b) => (
+            <tr>
+              <td>{b.name}</td>
+              <td>{b.who}</td>
+              <td class="num">{b.time}</td>
+              <td class="num">{b.mem}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        หกแถวบนคือ N เท่ากับ M เท่ากับ {fmt(N_MAX)} ทุกแถว สองแถวล่างเป็นเส้นตรง 100,000 จุด
+        เพื่อเทียบสองโปรแกรมกันตรง ๆ วัดบน WSL Ubuntu 22.04 ด้วย g++ 11.4.0 แบบ -O2
+        เอาค่าที่แย่ที่สุดจากสามรอบ เวลานี้รวมเวลาอ่านอินพุตขนาด 12 ถึง 13 เมกะไบต์ด้วย
+        และเป็นเครื่องของผม ไม่ใช่เครื่องของเกรดเดอร์
+      </figcaption>
+    </figure>
+
+    <p class="io-note">
+      ผมรันตัวเทียบสามทาง (ไล่ทุกแบบ / ตารางเต็ม / เซกเมนต์ทรีควบรวม) {fmt(STRESS_ROUNDS)} รอบ
+      ที่ต้นไม้ไม่เกิน {STRESS_MAXN} จุด ด้วยเมล็ดสุ่ม {STRESS_SEED} ตรงกันหมดทุกรอบ
+      ในรอบเหล่านั้นมี {STRESS_MULTI} รอบที่มีจุดหนึ่งรับข้อบังคับที่ความลึกของ u ต่างกันตั้งแต่สองค่าขึ้นไป
+      และ {fmt(STRESS_DUP)} รอบที่มีคู่ซ้ำ รูปทรงที่อยากทดสอบจึงถูกแตะจริง ทั้งสามโปรแกรมยังตอบ
+      ตัวอย่างที่หนึ่งได้ {SAMPLE_ANS} และตัวอย่างที่สองได้ {SAMPLE2_ANS} ตรงกันด้วย
+      ต้องบอกไว้ตรงนี้ว่าทั้งหมดนี้คือการตรวจกับตัวตรวจของผมเองกับตัวอย่างในโจทย์
+      ไม่ได้ตรวจกับข้อมูลทดสอบจริงของระบบตรวจ
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ท่าแรกคือเวลาสถานะของ dp อยากเป็น "เซตของสิ่งที่ยังค้างอยู่" ให้ถามว่าของในเซตเทียบความเข้มงวดกันได้ไหม
+    ถ้าปิดตัวที่เข้มที่สุดแล้วตัวอื่นปิดตามทันที เซตทั้งเซตยุบเหลือตัวแทนตัวเดียว
+    ที่นี่ตัวแทนคือความลึก ซึ่งเป็นเหตุผลเดียวกับที่คู่ที่จบจุดเดียวกันยุบด้วย <code>max</code> ได้
+    และเป็นเหตุผลเดียวกับที่คู่ซ้ำไม่ต้องทำอะไรเพิ่ม
+  </p>
+  <p>
+    ท่าที่สองคือเวลาสถานะเป็นตารางยาวตามความลึกแล้วต้องรวมกันขึ้นไปเรื่อย ๆ ให้มองว่ามันเป็น
+    เซกเมนต์ทรีที่ควบรวมได้ สิ่งที่ทำให้ท่านี้ใช้ได้คือรูปของสูตรรวม พอฝั่งหนึ่งว่างทั้งช่วง
+    ผลรวมสะสมของมันกลายเป็นค่าคงที่ งานทั้งช่วงจึงเหลือแค่คูณด้วยเลขตัวเดียว
+    ถ้าสูตรรวมของคุณไม่มีสมบัตินี้ การควบรวมจะไม่ช่วยอะไร
+  </p>
+  <p>
+    ท่าที่สามไม่เกี่ยวกับอัลกอริทึม คือเวลาจะบอกว่าท่าง่ายช้าเกินไป ให้วัด ไม่ใช่ประมาณ
+    ตัวเลข 58.93 วินาทีที่วัดได้บนเส้นตรง 100,000 จุด บอกได้ทันทีว่าห่างจากลิมิตแค่ไหน
+    ในแบบที่ประโยค "มันช้าไป" บอกไม่ได้
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    เก็บสถานะเป็นความลึกของข้อบังคับที่ยังค้างและลึกที่สุด ที่ขอบแต่ละเส้นเลือกได้สองทาง
+    ระบาย 1 ยุบทุกอย่างลงช่องศูนย์ ระบาย 0 เก็บสถานะเดิมไว้แต่ฆ่าสายที่หมดโอกาสพอดี
+    รวมกิ่งด้วยการเอาค่ามากสุด แล้วเปลี่ยนตารางเป็นเซกเมนต์ทรีที่ควบรวมได้เพื่อให้รอดต้นไม้ลึก
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>
+      โจทย์ <i>โชคชะตา (Destiny)</i> บน programming.in.th ข้อ 2042
+      <a href="https://programming.in.th/tasks/2042" target="_blank" rel="noopener noreferrer">
+        programming.in.th/tasks/2042
+      </a>
+      (สืบค้น 11 กันยายน 2026)
+    </li>
+    <li>ต้นฉบับจาก The 37th CCF National Olympiad in Informatics (NOI 2020) ตามที่ระบุไว้ท้ายโจทย์ภาษาไทย</li>
+    <li>
+      ตัวเลขเวลาและหน่วยความจำในหน้านี้ผมวัดเองบน WSL Ubuntu 22.04 ด้วย g++ 11.4.0 แบบ -O2
+      ไม่ใช่ผลจากระบบตรวจของโจทย์
+    </li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  figure.tbl{
+    margin:1.2rem 0 0.4rem;
+    padding:0;
+    overflow-x:auto;
+    background:#0b1220;
+    border:1px solid var(--dl-border);
+    border-radius:10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  figure.tbl figcaption{
+    width:0;
+    min-width:100%;
+    font-size:0.78rem;
+    color:var(--dl-muted);
+    line-height:1.6;
+    padding:0.6rem 0.85rem 0.75rem;
+    border-top:1px solid var(--dl-border);
+  }
+  table.rec{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    font-size:0.84rem;
+  }
+  figure.tbl table.rec{width:auto;}
+  table.rec caption{
+    caption-side:top;
+    text-align:left;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-weight:700;
+    letter-spacing:0.18em;
+    font-size:0.68rem;
+    color:var(--dl-gold);
+    background:#070c17;
+    padding:0.5rem 0.85rem;
+    border-bottom:1px solid var(--dl-border);
+    white-space:nowrap;
+  }
+  table.rec th, table.rec td{
+    padding:0.5rem 0.8rem;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--dl-border);
+  }
+  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
+  table.rec tbody tr:last-child td{border-bottom:none;}
+  table.rec th{
+    background:#141b2b;
+    color:var(--dl-muted);
+    font-weight:600;
+    font-size:0.68rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    white-space:nowrap;
+  }
+  table.rec td{color:var(--dl-ink);line-height:1.55;white-space:nowrap;}
+  table.rec td.num{
+    text-align:right;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    color:#cdd6ea;
+  }
+  table.rec th.num{text-align:right;}
+
+  /* ---------- กระดานของมินิเกม สร้างด้วย JS จึงต้อง :global ---------- */
+  .dst-board{display:flex;justify-content:center;}
+  .dst-board :global(svg){display:block;}
+  .dst-board :global(.dst-hit){stroke:transparent;stroke-width:26;fill:none;}
+  .dst-board :global(.dst-edge){cursor:pointer;}
+  .dst-board :global(.dst-edge:focus-visible){outline:2px solid var(--dl-emerald-bright);outline-offset:2px;}
+  /* ข้อความไทยในการ์ดต้อง width:0 + min-width:100% ไม่งั้น max-content ของทั้งประโยคจะถ่างการ์ด */
+  .dst-pairs{
+    width:0;
+    min-width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:0.4rem;
+    margin:0.6rem 0 0;
+  }
+  .dst-pairs :global(.dst-chip){
+    flex:0 0 auto;
+    font-family:"Fira Code","Fira Mono",monospace;
+    font-size:0.74rem;
+    letter-spacing:0.06em;
+    padding:0.2rem 0.6rem;
+    border-radius:999px;
+    border:1px solid #39425e;
+    background:#121a2b;
+    color:#9aa7bd;
+  }
+  .dst-pairs :global(.dst-chip.ok){border-color:#2f9e5c;background:#10291d;color:#a7f3c4;}
+  .dst-pairs :global(.dst-chip.no){border-color:#b23b3b;background:#2a1616;color:#e8a3a3;}
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type DstNode = { id: number; x: number; y: number };
+  type DstEdge = { id: number; name: string; x1: number; y1: number; x2: number; y2: number; lx: number; ly: number };
+  type DstPair = { u: number; v: number; edges: number[] };
+  type DstPuzzle = {
+    id: string;
+    label: string;
+    tease: string;
+    hint: string;
+    w: number;
+    h: number;
+    nodes: DstNode[];
+    edges: DstEdge[];
+    pairs: DstPair[];
+    total: number;
+    answer: number;
+  };
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function svgEl(name: string, attrs: Record<string, string>): SVGElement {
+    const el = document.createElementNS(SVG_NS, name);
+    for (const k of Object.keys(attrs)) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function initDestinyGame(): void {
+    const maybeUi = cpGameUi('[data-dstgame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as DstPuzzle[];
+    const maybeBoard = ui.root.querySelector<HTMLElement>('[data-dst-board]');
+    const maybePairs = ui.root.querySelector<HTMLElement>('[data-dst-pairs]');
+    if (puzzles.length === 0 || !maybeBoard || !maybePairs) return;
+    const board: HTMLElement = maybeBoard;
+    const pairsEl: HTMLElement = maybePairs;
+
+    let pi = 0;
+    let mask = 0;
+    const found: Set<number>[] = puzzles.map(() => new Set<number>());
+    const pz = (): DstPuzzle => puzzles[pi];
+
+    function uncoveredPairs(): DstPair[] {
+      return pz().pairs.filter((q) => !q.edges.some((e) => (mask >> e) & 1));
+    }
+
+    function drawBoard(): void {
+      const p = pz();
+      const bad = uncoveredPairs();
+      board.textContent = '';
+      const svg = svgEl('svg', {
+        viewBox: `0 0 ${p.w} ${p.h}`,
+        width: String(p.w),
+        height: String(p.h),
+        role: 'group',
+        'aria-label': 'ต้นไม้ของปริศนา แตะป้ายบนเส้นเพื่อสลับ 0 กับ 1',
+      });
+      /* วิถีของคู่แรกที่ยังไม่ผ่าน เน้นไว้ข้างหลังเส้นจริง เน้นทีละคู่ จะได้ไม่ทับกันจนอ่านไม่ออก */
+      if (bad.length > 0) {
+        for (const e of bad[0].edges) {
+          const ed = p.edges[e];
+          svg.append(
+            svgEl('line', {
+              x1: String(ed.x1),
+              y1: String(ed.y1),
+              x2: String(ed.x2),
+              y2: String(ed.y2),
+              stroke: '#b23b3b',
+              'stroke-width': '14',
+              'stroke-linecap': 'round',
+              'stroke-opacity': '0.38',
+            }),
+          );
+        }
+      }
+      for (const ed of p.edges) {
+        const on = ((mask >> ed.id) & 1) === 1;
+        const g = svgEl('g', {
+          class: 'dst-edge',
+          tabindex: '0',
+          role: 'button',
+          'aria-label': `เส้น ${ed.name} ตอนนี้เป็น ${on ? '1' : '0'}`,
+        });
+        g.setAttribute('data-dst-edge', String(ed.id));
+        g.append(
+          svgEl('line', { class: 'dst-hit', x1: String(ed.x1), y1: String(ed.y1), x2: String(ed.x2), y2: String(ed.y2) }),
+          svgEl('line', {
+            x1: String(ed.x1),
+            y1: String(ed.y1),
+            x2: String(ed.x2),
+            y2: String(ed.y2),
+            stroke: on ? '#4ade80' : '#39425e',
+            'stroke-width': on ? '5' : '2.5',
+            'stroke-dasharray': on ? 'none' : '6 5',
+          }),
+          svgEl('rect', {
+            x: String(ed.lx - 13),
+            y: String(ed.ly - 12),
+            width: '26',
+            height: '24',
+            rx: '7',
+            fill: on ? '#10291d' : '#121a2b',
+            stroke: on ? '#2f9e5c' : '#39425e',
+            'stroke-width': '1.2',
+          }),
+        );
+        const t = svgEl('text', {
+          x: String(ed.lx),
+          y: String(ed.ly + 5),
+          fill: on ? '#a7f3c4' : '#9aa7bd',
+          'font-size': '13',
+          'text-anchor': 'middle',
+          'font-family': 'monospace',
+        });
+        t.textContent = on ? '1' : '0';
+        g.append(t);
+        svg.append(g);
+      }
+      for (const nd of p.nodes) {
+        svg.append(
+          svgEl('circle', { cx: String(nd.x), cy: String(nd.y), r: '17', fill: '#121a2b', stroke: '#2f9e5c', 'stroke-width': '1.5' }),
+        );
+        const t = svgEl('text', {
+          x: String(nd.x),
+          y: String(nd.y + 5),
+          fill: '#eaf2ff',
+          'font-size': '13',
+          'text-anchor': 'middle',
+        });
+        t.textContent = String(nd.id);
+        svg.append(t);
+      }
+      board.append(svg);
+
+      pairsEl.textContent = '';
+      for (const q of pz().pairs) {
+        const ok = q.edges.some((e) => (mask >> e) & 1);
+        const chip = document.createElement('span');
+        chip.className = ok ? 'dst-chip ok' : 'dst-chip no';
+        chip.textContent = `${q.u} > ${q.v} ${ok ? 'ผ่าน' : 'ยังไม่ผ่าน'}`;
+        pairsEl.append(chip);
+      }
+    }
+
+    function scoreLine(): void {
+      const p = pz();
+      const n = found[pi].size;
+      if (n === 0) {
+        ui.setScore('ยังไม่เจอแบบที่ผ่าน');
+        return;
+      }
+      ui.setScore(`คุณเจอแบบที่ผ่านแล้ว ${n} แบบ · ต้นนี้มีทั้งหมด ${p.answer} แบบ จาก ${p.total} แบบที่ระบายได้`);
+    }
+
+    function report(): void {
+      const p = pz();
+      const bad = uncoveredPairs();
+      if (bad.length > 0) {
+        ui.setStatus(`คู่ (${bad[0].u}, ${bad[0].v}) ยังไม่มีเส้นสำคัญคั่น วิถีของมันคือเส้นที่เน้นสีแดง`, 'bad');
+        scoreLine();
+        return;
+      }
+      const fresh = !found[pi].has(mask);
+      found[pi].add(mask);
+      const ones = p.edges.filter((ed) => (mask >> ed.id) & 1).length;
+      if (mask === (1 << p.edges.length) - 1) {
+        ui.setStatus(
+          `ผ่านครับ แต่การเปิดทุกเส้นเป็นแบบที่ง่ายที่สุด และมันเป็นแค่ 1 ใน ${p.answer} แบบ ลองหาแบบที่ใช้เส้นสำคัญน้อยกว่านี้`,
+          'good',
+        );
+      } else if (fresh) {
+        ui.setStatus(`ผ่านครับ ใช้เส้นสำคัญ ${ones} เส้น นี่เป็นแบบใหม่ที่คุณยังไม่เคยเจอ`, 'good');
+      } else {
+        ui.setStatus(`ผ่านครับ ใช้เส้นสำคัญ ${ones} เส้น แต่แบบนี้คุณเคยเจอไปแล้ว`, 'good');
+      }
+      scoreLine();
+    }
+
+    function toggle(id: number): void {
+      mask ^= 1 << id;
+      drawBoard();
+      report();
+    }
+
+    function selectPuzzle(k: number): void {
+      pi = k;
+      mask = 0;
+      ui.selectTab(k);
+      ui.setTease(pz().tease);
+      drawBoard();
+      ui.setStatus(`แตะป้ายบนเส้นเพื่อสลับ 0 กับ 1 คำใบ้: ${pz().hint}`);
+      scoreLine();
+    }
+
+    board.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const g = e.target.closest('[data-dst-edge]');
+      if (!(g instanceof SVGElement)) return;
+      const id = g.getAttribute('data-dst-edge');
+      if (id !== null) toggle(Number(id));
+    });
+    board.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (!(e.target instanceof Element)) return;
+      const g = e.target.closest('[data-dst-edge]');
+      if (!(g instanceof SVGElement)) return;
+      const id = g.getAttribute('data-dst-edge');
+      if (id === null) return;
+      e.preventDefault();
+      toggle(Number(id));
+    });
+    ui.onClick('data-dst-all', () => {
+      mask = (1 << pz().edges.length) - 1;
+      drawBoard();
+      report();
+    });
+    ui.onClick('data-dst-clear', () => {
+      mask = 0;
+      drawBoard();
+      report();
+    });
+    ui.onTab(selectPuzzle);
+    selectPuzzle(0);
+  }
+
+  document.addEventListener('astro:page-load', initDestinyGame);
+</script>
