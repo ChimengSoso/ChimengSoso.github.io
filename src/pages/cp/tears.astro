@@ -1,0 +1,1043 @@
+---
+import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
+import Spoiler from '../../components/Spoiler.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+
+const href = 'tears/';
+
+/* ---------- โมเดลของโจทย์ ตัวเลขทุกตัวในหน้านี้งอกจากตรงนี้ ---------- */
+
+type Rect = { r1: number; r2: number; c1: number; c2: number };
+
+const SAMPLE_P = [9, 8, 7, 6, 2, 4, 5, 3, 1];
+const SAMPLE_N = SAMPLE_P.length;
+const SAMPLE_Q: Rect[] = [
+  { r1: 4, r2: 9, c1: 3, c2: 6 },
+  { r1: 2, r2: 9, c1: 1, c2: 8 },
+  { r1: 3, r2: 8, c1: 2, c2: 4 },
+  { r1: 3, r2: 9, c1: 2, c2: 7 },
+  { r1: 2, r2: 8, c1: 1, c2: 6 },
+  { r1: 1, r2: 9, c1: 1, c2: 9 },
+  { r1: 1, r2: 3, c1: 5, c2: 7 },
+  { r1: 2, r2: 3, c1: 3, c2: 3 },
+  { r1: 6, r2: 6, c1: 6, c2: 6 },
+];
+const SAMPLE_OUT = [1, 4, 2, 4, 4, 4, 0, 0, 0];
+
+/** ค่าที่ตำแหน่ง i (i เริ่มที่ 1) */
+const valAt = (P: number[], i: number): number => P[i - 1];
+
+/** ตัวตรวจอิสระ: ไล่ทุกคู่ตามนิยามโจทย์ตรง ๆ ไม่ใช้ท่าที่หน้านี้สอนเลย */
+function pairsIn(P: number[], q: Rect): [number, number][] {
+  const out: [number, number][] = [];
+  const n = P.length;
+  for (let i = 1; i <= n; i++) {
+    const vi = valAt(P, i);
+    if (i < q.r1 || i > q.r2 || vi < q.c1 || vi > q.c2) continue;
+    for (let j = i + 1; j <= n; j++) {
+      const vj = valAt(P, j);
+      if (j < q.r1 || j > q.r2 || vj < q.c1 || vj > q.c2) continue;
+      if (vi < vj) out.push([i, j]);
+    }
+  }
+  return out;
+}
+const countIn = (P: number[], q: Rect): number => pairsIn(P, q).length;
+
+/* ตรวจตอน build: โมเดลต้องตรงกับเฉลยของโจทย์ทุกบรรทัด ไม่ตรงคือ build ล้ม */
+const sampleCalc = SAMPLE_Q.map((q) => countIn(SAMPLE_P, q));
+if (sampleCalc.join(' ') !== SAMPLE_OUT.join(' '))
+  throw new Error('tears: โมเดลไม่ตรงกับเฉลยตัวอย่างของโจทย์');
+
+/* โจทย์ไล่คู่ของคำถามที่ 1 และ 2 ออกมาให้ด้วย ใช้เป็นการตรวจที่แน่นกว่าเทียบแค่จำนวน */
+const q1Pairs = pairsIn(SAMPLE_P, SAMPLE_Q[0]);
+const q2Pairs = pairsIn(SAMPLE_P, SAMPLE_Q[1]);
+const fmtPairs = (ps: [number, number][]): string => ps.map(([a, b]) => `(${a}, ${b})`).join(', ');
+if (fmtPairs(q1Pairs) !== '(6, 7)') throw new Error('tears: คู่ของคำถามที่ 1 ไม่ตรงกับที่โจทย์ระบุ');
+if (fmtPairs(q2Pairs) !== '(5, 6), (5, 7), (5, 8), (6, 7)')
+  throw new Error('tears: คู่ของคำถามที่ 2 ไม่ตรงกับที่โจทย์ระบุ');
+
+/* การอ่านอีกสามแบบที่ตัวอย่างปัดตกไป ใช้เล่าในคำอธิบายว่าทำไมตัวอย่างชี้ขาดได้ */
+function invCount(P: number[], q: Rect): number {
+  let s = 0;
+  const n = P.length;
+  for (let i = 1; i <= n; i++) {
+    const vi = valAt(P, i);
+    if (i < q.r1 || i > q.r2 || vi < q.c1 || vi > q.c2) continue;
+    for (let j = i + 1; j <= n; j++) {
+      const vj = valAt(P, j);
+      if (j < q.r1 || j > q.r2 || vj < q.c1 || vj > q.c2) continue;
+      if (vi > vj) s++;
+    }
+  }
+  return s;
+}
+const q1Inversions = invCount(SAMPLE_P, SAMPLE_Q[0]);
+const q1SwappedFields = countIn(SAMPLE_P, { r1: 4, r2: 3, c1: 9, c2: 6 });
+if (q1Inversions === SAMPLE_OUT[0] || q1SwappedFields === SAMPLE_OUT[0])
+  throw new Error('tears: ตัวอย่างแยกการอ่านโจทย์ไม่ได้ คำอธิบายในหน้าจะผิด');
+
+/* จำนวนจุดที่อยู่ในกรอบของคำถามที่ 1 ใช้เตือนว่าเอาต์พุตนับคู่ ไม่ได้นับจุด */
+const q1Inside = SAMPLE_P.map((v, k) => ({ i: k + 1, v })).filter(
+  (p) => p.i >= SAMPLE_Q[0].r1 && p.i <= SAMPLE_Q[0].r2 && p.v >= SAMPLE_Q[0].c1 && p.v <= SAMPLE_Q[0].c2,
+);
+
+/* ---------- รูปที่หนึ่ง: ตัวอย่างทั้งเก้าจุด กับกรอบของคำถามที่ 1 ---------- */
+const D_PAD = 54;
+const D_CELL = 58;
+const dX = (i: number): number => D_PAD + (i - 1) * D_CELL + D_CELL / 2;
+const dY = (v: number): number => 34 + (SAMPLE_N - v) * D_CELL + D_CELL / 2;
+const D_GRID_R = D_PAD + SAMPLE_N * D_CELL;
+const D_GRID_B = 34 + SAMPLE_N * D_CELL;
+const D_VB_W = D_GRID_R + 12;
+const D_VB_H = D_GRID_B + 26 + 34;
+const dq = SAMPLE_Q[0];
+const dRectX = D_PAD + (dq.r1 - 1) * D_CELL;
+const dRectY = 34 + (SAMPLE_N - dq.c2) * D_CELL;
+const dRectW = (dq.r2 - dq.r1 + 1) * D_CELL;
+const dRectH = (dq.c2 - dq.c1 + 1) * D_CELL;
+const dInsideSet = new Set(q1Inside.map((p) => p.i));
+
+/* ---------- เกม ---------- */
+type Puzzle = { id: string; label: string; tease: string; P: number[]; rect: Rect; answer: number; hint: string };
+
+const rawPuzzles: { id: string; label: string; tease: string; P: number[]; rect: Rect; expect: number; hint: string }[] = [
+  {
+    id: 'a', label: 'ชุด A', P: [2, 5, 4, 3, 1], rect: { r1: 1, r2: 5, c1: 1, c2: 5 }, expect: 3,
+    tease: 'กรอบกินทั้งกระดาน อุ่นเครื่องก่อน',
+    hint: 'กรอบคลุมทุกจุด จึงเหลือคำถามเดียวคือคู่ไหนที่ขึ้นทั้งสองแกน จุดแรกค่าน้อยที่สุดในบรรดาจุดต้น ๆ จึงจับคู่ได้หลายทาง',
+  },
+  {
+    id: 'b', label: 'ชุด B', P: [1, 3, 5, 6, 4, 2], rect: { r1: 1, r2: 5, c1: 2, c2: 5 }, expect: 2,
+    tease: 'คราวนี้กรอบตัดทั้งแกนดัชนีและแกนค่า',
+    hint: 'ในกรอบเหลือสามจุด แต่คำตอบคือสองคู่ จำนวนจุดกับจำนวนคู่เป็นคนละเรื่องกัน',
+  },
+  {
+    id: 'c', label: 'ชุด C', P: [5, 4, 3, 2, 1], rect: { r1: 1, r2: 5, c1: 1, c2: 5 }, expect: 0,
+    tease: 'ชุดนี้มีจุดครบห้าจุดในกรอบ แต่คำตอบอาจไม่ใช่อย่างที่คิด',
+    hint: 'ค่าลดลงตลอด ไม่มีคู่ไหนขึ้นทั้งสองแกนเลย ชุดแบบนี้มีไว้เตือนว่าจุดเยอะไม่ได้แปลว่าคู่เยอะ',
+  },
+  {
+    id: 'd', label: 'ชุด D', P: [1, 2, 3, 5, 7, 4, 6], rect: { r1: 2, r2: 7, c1: 4, c2: 7 }, expect: 3,
+    tease: 'กระดานใหญ่ขึ้น นับจุดในกรอบให้ดีก่อนลงมือ',
+    hint: 'ในกรอบมีสี่จุดแต่ตอบสามคู่ ถ้าเผลอตอบจำนวนจุดจะพลาดทันที',
+  },
+];
+
+const puzzles: Puzzle[] = rawPuzzles.map((r) => {
+  const got = countIn(r.P, r.rect);
+  if (got !== r.expect) throw new Error(`tears: เกมชุด ${r.label} ควรได้ ${r.expect} แต่โมเดลได้ ${got}`);
+  return { id: r.id, label: r.label, tease: r.tease, P: r.P, rect: r.rect, answer: got, hint: r.hint };
+});
+
+/* ชุด D ต้องหลอกจริง คือจำนวนจุดในกรอบต้องไม่เท่าคำตอบ ไม่งั้นกับดักไม่ทำงาน */
+const pdD = puzzles[3];
+const pdInside = pdD.P.map((v, k) => ({ i: k + 1, v })).filter(
+  (p) => p.i >= pdD.rect.r1 && p.i <= pdD.rect.r2 && p.v >= pdD.rect.c1 && p.v <= pdD.rect.c2,
+).length;
+if (pdInside === pdD.answer) throw new Error('tears: ชุด D ไม่ได้หลอกอะไรเลย จำนวนจุดบังเอิญเท่าคำตอบ');
+
+/* กระดานของเกม คิดพิกัดไว้ให้หมดตั้งแต่ตอน build */
+const G_CELL = 44;
+const G_PAD = 34;
+type Board = { id: string; w: number; h: number; n: number; rx: number; ry: number; rw: number; rh: number;
+               dots: { i: number; v: number; x: number; y: number; inside: boolean }[] };
+const boards: Board[] = puzzles.map((p) => {
+  const n = p.P.length;
+  const w = G_PAD + n * G_CELL + 10;
+  const h = 18 + n * G_CELL + 26;
+  const dots = p.P.map((v, k) => {
+    const i = k + 1;
+    const inside = i >= p.rect.r1 && i <= p.rect.r2 && v >= p.rect.c1 && v <= p.rect.c2;
+    return { i, v, x: G_PAD + (i - 1) * G_CELL + G_CELL / 2, y: 18 + (n - v) * G_CELL + G_CELL / 2, inside };
+  });
+  return {
+    id: p.id, w, h, n,
+    rx: G_PAD + (p.rect.r1 - 1) * G_CELL,
+    ry: 18 + (n - p.rect.c2) * G_CELL,
+    rw: (p.rect.r2 - p.rect.r1 + 1) * G_CELL,
+    rh: (p.rect.c2 - p.rect.c1 + 1) * G_CELL,
+    dots,
+  };
+});
+const puzzlesJson = JSON.stringify(
+  puzzles.map((p) => ({ id: p.id, label: p.label, tease: p.tease, answer: p.answer, hint: p.hint,
+                        pairs: pairsIn(p.P, p.rect) })),
+);
+
+/* ---------- ตัวเลขที่ใช้ในเนื้อหา ---------- */
+const N_MAX = 100000;
+const M_MAX = 200000;
+const TIME_LIMIT = 4;
+const MEM_LIMIT = 1024;
+const BLOCK_FACTOR = 0.44;
+const BLOCK_AT_MAX = Math.max(1, Math.floor(Math.sqrt(N_MAX) * BLOCK_FACTOR));
+const NB_AT_MAX = Math.ceil(N_MAX / BLOCK_AT_MAX);
+const STRESS_CASES = 980;
+const STRESS_SIZES = [8, 20, 45, 120, 400, 1200, 4000];
+/* เวลาที่วัดได้จริง หน่วยวินาที เครื่อง WSL Ubuntu g++ 11.4.0 -O2 ที่ N = 1e5, M = 2e5 */
+const TIMINGS = [
+  { shape: 'กรอบสุ่มทั้งสองแกน', sec: 3.66, mb: 365 },
+  { shape: 'กรอบเต็มระนาบทุกคำถาม', sec: 1.70, mb: 359 },
+  { shape: 'กรอบยาวเกือบเต็มแกนดัชนี', sec: 3.59, mb: 363 },
+  { shape: 'กรอบสั้น', sec: 0.77, mb: 363 },
+];
+const WORST_SEC = Math.max(...TIMINGS.map((t) => t.sec));
+const WORST_MB = Math.max(...TIMINGS.map((t) => t.mb));
+const BUDGET_PCT = Math.round((WORST_SEC / TIME_LIMIT) * 100);
+/* ประวัติการไล่เวลา ทุกแถววัดจริงบนอินพุตชุดเดียวกัน */
+const PERF_STEPS = [
+  { what: 'ตัวแรกที่ให้คำตอบถูก', sec: 14.75 },
+  { what: 'ตัด binary search ต่อบล็อกต่อคำถาม ใช้ตาราง F แทน', sec: 8.14 },
+  { what: 'สลับแกนตาราง F จาก F[บล็อก][ค่า] เป็น F[ค่า][บล็อก]', sec: 3.88 },
+  { what: 'สลับแกนตาราง E กับตาราง f แล้วจูนขนาดบล็อกใหม่', sec: WORST_SEC },
+];
+const SPEEDUP = +(PERF_STEPS[0].sec / WORST_SEC).toFixed(1);
+const CACHE_GAIN = +(8.14 - 3.88).toFixed(2);
+/* ขนาดก้าวกระโดดของการอ่านตาราง F แบบผิดแกน หน่วยกิโลไบต์ */
+const F_ROW_KB = Math.round(((N_MAX + 1) * 4) / 1024);
+
+const SUBTASKS = [
+  { pct: 12, cond: 'N, M ไม่เกิน 10' },
+  { pct: 12, cond: 'N, M ไม่เกิน 3000 ถึง 5000 (สามชั้น ชั้นละ 4%)' },
+  { pct: 16, cond: 'c1 = 1 และ c2 = N คือไม่มีขอบค่า (สี่ชั้น)' },
+  { pct: 12, cond: 'กรอบสองอันซ้อนกันสนิทหรือไม่แตะกันเลย (สามชั้น)' },
+  { pct: 24, cond: 'N ไม่เกิน 20000 ถึง 70000 (หกชั้น)' },
+  { pct: 12, cond: 'ทั้งลำดับมีคู่ที่ไม่เพิ่มขึ้นไม่เกิน 50 คู่' },
+  { pct: 12, cond: 'ไม่มีเงื่อนไขเพิ่ม' },
+];
+const SUBTASK_TOTAL = SUBTASKS.reduce((s, x) => s + x.pct, 0);
+if (SUBTASK_TOTAL !== 100) throw new Error('tears: สัดส่วนคะแนนของ subtask รวมกันไม่ได้ 100');
+
+const solution = `// NOI 2020 "Tears" / โศกนาฏกรรม  (programming.in.th 2043, Luogu P6774)
+// full constraints: N <= 1e5, M <= 2e5
+//
+// นับคู่ (i, j) ที่ i < j, P_i < P_j, ดัชนีทั้งคู่อยู่ใน [r1,r2], ค่าทั้งคู่อยู่ใน [c1,c2]
+//
+// ข้อสังเกตที่ใช้ตลอดไฟล์: คู่ที่นับมี i < j และ P_i < P_j อยู่แล้ว ขอบสี่ด้านจึงผูกปลายละข้าง
+//     ดัชนีอยู่ใน [r1,r2] ทั้งคู่  <=>  i >= r1 และ j <= r2
+//     ค่าอยู่ใน [c1,c2] ทั้งคู่    <=>  P_i >= c1 และ P_j <= c2
+//
+// หั่นแกนดัชนีเป็นบล็อกขนาด B แล้วแตกคำถามเป็นหกหมวดตามที่ปลายสองข้างตกอยู่
+//   ซ้ายเศษ x ซ้ายเศษ, ขวาเศษ x ขวาเศษ, ซ้ายเศษ x ขวาเศษ   -> รวมเป็นรอบเดียว O(B log B)
+//   ซ้ายเศษ x บล็อกเต็ม, บล็อกเต็ม x ขวาเศษ                 -> O(1) ต่อชิ้น ด้วยตาราง F
+//   บล็อกเต็มบล็อกเดียวกัน                                    -> O(1) ต่อบล็อก ด้วยตาราง f ของบล็อกนั้น
+//   บล็อกเต็มคนละบล็อก                                        -> กวาดค่า + ตาราง E (ดูด้านล่าง)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+// อ่านอินพุตทั้งไฟล์ทีเดียวแล้วแกะเอง อินพุตเต็มขอบเขตมีตัวเลขราวเก้าแสนตัว
+static char *inBuf; static size_t inPos, inLen;
+static void readAll() {
+    size_t cap = 1 << 22; inBuf = (char *)malloc(cap); inLen = 0;
+    while (true) {
+        if (inLen + (1 << 20) > cap) { cap <<= 1; inBuf = (char *)realloc(inBuf, cap); }
+        size_t got = fread(inBuf + inLen, 1, 1 << 20, stdin);
+        inLen += got;
+        if (got < (1 << 20)) break;
+    }
+    inPos = 0;
+}
+static inline int readInt() {
+    while (inPos < inLen && (inBuf[inPos] < '0' || inBuf[inPos] > '9')) inPos++;
+    int x = 0;
+    while (inPos < inLen && inBuf[inPos] >= '0' && inBuf[inPos] <= '9') x = x * 10 + (inBuf[inPos++] - '0');
+    return x;
+}
+
+static int n, m, B, nb;
+static vector<int> P, posOf;          // posOf[v] = ตำแหน่งของค่า v
+static vector<int> blkOf, blkL, blkR;
+
+// F[v][b] = จำนวนตำแหน่งในบล็อก 0..b-1 ที่มีค่า <= v   (b = 0..nb)
+// เก็บโดยให้ "ค่า" เป็นแถว เพราะลูปร้อนทุกอันวิ่งตาม b โดยตรึง v ไว้
+// เวอร์ชันแรกเก็บสลับกัน ทำให้ทุกการอ่านห่างกัน 400KB และพลาดแคชทุกครั้ง
+static vector<int> F;                 // ขนาด (n+1) * (nb+1)
+static int NBP1;
+static inline int Fat(int b, int v) { return F[(size_t)v * NBP1 + b]; }
+// จำนวนตำแหน่งในบล็อก [bl, br] ที่มีค่าอยู่ใน [lo, hi]
+static inline int cntBlocks(int bl, int br, int lo, int hi) {
+    if (bl > br || lo > hi) return 0;
+    if (lo < 1) lo = 1;
+    if (hi > n) hi = n;
+    if (lo > hi) return 0;
+    return (Fat(br + 1, hi) - Fat(bl, hi)) - (Fat(br + 1, lo - 1) - Fat(bl, lo - 1));
+}
+
+// ---- ต่อบล็อก: ค่าที่เรียงแล้ว, อันดับภายในบล็อก, และตาราง f ----
+static vector<vector<int>> blkSortedPos;   // ตำแหน่งในบล็อก เรียงตามค่า
+static vector<int> rankIn;                 // rankIn[pos] = อันดับของค่าที่ pos ภายในบล็อกของมัน (1-based)
+static vector<vector<int>> fTab;           // fTab[b] = ตาราง (sz+1)^2 แบบผลรวมสะสมสองมิติ
+
+// f[u][v] = จำนวนคู่ i<j ในบล็อกนี้ ที่ rank_i <= u, rank_j <= v และ rank_i < rank_j
+// ผู้เรียกส่งอันดับมาให้เลย (คำนวณจากตาราง F ได้ในเวลาคงที่) จึงไม่ต้อง binary search
+// เวอร์ชันแรกใช้ lower_bound/upper_bound ต่อบล็อกต่อคำถาม ซึ่งทำให้เคสช่วงยาวใช้เวลา 14.75 วินาที
+static inline ll withinBlockRank(int b, int lo, int hi) {
+    if (lo > hi) return 0;
+    int W = blkR[b] - blkL[b] + 2;
+    const int *f = fTab[b].data();
+    // เก็บแบบ f[v][u] (แถวคือ v) การอ่านสองครั้งจึงอยู่แถวเดียวกัน ลด cache miss ครึ่งหนึ่ง
+    const int *row = f + (size_t)hi * W;
+    // #{rank_i >= lo, rank_j <= hi}  (rank_i < rank_j อยู่ในนิยามของ f แล้ว)
+    return (ll)row[hi] - (ll)row[lo - 1];
+}
+
+int main() {
+    // ---------- อ่านอินพุต ----------
+    readAll();
+    n = readInt(); m = readInt();
+    P.assign(n + 2, 0); posOf.assign(n + 2, 0);
+    for (int i = 1; i <= n; i++) { P[i] = readInt(); posOf[P[i]] = i; }
+
+    // จูนแล้วที่ n = 1e5: B ราว 140 เร็วที่สุด (บล็อกเล็กลงทำให้ตาราง f ของแต่ละบล็อกอยู่ในแคชได้)
+    B = max(1, (int)(sqrt((double)n) * 0.44));
+    if (const char *e = getenv("BLK")) { int v = atoi(e); if (v > 0) B = v; }  // ใช้ตอนจูนเท่านั้น
+    nb = (n + B - 1) / B;
+    blkOf.assign(n + 2, 0); blkL.assign(nb, 0); blkR.assign(nb, 0);
+    for (int i = 1; i <= n; i++) blkOf[i] = (i - 1) / B;
+    for (int b = 0; b < nb; b++) { blkL[b] = b * B + 1; blkR[b] = min(n, (b + 1) * B); }
+
+    // ---------- ตาราง F ----------
+    NBP1 = nb + 1;
+    F.assign((size_t)(n + 1) * NBP1, 0);
+    for (int v = 1; v <= n; v++) {
+        int *cur = &F[(size_t)v * NBP1];
+        const int *prv = &F[(size_t)(v - 1) * NBP1];
+        int bv = blkOf[posOf[v]];
+        for (int b = 0; b <= bv; b++) cur[b] = prv[b];
+        for (int b = bv + 1; b <= nb; b++) cur[b] = prv[b] + 1;
+    }
+
+    // ---------- ต่อบล็อก: เรียงค่า, อันดับ, ตาราง f ----------
+    blkSortedPos.assign(nb, {});
+    rankIn.assign(n + 2, 0);
+    fTab.assign(nb, {});
+    for (int b = 0; b < nb; b++) {
+        int sz = blkR[b] - blkL[b] + 1;
+        vector<int> ps(sz);
+        for (int k = 0; k < sz; k++) ps[k] = blkL[b] + k;
+        sort(ps.begin(), ps.end(), [&](int x, int y) { return P[x] < P[y]; });
+        blkSortedPos[b] = ps;
+        for (int k = 0; k < sz; k++) rankIn[ps[k]] = k + 1;
+
+        int W = sz + 1;
+        vector<int> f((size_t)W * W, 0);
+        // ใส่ 1 ที่ (rank_i, rank_j) ของทุกคู่ที่ i < j และ rank_i < rank_j
+        for (int i = blkL[b]; i <= blkR[b]; i++)
+            for (int j = i + 1; j <= blkR[b]; j++)
+                if (rankIn[i] < rankIn[j]) f[(size_t)rankIn[j] * W + rankIn[i]]++;
+        // ผลรวมสะสมสองมิติบน layout f[v][u]
+        for (int v = 1; v < W; v++)
+            for (int u = 1; u < W; u++)
+                f[(size_t)v * W + u] += f[(size_t)(v - 1) * W + u] + f[(size_t)v * W + u - 1]
+                                      - f[(size_t)(v - 1) * W + u - 1];
+        fTab[b] = move(f);
+    }
+
+    // ---------- อ่านคำถาม ----------
+    vector<int> qr1(m), qr2(m), qc1(m), qc2(m);
+    vector<ll> ans(m, 0);
+    for (int k = 0; k < m; k++) { qr1[k] = readInt(); qr2[k] = readInt(); qc1[k] = readInt(); qc2[k] = readInt(); }
+
+    // ---------- หมวด "บล็อกเต็มคนละบล็อก": กวาดค่าจากน้อยไปมาก ----------
+    // colTotal[bx] = จำนวนคู่ที่ปลายบนอยู่บล็อก bx และปลายล่างอยู่บล็อกใดก็ได้ที่เล็กกว่า bx
+    // E[bx][b1]   = จำนวนคู่ที่ปลายบนอยู่บล็อก bx และปลายล่างอยู่บล็อกที่เล็กกว่า b1
+    // ทั้งสองนับเฉพาะของที่ใส่ไปแล้ว (ค่า <= เวลาปัจจุบัน) และ P_i < P_j รับประกันโดยลำดับการใส่
+    vector<ll> colTotal(nb, 0);
+    vector<ll> E((size_t)nb * nb, 0);
+    vector<int> c(nb, 0);
+    // เหตุการณ์: คำถาม k ต้องอ่านค่าที่เวลา c2 (บวก) และที่เวลา c1-1 (ลบ)
+    vector<vector<pair<int,int>>> evAt(n + 2);   // evAt[t] = (k, sign)
+    for (int k = 0; k < m; k++) {
+        int b1 = blkOf[qr1[k]], b2 = blkOf[qr2[k]];
+        if (b2 - b1 < 2) continue;               // ไม่มีบล็อกเต็มสองบล็อกขึ้นไป
+        evAt[qc2[k]].push_back({k, +1});
+        if (qc1[k] - 1 >= 1) evAt[qc1[k] - 1].push_back({k, -1});
+    }
+    for (int t = 1; t <= n; t++) {
+        int pos = posOf[t], bx = blkOf[pos];
+        // อัปเดตก่อนนับตัวเอง: คู่ใหม่เกิดกับของที่ใส่ไปแล้วเท่านั้น
+        ll run = 0, pref = 0;
+        ll *Ebase = &E[bx];
+        for (int b1 = 0; b1 < nb; b1++) {
+            if (b1 == bx) pref = run;      // run ตอนนี้คือผลรวมของบล็อกที่ < bx พอดี ไม่ต้องวนซ้ำ
+            Ebase[(size_t)b1 * nb] += run;
+            run += c[b1];
+        }
+        colTotal[bx] += pref;
+        c[bx]++;
+
+        for (auto &ev : evAt[t]) {
+            int k = ev.first, sg = ev.second;
+            int bb1 = blkOf[qr1[k]] + 1, bb2 = blkOf[qr2[k]] - 1;
+            ll s = 0;
+            const ll *Erow = &E[(size_t)bb1 * nb];   // ติดกันในหน่วยความจำ
+            for (int bx2 = bb1; bx2 <= bb2; bx2++) s += colTotal[bx2] - Erow[bx2];
+            ans[k] += sg * s;
+        }
+    }
+
+    // ---------- ประกอบคำตอบของแต่ละคำถาม ----------
+    // BIT เล็กสำหรับหมวดเศษ (ดัชนีอัดเป็น 0..cntPart-1)
+    vector<int> bitArr;
+    auto bitInit = [&](int sz) { bitArr.assign(sz + 1, 0); };
+    auto bitAdd  = [&](int i)  { for (++i; i < (int)bitArr.size(); i += i & -i) bitArr[i]++; };
+    auto bitSum  = [&](int i)  { int s = 0; for (++i; i > 0; i -= i & -i) s += bitArr[i]; return s; };
+
+    vector<int> partPos;    // ตำแหน่งของชิ้นเศษ เรียงตามค่า
+    vector<int> idxOfPos;   // ตำแหน่ง -> ลำดับที่ (ตามตำแหน่ง) ในกองเศษ
+    idxOfPos.assign(n + 2, -1);
+
+    for (int k = 0; k < m; k++) {
+        int r1 = qr1[k], r2 = qr2[k], c1 = qc1[k], c2 = qc2[k];
+        if (c1 > c2 || r1 > r2) { ans[k] = 0; continue; }
+        int b1 = blkOf[r1], b2 = blkOf[r2];
+        ll res = ans[k];   // ส่วนที่ได้จากการกวาดแล้ว (หมวดบล็อกเต็มคนละบล็อก)
+
+        if (b1 == b2) {
+            // ทั้งคำถามอยู่ในบล็อกเดียว: นับตรง ๆ ด้วย BIT บนอันดับภายในบล็อก
+            res = 0;
+            int sz = blkR[b1] - blkL[b1] + 1;
+            bitInit(sz + 1);
+            for (int i = r1; i <= r2; i++) {
+                int v = P[i];
+                if (v < c1 || v > c2) continue;
+                res += bitSum(rankIn[i] - 1);
+                bitAdd(rankIn[i]);
+            }
+            ans[k] = res;
+            continue;
+        }
+
+        int bb1 = b1 + 1, bb2 = b2 - 1;          // ช่วงบล็อกเต็ม (อาจว่าง)
+        bool hasFull = bb1 <= bb2;
+        int L = hasFull ? blkL[bb1] : 0, R = hasFull ? blkR[bb2] : -1;
+
+        // (ก)+(ข) รอบเดียวเหนือบล็อกเต็ม อ่านตาราง F สี่ครั้งต่อบล็อก
+        //   lo_b = จำนวนค่าในบล็อก b ที่ <= c1-1   (ใช้เป็นขอบล่างของอันดับ และเป็นขนาดของ A)
+        //   hi_b = จำนวนค่าในบล็อก b ที่ <= c2     (ใช้เป็นขอบบนของอันดับ)
+        // (ก) คู่ที่อยู่ในบล็อกเต็มบล็อกเดียวกัน
+        // (ข) แก้แถบค่าของหมวดบล็อกเต็มคนละบล็อก: ลบส่วน Cross(A, S) ออก
+        //     A = ค่า <= c1-1, S = ค่าใน [c1,c2]; ค่าใน A น้อยกว่าใน S ทุกตัว ปลายล่างจึงเป็นฝั่ง A เสมอ
+        if (hasFull) {
+            int lowCap = c1 - 1;
+            const int *rowLo = lowCap >= 1 ? &F[(size_t)lowCap * NBP1] : nullptr;
+            const int *rowHi = &F[(size_t)c2 * NBP1];
+            ll runA = 0, cross = 0;
+            for (int b = bb1; b <= bb2; b++) {
+                int lo = rowLo ? rowLo[b + 1] - rowLo[b] : 0;
+                int hi = rowHi[b + 1] - rowHi[b];
+                res += withinBlockRank(b, lo + 1, hi);
+                if (lowCap >= 1) { cross += (ll)(hi - lo) * runA; runA += lo; }
+            }
+            res -= cross;
+        }
+
+        // รวบรวมชิ้นเศษสองฝั่ง โดยดึงออกมาเรียงตามค่าอยู่แล้ว (ไม่ต้อง sort)
+        partPos.clear();
+        {
+            // ซ้ายเศษ = ตำแหน่ง r1..blkR[b1] ; ขวาเศษ = blkL[b2]..r2
+            const vector<int> &sl = blkSortedPos[b1];
+            const vector<int> &sr = blkSortedPos[b2];
+            size_t a = 0, b = 0;
+            while (a < sl.size() || b < sr.size()) {
+                while (a < sl.size() && (sl[a] < r1 || P[sl[a]] < c1 || P[sl[a]] > c2)) a++;
+                while (b < sr.size() && (sr[b] > r2 || P[sr[b]] < c1 || P[sr[b]] > c2)) b++;
+                if (a >= sl.size() && b >= sr.size()) break;
+                if (b >= sr.size() || (a < sl.size() && P[sl[a]] < P[sr[b]])) partPos.push_back(sl[a++]);
+                else partPos.push_back(sr[b++]);
+            }
+        }
+        int cntPart = (int)partPos.size();
+        // ลำดับตามตำแหน่ง: ซ้ายเศษมาก่อนขวาเศษเสมอ จึงจัดลำดับด้วยตำแหน่งจริงได้เลย
+        {
+            vector<int> byPos = partPos;
+            sort(byPos.begin(), byPos.end());
+            for (int t = 0; t < cntPart; t++) idxOfPos[byPos[t]] = t;
+        }
+        // (ค) คู่ที่ปลายทั้งสองเป็นชิ้นเศษ (ซ้ายxซ้าย, ขวาxขวา, ซ้ายxขวา) รวบเป็นรอบเดียว
+        bitInit(cntPart + 1);
+        for (int t = 0; t < cntPart; t++) {
+            int id = idxOfPos[partPos[t]];
+            res += bitSum(id - 1);      // ของที่ค่าน้อยกว่า และตำแหน่งอยู่ก่อนหน้า
+            bitAdd(id);
+        }
+        // (ง) ชิ้นเศษ x บล็อกเต็ม
+        if (hasFull) {
+            for (int pos : partPos) {
+                int v = P[pos];
+                if (pos <= blkR[b1]) res += cntBlocks(bb1, bb2, v + 1, c2);   // เศษซ้ายเป็นปลายล่าง
+                else                 res += cntBlocks(bb1, bb2, c1, v - 1);   // เศษขวาเป็นปลายบน
+            }
+        }
+        for (int pos : partPos) idxOfPos[pos] = -1;
+        ans[k] = res;
+        (void)L; (void)R;
+    }
+
+    for (int k = 0; k < m; k++) printf("%lld\\n", ans[k]);
+    return 0;
+}`;
+const subCode = `// NOI 2020 "Tears" (2043) - เฉลย subtask: N, M <= 5000
+// เดินหน้าต่างตามลำดับดัชนี แล้วนับด้วย BIT บนแกนค่า  O(ความยาวช่วง * log n) ต่อคำถาม
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+
+int n, m;
+vector<int> P, t;
+
+void add(int i, int v) { for (; i <= n; i += i & -i) t[i] += v; }
+int sum(int i) { int s = 0; for (; i > 0; i -= i & -i) s += t[i]; return s; }
+
+int main() {
+    if (scanf("%d %d", &n, &m) != 2) return 0;
+    P.assign(n + 1, 0); t.assign(n + 1, 0);
+    for (int i = 1; i <= n; i++) if (scanf("%d", &P[i]) != 1) return 0;
+    vector<int> touched;
+    touched.reserve(n);
+    for (int k = 0; k < m; k++) {
+        int r1, r2, c1, c2;
+        if (scanf("%d %d %d %d", &r1, &r2, &c1, &c2) != 4) return 0;
+        ll s = 0;
+        touched.clear();
+        if (r1 <= r2 && c1 <= c2) {
+            int base = sum(c1 - 1);            // ค่าที่ต่ำกว่าแถบ ไม่มีวันถูกใส่ จึงคงที่
+            (void)base;
+            for (int i = r1; i <= r2; i++) {
+                int v = P[i];
+                if (v < c1 || v > c2) continue;
+                s += sum(v - 1) - sum(c1 - 1);  // ของที่ใส่แล้วและค่าน้อยกว่า v (อยู่ในแถบแน่นอน)
+                add(v, 1);
+                touched.push_back(v);
+            }
+            for (int v : touched) add(v, -1);
+        }
+        printf("%lld\\n", s);
+    }
+    return 0;
+}`;
+const bruteCode = `// NOI 2020 "Tears" (2043) - ตัวตรวจ อ่านจากนิยามโจทย์ตรง ๆ  O(N^2) ต่อคำถาม
+// ใช้ได้กับ subtask N, M <= 10 และเป็นตัวเทียบในการ stress test
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main() {
+    int n, m;
+    if (scanf("%d %d", &n, &m) != 2) return 0;
+    vector<int> P(n + 1);
+    for (int i = 1; i <= n; i++) if (scanf("%d", &P[i]) != 1) return 0;
+    for (int k = 0; k < m; k++) {
+        int r1, r2, c1, c2;
+        if (scanf("%d %d %d %d", &r1, &r2, &c1, &c2) != 4) return 0;
+        ll s = 0;
+        for (int i = 1; i <= n; i++) {
+            if (i < r1 || i > r2 || P[i] < c1 || P[i] > c2) continue;
+            for (int j = i + 1; j <= n; j++) {
+                if (j < r1 || j > r2 || P[j] < c1 || P[j] > c2) continue;
+                if (P[i] < P[j]) s++;      // คู่ที่เพิ่มขึ้น ตามที่โจทย์นิยาม
+            }
+        }
+        printf("%lld\\n", s);
+    }
+    return 0;
+}`;
+---
+<CpProblemLayout href={href}>
+  <h2>โจทย์ &middot; เหตุการณ์บนระนาบเวลา</h2>
+  <p>
+    L ได้รับคำถามจากคนฉลาด ๆ ว่าถ้าปริภูมิเวลาเขียนลงระนาบสองมิติได้ เหตุการณ์หนึ่งก็เป็นจุดหนึ่งจุด
+    และยุคสมัยหนึ่งก็เป็นสี่เหลี่ยมผืนผ้าหนึ่งรูป
+  </p>
+  <p>
+    เหตุการณ์มี {SAMPLE_N === 0 ? 0 : 'N'} เหตุการณ์ เหตุการณ์ที่ i อยู่ที่จุด (i, P<sub>i</sub>) โดย P เป็นการเรียงสับเปลี่ยนของ 1 ถึง N
+    ดังนั้นไม่มีสองเหตุการณ์ไหนอยู่แถวเดียวกันหรือหลักเดียวกัน คู่เหตุการณ์ i กับ j นับเป็น
+    <strong>โศกนาฏกรรม</strong> เมื่อ i มาก่อน j และค่าของ i น้อยกว่าค่าของ j คือจุดหนึ่งอยู่ล่างซ้ายของอีกจุดพอดี
+    แต่ละยุคสมัยถามว่าในกรอบของยุคนั้นมีโศกนาฏกรรมกี่คู่
+  </p>
+
+  <div class="callout callout-note spec">
+    <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
+    <ul>
+      <li><strong>อินพุต:</strong> บรรทัดแรก <code>N M</code> บรรทัดที่สองคือ <code>P</code> ทั้ง N ตัว แล้วอีก M บรรทัดคือกรอบของแต่ละยุค เขียนเรียงเป็น <code>r1 r2 c1 c2</code></li>
+      <li><strong>ขอบเขต:</strong> <code>N ≤ {N_MAX.toLocaleString('en-US')}</code>, <code>M ≤ {M_MAX.toLocaleString('en-US')}</code>, เวลา {TIME_LIMIT} วินาที หน่วยความจำ {MEM_LIMIT} เมกะไบต์</li>
+      <li><strong>เอาต์พุต:</strong> M บรรทัด บรรทัดละหนึ่งจำนวน คือจำนวนคู่ของยุคนั้น</li>
+    </ul>
+  </div>
+
+  <table class="io">
+    <caption>EXAMPLE</caption>
+    <thead><tr><th>Input</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{SAMPLE_N} {SAMPLE_Q.length}<br />{SAMPLE_P.join(' ')}<br />{SAMPLE_Q.map((q) => <>{[q.r1, q.r2, q.c1, q.c2].join(' ')}<br /></>)}</td>
+        <td>{SAMPLE_OUT.map((x) => <>{x}<br /></>)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <p>
+      บรรทัดแรกคือจำนวนเหตุการณ์กับจำนวนยุค บรรทัดที่สองคือค่าของแต่ละเหตุการณ์เรียงตามเวลา
+      เหตุการณ์ที่ {SAMPLE_N > 4 ? 5 : 1} มีค่า {valAt(SAMPLE_P, 5)} จึงเป็นจุด (5, {valAt(SAMPLE_P, 5)})
+      อีก {SAMPLE_Q.length} บรรทัดคือกรอบของแต่ละยุค เรียงเป็นช่วงดัชนีก่อน แล้วค่อยช่วงค่า
+      เอาต์พุตมีบรรทัดละหนึ่งจำนวน คือ<strong>จำนวนคู่</strong>ของเหตุการณ์ในกรอบนั้น ไม่ใช่จำนวนเหตุการณ์ในกรอบ
+    </p>
+    <p>
+      ยุคที่ 1 กรอบคือ <code>{dq.r1} {dq.r2} {dq.c1} {dq.c2}</code> หมายถึงดัชนี {dq.r1} ถึง {dq.r2} และค่า {dq.c1} ถึง {dq.c2}
+      ในกรอบนี้มีเหตุการณ์อยู่ {q1Inside.length} เหตุการณ์ คือ {q1Inside.map((p) => `(${p.i}, ${p.v})`).join(', ')}
+      แต่คำตอบคือ {SAMPLE_OUT[0]} เพราะคู่เดียวที่ขึ้นทั้งสองแกนคือ {fmtPairs(q1Pairs)} นั่นคือ P<sub>6</sub> = {valAt(SAMPLE_P, 6)} น้อยกว่า P<sub>7</sub> = {valAt(SAMPLE_P, 7)}
+      คู่อื่นในกรอบค่าลดลงหมด ยุคที่ 2 ตอบ {SAMPLE_OUT[1]} จากคู่ {fmtPairs(q2Pairs)} ส่วนสามยุคท้ายตอบ 0
+      เพราะกรอบแคบจนเหลือเหตุการณ์ไม่ถึงสองอัน
+    </p>
+    <p>
+      ตัวอย่างชุดนี้ชี้ขาดการอ่านโจทย์ได้ด้วย ถ้าเผลออ่านว่านับคู่ที่ค่า<em>ลดลง</em> ยุคที่ 1 จะได้ {q1Inversions}
+      และถ้าเผลออ่านลำดับตัวเลขในกรอบเป็นดัชนีสลับกับค่า ยุคที่ 1 จะได้ {q1SwappedFields} ทั้งคู่ไม่ใช่ {SAMPLE_OUT[0]}
+    </p>
+  </div>
+
+  <ZoomableDiagram caption={`ตัวอย่างทั้ง ${SAMPLE_N} เหตุการณ์ กรอบทองคือยุคที่ 1 จุดทึบคือเหตุการณ์ที่อยู่ในกรอบ ${q1Inside.length} จุด เส้นเขียวคือคู่เดียวที่ขึ้นทั้งสองแกน`}>
+    <svg viewBox={`0 0 ${D_VB_W} ${D_VB_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:770px" role="img" aria-label={`ระนาบ ${SAMPLE_N} คูณ ${SAMPLE_N} มีเหตุการณ์เก้าจุด กรอบของยุคที่หนึ่งครอบสี่จุด และมีคู่ที่นับได้หนึ่งคู่`}>
+      <rect x={dRectX} y={dRectY} width={dRectW} height={dRectH} fill="rgba(212,175,55,0.10)" stroke="#d4af37" stroke-width="2" rx="4" />
+      {SAMPLE_P.map((_, k) => (
+        <line x1={D_PAD + k * D_CELL} y1="34" x2={D_PAD + k * D_CELL} y2={D_GRID_B} stroke="#26314a" stroke-width="1" />
+      ))}
+      <line x1={D_GRID_R} y1="34" x2={D_GRID_R} y2={D_GRID_B} stroke="#26314a" stroke-width="1" />
+      {SAMPLE_P.map((_, k) => (
+        <line x1={D_PAD} y1={34 + k * D_CELL} x2={D_GRID_R} y2={34 + k * D_CELL} stroke="#26314a" stroke-width="1" />
+      ))}
+      <line x1={D_PAD} y1={D_GRID_B} x2={D_GRID_R} y2={D_GRID_B} stroke="#26314a" stroke-width="1" />
+      {SAMPLE_P.map((_, k) => (
+        <text x={D_PAD + k * D_CELL + D_CELL / 2} y={D_GRID_B + 20} text-anchor="middle" fill="#7b8397" font-size="14">{k + 1}</text>
+      ))}
+      {SAMPLE_P.map((_, k) => (
+        <text x={D_PAD - 12} y={34 + k * D_CELL + D_CELL / 2 + 5} text-anchor="end" fill="#7b8397" font-size="14">{SAMPLE_N - k}</text>
+      ))}
+      {q1Pairs.map(([a, b]) => (
+        <line x1={dX(a)} y1={dY(valAt(SAMPLE_P, a))} x2={dX(b)} y2={dY(valAt(SAMPLE_P, b))} stroke="#6ee7a8" stroke-width="3" />
+      ))}
+      {SAMPLE_P.map((v, k) => (
+        <circle cx={dX(k + 1)} cy={dY(v)} r="9"
+                fill={dInsideSet.has(k + 1) ? '#d4af37' : '#1b2436'}
+                stroke={dInsideSet.has(k + 1) ? '#d4af37' : '#56627d'} stroke-width="2" />
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ใบ้</p>
+    <p>
+      ถ้ากรอบเดียวก็ไล่ทุกคู่ในกรอบจบ แต่มี {M_MAX.toLocaleString('en-US')} กรอบ และแต่ละกรอบอาจกิน
+      {' '}{N_MAX.toLocaleString('en-US')} เหตุการณ์ คูณกันแล้วเกินงบไปมหาศาล
+    </p>
+    <p>
+      ลองสังเกตอย่างหนึ่งก่อน คู่ที่เรานับมีเงื่อนไขติดตัวอยู่แล้วสองข้อคือ i มาก่อน j และค่าของ i น้อยกว่าค่าของ j
+      แล้วกรอบมีขอบสี่ด้าน ขอบทั้งสี่ด้านนั้นบังคับปลายทั้งสองข้างจริง ๆ หรือเปล่า
+    </p>
+  </div>
+
+  <h2>ลองเอง &middot; หาโศกนาฏกรรมให้ครบทุกคู่</h2>
+  <div class="cpgame tegame" data-tegame data-puzzles={puzzlesJson}>
+    <div class="cpg-tabs" role="tablist" aria-label="เลือกชุด">
+      {puzzles.map((p, k) => (
+        <button type="button" class="cpg-tab" role="tab" data-cpg-tab={String(k)} aria-selected={k === 0 ? 'true' : 'false'}>{p.label}</button>
+      ))}
+    </div>
+    <p class="cpg-tease" data-cpg-tease>{puzzles[0].tease}</p>
+    <div class="cpg-scroll">
+      {boards.map((b, k) => (
+        <div class="te-slot" data-te-board={String(k)} hidden={k !== 0}>
+          <svg class="te-svg" viewBox={`0 0 ${b.w} ${b.h}`} width={b.w} height={b.h} xmlns="http://www.w3.org/2000/svg" role="group" aria-label={`กระดานชุดที่ ${k + 1} กดจุดสองจุดเพื่อเลือกหนึ่งคู่`}>
+            <rect x={b.rx} y={b.ry} width={b.rw} height={b.rh} fill="rgba(212,175,55,0.10)" stroke="#d4af37" stroke-width="2" rx="4" />
+            {Array.from({ length: b.n + 1 }).map((_, t) => (
+              <line x1={G_PAD + t * G_CELL} y1="18" x2={G_PAD + t * G_CELL} y2={18 + b.n * G_CELL} stroke="#26314a" stroke-width="1" />
+            ))}
+            {Array.from({ length: b.n + 1 }).map((_, t) => (
+              <line x1={G_PAD} y1={18 + t * G_CELL} x2={G_PAD + b.n * G_CELL} y2={18 + t * G_CELL} stroke="#26314a" stroke-width="1" />
+            ))}
+            {b.dots.map((d) => (
+              <text x={G_PAD + (d.i - 1) * G_CELL + G_CELL / 2} y={18 + b.n * G_CELL + 18} text-anchor="middle" fill="#7b8397" font-size="12">{d.i}</text>
+            ))}
+            <g class="te-lines" data-te-lines={String(k)}></g>
+            {b.dots.map((d) => (
+              <circle class="te-dot" data-te-dot={`${k}:${d.i}`} cx={d.x} cy={d.y} r="11"
+                      fill={d.inside ? '#1b2436' : '#141c2c'} stroke={d.inside ? '#d4af37' : '#3a4459'} stroke-width="2" />
+            ))}
+          </svg>
+        </div>
+      ))}
+    </div>
+    <p class="cpg-status" data-cpg-status>กดจุดสองจุดเพื่อเลือกหนึ่งคู่</p>
+    <p class="cpg-score" data-cpg-score></p>
+    <div class="cpg-controls">
+      <button type="button" class="cpg-btn" data-te-reset>เริ่มชุดนี้ใหม่</button>
+      <button type="button" class="cpg-btn main" data-te-give>ชุดนี้ไม่มีคู่ไหนเลย</button>
+    </div>
+    <p class="cpg-hint" data-cpg-hint></p>
+    <p class="cpg-cap">กรอบทองคือยุคที่ถาม วงที่ขอบทองคือเหตุการณ์ที่อยู่ในกรอบ กดสองจุดเพื่อเสนอหนึ่งคู่</p>
+  </div>
+  <p class="ns-cue">ลองเล่นดูก่อนนะครับ พอเห็นว่าคู่แบบไหนถึงนับได้แล้ว ค่อยไปดูเฉลย</p>
+
+  <h2>เฉลย ตอนที่ 1 &middot; ขอบสี่ด้านบังคับปลายละข้าง</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมไม่ได้เริ่มจากการนึกท่าออก ผมเริ่มจากการนับว่าเรามีงบเท่าไร คำถาม {M_MAX.toLocaleString('en-US')} ข้อ
+        ถ้าข้อหนึ่งยอมให้ใช้เวลาเท่ากับรากที่สองของ {N_MAX.toLocaleString('en-US')} คือราว {Math.round(Math.sqrt(N_MAX))} ก้าว
+        รวมแล้วราว {Math.round((M_MAX * Math.sqrt(N_MAX)) / 1e6)} ล้านก้าว ซึ่งพอดีกับ {TIME_LIMIT} วินาที
+        แปลว่าเป้าหมายคือหาวิธีตอบข้อละรากที่สองของ N ให้ได้ ไม่ใช่ข้อละ log
+      </p>
+      <p>
+        พอรู้เป้าแล้วก็ย้อนกลับมาดูว่าอะไรขวางอยู่ สิ่งที่ขวางคือกรอบมีขอบสี่ด้าน และคู่หนึ่งคู่มีปลายสองข้าง
+        ฟังดูเหมือนต้องดูแลเงื่อนไขแปดอย่าง ผมเลยลองเขียนเงื่อนไขทั้งหมดออกมาเรียงกันแล้วตัดที่ซ้ำทิ้ง
+        ซึ่งเป็นขั้นที่เปลี่ยนทุกอย่าง
+      </p>
+    </div>
+    <p>
+      คู่ที่เรานับมี i มาก่อน j อยู่แล้ว ดังนั้นถ้า i อยู่ในช่วง [r1, r2] และ j ก็อยู่ในช่วงเดียวกัน
+      เงื่อนไข j ≥ r1 เป็นจริงฟรี ๆ เพราะ j มากกว่า i อยู่แล้ว และ i ≤ r2 ก็เป็นจริงฟรีเช่นกัน เหลือของจริงแค่สองข้อ
+      เรื่องค่าก็เหมือนกันเป๊ะ เพราะคู่ที่นับมีค่าของ i น้อยกว่าค่าของ j อยู่แล้ว
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">สี่เงื่อนไข ปลายละข้อ</p>
+      <p>
+        ดัชนีอยู่ในกรอบทั้งคู่ ยุบเหลือ <code>i ≥ r1</code> กับ <code>j ≤ r2</code><br />
+        ค่าอยู่ในกรอบทั้งคู่ ยุบเหลือ <code>P<sub>i</sub> ≥ c1</code> กับ <code>P<sub>j</sub> ≤ c2</code>
+      </p>
+    </div>
+    <p>
+      ขอบซ้ายกับขอบล่างของกรอบบังคับเฉพาะปลายล่างของคู่ ส่วนขอบขวากับขอบบนบังคับเฉพาะปลายบน
+      ไม่มีขอบไหนบังคับปลายทั้งสองพร้อมกัน ซึ่งทำให้ทุกอย่างหลังจากนี้แยกคิดทีละปลายได้
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; หั่นเป็นบล็อก แล้วแตกเป็นหกหมวด</h2>
+  <Spoiler>
+    <p>
+      หั่นแกนดัชนีเป็นบล็อกละ B ตำแหน่ง ช่วง [r1, r2] ของคำถามหนึ่งจะแตกเป็นสามท่อนคือ
+      เศษซ้าย บล็อกเต็มตรงกลาง และเศษขวา เศษสองฝั่งยาวไม่เกิน B ตำแหน่ง ส่วนตรงกลางเป็นบล็อกเต็มทั้งก้อน
+      คู่หนึ่งคู่มีปลายสองข้าง จึงตกอยู่ในหกหมวด
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>หกหมวดของคู่ กับวิธีจัดการแต่ละหมวด</caption>
+        <thead><tr><th>ปลายล่างอยู่</th><th>ปลายบนอยู่</th><th>จัดการยังไง</th></tr></thead>
+        <tbody>
+          <tr><td>เศษซ้าย</td><td>เศษซ้าย</td><td>รวบสามหมวดนี้เป็นรอบเดียว ดึงชิ้นเศษออกมาแบบเรียงตามค่าอยู่แล้ว แล้วนับด้วย BIT</td></tr>
+          <tr><td>เศษขวา</td><td>เศษขวา</td><td>รวมอยู่ในรอบเดียวกันข้างบน</td></tr>
+          <tr><td>เศษซ้าย</td><td>เศษขวา</td><td>รวมอยู่ในรอบเดียวกันข้างบน</td></tr>
+          <tr><td>เศษซ้าย</td><td>บล็อกเต็ม</td><td>ต่อชิ้นเศษหนึ่งชิ้น ถามตารางพรีฟิกซ์ครั้งเดียวจบ</td></tr>
+          <tr><td>บล็อกเต็ม</td><td>เศษขวา</td><td>เหมือนบรรทัดบน แค่สลับข้าง</td></tr>
+          <tr><td>บล็อกเต็ม</td><td>บล็อกเต็ม</td><td>แยกเป็นบล็อกเดียวกันกับคนละบล็อก อันหลังคือตอนที่ 3</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        เศษสองฝั่งยาวรวมไม่เกิน {2 * BLOCK_AT_MAX} ตำแหน่งที่ขอบเขตเต็ม ส่วนบล็อกเต็มมีไม่เกิน {NB_AT_MAX.toLocaleString('en-US')} บล็อก
+        ทั้งสองจำนวนอยู่ในระดับรากที่สองของ N ซึ่งตรงกับงบที่ตั้งไว้
+      </figcaption>
+    </figure>
+    <p>
+      หมวดที่ปลายข้างหนึ่งเป็นชิ้นเศษและอีกข้างอยู่ในบล็อกเต็ม ตอบได้ทันทีถ้ามีตาราง
+      <code>F[ค่า][บล็อก]</code> ที่บอกว่าบล็อก 0 ถึงบล็อกนั้นมีกี่ตำแหน่งที่ค่าไม่เกินค่าที่ระบุ
+      เพราะช่วงบล็อกเต็มมีขอบตรงกับขอบบล็อกพอดี การนับจึงเป็นการลบกันสองครั้ง
+    </p>
+    <p>
+      หมวดที่ปลายทั้งสองอยู่ในบล็อกเต็ม<em>บล็อกเดียวกัน</em> ก็เตรียมล่วงหน้าได้ เพราะแต่ละบล็อกมีสมาชิกไม่เกิน B ตัว
+      จึงเก็บตารางสองมิติขนาด B คูณ B ต่อบล็อกไว้เลยว่า ถ้าอันดับของปลายล่างไม่เกิน u และอันดับของปลายบนไม่เกิน v
+      จะมีกี่คู่ รวมทั้งคลังใช้พื้นที่ N คูณ B ซึ่งยังอยู่ในงบ
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; หมวดที่ยากที่สุด กวาดค่าแล้วเก็บคู่ข้ามบล็อก</h2>
+  <Spoiler>
+    <p>
+      เหลือหมวดเดียวคือปลายทั้งสองอยู่ในบล็อกเต็มคนละบล็อก หมวดนี้เป็นฟังก์ชันของสี่ตัวแปร
+      คือบล็อกแรก บล็อกสุดท้าย ขอบค่าล่าง และขอบค่าบน ตารางสี่มิติเป็นไปไม่ได้ ต้องเปลี่ยนมุม
+    </p>
+    <p>
+      มุมที่ใช้ได้คือกวาดค่าจากน้อยไปมาก ใส่เหตุการณ์ทีละอันตามลำดับค่า ของที่ใส่ไปแล้วมีค่าน้อยกว่าของที่ใส่ทีหลังเสมอ
+      เงื่อนไขค่าของ i น้อยกว่าค่าของ j จึงเป็นจริงฟรี ๆ เหลือแค่เรื่องตำแหน่ง ตอนใส่เหตุการณ์ที่อยู่บล็อก bx
+      มันจับคู่กับของที่ใส่แล้วในบล็อกที่เล็กกว่า bx ทุกตัว เก็บสองอย่างไว้
+    </p>
+    <ul>
+      <li><code>colTotal[bx]</code> คือจำนวนคู่ที่ปลายบนอยู่บล็อก bx และปลายล่างอยู่บล็อกใดก็ได้ที่เล็กกว่า</li>
+      <li><code>E[b1][bx]</code> คือจำนวนคู่ที่ปลายบนอยู่บล็อก bx และปลายล่างอยู่บล็อกที่เล็กกว่า b1</li>
+    </ul>
+    <p>
+      คำถามที่ช่วงบล็อกเต็มเป็น b1 ถึง b2 จึงตอบด้วยการบวก <code>colTotal[bx] − E[b1][bx]</code> ไล่ตั้งแต่ bx = b1 ถึง b2
+      ซึ่งเป็นการอ่านแถวเดียวของ E ติดกันรวดเดียว
+    </p>
+    <p>
+      เหลือเรื่องเดียวคือขอบค่าล่าง เพราะการกวาดให้ผลของ "ค่าไม่เกิน c2" ไม่ใช่ "ค่าอยู่ระหว่าง c1 ถึง c2"
+      ตรงนี้ใช้เอกลักษณ์ที่ตรงไปตรงมา ถ้า A คือของที่ค่าไม่เกิน c1 − 1 และ S คือของที่ค่าอยู่ใน [c1, c2]
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">สูตรที่ยุบขอบค่าสองด้านให้เหลือพรีฟิกซ์</p>
+      <p>
+        คู่ที่อยู่ใน S ทั้งคู่ = (คู่ที่ค่าไม่เกิน c2 ทั้งคู่) − (คู่ที่ค่าไม่เกิน c1 − 1 ทั้งคู่) − Cross(A, S)
+      </p>
+    </div>
+    <p>
+      สองพจน์แรกคืออ่านค่าจากการกวาดที่เวลา c2 และที่เวลา c1 − 1 ส่วน Cross(A, S) คิดง่ายกว่าที่คิด
+      เพราะค่าทุกตัวใน A น้อยกว่าค่าทุกตัวใน S ดังนั้นในคู่ข้าม ปลายล่างต้องเป็นฝั่ง A เสมอ ไม่มีทางสลับ
+      Cross จึงเป็นแค่ผลรวมของจำนวนสมาชิก A ในบล็อกก่อนหน้า คูณจำนวนสมาชิก S ในบล็อกปัจจุบัน
+      ไล่ทีละบล็อก ซึ่งอ่านจากตาราง F ได้ทั้งหมด
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 &middot; จาก {PERF_STEPS[0].sec} วินาที เหลือ {WORST_SEC} โดยไม่แตะอัลกอริทึม</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
+      <p>
+        ตัวแรกที่ให้คำตอบถูกทุกเคสใช้เวลา {PERF_STEPS[0].sec} วินาที จากลิมิต {TIME_LIMIT} วินาที
+        คือช้ากว่าที่ต้องการเกือบสี่เท่า ตอนนั้นผมคิดว่าคงต้องรื้ออัลกอริทึม แต่สุดท้าย
+        <strong>ไม่ได้แก้ตรรกะสักบรรทัด</strong> ที่แก้คือเรื่องการวางข้อมูลในหน่วยความจำล้วน ๆ
+      </p>
+      <p>
+        จุดที่ใหญ่ที่สุดคือตาราง F ผมเก็บเป็น <code>F[บล็อก][ค่า]</code> ตามที่นึกออกก่อน
+        แต่ลูปร้อนทุกอันในโปรแกรมวิ่งไล่ตามบล็อกโดยตรึงค่าไว้ การอ่านสองครั้งติดกันจึงห่างกัน {F_ROW_KB.toLocaleString('en-US')} กิโลไบต์
+        และพลาดแคชทุกครั้ง พอสลับเป็น <code>F[ค่า][บล็อก]</code> ลูปเดียวกันก็อ่านติดกันรวดเดียว เวลาหายไป {CACHE_GAIN} วินาที
+        จากการสลับแกนอย่างเดียว
+      </p>
+    </div>
+    <figure class="tbl">
+      <table class="rec te-perf">
+        <caption>ไล่เวลาบนอินพุตชุดเดียวกัน ที่ N = {N_MAX.toLocaleString('en-US')}, M = {M_MAX.toLocaleString('en-US')}</caption>
+        <thead><tr><th>แก้อะไร</th><th class="num">วินาที</th></tr></thead>
+        <tbody>
+          {PERF_STEPS.map((s) => (
+            <tr><td><span>{s.what}</span></td><td class="num">{s.sec}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>เร็วขึ้น {SPEEDUP} เท่า โดยที่จำนวนคำสั่งที่รันแทบไม่เปลี่ยน</figcaption>
+    </figure>
+    <p>
+      บทเรียนที่พ่วงมาและผมไม่ได้คาดไว้เลยคือ <strong>ขนาดบล็อกที่ดีที่สุดย้ายที่หลังแก้แคช</strong>
+      ก่อนแก้ บล็อกใหญ่เร็วกว่า คือ B = 240 ชนะ B = 120 พอแก้เสร็จกลับกลายเป็นตรงข้าม
+      B = {BLOCK_AT_MAX} เร็วที่สุด และ B = 80 ช้ากว่าราวหกสิบเปอร์เซ็นต์ เพราะตารางสองมิติของแต่ละบล็อก
+      ต้องเล็กพอที่จะค้างอยู่ในแคชได้ ค่าคงที่ที่จูนไว้ตอนโค้ดยังวางข้อมูลผิดแกน จึงใช้ต่อไม่ได้เลย
+    </p>
+    <p>
+      ที่เหลือเป็นของเล็ก การอ่านอินพุตราวเก้าแสนจำนวนด้วย <code>scanf</code> กินไปราวหนึ่งในเจ็ดวินาที
+      เปลี่ยนเป็นอ่านทั้งไฟล์ทีเดียวแล้วแกะเองก็ได้คืนมา
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด</h2>
+  <Spoiler>
+    <details class="expander">
+      <summary>ดูโค้ดเต็มขอบเขต</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="tears.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูโค้ดของ subtask ขนาดเล็ก</summary>
+      <div class="expander-body">
+        <CodeBlock code={subCode} lang="cpp" title="tears_small.cpp" />
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ดูตัวตรวจที่ใช้ stress test</summary>
+      <div class="expander-body">
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_tears.cpp" />
+      </div>
+    </details>
+    <p class="io-note">
+      ตรวจแล้วด้วยตัวอย่างของโจทย์ (รวมถึงรายการคู่ที่โจทย์ไล่ออกมาให้ในยุคที่ 1 และ 2)
+      แล้วสุ่มอีก {STRESS_CASES.toLocaleString('en-US')} เคส ที่ N เป็น {STRESS_SIZES.join(', ')} และลำดับสี่รูปแบบ
+      (สุ่ม, กลับหลัง, เรียงแล้ว, ครึ่งเรียง) เทียบกับโค้ด subtask ทุกเคส และเทียบกับตัวตรวจเมื่อ N ไม่เกิน 120 ผิดศูนย์เคส
+    </p>
+    <figure class="tbl">
+      <table class="rec te-perf">
+        <caption>เวลาและหน่วยความจำที่วัดจริง ที่ N = {N_MAX.toLocaleString('en-US')}, M = {M_MAX.toLocaleString('en-US')}</caption>
+        <thead><tr><th>รูปแบบคำถาม</th><th class="num">วินาที</th><th class="num">เมกะไบต์</th></tr></thead>
+        <tbody>
+          {TIMINGS.map((t) => (
+            <tr><td><span>{t.shape}</span></td><td class="num">{t.sec}</td><td class="num">{t.mb}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        วัดบน WSL Ubuntu, g++ 11.4.0, คอมไพล์ด้วย -O2 แย่สุด {WORST_SEC} วินาที จากลิมิต {TIME_LIMIT} วินาที
+        คือใช้งบเวลาไป {BUDGET_PCT} เปอร์เซ็นต์ ซึ่งถือว่าเฉียด ส่วนหน่วยความจำแย่สุด {WORST_MB} เมกะไบต์ จากลิมิต {MEM_LIMIT} ยังเหลือเยอะ
+      </figcaption>
+    </figure>
+    <p class="io-note">
+      คำว่าตรวจแล้วในหน้านี้หมายถึงตรวจกับตัวตรวจของเราเองและตัวอย่างในโจทย์ ยังไม่ได้ส่งเข้าเครื่องตรวจของ programming.in.th
+      และเวลาที่วัดเป็นของเครื่องที่ใช้เขียน ไม่ใช่ของเครื่องตรวจ ตัวเลข {BUDGET_PCT} เปอร์เซ็นต์จึงเป็นตัวเลขที่ควรระวัง
+    </p>
+  </Spoiler>
+
+  <h2>ท่าที่ติดมือกลับไป</h2>
+  <p>
+    ก่อนออกแบบโครงสร้างข้อมูล ให้เขียนเงื่อนไขทั้งหมดของสิ่งที่กำลังนับออกมาเรียงกันก่อน แล้วตัดข้อที่เป็นจริงอยู่แล้วทิ้ง
+    ข้อนี้ดูเหมือนมีแปดเงื่อนไข แต่พอตัดแล้วเหลือสี่ และสี่ข้อนั้นแยกกันคนละปลายพอดี ซึ่งเป็นเหตุผลเดียวที่ทำให้ทุกอย่างหลังจากนั้นเป็นไปได้
+  </p>
+  <p>
+    และเมื่อโปรแกรมช้ากว่าที่คาดสองถึงสี่เท่า ให้สงสัยการวางข้อมูลก่อนสงสัยอัลกอริทึม
+    ลูปที่วิ่งไปตามแกนหนึ่งแต่ตารางเก็บเรียงตามอีกแกนหนึ่ง คือความต่างระดับหลายเท่าตัว
+    โดยที่จำนวนคำสั่งเท่าเดิมทุกประการ
+  </p>
+
+  <h2>สรุปบรรทัดเดียว</h2>
+  <p>
+    ขอบสี่ด้านของกรอบบังคับปลายคู่ละข้างพอดี หั่นแกนดัชนีเป็นบล็อกแล้วแตกคู่เป็นหกหมวด
+    เหลือหมวดข้ามบล็อกที่แก้ด้วยการกวาดค่าจากน้อยไปมาก แล้วยุบขอบค่าสองด้านด้วยเอกลักษณ์ Cross
+  </p>
+
+  <h2>แหล่งที่มา</h2>
+  <ol class="references">
+    <li>โจทย์ต้นทาง programming.in.th ข้อ 2043 (โศกนาฏกรรม) ที่มาคือ The 37th CCF National Olympiad in Informatics (NOI 2020)</li>
+    <li>หน้าโจทย์เดียวกันบนหลัวกู่ รหัส P6774 <a href="https://www.luogu.com.cn/problem/P6774" rel="noopener noreferrer" target="_blank">luogu.com.cn/problem/P6774</a></li>
+    <li>บทวิเคราะห์ภาษาจีนที่ใช้เทียบแนวทางการหั่นบล็อก <a href="https://www.luogu.com.cn/article/ho83bfoe" rel="noopener noreferrer" target="_blank">luogu.com.cn/article/ho83bfoe</a> และ <a href="https://www.luogu.com.cn/article/4939268d" rel="noopener noreferrer" target="_blank">luogu.com.cn/article/4939268d</a> (คำอธิบายในหน้านี้เขียนใหม่ด้วยคำของผมเอง และการอ่านโจทย์พิสูจน์จากตัวอย่างของโจทย์เอง ไม่ได้เชื่อบทวิเคราะห์ ซึ่งบทสรุปที่ดึงมาครั้งแรกอ่านเงื่อนไขคู่กลับด้าน)</li>
+  </ol>
+</CpProblemLayout>
+
+<style>
+  .te-slot { display: block; }
+  .te-svg { display: block; margin: 0 auto; max-width: none; }
+  .te-dot { cursor: pointer; transition: none; }
+  .te-perf td span { display: block; width: 0; min-width: 100%; }
+  @media (max-width: 640px) {
+    .te-svg { min-width: 320px; }
+  }
+</style>
+
+<script>
+  import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import type { CpGameUi } from '../../lib/cpGame';
+
+  type TePuzzle = { id: string; label: string; tease: string; answer: number; hint: string; pairs: [number, number][] };
+
+  function initTearsGame(): void {
+    const maybeUi = cpGameUi('[data-tegame]');
+    if (!maybeUi) return;
+    /* ผูกเป็น const ใหม่หลังการ์ด เพราะ TypeScript ไม่ narrow ข้ามฟังก์ชันที่ถูก hoist */
+    const ui: CpGameUi = maybeUi;
+    const puzzles = readPuzzles(ui.root) as TePuzzle[];
+    if (puzzles.length === 0) return;
+
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-te-board]'));
+    const hintEl = ui.root.querySelector<HTMLElement>('[data-cpg-hint]');
+    const setHint = (t: string): void => { if (hintEl) hintEl.textContent = t; };
+    let pi = 0;
+    let picked: number[] = [];
+    let found: string[] = [];
+    /* ยังไม่บอกจำนวนคู่ทั้งหมดจนกว่าผู้เล่นจะลองเสนอคู่แรก ไม่งั้นชุดที่ตอบศูนย์จะถูกเฉลยตั้งแต่เห็นการ์ด */
+    let tried = false;
+
+    const pz = (): TePuzzle => puzzles[pi];
+    const keyOf = (a: number, b: number): string => `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+    function dotsOf(k: number): HTMLElement[] {
+      return Array.from(ui.root.querySelectorAll<HTMLElement>(`[data-te-dot^="${k}:"]`));
+    }
+
+    function paint(): void {
+      boards.forEach((b, k) => { b.hidden = k !== pi; });
+      for (const d of dotsOf(pi)) {
+        const raw = d.getAttribute('data-te-dot');
+        if (!raw) continue;
+        const idx = Number(raw.split(':')[1]);
+        d.setAttribute('stroke-width', picked.includes(idx) ? '4' : '2');
+        d.setAttribute('stroke', picked.includes(idx) ? '#6ee7a8' : d.getAttribute('data-base-stroke') || d.getAttribute('stroke') || '#3a4459');
+      }
+      const total = pz().answer;
+      ui.setScore(tried ? `หาได้แล้ว ${found.length} จาก ${total} คู่` : 'ยังไม่ได้เสนอคู่ไหน');
+    }
+
+    function reset(): void {
+      picked = [];
+      found = [];
+      tried = false;
+      const lines = ui.root.querySelector<HTMLElement>(`[data-te-lines="${pi}"]`);
+      if (lines) lines.textContent = '';
+      ui.setStatus('กดจุดสองจุดเพื่อเลือกหนึ่งคู่', 'plain');
+      setHint('');
+      paint();
+    }
+
+    function drawPair(a: number, b: number): void {
+      const lines = ui.root.querySelector<HTMLElement>(`[data-te-lines="${pi}"]`);
+      const da = ui.root.querySelector<HTMLElement>(`[data-te-dot="${pi}:${a}"]`);
+      const db = ui.root.querySelector<HTMLElement>(`[data-te-dot="${pi}:${b}"]`);
+      if (!lines || !da || !db) return;
+      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      ln.setAttribute('x1', da.getAttribute('cx') || '0');
+      ln.setAttribute('y1', da.getAttribute('cy') || '0');
+      ln.setAttribute('x2', db.getAttribute('cx') || '0');
+      ln.setAttribute('y2', db.getAttribute('cy') || '0');
+      ln.setAttribute('stroke', '#6ee7a8');
+      ln.setAttribute('stroke-width', '3');
+      lines.appendChild(ln);
+    }
+
+    function submit(a: number, b: number): void {
+      tried = true;
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      const k = keyOf(lo, hi);
+      const isReal = pz().pairs.some((p) => keyOf(p[0], p[1]) === k);
+      if (!isReal) {
+        ui.setStatus(`คู่ (${lo}, ${hi}) ยังไม่เข้าเงื่อนไข ต้องอยู่ในกรอบทั้งสองจุด และค่าต้องเพิ่มขึ้นตามดัชนี`, 'bad');
+        return;
+      }
+      if (found.includes(k)) {
+        ui.setStatus(`คู่ (${lo}, ${hi}) นับไปแล้ว`, 'plain');
+        return;
+      }
+      found.push(k);
+      drawPair(lo, hi);
+      if (found.length === pz().answer) {
+        ui.setStatus(`ครบแล้ว ${pz().answer} คู่`, 'good');
+        setHint(pz().hint);
+      } else {
+        ui.setStatus(`ใช่ครับ คู่ (${lo}, ${hi}) นับได้ เหลืออีก ${pz().answer - found.length} คู่`, 'good');
+      }
+      paint();
+    }
+
+    for (const d of ui.root.querySelectorAll<HTMLElement>('[data-te-dot]')) {
+      d.setAttribute('data-base-stroke', d.getAttribute('stroke') || '#3a4459');
+      d.addEventListener('click', () => {
+        const raw = d.getAttribute('data-te-dot');
+        if (!raw) return;
+        const parts = raw.split(':');
+        if (Number(parts[0]) !== pi) return;
+        const idx = Number(parts[1]);
+        if (picked.includes(idx)) { picked = picked.filter((x) => x !== idx); paint(); return; }
+        picked.push(idx);
+        if (picked.length === 2) {
+          submit(picked[0], picked[1]);
+          picked = [];
+        }
+        paint();
+      });
+    }
+
+    ui.onClick('data-te-reset', () => reset());
+    ui.onClick('data-te-give', () => {
+      tried = true;
+      if (pz().answer === 0) {
+        ui.setStatus('ถูกครับ ชุดนี้ไม่มีคู่ไหนเข้าเงื่อนไขเลย', 'good');
+        setHint(pz().hint);
+      } else {
+        ui.setStatus(`ชุดนี้มีอยู่ ${pz().answer} คู่ ลองอีกที`, 'bad');
+      }
+      paint();
+    });
+
+    ui.onTab((k) => { pi = k; reset(); ui.setTease(pz().tease); });
+    reset();
+    ui.setTease(pz().tease);
+  }
+
+  document.addEventListener('astro:page-load', initTearsGame);
+</script>
