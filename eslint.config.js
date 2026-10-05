@@ -28,6 +28,19 @@ export default tseslint.config(
     },
   },
 
+  // Maintenance scripts for the /cp/ pages (see scripts/README.md). These are plain
+  // Node programs run by hand, never bundled into the site, so hand them the Node
+  // globals they use rather than letting `no-undef` report a runtime it cannot see.
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
+
   // Project-wide rule tweaks.
   {
     rules: {
