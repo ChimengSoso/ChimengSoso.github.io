@@ -1,0 +1,1141 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { divineLoreEntries } from '../../data/divineLore';
+
+const entry = divineLoreEntries.find((e) => e.href === 'pstack-guide/');
+if (!entry) throw new Error('pstack-guide/ ไม่มีใน divineLore.ts');
+
+const installCode = `/plugin marketplace add michael-denyer/pstack-claude
+/plugin install pstack@pstack-claude`;
+
+const setupCode = `/pstack:setup-pstack`;
+
+const firstPrompt = `/pstack:poteto-mode ฟิลเตอร์ค้นหาเด้งกลับเป็นค่าเริ่มต้นทุกครั้งที่กดเปลี่ยนหน้า ช่วยแก้ให้หน่อย`;
+
+const sheetCode = `# ~/.claude/pstack-models.md (setup-pstack เขียนไฟล์นี้ให้)
+arena runners: opus, sonnet
+interrogate reviewers: opus, sonnet
+session hook: on`;
+
+const verifyCreate = `/pstack:create-verification-skill`;
+
+const verifyPrompt = `/pstack:poteto-mode เพิ่มปุ่ม export รายการเป็น CSV ในหน้ารายงาน
+ใช้ /verify ยืนยันว่ากดแล้วได้ไฟล์ที่เปิดอ่านได้จริง แนบภาพหน้าจอเป็นหลักฐาน`;
+
+const cliCode = `# เช็กก่อนว่าแอปที่รันอยู่พร้อมให้ขับไหม
+node .claude/skills/verify/control-app.mjs doctor
+
+# เปิดหน้าใหม่ แล้วพิมพ์คำสั่งลงช่องค้นหา
+node .claude/skills/verify/control-app.mjs new-session
+node .claude/skills/verify/control-app.mjs type "#search" "รายงานเดือนกันยา"
+
+# กดคีย์ลัด แล้วรอให้หน้าจอนิ่ง
+node .claude/skills/verify/control-app.mjs press "Meta+KeyK"
+node .claude/skills/verify/control-app.mjs wait-settle
+
+# ดึงโครงหน้าจอแบบที่ screen reader เห็น (อ่านง่ายกว่าภาพสำหรับ agent)
+node .claude/skills/verify/control-app.mjs snapshot
+
+# เก็บภาพไว้เป็นหลักฐาน
+node .claude/skills/verify/control-app.mjs screenshot proof/after.png`;
+
+const featureMapCode = `# Preferences
+
+หน้าต่างตั้งค่าแบบเต็มจอ กับแท็บย่อยทั้งหมด
+
+## Sub-features
+- settings-overlay: เปิดจากรูปเฟือง หรือกด Cmd/Ctrl+,
+- settings-nav: แท็บด้านซ้าย (General, Appearance, Models, ...)
+- theme-picker: ตัวเลือกธีมในแท็บ Appearance
+
+## How to get to it (user POV)
+คลิกรูปเฟืองข้างรูปโปรไฟล์ หรือกด Cmd/Ctrl+, แล้วเลือกแท็บด้านซ้าย
+กด Escape เพื่อปิด
+
+## Driving it with control-app
+node .claude/skills/verify/control-app.mjs press "Meta+Comma"
+node .claude/skills/verify/control-app.mjs snapshot
+node .claude/skills/verify/control-app.mjs press "Escape"
+
+## Gotchas
+- ปิดหน้าตั้งค่ากลางคันแล้ว focus อาจหลุด สั่ง new-session เพื่อกู้
+- บางแท็บเห็นเฉพาะบางบัญชี ถ้าข้ามต้องบอกเหตุผล`;
+
+const routineCode = `ทุกเช้า 9 โมง ให้รัน /pstack:maintain-verification-skill
+แล้วเปิด PR ถ้าแผนที่ฟีเจอร์ไม่ตรงกับแอปจริง`;
+
+const transcriptPrompt = `/pstack:automate-me`;
+
+interface Recipe {
+  id: string;
+  label: string;
+  playbook: string;
+  prompt: string;
+  steps: string[];
+  reply: string;
+}
+
+const recipes: Recipe[] = [
+  {
+    id: 'bug',
+    label: 'แก้บั๊ก',
+    playbook: 'Bug fix',
+    prompt: '/pstack:poteto-mode ฟิลเตอร์ค้นหาเด้งกลับเป็นค่าเริ่มต้นทุกครั้งที่กดเปลี่ยนหน้า ช่วยหาสาเหตุแล้วแก้ ใช้ /verify ยืนยัน แนบภาพหน้าจอก่อนและหลังแก้มาด้วย',
+    steps: [
+      'ทำให้บั๊กเกิดซ้ำด้วยตัวเองก่อน บนหน้าจอเดียวกับที่ผู้ใช้เจอ จะไม่โยนกลับมาให้เราไปลองเอง',
+      'ตั้งสมมติฐานไว้หลายข้อ แล้วตัดทิ้งทีละข้อด้วยหลักฐานตอนรันจริง (ใส่ log ดูค่าจริง) ใช้ how กับ why ช่วยหาจุดเริ่ม',
+      'วางแผนการแก้ ถ้าการแก้ข้ามขอบเขตฟังก์ชันจะเรียก architect ก่อน แล้วส่งให้ subagent ลงมือ',
+      'ตรวจบนหน้าจอเดิมว่าเคสที่เคยพังตอนนี้ผ่านแล้ว',
+      'commit เทสต์ที่พังไว้ก่อน commit ที่แก้ ประวัติใน git จะเล่าเรื่องได้เอง',
+    ],
+    reply: 'อะไรพัง สาเหตุจริงคืออะไร แก้ยังไง และหลักฐานทั้งก่อนแก้กับหลังแก้',
+  },
+  {
+    id: 'feature',
+    label: 'ฟีเจอร์ใหม่',
+    playbook: 'Feature',
+    prompt: '/pstack:poteto-mode เพิ่มปุ่ม export รายการเป็น CSV ในหน้ารายงาน ใช้ /verify ยืนยันว่ากดแล้วได้ไฟล์ที่เปิดอ่านได้จริง แนบภาพหน้าจอเป็นหลักฐาน',
+    steps: [
+      'ใช้ how ไล่ดูระบบที่ฟีเจอร์นี้ต้องไปแตะ',
+      'ใช้ architect ร่างหน้าตา type กับ function อย่างน้อยสองแบบที่ต่างกันจริง แล้วเลือก',
+      'เขียนแผนแบ่งงานสี่ข้อ ว่าอะไรต้องทำก่อน อะไรทำขนานกันได้ อะไรห้ามเขียนทับกัน',
+      'ส่ง subagent ลงมือใน worktree ของตัวเอง ถ้าทำได้หลายทรงจะส่งเข้า arena ให้แข่งกัน',
+      'ตรวจบนแอปจริง แล้ว rebase เป็น commit เล็ก ๆ เรียงลำดับ ถ้าดีไซน์ยังเถียงกันได้จะ interrogate ก่อนเปิด PR',
+    ],
+    reply: 'สร้างอะไร เลือกทางไหนเพราะอะไร แผนแบ่งงาน และเรื่องที่ยังรอเราตัดสิน',
+  },
+  {
+    id: 'perf',
+    label: 'แอปช้า',
+    playbook: 'Perf issue',
+    prompt: '/pstack:poteto-mode หน้าแรกโหลดช้า ใช้ /verify จับ trace สภาพตอนนี้ก่อน หาจุดที่ปรับได้ แก้แบบเจาะจุด แล้วใช้ /verify กับ /pstack:swarm วัดซ้ำหลายรอบให้แน่ใจว่าเร็วขึ้นจริง',
+    steps: [
+      'จับ trace ของสภาพตอนนี้ไว้เป็นเส้นฐาน แล้วตรวจตัวเลขนั้นด้วย benchmark-checklist ก่อนจะเชื่อมัน',
+      'ไล่หาทางแก้ตามคาถาความเร็วเจ็ดข้อ จากถูกไปแพง หยุดทันทีที่ข้อไหนถึงเป้า',
+      'แก้ แล้วจับ trace หลังแก้อีกรอบ',
+      'เอาไฟล์ trace สองชุดมาเทียบกันเป็นตัวเลข ห้ามดูด้วยตาแล้วเดา',
+      'ใส่ตัวเลขที่วัดได้ลงใน PR',
+    ],
+    reply: 'ตัวเลขก่อนแก้ ตัวเลขหลังแก้ ส่วนต่าง และไฟล์ trace อยู่ที่ไหน',
+  },
+  {
+    id: 'ask',
+    label: 'อยากเข้าใจโค้ด',
+    playbook: 'Investigation',
+    prompt: '/pstack:poteto-mode ระบบ login ของโปรเจกต์นี้ทำงานยังไง แล้วทำไมถึงเก็บ token ไว้สองที่',
+    steps: [
+      'งานนี้อ่านอย่างเดียว ไม่แก้โค้ด ไม่เปิด PR',
+      'ส่งต่อให้ how อธิบายว่าทำงานยังไง และให้ why ไปขุดว่าทำไมถึงเป็นแบบนี้ จาก git log, issue และแชตทีมที่ต่อไว้',
+      'ตอบเป็นโครง ภาพรวม · แนวคิดหลัก · ทำงานยังไง · อยู่ไฟล์ไหน · จุดที่ต้องระวัง',
+      'ถ้าเป็นคำถามแบบ "ควรเลือก A หรือ B" จะได้ตารางข้อดีข้อเสียพร้อมคำแนะนำ',
+    ],
+    reply: 'คำตอบพร้อมแหล่งที่มา และถ้าโจทย์ที่ถามตั้งอยู่บนความเข้าใจผิด มันจะแย้งกลับ',
+  },
+  {
+    id: 'refactor',
+    label: 'รีแฟกเตอร์',
+    playbook: 'Refactoring',
+    prompt: '/pstack:poteto-mode แยกไฟล์ OrderService ที่ยาว 3,000 บรรทัดออกเป็นโมดูลย่อย พฤติกรรมต้องเหมือนเดิมทุกอย่าง',
+    steps: [
+      'ตอกหมุดพฤติกรรมเดิมไว้ก่อน ด้วยเทสต์ที่จับผลลัพธ์ปัจจุบันไว้ (type check กับ lint ไม่นับเป็นหมุด)',
+      'ตั้งชื่อโครงสร้างที่โค้ดนี้ขาด แล้วร่างหน้าตาที่ควรเป็นถ้าเขียนใหม่วันนี้',
+      'ลบของตายก่อน แล้วค่อยสร้างของใหม่ทับ',
+      'ขยับทีละก้าวเล็ก ๆ ให้หมุดยังเขียวทุกก้าว ย้ายผู้เรียกครบแล้วลบ API เก่าในรอบเดียวกัน',
+      'ถ้าผลลัพธ์ไม่ได้ทำให้โค้ดอ่านง่ายขึ้นตรงไหนเลย จะ revert ทิ้ง',
+    ],
+    reply: 'โครงสร้างที่เปลี่ยน หมุดที่ใช้ยึด หลักฐานว่าพฤติกรรมเท่าเดิม และอะไรถูก revert ไปบ้าง',
+  },
+  {
+    id: 'proto',
+    label: 'ยังเลือกดีไซน์ไม่ได้',
+    playbook: 'Prototype',
+    prompt: '/pstack:poteto-mode ยังเลือกไม่ได้ว่าหน้า dashboard ควรเป็นการ์ดหรือตาราง ช่วยทำต้นแบบทิ้งได้สองแบบให้กดสลับดู',
+    steps: [
+      'ระบุให้ชัดก่อนว่าต้นแบบนี้มีไว้ตัดสินเรื่องอะไร ถ้าไม่มีเรื่องให้ตัดสินจะไม่ทำ',
+      'ทำในโฟลเดอร์ทดลองแยกจากโค้ดจริง ใช้ HTML ธรรมดาหรืออะไรที่เบาที่สุด ไม่มีเทสต์ ไม่มี abstraction',
+      'ใส่ปุ่มสลับระหว่างแบบ A กับแบบ B ในหน้าเดียว',
+      'ถ่ายภาพทุกแบบแล้วลองกดใช้จริง',
+      'ส่งทางที่เลือกต่อให้ playbook Feature ไปสร้างของจริง',
+    ],
+    reply: 'แต่ละแบบที่ลอง ภาพหลักฐาน ข้อดีข้อเสีย คำแนะนำ และบอกตรง ๆ ว่าโค้ดชุดนี้ทิ้งได้',
+  },
+];
+
+const mantras = [
+  { th: 'อย่าทำเลย', en: "Don't do it", note: 'ถ้าผลของงานนั้นไม่มีใครใช้ ตัดทิ้งไปเลย ดีกว่าไปทำให้มันถูกลง' },
+  { th: 'ทำ แต่อย่าทำซ้ำ', en: "Do it, but don't do it again", note: 'คำนวณครั้งเดียวแล้วจำไว้ (cache)' },
+  { th: 'ทำให้น้อยลง', en: 'Do it less', note: 'เช่น โหลดแค่ 20 แถวแรก ไม่ใช่ทั้ง 10,000 แถว' },
+  { th: 'ทำทีหลัง', en: 'Do it later', note: 'เลื่อนไปทำตอนที่ต้องใช้จริง' },
+  { th: 'ทำตอนที่เขาไม่ได้มอง', en: "Do it when they're not looking", note: 'ทำเบื้องหลังตอนผู้ใช้ยังไม่ได้รอ' },
+  { th: 'ทำพร้อมกัน', en: 'Do it concurrently', note: 'แยกงานที่ไม่ขึ้นต่อกันให้รันขนาน' },
+  { th: 'ทำให้ถูกลง', en: 'Do it cheaper', note: 'หาอัลกอริทึมหรือโครงสร้างข้อมูลที่เร็วกว่า ข้อนี้แพงสุดเลยอยู่ท้ายสุด' },
+];
+---
+<DivineLoreLayout title={`${entry.title} | บันทึกศาสตร์แห่งเทพ`} description={entry.desc} toc>
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+  </nav>
+  <p class="tag">{entry.tag}</p>
+  <h1>{entry.title}</h1>
+  <p class="subtitle">
+    คู่มือลงและใช้ pstack ใน Claude Code ตั้งแต่พิมพ์คำสั่งแรก ไปจนถึงตั้งระบบที่ให้ agent ตรวจงานตัวเองได้ เรียบเรียงจาก repo ตัวพอร์ต, คู่มือที่ผู้สร้างเขียนเองบน X, ไลฟ์คุยกับ Matt Pocock และรีวิวของ Rob Shocks
+  </p>
+
+  <hr class="divider" />
+
+  <p>
+    เดือนกันยายน 2026 วิศวกรคนหนึ่งโพสต์บน X ว่าเดือนที่แล้วส่ง PR ขึ้น production ไป 2,500 ตัว คำถามแรกที่ทุกคนถามกลับคือแล้วใครรีวิว คำตอบอยู่ในชุด skill ชุดเดียวที่ตั้งชื่อว่า <strong>pstack</strong>
+  </p>
+  <p>
+    คนเขียนคือ <strong>Lauren Tan</strong> ชื่อในเน็ตคือ <strong>poteto</strong> อยู่ในทีม React core เคยทำงานที่ Meta กับ Netflix และตอนนี้อยู่ที่ Cursor (ในไลฟ์กับ Matt Pocock เล่าว่า Cursor ตอนนี้อยู่ใต้ SpaceX AI แล้ว) ตัวต้นฉบับเขียนมาให้ Cursor ใช้ แต่มีคนชื่อ Michael Denyer พอร์ตมาให้ Claude Code, Codex และ Pi ใช้ได้ด้วย บทความนี้ใช้ตัวพอร์ตของ Claude Code เป็นหลัก
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์ก่อนเริ่ม</p>
+    <p>
+      <strong>pstack</strong> อ่านว่า <strong>"พี-สแต็ก"</strong> ตัว p มาจาก poteto ส่วน <i>stack</i> แปลว่า "กอง" หรือ "ชุดที่ซ้อนกัน" รวมกันก็คือ "ชุดเครื่องมือของ poteto" ส่วน <strong>poteto</strong> ("โพเทโต") คือคำว่า <i>potato</i> ที่สะกดเพี้ยนโดยตั้งใจ สกิลหลักของชุดนี้เลยชื่อ poteto-mode หรือ "โหมดมันฝรั่ง" นั่นเอง
+    </p>
+    <p>
+      <strong>skill</strong> ("สกิล") ในโลกของ Claude Code คือไฟล์ Markdown ที่สอน agent ว่างานแบบนี้ให้ทำเป็นขั้นตอนอะไร พิมพ์ชื่อมันขึ้นต้นด้วย <code>/</code> เพื่อเรียกใช้ได้ ส่วน <strong>agent</strong> ("เอเจนต์") แปลตรงตัวว่า "ผู้ทำการแทน" ก็คือตัว AI ที่ลงมือแก้โค้ดให้เรา และ <strong>PR</strong> ย่อมาจาก <i>pull request</i> คือคำขอเอาโค้ดชุดหนึ่งเข้าไปรวมกับของจริง
+    </p>
+  </div>
+  <p>
+    ถ้าอ่านจบแล้วยังไม่อยากลงทั้งชุด ข้างในก็มีหลักคิดหลายข้อที่ขโมยไปใช้กับ agent ตัวไหนก็ได้ ส่วนนั้นอยู่ช่วงท้ายครับ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>pstack มีของอยู่สามกอง</h2>
+  <p>
+    เปิด repo ดูจะเจอโฟลเดอร์ <code>skills/</code> ที่มีของอยู่ 57 โฟลเดอร์ อ่านชื่อแล้วงงได้ง่าย แต่จริง ๆ แบ่งเป็นสามกองเท่านั้น
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>skill ที่เรียกใช้ได้ 33 ตัว</strong> เช่น <code>how</code>, <code>why</code>, <code>architect</code>, <code>arena</code>, <code>unslop</code> ใน Claude Code จะขึ้นเป็นคำสั่ง <code>/pstack:ชื่อ</code></li>
+      <li><strong>หลักคิด 24 ข้อ</strong> ชื่อขึ้นต้นด้วย <code>principle-</code> เราไม่ได้เรียกมันเอง agent จะเปิดอ่านเองเมื่อสถานการณ์ตรงกับข้อนั้น</li>
+      <li><strong>playbook 23 เล่ม</strong> ซ่อนอยู่ใน <code>poteto-mode</code> แต่ละเล่มคือขั้นตอนมาตรฐานของงานแต่ละแบบ ทั้งแก้บั๊ก ฟีเจอร์ใหม่ แอปช้า รีแฟกเตอร์ ดูแล PR ไปจนถึงงานยาวข้ามคืน</li>
+    </ul>
+  </div>
+  <p>
+    <strong>playbook</strong> อ่านว่า <strong>"เพลย์บุ๊ก"</strong> มาจากวงการอเมริกันฟุตบอล คือสมุดที่โค้ชจดแผนการเล่นไว้ทุกจังหวะ ในที่นี้ก็คือสมุดคู่มือว่าเจองานแบบนี้ให้เดินกี่ขั้น ขั้นละอะไร
+  </p>
+  <p>
+    สามกองนี้ทำงานต่อกันแบบนี้ครับ เราพิมพ์บอกเป้าหมายเป็นภาษาคน <code>poteto-mode</code> อ่านแล้วเลือก playbook ที่ตรงที่สุด playbook ก็ไล่เรียก skill ย่อยตามขั้น โดยมีหลักคิดคุมวิธีตัดสินใจอยู่ทุกขั้น
+  </p>
+
+  <ZoomableDiagram caption="เส้นทางของคำขอหนึ่งข้อ เราคุยกับ poteto-mode ตัวเดียว ที่เหลือมันเลือกเอง (วาดใหม่จากภาพภาพรวมใน README ของ repo)">
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพการไหลของงานใน pstack คำขอของเราเข้าไปที่ poteto-mode ซึ่งเลือก playbook เช่น Bug fix, Feature, Perf issue, Investigation จากนั้น playbook เรียก skill ย่อยอย่าง how, why, architect, arena, swarm, interrogate, unslop แล้วจบที่งานเสร็จพร้อมหลักฐาน โดยมีหลักคิด 24 ข้อคุมทุกขั้น" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <rect x="12" y="110" width="110" height="80" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="67" y="144" font-size="13" font-weight="700" fill="#f2f5fb" text-anchor="middle">คำขอของเรา</text>
+      <text x="67" y="164" font-size="11" fill="#9aa7bd" text-anchor="middle">พิมพ์เป็นภาษาคน</text>
+
+      <line x1="124" y1="150" x2="148" y2="150" stroke="#4ade80" stroke-width="2" marker-end="url(#ps-a1)"/>
+
+      <rect x="152" y="95" width="140" height="110" rx="12" fill="#12301f" stroke="#2f9e5c" stroke-width="1.6"/>
+      <text x="222" y="134" font-size="14.5" font-weight="700" fill="#4ade80" text-anchor="middle">poteto-mode</text>
+      <text x="222" y="156" font-size="12" fill="#e7ecf6" text-anchor="middle">ตัวจ่ายงาน</text>
+      <text x="222" y="176" font-size="10.5" fill="#9aa7bd" text-anchor="middle">อ่านงาน แล้วเลือกคู่มือ</text>
+
+      <line x1="294" y1="150" x2="316" y2="150" stroke="#4ade80" stroke-width="2" marker-end="url(#ps-a1)"/>
+
+      <text x="390" y="32" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">เลือก playbook</text>
+      <g font-size="12" text-anchor="middle">
+        <rect x="320" y="46" width="140" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="390" y="68" fill="#f0d060" font-weight="700">Bug fix</text>
+        <rect x="320" y="88" width="140" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="390" y="110" fill="#c3cbdc">Feature</text>
+        <rect x="320" y="130" width="140" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="390" y="152" fill="#c3cbdc">Perf issue</text>
+        <rect x="320" y="172" width="140" height="34" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="390" y="194" fill="#c3cbdc">Investigation</text>
+        <rect x="320" y="214" width="140" height="34" rx="8" fill="none" stroke="#3a4666" stroke-dasharray="4 4"/>
+        <text x="390" y="236" fill="#8a97ad">อีก 19 เล่ม</text>
+      </g>
+
+      <line x1="462" y1="150" x2="486" y2="150" stroke="#4ade80" stroke-width="2" marker-end="url(#ps-a1)"/>
+
+      <text x="545" y="32" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">เรียก skill ย่อย</text>
+      <g font-size="11.5" text-anchor="middle" fill="#cdd6ea">
+        <rect x="490" y="44" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="60">how</text>
+        <rect x="490" y="74" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="90">why</text>
+        <rect x="490" y="104" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="120">architect</text>
+        <rect x="490" y="134" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="150">arena</text>
+        <rect x="490" y="164" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="180">swarm</text>
+        <rect x="490" y="194" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="210">interrogate</text>
+        <rect x="490" y="224" width="110" height="24" rx="12" fill="#18263a" stroke="#3b5b86"/>
+        <text x="545" y="240">unslop</text>
+      </g>
+
+      <line x1="602" y1="150" x2="624" y2="150" stroke="#4ade80" stroke-width="2" marker-end="url(#ps-a1)"/>
+
+      <rect x="628" y="95" width="80" height="110" rx="12" fill="#2b2410" stroke="#e0b400" stroke-width="1.6"/>
+      <path d="M654 124 l8 8 l16 -16" fill="none" stroke="#f0d060" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="668" y="158" font-size="12" font-weight="700" fill="#f0d060" text-anchor="middle">งานเสร็จ</text>
+      <text x="668" y="176" font-size="11" fill="#d8b862" text-anchor="middle">พร้อมหลักฐาน</text>
+
+      <rect x="152" y="262" width="448" height="26" rx="8" fill="#141a29" stroke="#3a4666"/>
+      <text x="376" y="279" font-size="11.5" fill="#9aa7bd" text-anchor="middle">หลักคิด 24 ข้อ (principle-*) คุมวิธีตัดสินใจอยู่ทุกขั้น</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <hr class="divider-solid" />
+
+  <h2>ลงใน Claude Code ใช้สามคำสั่ง</h2>
+  <div class="step">
+    <p class="step-num">ขั้นที่ 1 · ติดตั้ง plugin</p>
+    <p>เปิด Claude Code ในโปรเจกต์ไหนก็ได้ แล้วพิมพ์สองบรรทัดนี้ บรรทัดแรกเพิ่มร้านค้า (marketplace) ของตัวพอร์ต บรรทัดที่สองลงตัว plugin</p>
+    <CodeBlock code={installCode} lang="text" title="ใน Claude Code" />
+  </div>
+  <div class="step">
+    <p class="step-num">ขั้นที่ 2 · เลือกโมเดลให้แต่ละบทบาท</p>
+    <p>
+      pstack ใช้หลายโมเดลพร้อมกันในบางงาน เช่นให้ Opus, Fable, Sonnet แข่งออกแบบกัน คำสั่งนี้จะถามว่าเรามีโมเดลไหนใช้ได้บ้าง อยากให้แต่ละบทบาทใช้ตัวไหน และใช้ความพยายามในการคิด (reasoning effort) ระดับไหน แล้วเขียนผลลงไฟล์ <code>pstack-models.md</code>
+    </p>
+    <CodeBlock code={setupCode} lang="text" title="ใน Claude Code" />
+    <p>
+      ไฟล์ที่ได้หน้าตาประมาณนี้ ตัวอย่างนี้ลดคนแข่งเหลือสองตัวเพื่อประหยัด token ค่าเริ่มต้นจริงคือสามตัว (opus, fable, sonnet)
+    </p>
+    <CodeBlock code={sheetCode} lang="markdown" title="pstack-models.md" />
+  </div>
+  <div class="step">
+    <p class="step-num">ขั้นที่ 3 · สั่งงานแรก</p>
+    <p>ขึ้นต้นด้วย <code>/pstack:poteto-mode</code> แล้วบอกสิ่งที่อยากได้ เท่านี้ครับ</p>
+    <CodeBlock code={firstPrompt} lang="text" title="ใน Claude Code" />
+  </div>
+  <p>
+    ถ้าจะใช้ playbook ที่เปิด PR หรือเฝ้า CI ให้ ต้องมี <code>gh</code> (GitHub CLI) ที่ login แล้ว และสคริปต์บางตัวต้องใช้ <strong>Bun</strong> ส่วน skill <code>automate-me</code> กับ <code>reflect</code> ที่ช่วยเขียน skill ใหม่ ต้องลง plugin <code>plugin-dev</code> ของ Anthropic เพิ่ม งานทั่วไปไม่ต้องใช้สามตัวนี้
+  </p>
+
+  <h3>หลังลงแล้ว มันแอบทำอะไรให้</h3>
+  <p>
+    plugin นี้ติดตั้ง <strong>hook</strong> ("ฮุก" แปลว่า "ตะขอ") ไว้ตัวหนึ่ง hook คือคำสั่งที่ Claude Code รันเองอัตโนมัติเมื่อเกิดเหตุการณ์บางอย่าง ตัวนี้เกาะอยู่ตอนเริ่ม session ใหม่ (และตอน resume, <code>/clear</code>, หรือหลังบีบอัดบริบท) มันแปะคำสั่งสั้น ๆ เข้าไปในหัวของ agent ว่า ถ้างานเข้าข่ายข้อใดข้อหนึ่งในสามข้อนี้ ให้เรียก poteto-mode เอง
+  </p>
+
+  <ZoomableDiagram caption="hook ตอนเริ่ม session ทำให้เราไม่ต้องจำว่าต้องพิมพ์ /pstack:poteto-mode ทุกครั้ง งานเล็กจะผ่านไปทำตรง ๆ ตามเดิม">
+    <svg viewBox="0 0 720 212" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพการทำงานของ hook เมื่อเปิด session ใหม่ hook ฉีดคำสั่งเข้าไปในบริบท agent จะดูว่างานแตะหลายไฟล์ ต้องตัดสินใจเรื่องดีไซน์ หรือเป็นบั๊กที่ยังไม่รู้สาเหตุหรือปัญหาความเร็วหรือไม่ ถ้าใช่ข้อใดข้อหนึ่งจะเรียก poteto-mode ถ้าไม่ใช่จะทำตรง ๆ แล้วตรวจกับของจริง" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+        <marker id="ps-a2g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <rect x="12" y="20" width="200" height="50" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="112" y="42" font-size="12.5" font-weight="700" fill="#f2f5fb" text-anchor="middle">เปิด session ใหม่</text>
+      <text x="112" y="60" font-size="10.5" fill="#9aa7bd" text-anchor="middle">หรือ resume, /clear, compact</text>
+      <line x1="112" y1="72" x2="112" y2="98" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#ps-a2)"/>
+      <rect x="12" y="102" width="200" height="50" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="112" y="124" font-size="12.5" font-weight="700" fill="#f2f5fb" text-anchor="middle">hook แปะคำสั่งสั้น ๆ</text>
+      <text x="112" y="142" font-size="10.5" fill="#9aa7bd" text-anchor="middle">เข้าไปในบริบทของ agent</text>
+      <line x1="214" y1="127" x2="246" y2="104" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#ps-a2)"/>
+
+      <text x="392" y="30" font-size="12.5" font-weight="700" fill="#f2f5fb" text-anchor="middle">งานนี้เข้าข่ายข้อใดข้อหนึ่งไหม</text>
+      <g font-size="11.5" fill="#cdd6ea" text-anchor="middle">
+        <rect x="252" y="44" width="280" height="34" rx="17" fill="#18263a" stroke="#3b5b86"/>
+        <text x="392" y="65">แตะหลายไฟล์ หรือแก้ signature ที่ไฟล์อื่นเรียก</text>
+        <rect x="252" y="86" width="280" height="34" rx="17" fill="#18263a" stroke="#3b5b86"/>
+        <text x="392" y="107">ต้องตัดสินใจเรื่องดีไซน์หรือสถาปัตยกรรม</text>
+        <rect x="252" y="128" width="280" height="34" rx="17" fill="#18263a" stroke="#3b5b86"/>
+        <text x="392" y="149">บั๊กที่ยังไม่รู้สาเหตุ หรือปัญหาความเร็ว</text>
+      </g>
+
+      <line x1="534" y1="82" x2="556" y2="74" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ps-a2g)"/>
+      <rect x="560" y="44" width="148" height="56" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.6"/>
+      <text x="634" y="67" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">ใช่ข้อใดข้อหนึ่ง</text>
+      <text x="634" y="86" font-size="11" fill="#e7ecf6" text-anchor="middle">เรียก poteto-mode</text>
+
+      <line x1="534" y1="132" x2="556" y2="140" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#ps-a2)"/>
+      <rect x="560" y="114" width="148" height="56" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="634" y="137" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">ไม่เข้าข่ายเลย</text>
+      <text x="634" y="156" font-size="11" fill="#9aa7bd" text-anchor="middle">ทำตรง ๆ แล้วตรวจของจริง</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="callout callout-tip">
+    <p class="callout-label">ถ้ามันไม่เรียกเองตามที่คาด</p>
+    <p>
+      คำสั่งที่เราพิมพ์เองใน <code>CLAUDE.md</code> หรือในแชตมีสิทธิ์เหนือ hook เสมอ ถ้างานไหนเราอยากได้ความเข้ม ก็พิมพ์ <code>/pstack:poteto-mode</code> นำหน้าเองได้เลย ถ้ารำคาญอยากปิดการเรียกอัตโนมัติ ให้รัน <code>/pstack:setup-pstack</code> แล้วปิด session hook หรือเขียนบรรทัด <code>session hook: off</code> ลงในไฟล์ <code>pstack-models.md</code>
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>สั่งงานแบบไหน ได้อะไรกลับมา</h2>
+  <p>
+    เคล็ดลับของ poteto-mode คือ playbook แต่ละเล่มบังคับว่าต้องจบด้วยคำตอบแบบไหน งานแก้บั๊กต้องจบด้วยหลักฐานก่อนกับหลังแก้ งานแอปช้าต้องจบด้วยตัวเลขที่วัดได้ ข้างล่างนี้คือหกงานที่เจอบ่อยที่สุด กดเลือกดูได้ว่าควรพิมพ์ยังไง และ agent จะเดินกี่ขั้น
+  </p>
+
+  <div class="recipes" data-recipes>
+    <div class="rc-tabs" role="tablist" aria-label="เลือกประเภทงาน">
+      {recipes.map((r, i) => (
+        <button type="button" class="rc-tab" role="tab" data-recipe={r.id} aria-selected={i === 0 ? 'true' : 'false'}>{r.label}</button>
+      ))}
+    </div>
+    {recipes.map((r, i) => (
+      <div class="rc-panel" role="tabpanel" data-panel={r.id} hidden={i !== 0}>
+        <p class="rc-pb">playbook ที่ได้ · <span>{r.playbook}</span></p>
+        <p class="rc-h">พิมพ์ประมาณนี้</p>
+        <pre class="rc-prompt">{r.prompt}</pre>
+        <p class="rc-h">agent จะเดินแบบนี้</p>
+        <ol class="rc-steps">
+          {r.steps.map((s) => <li>{s}</li>)}
+        </ol>
+        <p class="rc-reply"><span>คำตอบสุดท้ายที่ต้องได้</span>{r.reply}</p>
+      </div>
+    ))}
+  </div>
+
+  <p>
+    สังเกตว่าทุก prompt ที่ต้องแก้โค้ดจะมีท่อน "ใช้ /verify ยืนยัน แนบหลักฐาน" ปิดท้าย ท่อนนี้คือส่วนที่สำคัญที่สุดของทั้งบทความ เดี๋ยวจะมีหัวข้อของมันเองครับ
+  </p>
+
+  <h3>คาถาความเร็วเจ็ดข้อ</h3>
+  <p>
+    ใน playbook แอปช้ามีรายการหนึ่งที่เอาไปใช้ได้ทันทีแม้ไม่ได้ใช้ pstack คือลำดับวิธีทำให้เร็วขึ้น เรียงจากถูกสุดไปแพงสุด แล้วหยุดทันทีที่ข้อไหนทำให้ถึงเป้า
+  </p>
+  <ol class="mantras">
+    {mantras.map((m) => (
+      <li><strong>{m.th}</strong> <i>({m.en})</i><span>{m.note}</span></li>
+    ))}
+  </ol>
+  <p>
+    agent ส่วนใหญ่กระโดดไปข้อเจ็ดก่อน คือเขียนอัลกอริทึมใหม่ทั้งที่ข้อหนึ่ง (เลิกคำนวณของที่ไม่มีใครใช้) อาจจบเรื่องได้ในสามบรรทัด
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>skill ที่ควรรู้จักชื่อไว้</h2>
+  <p>
+    ปกติเราไม่ต้องเรียก skill พวกนี้เอง poteto-mode เรียกให้ แต่ถ้าเจตนาเราชัดอยู่แล้ว เรียกตรง ๆ ก็ได้ และรู้ชื่อไว้จะอ่าน log ของ agent ออกว่ามันกำลังทำอะไร
+  </p>
+  <div class="skills">
+    <div class="sk">
+      <p class="sk-name">/pstack:how</p>
+      <p>อธิบายว่าระบบส่วนนี้ทำงานยังไง ระดับที่วิศวกรอาวุโสเล่าให้คนเพิ่งเข้าทีมฟัง งานใหญ่จะแตก subagent ไปสำรวจหลายมุมพร้อมกันแล้วค่อยรวม</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:why</p>
+      <p>ขุดว่าทำไมโค้ดถึงเป็นทรงนี้ ไม่ได้ดูแค่โค้ด มันไล่ git blame, PR เก่า และ MCP ที่ต่อไว้ทั้งหมด (Slack, Linear, Sentry, Notion) แล้วบอกด้วยว่าข้อไหนรู้แน่ ข้อไหนแค่อนุมาน</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:architect</p>
+      <p>ร่าง type, signature, โครงโมดูลก่อนเขียนโค้ดจริง บังคับให้มีอย่างน้อยสองแบบที่ต่างกันทั้งทรง ไม่ใช่แค่ปรับจุดเล็กในแบบเดียว ถ้าลงมือแล้วพบว่าร่างผิด ก็ทิ้งแล้วร่างใหม่</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:arena</p>
+      <p>ให้หลายโมเดลทำโจทย์เดียวกันแยกกัน มีกรรมการต่างค่ายให้คะแนน เลือกตัวที่ดีที่สุดเป็นฐาน แล้วต่อกิ่งจุดเด่นของตัวที่แพ้เข้าไป</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:swarm</p>
+      <p>แบ่งงานใหญ่เป็นชิ้น แจก worker คนละชิ้น แล้วรวมกลับเป็นรายงานเดียว เหมาะกับงานที่ต้องครอบคลุม เช่นตรวจทุกหน้าของแอป หรือวัดความเร็วซ้ำหลายสิบรอบ</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:interrogate</p>
+      <p>ให้สามโมเดลรุมหาจุดพังของ diff ชุดเดียวกัน ทุกตัวได้ prompt เดียวกัน มุมมองที่ต่างมาจากตัวโมเดลเอง ผลที่ได้คือคำตัดสินรวม มันจะไม่แก้โค้ดให้เอง</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:tdd</p>
+      <p>เขียนเทสต์ที่พังก่อน ดูให้แน่ว่าพังด้วยเหตุผลที่ถูก แล้วค่อยแก้ ถ้าการเขียนเทสต์จะแพงหรือเปราะเกินไป มันจะไม่ฝืนเขียน</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:unslop</p>
+      <p>ล้างกลิ่น AI ออกจากข้อความ ตัดคำอย่าง <i>delve</i>, <i>crucial</i>, <i>pivotal</i> เลิกใช้ em dash ทั้งหมด และเลิกจับทุกอย่างเป็นกลุ่มละสาม ใช้ได้ทั้งเอกสาร คำอธิบาย PR และ commit</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:bro</p>
+      <p>ให้ agent เล่าข้อความล่าสุดใหม่เป็นภาษาคนธรรมดา ไม่มีศัพท์เทคนิค Rob Shocks บอกว่าใช้บ่อยที่สุดตอนเปิด agent สิบตัวจนหัวตื้อ</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:recall</p>
+      <p>กลับมาทำงานต่อหลังหายไปหนึ่งสัปดาห์ มันอ่านแชตเก่าของเราในโปรเจกต์นี้ เช็กสถานะ PR กับ branch จริง แล้วสรุปว่างานค้างอยู่ตรงไหน ทำอะไรต่อ</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:show-me-your-work</p>
+      <p>ให้ agent จดทุกการตัดสินใจลงไฟล์ตาราง ใช้ตอนปล่อยงานยาวข้ามคืน ตื่นมาจะไล่อ่านได้ว่ามันเลือกอะไรเพราะอะไร</p>
+    </div>
+    <div class="sk">
+      <p class="sk-name">/pstack:correct</p>
+      <p>หาความผิดที่ agent ทำซ้ำในโปรเจกต์ แล้วทำให้มันเกิดซ้ำไม่ได้อีก ไล่จากแก้โครงสร้างก่อน แล้ว type แล้ว lint แล้วเทสต์ เขียนเอกสารเป็นทางเลือกสุดท้าย</p>
+    </div>
+  </div>
+
+  <h3>arena กับ swarm ต่างกันยังไง</h3>
+  <p>
+    สองตัวนี้ปล่อย agent หลายตัวพร้อมกันเหมือนกัน เลยสับสนง่าย arena ให้ทุกตัวทำโจทย์เดียวกันทั้งชิ้นแล้วคัดตัวดีที่สุด swarm หั่นงานเป็นชิ้นแล้วให้แต่ละตัวทำคนละชิ้น
+  </p>
+
+  <ZoomableDiagram caption="arena เหมือนจ้างเชฟสามคนทำเมนูเดียวกันแล้วชิมเลือก swarm เหมือนแบ่งลูกมือสี่คนไปหั่นผักคนละอย่าง">
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบ arena กับ swarm ฝั่งซ้าย arena มีโจทย์เดียวส่งให้สามโมเดลคือ opus fable sonnet ทำแบบร่างเต็มคนละชุด แล้วกรรมการต่างค่ายให้คะแนน เลือกตัวดีสุดเป็นฐานและต่อกิ่งจุดเด่นของตัวอื่น ฝั่งขวา swarm แบ่งงานใหญ่เป็นสี่ชิ้นให้ worker คนละชิ้น แล้วรวมเป็นรายงานเดียวที่มีผล PASS ISSUES หรือ BLOCKED" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+      <rect x="12" y="12" width="338" height="270" rx="14" fill="#111827" stroke="#2a3350"/>
+      <rect x="370" y="12" width="338" height="270" rx="14" fill="#111827" stroke="#2a3350"/>
+
+      <text x="181" y="36" font-size="13.5" font-weight="700" fill="#f0d060" text-anchor="middle">arena · แข่งทำโจทย์เดียวกัน</text>
+      <rect x="116" y="48" width="130" height="30" rx="8" fill="#1c2536" stroke="#3a4666"/>
+      <text x="181" y="68" font-size="12" fill="#f2f5fb" text-anchor="middle">โจทย์เดียว</text>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M150 78 L75 104" marker-end="url(#ps-a3)"/>
+        <path d="M181 78 L181 104" marker-end="url(#ps-a3)"/>
+        <path d="M212 78 L287 104" marker-end="url(#ps-a3)"/>
+      </g>
+      <g text-anchor="middle">
+        <rect x="30" y="108" width="90" height="44" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="75" y="127" font-size="12" font-weight="700" fill="#f0d060">opus</text>
+        <text x="75" y="144" font-size="10" fill="#d8b862">แบบร่างเต็ม</text>
+        <rect x="136" y="108" width="90" height="44" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="181" y="127" font-size="12" font-weight="700" fill="#f0d060">fable</text>
+        <text x="181" y="144" font-size="10" fill="#d8b862">แบบร่างเต็ม</text>
+        <rect x="242" y="108" width="90" height="44" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="287" y="127" font-size="12" font-weight="700" fill="#f0d060">sonnet</text>
+        <text x="287" y="144" font-size="10" fill="#d8b862">แบบร่างเต็ม</text>
+      </g>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M75 152 L150 176" marker-end="url(#ps-a3)"/>
+        <path d="M181 152 L181 176" marker-end="url(#ps-a3)"/>
+        <path d="M287 152 L212 176" marker-end="url(#ps-a3)"/>
+      </g>
+      <rect x="96" y="180" width="170" height="30" rx="8" fill="#1c2536" stroke="#3a4666"/>
+      <text x="181" y="200" font-size="11.5" fill="#e7ecf6" text-anchor="middle">กรรมการต่างค่ายให้คะแนน</text>
+      <line x1="181" y1="210" x2="181" y2="226" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#ps-a3)"/>
+      <rect x="56" y="230" width="250" height="40" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="181" y="247" font-size="11.5" font-weight="700" fill="#4ade80" text-anchor="middle">ตัวดีสุดเป็นฐาน</text>
+      <text x="181" y="263" font-size="10.5" fill="#e7ecf6" text-anchor="middle">แล้วต่อกิ่งจุดเด่นของตัวที่แพ้</text>
+
+      <text x="539" y="36" font-size="13.5" font-weight="700" fill="#7cc4ff" text-anchor="middle">swarm · แบ่งงานเป็นชิ้น</text>
+      <rect x="464" y="48" width="150" height="30" rx="8" fill="#1c2536" stroke="#3a4666"/>
+      <text x="539" y="68" font-size="12" fill="#f2f5fb" text-anchor="middle">งานใหญ่หนึ่งก้อน</text>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M500 78 L423 104" marker-end="url(#ps-a3)"/>
+        <path d="M528 78 L503 104" marker-end="url(#ps-a3)"/>
+        <path d="M550 78 L583 104" marker-end="url(#ps-a3)"/>
+        <path d="M578 78 L663 104" marker-end="url(#ps-a3)"/>
+      </g>
+      <g text-anchor="middle">
+        <rect x="388" y="108" width="70" height="44" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="423" y="127" font-size="12" font-weight="700" fill="#cfe6ff">ชิ้น A</text>
+        <text x="423" y="144" font-size="10" fill="#9fb8d6">worker</text>
+        <rect x="468" y="108" width="70" height="44" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="503" y="127" font-size="12" font-weight="700" fill="#cfe6ff">ชิ้น B</text>
+        <text x="503" y="144" font-size="10" fill="#9fb8d6">worker</text>
+        <rect x="548" y="108" width="70" height="44" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="583" y="127" font-size="12" font-weight="700" fill="#cfe6ff">ชิ้น C</text>
+        <text x="583" y="144" font-size="10" fill="#9fb8d6">worker</text>
+        <rect x="628" y="108" width="70" height="44" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="663" y="127" font-size="12" font-weight="700" fill="#cfe6ff">ชิ้น D</text>
+        <text x="663" y="144" font-size="10" fill="#9fb8d6">worker</text>
+      </g>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M423 152 L500 186" marker-end="url(#ps-a3)"/>
+        <path d="M503 152 L525 186" marker-end="url(#ps-a3)"/>
+        <path d="M583 152 L553 186" marker-end="url(#ps-a3)"/>
+        <path d="M663 152 L578 186" marker-end="url(#ps-a3)"/>
+      </g>
+      <rect x="444" y="190" width="190" height="46" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="539" y="209" font-size="11.5" font-weight="700" fill="#4ade80" text-anchor="middle">รวมเป็นรายงานเดียว</text>
+      <text x="539" y="226" font-size="10.5" fill="#e7ecf6" text-anchor="middle">PASS / ISSUES / BLOCKED</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <hr class="divider-solid" />
+
+  <h2>หัวใจของทั้งชุดคือ verification</h2>
+  <p>
+    ถ้าจะเอาไปแค่อย่างเดียวจาก pstack ให้เอาข้อนี้ poteto เขียนเปิดคู่มือตอนแรกของตัวเองด้วยหัวข้อ <i>Verification is all you need</i> และในไลฟ์ก็พูดซ้ำว่านี่คือ skill ที่สำคัญที่สุดในชุด ถึงขั้นมองว่ามันเป็นโครงสร้างพื้นฐาน (infrastructure) ของทีม มากกว่าเป็นแค่ skill ตัวหนึ่ง
+  </p>
+  <p>
+    <strong>verification</strong> อ่านว่า <strong>"เวริฟิเคชัน"</strong> แปลว่า "การพิสูจน์ยืนยัน" มาจากภาษาละติน <i>verus</i> ที่แปลว่า "จริง" ในความหมายของ pstack คือ agent ตรวจงานตัวเองได้ด้วยการเปิดแอปขึ้นมาจริง กดใช้แบบผู้ใช้ จับภาพหน้าจอ อ่าน log แล้วตัดสินเองว่าผ่านหรือยัง poteto เปรียบว่าคือการให้ <strong>มือกับตา</strong> แก่ agent
+  </p>
+  <p>
+    ก่อนมีมัน poteto เล่าว่าตอนทำ Agents Window ของ Cursor ให้เร็วขึ้น ตัวเองต้องนั่งเป็นคนกลางระหว่าง agent กับ Chrome DevTools คอยรัน คอยดู คอยเล่าผลกลับไป แล้วเรียกตัวเองว่า <i>meat proxy</i> แปลตรง ๆ ว่า "ตัวกลางที่เป็นเนื้อหนัง" (proxy อ่านว่า "พร็อกซี" แปลว่า "ตัวแทน")
+  </p>
+
+  <ZoomableDiagram caption="ซ้ายคือวงที่ทุกรอบต้องผ่านมือเรา ขวาคือวงที่ agent ปิดเองได้ เราขยับออกไปยืนนอกวงแล้วสุ่มตรวจแทน">
+    <svg viewBox="0 0 720 284" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบสองวง ซ้ายไม่มี verification agent เขียนโค้ดแล้วต้องให้เราเปิดแอปดูเองแล้วเล่าผลกลับ วนทุกรอบต้องมีเรา ขวามี verification agent เขียนโค้ดแล้วรัน verify เปิดแอป คลิก จับภาพเอง ถ้าไม่ผ่านกลับไปแก้ ถ้าผ่านเปิด PR พร้อมหลักฐาน เราอยู่นอกวงคอยสุ่มตรวจ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+        <marker id="ps-a4r" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#f08b8b"/>
+        </marker>
+        <marker id="ps-a4g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <rect x="12" y="12" width="338" height="252" rx="14" fill="#111827" stroke="#2a3350"/>
+      <rect x="370" y="12" width="338" height="252" rx="14" fill="#111827" stroke="#2a3350"/>
+
+      <text x="181" y="38" font-size="13.5" font-weight="700" fill="#f08b8b" text-anchor="middle">ไม่มี verification</text>
+      <rect x="34" y="78" width="120" height="48" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="94" y="99" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">agent</text>
+      <text x="94" y="116" font-size="10.5" fill="#9aa7bd" text-anchor="middle">เขียนโค้ด</text>
+      <rect x="208" y="78" width="120" height="48" rx="10" fill="#2a1414" stroke="#d64545"/>
+      <text x="268" y="99" font-size="12" font-weight="700" fill="#f08b8b" text-anchor="middle">เรา</text>
+      <text x="268" y="116" font-size="10.5" fill="#e7b9b9" text-anchor="middle">เปิดแอปดูเอง</text>
+      <path d="M154 92 L204 92" stroke="#9aa7bd" stroke-width="1.6" fill="none" marker-end="url(#ps-a4)"/>
+      <text x="180" y="72" font-size="10" fill="#9aa7bd" text-anchor="middle">"เสร็จแล้วครับ"</text>
+      <path d="M268 128 C 268 186, 94 186, 94 130" stroke="#f08b8b" stroke-width="1.6" fill="none" marker-end="url(#ps-a4r)"/>
+      <text x="181" y="196" font-size="10.5" fill="#e7b9b9" text-anchor="middle">"ยังพังอยู่ ปุ่มกดไม่ติด"</text>
+      <text x="181" y="232" font-size="11" fill="#9aa7bd" text-anchor="middle">ทุกรอบต้องรอเราว่าง</text>
+
+      <text x="539" y="38" font-size="13.5" font-weight="700" fill="#4ade80" text-anchor="middle">มี verification</text>
+      <rect x="390" y="56" width="120" height="48" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="450" y="77" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">agent</text>
+      <text x="450" y="94" font-size="10.5" fill="#9aa7bd" text-anchor="middle">เขียนโค้ด</text>
+      <rect x="560" y="56" width="130" height="48" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+      <text x="625" y="77" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">/verify</text>
+      <text x="625" y="94" font-size="10.5" fill="#e7ecf6" text-anchor="middle">เปิดแอป คลิก จับภาพ</text>
+      <path d="M510 80 L556 80" stroke="#9aa7bd" stroke-width="1.6" fill="none" marker-end="url(#ps-a4)"/>
+      <circle cx="625" cy="150" r="24" fill="#1c2536" stroke="#3a4666"/>
+      <text x="625" y="155" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">ผ่าน?</text>
+      <path d="M625 104 L625 122" stroke="#9aa7bd" stroke-width="1.6" fill="none" marker-end="url(#ps-a4)"/>
+      <path d="M601 150 C 520 150, 450 140, 450 108" stroke="#f08b8b" stroke-width="1.6" fill="none" marker-end="url(#ps-a4r)"/>
+      <text x="514" y="164" font-size="10.5" fill="#e7b9b9" text-anchor="middle">ไม่ผ่าน แก้ใหม่</text>
+      <path d="M625 174 L625 198" stroke="#4ade80" stroke-width="1.8" fill="none" marker-end="url(#ps-a4g)"/>
+      <text x="646" y="190" font-size="10.5" fill="#4ade80">ผ่าน</text>
+      <rect x="560" y="202" width="130" height="42" rx="10" fill="#2b2410" stroke="#e0b400" stroke-width="1.5"/>
+      <text x="625" y="228" font-size="12" font-weight="700" fill="#f0d060" text-anchor="middle">PR + หลักฐาน</text>
+      <rect x="390" y="206" width="120" height="34" rx="17" fill="none" stroke="#3a4666" stroke-dasharray="4 4"/>
+      <text x="450" y="227" font-size="11" fill="#9aa7bd" text-anchor="middle">เรา สุ่มตรวจภายหลัง</text>
+      <path d="M512 223 L556 223" stroke="#3a4666" stroke-width="1.4" stroke-dasharray="3 3" fill="none"/>
+    </svg>
+  </ZoomableDiagram>
+
+  <h3>สร้าง verification skill ของโปรเจกต์เราเอง</h3>
+  <p>
+    pstack ไม่ได้ให้ verification skill สำเร็จรูป เพราะแต่ละแอปขับไม่เหมือนกัน เว็บต้องขับผ่าน browser แอป CLI ต้องขับผ่าน terminal มันจึงให้ skill ที่ <strong>สร้าง</strong> verification skill ให้แทน รันครั้งเดียวในโปรเจกต์ของเรา
+  </p>
+  <CodeBlock code={verifyCreate} lang="text" title="ใน Claude Code" />
+  <p>
+    ตัวพอร์ตของ Claude Code จะเขียนผลไว้ที่ <code>.claude/skills/verify/</code> และตั้งชื่อว่า <code>verify</code> ทับคำสั่ง <code>/verify</code> ที่ติดมากับ Claude Code (ตัวเดิมเรียกได้แค่คนพิมพ์ ตัวนี้ agent เรียกเองได้) ทุก playbook ที่บอกว่า "ตรวจบนของจริง" จะมาเรียกตัวนี้
+  </p>
+
+  <ZoomableDiagram caption="ซ้ายคือของที่ได้ในโปรเจกต์ ขวาคือห้าขั้นที่ /pstack:create-verification-skill เดินเพื่อสร้างมัน (ชื่อไฟล์ control-app.mjs เป็นตัวอย่าง ของจริงจะตั้งตามแอปเรา)">
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพโครงสร้างโฟลเดอร์ .claude/skills/verify ที่มีไฟล์ SKILL.md แบ่งหัวข้อ Launch Doctor Drive Evidence Cleanup Helpers มีไฟล์ CLI ตัวอย่าง control-app.mjs และโฟลเดอร์ features ที่มี README.md เป็นแผนที่ฟีเจอร์และไฟล์ละฟีเจอร์ ด้านขวาเป็นห้าขั้นของการสร้าง คือสัมภาษณ์ repo เขียน SKILL.md เขียนแผนที่ฟีเจอร์ ลองรันเองครบหนึ่งรอบ และชวนตั้งรอบดูแล" style="font-family:'Sarabun',sans-serif">
+      <rect x="12" y="20" width="356" height="262" rx="14" fill="#0f1524" stroke="#2a3350"/>
+      <g font-family="'JetBrains Mono','Fira Code',monospace" font-size="12">
+        <text x="30" y="50" fill="#4ade80" font-weight="700">.claude/skills/verify/</text>
+        <text x="30" y="78" fill="#9aa7bd">├─</text>
+        <text x="54" y="78" fill="#f2f5fb">SKILL.md</text>
+        <text x="30" y="102" fill="#9aa7bd">│</text>
+        <text x="30" y="126" fill="#9aa7bd">│</text>
+        <text x="30" y="154" fill="#9aa7bd">├─</text>
+        <text x="54" y="154" fill="#f2f5fb">control-app.mjs</text>
+        <text x="30" y="182" fill="#9aa7bd">└─</text>
+        <text x="54" y="182" fill="#f2f5fb">features/</text>
+        <text x="54" y="208" fill="#9aa7bd">├─</text>
+        <text x="78" y="208" fill="#f0d060">README.md</text>
+        <text x="54" y="232" fill="#9aa7bd">├─</text>
+        <text x="78" y="232" fill="#f2f5fb">checkout.md</text>
+        <text x="54" y="256" fill="#9aa7bd">└─</text>
+        <text x="78" y="256" fill="#f2f5fb">settings.md</text>
+      </g>
+      <g font-size="10.5" fill="#cdd6ea">
+        <rect x="54" y="88" width="300" height="20" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="204" y="102" text-anchor="middle">Launch · Doctor · Drive</text>
+        <rect x="54" y="112" width="300" height="20" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="204" y="126" text-anchor="middle">Evidence · Cleanup · Helpers</text>
+      </g>
+      <text x="200" y="154" font-size="10.5" fill="#9aa7bd">CLI ที่ agent สั่ง</text>
+      <text x="160" y="208" font-size="10.5" fill="#d8b862">แผนที่ฟีเจอร์</text>
+      <text x="184" y="244" font-size="10.5" fill="#9aa7bd">ไฟล์ละหนึ่งฟีเจอร์</text>
+
+      <g font-size="11.5">
+        <rect x="392" y="20" width="316" height="40" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="408" y="45" fill="#4ade80" font-weight="700">1</text>
+        <text x="426" y="45" fill="#e7ecf6">สัมภาษณ์ repo ถามเราเฉพาะที่หาเองไม่ได้</text>
+        <rect x="392" y="70" width="316" height="40" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="408" y="95" fill="#4ade80" font-weight="700">2</text>
+        <text x="426" y="95" fill="#e7ecf6">เขียน SKILL.md ด้วยคำสั่งจริงของโปรเจกต์</text>
+        <rect x="392" y="120" width="316" height="40" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="408" y="145" fill="#4ade80" font-weight="700">3</text>
+        <text x="426" y="145" fill="#e7ecf6">เขียนแผนที่ฟีเจอร์ 3-5 อันแรก</text>
+        <rect x="392" y="170" width="316" height="40" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="408" y="195" fill="#4ade80" font-weight="700">4</text>
+        <text x="426" y="195" fill="#e7ecf6">ลองรันเองครบหนึ่งรอบ ไม่ผ่านไม่ส่ง</text>
+        <rect x="392" y="220" width="316" height="40" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="408" y="245" fill="#4ade80" font-weight="700">5</text>
+        <text x="426" y="245" fill="#e7ecf6">ชวนตั้งรอบดูแลด้วย maintain</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    ห้าหัวข้อใน <code>SKILL.md</code> คือสิ่งที่ agent ทุกตัวต้องรู้ก่อนขับแอปของเรา
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>Launch</strong> คำสั่งเปิดแอปตัวจริง รู้ได้ยังไงว่าพร้อมแล้ว และปิดยังไง</li>
+      <li><strong>Doctor</strong> เช็กสั้น ๆ แบบอ่านอย่างเดียวว่าตัวที่รันอยู่ควรขับต่อไหม พอร์ตเป็นของเรา build ถูกเวอร์ชัน login ยังไม่หมดอายุ</li>
+      <li><strong>Drive</strong> วิธีขับแอปด้วยของจริงในโปรเจกต์ เช่น ARIA label หรือ route แทนการกดตามพิกัดบนจอ</li>
+      <li><strong>Evidence</strong> เก็บหลักฐานอะไร เก็บที่ไหน ต้องเดินเส้นทางเดียวกับผู้ใช้ ไม่แอบเรียก endpoint ลับสำหรับเทสต์ และเช็กผลข้างเคียง (ไฟล์ที่ถูกเขียน แถวในฐานข้อมูล) ด้วย</li>
+      <li><strong>Cleanup</strong> ปิดเฉพาะ process ที่ตัวเองเปิด ห้ามฆ่าตามชื่อ process และห้ามลบหลักฐานทิ้งตอนเก็บกวาด</li>
+    </ul>
+  </div>
+  <p>
+    ขั้นที่ 4 ในภาพสำคัญกว่าที่คิด skill ที่ยังไม่เคยถูกรันจริงสักรอบ ตัวสร้างนับว่าเป็นแค่ฉบับร่าง มันต้องเปิดแอป เช็ก ขับหนึ่งฟีเจอร์ เก็บหลักฐาน เก็บกวาด แล้วเช็กว่าหลักฐานยังอยู่ ครบหนึ่งรอบก่อนจะส่งให้เรา
+  </p>
+
+  <h3>ทำ CLI ให้ agent ไม่ต้องสร้างโลกใหม่ทุกครั้ง</h3>
+  <p>
+    ตอนแรกที่ยังไม่มี CLI poteto สังเกตว่า agent แต่ละตัวพยายามตรวจงานตัวเองด้วยการเขียนสคริปต์ขึ้นมาใหม่ทุกรอบ ตัวที่แล้วเขียนได้ผลแต่ทิ้งไป ตัวถัดมาเขียนใหม่ด้วยวิธีอื่น เปลืองทั้ง token และเวลา ทางแก้คือเอาส่วนที่เป็นกลไกตายตัวไปอัดไว้ในเครื่องมือตัวเดียว แล้วเหลือแค่ส่วนที่ต้องใช้วิจารณญาณให้ agent ตัดสิน
+  </p>
+  <p>
+    ตัวอย่าง CLI ที่ poteto ยกไว้ในคู่มือ เป็นแอป Electron สมมติ (ผมเปลี่ยน path ให้ตรงกับตัวพอร์ตของ Claude Code)
+  </p>
+  <CodeBlock code={cliCode} lang="bash" title="ตัวอย่างการใช้ control-app" />
+  <p>
+    คำสั่งในตัวอย่างของ poteto ครอบคลุมหกหมวด คือดูสภาพ (snapshot, screenshot) เดินไปหน้าต่าง ๆ (home, scroll) กดและพิมพ์ (click, type, press) วัดความเร็ว (trace, profile) ดู log ที่ไหลออกมา (console, network-log) และดูแลสุขภาพ (doctor, cleanup) ส่วนลักษณะของ CLI ที่ agent ใช้ง่าย poteto ให้ไว้หกข้อ
+  </p>
+  <div class="card">
+    <ul>
+      <li>คำสั่งต่อกันได้ง่าย แต่ละตัวซ่อนความซับซ้อนไว้ข้างในให้มาก (แนว <i>deep module</i> ของ John Ousterhout)</li>
+      <li>คำสั่งที่มีผลทำลายต้องมี <code>--dry-run</code></li>
+      <li>ใช้คำสั่งย่อย (subcommand) ค่อย ๆ เปิดความสามารถ ไม่โชว์ทุกอย่างทีเดียว</li>
+      <li>ข้อความ error ต้องบอกด้วยว่าควรทำอะไรแทน</li>
+      <li><code>--help</code> อธิบายละเอียด</li>
+      <li>ผลลัพธ์อยู่ในรูปที่เครื่องอ่านได้ เช่น JSON</li>
+    </ul>
+  </div>
+
+  <h3>แผนที่ฟีเจอร์ (Feature Map)</h3>
+  <p>
+    พอแอปใหญ่ขึ้น agent จะหาไม่เจอว่าฟีเจอร์นี้เข้าทางไหน poteto จึงทำสิ่งที่เรียกว่า <strong>แผนที่ฟีเจอร์ (feature map)</strong> เป็นไฟล์ Markdown หนึ่งไฟล์ต่อหนึ่งฟีเจอร์ บอกจากมุมผู้ใช้ว่ามันคืออะไร ไปถึงยังไง ขับด้วย CLI ยังไง และมีกับดักอะไร หน้าตาประมาณนี้
+  </p>
+  <CodeBlock code={featureMapCode} lang="markdown" title="features/preferences.md" />
+  <p>
+    poteto เรียกมันว่า "ความจำที่แข็งตัวแล้ว" (<i>materialized memory</i>) และมองว่าตัวโค้ดเองคือความจำที่ดีที่สุดของทีมอยู่แล้ว แผนที่ฟีเจอร์เป็นแค่ฉบับย่อที่ประหยัด token กว่า และเพราะมันอยู่ใน repo ทุกคนที่ทำงานกับโค้ดนี้ได้ใช้ร่วมกัน
+  </p>
+  <p>
+    แผนที่ที่ไม่ตรงกับแอปจริงอันตรายกว่าไม่มีแผนที่ poteto จึงแนะนำให้รัน <code>/pstack:maintain-verification-skill</code> อย่างน้อยวันละครั้ง ใน Claude Code ตั้งเป็นงานตามเวลาได้ด้วย <code>/schedule</code> หรือ <code>/loop</code>
+  </p>
+  <CodeBlock code={routineCode} lang="text" title="สั่ง /schedule ประมาณนี้" />
+
+  <h3>ใช้งานจริงหน้าตาเป็นแบบนี้</h3>
+  <p>
+    พอมี <code>/verify</code> แล้ว ทุก prompt ที่สั่งงานแก้โค้ดให้ปิดท้ายด้วยการขอหลักฐาน ตามรูปแบบที่ poteto ใช้เอง
+  </p>
+  <CodeBlock code={verifyPrompt} lang="text" title="ใน Claude Code" />
+  <p>
+    ตัวที่เข้าคู่กับ <code>/verify</code> ได้ดีที่สุดคือ <code>/pstack:swarm</code> เพราะมันแตก agent หลายตัวไปรัน <code>/verify</code> พร้อมกันได้ เช่นวัดความเร็วซ้ำหลายสิบรอบให้ตัวเลขเชื่อได้ หรือให้แต่ละตัวไปกดเล่นแอปคนละมุม (fuzz) หาว่ามีอะไรพังตามมาไหม
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>หลักคิดที่ขโมยไปใช้ได้เลย</h2>
+  <p>
+    ใน 24 ข้อ มีหลายข้อที่ใช้ได้กับ agent ทุกตัว แค่เขียนลง <code>CLAUDE.md</code> ของโปรเจกต์ก็ได้ผลแล้ว ข้างล่างนี้คือข้อที่ทั้ง poteto และ Rob Shocks พูดถึงบ่อยที่สุด
+  </p>
+  <div class="principles">
+    <div class="pr">
+      <p class="pr-name">Laziness Protocol <span>ขี้เกียจอย่างมีหลัก</span></p>
+      <p>เอียงไปทางลบโค้ดเสมอ เลือกการแก้ที่เล็กที่สุดที่แก้ปัญหาได้ อยากเพิ่ม layer หรือ abstraction ให้หยุดคิดก่อน</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Build the Lever <span>สร้างคานงัด</span></p>
+      <p>งานที่จะทำมือซ้ำหลายรอบ ให้สร้างเครื่องมือ (สคริปต์, codemod, CLI) มาทำแทน เครื่องมือนั้นยังเป็นสิ่งที่คนรีวิวเอาไปรันซ้ำเพื่อตรวจได้ด้วย</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Prove It Works <span>พิสูจน์ให้เห็น</span></p>
+      <p>คอมไพล์ผ่านหรือเทสต์เขียวไม่นับว่าเสร็จ ต้องเห็นกับของจริงว่ามันทำงาน</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Fix Root Causes <span>แก้ที่ราก</span></p>
+      <p>ทำให้เกิดซ้ำก่อน แล้วถามว่าทำไมไปเรื่อย ๆ จนถึงต้นเหตุ ของที่ใส่เผื่อ "อาจจะช่วย" ถือเป็นสมมติฐาน ห้าม ship</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Redesign from First Principles <span>ออกแบบใหม่เหมือนมีมาตั้งแต่วันแรก</span></p>
+      <p>เจอ requirement ใหม่ อย่าเอาไปแปะต่อท้าย ให้ถามว่าถ้ารู้ตั้งแต่วันแรก โครงสร้างจะหน้าตาแบบไหน แล้วย้ายไปทางนั้น</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Minimize Reader Load <span>ลดภาระคนอ่าน</span></p>
+      <p>นับชั้นที่คนอ่านต้องไล่ ยุบ wrapper ที่มีคนเรียกแค่ที่เดียว ลดขอบเขตของตัวแปรที่เปลี่ยนค่าได้</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Guard the Context Window <span>ถนอมหน้าต่างบริบท</span></p>
+      <p>ของก้อนใหญ่ (ไฟล์ยาว, log ยาว) ส่งให้ subagent ไปอ่าน แล้วรับกลับมาแค่ข้อสรุป แชตหลักต้องสะอาดไว้ตัดสินใจ</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Never Block on the Human <span>อย่านั่งรอคน</span></p>
+      <p>งานที่ย้อนกลับได้ ไม่ต้องถาม "ทำ X ดีไหม" ให้ทำแล้วโชว์ผล ให้คนเป็นฝ่ายปรับทิศ ส่วนคำถามที่ตอบได้ด้วยการลองรัน ให้ลองรันแทนการถาม</p>
+    </div>
+    <div class="pr">
+      <p class="pr-name">Encode Lessons in Structure <span>ฝังบทเรียนลงโครงสร้าง</span></p>
+      <p>เจอตัวเองเขียนคำสั่งเดิมเป็นรอบที่สอง ให้เปลี่ยนเป็น lint, runtime check หรือสคริปต์แทนการเขียนข้อความเพิ่ม</p>
+    </div>
+  </div>
+  <p>
+    ข้อสุดท้ายคือสิ่งที่ poteto ทำจริงกับโค้ดเบสของทีม เวอร์ชันแรก ๆ ของ Grokbot ประกอบด้วยไฟล์ยักษ์ราวแปดไฟล์ ไฟล์ละหลักหมื่นบรรทัด ทุกครั้งที่เห็น agent ทำผิดแบบเดิม poteto จะถามว่าจะเปลี่ยนเรื่องนี้เป็นกฎ lint หรือโครงสร้างที่ทำให้ทำผิดไม่ได้ยังไง สุดท้ายทุกฟีเจอร์มีโฟลเดอร์ของตัวเองและมีวิธีทำได้วิธีเดียว agent จะไปชนกฎเองตอนที่มันกำลังจะพลาด โดยเราไม่ต้องยัดกฎลงในหัวมันล่วงหน้า
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>บันไดความไว้ใจ จากครัวที่บ้านถึงร้านสาขา</h2>
+  <p>
+    poteto ไม่ชอบคำว่า "โรงงานผลิตซอฟต์แวร์" (<i>software factory</i>) เพราะคำว่าโรงงานไม่ได้ชวนให้นึกถึงฝีมือ เลยใช้ภาพ <strong>ครัวร้านมิชลิน</strong> แทน และภาพนี้อธิบายได้ดีว่าทำไมส่ง PR ได้ 2,500 ตัวโดยไม่ได้นั่งเปิดแชต 2,500 ครั้ง
+  </p>
+
+  <ZoomableDiagram caption="ขึ้นแต่ละขั้นได้ก็ต่อเมื่อขั้นก่อนหน้าแน่นแล้ว ข้ามขั้นสองไปขั้นสามคือการปล่อยลูกมือเข้าครัวที่ไม่มีมีดคม">
+    <svg viewBox="0 0 720 290" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพบันไดสี่ขั้น ขั้น 1 ทำอาหารเองที่บ้าน จ้อง agent ตัวเดียวทุกก้าว ขั้น 2 ลับมีด ทำ verification lint และ type ขั้น 3 มีลูกมือในครัว ปล่อยหลาย agent พร้อมกัน ขั้น 4 เปิดร้านสาขา agent merge เองและเราชิมแบบสุ่ม ลูกศรด้านบนชี้ว่าความไว้ใจ agent สูงขึ้นทุกขั้น" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <path d="M60 150 L640 20" stroke="#4ade80" stroke-width="1.6" stroke-dasharray="5 5" fill="none" marker-end="url(#ps-a6)"/>
+      <text x="420" y="50" font-size="11.5" fill="#4ade80" transform="rotate(-12.6 420 50)">ความไว้ใจ agent มากขึ้น</text>
+      <g text-anchor="middle">
+        <rect x="12" y="200" width="168" height="50" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="96" y="221" font-size="12" font-weight="700" fill="#f2f5fb">ขั้น 1 · ทำเองที่บ้าน</text>
+        <text x="96" y="239" font-size="10.5" fill="#9aa7bd">จ้อง agent ตัวเดียวทุกก้าว</text>
+
+        <rect x="188" y="160" width="168" height="90" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="272" y="181" font-size="12" font-weight="700" fill="#cfe6ff">ขั้น 2 · ลับมีด</text>
+        <text x="272" y="199" font-size="10.5" fill="#9fb8d6">verification, lint, type</text>
+
+        <rect x="364" y="120" width="168" height="130" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="448" y="141" font-size="12" font-weight="700" fill="#f0d060">ขั้น 3 · มีลูกมือ</text>
+        <text x="448" y="159" font-size="10.5" fill="#d8b862">หลาย agent พร้อมกัน</text>
+
+        <rect x="540" y="80" width="168" height="170" rx="8" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+        <text x="624" y="101" font-size="12" font-weight="700" fill="#4ade80">ขั้น 4 · เปิดร้านสาขา</text>
+        <text x="624" y="119" font-size="10.5" fill="#e7ecf6">agent merge เอง</text>
+        <text x="624" y="135" font-size="10.5" fill="#e7ecf6">เราชิมแบบสุ่ม</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <div class="card">
+    <ul>
+      <li><strong>ขั้น 1 ทำเองที่บ้าน</strong> เราหั่นผักเอง ล้างจานเอง คือนั่งจ้อง agent ตัวเดียวทุกก้าว ถ้าชวนทั้งบ้านเข้าครัวตอนนี้ คนส่วนใหญ่จะเครียด เพราะไม่มีใครรู้ว่ามีดอยู่ลิ้นชักไหน</li>
+      <li><strong>ขั้น 2 ลับมีด</strong> ลงแรงกับสภาพแวดล้อมของ agent ได้แก่ verification skill, lint, type, CLI poteto มองว่านี่คืองานใหม่ของวิศวกร และคนที่ติดอยู่ขั้น 1 มักไม่มีเวลามาทำ เพราะเวลาหมดไปกับการเฝ้า agent</li>
+      <li><strong>ขั้น 3 มีลูกมือ</strong> เมื่อเชื่อ agent ตัวเดียวได้แล้ว ค่อยเปิดหลายตัวพร้อมกัน (arena, swarm, หลายแชต) โดยไม่ต้องกลัวว่าจะเหยียบกัน</li>
+      <li><strong>ขั้น 4 เปิดร้านสาขา</strong> ปล่อยให้ agent merge โค้ดเองตอนกลางคืน แล้วตอนเช้าไล่อ่าน commit history แทนการรีวิวก่อน merge ทุกตัว poteto เล่าว่าคืนแรกที่เปิดโหมดนี้กลัวมาก แต่ตอนนี้กลับนอนหลับสบายขึ้น</li>
+    </ul>
+  </div>
+
+  <h3>วงนอก วงใน และหัวหน้าครัว</h3>
+  <p>
+    งานส่วนใหญ่ของ poteto ไม่ได้เริ่มจากการที่ตัวเองพิมพ์สั่ง มันเริ่มจากสองวงที่ต่อกัน <strong>วงใน (inner loop)</strong> คือ agent ที่ลงมือเขียนและตรวจโค้ด <strong>วงนอก (outer loop)</strong> คือช่องทางที่ข้อมูลใหม่ไหลเข้ามา เช่นรายงานบั๊กใน Slack, Linear, X หรืออีเมล ถ้าไม่ต่อสองวงนี้เข้าหากัน เราก็ต้องเป็นคนกลางที่คอยยกข้อมูลจากวงนอกไปป้อนวงในเอง
+  </p>
+
+  <ZoomableDiagram caption="รายงานจากผู้ใช้ไหลเข้าหัวหน้าครัว หัวหน้าครัวแจกงานให้วงใน วงในทำซ้ำ แก้ ตรวจ และ merge เอง เราเข้ามาตอนเช้าเพื่อสุ่มชิมและปรับครัว">
+    <svg viewBox="0 0 720 318" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงนอกและวงใน ด้านซ้ายเป็นแหล่งข้อมูลวงนอก ได้แก่ Slack Linear X อีเมล และ routine ตามเวลา ไหลเข้าหัวหน้าครัวซึ่งเป็น coordinator agent ที่แจกงานแต่ไม่ลงมือเอง จากนั้นเข้าวงใน ที่วนจากทำซ้ำบั๊กด้วย verify ไปหาสาเหตุและแก้ ไปตรวจซ้ำด้วยหลาย agent ไป merge เอง ผลออกมาให้เราตอนเช้าไล่อ่าน commit แบบสุ่ม แล้วเราปรับครัวด้วย lint ใหม่หรือแก้ skill ส่งกลับเข้าวงใน" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="ps-a7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+        <marker id="ps-a7g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <text x="72" y="32" font-size="12" font-weight="700" fill="#7cc4ff" text-anchor="middle">วงนอก</text>
+      <g font-size="11.5" fill="#cfe6ff" text-anchor="middle">
+        <rect x="12" y="46" width="120" height="30" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="72" y="66">Slack</text>
+        <rect x="12" y="84" width="120" height="30" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="72" y="104">Linear</text>
+        <rect x="12" y="122" width="120" height="30" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="72" y="142">X</text>
+        <rect x="12" y="160" width="120" height="30" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="72" y="180">อีเมล</text>
+        <rect x="12" y="198" width="120" height="30" rx="8" fill="#18263a" stroke="#3b5b86"/>
+        <text x="72" y="218">routine ตามเวลา</text>
+      </g>
+      <g stroke="#9aa7bd" stroke-width="1.3" fill="none">
+        <path d="M134 61 L166 128" marker-end="url(#ps-a7)"/>
+        <path d="M134 137 L166 137"/>
+        <path d="M134 213 L166 146" marker-end="url(#ps-a7)"/>
+      </g>
+      <rect x="170" y="104" width="150" height="66" rx="10" fill="#2b2410" stroke="#e0b400" stroke-width="1.5"/>
+      <text x="245" y="127" font-size="12.5" font-weight="700" fill="#f0d060" text-anchor="middle">หัวหน้าครัว</text>
+      <text x="245" y="144" font-size="10.5" fill="#d8b862" text-anchor="middle">coordinator agent</text>
+      <text x="245" y="160" font-size="10.5" fill="#d8b862" text-anchor="middle">แจกงาน ไม่ลงมือเอง</text>
+      <line x1="322" y1="137" x2="350" y2="137" stroke="#4ade80" stroke-width="1.8" marker-end="url(#ps-a7g)"/>
+
+      <rect x="354" y="20" width="354" height="218" rx="16" fill="#0f1a16" stroke="#2f9e5c" stroke-dasharray="6 5"/>
+      <text x="531" y="44" font-size="12" font-weight="700" fill="#4ade80" text-anchor="middle">วงใน</text>
+      <g font-size="11" fill="#e7ecf6" text-anchor="middle">
+        <rect x="372" y="64" width="150" height="38" rx="9" fill="#1c2536" stroke="#3a4666"/>
+        <text x="447" y="87">ทำบั๊กซ้ำด้วย /verify</text>
+        <rect x="542" y="64" width="150" height="38" rx="9" fill="#1c2536" stroke="#3a4666"/>
+        <text x="617" y="87">หาสาเหตุ แล้วแก้</text>
+        <rect x="542" y="176" width="150" height="38" rx="9" fill="#1c2536" stroke="#3a4666"/>
+        <text x="617" y="199">ตรวจซ้ำด้วยหลาย agent</text>
+        <rect x="372" y="176" width="150" height="38" rx="9" fill="#12301f" stroke="#2f9e5c"/>
+        <text x="447" y="199" fill="#4ade80" font-weight="700">merge เอง</text>
+      </g>
+      <g stroke="#4ade80" stroke-width="1.5" fill="none">
+        <path d="M524 83 L538 83" marker-end="url(#ps-a7g)"/>
+        <path d="M617 104 L617 172" marker-end="url(#ps-a7g)"/>
+        <path d="M540 195 L526 195" marker-end="url(#ps-a7g)"/>
+      </g>
+
+      <path d="M447 216 C 447 250, 300 236, 280 258" stroke="#9aa7bd" stroke-width="1.4" fill="none" marker-end="url(#ps-a7)"/>
+      <rect x="150" y="262" width="230" height="42" rx="10" fill="#1c2536" stroke="#3a4666"/>
+      <text x="265" y="281" font-size="11.5" font-weight="700" fill="#f2f5fb" text-anchor="middle">เราตอนเช้า</text>
+      <text x="265" y="297" font-size="10.5" fill="#9aa7bd" text-anchor="middle">ไล่อ่าน commit แบบสุ่มชิม</text>
+      <line x1="382" y1="283" x2="406" y2="283" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#ps-a7)"/>
+      <rect x="410" y="262" width="200" height="42" rx="10" fill="#18263a" stroke="#3b5b86"/>
+      <text x="510" y="281" font-size="11.5" font-weight="700" fill="#cfe6ff" text-anchor="middle">ปรับครัว</text>
+      <text x="510" y="297" font-size="10.5" fill="#9fb8d6" text-anchor="middle">lint ใหม่ หรือแก้ skill</text>
+      <path d="M560 260 L582 242" stroke="#9aa7bd" stroke-width="1.4" fill="none" marker-end="url(#ps-a7)"/>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    รายละเอียดที่ทำให้ระบบนี้ไม่เละมีสามจุด
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>มีหัวหน้าครัวคั่นกลาง</strong> ถ้าบั๊กเรื่องความช้าเข้ามาพร้อมกัน 30 เรื่อง การแตก agent หนึ่งตัวต่อหนึ่งเรื่องจะทำงานซ้ำกันและมองไม่เห็นภาพใหญ่ หัวหน้าครัวเห็นทั้ง 30 เรื่องพร้อมกัน เลยรู้ว่าบางเรื่องมีต้นเหตุเดียวกัน</li>
+      <li><strong>บางงานควรพักไว้ในคิวก่อน</strong> poteto มี agent ตัวหนึ่งที่คอยหาแพตเทิร์นต้องห้ามของ React ตัวนี้จดสิ่งที่เจอต่อท้ายเอกสารไว้เฉย ๆ ไม่ได้แก้ทันที ทุกสองสามวัน poteto มาอ่านแล้วมักพบว่าหลายรายการเป็นเรื่องเดียวกัน แก้ที่รากทีเดียวจบ</li>
+      <li><strong>ชิมแบบสุ่ม แต่ชิมจริงจัง</strong> รีวิวทุกจานไม่ไหว แต่ทุกวันต้องหยิบมาดูละเอียด ถ้าเห็น agent หลายตัวใช้ทางลัดเดียวกัน แปลว่าครัวมีปัญหา ให้กลับไปแก้ครัว (skill, lint, type) แทนการตามแก้ทีละ agent</li>
+    </ul>
+  </div>
+  <div class="callout callout-warn">
+    <p class="callout-label">poteto เตือนเองว่าขั้นนี้ไปถึงยาก</p>
+    <p>
+      ในไลฟ์ poteto บอกตรง ๆ ว่าไม่อยากให้ใครเข้าใจว่าลง pstack แล้วจะไปถึงขั้น agent merge เองได้ทันที ต้องใช้เวลาและความตั้งใจมากในการนั่งดูว่า agent พลาดตรงไหนแล้ววางราวกั้นทีละอัน และงานบางประเภทที่ตรวจด้วยโปรแกรมได้ยาก หรือผิดแล้วย้อนกลับไม่ได้ (เช่นงานที่ทำข้อมูลหายถาวร) poteto ก็ยอมรับว่ายังไม่มีคำตอบที่ดี
+    </p>
+  </div>
+
+  <h3>skill ที่ดีที่สุดคือ skill ที่ขุดจากแชตของเราเอง</h3>
+  <p>
+    ช่วงท้ายของไลฟ์ Matt Pocock ถามว่าควรใช้ pstack คู่กับ skill ชุดอื่นยังไง poteto ตอบว่าเชฟทุกคนพกมีดชุดของตัวเองไปทุกร้าน ทางที่ดีที่สุดคือให้ agent อ่านแชตเก่าของเรา หาจุดที่เราต้องเข้าไปแก้ไขมันซ้ำ ๆ แล้วเปลี่ยนจุดเหล่านั้นเป็น lint หรือ skill ใหม่ เพราะแชตเก่าคือขั้นตอนการทำงานที่เกิดขึ้นจริงแล้ว pstack มี skill ทำเรื่องนี้ให้โดยตรง
+  </p>
+  <CodeBlock code={transcriptPrompt} lang="text" title="ร่าง skill ประจำตัวจากแชตล่าสุดของเรา" />
+  <p>
+    ส่วน <code>/pstack:reflect</code> ใช้หลังจบงานยาว เพื่อเก็บบทเรียนของงานนั้นเป็นการแก้ skill และ <code>/pstack:correct</code> ใช้เมื่อเห็นความผิดซ้ำในโปรเจกต์ เพื่อเปลี่ยนมันเป็นสิ่งที่ระบบบังคับ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ราคาที่ต้องจ่าย และงานที่ไม่ต้องใช้</h2>
+  <p>
+    Rob Shocks ลองสร้างแอปจัดการ skill ตัวเดียวกันสองรอบ รอบแรกใช้ Fable 5.1 เปล่า ๆ ไม่มี plan mode ไม่มี skill ใช้เวลาราว 30 นาที รอบที่สองใช้ pstack ใช้เวลาราว 1 ชั่วโมง หรือนานกว่าสองเท่า แต่ Rob บอกว่าตัวที่ได้จาก pstack แข็งแรงกว่ากันมาก และระหว่างขั้นตรวจสอบ agent จับได้ว่าตัวเองเคลมสามเรื่องที่ไม่จริง แล้วแก้กลับเอง (นี่คือการทดลองครั้งเดียวของคนคนเดียว ใช้เป็นภาพคร่าว ๆ ได้เท่านั้น)
+  </p>
+  <div class="cost">
+    <div class="cost-row">
+      <span class="cost-label">Fable 5.1 เปล่า</span>
+      <span class="cost-bar"><span class="cost-fill" style="width:50%"></span></span>
+      <span class="cost-val">~30 นาที</span>
+    </div>
+    <div class="cost-row">
+      <span class="cost-label">ใช้ pstack</span>
+      <span class="cost-bar"><span class="cost-fill cost-fill-hi" style="width:100%"></span></span>
+      <span class="cost-val">~60 นาที</span>
+    </div>
+    <p class="cost-cap">เวลาที่ Rob Shocks ใช้สร้างแอปเดียวกันในวิดีโอรีวิว (ทดลองครั้งเดียว)</p>
+  </div>
+  <p>
+    ตัวที่เผา token หนักที่สุดคือ skill ที่ปล่อยหลายโมเดลพร้อมกัน ได้แก่ <code>arena</code>, <code>architect</code> (ข้างในเรียก arena) และ <code>interrogate</code> ซึ่งค่าเริ่มต้นใช้สามโมเดลต่อรอบ ถ้างบจำกัด ให้เข้า <code>/pstack:setup-pstack</code> แล้วลดรายชื่อในบทบาทพวกนี้ลงเหลือสองตัว หรือเหลือตัวเดียวก็ได้
+  </p>
+  <div class="callout callout-tip">
+    <p class="callout-label">งานที่ไม่ต้องโยนมันฝรั่งใส่</p>
+    <p>
+      แก้ไฟล์เดียวที่รู้อยู่แล้วว่าต้องแก้อะไร ปรับสี ขยับ margin หรือถามคำถามสั้น ๆ ทำตรง ๆ ได้เลย ตัว hook เองก็ออกแบบมาให้ข้ามงานพวกนี้อยู่แล้ว Rob สรุปไว้ว่าถ้าเป็นการปรับดีไซน์เล็ก ๆ หรืองานหน้าบ้าน (UI) ทั่วไป ส่วนใหญ่ไม่จำเป็นต้องใช้ pstack ความเข้มของมันคุ้มกับงานที่ผิดแล้วแพง เช่นบั๊กที่ยังไม่รู้สาเหตุ งานที่แตะหลายระบบ หรืองานที่จะปล่อยให้ agent ทำข้ามคืน
+    </p>
+  </div>
+  <p>
+    อีกเรื่องที่ควรรู้ก่อนลงคือ pstack ไม่มี skill สำหรับวางแผนหรือเขียน spec ยาว ๆ ก่อนเริ่มงาน Rob เล่าว่าเป็นความตั้งใจของ poteto ที่มองว่า spec ที่ดีที่สุดคือตัวโค้ด และแผนที่ละเอียดก่อนเจอของจริงมักพังเมื่อเริ่มลงมือ มันจึงเหมาะกับโค้ดเบสที่มีอยู่แล้ว มากกว่าการเริ่มโปรเจกต์ใหม่จากกระดาษเปล่า ถ้าอยากได้ขั้นวางแผน ใช้ skill ชุดอื่นคู่กันได้
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>เริ่มพรุ่งนี้เช้า ทำตามนี้</h2>
+  <ol class="todo">
+    <li>ลง plugin สองบรรทัด แล้วรัน <code>/pstack:setup-pstack</code> ถ้างบจำกัดให้ลดรายชื่อโมเดลใน arena กับ interrogate ลง</li>
+    <li>รัน <code>/pstack:create-verification-skill</code> ในโปรเจกต์หลักที่ทำอยู่ แล้วนั่งดูให้มันลองรันเองจนจบหนึ่งรอบ</li>
+    <li>เปิด <code>.claude/skills/verify/features/</code> อ่านแผนที่ฟีเจอร์ที่มันเขียน แก้ส่วนที่ผิด ส่วนนี้คือที่ที่ความรู้ของเราช่วยได้มากที่สุด</li>
+    <li>งานแก้บั๊กชิ้นถัดไป พิมพ์ <code>/pstack:poteto-mode</code> นำ แล้วปิดท้ายด้วย "ใช้ /verify ยืนยัน แนบหลักฐาน"</li>
+    <li>อ่านคำตอบที่ได้ ดูว่ามีหลักฐานก่อนกับหลังแก้ไหม ถ้าไม่มีให้ถามกลับ</li>
+    <li>ตั้ง <code>/schedule</code> ให้รัน <code>/pstack:maintain-verification-skill</code> ทุกวัน</li>
+    <li>ครบสองสัปดาห์ รัน <code>/pstack:automate-me</code> ให้มันอ่านแชตของเรา แล้วร่าง skill ประจำตัวที่เป็นสไตล์ของเราเอง</li>
+  </ol>
+  <p>
+    ขั้นที่สองกับสามคือขั้นลับมีดในบันได ถ้าทำแค่สองขั้นนี้ให้ดี แม้ไม่เคยเรียก arena หรือ swarm เลย ก็ได้ส่วนที่คุ้มที่สุดของ pstack ไปแล้วครับ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <ol class="references">
+    <li>Michael Denyer, <i>pstack-claude</i> · <a href="https://github.com/michael-denyer/pstack-claude" target="_blank" rel="noopener noreferrer">github.com/michael-denyer/pstack-claude</a> (ตัวพอร์ตสำหรับ Claude Code, Codex และ Pi อ่านจากเวอร์ชัน 0.9.67 วันที่ 4 ตุลาคม 2026 ตัวเลขจำนวน skill, playbook, คำสั่งติดตั้ง และขั้นตอนของแต่ละ playbook มาจากที่นี่)</li>
+    <li>Lauren Tan (poteto), <i>pstack</i> ต้นฉบับสำหรับ Cursor · <a href="https://github.com/cursor/plugins/tree/main/pstack" target="_blank" rel="noopener noreferrer">github.com/cursor/plugins</a></li>
+    <li>poteto, <i>The Complete Guide to pstack Pt. 1</i> (31 สิงหาคม 2026) · <a href="https://x.com/poteto/status/2094457600259842065" target="_blank" rel="noopener noreferrer">x.com/poteto</a> (ที่มาของหัวข้อ verification, ตัวอย่าง CLI, หลักการออกแบบ CLI หกข้อ และแผนที่ฟีเจอร์ ตัวอย่างในหน้านี้ผมแปลและปรับ path ให้เข้ากับ Claude Code)</li>
+    <li>poteto, "here's how i shipped 2,500 PRs last month to production" (21 กันยายน 2026) · <a href="https://x.com/poteto/status/2102050467505430555" target="_blank" rel="noopener noreferrer">x.com/poteto</a> (วิดีโอทอล์กยาวราว 38 นาที)</li>
+    <li>Matt Pocock, "LIVE: Poteto (creator of pstack) on shipping 1,000's of PR's a month at SpaceX" · <a href="https://youtu.be/MN9dGgmLyso" target="_blank" rel="noopener noreferrer">YouTube</a> (ที่มาของบันไดความไว้ใจ ครัวมิชลิน meat proxy วงนอกวงใน หัวหน้าครัว การพักงานไว้ในคิว และคำแนะนำให้ขุด skill จากแชตเก่า)</li>
+    <li>Rob Shocks, "Pstack Is Agent Overkill. Use It Anyway!" · <a href="https://youtu.be/lUhXa8GiXns" target="_blank" rel="noopener noreferrer">YouTube</a> (ที่มาของการทดลอง 30 นาทีเทียบ 1 ชั่วโมง ความเห็นเรื่องงานที่ไม่ต้องใช้ และเรื่องที่ pstack ไม่มี skill วางแผน)</li>
+    <li>Piyalitt Ittichaiwong, โพสต์สรุปภาษาไทยเรื่อง PR 2,500 ตัวต่อเดือน · <a href="https://www.facebook.com/share/p/19R8BFjxUR/" target="_blank" rel="noopener noreferrer">Facebook</a> (ผมอ่านได้แค่ส่วนตัวอย่างของโพสต์ เพราะตัวเต็มต้อง login จึงไม่ได้ใช้เนื้อหาในโพสต์นี้)</li>
+  </ol>
+</DivineLoreLayout>
+
+<style>
+  .step{
+    margin:1.1rem 0;
+    padding:0.9rem 1rem 0.2rem;
+    border-left:3px solid #2f9e5c;
+    background:rgba(47,158,92,0.06);
+    border-radius:0 12px 12px 0;
+  }
+  .step-num{
+    margin:0 0 0.35rem;
+    font-weight:700;
+    color:#4ade80;
+    font-size:0.92rem;
+  }
+  h3{
+    font-size:0.95rem;
+    margin:1.8rem 0 0.6rem;
+    color:#f2f5fb;
+  }
+
+  .recipes{
+    margin:1.2rem 0;
+    background:#141a29;
+    border:1px solid #2a3350;
+    border-radius:14px;
+    padding:0.9rem;
+  }
+  .rc-tabs{display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.8rem;}
+  .rc-tab{
+    font:inherit;
+    font-size:0.85rem;
+    padding:0.35rem 0.8rem;
+    border-radius:999px;
+    border:1px solid #3a4666;
+    background:#1c2536;
+    color:#c3cbdc;
+    cursor:pointer;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .rc-tab:hover{border-color:#4ade80;color:#fff;}
+  .rc-tab[aria-selected="true"]{background:#12301f;border-color:#2f9e5c;color:#4ade80;font-weight:700;}
+  .rc-tab:focus-visible{outline:2px solid #4ade80;outline-offset:2px;}
+  .rc-pb{margin:0 0 0.6rem;font-size:0.85rem;color:#9aa7bd;}
+  .rc-pb span{color:#f0d060;font-weight:700;}
+  .rc-h{margin:0.8rem 0 0.35rem;font-size:0.8rem;font-weight:700;color:#9aa7bd;text-transform:uppercase;letter-spacing:0.04em;}
+  .rc-prompt{
+    margin:0;
+    padding:0.7rem 0.85rem;
+    background:#0b1220;
+    border:1px solid #2a3350;
+    border-radius:10px;
+    color:#e7ecf6;
+    font-family:'JetBrains Mono','Fira Code',monospace;
+    font-size:0.8rem;
+    line-height:1.6;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+  }
+  .rc-steps{margin:0;padding-left:1.3rem;}
+  .rc-steps li{font-size:0.88rem;margin:0.25rem 0;}
+  .rc-reply{
+    margin:0.85rem 0 0;
+    padding:0.6rem 0.8rem;
+    border-radius:10px;
+    background:rgba(224,180,0,0.08);
+    border:1px solid rgba(224,180,0,0.35);
+    font-size:0.86rem;
+  }
+  .rc-reply span{display:block;font-size:0.75rem;font-weight:700;color:#f0d060;margin-bottom:0.15rem;}
+
+  .mantras{margin:0.8rem 0 1rem;padding-left:1.4rem;}
+  .mantras li{margin:0.4rem 0;}
+  .mantras li i{color:#9aa7bd;font-size:0.85em;}
+  .mantras li span{display:block;font-size:0.86rem;color:#9aa7bd;}
+
+  .skills, .principles{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr));
+    gap:0.65rem;
+    margin:1rem 0;
+  }
+  .sk, .pr{
+    background:#141a29;
+    border:1px solid #2a3350;
+    border-radius:12px;
+    padding:0.75rem 0.85rem;
+  }
+  .sk p, .pr p{margin:0;font-size:0.86rem;}
+  .sk-name{
+    font-family:'JetBrains Mono','Fira Code',monospace;
+    color:#4ade80;
+    font-weight:700;
+    font-size:0.85rem !important;
+    margin-bottom:0.3rem !important;
+  }
+  .pr-name{font-weight:700;color:#f2f5fb;margin-bottom:0.3rem !important;}
+  .pr-name span{display:block;font-weight:400;font-size:0.8rem;color:#f0d060;}
+
+  .cost{
+    margin:1rem 0 1.2rem;
+    padding:0.9rem 1rem;
+    background:#141a29;
+    border:1px solid #2a3350;
+    border-radius:14px;
+  }
+  .cost-row{display:grid;grid-template-columns:7.5rem 1fr 4.5rem;align-items:center;gap:0.6rem;margin:0.35rem 0;}
+  .cost-label{font-size:0.85rem;color:#c3cbdc;}
+  .cost-bar{height:0.85rem;background:#0b1220;border-radius:999px;overflow:hidden;border:1px solid #2a3350;}
+  .cost-fill{display:block;height:100%;background:#3b5b86;border-radius:999px;}
+  .cost-fill-hi{background:#2f9e5c;}
+  .cost-val{font-size:0.85rem;color:#e7ecf6;text-align:right;font-variant-numeric:tabular-nums;}
+  .cost-cap{margin:0.5rem 0 0;font-size:0.78rem;color:#9aa7bd;text-align:center;}
+
+  .todo{padding-left:1.4rem;}
+  .todo li{margin:0.45rem 0;}
+
+  @media (max-width:520px){
+    .cost-row{grid-template-columns:5.5rem 1fr 3.8rem;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .rc-tab{transition:none;}
+  }
+</style>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLElement>('[data-recipes]').forEach((root) => {
+      if (root.dataset.wired) return;
+      root.dataset.wired = '1';
+      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('.rc-tab'));
+      const panels = Array.from(root.querySelectorAll<HTMLElement>('.rc-panel'));
+      const select = (id: string) => {
+        tabs.forEach((t) => t.setAttribute('aria-selected', t.dataset.recipe === id ? 'true' : 'false'));
+        panels.forEach((p) => { p.hidden = p.dataset.panel !== id; });
+      };
+      tabs.forEach((t, i) => {
+        t.addEventListener('click', () => select(t.dataset.recipe ?? ''));
+        t.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+          e.preventDefault();
+          const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+          next.focus();
+          select(next.dataset.recipe ?? '');
+        });
+      });
+    });
+  });
+</script>
