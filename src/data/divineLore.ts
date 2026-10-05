@@ -15,6 +15,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'pstack-guide/',
+    tag: 'บันทึกวิจัย',
+    title: 'pstack: ชุด skill ที่ส่ง PR ได้ 2,500 ตัวต่อเดือน ลงและใช้ยังไง',
+    desc: 'คู่มือลง pstack ของ poteto ใน Claude Code แล้วใช้งานจริง สั่ง poteto-mode ยังไงให้ได้งานพร้อมหลักฐาน สร้าง verification skill ให้ agent ตรวจงานตัวเองได้ หลักคิดที่ขโมยไปใช้กับ agent ตัวไหนก็ได้ บันไดความไว้ใจจากครัวที่บ้านถึงร้านสาขา และงานแบบไหนที่ไม่คุ้มจะใช้',
+    dateISO: '2026-10-05',
+    readingMinutes: 18,
+  },
+  {
     href: 'bitcoin-v01-source/',
     tag: 'บันทึกการเงิน',
     title: 'เปิดฝาดูโค้ดชิ้นแรกของบิตคอยน์',
