@@ -17,10 +17,11 @@ export const divineLoreEntries: DivineLoreEntry[] = [
   {
     href: 'pstack-guide/',
     tag: 'บันทึกวิจัย',
-    title: 'pstack: ชุด skill ที่ส่ง PR ได้ 2,500 ตัวต่อเดือน ลงและใช้ยังไง',
-    desc: 'คู่มือลง pstack ของ poteto ใน Claude Code แล้วใช้งานจริง สั่ง poteto-mode ยังไงให้ได้งานพร้อมหลักฐาน สร้าง verification skill ให้ agent ตรวจงานตัวเองได้ หลักคิดที่ขโมยไปใช้กับ agent ตัวไหนก็ได้ บันไดความไว้ใจจากครัวที่บ้านถึงร้านสาขา และงานแบบไหนที่ไม่คุ้มจะใช้',
+    title: 'pstack: ชุด skill ที่ส่ง PR ได้กว่า 2,000 ตัวต่อเดือน ลงและใช้ยังไง',
+    desc: 'คู่มือลง pstack ของ poteto ใน Claude Code แล้วใช้งานจริง สั่ง poteto-mode ยังไงให้ได้งานพร้อมหลักฐาน ดูงานจริงที่ Rob Shocks ลองบนจอ สร้าง verification skill ให้ agent ตรวจงานตัวเองได้ กฎห้าชั้นตอนต้องแก้ agent ที่ Lauren บอกว่าเป็นสไลด์เดียวที่ต้องจำ และงานแบบไหนที่ไม่คุ้มจะใช้',
     dateISO: '2026-10-05',
-    readingMinutes: 18,
+    updatedISO: '2026-10-08',
+    readingMinutes: 23,
   },
   {
     href: 'bitcoin-v01-source/',
