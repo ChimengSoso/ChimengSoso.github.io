@@ -15,6 +15,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'hermes-agent/',
+    tag: 'บันทึกวิจัย',
+    title: 'Hermes Agent: agent ประจำตัวที่เขียน skill ให้ตัวเอง ลงยังไงให้ปลอดภัย',
+    desc: 'Hermes Agent ของ Nous Research อยู่ตรงไหนเทียบกับ Claude Code และ T3 Code สี่ค่าที่ควรตั้งก่อนคุยครั้งแรก ระบบ skill ที่เป็น SKILL.md แบบเดียวกับที่เรารู้จัก วงจรที่มันเขียน skill ให้ตัวเอง ความจำที่เล็กกว่าที่คิด และบทเรียนเรื่องความปลอดภัยจากเอกสารของเขาเอง',
+    dateISO: '2026-10-12',
+    readingMinutes: 11,
+  },
+  {
     href: 'test-t3-app-skill/',
     tag: 'บันทึกวิจัย',
     title: 'test-t3-app: verification skill 41 บรรทัดของ T3 Code ที่ควรลอกไปใช้คู่ pstack',
