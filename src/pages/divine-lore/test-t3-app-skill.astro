@@ -1,0 +1,642 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { divineLoreEntries } from '../../data/divineLore';
+
+const entry = divineLoreEntries.find((e) => e.href === 'test-t3-app-skill/');
+if (!entry) throw new Error('test-t3-app-skill/ ไม่มีใน divineLore.ts');
+
+const installT3 = `# macOS / Linux
+curl -fsSL https://t3.codes/install.sh | sh
+
+# Windows (PowerShell)
+irm https://t3.codes/install.ps1 | iex
+
+# หรือลองครั้งเดียวโดยไม่ติดตั้ง
+npx t3@latest`;
+
+const installDesktop = `winget install T3Tools.T3Code        # Windows
+brew install --cask t3-code          # macOS`;
+
+const mcpCode = `claude mcp add --transport http t3 https://<ที่อยู่-environment>/mcp
+claude mcp login t3
+claude mcp list`;
+
+const promptT3Repo = `/pstack:poteto-mode ปุ่มปิด thread ในแถบด้านข้างกดแล้วไม่หาย
+ช่วยหาสาเหตุแล้วแก้ ใช้ /test-t3-app ยืนยันบน Browser panel
+แนบภาพก่อนและหลังแก้ แล้วเปิด server ทิ้งไว้ให้ผมลองเอง`;
+
+const promptOwnRepo = `/pstack:create-verification-skill
+ใช้โครงเดียวกับ test-t3-app ของ T3 Code: แยก state ไว้ในโฟลเดอร์ของ worktree,
+อ่านพอร์ตจริงจาก output, ถ้าไม่มีเครื่องมือขับ browser ให้หยุดแล้วบอก,
+ปิดเฉพาะ process ที่ตัวเองเปิด, เปิด server ทิ้งไว้หลังตรวจเสร็จ`;
+
+const templateSkill = `---
+name: test-<app>
+description: Verify <app>'s web UI in a real browser against isolated dev
+  state. Use after any user-visible change. Not for unit tests.
+---
+
+# Test <app>
+
+Use <browser tools available in this harness>. If they are missing, say what
+is blocked and stop. Do not install another automation tool to get around it.
+
+## Start
+Reuse a healthy dev server from this task. Otherwise run \`<dev command>\`
+and keep its terminal. Read the real port from its output; never guess it.
+State lives in <worktree-local data dir>. Never point the app at <real data>.
+
+## Data
+Test with realistic data. Read references/fixtures.md only when seeding.
+Stop the server before writing fixtures directly.
+
+## Drive
+Open <url>, take a snapshot, then walk the exact flow the change touched.
+
+## Prove and keep
+Capture what proves the flow works (screenshot, recording, DB row).
+Leave the server running for the user. Ending a turn is not teardown.
+Stop only processes you started, by the PID you recorded.
+Keep tokens and secrets out of screenshots, commits and replies.`;
+
+const launchJson = `{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "astro-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 4321,
+      "autoPort": true
+    }
+  ]
+}`;
+
+const desktopSkill = `---
+name: test-<app>
+description: Verify <app>'s web UI in Claude's built-in browser against
+  isolated dev state. Use after any user-visible change.
+---
+
+# Test <app> in Claude Desktop
+
+Use the built-in browser tools (preview_start, navigate, read_page, find,
+computer, javascript_tool). If they are missing, say what is blocked and
+stop. Do not install Playwright or drive another browser instead.
+
+## Start
+Start the dev server with preview_start {name: "<name in launch.json>"}.
+Never start it from a shell; preview_start reuses a running server.
+Data lives in <isolated dev data>. Never point the app at <real data>.
+
+## Check the pane before measuring
+Read window.innerWidth first. If it is 0 the pane is hidden: call
+resize_window with the desktop preset, then the size you need, and re-read.
+
+## Drive
+navigate to the page. Read it with read_page or get_page_text.
+Act with find, then computer left_click or type.
+Prefer reading the page over screenshots; screenshots can time out.
+
+## Prove and keep
+Capture what proves the flow: read_page output, values read with
+javascript_tool, one screenshot if it works. Check read_console_messages.
+Leave the server running while the user looks. Stop it later with
+preview_stop, never by killing node by name.`;
+
+const desktopPrompt = `/pstack:poteto-mode ปุ่ม export CSV ในหน้ารายงานกดแล้วไม่มีไฟล์
+ช่วยหาสาเหตุแล้วแก้ ใช้ /test-<app> ยืนยันในเบราว์เซอร์ของ Claude
+บอกค่าที่อ่านได้จากหน้าจอก่อนและหลังแก้ แล้วเปิด server ทิ้งไว้`;
+---
+<DivineLoreLayout title={`${entry.title} | บันทึกศาสตร์แห่งเทพ`} description={entry.desc} toc>
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+    <a href="../pstack-guide/">อ่านบท pstack</a>
+  </nav>
+  <p class="tag">{entry.tag}</p>
+  <h1>{entry.title}</h1>
+  <p class="subtitle">
+    ตอนต่อจากบท pstack ในบทที่แล้ว pstack สร้าง verification skill ให้เราได้ บทนี้เปิดดู verification skill ตัวจริงที่ทีม T3 Code ใช้กับแอปของตัวเอง อ่านทีละท่อนว่าแต่ละบรรทัดกันความพังแบบไหน แล้วเอาไปต่อกับ pstack และเขียนเวอร์ชันของโปรเจกต์เราเอง
+  </p>
+
+  <hr class="divider" />
+
+  <p>
+    ในบท <a href="../pstack-guide/">pstack</a> เราได้เห็นแล้วว่า Lauren Tan ให้ verification skill มาก่อนทุกอย่าง และ pstack มีคำสั่ง <code>/pstack:create-verification-skill</code> ไว้สร้างมันให้ แต่ของที่สร้างออกมาจะดีหรือไม่ดี เราต้องรู้ก่อนว่าของดีหน้าตาเป็นยังไง
+  </p>
+  <p>
+    ตัวอย่างที่ดีที่สุดที่หาได้ตอนนี้อยู่ใน repo ของ <strong>T3 Code</strong> เป็นไฟล์ชื่อ <code>.agents/skills/test-t3-app/SKILL.md</code> ยาวแค่ 41 บรรทัด ทีมที่เขียนมันมีผู้ใช้หลักแสนคน (ไฟล์ AGENTS.md ของเขาเองเขียนว่าเกิน 500,000 คน ตัวเลขนี้เป็นของที่เขาอ้างเอง ผมยืนยันจากภายนอกไม่ได้) และในไฟล์เดียวกันเขียนไว้ด้วยว่างานส่วนใหญ่ใน repo นี้ทำโดย agent ที่ถูกสั่งผ่านตัว T3 Code เอง
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>T3 Code</strong> อ่านว่า <strong>"ที-ทรี โค้ด"</strong> เป็นของทีม T3 Tools ของ Theo Browne คนเดียวกับที่ทำ T3 Stack และช่อง YouTube t3.gg ใน README เขาเรียกมันว่า <i>agent harness control surface</i>
+    </p>
+    <p>
+      <strong>harness</strong> อ่านว่า <strong>"ฮาร์เนส"</strong> แปลตรงตัวว่า <strong>"สายรัดบังเหียนม้า"</strong> ในวงการ AI ใช้เรียกโปรแกรมที่ห่อตัวโมเดลไว้ให้ทำงานได้ เช่น Claude Code หรือ Codex ถ้าโมเดลคือม้า harness ก็คือบังเหียนที่ทำให้ม้าลากรถได้ T3 Code จึงเป็น "แผงคุมบังเหียน" อีกชั้นหนึ่ง ที่จับบังเหียนหลายเส้นไว้ในมือเดียว
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>T3 Code คืออะไร ใน 1 นาที</h2>
+  <p>
+    T3 Code คือหน้าจอเดียวสำหรับสั่ง agent ที่เราลงไว้ในเครื่องอยู่แล้ว ทั้ง Claude Code, Codex, Cursor, Grok Build, OpenCode และ Antigravity โดยใช้ subscription ของเราเอง เว็บ t3.codes เขียนว่าเขาไม่ขาย token ต่อ ตัวโปรแกรมฟรีและเป็น open source (MIT) มีทั้งเว็บ แอปเดสก์ท็อป และแอปมือถือ ทุก thread ทำงานบน branch ของตัวเอง และ commit, push, เปิด PR ได้จากในแอป
+  </p>
+  <p>
+    ส่วนที่เกี่ยวกับบทนี้คือ T3 Code ยื่นเครื่องมือให้ agent ที่รันอยู่ข้างในใช้ด้วย ตัวสำคัญคือ <strong>Browser panel</strong> แผงเบราว์เซอร์ใน thread ที่ agent สั่งผ่านเครื่องมือชื่อ <code>preview_*</code> ได้ (เปิดหน้า คลิก พิมพ์ ถ่ายภาพ อัดวิดีโอ) และ <strong>Device panel</strong> ที่สั่ง simulator มือถือผ่าน <code>device_*</code> agent ภายนอกอย่าง Claude Code ในเทอร์มินัลของเราก็ต่อเข้ามาคุม thread ได้ผ่าน MCP
+  </p>
+
+  <ZoomableDiagram caption="ภาพรวมของ T3 Code วาดจาก README, AGENTS.md และรายชื่อเครื่องมือใน apps/server/src/mcp ของ repo">
+    <svg viewBox="0 0 720 292" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ T3 Code ด้านซ้ายมีหน้าจอสามแบบคือเว็บ เดสก์ท็อป และมือถือ ต่อเข้ากับ T3 server ตรงกลางผ่าน WebSocket server ต่อไปยัง agent ที่เรามี subscription อยู่แล้วทางขวาหกตัว ด้านล่างเป็นเครื่องมือที่ T3 ยื่นให้ agent คือ Browser panel ผ่าน preview, Device panel ผ่าน device และ MCP ให้ agent ภายนอกเข้ามาคุม" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="t3-a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+      <text x="77" y="26" font-size="12" font-weight="700" fill="#7cc4ff" text-anchor="middle">หน้าจอ (client)</text>
+      <g text-anchor="middle">
+        <rect x="12" y="38" width="130" height="42" rx="9" fill="#18263a" stroke="#3b5b86"/>
+        <text x="77" y="56" font-size="12" font-weight="700" fill="#cfe6ff">เว็บ</text>
+        <text x="77" y="72" font-size="9.5" fill="#9fb8d6">app.t3.codes, npx t3</text>
+        <rect x="12" y="88" width="130" height="42" rx="9" fill="#18263a" stroke="#3b5b86"/>
+        <text x="77" y="106" font-size="12" font-weight="700" fill="#cfe6ff">เดสก์ท็อป</text>
+        <text x="77" y="122" font-size="9.5" fill="#9fb8d6">Electron</text>
+        <rect x="12" y="138" width="130" height="42" rx="9" fill="#18263a" stroke="#3b5b86"/>
+        <text x="77" y="156" font-size="12" font-weight="700" fill="#cfe6ff">มือถือ</text>
+        <text x="77" y="172" font-size="9.5" fill="#9fb8d6">iOS, Android</text>
+      </g>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M144 59 L186 96" marker-end="url(#t3-a1)"/>
+        <path d="M144 109 L186 109" marker-end="url(#t3-a1)"/>
+        <path d="M144 159 L186 122" marker-end="url(#t3-a1)"/>
+      </g>
+      <rect x="190" y="52" width="200" height="114" rx="12" fill="#12301f" stroke="#2f9e5c" stroke-width="1.6"/>
+      <text x="290" y="84" font-size="15" font-weight="700" fill="#4ade80" text-anchor="middle">T3 server</text>
+      <text x="290" y="106" font-size="11" fill="#e7ecf6" text-anchor="middle">Node, คุยกับหน้าจอผ่าน WebSocket</text>
+      <text x="290" y="124" font-size="11" fill="#e7ecf6" text-anchor="middle">เก็บ project, thread, worktree</text>
+      <text x="290" y="142" font-size="11" fill="#e7ecf6" text-anchor="middle">หนึ่ง thread หนึ่ง branch</text>
+      <g stroke="#9aa7bd" stroke-width="1.4" fill="none">
+        <path d="M392 96 L432 62" marker-end="url(#t3-a1)"/>
+        <path d="M392 109 L432 106" marker-end="url(#t3-a1)"/>
+        <path d="M392 122 L432 150" marker-end="url(#t3-a1)"/>
+      </g>
+      <text x="572" y="26" font-size="12" font-weight="700" fill="#f0d060" text-anchor="middle">agent ที่เรามี subscription อยู่แล้ว</text>
+      <g font-size="11.5" text-anchor="middle" fill="#f0d060">
+        <rect x="436" y="40" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="501" y="62">Claude Code</text>
+        <rect x="578" y="40" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="643" y="62">Codex</text>
+        <rect x="436" y="84" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="501" y="106">Cursor</text>
+        <rect x="578" y="84" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="643" y="106">Grok Build</text>
+        <rect x="436" y="128" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="501" y="150">OpenCode</text>
+        <rect x="578" y="128" width="130" height="34" rx="8" fill="#2b2410" stroke="#e0b400"/>
+        <text x="643" y="150">Antigravity</text>
+      </g>
+      <text x="290" y="200" font-size="11.5" fill="#9aa7bd" text-anchor="middle">เครื่องมือที่ T3 ยื่นให้ agent</text>
+      <g stroke="#9aa7bd" stroke-width="1.3" fill="none">
+        <path d="M250 168 L172 218" marker-end="url(#t3-a1)"/>
+        <path d="M290 208 L290 218" marker-end="url(#t3-a1)"/>
+        <path d="M330 168 L420 218" marker-end="url(#t3-a1)"/>
+      </g>
+      <g text-anchor="middle">
+        <rect x="90" y="222" width="150" height="46" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="165" y="242" font-size="12" font-weight="700" fill="#f2f5fb">Browser panel</text>
+        <text x="165" y="259" font-size="10.5" fill="#9aa7bd">preview_*</text>
+        <rect x="250" y="222" width="150" height="46" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="325" y="242" font-size="12" font-weight="700" fill="#f2f5fb">Device panel</text>
+        <text x="325" y="259" font-size="10.5" fill="#9aa7bd">device_*</text>
+        <rect x="410" y="222" width="180" height="46" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="500" y="242" font-size="12" font-weight="700" fill="#f2f5fb">MCP ที่ /mcp</text>
+        <text x="500" y="259" font-size="10.5" fill="#9aa7bd">agent ข้างนอกเข้ามาคุม thread</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <hr class="divider-solid" />
+
+  <h2>อ่าน test-t3-app ทีละท่อน</h2>
+  <p>
+    ไฟล์มีส่วนหัวกับเนื้อหาสี่ท่อน ผมสรุปเป็นภาษาไทยทีละท่อน แนะนำให้เปิด <a href="https://github.com/pingdotgg/t3code/blob/main/.agents/skills/test-t3-app/SKILL.md" target="_blank" rel="noopener noreferrer">ไฟล์ต้นฉบับ</a> คู่กันไปด้วย เพราะสั้นจนอ่านจบในสองนาที
+  </p>
+
+  <h3>ส่วนหัว: บอกทั้งว่าใช้เมื่อไหร่ และไม่ใช้เมื่อไหร่</h3>
+  <p>
+    <code>description</code> บอกว่าใช้ทดสอบ UI ฝั่งเว็บและเดสก์ท็อปผ่าน Browser panel กับ state ที่แยกไว้สำหรับ dev แล้วปิดท้ายว่าถ้าเป็นแอปมือถือให้ไปใช้ <code>test-t3-mobile</code> แทน ประโยคสุดท้ายนี้สำคัญ เพราะ agent ตัดสินใจเรียก skill จาก <code>description</code> อย่างเดียว การบอกขอบเขตไว้ตรงนี้กัน agent เรียกผิดตัว
+  </p>
+
+  <h3>ท่อนแรก: ใช้ Browser panel เท่านั้น ถ้าไม่มีให้หยุด</h3>
+  <p>
+    ถ้าเครื่องมือของ Browser panel ไม่มี หรือแผงแจ้งว่าใช้ไม่ได้ ให้อธิบายว่าติดอะไรแล้วหยุดตรวจ ห้ามไปลงหรือสลับไปใช้เครื่องมือ automation ตัวอื่น บรรทัดนี้กันนิสัยที่ agent ชอบทำมากที่สุดตอนเจอทางตัน คือหาทางอ้อม เช่นลง Playwright เอง เปิดเบราว์เซอร์อีกตัว แล้วรายงานว่าตรวจแล้ว ทั้งที่ตรวจคนละที่กับที่ผู้ใช้เห็น
+  </p>
+
+  <h3>ท่อนสอง: เปิดแอปกับ state ที่แยกไว้</h3>
+  <p>
+    ใช้ dev server ที่เปิดอยู่แล้วในงานนี้ถ้ามันยังดี ถ้าไม่มีค่อยรัน <code>vp run dev</code> แล้วเก็บ terminal นั้นไว้ ข้อมูลของแอปต้องอยู่ในโฟลเดอร์ <code>.t3</code> ของ worktree ซึ่ง git ไม่ติดตาม พอร์ตและ URL สำหรับจับคู่ (pairing URL) ให้อ่านจาก output ของ dev runner จริงทุกครั้ง แล้วมีข้อห้ามสองข้อ คือห้ามรันกับ <code>~/.t3/userdata</code> ซึ่งเป็นฐานข้อมูลจริงของคนที่กำลังใช้แอปอยู่ และห้ามตั้งตัวแปร <code>VITE_HTTP_URL</code> หรือ <code>VITE_WS_URL</code>
+  </p>
+  <p>
+    ข้อห้ามตัวแปรสองตัวนั้นมีเหตุผลอยู่ใน AGENTS.md ตอน dev ทุกอย่างวิ่งผ่าน origin เดียว ถ้าไปตั้งค่าพวกนี้ ที่อยู่ <code>localhost</code> จะฝังติดเข้าไปในไฟล์ที่ build ออกมา แล้วทุกเบราว์เซอร์ที่ต่อมาจากเครื่องอื่นจะพังเงียบ ๆ ท่อนนี้ยังบอกด้วยว่าต้องทดสอบด้วยข้อมูล project และ thread ที่มีความหมาย และให้อ่านเอกสารเรื่อง fixture ของ SQLite เฉพาะตอนต้องดูหรือใส่ข้อมูลเท่านั้น
+  </p>
+
+  <h3>ท่อนสาม: ขั้นตอนบน Browser panel</h3>
+  <p>
+    เรียก <code>preview_status</code> ก่อน ถ้าแผงปิดอยู่ค่อย <code>preview_open</code> แล้วพาแท็บไปที่ pairing URL ตัวเต็ม <strong>ครั้งเดียว</strong> ด้วย <code>preview_navigate</code> จากนั้นใช้ <code>preview_snapshot</code> กับเครื่องมือคลิกพิมพ์ของ T3 ถ้า token ถูกใช้ไปแล้วหรือหมดอายุ ให้ออก token ใหม่ด้วย <code>node apps/server/src/bin.ts pair</code> และใช้แท็บเดิมตลอด
+  </p>
+  <p>
+    คำว่า "ครั้งเดียว" มีเหตุผล pairing URL ของ T3 เป็นลิงก์ใช้ได้ครั้งเดียว เปิดซ้ำก็ใช้ไม่ได้แล้ว และถ้า agent เผลอเปิดลิงก์ที่ตั้งใจจะให้ผู้ใช้ ผู้ใช้ก็จะเข้าไม่ได้
+  </p>
+
+  <ZoomableDiagram caption="ลำดับที่ test-t3-app สั่งให้ agent เดิน อ่านจากซ้ายไปขวาในแถวบน แล้วย้อนจากขวาไปซ้ายในแถวล่าง">
+    <svg viewBox="0 0 720 224" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพแปดขั้น แถวบน ใช้ dev server เดิมถ้ายังดี อ่านพอร์ตจริงจาก output เรียก preview_status เรียก preview_open แถวล่างจากขวาไปซ้าย preview_navigate ไปที่ pairing URL ครั้งเดียว ถ่าย snapshot แล้วเดินเส้นทางที่แก้ เก็บหลักฐาน และเปิดทิ้งไว้ให้ผู้ใช้ดู ปิดเฉพาะ process ที่ตัวเองเปิด" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="t3-a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <g text-anchor="middle">
+        <rect x="12" y="24" width="156" height="58" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="90" y="47" font-size="12" font-weight="700" fill="#f2f5fb">1 · dev server เดิม</text>
+        <text x="90" y="66" font-size="10.5" fill="#9aa7bd">ถ้ายังดี ไม่งั้น vp run dev</text>
+        <rect x="192" y="24" width="156" height="58" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="270" y="47" font-size="12" font-weight="700" fill="#f2f5fb">2 · อ่านพอร์ตจริง</text>
+        <text x="270" y="66" font-size="10.5" fill="#9aa7bd">จาก output ของ dev runner</text>
+        <rect x="372" y="24" width="156" height="58" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="450" y="47" font-size="12" font-weight="700" fill="#cfe6ff">3 · preview_status</text>
+        <text x="450" y="66" font-size="10.5" fill="#9fb8d6">ไม่มีเครื่องมือ = หยุด</text>
+        <rect x="552" y="24" width="156" height="58" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="630" y="47" font-size="12" font-weight="700" fill="#cfe6ff">4 · preview_open</text>
+        <text x="630" y="66" font-size="10.5" fill="#9fb8d6">ถ้าแผงยังปิดอยู่</text>
+
+        <rect x="552" y="124" width="156" height="58" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="630" y="147" font-size="12" font-weight="700" fill="#cfe6ff">5 · preview_navigate</text>
+        <text x="630" y="166" font-size="10.5" fill="#9fb8d6">pairing URL ครั้งเดียว</text>
+        <rect x="372" y="124" width="156" height="58" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="450" y="147" font-size="12" font-weight="700" fill="#cfe6ff">6 · snapshot + คลิก</text>
+        <text x="450" y="166" font-size="10.5" fill="#9fb8d6">เดินเส้นทางที่แก้</text>
+        <rect x="192" y="124" width="156" height="58" rx="10" fill="#2b2410" stroke="#e0b400"/>
+        <text x="270" y="147" font-size="12" font-weight="700" fill="#f0d060">7 · เก็บหลักฐาน</text>
+        <text x="270" y="166" font-size="10.5" fill="#d8b862">สภาพที่พิสูจน์ว่าใช้ได้</text>
+        <rect x="12" y="124" width="156" height="58" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+        <text x="90" y="147" font-size="12" font-weight="700" fill="#4ade80">8 · เปิดทิ้งไว้ให้ดู</text>
+        <text x="90" y="166" font-size="10.5" fill="#e7ecf6">ปิดเฉพาะที่ตัวเองเปิด</text>
+      </g>
+      <g stroke="#4ade80" stroke-width="1.6" fill="none">
+        <line x1="170" y1="53" x2="188" y2="53" marker-end="url(#t3-a2)"/>
+        <line x1="350" y1="53" x2="368" y2="53" marker-end="url(#t3-a2)"/>
+        <line x1="530" y1="53" x2="548" y2="53" marker-end="url(#t3-a2)"/>
+        <line x1="630" y1="84" x2="630" y2="120" marker-end="url(#t3-a2)"/>
+        <line x1="550" y1="153" x2="532" y2="153" marker-end="url(#t3-a2)"/>
+        <line x1="370" y1="153" x2="352" y2="153" marker-end="url(#t3-a2)"/>
+        <line x1="190" y1="153" x2="172" y2="153" marker-end="url(#t3-a2)"/>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <h3>ท่อนสี่: ตรวจแล้วเก็บไว้ให้ดู</h3>
+  <p>
+    เดินเส้นทางที่ถูกแก้แล้วเก็บสภาพที่พิสูจน์ว่าใช้ได้ เปิด server, state และแผงทิ้งไว้ระหว่างที่ผู้ใช้ยังดูหรือแก้ต่อ ในไฟล์มีประโยคหนึ่งที่ผมชอบมาก แปลได้ว่า <strong>การจบเทิร์นของ agent ไม่ได้แปลว่าถึงเวลาเก็บของ</strong> ส่วนตอนเก็บของจริง ให้ปิดเฉพาะ process ที่ตัวเองเปิด โดยใช้ terminal ที่เก็บไว้หรือ PID ที่จดไว้ตอนเปิด
+  </p>
+  <p>
+    ถ้าผู้ใช้ขอแชร์ให้ดูจากเครื่องอื่น ให้เริ่มด้วย <code>vp run dev --share</code> แล้วส่ง pairing URL ใหม่ที่ agent ยังไม่ได้ใช้ให้ผู้ใช้ และห้ามให้ credential อื่นหลุดเข้าไปในภาพหน้าจอ commit หรือข้อความตอบกลับ
+  </p>
+
+  <h3>ไฟล์อ้างอิง: เรื่อง fixture ของ SQLite</h3>
+  <p>
+    ไฟล์ <code>references/sqlite-fixtures.md</code> ถูกแยกออกมาและบอกให้โหลดเฉพาะตอนต้องดูหรือใส่ข้อมูลเท่านั้น ข้างในมีสคริปต์ช่วย <code>apps/server/scripts/t3-sqlite-state.ts</code> สำหรับ query และ exec ทีละคำสั่ง ห่อการเขียนไว้ใน transaction และพิมพ์ path ของไฟล์สำรองหลังเขียนเสร็จ แต่ประโยคที่ควรจำที่สุดในไฟล์นี้คือข้อจำกัดของ fixture ข้อมูลที่เขียนลงตารางโดยตรงเหมาะกับการจัดฉากหน้าจอ เช่นชื่อยาวมาก จำนวนเยอะผิดปกติ ไทม์ไลน์ยาว แต่ <strong>ห้ามใช้มันเป็นหลักฐานว่า logic ฝั่ง backend ทำงานถูก</strong> เพราะมันข้ามประวัติ event ทั้งหมด ถ้าจะทดสอบพฤติกรรมจริงต้องสั่งผ่านคำสั่งหรือ API ของแอป
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>บทเรียนแปดข้อจาก 41 บรรทัด</h2>
+  <p>
+    แต่ละข้อข้างล่างคือความพังที่ skill ตัวนี้กันไว้ ผมจับคู่กับหลักคิดของ pstack ที่ตรงกันไว้ด้วย เผื่ออยากกลับไปอ่านต่อในบทที่แล้ว
+  </p>
+  <div class="lessons">
+    <div class="ls">
+      <p class="ls-name">1 · ไม่มีเครื่องมือ ให้หยุดแล้วบอก</p>
+      <p>ตรวจด้วยเครื่องมือผิดตัวคือการตรวจของอีกอย่าง ผลที่ได้หน้าตาเหมือนหลักฐาน แต่พิสูจน์ได้แค่ว่าเบราว์เซอร์อีกตัวทำงาน</p>
+      <p class="ls-pair">คู่กับ Prove It Works</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">2 · state ต้องแยก ข้อมูลจริงห้ามแตะ</p>
+      <p>agent ทำงานอยู่ในเครื่องเดียวกับคนที่กำลังใช้แอปตัวจริง ถ้าเปิด server ชี้ไปที่ฐานข้อมูลจริง ความผิดพลาดเล็ก ๆ ก็กลายเป็นข้อมูลของผู้ใช้หาย</p>
+      <p class="ls-pair">คู่กับ Separate Before Serializing Shared State</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">3 · อ่านค่าจริง อย่าเดา</p>
+      <p>พอร์ตของแต่ละ worktree ไม่เท่ากัน และขยับได้ถ้าพอร์ตเดิมไม่ว่าง agent ที่เดาพอร์ตจะไปตรวจแอปของ worktree อื่นโดยไม่รู้ตัว</p>
+      <p class="ls-pair">คู่กับ Fix Root Causes (เห็นของจริงก่อนสรุป)</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">4 · ฐานข้อมูลว่างคือการทดสอบที่แย่</p>
+      <p>AGENTS.md เขียนไว้ตรง ๆ ว่า <i>An empty database is a bad test</i> หน้าจอที่ไม่มีข้อมูลไม่เคยเจอชื่อยาว รายการเยอะ หรือสถานะแปลก ๆ</p>
+      <p class="ls-pair">คู่กับ Test Behavior, Not Implementation</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">5 · รายละเอียดโหลดเมื่อต้องใช้</p>
+      <p>เรื่อง SQLite ยาวและใช้ไม่บ่อย จึงอยู่อีกไฟล์ ตัว skill เลยสั้นพอที่ agent อ่านทั้งไฟล์ได้ทุกครั้งโดยไม่เปลืองบริบท</p>
+      <p class="ls-pair">คู่กับ Guard the Context Window</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">6 · หลักฐานต้องตรงกับสิ่งที่อ้าง</p>
+      <p>fixture ที่เขียนลงตารางพิสูจน์ได้แค่ว่าหน้าจอแสดงผลถูก ใครเอามันไปอ้างว่า backend ทำงานถูกคือการเคลมเกินหลักฐาน</p>
+      <p class="ls-pair">คู่กับ Explain the Number</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">7 · จบเทิร์นไม่ได้แปลว่าจบงาน</p>
+      <p>agent ที่ปิด server ทันทีที่ตอบเสร็จ ทำให้ผู้ใช้เปิดดูของที่เพิ่งแก้ไม่ได้ ส่วนตอนปิดจริงต้องปิดตาม PID ที่จดไว้ ห้ามปิดตามชื่อ เพราะ process ของ agent เองก็มี path ของ worktree อยู่ในชื่อ</p>
+      <p class="ls-pair">คู่กับ Never Block on the Human</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">8 · ของลับใช้ครั้งเดียว และไม่ออกนอกเครื่อง</p>
+      <p>pairing token ใช้ได้ครั้งเดียว agent ห้ามใช้ลิงก์ที่เตรียมไว้ให้ผู้ใช้ และห้ามให้ token ติดไปในภาพหน้าจอ commit หรือข้อความ</p>
+      <p class="ls-pair">คู่กับ Boundary Discipline</p>
+    </div>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ทำไมมันสั้นได้แค่ 41 บรรทัด</h2>
+  <p>
+    ถ้าเทียบกับ verification skill ที่ pstack สร้างให้ (มีหัวข้อ Launch, Doctor, Drive, Evidence, Cleanup, Helpers และแผนที่ฟีเจอร์) test-t3-app สั้นกว่ามาก เหตุผลคือน้ำหนักส่วนใหญ่ถูกย้ายไปอยู่ในไฟล์อื่นของ repo แล้ว ตรงกับกฎห้าชั้นที่ Lauren พูดในบท pstack ว่าบทเรียนไหนย้ายไปไว้ในโค้ดหรือสคริปต์ได้ ให้ย้าย อย่าเก็บไว้แค่ใน skill
+  </p>
+
+  <ZoomableDiagram caption="ไฟล์รอบ ๆ test-t3-app ใน repo pingdotgg/t3code (อ่านจาก main วันที่ 12 ตุลาคม 2026)">
+    <svg viewBox="0 0 720 332" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพโครงสร้างไฟล์ใน repo t3code มี AGENTS.md เป็นกติกาทั้ง repo, CLAUDE.md ที่ชี้ไป AGENTS.md, t3.json ที่รันสคริปต์ตั้ง worktree, .claude/skills ที่เป็น symlink ไปยัง .agents/skills ซึ่งมี test-t3-app พร้อม SKILL.md 41 บรรทัดและไฟล์อ้างอิง sqlite-fixtures, test-t3-mobile และ contribution-triage และสคริปต์ช่วย t3-sqlite-state.ts" style="font-family:'Sarabun',sans-serif">
+      <rect x="12" y="12" width="696" height="300" rx="14" fill="#0f1524" stroke="#2a3350"/>
+      <g font-family="'JetBrains Mono','Fira Code',monospace" font-size="12">
+        <text x="30" y="42" fill="#4ade80" font-weight="700">t3code/</text>
+        <text x="30" y="68" fill="#9aa7bd">├─</text><text x="54" y="68" fill="#f0d060">AGENTS.md</text>
+        <text x="30" y="92" fill="#9aa7bd">├─</text><text x="54" y="92" fill="#f2f5fb">CLAUDE.md</text>
+        <text x="30" y="116" fill="#9aa7bd">├─</text><text x="54" y="116" fill="#f2f5fb">t3.json</text>
+        <text x="30" y="140" fill="#9aa7bd">├─</text><text x="54" y="140" fill="#7cc4ff">.claude/skills → ../.agents/skills</text>
+        <text x="30" y="164" fill="#9aa7bd">├─</text><text x="54" y="164" fill="#f2f5fb">.agents/skills/</text>
+        <text x="54" y="188" fill="#9aa7bd">├─</text><text x="78" y="188" fill="#4ade80">test-t3-app/</text>
+        <text x="54" y="212" fill="#9aa7bd">│  ├─</text><text x="102" y="212" fill="#f2f5fb">SKILL.md</text>
+        <text x="54" y="236" fill="#9aa7bd">│  └─</text><text x="102" y="236" fill="#f2f5fb">references/sqlite-fixtures.md</text>
+        <text x="54" y="260" fill="#9aa7bd">├─</text><text x="78" y="260" fill="#f2f5fb">test-t3-mobile/</text>
+        <text x="54" y="284" fill="#9aa7bd">└─</text><text x="78" y="284" fill="#f2f5fb">contribution-triage/</text>
+      </g>
+      <g font-size="11">
+        <text x="440" y="68" fill="#d8b862">กติกาทั้ง repo, คำศัพท์, ข้อห้าม</text>
+        <text x="440" y="92" fill="#9aa7bd">มีบรรทัดเดียว: @AGENTS.md</text>
+        <text x="440" y="116" fill="#9aa7bd">รันสคริปต์ตั้ง worktree ใหม่ให้เอง</text>
+        <text x="440" y="140" fill="#9fb8d6">Claude Code กับ Codex ใช้ skill ชุดเดียวกัน</text>
+        <text x="440" y="212" fill="#e7ecf6">41 บรรทัด</text>
+        <text x="440" y="236" fill="#9aa7bd">อ่านเฉพาะตอนจัดข้อมูลทดสอบ</text>
+        <text x="440" y="260" fill="#9aa7bd">คู่แฝดสำหรับ iOS, Android</text>
+        <text x="440" y="284" fill="#9aa7bd">คัดกรอง PR จากคนนอก</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    AGENTS.md คือที่ที่เนื้อหาหนัก ๆ อยู่ ส่วนที่เกี่ยวกับการตรวจงานมีสามท่อนที่ควรอ่านเต็ม ๆ
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>สามทางที่จะทำร้ายตัวเอง</strong> ห้ามฆ่า process ตามชื่อหรือ path, ห้ามเขียนลงข้อมูลของแอปตัวจริง, ห้ามฝัง origin ลงในไฟล์ที่ build ข้อแรกอธิบายเหตุผลไว้ด้วยว่าในเครื่องเดียวมี dev server ของคนอื่นรันอยู่หลายตัว และ process ของ agent เองก็มี path ของ worktree อยู่ในชื่อ ถ้าสั่งฆ่าตามชื่อ ก็อาจฆ่าตัวเองหรือฆ่าของคนอื่น</li>
+      <li><strong>ตรวจด้วยหลักฐานที่เล็กที่สุด</strong> รันเฉพาะเทสต์ของไฟล์ที่แตะ lint และ typecheck เฉพาะส่วนที่แก้ ห้ามรันเช็กทั้ง repo เพราะ CI ทำหน้าที่นั้นอยู่แล้ว และห้ามเขียนเทสต์ที่แค่ยืนยันว่าเรียก callback ถูกตัว</li>
+      <li><strong>ตรวจบนหน้าจอจริงเมื่อถูกขอ และทำครั้งเดียว</strong> การเปิดแอปตรวจด้วย test-t3-app ทำเมื่อมีคนขอ ทำโดย agent หลักหนึ่งครั้งหลังรวมงานเสร็จ subagent ห้ามเปิด dev server ของตัวเอง และต้องขออนุญาตก่อนเปิดเบราว์เซอร์หรือควบคุมเครื่อง</li>
+    </ul>
+  </div>
+  <p>
+    อีกท่อนที่ควรขโมยไปใช้ทั้งท่อนคือ <strong>Hit every surface</strong> ทีม T3 เขียนว่าความผิดที่เจอบ่อยที่สุดใน repo คือการแก้ที่ใช้ได้บนเส้นทางที่ทดสอบ แต่ไปไม่ถึงทางอื่น ก่อนบอกว่างานหน้าบ้านเสร็จ agent ต้องไล่รายการนี้แล้วบอกว่าข้อไหนเกี่ยว ทางเข้าของฟีเจอร์ (หน้าแชต หน้าตั้งค่า command palette คีย์ลัด), client ทุกตัว, provider ทุกตัว, เครื่องมือที่ agent ใช้, สัญญาข้อมูล (contract) ที่ข้ามสาย, ทางกลับ (เปิดได้ต้องปิดได้), โหมดการเชื่อมต่อ และเอกสาร
+  </p>
+  <p>
+    ส่วน <code>.claude/skills</code> ที่เป็น symlink ชี้ไปที่ <code>.agents/skills</code> เป็นเทคนิคเล็ก ๆ ที่ใช้ได้ทันที skill ชุดเดียววางไว้ที่เดียว Claude Code อ่านจาก <code>.claude/skills</code> ส่วน Codex และ harness อื่นอ่านจาก <code>.agents/skills</code> ไม่ต้องดูแลสองสำเนา
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>เอามาต่อกับ pstack ยังไง</h2>
+  <p>
+    ใน repo ของ T3 Code ไม่มีที่ไหนพูดถึง pstack ตรง ๆ แต่สองอย่างนี้ต่อกันได้พอดีตามการออกแบบ pstack บอก agent ว่าทำงานยังไง (เลือก playbook หาสาเหตุ แบ่งงาน) และใน playbook ทุกเล่มมีขั้น "ตรวจบนของจริง" ซึ่ง poteto-mode จะไปหา verification skill ของโปรเจกต์มาใช้ test-t3-app คือ skill ตัวนั้นสำหรับแอป T3 ส่วนตัว T3 Code เป็นทั้งที่ที่ agent รันและเป็นมือกับตาที่ทำให้ขั้นตรวจทำได้จริง
+  </p>
+
+  <ZoomableDiagram caption="สามชั้นที่ทำงานต่อกัน คำสั่งไหลลงจากวิธีทำงานไปถึงแอปตัวจริง หลักฐานไหลกลับขึ้นมาให้เราอ่าน">
+    <svg viewBox="11 0 671 254" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสี่ชั้นเรียงบนลงล่าง ชั้นบนคือ pstack บอกวิธีทำงาน ชั้นที่สองคือ test-t3-app หรือ verify skill ของเรา บอกวิธีพิสูจน์บนแอปนี้ ชั้นที่สามคือเครื่องมือของ T3 Code คือ preview และ device ชั้นล่างคือแอปตัวจริงกับ state ที่แยกไว้ ลูกศรซ้ายชี้ลงว่าคำสั่งไหลลง ลูกศรขวาชี้ขึ้นว่าหลักฐานไหลกลับ" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="t3-a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+        <marker id="t3-a3g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <line x1="66" y1="30" x2="66" y2="214" stroke="#9aa7bd" stroke-width="1.6" marker-end="url(#t3-a3)"/>
+      <text x="50" y="122" font-size="11.5" fill="#9aa7bd" text-anchor="middle" transform="rotate(-90 50 122)">คำสั่งไหลลง</text>
+      <line x1="618" y1="214" x2="618" y2="30" stroke="#4ade80" stroke-width="1.6" marker-end="url(#t3-a3g)"/>
+      <text x="634" y="122" font-size="11.5" fill="#4ade80" text-anchor="middle" transform="rotate(90 634 122)">หลักฐานไหลขึ้น</text>
+      <g font-size="12">
+        <rect x="90" y="20" width="504" height="46" rx="10" fill="#2b2410" stroke="#e0b400" stroke-width="1.4"/>
+        <text x="108" y="48" font-weight="700" fill="#f0d060">pstack</text>
+        <text x="246" y="48" fill="#e7ecf6">วิธีทำงาน: เลือก playbook หาสาเหตุ แบ่งงาน</text>
+        <rect x="90" y="74" width="504" height="46" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.4"/>
+        <text x="108" y="102" font-weight="700" fill="#4ade80">test-t3-app</text>
+        <text x="246" y="102" fill="#e7ecf6">วิธีพิสูจน์บนแอปนี้: เปิดยังไง ข้อมูลไหน ห้ามอะไร</text>
+        <rect x="90" y="128" width="504" height="46" rx="10" fill="#18263a" stroke="#3b5b86" stroke-width="1.4"/>
+        <text x="108" y="156" font-weight="700" fill="#cfe6ff">T3 Code</text>
+        <text x="246" y="156" fill="#e7ecf6">มือกับตา: preview_*, device_*, worktree ต่อ thread</text>
+        <rect x="90" y="182" width="504" height="46" rx="10" fill="#1c2536" stroke="#3a4666" stroke-width="1.4"/>
+        <text x="108" y="210" font-weight="700" fill="#f2f5fb">แอปตัวจริง</text>
+        <text x="246" y="210" fill="#e7ecf6">กับ state ที่แยกไว้ใน .t3 ของ worktree</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    การใช้งานจริงแบ่งได้สามแบบ ตามว่าเรากำลังแก้โค้ดของใคร
+  </p>
+
+  <h3>แบบที่ 1: แก้โค้ดของ T3 Code เอง</h3>
+  <p>
+    เพราะ <code>.claude/skills</code> ชี้ไปที่ <code>.agents/skills</code> ถ้าเปิด Claude Code ใน repo นี้ก็จะเห็น <code>/test-t3-app</code> ทันที แต่ poteto-mode ของตัวพอร์ต pstack-claude มองหา skill ชื่อ <code>verify</code> ที่ <code>.claude/skills/verify/</code> ชื่อไม่ตรงกัน จึงต้องเรียกชื่อ test-t3-app ไว้ใน prompt เอง
+  </p>
+  <CodeBlock code={promptT3Repo} lang="text" title="ใน repo t3code" />
+  <p>
+    Browser panel และเครื่องมือ <code>preview_*</code> เป็นของที่ T3 Code ยื่นให้ agent ที่รันอยู่ใน thread ของมัน ถ้ารัน Claude Code ในเทอร์มินัลธรรมดาที่ไม่ได้ต่อกับ T3 skill จะเจอว่าไม่มีเครื่องมือ แล้วหยุดตามที่เขียนไว้ ซึ่งเป็นพฤติกรรมที่ถูกต้อง ทางที่ใช้ได้คือสั่งงานนี้จาก thread ใน T3 Code ที่เลือก Claude เป็น provider ส่วนเรื่องจะส่ง PR ให้ T3 Code ควรรู้ไว้ก่อนว่า README เขียนว่าตอนนี้ยังแทบไม่รับ contribution จากคนนอก รับแค่การแก้เล็ก ๆ
+  </p>
+
+  <h3>แบบที่ 2: โปรเจกต์ของเรา โดยรัน agent ใน T3 Code</h3>
+  <p>
+    แบบนี้คือแบบที่ผมคิดว่าคุ้มที่สุด เปิดโปรเจกต์ของเราใน T3 Code เลือก provider เป็น Claude แล้วให้ pstack สร้าง verification skill ของเราเอง โดยบอกให้ใช้ test-t3-app เป็นต้นแบบ agent ที่รันอยู่ใน thread มีเครื่องมือ <code>preview_*</code> อยู่แล้ว skill ที่ได้จึงขับเบราว์เซอร์ได้โดยไม่ต้องลงอะไรเพิ่ม
+  </p>
+  <CodeBlock code={promptOwnRepo} lang="text" title="ใน thread ของ T3 Code" />
+  <p>
+    ถ้าอยากไปไกลกว่านั้น มีคนพอร์ต pstack มาให้ T3 Code โดยตรงชื่อ <strong>p3-stack</strong> เปลี่ยนเครื่องมือของ Cursor เป็นของ T3 ทั้งชุด เช่น <code>delegate_task</code> แทนการสร้าง subagent, <code>t3_thread_launch</code> ให้งานแต่ละชิ้นได้ worktree ของตัวเอง, <code>watch_pull_request</code> ปลุก thread เมื่อ CI เสร็จแทนการวนเช็ก, <code>schedule_task</code> แทน <code>/loop</code> และ <code>preview_*</code> กับ <code>device_*</code> แทน skill ขับเบราว์เซอร์ภายนอก ข้อควรรู้คือ repo นี้เป็นของบุคคลทั่วไป ไม่ใช่ของ poteto หรือทีม T3 ตอนที่ผมเปิดดูมี commit เดียว (5 ตุลาคม 2026) ลองได้ แต่ยังไม่ควรวางงานสำคัญไว้บนมัน
+  </p>
+
+  <h3>แบบที่ 3: สั่ง T3 Code จาก Claude Code ในเทอร์มินัล</h3>
+  <p>
+    T3 Code เปิด MCP server ไว้ที่ <code>/mcp</code> ของแต่ละ environment ให้ agent ภายนอกต่อเข้ามาอ่านและสั่ง thread ได้ หา URL ได้จาก <strong>Settings → Connections</strong> แล้วเลือก <strong>Copy MCP URL</strong>
+  </p>
+  <CodeBlock code={mcpCode} lang="bash" title="ในเทอร์มินัล" />
+  <p>
+    ค่าเริ่มต้นคือสิทธิ์อ่านอย่างเดียว ถ้าจะให้สร้างหรือสั่ง thread ต้องเลือกสิทธิ์ที่สูงขึ้นตอนอนุมัติ การ sign-in มีอายุ 30 วัน และถอนสิทธิ์ได้ทันทีจากหน้า Connections ในเอกสารบอกเรื่อง thread, project และ provider แต่ไม่ได้บอกว่า agent ภายนอกใช้ Browser panel เองได้หรือไม่ ผมจึงไม่แนะนำให้หวังผลการตรวจบนเบราว์เซอร์จากทางนี้ ใช้มันเป็นทางสั่งงานให้ thread ข้างในไปตรวจแทน
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>แม่แบบ test-&lt;app&gt; สำหรับโปรเจกต์ของเรา</h2>
+  <p>
+    ข้างล่างคือแม่แบบที่ผมเรียบเรียงใหม่จากโครงของ test-t3-app ให้ใช้กับเว็บแอปทั่วไป (ไม่ได้คัดลอกต้นฉบับ) เขียนเป็นภาษาอังกฤษเพราะ agent อ่านได้ตรงที่สุด แทนค่าในวงเล็บแหลมด้วยของโปรเจกต์เรา วางไว้ที่ <code>.agents/skills/test-&lt;app&gt;/SKILL.md</code> แล้วทำ symlink ให้ <code>.claude/skills</code> ชี้มาที่โฟลเดอร์นี้แบบเดียวกับ T3
+  </p>
+  <CodeBlock code={templateSkill} lang="markdown" title=".agents/skills/test-<app>/SKILL.md" />
+  <div class="callout callout-tip">
+    <p class="callout-label">ก่อนใช้ ลองถามคำถามสามข้อกับโปรเจกต์ของเรา</p>
+    <p>
+      ข้อมูลจริงของเราอยู่ที่ไหน และตอน dev มันถูกแยกออกมาแล้วหรือยัง ถ้ายัง ให้แก้ตรงนั้นก่อนเขียน skill เพราะกฎ "ห้ามแตะข้อมูลจริง" ที่เขียนไว้ในโค้ดเลย แข็งแรงกว่าที่เขียนไว้ใน skill มีวิธีเอาข้อมูลจริงมาทดสอบแบบทางเดียวหรือยัง (T3 มี <code>vp run migrate-dev-db</code> ที่คัดลอกข้อมูลจริงแบบอ่านอย่างเดียวมาไว้ใน worktree แล้วตัดงานที่ตั้งเวลาไว้กับ session ออก) และมีสคริปต์ช่วยใส่ fixture ที่สำรองข้อมูลให้ก่อนเขียนหรือยัง
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ใช้ใน Claude Desktop (แท็บ Code)</h2>
+  <p>
+    ตัว test-t3-app เองเอามาลงใน Claude Desktop ตรง ๆ ไม่ได้ เพราะมันเรียกเครื่องมือ Browser panel ของ T3 ซึ่งไม่มีใน Claude ลงไปแล้วมันจะเจอว่าไม่มีเครื่องมือ แล้วหยุดตามกฎข้อแรกของตัวเองทุกรอบ ที่ทำได้คือเอาโครงของมันมาเขียน skill ของโปรเจกต์เราใหม่ ให้เรียกเบราว์เซอร์ในตัวของ Claude แทน
+  </p>
+  <p>
+    แท็บ Code ของ Claude Desktop คือ Claude Code ที่รันอยู่ในแอป ตอนเขียนบทความนี้ แอปมีแผงเบราว์เซอร์ในตัว (browser pane) ที่ agent สั่งได้ บทความในหมวดนี้ทุกบทก็ถูกตรวจด้วยแผงนี้ ส่วนนี้จึงเขียนจากของที่ใช้อยู่จริง ข้อควรรู้คือชื่อเครื่องมือของแอปเปลี่ยนตามเวอร์ชันได้ ถ้าไม่ตรง ให้เชื่อชื่อที่เห็นในแอป
+  </p>
+
+  <h3>ขั้นที่ 1 · บอกแอปว่าเปิด dev server ยังไง</h3>
+  <p>
+    สร้างไฟล์ <code>.claude/launch.json</code> ไว้ที่ราก repo ข้างล่างคือไฟล์จริงของเว็บนี้ agent จะใช้เครื่องมือ <code>preview_start</code> พร้อมชื่อ <code>astro-dev</code> เพื่อเปิด server แล้วเปิดแท็บที่พอร์ตนั้นให้เอง ถ้า server เปิดอยู่แล้วก็ใช้ตัวเดิม ข้อนี้ตรงกับกฎ "ใช้ dev server เดิมถ้ายังดี" ของ test-t3-app พอดี
+  </p>
+  <CodeBlock code={launchJson} lang="json" title=".claude/launch.json" />
+
+  <h3>ขั้นที่ 2 · เทียบเครื่องมือของ T3 กับของ Claude</h3>
+  <div class="map">
+    <div class="map-row map-head"><span>T3 Code</span><span>Claude Desktop</span><span>ใช้ทำอะไร</span></div>
+    <div class="map-row"><span><code>preview_status</code></span><span><code>tabs_context</code></span><span>ดูว่ามีแท็บอะไรเปิดอยู่</span></div>
+    <div class="map-row"><span><code>preview_open</code>, <code>preview_navigate</code></span><span><code>preview_start</code>, <code>navigate</code></span><span>เปิด dev server และพาแท็บไปหน้าที่ต้องการ</span></div>
+    <div class="map-row"><span><code>preview_snapshot</code></span><span><code>read_page</code>, <code>get_page_text</code></span><span>อ่านโครงหน้าและข้อความ</span></div>
+    <div class="map-row"><span><code>preview_click</code>, <code>preview_type</code></span><span><code>find</code> แล้ว <code>computer</code></span><span>หาปุ่มแล้วคลิกหรือพิมพ์</span></div>
+    <div class="map-row"><span><code>preview_evaluate</code></span><span><code>javascript_tool</code></span><span>อ่านค่าจริงจากหน้าเว็บ</span></div>
+    <div class="map-row"><span><code>preview_resize</code></span><span><code>resize_window</code></span><span>ลองขนาดจอมือถือ</span></div>
+    <div class="map-row"><span><code>preview_recording_*</code></span><span>ยังไม่เจอตัวเทียบ</span><span>ใช้ภาพหน้าจอกับค่าที่อ่านได้แทน</span></div>
+  </div>
+  <p>
+    ใน Claude Desktop ยังมี <code>preview_logs</code> สำหรับอ่าน output ของ dev server, <code>read_console_messages</code> สำหรับดู error ใน console และ <code>preview_stop</code> สำหรับปิด server ที่ตัวเองเปิด สามตัวนี้ทำหน้าที่ข้อ "อ่านค่าจริง" กับ "ปิดเฉพาะที่ตัวเองเปิด" ของ test-t3-app ได้ตรงตัว
+  </p>
+
+  <h3>ขั้นที่ 3 · วาง skill</h3>
+  <p>
+    วางไฟล์ไว้ที่ <code>.claude/skills/test-&lt;app&gt;/SKILL.md</code> ใน repo (หรือที่ <code>.agents/skills/</code> แล้วทำ symlink แบบ T3) แม่แบบข้างล่างแปลงมาจากแม่แบบก่อนหน้า และเพิ่มสองกฎที่ได้มาจากการใช้แผงนี้จริง
+  </p>
+  <CodeBlock code={desktopSkill} lang="markdown" title=".claude/skills/test-<app>/SKILL.md" />
+  <div class="callout callout-warn">
+    <p class="callout-label">กับดักของแผงเบราว์เซอร์ที่เจอจริงตอนตรวจบทความในหมวดนี้</p>
+    <p>
+      ถ้าแผงถูกพับหรืออยู่ด้านหลัง <code>window.innerWidth</code> จะอ่านได้ 0 และทุกค่าที่วัดจากหน้าจอจะผิดหมด รอบหนึ่งวัดได้ว่ากรอบบทความกว้างแค่ 74 พิกเซล เกือบสรุปผิดไปแล้วว่าหน้าพัง พอปรับขนาดแผงใหม่ค่าก็กลับมาปกติ อีกเรื่องคือภาพหน้าจอบางครั้งค้างจนหมดเวลา ทั้งที่หน้าเว็บไม่ได้มีอะไรผิด สองเรื่องนี้คือเหตุผลที่แม่แบบสั่งให้เช็กความกว้างก่อนวัด และให้อ่านหน้าด้วยข้อความเป็นหลัก ใช้ภาพหน้าจอเป็นของเสริม
+    </p>
+  </div>
+
+  <h3>ขั้นที่ 4 · สั่งงานคู่กับ pstack</h3>
+  <CodeBlock code={desktopPrompt} lang="text" title="ในแท็บ Code ของ Claude Desktop" />
+  <p>
+    ประโยค "บอกค่าที่อ่านได้จากหน้าจอ" สำคัญกว่าที่เห็น ใน Claude Desktop การอ่านหน้าด้วย <code>read_page</code> หรือ <code>javascript_tool</code> เชื่อได้มากกว่าภาพหน้าจอ เพราะได้เป็นตัวเลขกับข้อความที่ตรวจซ้ำได้ ส่วน pairing URL กับ token ของ T3 ไม่มีในกรณีนี้ แต่หลักเดิมยังใช้ได้ คือรหัสผ่านและ token ห้ามติดไปในภาพ commit หรือข้อความตอบ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ลอง T3 Code</h2>
+  <p>
+    ต้องลงและ login agent อย่างน้อยหนึ่งตัวก่อน เช่น Claude Code ใช้ <code>claude auth login</code> หรือ Codex ใช้ <code>codex login</code> จากนั้นติดตั้ง T3 Code แบบใดแบบหนึ่ง
+  </p>
+  <CodeBlock code={installT3} lang="bash" title="ติดตั้งแบบรันจากเทอร์มินัล" />
+  <p>
+    แล้วพิมพ์ <code>t3</code> เพื่อเปิด server กับเว็บแอปในเครื่อง ถ้าอยากได้แอปเดสก์ท็อป ใช้ตัวจัดการแพ็กเกจได้
+  </p>
+  <CodeBlock code={installDesktop} lang="bash" title="ติดตั้งแอปเดสก์ท็อป" />
+  <div class="callout callout-warn">
+    <p class="callout-label">เรื่องที่ควรรู้ก่อนใช้กับงานจริง</p>
+    <p>
+      README ของ T3 Code เขียนเองว่าโปรเจกต์ยังอยู่ช่วงต้นมาก ให้เตรียมใจเจอบั๊ก ตัวเลขผู้ใช้กับจำนวนดาวบน GitHub ที่เห็นบนเว็บเป็นตัวเลขที่ทีมอ้างเอง และเครื่องมือ <code>preview_*</code> ที่บทนี้พูดถึงมาจากโค้ดใน repo วันที่ 12 ตุลาคม 2026 ซึ่งเปลี่ยนเร็วมาก ถ้าชื่อเครื่องมือไม่ตรงกับที่เห็นในแอป ให้เชื่อของในแอป
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>เริ่มพรุ่งนี้เช้า ทำตามนี้</h2>
+  <ol class="todo">
+    <li>เปิด <a href="https://github.com/pingdotgg/t3code/blob/main/.agents/skills/test-t3-app/SKILL.md" target="_blank" rel="noopener noreferrer">test-t3-app</a> กับ <a href="https://github.com/pingdotgg/t3code/blob/main/AGENTS.md" target="_blank" rel="noopener noreferrer">AGENTS.md</a> อ่านคู่กัน ใช้เวลาไม่เกินสิบนาที</li>
+    <li>เช็กโปรเจกต์ของเราว่าตอน dev แยกข้อมูลออกจากของจริงแล้วหรือยัง ถ้ายัง ทำข้อนี้ก่อนข้ออื่น</li>
+    <li>เลือกว่าจะตรวจผ่าน T3 Code หรือผ่าน Claude Desktop ถ้าใช้ T3 ให้ติดตั้งแล้วเปิดโปรเจกต์ เลือก provider เป็น Claude ถ้าใช้ Claude Desktop ให้สร้าง <code>.claude/launch.json</code> ก่อน</li>
+    <li>ใน thread นั้น รัน <code>/pstack:create-verification-skill</code> พร้อมบอกให้ใช้โครงของ test-t3-app หรือเริ่มจากแม่แบบข้างบนแล้วให้มันเติม</li>
+    <li>ให้มันลองรัน skill เองครบหนึ่งรอบ แล้วเช็กว่ามันปิดเฉพาะ process ที่ตัวเองเปิดจริง</li>
+    <li>ทำ symlink <code>.claude/skills</code> ชี้ไป <code>.agents/skills</code> ถ้าทีมใช้มากกว่าหนึ่ง harness</li>
+    <li>คัดลอกรายการ Hit every surface ไปใส่ใน AGENTS.md หรือ CLAUDE.md ของเรา แล้วแก้ให้ตรงกับหน้าจอและ client ของเราเอง</li>
+  </ol>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <ol class="references">
+    <li>pingdotgg/t3code, <i>test-t3-app/SKILL.md</i> และ <i>references/sqlite-fixtures.md</i> · <a href="https://github.com/pingdotgg/t3code/blob/main/.agents/skills/test-t3-app/SKILL.md" target="_blank" rel="noopener noreferrer">github.com/pingdotgg/t3code</a> (อ่านจาก main วันที่ 12 ตุลาคม 2026 เนื้อหาในบทนี้เป็นการสรุปและแปลความของผม ไม่ได้คัดลอกต้นฉบับ)</li>
+    <li>pingdotgg/t3code, <i>AGENTS.md</i>, <i>README.md</i>, <i>test-t3-mobile/SKILL.md</i>, <i>t3.json</i> และรายชื่อเครื่องมือใน <i>apps/server/src/mcp/toolkits/preview/tools.ts</i> · <a href="https://github.com/pingdotgg/t3code" target="_blank" rel="noopener noreferrer">github.com/pingdotgg/t3code</a> (ที่มาของกฎสามข้อ, Hit every surface, การตรวจ, คำสั่งติดตั้ง และชื่อเครื่องมือ <code>preview_*</code>)</li>
+    <li>pingdotgg/t3code, <i>docs/user/outside-agents.md</i> · <a href="https://github.com/pingdotgg/t3code/blob/main/docs/user/outside-agents.md" target="_blank" rel="noopener noreferrer">github.com</a> (ที่มาของการต่อ Claude Code ผ่าน MCP สิทธิ์ และอายุ sign-in)</li>
+    <li>T3 Tools, <i>T3 Code</i> · <a href="https://t3.codes" target="_blank" rel="noopener noreferrer">t3.codes</a> (ข้อมูล open source, ไม่ขาย token, หนึ่ง thread หนึ่ง branch และตัวเลขที่ทีมอ้างเอง)</li>
+    <li>Uzair Ansar, <i>p3-stack</i> · <a href="https://github.com/uzairansaruzi/p3-stack" target="_blank" rel="noopener noreferrer">github.com/uzairansaruzi/p3-stack</a> (pstack ที่พอร์ตมาใช้กับเครื่องมือของ T3 Code เป็นงานของบุคคล อ่านจาก commit เดียววันที่ 5 ตุลาคม 2026)</li>
+    <li>Michael Denyer, <i>pstack-claude</i> · <a href="https://github.com/michael-denyer/pstack-claude" target="_blank" rel="noopener noreferrer">github.com/michael-denyer/pstack-claude</a> (ที่มาของพฤติกรรม poteto-mode ที่มองหา skill ชื่อ verify)</li>
+  </ol>
+</DivineLoreLayout>
+
+<style>
+  h3{
+    font-size:0.95rem;
+    margin:1.8rem 0 0.6rem;
+    color:#f2f5fb;
+  }
+  .dl-nav{display:flex;flex-wrap:wrap;gap:0.4rem 1.2rem;}
+  .lessons{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr));
+    gap:0.65rem;
+    margin:1rem 0;
+  }
+  .ls{
+    background:#141a29;
+    border:1px solid #2a3350;
+    border-radius:12px;
+    padding:0.75rem 0.85rem;
+    display:flex;
+    flex-direction:column;
+  }
+  .ls p{margin:0;font-size:0.86rem;}
+  .ls-name{font-weight:700;color:#4ade80;margin-bottom:0.3rem !important;}
+  .ls-pair{margin-top:auto !important;padding-top:0.5rem;font-size:0.78rem !important;color:#f0d060;}
+  .map{
+    margin:1rem 0;
+    border:1px solid #2a3350;
+    border-radius:12px;
+    overflow:hidden;
+    background:#141a29;
+  }
+  .map-row{
+    display:grid;
+    grid-template-columns:1.1fr 1.1fr 1.3fr;
+    gap:0.6rem;
+    padding:0.5rem 0.8rem;
+    border-top:1px solid #2a3350;
+    font-size:0.84rem;
+  }
+  .map-row:first-child{border-top:none;}
+  .map-head{background:#1c2536;font-weight:700;color:#f2f5fb;}
+  .map-row code{font-size:0.78rem;overflow-wrap:anywhere;}
+  @media (max-width:560px){
+    .map-row{grid-template-columns:1fr 1fr;}
+    .map-row span:last-child{grid-column:1 / -1;color:#9aa7bd;}
+  }
+  .todo{padding-left:1.4rem;}
+  .todo li{margin:0.45rem 0;}
+</style>

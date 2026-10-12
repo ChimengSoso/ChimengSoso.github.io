@@ -15,6 +15,14 @@ export interface DivineLoreEntry {
 
 export const divineLoreEntries: DivineLoreEntry[] = [
   {
+    href: 'test-t3-app-skill/',
+    tag: 'บันทึกวิจัย',
+    title: 'test-t3-app: verification skill 41 บรรทัดของ T3 Code ที่ควรลอกไปใช้คู่ pstack',
+    desc: 'ตอนต่อจากบท pstack เปิดดู verification skill ตัวจริงที่ทีม T3 Code ใช้กับแอปของตัวเอง อ่านทีละท่อนว่าแต่ละบรรทัดกันความพังแบบไหน บทเรียนแปดข้อ ทำไมมันสั้นได้ วิธีต่อกับ pstack สามแบบ และแม่แบบให้เขียนของโปรเจกต์เราเอง',
+    dateISO: '2026-10-12',
+    readingMinutes: 14,
+  },
+  {
     href: 'pstack-guide/',
     tag: 'บันทึกวิจัย',
     title: 'pstack: ชุด skill ที่ส่ง PR ได้กว่า 2,000 ตัวต่อเดือน ลงและใช้ยังไง',
