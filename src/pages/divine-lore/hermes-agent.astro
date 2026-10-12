@@ -1,0 +1,443 @@
+---
+import DivineLoreLayout from '../../layouts/DivineLoreLayout.astro';
+import CodeBlock from '../../components/CodeBlock.astro';
+import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import { divineLoreEntries } from '../../data/divineLore';
+
+const entry = divineLoreEntries.find((e) => e.href === 'hermes-agent/');
+if (!entry) throw new Error('hermes-agent/ ไม่มีใน divineLore.ts');
+
+const installCode = `# Linux / macOS / WSL2
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+
+# Windows (PowerShell) ติดตั้งไว้ที่ %LOCALAPPDATA%\\hermes
+iex (irm https://hermes-agent.nousresearch.com/install.ps1)`;
+
+const safeConfig = `# ~/.hermes/config.yaml (ตั้งก่อนคุยครั้งแรก)
+auth:
+  adopt_external_logins: false   # ไม่ยืม login ของ Claude Code / Codex
+approvals:
+  mode: manual                   # ถามทุกคำสั่งที่เสี่ยง
+skills:
+  write_approval: true           # skill ที่ agent เขียนเอง ต้องรอเราอนุมัติ
+memory:
+  write_approval: true           # ความจำใหม่ ต้องรอเราอนุมัติ`;
+
+const firstRun = `hermes setup        # เลือก Blank Slate ถ้าอยากเริ่มจากเครื่องมือน้อยที่สุด
+hermes model        # เลือกเจ้าของโมเดลกับตัวโมเดล
+hermes doctor       # ตรวจว่าลงครบ
+hermes --tui        # เริ่มคุย (หน้าจอแบบใหม่)`;
+
+const skillsConfig = `skills:
+  external_dirs:
+    - ~/.agents/skills   # ที่เดียวกับที่ T3 Code และ Codex อ่าน`;
+
+const approveCmds = `/skills pending          # ดู skill ที่ agent อยากเขียน
+/skills diff <id>        # ดูว่ามันจะแก้อะไร
+/skills approve <id>     # อนุมัติ
+/skills reject <id>      # ปฏิเสธ
+/memory pending          # แบบเดียวกันสำหรับความจำ`;
+---
+<DivineLoreLayout title={`${entry.title} | บันทึกศาสตร์แห่งเทพ`} description={entry.desc} toc>
+  <nav class="dl-nav">
+    <a href="../">
+      <svg class="dl-nav-arrow" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0"/></svg>
+      กลับไปที่บันทึกลับ
+    </a>
+    <a href="../pstack-guide/">อ่านบท pstack</a>
+    <a href="../test-t3-app-skill/">อ่านบท test-t3-app</a>
+  </nav>
+  <p class="tag">{entry.tag}</p>
+  <h1>{entry.title}</h1>
+  <p class="subtitle">
+    สองบทก่อนพูดถึงเครื่องมือที่ช่วยให้ agent เขียนโค้ดได้ดีขึ้น บทนี้เป็นของอีกแบบ Hermes Agent คือ agent ที่อยู่ประจำ คุยผ่านแอปแชตได้ จำเราได้ข้ามวัน และเขียน skill ให้ตัวเองจากงานที่ทำ บทนี้อธิบายว่ามันอยู่ตรงไหนเทียบกับของที่เรามี ลงยังไงให้ปลอดภัย และระบบ skill กับความจำของมันทำงานยังไง
+  </p>
+
+  <hr class="divider" />
+
+  <div class="callout callout-warn">
+    <p class="callout-label">บทนี้เขียนจากเอกสาร ยังไม่ได้ลองรันจริง</p>
+    <p>
+      ทุกอย่างในบทนี้มาจากเอกสารทางการบนเว็บ hermes-agent.nousresearch.com และ README บน GitHub ที่อ่านเมื่อ 12 ตุลาคม 2026 ยังไม่ได้ลงโปรแกรมแล้วลองเอง ตรงไหนที่ต้องลองถึงจะรู้ บทความจะบอกไว้ตรงนั้น โปรเจกต์นี้อัปเดตบ่อย ถ้าคำสั่งหรือค่าตั้งไม่ตรงกับที่เห็น ให้เชื่อเอกสารล่าสุดของเขา
+    </p>
+  </div>
+
+  <p>
+    ในบท <a href="../pstack-guide/">pstack</a> Lauren Tan เล่าเรื่อง "วงนอก" (outer loop) คือ bot ที่คอยฟังแชตใน Slack ฟังรายงานบั๊ก แล้วส่งงานต่อให้ agent ที่เขียนโค้ด Lauren ใช้ Grok Bot ทำหน้าที่นี้ <strong>Hermes Agent</strong> ของ Nous Research เป็นของประเภทเดียวกันในฉบับ open source (สัญญาอนุญาต MIT) ใช้โมเดลของเจ้าไหนก็ได้ และรันบนเครื่องเรา บน VPS ราคาถูก หรือบน cloud ก็ได้
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">แกะคำศัพท์</p>
+    <p>
+      <strong>Hermes</strong> อ่านว่า <strong>"เฮอร์มีส"</strong> เป็นชื่อเทพผู้ส่งสารของกรีก เทพที่วิ่งส่งข่าวระหว่างเทพกับมนุษย์ ชื่อนี้เข้ากับ agent ที่อยู่ในแอปแชตทุกแอปของเราพอดี ส่วน <strong>Nous</strong> อ่านว่า <strong>"นูส"</strong> เป็นคำกรีกแปลว่า <strong>"ปัญญา"</strong> หรือ "ใจที่คิดได้" Nous Research มีโมเดลภาษาตระกูลชื่อ Hermes อยู่ก่อนแล้วด้วย แต่ Hermes Agent คือตัว agent ที่ห่อโมเดลอะไรก็ได้ ไม่ได้ผูกกับโมเดลของเขาเอง
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>Hermes อยู่ตรงไหน เทียบกับของที่เรามี</h2>
+  <p>
+    ถ้าเอาสามบทมาวางเรียงกัน ของแต่ละตัวตอบคำถามคนละข้อ
+  </p>
+  <div class="cmp">
+    <div class="cmp-row cmp-head"><span></span><span>Claude Code</span><span>T3 Code</span><span>Hermes Agent</span></div>
+    <div class="cmp-row"><span>มันคืออะไร</span><span>agent เขียนโค้ด</span><span>แผงคุม agent หลายตัว</span><span>agent ผู้ช่วยประจำตัว</span></div>
+    <div class="cmp-row"><span>โมเดล</span><span>Claude</span><span>ของ agent ที่มันคุม</span><span>เจ้าไหนก็ได้</span></div>
+    <div class="cmp-row"><span>อยู่ที่ไหน</span><span>เครื่องเรา เปิดเมื่อสั่ง</span><span>เครื่องเรา คุมจากมือถือได้</span><span>เครื่องเรา, VPS หรือ cloud เปิดทิ้งไว้</span></div>
+    <div class="cmp-row"><span>คุยทางไหน</span><span>เทอร์มินัล, แอป</span><span>เว็บ, เดสก์ท็อป, มือถือ</span><span>Telegram, Discord, Slack, WhatsApp, Signal, CLI</span></div>
+    <div class="cmp-row"><span>skill</span><span>เราเขียน</span><span>ใช้ของ agent ที่คุม</span><span>เราเขียน และ agent เขียนเองได้</span></div>
+    <div class="cmp-row"><span>เหมาะกับ</span><span>งานโค้ดตรงหน้า</span><span>คุมงานโค้ดหลายสาย</span><span>งานประจำ งานตามเวลา งานที่สั่งจากแชต</span></div>
+  </div>
+  <p>
+    สรุปแบบสั้นคือ งานเขียนโค้ดตรงหน้ายังเป็นของ Claude Code ส่วน Hermes เหมาะกับงานที่ต้องมีคนเฝ้าอยู่ตลอด เช่น สรุปข่าวทุกเช้า สำรองไฟล์ทุกคืน รับคำสั่งจากมือถือระหว่างเดินทาง ซึ่งเป็นงานที่ Claude Code ในเทอร์มินัลไม่ได้ออกแบบมาให้ทำ
+  </p>
+
+  <ZoomableDiagram caption="โครงของ Hermes Agent วาดจาก README และหน้า Features, Tools และ Security ในเอกสารทางการ">
+    <svg viewBox="0 0 720 314" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพ Hermes Agent ด้านซ้ายเป็นช่องทางคุย Telegram Discord Slack WhatsApp Signal และ CLI ส่งเข้า gateway ที่ตรวจสิทธิ์ผู้ส่ง แล้วเข้าตัว Hermes Agent ที่ใช้โมเดลเจ้าไหนก็ได้และมีเครื่องมือ terminal ไฟล์ เบราว์เซอร์ เว็บ cronjob และ delegate_task ด้านขวาเป็นที่รันคำสั่ง ได้แก่ local ที่ไม่มีกำแพงกั้น docker ssh และ cloud sandbox ด้านล่างเป็นที่เก็บข้อมูลในโฟลเดอร์ .hermes มีความจำ skill และประวัติแชต" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="hm-a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#9aa7bd"/>
+        </marker>
+      </defs>
+      <text x="72" y="26" font-size="12" font-weight="700" fill="#7cc4ff" text-anchor="middle">ช่องทางคุย</text>
+      <g font-size="11.5" fill="#cfe6ff" text-anchor="middle">
+        <rect x="12" y="38" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="57">Telegram</text>
+        <rect x="12" y="72" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="91">Discord</text>
+        <rect x="12" y="106" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="125">Slack</text>
+        <rect x="12" y="140" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="159">WhatsApp</text>
+        <rect x="12" y="174" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="193">Signal</text>
+        <rect x="12" y="208" width="120" height="28" rx="8" fill="#18263a" stroke="#3b5b86"/><text x="72" y="227">CLI / TUI</text>
+      </g>
+      <g stroke="#9aa7bd" stroke-width="1.3" fill="none">
+        <path d="M134 52 L158 120" marker-end="url(#hm-a1)"/>
+        <path d="M134 137 L158 137"/>
+        <path d="M134 222 L158 154" marker-end="url(#hm-a1)"/>
+      </g>
+      <rect x="160" y="108" width="112" height="58" rx="10" fill="#2b2410" stroke="#e0b400"/>
+      <text x="216" y="132" font-size="12.5" font-weight="700" fill="#f0d060" text-anchor="middle">gateway</text>
+      <text x="216" y="151" font-size="10.5" fill="#d8b862" text-anchor="middle">ตรวจสิทธิ์ผู้ส่ง</text>
+      <line x1="274" y1="137" x2="296" y2="137" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#hm-a1)"/>
+      <rect x="300" y="60" width="200" height="156" rx="12" fill="#12301f" stroke="#2f9e5c" stroke-width="1.6"/>
+      <text x="400" y="88" font-size="15" font-weight="700" fill="#4ade80" text-anchor="middle">Hermes Agent</text>
+      <text x="400" y="108" font-size="11" fill="#e7ecf6" text-anchor="middle">โมเดลเจ้าไหนก็ได้</text>
+      <g font-size="10.5" fill="#9aa7bd" text-anchor="middle">
+        <text x="400" y="134">terminal, ไฟล์, เบราว์เซอร์, เว็บ</text>
+        <text x="400" y="152">memory, skills, session_search</text>
+        <text x="400" y="170">cronjob (งานตามเวลา)</text>
+        <text x="400" y="188">delegate_task (ส่งงานให้ subagent)</text>
+      </g>
+      <line x1="502" y1="137" x2="526" y2="137" stroke="#9aa7bd" stroke-width="1.4" marker-end="url(#hm-a1)"/>
+      <text x="619" y="26" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">ที่รันคำสั่ง (backend)</text>
+      <g font-size="11" text-anchor="middle">
+        <rect x="530" y="40" width="178" height="38" rx="8" fill="#2a1414" stroke="#d64545"/>
+        <text x="619" y="57" fill="#f08b8b" font-weight="700">local (ค่าเริ่มต้น)</text>
+        <text x="619" y="71" font-size="9.5" fill="#e7b9b9">รันบนเครื่องจริง ไม่มีกำแพง</text>
+        <rect x="530" y="86" width="178" height="30" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="619" y="106" fill="#e7ecf6">docker</text>
+        <rect x="530" y="124" width="178" height="30" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="619" y="144" fill="#e7ecf6">ssh</text>
+        <rect x="530" y="162" width="178" height="38" rx="8" fill="#1c2536" stroke="#3a4666"/>
+        <text x="619" y="179" fill="#e7ecf6">singularity, modal</text>
+        <text x="619" y="193" font-size="9.5" fill="#9aa7bd">daytona, vercel sandbox</text>
+      </g>
+      <line x1="400" y1="218" x2="400" y2="234" stroke="#9aa7bd" stroke-width="1.3" stroke-dasharray="3 3"/>
+      <rect x="290" y="238" width="220" height="48" rx="10" fill="#0f1524" stroke="#3a4666"/>
+      <text x="400" y="258" font-size="12" font-weight="700" fill="#f2f5fb" text-anchor="middle">โฟลเดอร์ .hermes</text>
+      <text x="400" y="276" font-size="10.5" fill="#9aa7bd" text-anchor="middle">memories, skills, state.db, .env</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    <strong>gateway</strong> อ่านว่า <strong>"เกตเวย์"</strong> แปลว่า "ประตูทางผ่าน" ในที่นี้คือ process ตัวเดียวที่ต่อกับทุกแอปแชต รับข้อความเข้ามา ตรวจว่าคนส่งมีสิทธิ์ไหม แล้วส่งต่อให้ตัว agent ส่วน <strong>backend</strong> คือที่ที่คำสั่ง terminal ของ agent ไปรันจริง ค่าเริ่มต้นคือ local หรือเครื่องที่ Hermes ลงอยู่นั่นเอง ซึ่งเป็นตัวเดียวในรายการที่ไม่มีกำแพงกั้นอะไรเลย
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ลงให้ปลอดภัยตั้งแต่วันแรก</h2>
+  <p>
+    เอกสารแนะนำให้คนใช้ macOS กับ Windows ลงผ่านแอปเดสก์ท็อปจากหน้าเว็บ ซึ่งจะได้ทั้ง CLI และแอปมาพร้อมกัน ถ้าอยากได้แค่ CLI ใช้คำสั่งข้างล่าง Windows รองรับแบบ native ไม่ต้องผ่าน WSL2 (แต่ถ้าใช้ WSL2 อยู่แล้วก็ใช้คำสั่งของ Linux ได้)
+  </p>
+  <CodeBlock code={installCode} lang="bash" title="ติดตั้ง CLI" />
+  <p>
+    README เตือนไว้ด้วยว่าบน Windows โปรแกรมกันไวรัสอาจจับ <code>uv.exe</code> ที่มากับ Hermes ว่าเป็นมัลแวร์ เขาบอกว่าเป็นการแจ้งเตือนผิด และอธิบายวิธีตรวจว่าไฟล์เป็นของแท้ไว้ใน README ให้ตรวจตามนั้นก่อน อย่ารีบสั่งยกเว้นทั้งโฟลเดอร์
+  </p>
+
+  <h3>ก่อนคุยครั้งแรก ตั้งสี่ค่านี้</h3>
+  <p>
+    ค่าเริ่มต้นของ Hermes ตั้งมาให้ลื่น ไม่ได้ตั้งมาให้ระวัง มีสี่ค่าที่ควรเปลี่ยนก่อนเริ่มใช้งานจริง โดยเฉพาะข้อแรก
+  </p>
+  <CodeBlock code={safeConfig} lang="yaml" title="~/.hermes/config.yaml" />
+  <div class="card">
+    <ul>
+      <li><strong>adopt_external_logins</strong> ค่าเริ่มต้นเป็น <code>true</code> แปลว่า Hermes จะยืม login ของ Claude Code และ Codex CLI ที่อยู่ในเครื่องไปใช้เอง เอกสารด้านความปลอดภัยของเขาเตือนเองว่า token ของสองโปรแกรมนี้หมุนเปลี่ยนตลอด ถ้าใช้ร่วมกันอาจทำให้ฝั่งใดฝั่งหนึ่ง login หลุด ใครใช้ Claude Code ทำงานทุกวันควรปิดข้อนี้ก่อนรันครั้งแรก</li>
+      <li><strong>approvals.mode</strong> ค่าเริ่มต้นคือ <code>smart</code> ใช้โมเดลอีกตัวช่วยตัดสินว่าคำสั่งไหนเสี่ยง ตั้งเป็น <code>manual</code> ช่วงแรกเพื่อให้ถามทุกครั้ง พอเห็นนิสัยของมันแล้วค่อยผ่อน</li>
+      <li><strong>skills.write_approval</strong> ค่าเริ่มต้นเป็น <code>false</code> agent เขียนและแก้ skill ของตัวเองได้ทันที เปิดข้อนี้แล้วทุกการเขียนจะรอเราดูก่อน</li>
+      <li><strong>memory.write_approval</strong> แบบเดียวกัน สำหรับความจำ</li>
+    </ul>
+  </div>
+
+  <h3>รันครั้งแรก</h3>
+  <CodeBlock code={firstRun} lang="bash" title="ในเทอร์มินัล" />
+  <p>
+    ตอน <code>hermes setup</code> จะมีให้เลือกสามแบบ แบบ Quick Setup ผูกกับ Nous Portal ซึ่งเป็นบริการเสียเงินรายเดือนของ Nous (มีแบบฟรีด้วย) แบบ Full Setup ให้ใส่ key ของแต่ละเจ้าเอง และแบบ Blank Slate ที่เปิดแค่เครื่องมือไฟล์กับ terminal ปิดความจำอัตโนมัติไว้ด้วย แบบสุดท้ายเหมาะกับการเรียนรู้ เพราะเราจะเห็นว่าความสามารถแต่ละอย่างที่เปิดเพิ่มทำอะไร ข้อจำกัดหนึ่งที่ควรรู้คือโมเดลต้องมี context อย่างน้อย 64,000 token ถ้าน้อยกว่านี้ Hermes จะไม่ยอมเริ่ม คนที่อยากรันโมเดลในเครื่องเองต้องตั้งค่านี้ให้ถึง
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>skill ของ Hermes คือ SKILL.md แบบเดียวกับที่เรารู้จัก</h2>
+  <p>
+    skill ของ Hermes เป็นโฟลเดอร์ที่มี <code>SKILL.md</code> หัวไฟล์เป็น YAML มี <code>name</code> กับ <code>description</code> ตามด้วยเนื้อหา Markdown และมีโฟลเดอร์ <code>references/</code>, <code>scripts/</code>, <code>templates/</code> แนบได้ หน้าตาเดียวกับ skill ของ Claude Code และ test-t3-app ในบทก่อน README บอกว่ารองรับมาตรฐานเปิดของ agentskills.io
+  </p>
+  <p>
+    การโหลดก็ใช้หลักเดียวกับที่ test-t3-app ใช้ คือเปิดเผยทีละชั้น agent เห็นแค่ชื่อกับคำอธิบายของทุก skill ก่อน (<code>skills_list</code>) เลือกตัวที่ตรงงานแล้วค่อยโหลดเนื้อหาเต็ม (<code>skill_view</code>) และโหลดไฟล์ใน references ทีละไฟล์เมื่อต้องใช้
+  </p>
+  <p>
+    ที่เก็บหลักอยู่ที่ <code>~/.hermes/skills/</code> แต่สั่งให้มันไปอ่านโฟลเดอร์อื่นเพิ่มได้ เช่น <code>~/.agents/skills/</code> ซึ่งเป็นที่เดียวกับที่ T3 Code และ Codex อ่าน ส่วน skill ของโปรเจกต์ใน <code>.hermes/skills/</code> หรือ <code>.agents/skills/</code> ของ repo จะโหลดหลังจากเราบอกว่าไว้ใจ repo นั้นแล้วเท่านั้น
+  </p>
+  <CodeBlock code={skillsConfig} lang="yaml" title="~/.hermes/config.yaml" />
+  <div class="callout callout-tip">
+    <p class="callout-label">skill จากสองบทก่อนใช้กับ Hermes ได้ไหม</p>
+    <p>
+      รูปแบบไฟล์ใช้ได้ แต่เนื้อหาอาจใช้ไม่ได้ skill ที่ดีมักเรียกชื่อเครื่องมือของ harness ที่มันเขียนให้ test-t3-app เรียก <code>preview_*</code> ของ T3 ส่วน pstack ฉบับ Claude Code เรียกเครื่องมือของ Claude อย่าง <code>Agent</code> กับ <code>AskUserQuestion</code> ใน Hermes เครื่องมือชื่อไม่ตรงกัน (เช่น ส่งงานให้ subagent ใช้ <code>delegate_task</code> ส่วนเบราว์เซอร์ใช้ <code>browser_navigate</code>) skill ที่เรียกเครื่องมือเฉพาะจึงต้องแปลงชื่อก่อน แบบเดียวกับที่ p3-stack แปลง pstack ให้ T3 skill ที่เป็นขั้นตอนล้วน ๆ ไม่ผูกกับเครื่องมือ น่าจะใช้ได้เลย ข้อนี้ยังไม่ได้ลองจริง
+    </p>
+  </div>
+
+  <h3>วงจรเรียนรู้: agent เขียน skill ให้ตัวเอง</h3>
+  <p>
+    จุดที่ Hermes ต่างจากของในสองบทก่อนคือมันเขียน skill เองได้ เอกสารเรียก skill ว่า "ความจำเชิงขั้นตอน" (<i>procedural memory</i>) เมื่อ agent หาวิธีทำงานหลายขั้นตอนสำเร็จ หรือถูกเราแก้ มันจะบันทึกวิธีนั้นเป็น skill ผ่านเครื่องมือ <code>skill_manage</code> และหลังจบแต่ละเทิร์นยังมีการทบทวนเบื้องหลัง (background review) ที่อาจเพิ่มความจำหรือแก้ skill ด้วย
+  </p>
+
+  <ZoomableDiagram caption="วงจรเรียนรู้ของ Hermes ตามเอกสารหน้า Skills และ Memory ประตูอนุมัติตรงกลางปิดอยู่โดยค่าเริ่มต้น">
+    <svg viewBox="0 0 710 206" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพวงจรห้าขั้น งานเสร็จ ทบทวนเบื้องหลังหลังจบเทิร์น skill_manage สร้างหรือแก้ skill ประตูอนุมัติที่ปิดอยู่โดยค่าเริ่มต้น เก็บลงโฟลเดอร์ skills แล้วงานถัดไปโหลด skill ที่ตรงกลับมาใช้ วนกลับไปเริ่มใหม่" style="font-family:'Sarabun',sans-serif">
+      <defs>
+        <marker id="hm-a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <g text-anchor="middle">
+        <rect x="12" y="30" width="126" height="72" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="75" y="60" font-size="12" font-weight="700" fill="#f2f5fb">ทำงานเสร็จ</text>
+        <text x="75" y="80" font-size="10.5" fill="#9aa7bd">หรือถูกเราแก้</text>
+        <rect x="152" y="30" width="126" height="72" rx="10" fill="#1c2536" stroke="#3a4666"/>
+        <text x="215" y="60" font-size="12" font-weight="700" fill="#f2f5fb">ทบทวนเบื้องหลัง</text>
+        <text x="215" y="80" font-size="10.5" fill="#9aa7bd">หลังจบเทิร์น</text>
+        <rect x="292" y="30" width="126" height="72" rx="10" fill="#18263a" stroke="#3b5b86"/>
+        <text x="355" y="60" font-size="12" font-weight="700" fill="#cfe6ff">skill_manage</text>
+        <text x="355" y="80" font-size="10.5" fill="#9fb8d6">สร้าง หรือ patch</text>
+        <rect x="432" y="30" width="126" height="72" rx="10" fill="#2b2410" stroke="#e0b400" stroke-dasharray="5 4"/>
+        <text x="495" y="58" font-size="12" font-weight="700" fill="#f0d060">ประตูอนุมัติ</text>
+        <text x="495" y="76" font-size="10" fill="#d8b862">write_approval</text>
+        <text x="495" y="91" font-size="10" fill="#d8b862">(ปิดอยู่โดยค่าเริ่มต้น)</text>
+        <rect x="572" y="30" width="126" height="72" rx="10" fill="#12301f" stroke="#2f9e5c" stroke-width="1.5"/>
+        <text x="635" y="60" font-size="12" font-weight="700" fill="#4ade80">~/.hermes/skills</text>
+        <text x="635" y="80" font-size="10.5" fill="#e7ecf6">พร้อมใช้รอบหน้า</text>
+      </g>
+      <g stroke="#4ade80" stroke-width="1.6" fill="none">
+        <line x1="140" y1="66" x2="148" y2="66" marker-end="url(#hm-a2)"/>
+        <line x1="280" y1="66" x2="288" y2="66" marker-end="url(#hm-a2)"/>
+        <line x1="420" y1="66" x2="428" y2="66" marker-end="url(#hm-a2)"/>
+        <line x1="560" y1="66" x2="568" y2="66" marker-end="url(#hm-a2)"/>
+        <path d="M635 104 L635 140 L75 140 L75 108" marker-end="url(#hm-a2)"/>
+      </g>
+      <text x="355" y="162" font-size="11" fill="#9aa7bd" text-anchor="middle">งานถัดไป: skills_list เห็น skill ใหม่ แล้วโหลดตัวที่ตรงงาน</text>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    วงจรนี้คือจุดขายหลักของ Hermes และเป็นจุดที่ควรระวังที่สุดด้วย skill ที่ agent เขียนเองจะถูกใช้ในงานถัดไปโดยอัตโนมัติ ถ้ามันสรุปบทเรียนผิด ความผิดก็จะถูกทำซ้ำต่อไปเรื่อย ๆ ซึ่งเป็นปัญหาเดียวกับที่ Lauren เรียกว่าทางเลี่ยงที่ลามเป็นแพตเทิร์นในบท pstack การเปิด <code>skills.write_approval</code> ทำให้เราเห็นทุกครั้งที่มันอยากเขียน และได้ตรวจก่อน
+  </p>
+  <CodeBlock code={approveCmds} lang="text" title="คำสั่งในแชตของ Hermes" />
+  <p>
+    เอกสารมีตัวตรวจ skill ที่เตือนเมื่อเนื้อหายาวเกินหรือแนบไฟล์เยอะเกิน แต่ตัวนี้แค่เตือน ไม่ได้ห้ามเขียน ส่วน skill ที่ติดตั้งจากที่อื่น (<code>hermes skills install</code>) จะถูกสแกนหาการขโมยข้อมูล prompt injection และคำสั่งอันตรายก่อนติดตั้ง ผลสแกนระดับ dangerous ใช้ <code>--force</code> ข้ามไม่ได้
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>ความจำ: ลิ้นชักเล็กสองใบ</h2>
+  <p>
+    ความจำของ Hermes เล็กกว่าที่ชื่อชวนให้คิดมาก มีแค่สองไฟล์ใน <code>~/.hermes/memories/</code> คือ <code>MEMORY.md</code> สำหรับเรื่องสภาพแวดล้อมและบทเรียน (จำกัด 2,200 ตัวอักษร) กับ <code>USER.md</code> สำหรับเรื่องตัวเรา (จำกัด 1,375 ตัวอักษร) รวมกันประมาณหนึ่งหน้ากระดาษ
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>โหลดครั้งเดียวตอนเริ่ม</strong> ความจำถูกแปะเข้าบริบทตอนเริ่ม session แล้วไม่เปลี่ยนอีกจนจบ สิ่งที่มันจำเพิ่มระหว่างคุยถูกเขียนลงดิสก์ทันที แต่จะเห็นผลใน session ถัดไป เอกสารแนะนำให้พิมพ์ <code>/new</code> เมื่อจบเรื่องหนึ่ง</li>
+      <li><strong>ไม่เรียกเครื่องมือ ก็ไม่ได้จำ</strong> เอกสารบอกตรง ๆ ว่าความจำจะถูกบันทึกก็ต่อเมื่อโมเดลเรียกเครื่องมือ <code>memory</code> จริง ถ้ามันตอบว่า "จำไว้แล้ว" โดยไม่มีการเรียกเครื่องมือ แปลว่าไม่ได้จำอะไรเลย บทเรียนนี้ใช้ได้กับ agent ทุกตัว ให้เชื่อสิ่งที่เกิดขึ้นจริงมากกว่าคำบอกเล่าของ agent</li>
+      <li><strong>เต็มแล้วไม่ทิ้งเงียบ ๆ</strong> เมื่อเต็ม เครื่องมือจะคืน error ให้ agent รวบหรือลบของเก่าก่อน ไม่แอบลบทิ้งให้เอง</li>
+      <li><strong>ประวัติแชตเป็นอีกเรื่อง</strong> แชตทั้งหมดเก็บใน <code>~/.hermes/state.db</code> และค้นด้วย <code>session_search</code> ได้ ส่วนนี้ไม่กินที่ความจำ</li>
+    </ul>
+  </div>
+  <p>
+    ใน Hermes มีที่เก็บความรู้สามแบบที่ทำงานต่างกัน ถ้าวางของผิดลิ้นชัก จะเปลืองที่หรือโหลดไม่ขึ้นตอนต้องใช้
+  </p>
+
+  <ZoomableDiagram caption="สามที่เก็บความรู้ของ Hermes ตามเอกสารหน้า Memory, Skills และ Context Files">
+    <svg viewBox="0 0 720 236" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสามกล่อง กล่องความจำมี MEMORY.md และ USER.md รวมประมาณ 3,500 ตัวอักษร โหลดครั้งเดียวตอนเริ่ม agent เขียนผ่านเครื่องมือ memory กล่อง skill เป็นโฟลเดอร์ละ SKILL.md โหลดเมื่องานตรง agent เขียนเองได้ กล่องไฟล์บริบทคือ .hermes.md AGENTS.md หรือ CLAUDE.md ใน repo อ่านไฟล์แรกที่เจอตอนเริ่ม คนเป็นคนเขียน" style="font-family:'Sarabun',sans-serif">
+      <g text-anchor="middle">
+        <rect x="12" y="20" width="220" height="186" rx="12" fill="#2b2410" stroke="#e0b400" stroke-width="1.4"/>
+        <text x="122" y="46" font-size="13.5" font-weight="700" fill="#f0d060">ความจำ (memory)</text>
+        <text x="122" y="74" font-size="11.5" fill="#e7ecf6">MEMORY.md + USER.md</text>
+        <text x="122" y="100" font-size="11" fill="#d8b862">รวมราว 3,500 ตัวอักษร</text>
+        <text x="122" y="126" font-size="11" fill="#d8b862">โหลดครั้งเดียวตอนเริ่ม</text>
+        <text x="122" y="152" font-size="11" fill="#d8b862">agent เขียนผ่าน memory</text>
+        <text x="122" y="184" font-size="10.5" fill="#9aa7bd">เหมาะกับ: ข้อเท็จจริงสั้น ๆ</text>
+
+        <rect x="250" y="20" width="220" height="186" rx="12" fill="#12301f" stroke="#2f9e5c" stroke-width="1.4"/>
+        <text x="360" y="46" font-size="13.5" font-weight="700" fill="#4ade80">skill</text>
+        <text x="360" y="74" font-size="11.5" fill="#e7ecf6">โฟลเดอร์ละ SKILL.md</text>
+        <text x="360" y="100" font-size="11" fill="#9fd9b4">ยาวได้ แนบ references ได้</text>
+        <text x="360" y="126" font-size="11" fill="#9fd9b4">โหลดเมื่องานตรง</text>
+        <text x="360" y="152" font-size="11" fill="#9fd9b4">เราเขียน หรือ agent เขียน</text>
+        <text x="360" y="184" font-size="10.5" fill="#9aa7bd">เหมาะกับ: ขั้นตอนที่ทำซ้ำ</text>
+
+        <rect x="488" y="20" width="220" height="186" rx="12" fill="#18263a" stroke="#3b5b86" stroke-width="1.4"/>
+        <text x="598" y="46" font-size="13.5" font-weight="700" fill="#cfe6ff">ไฟล์บริบท</text>
+        <text x="598" y="74" font-size="11.5" fill="#e7ecf6">.hermes.md, AGENTS.md, CLAUDE.md</text>
+        <text x="598" y="100" font-size="11" fill="#9fb8d6">อ่านไฟล์แรกที่เจอไฟล์เดียว</text>
+        <text x="598" y="126" font-size="11" fill="#9fb8d6">โหลดตอนเริ่ม</text>
+        <text x="598" y="152" font-size="11" fill="#9fb8d6">คนเขียน อยู่ใน repo</text>
+        <text x="598" y="184" font-size="10.5" fill="#9aa7bd">เหมาะกับ: กติกาของโปรเจกต์</text>
+      </g>
+    </svg>
+  </ZoomableDiagram>
+
+  <p>
+    เอกสารเองแนะนำว่าคำสั่งที่ต้องใช้ทุกครั้งที่ทำงานประจำอย่างหนึ่ง ควรเก็บเป็น skill มากกว่าความจำ เพราะ skill โหลดเฉพาะตอนเกี่ยวข้องและไม่กินโควตา 2,200 ตัวอักษร
+  </p>
+  <p>
+    เรื่องไฟล์บริบทมีจุดที่ควรรู้ Hermes อ่านไฟล์บริบทของโปรเจกต์แค่แบบเดียวต่อ session ไล่ตามลำดับ <code>.hermes.md</code> แล้ว <code>AGENTS.override.md</code> แล้ว <code>AGENTS.md</code> แล้ว <code>CLAUDE.md</code> แล้ว <code>.cursorrules</code> เจอแบบไหนก่อนก็ใช้แบบนั้นแบบเดียว ถ้า repo ของเรามีทั้ง AGENTS.md และ CLAUDE.md ที่เนื้อหาไม่เหมือนกัน Hermes จะเห็นแค่ AGENTS.md เรื่องนี้เป็นอีกเหตุผลที่ทีม T3 เขียน CLAUDE.md ไว้บรรทัดเดียวว่า <code>@AGENTS.md</code> ให้กติกาอยู่ที่เดียว ส่วนบุคลิกของตัว agent อยู่ในไฟล์ <code>SOUL.md</code> ซึ่งโหลดแยกต่างหากเสมอ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>บทเรียนเรื่องความปลอดภัยจากเอกสารของเขาเอง</h2>
+  <p>
+    หน้า Security ของ Hermes เขียนตรงไปตรงมาดี หลายข้อยอมรับเองว่าเป็นแค่ราวกั้น ข้างล่างคือข้อที่ควรจำ
+  </p>
+  <div class="lessons">
+    <div class="ls">
+      <p class="ls-name">local ไม่มีกำแพง</p>
+      <p>backend ค่าเริ่มต้นรันบนเครื่องจริง ตัวที่กั้นได้จริงคือ container หรือเครื่องอื่น เอกสารแนะนำให้ gateway ที่เปิดใช้งานจริงรันใน container หรือเครื่องแยก</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">รายการห้ามเขียนไม่ใช่กล่องขัง</p>
+      <p>เครื่องมือเขียนไฟล์ห้ามแตะ <code>~/.ssh</code> หรือ <code>.env</code> แต่ terminal รันด้วยสิทธิ์ผู้ใช้คนเดียวกัน จึงยังอ่านหรือเขียนไฟล์พวกนั้นผ่านคำสั่ง shell ได้</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">งานตามเวลา ถูกปฏิเสธโดยค่าเริ่มต้น</p>
+      <p>งานที่รันโดยไม่มีคนเฝ้า (cron, webhook) จะปฏิเสธคำสั่งที่ต้องขออนุมัติ งานกลางคืนที่ต้องใช้คำสั่งพวกนั้นต้องใส่ไว้ใน allowlist ล่วงหน้า แทนที่จะเปิด YOLO</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">แชตปิดไว้ก่อน</p>
+      <p>ถ้าไม่ตั้ง allowlist ไว้ gateway จะปฏิเสธทุกคน คนแปลกหน้าต้องจับคู่ด้วยรหัสที่เราอนุมัติ และเอกสารห้ามเปิด <code>GATEWAY_ALLOW_ALL_USERS</code> ในงานจริง</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">skill ส่ง env ต่อได้</p>
+      <p>ตัวแปรแวดล้อมและไฟล์ credential ที่ skill ประกาศไว้ จะถูกส่งต่อให้อัตโนมัติเมื่อโหลด skill นั้น ต้องอ่าน skill จากคนอื่นก่อนติดตั้งทุกครั้ง</p>
+    </div>
+    <div class="ls">
+      <p class="ls-name">hook รันโดยไม่ถาม</p>
+      <p>ไฟล์ใน <code>~/.hermes/hooks/</code> ถูกโหลดเข้า gateway โดยไม่มีขั้นยืนยัน เอกสารบอกให้ดูแลโฟลเดอร์นี้เหมือนดูแลไฟล์ config</p>
+    </div>
+  </div>
+  <p>
+    ข้อสังเกตหนึ่ง เอกสารของ Hermes ให้กำแพงระดับระบบเป็นของที่เชื่อได้ (container, เครื่องแยก, allowlist) และให้กฎที่ต้องพึ่งการตีความ (รายการห้าม, การสแกนข้อความ) เป็นแค่ราวกั้น หลักนี้ตรงกับกฎห้าชั้นของ Lauren ในบท pstack ว่าอะไรที่บังคับด้วยโครงสร้างได้ เชื่อได้มากกว่าสิ่งที่เขียนเป็นคำแนะนำ
+  </p>
+
+  <hr class="divider-solid" />
+
+  <h2>จะใช้คู่กับ Claude Code และ pstack ยังไง</h2>
+  <p>
+    ถ้าทำงานโค้ดด้วย Claude Code กับ pstack อยู่แล้ว การให้ Hermes มาเขียนโค้ดแทนไม่ได้อะไรเพิ่มมาก ที่ Hermes เติมให้ได้คือ "วงนอก" ส่วนที่ Lauren ใช้ Grok Bot
+  </p>
+  <div class="card">
+    <ul>
+      <li><strong>งานตามเวลา</strong> ให้ Hermes สรุปว่าเมื่อวาน repo มี commit อะไรบ้าง CI ล้มกี่ครั้ง แล้วส่งเข้า Telegram ทุกเช้า</li>
+      <li><strong>รับงานจากมือถือ</strong> พิมพ์สั่งจากแชตระหว่างเดินทาง ให้มันจดลงคิวหรือเปิด issue ไว้ แล้วให้ Claude Code ลงมือแก้ตอนเรากลับมาที่เครื่อง</li>
+      <li><strong>พักงานไว้ในคิวก่อน</strong> ในไลฟ์ Lauren เล่าว่ามี agent ตัวหนึ่งที่คอยจดปัญหาลงเอกสารไว้เฉย ๆ ไม่ได้แก้ทันที แล้วค่อยกลับมาดูภาพรวม Hermes ทำหน้าที่จดแบบนี้ได้</li>
+    </ul>
+  </div>
+  <p>
+    แต่อย่าให้มันกับ Claude Code แย่ง login กัน (ปิด <code>adopt_external_logins</code> ตามที่ตั้งไว้ข้างบน) และอย่ารัน Hermes สองตัวบนโฟลเดอร์ <code>.hermes</code> เดียวกัน เอกสารหน้า Memory เตือนว่าสอง process ที่เขียนที่เดียวกันจะทำให้ข้อมูลเพี้ยนแบบที่ไม่มีใครตั้งใจ
+  </p>
+  <div class="callout callout-note">
+    <p class="callout-label">เมื่อไหร่ไม่ควรใช้</p>
+    <p>
+      ถ้าต้องการแค่ agent เขียนโค้ดในเครื่อง Claude Code ทำได้ดีอยู่แล้วโดยไม่ต้องดูแล process ที่เปิดทิ้งไว้ ถ้าไม่มีเครื่องที่เปิดตลอดหรือไม่อยากดูแล VPS จุดเด่นเรื่องอยู่ประจำของ Hermes ก็แทบไม่ได้ใช้ และถ้าทำงานกับข้อมูลที่หลุดไม่ได้ การปล่อย agent ที่ต่อกับแอปแชตและรันคำสั่งได้ไว้บนเครื่องงาน ต้องผ่านการคิดเรื่องสิทธิ์อย่างจริงจังก่อน
+    </p>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <h2>ถ้าจะลอง ทำตามนี้</h2>
+  <ol class="todo">
+    <li>อ่านหน้า Security ของเอกสารให้จบก่อนลง ใช้เวลาไม่ถึงสิบห้านาที</li>
+    <li>ลงในเครื่องที่ไม่ใช่เครื่องงานหลักถ้ามี หรือใช้ backend เป็น docker ตั้งแต่ต้น</li>
+    <li>ตั้งสี่ค่าใน <code>config.yaml</code> ตามที่บทความนี้ให้ไว้ ก่อนคุยครั้งแรก</li>
+    <li>รัน <code>hermes setup</code> แบบ Blank Slate แล้วเปิดความสามารถเพิ่มทีละอย่าง</li>
+    <li>ให้มันทำงานเล็ก ๆ ที่ทำซ้ำได้สักสามรอบ แล้วดูใน <code>/skills pending</code> ว่ามันอยากเขียน skill อะไร อ่าน diff ก่อนอนุมัติ</li>
+    <li>บอกเรื่องตัวเราสักข้อ พิมพ์ <code>/new</code> แล้วเปิด <code>~/.hermes/memories/USER.md</code> ดูว่ามันจำจริงไหม</li>
+    <li>ถ้าจะต่อกับแอปแชต ให้ใช้การจับคู่ด้วยรหัสและ allowlist ห้ามเปิดรับทุกคน</li>
+  </ol>
+
+  <hr class="divider-solid" />
+
+  <h2>แหล่งอ้างอิง</h2>
+  <ol class="references">
+    <li>Nous Research, <i>Hermes Agent</i> · <a href="https://hermes-agent.nousresearch.com/" target="_blank" rel="noopener noreferrer">hermes-agent.nousresearch.com</a> (หน้าแรก ช่องทางคุย แพ็กเกจ Nous Portal)</li>
+    <li>Nous Research, <i>hermes-agent README</i> · <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener noreferrer">github.com/NousResearch/hermes-agent</a> (สัญญาอนุญาต MIT, คำสั่งติดตั้ง, backend เจ็ดแบบ, คำเตือน uv.exe บน Windows, ความเข้ากันได้กับ agentskills.io)</li>
+    <li>เอกสาร Hermes Agent หน้า Quickstart และ Platform Support · <a href="https://hermes-agent.nousresearch.com/docs/getting-started/quickstart" target="_blank" rel="noopener noreferrer">docs/getting-started</a> (ขั้นตอนติดตั้ง, สามโหมดของ setup, context ขั้นต่ำ 64,000 token, การรองรับ Windows)</li>
+    <li>เอกสาร Hermes Agent หน้า Skills · <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/skills" target="_blank" rel="noopener noreferrer">docs/user-guide/features/skills</a> (รูปแบบ SKILL.md, ที่เก็บ, skill_manage, write_approval, การสแกนตอนติดตั้ง)</li>
+    <li>เอกสาร Hermes Agent หน้า Memory และ Context Files · <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/memory" target="_blank" rel="noopener noreferrer">docs/user-guide/features/memory</a> และ <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files" target="_blank" rel="noopener noreferrer">context-files</a> (ขนาดความจำ, การโหลดครั้งเดียวตอนเริ่ม, ลำดับไฟล์บริบท)</li>
+    <li>เอกสาร Hermes Agent หน้า Tools และ Security · <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/tools" target="_blank" rel="noopener noreferrer">docs/user-guide/features/tools</a> และ <a href="https://hermes-agent.nousresearch.com/docs/user-guide/security" target="_blank" rel="noopener noreferrer">docs/user-guide/security</a> (เครื่องมือ, การอนุมัติคำสั่ง, backend, gateway, adopt_external_logins)</li>
+  </ol>
+</DivineLoreLayout>
+
+<style>
+  h3{
+    font-size:0.95rem;
+    margin:1.8rem 0 0.6rem;
+    color:#f2f5fb;
+  }
+  .dl-nav{display:flex;flex-wrap:wrap;gap:0.4rem 1.2rem;}
+  .cmp{
+    margin:1rem 0;
+    border:1px solid #2a3350;
+    border-radius:12px;
+    overflow:hidden;
+    background:#141a29;
+  }
+  .cmp-row{
+    display:grid;
+    grid-template-columns:6.5rem 1fr 1fr 1.2fr;
+    gap:0.6rem;
+    padding:0.5rem 0.8rem;
+    border-top:1px solid #2a3350;
+    font-size:0.84rem;
+  }
+  .cmp-row:first-child{border-top:none;}
+  .cmp-row span:first-child{color:#9aa7bd;}
+  .cmp-head{background:#1c2536;font-weight:700;color:#f2f5fb;}
+  .cmp-head span:last-child{color:#4ade80;}
+  .lessons{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr));
+    gap:0.65rem;
+    margin:1rem 0;
+  }
+  .ls{
+    background:#141a29;
+    border:1px solid #2a3350;
+    border-radius:12px;
+    padding:0.75rem 0.85rem;
+  }
+  .ls p{margin:0;font-size:0.86rem;}
+  .ls-name{font-weight:700;color:#4ade80;margin-bottom:0.3rem !important;}
+  .todo{padding-left:1.4rem;}
+  .todo li{margin:0.45rem 0;}
+  @media (max-width:560px){
+    .cmp-row{grid-template-columns:5rem 1fr;font-size:0.8rem;}
+    .cmp-head{display:none;}
+    .cmp-row span:nth-child(2)::before{content:'Claude Code: ';color:#9aa7bd;}
+    .cmp-row span:nth-child(3)::before{content:'T3 Code: ';color:#9aa7bd;}
+    .cmp-row span:nth-child(4)::before{content:'Hermes: ';color:#4ade80;}
+    .cmp-row span:nth-child(n+3){grid-column:2;}
+  }
+</style>
