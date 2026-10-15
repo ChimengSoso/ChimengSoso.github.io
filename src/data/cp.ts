@@ -668,7 +668,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'segment tree', 'counting'],
     difficulty: 5,
     dateISO: '2026-09-11',
-    readingMinutes: 13,
+    readingMinutes: 16,
   },
   {
     href: 'tears/',

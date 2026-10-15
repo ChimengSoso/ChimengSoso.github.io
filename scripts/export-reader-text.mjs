@@ -27,7 +27,7 @@ h = h.slice(h.indexOf('<h1'));
 const end = h.indexOf('<footer');
 if (end > 0) h = h.slice(0, end);
 h = h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, '');
-h = h.replace(/<div class="dpsim"[^>]*data-steps="([^"]*)"[\s\S]*?class="dps-say"[^>]*>[^<]*<\/div>\s*<\/div>/g, (m, js) => {
+h = h.replace(/<div class="dpsim"[^>]*data-steps="([^"]*)"[\s\S]*?class="dps-say"[^>]*>[^<]*<\/div>\s*<\/div>/g, (_m, js) => {
   const steps = JSON.parse(dec(js));
   const lines = steps.map((s, i) => `  ขั้น ${i}: ${String(s.note ?? '').replace(/<[^>]+>/g, ' ')}`);
   return `\n[เครื่องเดินทีละขั้น ${steps.length} ขั้น ข้อความแต่ละขั้น:]\n${lines.join('\n')}\n[จบเครื่องเดิน]\n`;
@@ -36,7 +36,7 @@ h = h.replace(/<svg[\s\S]*?<\/svg>/g, (m) => `[ภาพ: ${(m.match(/aria-label
 h = h.replace(/<figcaption[^>]*>/g, '\n[คำบรรยาย] ').replace(/<caption[^>]*>/g, '\n[ตาราง] ');
 h = h.replace(/<\/(td|th)>/g, ' | ').replace(/<\/tr>/g, '\n');
 h = h.replace(/<pre[\s\S]*?<\/pre>/g, '[โค้ด ละไว้]');
-h = h.replace(/<h([1-4])[^>]*>/g, (m, n) => `\n\n${'#'.repeat(+n)} `).replace(/<\/h[1-4]>/g, '\n');
+h = h.replace(/<h([1-4])[^>]*>/g, (_m, n) => `\n\n${'#'.repeat(+n)} `).replace(/<\/h[1-4]>/g, '\n');
 h = h.replace(/<button[^>]*class="spoiler-reveal"[^>]*>[\s\S]*?<\/button>/g, '\n[ปุ่ม แตะเพื่อดูเฉลย: ข้างล่างนี้เบลออยู่จนกว่าจะกด]\n');
 h = h.replace(/<button[^>]*>/g, ' [ปุ่ม: ').replace(/<\/button>/g, '] ');
 h = h.replace(/<summary[^>]*>/g, '\n[กดเปิด: ').replace(/<\/summary>/g, ']\n');
