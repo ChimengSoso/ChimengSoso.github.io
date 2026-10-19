@@ -10,145 +10,252 @@ const href = 'flood-walls/';
 /* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
 
 type Pt = { x: number; y: number };
+type Seg = [number, number];
+
 const PTS: Pt[] = [
   { x: 1, y: 1 }, { x: 8, y: 1 }, { x: 4, y: 2 }, { x: 7, y: 2 }, { x: 2, y: 3 },
   { x: 4, y: 3 }, { x: 6, y: 3 }, { x: 2, y: 5 }, { x: 4, y: 5 }, { x: 6, y: 5 },
   { x: 4, y: 6 }, { x: 7, y: 6 }, { x: 1, y: 8 }, { x: 4, y: 8 }, { x: 8, y: 8 },
 ];
-const WALLS: [number, number][] = [
+const WALLS: Seg[] = [
   [1, 2], [2, 15], [15, 14], [14, 13], [13, 1], [14, 11], [11, 12], [12, 4], [4, 3],
   [3, 6], [6, 5], [5, 8], [8, 9], [9, 11], [9, 10], [10, 7], [7, 6],
 ];
 
-/* เดินน้ำท่วมบนตารางช่องละหนึ่งหน่วย ค่าที่ได้คือชั่วโมงที่น้ำถึงแต่ละช่อง */
-const SH = 1; // เลื่อนพิกัดขึ้นหนึ่ง เพื่อให้มีวงแหวนช่องว่างรอบนอกไว้เป็นทะเล
-const G = Math.max(...PTS.flatMap((p) => [p.x, p.y])) + SH + 2;
-const cid = (i: number, j: number): number => i * G + j;
-const blkH = new Array<boolean>(G * G).fill(false); // กำแพงระหว่างช่อง (i, j-1) กับ (i, j)
-const blkV = new Array<boolean>(G * G).fill(false); // กำแพงระหว่างช่อง (i-1, j) กับ (i, j)
-for (const [a, b] of WALLS) {
-  const p = PTS[a - 1];
-  const q = PTS[b - 1];
-  if (p.y === q.y) {
-    const y = p.y + SH;
-    for (let i = Math.min(p.x, q.x) + SH; i < Math.max(p.x, q.x) + SH; i++) blkH[cid(i, y)] = true;
-  } else {
-    const x = p.x + SH;
-    for (let j = Math.min(p.y, q.y) + SH; j < Math.max(p.y, q.y) + SH; j++) blkV[cid(x, j)] = true;
-  }
-}
-const INF = Number.MAX_SAFE_INTEGER;
-const dist = new Array<number>(G * G).fill(INF);
-{
-  const dq: number[] = [cid(0, 0)];
-  dist[cid(0, 0)] = 0;
-  let head = 0;
-  const push = (v: number, d: number, cost: number): void => {
-    if (d + cost < dist[v]) {
-      dist[v] = d + cost;
-      if (cost === 0) dq.splice(head, 0, v);
-      else dq.push(v);
-    }
-  };
-  while (head < dq.length) {
-    const u = dq[head++];
-    const i = Math.floor(u / G);
-    const j = u % G;
-    const d = dist[u];
-    if (j + 1 < G) push(cid(i, j + 1), d, blkH[cid(i, j + 1)] ? 1 : 0);
-    if (j - 1 >= 0) push(cid(i, j - 1), d, blkH[cid(i, j)] ? 1 : 0);
-    if (i + 1 < G) push(cid(i + 1, j), d, blkV[cid(i + 1, j)] ? 1 : 0);
-    if (i - 1 >= 0) push(cid(i - 1, j), d, blkV[cid(i, j)] ? 1 : 0);
-  }
-}
-type WallInfo = { id: number; a: number; b: number; d1: number; d2: number; alive: boolean };
-const wallInfo: WallInfo[] = WALLS.map(([a, b], k) => {
-  const p = PTS[a - 1];
-  const q = PTS[b - 1];
-  let d1: number;
-  let d2: number;
-  if (p.y === q.y) {
-    const y = p.y + SH;
-    const x = Math.min(p.x, q.x) + SH;
-    d1 = dist[cid(x, y - 1)];
-    d2 = dist[cid(x, y)];
-  } else {
-    const x = p.x + SH;
-    const y = Math.min(p.y, q.y) + SH;
-    d1 = dist[cid(x - 1, y)];
-    d2 = dist[cid(x, y)];
-  }
-  return { id: k + 1, a, b, d1, d2, alive: d1 === d2 };
-});
-const survivors = wallInfo.filter((w) => w.alive);
-const maxHour = Math.max(...wallInfo.map((w) => Math.max(w.d1, w.d2)));
+/* ผังถูกมองเป็นตารางช่องละหนึ่งหน่วย พิกัดเลื่อนขึ้นหนึ่งเพื่อให้มีวงช่องรอบนอกไว้เป็นทะเล
+   ฟังก์ชันนี้คิดสองแบบที่ไม่พึ่งกัน แล้ว throw ถ้าไม่ตรงกัน
+   (ก) ปล่อยน้ำตามกติกาในโจทย์ทีละชั่วโมงจริง ๆ
+   (ข) BFS แบบ 0-1 บนช่อง แล้วใช้กฎ "ชั่วโมงสองฝั่งเท่ากัน" */
+type Flood = {
+  wX: number; // จำนวนช่องที่วาดตามแนวนอน (รวมวงทะเล)
+  wY: number;
+  g: number; // ความกว้างของตารางที่คิดจริง ช่อง (i, j) อยู่ที่ดัชนี i * g + j
+  face: number[]; // ผืนของแต่ละช่อง ผืน 0 คือทะเล
+  F: number;
+  faceHour: number[]; // ชั่วโมงที่น้ำถึงผืน จาก (ข)
+  side: Seg[]; // ผืนสองฝั่งของกำแพงแต่ละเส้น
+  alive: boolean[]; // จาก (ข)
+  fallAt: number[]; // จาก (ก) กำแพงพังตอนชั่วโมงไหน -1 คือยืนอยู่ตลอด
+  wetAt: number[]; // จาก (ก) ผืนเปียกตอนชั่วโมงไหน
+  lastHour: number;
+};
 
-/* ---------- มินิเกม ทายว่ากำแพงไหนรอด ----------
-   ตัวคิดข้างล่างเป็นเวอร์ชันทั่วไปของการท่วมบนตารางที่บทความใช้อยู่แล้ว
-   และถูกตรวจว่าให้ผลตรงกับ wallInfo ของผังตัวอย่างเป๊ะ ๆ ตอนบิลด์ */
-type FwLayout = { id: string; label: string; tease: string; pts: Pt[]; walls: [number, number][] };
-
-type FwWall = { id: number; a: number; b: number; alive: boolean };
-
-function floodAnalyse(pts: Pt[], walls: [number, number][]): FwWall[] {
+function floodModel(pts: Pt[], walls: Seg[], name: string): Flood {
   const sh = 1;
-  const g = Math.max(...pts.flatMap((p) => [p.x, p.y])) + sh + 2;
-  const id2 = (i: number, j: number): number => i * g + j;
-  const bh = new Array<boolean>(g * g).fill(false);
-  const bv = new Array<boolean>(g * g).fill(false);
-  for (const [a, b] of walls) {
+  const maxX = Math.max(...pts.map((p) => p.x));
+  const maxY = Math.max(...pts.map((p) => p.y));
+  const g = Math.max(maxX, maxY) + sh + 2;
+  const id = (i: number, j: number): number => i * g + j;
+  const bh = new Array<number>(g * g).fill(-1); // กำแพงที่คั่นช่อง (i, j-1) กับ (i, j)
+  const bv = new Array<number>(g * g).fill(-1); // กำแพงที่คั่นช่อง (i-1, j) กับ (i, j)
+  walls.forEach(([a, b], k) => {
     const p = pts[a - 1];
     const q = pts[b - 1];
     if (p.y === q.y) {
-      const y = p.y + sh;
-      for (let i = Math.min(p.x, q.x) + sh; i < Math.max(p.x, q.x) + sh; i++) bh[id2(i, y)] = true;
+      for (let i = Math.min(p.x, q.x) + sh; i < Math.max(p.x, q.x) + sh; i++) bh[id(i, p.y + sh)] = k;
     } else {
-      const x = p.x + sh;
-      for (let j = Math.min(p.y, q.y) + sh; j < Math.max(p.y, q.y) + sh; j++) bv[id2(x, j)] = true;
+      for (let j = Math.min(p.y, q.y) + sh; j < Math.max(p.y, q.y) + sh; j++) bv[id(p.x + sh, j)] = k;
     }
-  }
-  const inf = Number.MAX_SAFE_INTEGER;
-  const d = new Array<number>(g * g).fill(inf);
-  const dq: number[] = [id2(0, 0)];
-  d[id2(0, 0)] = 0;
-  let head = 0;
-  const push = (v: number, base: number, cost: number): void => {
-    if (base + cost < d[v]) {
-      d[v] = base + cost;
-      if (cost === 0) dq.splice(head, 0, v);
-      else dq.push(v);
-    }
-  };
-  while (head < dq.length) {
-    const u = dq[head++];
+  });
+  const nbrs = (u: number): Seg[] => {
     const i = Math.floor(u / g);
     const j = u % g;
-    const base = d[u];
-    if (j + 1 < g) push(id2(i, j + 1), base, bh[id2(i, j + 1)] ? 1 : 0);
-    if (j - 1 >= 0) push(id2(i, j - 1), base, bh[id2(i, j)] ? 1 : 0);
-    if (i + 1 < g) push(id2(i + 1, j), base, bv[id2(i + 1, j)] ? 1 : 0);
-    if (i - 1 >= 0) push(id2(i - 1, j), base, bv[id2(i, j)] ? 1 : 0);
+    const r: Seg[] = [];
+    if (j + 1 < g) r.push([id(i, j + 1), bh[id(i, j + 1)]]);
+    if (j > 0) r.push([id(i, j - 1), bh[id(i, j)]]);
+    if (i + 1 < g) r.push([id(i + 1, j), bv[id(i + 1, j)]]);
+    if (i > 0) r.push([id(i - 1, j), bv[id(i, j)]]);
+    return r;
+  };
+
+  /* ผืน: ช่องที่เดินถึงกันได้โดยไม่ข้ามกำแพงเลย */
+  const face = new Array<number>(g * g).fill(-1);
+  let F = 0;
+  for (let s = 0; s < g * g; s++) {
+    if (face[s] >= 0) continue;
+    const st = [s];
+    face[s] = F;
+    while (st.length > 0) {
+      const u = st.pop() as number;
+      for (const [v, w] of nbrs(u)) {
+        if (w < 0 && face[v] < 0) {
+          face[v] = F;
+          st.push(v);
+        }
+      }
+    }
+    F++;
   }
-  return walls.map(([a, b], k) => {
+
+  /* (ข) BFS แบบ 0-1 บนช่อง */
+  const INF = Number.MAX_SAFE_INTEGER;
+  const dist = new Array<number>(g * g).fill(INF);
+  const dq: number[] = [0];
+  dist[0] = 0;
+  let head = 0;
+  while (head < dq.length) {
+    const u = dq[head++];
+    for (const [v, w] of nbrs(u)) {
+      const c = w >= 0 ? 1 : 0;
+      if (dist[u] + c < dist[v]) {
+        dist[v] = dist[u] + c;
+        if (c === 0) dq.splice(head, 0, v);
+        else dq.push(v);
+      }
+    }
+  }
+  /* ข้ออ้างของตอนที่ 2: ทุกช่องในผืนเดียวกันได้ชั่วโมงเท่ากัน */
+  const faceHour = new Array<number>(F).fill(-1);
+  for (let c = 0; c < g * g; c++) {
+    if (faceHour[face[c]] < 0) faceHour[face[c]] = dist[c];
+    else if (faceHour[face[c]] !== dist[c]) throw new Error(`${name}: ช่องในผืนเดียวกันได้ชั่วโมงไม่เท่ากัน`);
+  }
+  const side: Seg[] = walls.map(([a, b]) => {
     const p = pts[a - 1];
     const q = pts[b - 1];
-    let d1: number;
-    let d2: number;
     if (p.y === q.y) {
-      const y = p.y + sh;
       const x = Math.min(p.x, q.x) + sh;
-      d1 = d[id2(x, y - 1)];
-      d2 = d[id2(x, y)];
-    } else {
-      const x = p.x + sh;
-      const y = Math.min(p.y, q.y) + sh;
-      d1 = d[id2(x - 1, y)];
-      d2 = d[id2(x, y)];
+      return [face[id(x, p.y + sh - 1)], face[id(x, p.y + sh)]];
     }
-    return { id: k + 1, a, b, alive: d1 === d2 };
+    const y = Math.min(p.y, q.y) + sh;
+    return [face[id(p.x + sh - 1, y)], face[id(p.x + sh, y)]];
   });
+  const alive = side.map(([fa, fb]) => faceHour[fa] === faceHour[fb]);
+
+  /* (ก) ปล่อยน้ำทีละชั่วโมงตามโจทย์ ไม่ใช้กฎชั่วโมงเท่ากันเลย */
+  const fallAt = new Array<number>(walls.length).fill(-1);
+  const wetAt = new Array<number>(F).fill(-1);
+  let hour = 0;
+  for (;;) {
+    const wet = new Array<boolean>(g * g).fill(false);
+    const st = [0];
+    wet[0] = true;
+    while (st.length > 0) {
+      const u = st.pop() as number;
+      for (const [v, w] of nbrs(u)) {
+        if ((w < 0 || fallAt[w] >= 0) && !wet[v]) {
+          wet[v] = true;
+          st.push(v);
+        }
+      }
+    }
+    for (let c = 0; c < g * g; c++) if (wet[c] && wetAt[face[c]] < 0) wetAt[face[c]] = hour;
+    const fall = new Set<number>();
+    for (let c = 0; c < g * g; c++) {
+      for (const [v, w] of nbrs(c)) if (w >= 0 && fallAt[w] < 0 && wet[c] !== wet[v]) fall.add(w);
+    }
+    if (fall.size === 0) break;
+    hour++;
+    for (const w of fall) fallAt[w] = hour;
+  }
+  walls.forEach((_, k) => {
+    if (alive[k] !== (fallAt[k] < 0)) throw new Error(`${name}: กำแพง ${k + 1} กฎชั่วโมงเท่ากันไม่ตรงกับการปล่อยน้ำจริง`);
+  });
+  faceHour.forEach((h, f) => {
+    if (wetAt[f] !== h) throw new Error(`${name}: ผืน ${f} ชั่วโมงจาก BFS ไม่ตรงกับการปล่อยน้ำจริง`);
+  });
+  return { wX: maxX + 2, wY: maxY + 2, g, face, F, faceHour, side, alive, fallAt, wetAt, lastHour: hour };
 }
 
+const EX = floodModel(PTS, WALLS, 'ตัวอย่างในโจทย์');
+const L = (f: number): string => String.fromCharCode(65 + f);
+const ids = (xs: number[]): string => xs.join(', ');
+const survivors = WALLS.map((_, k) => k + 1).filter((k) => EX.alive[k - 1]);
+const WALL_COUNT = WALLS.length;
+const faceNames = Array.from({ length: EX.F }, (_, f) => L(f));
+
+/* กำแพงจับกลุ่มตามคู่ผืนสองฝั่ง กลุ่มเดียวกันได้ผลเหมือนกันเสมอ */
+type Group = { fa: number; fb: number; walls: number[]; alive: boolean };
+const groups: Group[] = [];
+EX.side.forEach(([s0, s1], k) => {
+  const fa = Math.min(s0, s1);
+  const fb = Math.max(s0, s1);
+  const hit = groups.find((x) => x.fa === fa && x.fb === fb);
+  if (hit) hit.walls.push(k + 1);
+  else groups.push({ fa, fb, walls: [k + 1], alive: EX.alive[k] });
+});
+groups.sort((a, b) => a.fa - b.fa || a.fb - b.fb);
+const sameFaceGroups = groups.filter((x) => x.fa === x.fb);
+const tieGroups = groups.filter((x) => x.fa !== x.fb && x.alive);
+const fallGroups = groups.filter((x) => !x.alive);
+/* ตัวอย่างต้องมีกำแพงครบสามแบบ: รอดเพราะผืนเดียวกัน รอดเพราะชั่วโมงเท่ากัน และพัง */
+if (sameFaceGroups.length === 0 || tieGroups.length === 0 || fallGroups.length === 0) {
+  throw new Error('ตัวอย่างของ flood-walls ไม่มีกำแพงครบทั้งสามแบบ');
+}
+const sameG = sameFaceGroups[0];
+const tieG = tieGroups[0];
+const groupRows = groups.map((gr) => ({
+  pair: gr.fa === gr.fb ? `${L(gr.fa)} ทั้งสองฝั่ง` : `${L(gr.fa)} กับ ${L(gr.fb)}`,
+  hours: `${EX.faceHour[gr.fa]} กับ ${EX.faceHour[gr.fb]}`,
+  walls: ids(gr.walls),
+  verdict: gr.alive ? 'รอด' : 'พัง',
+}));
+
+/* สเต็ปของเครื่องเดิน: หนึ่งก้าวคือหนึ่งชั่วโมง สร้างจากการปล่อยน้ำจริง (ก) */
+type FwStep = { note: string; t: number };
+const fwSteps: FwStep[] = [];
+for (let t = 0; t <= EX.lastHour; t++) {
+  const wet = faceNames.filter((_, f) => EX.wetAt[f] <= t);
+  const parts: string[] = [`<b>ชั่วโมง ${t}</b> · เปียกแล้ว: ${wet.join(', ')}`];
+  const falling = new Map<string, number[]>();
+  EX.fallAt.forEach((h, k) => {
+    if (h !== t + 1) return;
+    const [s0, s1] = EX.side[k];
+    const wf = EX.wetAt[s0] <= t ? s0 : s1;
+    const df = wf === s0 ? s1 : s0;
+    const key = `${wf}|${df}`;
+    falling.set(key, [...(falling.get(key) ?? []), k + 1]);
+  });
+  for (const [key, ws] of falling) {
+    const [wf, df] = key.split('|').map(Number);
+    parts.push(`กำแพง ${ids(ws)} มีน้ำฝั่ง ${L(wf)} แต่ฝั่ง ${L(df)} ยังแห้ง พังตอนชั่วโมง ${t + 1}`);
+  }
+  for (const gr of groups) {
+    if (!gr.alive || EX.faceHour[gr.fa] !== t) continue;
+    parts.push(
+      gr.fa === gr.fb
+        ? `กำแพง ${ids(gr.walls)} มี ${L(gr.fa)} ทั้งสองฝั่ง เปียกพร้อมกัน ไม่พัง`
+        : `กำแพง ${ids(gr.walls)} คั่น ${L(gr.fa)} กับ ${L(gr.fb)} ซึ่งเปียกพร้อมกันที่ชั่วโมง ${t} ไม่พัง`,
+    );
+  }
+  if (t === EX.lastHour) {
+    parts.push(`ไม่มีกำแพงไหนมีน้ำฝั่งเดียวแล้ว น้ำหยุด ยืนอยู่ ${survivors.length} เส้น คือ ${ids(survivors)}`);
+  }
+  fwSteps.push({ note: parts.join(' · '), t });
+}
+
+/* ---------- รูปผังบนตาราง ใช้ทั้งเครื่องเดินและมินิเกม ---------- */
+const U = 40;
+const MG = 12;
+type MapWall = { id: number; x1: number; y1: number; x2: number; y2: number; mx: number; my: number; fall: number };
+type MapGeo = { vbW: number; vbH: number; walls: MapWall[]; dots: { x: number; y: number }[] };
+function mapGeo(pts: Pt[], walls: Seg[], m: Flood): MapGeo {
+  const px = (x: number): number => MG + (x + 1) * U;
+  const py = (y: number): number => MG + (m.wY - (y + 1)) * U;
+  return {
+    vbW: MG + m.wX * U + 12,
+    vbH: MG + m.wY * U + 12,
+    walls: walls.map(([a, b], k) => {
+      const x1 = px(pts[a - 1].x);
+      const y1 = py(pts[a - 1].y);
+      const x2 = px(pts[b - 1].x);
+      const y2 = py(pts[b - 1].y);
+      return { id: k + 1, x1, y1, x2, y2, mx: (x1 + x2) / 2, my: (y1 + y2) / 2, fall: m.fallAt[k] };
+    }),
+    dots: pts.map((p) => ({ x: px(p.x), y: py(p.y) })),
+  };
+}
+const exGeo = mapGeo(PTS, WALLS, EX);
+const exCells: { x: number; y: number; h: number }[] = [];
+for (let i = 0; i < EX.wX; i++) {
+  for (let j = 0; j < EX.wY; j++) {
+    exCells.push({ x: MG + i * U, y: MG + (EX.wY - 1 - j) * U, h: EX.faceHour[EX.face[i * EX.g + j]] });
+  }
+}
+const exFaceLabels = faceLabelsOf(EX, exGeo);
+
+/* ---------- มินิเกม ทายว่ากำแพงไหนรอด เฉลยของเกมมาจาก floodModel ที่ตรวจกับการปล่อยน้ำจริงแล้ว ---------- */
+type FwLayout = { id: string; label: string; tease: string; pts: Pt[]; walls: Seg[] };
 const FW_LAYOUTS: FwLayout[] = [
   {
     id: 'w1',
@@ -158,169 +265,271 @@ const FW_LAYOUTS: FwLayout[] = [
       { x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 },
       { x: 6, y: 2 }, { x: 9, y: 2 },
     ],
-    walls: [
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 1],
-      [5, 6],
-    ],
+    walls: [[1, 2], [2, 3], [3, 4], [4, 1], [5, 6]],
   },
-  { id: 'w2', label: 'ชุดที่ 2 · ผังในโจทย์', tease: 'ผังเดียวกับที่บทความใช้ทั้งบท', pts: PTS, walls: WALLS },
+  { id: 'w2', label: 'ชุดที่ 2 · ผังในโจทย์', tease: 'ผังเดียวกับตัวอย่างในโจทย์ ซึ่งเฉลยจะใช้ทั้งบท', pts: PTS, walls: WALLS },
   {
     id: 'w3',
     label: 'ชุดที่ 3 · ห้องซ้อนห้อง',
-    tease: 'ชุดนี้มีห้องเล็กอยู่ในห้องใหญ่ และมีกำแพงเดี่ยวอยู่นอกห้องด้วย',
+    tease: 'ชุดนี้มีห้องเล็กลอยอยู่ในห้องใหญ่ และมีกำแพงเดี่ยวอยู่นอกห้องด้วย',
     pts: [
       { x: 1, y: 1 }, { x: 6, y: 1 }, { x: 6, y: 6 }, { x: 1, y: 6 },
       { x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 },
       { x: 8, y: 3 }, { x: 11, y: 3 },
     ],
-    walls: [
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 1],
-      [5, 6],
-      [6, 7],
-      [7, 8],
-      [8, 5],
-      [9, 10],
-    ],
+    walls: [[1, 2], [2, 3], [3, 4], [4, 1], [5, 6], [6, 7], [7, 8], [8, 5], [9, 10]],
   },
 ];
-
-type FwPuzzleData = {
-  id: string;
-  label: string;
-  tease: string;
-  walls: FwWall[];
-  aliveCount: number;
-};
-const fwPuzzles: FwPuzzleData[] = FW_LAYOUTS.map((l) => {
-  const w = floodAnalyse(l.pts, l.walls);
-  return { id: l.id, label: l.label, tease: l.tease, walls: w, aliveCount: w.filter((x) => x.alive).length };
-});
-{
-  // ชุดที่สองคือผังของบทความ ผลต้องตรงกับ wallInfo ที่บทความคำนวณไว้แล้วทุกเส้น
-  const mine = fwPuzzles[1].walls.map((w) => w.alive).join(',');
-  const theirs = wallInfo.map((w) => w.alive).join(',');
-  if (mine !== theirs) {
-    throw new Error('มินิเกมของ flood-walls: ผลของเกมไม่ตรงกับ wallInfo ของบทความ');
-  }
-}
+const fwModels = FW_LAYOUTS.map((l) => floodModel(l.pts, l.walls, l.label));
+type FwPuzzleData = { id: string; label: string; tease: string; walls: { id: number; alive: boolean }[]; aliveCount: number };
+const fwPuzzles: FwPuzzleData[] = FW_LAYOUTS.map((l, k) => ({
+  id: l.id,
+  label: l.label,
+  tease: l.tease,
+  walls: l.walls.map((_, w) => ({ id: w + 1, alive: fwModels[k].alive[w] })),
+  aliveCount: fwModels[k].alive.filter(Boolean).length,
+}));
+const fwBoards = FW_LAYOUTS.map((l, k) => mapGeo(l.pts, l.walls, fwModels[k]));
 const fwJson = JSON.stringify(fwPuzzles);
 
+/* ---------- ตอนที่ 3: บีบพิกัดของตัวอย่าง แล้วตรวจว่ากำแพงที่รอดเป็นชุดเดิม ---------- */
+const rankOf = (vals: number[]): { s: number[]; r: (v: number) => number } => {
+  const s = [...new Set(vals)].sort((a, b) => a - b);
+  return { s, r: (v: number): number => s.indexOf(v) + 1 };
+};
+const sqX = rankOf(PTS.map((p) => p.x));
+const sqY = rankOf(PTS.map((p) => p.y));
+const SQ = floodModel(PTS.map((p) => ({ x: sqX.r(p.x), y: sqY.r(p.y) })), WALLS, 'ตัวอย่างหลังบีบพิกัด');
+if (SQ.alive.join(',') !== EX.alive.join(',')) throw new Error('บีบพิกัดแล้วกำแพงที่รอดเปลี่ยน');
+/* ขนาดตารางตามสูตรในโค้ดตอนที่ 2/3: พิกัดดิบใช้ (พิกัดสูงสุด + 3)² ช่อง บีบแล้วใช้ (จำนวนค่าที่ต่างกัน + 2)² ช่อง */
+const rawG = Math.max(...PTS.flatMap((p) => [p.x, p.y])) + 3;
+const sqG = Math.max(sqX.s.length, sqY.s.length) + 2;
+if (sqG >= rawG) throw new Error('ตัวอย่างบีบแล้วต้องเล็กลง');
+
+/* ---------- ตอนที่ 5: ก้อนที่ลอยอยู่ในห้อง ----------
+   ก้อนนอกคือห้องใหญ่ (กำแพง 1 ถึง 4) ก้อนในคือโดมิโนสองห้อง (กำแพง 5 ถึง 11) ลอยอยู่ในห้องใหญ่
+   กำแพงกลางโดมิโนต้องรอด เพื่อให้ตัวอย่างโชว์ว่าการเลื่อนชั่วโมงไม่ทำให้กำแพงที่รอดกลายเป็นพัง */
+const NEST_PTS: Pt[] = [
+  { x: 1, y: 1 }, { x: 8, y: 1 }, { x: 8, y: 6 }, { x: 1, y: 6 },
+  { x: 3, y: 3 }, { x: 5, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 5 }, { x: 5, y: 5 }, { x: 3, y: 5 },
+];
+const NEST_WALLS: Seg[] = [
+  [1, 2], [2, 3], [3, 4], [4, 1],
+  [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [10, 5], [6, 9],
+];
+const NEST_INNER_FROM = 4; // กำแพงที่ 5 เป็นต้นไปและจุดที่ 5 เป็นต้นไปคือก้อนใน
+const NM = floodModel(NEST_PTS, NEST_WALLS, 'ผังก้อนลอย');
+const nestInnerWalls: Seg[] = NEST_WALLS.slice(NEST_INNER_FROM).map(([a, b]) => [a - NEST_INNER_FROM, b - NEST_INNER_FROM]);
+const NI = floodModel(NEST_PTS.slice(NEST_INNER_FROM), nestInnerWalls, 'ก้อนในคิดแยก');
+const nestRows = nestInnerWalls.map((_, k) => {
+  const real = NM.side[NEST_INNER_FROM + k].map((f) => NM.faceHour[f]);
+  const alone = NI.side[k].map((f) => NI.faceHour[f]);
+  return { id: NEST_INNER_FROM + k + 1, real, alone, alive: NM.alive[NEST_INNER_FROM + k] };
+});
+const nestShift = nestRows[0].real[0] - nestRows[0].alone[0];
+for (const r of nestRows) {
+  if (r.real[0] - r.alone[0] !== nestShift || r.real[1] - r.alone[1] !== nestShift) throw new Error('ก้อนใน: ชั่วโมงไม่ได้เลื่อนเท่ากันทั้งก้อน');
+  if ((r.alone[0] === r.alone[1]) !== r.alive) throw new Error('ก้อนใน: คิดแยกแล้วผลรอดหรือพังเปลี่ยน');
+}
+const nestRoom = NM.side[0].find((f) => f !== 0) ?? 0; // ห้องใหญ่ คือผืนอีกฝั่งของกำแพง 1
+if (nestShift < 1 || NM.faceHour[nestRoom] !== nestShift) throw new Error('ชั่วโมงที่เลื่อนต้องเท่ากับชั่วโมงของห้องที่ห่อ และต้องไม่เป็นศูนย์');
+const nestSurvivors = nestRows.filter((r) => r.alive).map((r) => r.id);
+if (nestSurvivors.length === 0 || nestRows.every((r) => r.alive)) throw new Error('ก้อนในต้องมีทั้งกำแพงที่รอดและที่พัง');
+/* กำแพงของก้อนนอกที่ติดห้องใหญ่ไม่เปลี่ยนเลย ไม่ว่าจะมีก้อนในหรือไม่ */
+const NO = floodModel(NEST_PTS.slice(0, NEST_INNER_FROM), NEST_WALLS.slice(0, NEST_INNER_FROM), 'ก้อนนอกอย่างเดียว');
+NO.side.forEach((s, k) => {
+  const a = s.map((f) => NO.faceHour[f]).join(',');
+  const b = NM.side[k].map((f) => NM.faceHour[f]).join(',');
+  if (a !== b) throw new Error('ก้อนนอก: ชั่วโมงของกำแพงเปลี่ยนเมื่อมีก้อนใน');
+});
+
+/* ---------- ตอนที่ 4: งานคร่าว ๆ ที่ขอบเขตเต็ม ---------- */
 const NMAX = 100000;
+const WMAX = 2 * NMAX;
+const COORD_MAX = 1000000;
 const COORDSUB = 500;
+const NSUB = 500;
+const TIME_LIMIT = 2;
+const BUDGET = TIME_LIMIT * 1e8; // คิดหยาบ ๆ ว่าเครื่องทำงานง่าย ๆ ได้ราว 10^8 ก้าวต่อวินาที
+const BYTES_PER_CELL = 6; // dist เป็น int 4 ไบต์ กับกำแพงสองทิศ ทิศละ 1 ไบต์ ตามโค้ดตอนที่ 3
+const subGrid = COORDSUB + 3; // พิกัดไม่เกิน 500 ก่อนบีบ
+const sqSubGrid = NSUB + 2; // จุดไม่เกิน 500 หลังบีบ
+const CELLS_RAW = (COORD_MAX + 3) ** 2;
+const CELLS_SQ = (NMAX + 2) ** 2;
+/* งานของการเดินรอบผืน นับตามโค้ดเต็ม: ครึ่งเส้น 2W อัน แต่ละอันลองทิศไม่เกิน 4 ครั้ง
+   แล้วสร้างกราฟคู่ (ใส่ปลายสองข้างของกำแพงทุกเส้น = 2W) และ BFS (อ่านเส้นเชื่อมทุกเส้น = 2W) */
+const WALK_TRIES = 4;
+const FACE_STEPS_PER_WALL = 2 * WALK_TRIES + 2 + 2;
+const FACE_WORK = FACE_STEPS_PER_WALL * WMAX;
+const SQ_GB = Math.round((CELLS_SQ * BYTES_PER_CELL) / 1e9);
 const fmt = (n: number): string => n.toLocaleString('en-US');
+const sci = (v: number): { m: string; e: number } => {
+  const e = Math.floor(Math.log10(v));
+  return { m: (v / 10 ** e).toFixed(1), e };
+};
+const CH_X0 = 150;
+const CH_SPAN = 360;
+const chX = (v: number): number => CH_X0 + ((Math.log10(v) - 6) / 6) * CH_SPAN;
+const CH_TICKS = [6, 8, 10, 12];
+const CH_BOTTOM = 166;
+const CH_BARS = [
+  { name: 'ตารางพิกัดดิบ', v: CELLS_RAW, y: 44 },
+  { name: 'ตารางบีบพิกัด', v: CELLS_SQ, y: 84 },
+  { name: 'เดินรอบผืน', v: FACE_WORK, y: 124 },
+].map((b) => ({ ...b, s: sci(b.v), ok: b.v <= BUDGET, over: Math.round(b.v / BUDGET) }));
+if (CH_BARS[2].ok !== true || CH_BARS[1].ok !== false) throw new Error('กราฟแท่ง: ลำดับทัน/ไม่ทันผิดจากที่บทความเล่า');
+
+/* ---------- ตอนที่ 5: กราฟคู่ของตัวอย่าง วางปมเป็นคอลัมน์ตามชั่วโมง ---------- */
+const DG_R = 28;
+const dgCols = new Map<number, number[]>();
+EX.faceHour.forEach((h, f) => dgCols.set(h, [...(dgCols.get(h) ?? []), f]));
+const dgNodes = faceNames.map((name, f) => {
+  const h = EX.faceHour[f];
+  const col = dgCols.get(h) ?? [f];
+  const k = col.indexOf(f);
+  return { name, h, x: 60 + h * 200, y: 150 + (k - (col.length - 1) / 2) * 150 };
+});
+const dgEdges = groups.map((gr) => {
+  const a = dgNodes[gr.fa];
+  const b = dgNodes[gr.fb];
+  const text = gr.walls.join(' ');
+  const colour = gr.alive ? '#6ee7a8' : '#e07a7a';
+  if (gr.fa === gr.fb) {
+    const d = `M ${a.x - 14} ${a.y - DG_R + 2} C ${a.x - 44} ${a.y - DG_R - 58}, ${a.x + 44} ${a.y - DG_R - 58}, ${a.x + 14} ${a.y - DG_R + 2}`;
+    return { d, colour, text, lx: a.x, ly: a.y - DG_R - 50, anchor: 'middle' };
+  }
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const ux = (b.x - a.x) / len;
+  const uy = (b.y - a.y) / len;
+  let nx = uy;
+  let ny = -ux;
+  if (nx < 0 || (nx === 0 && ny > 0)) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const mx = (a.x + b.x) / 2 + nx * 16;
+  const my = (a.y + b.y) / 2 + ny * 16 + 4;
+  const anchor = nx > 0.3 ? 'start' : 'middle';
+  const d = `M ${a.x + ux * DG_R} ${a.y + uy * DG_R} L ${b.x - ux * DG_R} ${b.y - uy * DG_R}`;
+  return { d, colour, text, lx: mx, ly: my, anchor };
+});
+const dgRight = Math.max(
+  ...dgNodes.map((n) => n.x + DG_R),
+  ...dgEdges.map((e) => (e.anchor === 'start' ? e.lx + e.text.length * 7 : e.lx + (e.text.length * 7) / 2)),
+);
+const dgTop = Math.min(...dgNodes.map((n) => n.y - DG_R), ...dgEdges.map((e) => e.ly - 12)) - 24;
+const dgShift = 12 - dgTop; // เลื่อนทั้งรูปลงให้ขอบบนเหลือ 12
+const dgBottom = Math.max(...dgNodes.map((n) => n.y + DG_R)) + dgShift;
+const dgHourLabels = [...dgCols.keys()].map((h) => ({ h, x: 60 + h * 200 }));
+
+/* ---------- ผลที่วัดจริงบนเครื่องผม (WSL, g++ -O2) ด้วยโค้ดที่ดึงออกมาจากหน้านี้ ---------- */
+const STRESS_ROUNDS = 2000;
+const STRESS_NESTED = 653;
+const LAT_N = 99856;
+const LAT_W = 199080;
+const LAT_SEC = '0.04 ถึง 0.05';
+const LAT_MB = '14.6';
+const RING_LAYERS = 25000;
+const RING_N = 100000;
+const RING_SEC = '0.03 ถึง 0.04';
+const RING_MB = '9.6';
+const OLD_MB = '39.4';
+const RANKED_TREE_MB = '25.0'; // โค้ดรุ่นเดิมทุกอย่าง แต่เปิดเซกเมนต์ทรีตามลำดับที่ของ x
+const MEM_LIMIT_MB = 32;
+/* ขนาดเซกเมนต์ทรีของรุ่นเดิมบนผังตาราง: จุดอยู่ที่ x = 0, 3000, ..., 315 × 3000
+   โค้ดรุ่นนั้นจอง 4 × (maxX + 2) + 4 ช่อง ช่องละ int 4 ไบต์ */
+const LAT_MAXX = 315 * 3000;
+const OLD_TREE_MB = (((4 * (LAT_MAXX + 2) + 4) * 4) / 1e6).toFixed(1);
+const LAT_DISTINCT_X = 316;
+const RANK_TREE_KB = ((4 * LAT_DISTINCT_X * 4) / 1e3).toFixed(1);
+const TREE_DROP_MB = (Number(OLD_MB) - Number(RANKED_TREE_MB)).toFixed(1);
+const memRows = [
+  { name: 'รุ่นเดิม (ยิงรังสี เซกเมนต์ทรีตามพิกัดดิบ)', mb: OLD_MB },
+  { name: 'รุ่นเดิม แต่เซกเมนต์ทรีตามลำดับที่ของ x', mb: RANKED_TREE_MB },
+  { name: 'โค้ดเต็มของหน้านี้', mb: LAT_MB },
+];
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
 typedef long long ll;
-int n,w;
-vector<int> X,Y;
-vector<array<int,4>> nb;      // เพื่อนบ้านทิศ 0=ตะวันออก 1=เหนือ 2=ตะวันตก 3=ใต้
-vector<array<int,4>> nbHe;    // half-edge ที่ออกจากปมนี้ไปทางทิศนั้น
-vector<int> heTo,heDir,heFace,heWall;
-vector<int> dsu;
-int find(int x){ while(dsu[x]!=x) x=dsu[x]=dsu[dsu[x]]; return x; }
-void uni(int a,int b){ a=find(a); b=find(b); if(a!=b) dsu[a]=b; }
-// เซกเมนต์ทรี range-assign / point-query เก็บ "กำแพงแนวนอนล่าสุด" ที่คลุมพิกัด x นั้น
-int SZ; vector<int> tg;
-void assign(int node,int l,int r,int ql,int qr,int v){
-    if(qr<l||r<ql) return;
-    if(ql<=l&&r<=qr){ tg[node]=v; return; }
-    int m=(l+r)/2; assign(2*node,l,m,ql,qr,v); assign(2*node+1,m+1,r,ql,qr,v);
-}
-int query(int node,int l,int r,int p,int cur,const vector<int>&ys){
-    if(tg[node]>=0 && (cur<0 || ys[tg[node]]>ys[cur])) cur=tg[node];
-    if(l==r) return cur;
-    int m=(l+r)/2;
-    return p<=m ? query(2*node,l,m,p,cur,ys) : query(2*node+1,m+1,r,p,cur,ys);
-}
 int main(){
-    if(scanf("%d",&n)!=1) return 0;
-    X.assign(n+1,0); Y.assign(n+1,0);
-    int maxX=0;
-    for(int i=1;i<=n;i++){ scanf("%d %d",&X[i],&Y[i]); maxX=max(maxX,X[i]); }
-    scanf("%d",&w);
-    vector<int> A(w+1),B(w+1);
-    nb.assign(n+1,{-1,-1,-1,-1}); nbHe.assign(n+1,{-1,-1,-1,-1});
-    heTo.assign(2*w,0); heDir.assign(2*w,0); heWall.assign(2*w,0);
+    int n; if(scanf("%d",&n)!=1) return 0;
+    vector<int> X(n+1),Y(n+1);
+    for(int i=1;i<=n;i++) scanf("%d %d",&X[i],&Y[i]);
+    int w; scanf("%d",&w);
+    // กำแพง e แตกเป็นครึ่งเส้นสองอัน 2e (a ไป b) กับ 2e+1 (b ไป a)
+    // ทิศ 0=ตะวันออก 1=เหนือ 2=ตะวันตก 3=ใต้  ทิศย้อนกลับของ d คือ d^2
+    vector<array<int,4>> out(n+1,{-1,-1,-1,-1});   // ครึ่งเส้นที่ออกจากจุดนี้ไปทางทิศนั้น
+    vector<int> heTo(2*w),heDir(2*w);
     for(int e=0;e<w;e++){
-        int a,b; scanf("%d %d",&a,&b); A[e]=a; B[e]=b;
-        int d;                                            // ทิศจาก a ไป b
-        if(Y[a]==Y[b]) d = X[b]>X[a] ? 0 : 2;
-        else           d = Y[b]>Y[a] ? 1 : 3;
-        int h1=2*e,h2=2*e+1;
-        heTo[h1]=b; heDir[h1]=d;   heWall[h1]=e; nb[a][d]=b;       nbHe[a][d]=h1;
-        heTo[h2]=a; heDir[h2]=d^2; heWall[h2]=e; nb[b][d^2]=a;     nbHe[b][d^2]=h2;
+        int a,b; scanf("%d %d",&a,&b);
+        int d = (Y[a]==Y[b]) ? (X[b]>X[a] ? 0 : 2) : (Y[b]>Y[a] ? 1 : 3);
+        heTo[2*e]=b;   heDir[2*e]=d;     out[a][d]=2*e;
+        heTo[2*e+1]=a; heDir[2*e+1]=d^2; out[b][d^2]=2*e+1;
     }
-    // เดินหน้า (face) โดยให้พื้นที่อยู่ทางซ้ายมือเสมอ
-    heFace.assign(2*w,-1);
-    vector<ll> area; vector<int> lowV;
+    // เดินรอบแต่ละหน้า โดยให้หน้านั้นอยู่ทางซ้ายมือเสมอ
+    // ถึงจุดปลายแล้ว ลองเลี้ยวซ้ายก่อน ไม่ได้ก็ตรงไป ไม่ได้ก็เลี้ยวขวา สุดท้ายค่อยย้อนกลับ
+    vector<int> heFace(2*w,-1);
+    vector<char> isRoom;                       // หน้านี้คือด้านในของห้อง (เดินทวนเข็ม) หรือไม่
     for(int s=0;s<2*w;s++){
         if(heFace[s]>=0) continue;
-        int fid=(int)area.size(); ll ar=0; int low=-1;
-        int h=s;
+        int fid=(int)isRoom.size(); ll area2=0; int h=s;
         do{
             heFace[h]=fid;
-            int u = heTo[h^1], v = heTo[h];
-            ar += (ll)X[u]*Y[v] - (ll)X[v]*Y[u];
-            if(low<0 || Y[v]<Y[low] || (Y[v]==Y[low] && X[v]<X[low])) low=v;
-            int rev = heDir[h]^2, nd=-1;
-            for(int k=3;k>=0;k--){ int dd=(rev+k)%4; if(nbHe[v][dd]>=0){ nd=nbHe[v][dd]; break; } }
-            h=nd;
+            int u=heTo[h^1], v=heTo[h];
+            area2 += (ll)X[u]*Y[v] - (ll)X[v]*Y[u];   // สูตรเชือกผูกรองเท้า ได้สองเท่าของพื้นที่ มีเครื่องหมาย
+            int back=heDir[h]^2, nxt=-1;
+            for(int k=3;k>=0;k--){ int dd=(back+k)%4; if(out[v][dd]>=0){ nxt=out[v][dd]; break; } }
+            h=nxt;
         } while(h!=s);
-        area.push_back(ar); lowV.push_back(low);
+        isRoom.push_back(area2>0);
     }
-    int F=(int)area.size();
-    int U=F;                                             // ปมเสมือนแทนพื้นที่นอกสุด
-    dsu.resize(F+1); for(int i=0;i<=F;i++) dsu[i]=i;
-    // กำแพงแนวนอนทุกเส้น เอาไว้ยิงรังสีลงล่างเพื่อหาว่าองค์ประกอบนี้ถูกห่ออยู่ในหน้าไหน
-    vector<int> hz; vector<int> ys(w,0);
-    for(int e=0;e<w;e++){ ys[e]=Y[A[e]]; if(Y[A[e]]==Y[B[e]]) hz.push_back(e); }
-    sort(hz.begin(),hz.end(),[&](int a,int b){ return ys[a]<ys[b]; });
-    vector<pair<int,int>> qs;                            // (y ของปมต่ำสุด, face id)
-    for(int f=0;f<F;f++) if(area[f]<=0) qs.push_back({Y[lowV[f]],f});
-    sort(qs.begin(),qs.end());
-    SZ=maxX+2; tg.assign(4*SZ+4,-1);
-    size_t pi=0;
-    for(auto&[qy,f]:qs){
-        while(pi<hz.size() && ys[hz[pi]]<qy){ int e=hz[pi++]; int x1=min(X[A[e]],X[B[e]]),x2=max(X[A[e]],X[B[e]]); assign(1,0,SZ-1,x1,x2-1,e); }
-        int px=X[lowV[f]];
-        int hit=query(1,0,SZ-1,px,-1,ys);
-        if(hit<0) uni(f,U);
-        else { int he = (X[heTo[2*hit]]>X[heTo[2*hit+1]]) ? 2*hit : 2*hit+1;  // ครึ่งเส้นที่ชี้ไปทางตะวันออก หน้าอยู่ทางซ้าย คือด้านบน
-               uni(f,heFace[he]); }
+    // หน้าที่ไม่ใช่ห้อง คือขอบนอกของก้อนกำแพงแต่ละก้อน ยุบรวมเป็นปมเดียวคือทะเล (ปม 0)
+    // ก้อนที่ลอยอยู่ในห้องก็ยุบเข้าทะเลได้ ชั่วโมงของทั้งก้อนจะเลื่อนลงเท่ากันหมด
+    // ผลต่างสองข้างของกำแพงทุกเส้นจึงไม่เปลี่ยน
+    int F=(int)isRoom.size();
+    vector<int> node(F); int V=1;
+    for(int f=0;f<F;f++) node[f] = isRoom[f] ? V++ : 0;
+    // กราฟคู่: ปมคือหน้า เส้นเชื่อมคือกำแพง เก็บแบบอาร์เรย์ต่อกันเพื่อประหยัดหน่วยความจำ
+    vector<int> deg(V+1,0), adj(2*w);
+    for(int e=0;e<w;e++){ deg[node[heFace[2*e]]+1]++; deg[node[heFace[2*e+1]]+1]++; }
+    for(int v=0;v<V;v++) deg[v+1]+=deg[v];
+    vector<int> pos(deg.begin(),deg.end()-1);
+    for(int e=0;e<w;e++){ int a=node[heFace[2*e]], b=node[heFace[2*e+1]]; adj[pos[a]++]=b; adj[pos[b]++]=a; }
+    // BFS จากทะเล dist[v] คือชั่วโมงที่น้ำท่วมถึงหน้านั้น
+    vector<int> dist(V,-1), q; q.reserve(V);
+    dist[0]=0; q.push_back(0);
+    for(size_t i=0;i<q.size();i++){
+        int u=q[i];
+        for(int k=deg[u];k<deg[u+1];k++){ int v=adj[k]; if(dist[v]<0){ dist[v]=dist[u]+1; q.push_back(v); } }
     }
-    vector<int> dist(F+1,INT_MAX);
-    deque<int> dq; int src=find(U); dist[src]=0; dq.push_back(src);
-    vector<vector<int>> adj(F+1);
-    for(int e=0;e<w;e++){ int a=find(heFace[2*e]),b=find(heFace[2*e+1]); if(a!=b){ adj[a].push_back(b); adj[b].push_back(a); } }
-    while(!dq.empty()){
-        int u=dq.front(); dq.pop_front();
-        for(int v:adj[u]) if(dist[u]+1<dist[v]){ dist[v]=dist[u]+1; dq.push_back(v); }
-    }
+    // กำแพงรอดเมื่อสองข้างถูกน้ำถึงในชั่วโมงเดียวกัน
     vector<int> ans;
-    for(int e=0;e<w;e++){ int a=find(heFace[2*e]),b=find(heFace[2*e+1]); if(dist[a]==dist[b]) ans.push_back(e+1); }
+    for(int e=0;e<w;e++) if(dist[node[heFace[2*e]]]==dist[node[heFace[2*e+1]]]) ans.push_back(e+1);
     printf("%d\\n",(int)ans.size());
     for(int e:ans) printf("%d\\n",e);
 }`;
-const subCode = `// เฉลยชุดทดสอบย่อย พิกัดไม่เกิน 500  มองพื้นที่เป็นตารางช่องละหนึ่งหน่วย
+const subCode = `// เฉลยชุดทดสอบย่อย (พิกัดไม่เกิน 500 หรือจุดไม่เกิน 500) มองพื้นที่เป็นตารางช่องละหนึ่งหน่วย
 #include <bits/stdc++.h>
 using namespace std;
 int G;
 static inline int cid(int i,int j){ return i*G+j; }
+// แทนพิกัดด้วยลำดับที่ของมันในพิกัดที่ไม่ซ้ำกัน เริ่มจาก 1 เพื่อเหลือวงช่องรอบนอกไว้เป็นทะเล
+// ลำดับซ้ายขวาบนล่างของทุกจุดเหมือนเดิม รูปผังจึงเหมือนเดิม แค่ถูกบีบให้แน่นขึ้น
+int squeeze(vector<int>& v){
+    vector<int> s(v.begin()+1,v.end());
+    sort(s.begin(),s.end()); s.erase(unique(s.begin(),s.end()),s.end());
+    for(size_t i=1;i<v.size();i++) v[i]=int(lower_bound(s.begin(),s.end(),v[i])-s.begin())+1;
+    return (int)s.size();
+}
 int main(){
     int n; if(scanf("%d",&n)!=1) return 0;
-    vector<int> X(n+1),Y(n+1); int mx=0;
-    for(int i=1;i<=n;i++){ scanf("%d %d",&X[i],&Y[i]); X[i]++; Y[i]++; mx=max(mx,max(X[i],Y[i])); }
+    vector<int> X(n+1),Y(n+1);
+    for(int i=1;i<=n;i++) scanf("%d %d",&X[i],&Y[i]);
     int w; scanf("%d",&w);
     vector<int> A(w+1),B(w+1);
     for(int i=1;i<=w;i++) scanf("%d %d",&A[i],&B[i]);
-    G=mx+2;
+    G=max(squeeze(X),squeeze(Y))+2;
     vector<char> blkH((size_t)G*G,0), blkV((size_t)G*G,0);   // blkH[i][j] = กำแพงระหว่างช่อง (i,j-1) กับ (i,j)
     for(int e=1;e<=w;e++){
         int a=A[e],b=B[e];
@@ -329,6 +538,7 @@ int main(){
         else { int xx=X[a],y1=min(Y[a],Y[b]),y2=max(Y[a],Y[b]);
             for(int j=y1;j<y2;j++) blkV[cid(xx,j)]=1; }
     }
+    // BFS แบบ 0-1: ข้ามขอบว่างราคา 0 ใส่หน้าคิว ข้ามกำแพงราคา 1 ต่อท้ายคิว
     const int INF=INT_MAX;
     vector<int> dist((size_t)G*G,INF);
     deque<int> dq; dist[cid(0,0)]=0; dq.push_back(cid(0,0));
@@ -344,6 +554,7 @@ int main(){
         go(i+1,j, blkV[cid(i+1,j)]);
         go(i-1,j, blkV[cid(i,j)]);
     }
+    // กำแพงรอดเมื่อช่องสองข้างของมันถูกน้ำถึงในชั่วโมงเดียวกัน
     vector<int> ans;
     for(int e=1;e<=w;e++){
         int a=A[e],b=B[e]; bool alive;
@@ -354,42 +565,220 @@ int main(){
     printf("%d\\n",(int)ans.size());
     for(int e:ans) printf("%d\\n",e);
 }`;
-const coreSnippet = `// dist[f] = ชั่วโมงที่น้ำท่วมถึงพื้นที่ f  หาได้ด้วย BFS ธรรมดาจากพื้นที่นอกสุด
-// กำแพงเส้นหนึ่งกั้นพื้นที่สองผืน ถ้าน้ำถึงสองผืนนั้นคนละชั่วโมง แปลว่าเคยมีจังหวะที่
-// ข้างหนึ่งเป็นน้ำอีกข้างเป็นอากาศ กำแพงจึงพัง  ถ้าถึงพร้อมกัน กำแพงไม่เคยรับแรงต่างข้าง
-for (int e = 0; e < w; e++) {
-    int a = find(heFace[2 * e]), b = find(heFace[2 * e + 1]);
-    if (dist[a] == dist[b]) ans.push_back(e + 1);
+const bruteCode = `// ตัวตรวจ: ปล่อยน้ำตามโจทย์ทีละชั่วโมงจริง ๆ บนตาราง (พิกัดเล็กเท่านั้น)
+// ไม่ใช้ข้อสรุปเรื่องชั่วโมงเท่ากันเลย ใช้แค่กติกาในโจทย์ตรง ๆ
+#include <bits/stdc++.h>
+using namespace std;
+int main(){
+    int n; if(scanf("%d",&n)!=1) return 0;
+    vector<int> X(n+1),Y(n+1); int mx=0;
+    for(int i=1;i<=n;i++){ scanf("%d %d",&X[i],&Y[i]); X[i]++; Y[i]++; mx=max(mx,max(X[i],Y[i])); }
+    int w; scanf("%d",&w);
+    int G=mx+2;
+    auto cid=[&](int i,int j){ return i*G+j; };
+    // wh[i][j] = กำแพงที่คั่นช่อง (i,j-1) กับ (i,j)  wv[i][j] = กำแพงที่คั่นช่อง (i-1,j) กับ (i,j)  (-1 คือไม่มี)
+    vector<int> wh(G*G,-1), wv(G*G,-1);
+    for(int e=1;e<=w;e++){
+        int a,b; scanf("%d %d",&a,&b);
+        if(Y[a]==Y[b]){ for(int i=min(X[a],X[b]);i<max(X[a],X[b]);i++) wh[cid(i,Y[a])]=e; }
+        else { for(int j=min(Y[a],Y[b]);j<max(Y[a],Y[b]);j++) wv[cid(X[a],j)]=e; }
+    }
+    vector<char> down(w+1,0);
+    while(true){
+        // น้ำไหลจากทะเลผ่านทุกขอบที่ไม่มีกำแพงยืนอยู่
+        vector<char> wet(G*G,0); vector<int> st={cid(0,0)}; wet[cid(0,0)]=1;
+        auto open=[&](int e){ return e<0 || down[e]; };
+        while(!st.empty()){
+            int u=st.back(); st.pop_back(); int i=u/G,j=u%G;
+            auto go=[&](int ni,int nj,int e){ if(ni<0||nj<0||ni>=G||nj>=G) return; int v=cid(ni,nj); if(!wet[v]&&open(e)){ wet[v]=1; st.push_back(v);} };
+            if(j+1<G) go(i,j+1,wh[cid(i,j+1)]);
+            go(i,j-1,j>0?wh[cid(i,j)]:-1);
+            if(i+1<G) go(i+1,j,wv[cid(i+1,j)]);
+            go(i-1,j,i>0?wv[cid(i,j)]:-1);
+        }
+        // กำแพงที่ยังยืนและมีน้ำข้างเดียว พังพร้อมกันทั้งหมดในชั่วโมงนี้
+        vector<int> fall;
+        for(int i=0;i<G;i++) for(int j=0;j<G;j++){
+            if(j>0){ int e=wh[cid(i,j)]; if(e>0&&!down[e]&&wet[cid(i,j-1)]!=wet[cid(i,j)]) fall.push_back(e); }
+            if(i>0){ int e=wv[cid(i,j)]; if(e>0&&!down[e]&&wet[cid(i-1,j)]!=wet[cid(i,j)]) fall.push_back(e); }
+        }
+        if(fall.empty()) break;
+        for(int e:fall) down[e]=1;
+    }
+    vector<int> ans; for(int e=1;e<=w;e++) if(!down[e]) ans.push_back(e);
+    printf("%d\\n",(int)ans.size());
+    for(int e:ans) printf("%d\\n",e);
 }`;
-/* คำอธิบายรายกำแพง สร้างจาก wallInfo ตัวเดียวกับตาราง */
-const fwNotes = wallInfo.map((w) => ({
-  note:
-    `กำแพงเส้นที่ <b>${w.id}</b> เชื่อมจุด <b>${w.a}</b> กับ <b>${w.b}</b> ` +
-    `น้ำถึงฝั่งหนึ่งที่ชั่วโมง <b>${w.d1}</b> และถึงอีกฝั่งที่ชั่วโมง <b>${w.d2}</b> ` +
-    (w.alive
-      ? 'สองข้างเปียกพร้อมกัน จึงไม่มีแรงดันต่างกัน เส้นนี้ <em>รอด</em>'
-      : 'ข้างหนึ่งเปียกก่อนอีกข้าง จึงมีแรงดันต่างกัน เส้นนี้ <em>พัง</em>'),
-}));
 
-/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
-const fwBill = [
-  { name: 'มองเป็นตารางช่องละหนึ่งหน่วย', limit: 'พิกัดไม่เกิน 500', work: '250,000 ช่อง' },
-  { name: 'เดินบนพื้นที่จริง', limit: 'พิกัดถึงหนึ่งล้าน', work: '100,000 เส้น' },
+/* ---------- รูปผังนิ่ง (ใช้ใน ZoomableDiagram จึงต้องใส่สีเป็น attribute ทั้งหมด) ---------- */
+const FACE_FILL = ['#0e2033', '#1d2b45', '#2a2442', '#1e3a3c', '#3a2f22', '#22303f'];
+type LabelPos = { name: string; x: number; y: number };
+function faceLabelsOf(m: Flood, geo: MapGeo): LabelPos[] {
+  return Array.from({ length: m.F }, (_, f) => {
+    let best = { x: 0, y: 0, key: [-1, -1, -1] };
+    for (let i = 0; i < m.wX; i++) {
+      for (let j = 0; j < m.wY; j++) {
+        if (m.face[i * m.g + j] !== f) continue;
+        const cx = MG + i * U + U / 2;
+        const cy = MG + (m.wY - 1 - j) * U + U / 2;
+        const clear = Math.min(...geo.walls.map((w) => Math.hypot(w.mx - cx, w.my - cy)));
+        let depth = 1e9;
+        for (let a = 0; a < m.wX; a++) {
+          for (let b = 0; b < m.wY; b++) {
+            if (m.face[a * m.g + b] !== f) depth = Math.min(depth, Math.max(Math.abs(a - i), Math.abs(b - j)));
+          }
+        }
+        const key = [clear >= U * 0.8 ? 1 : 0, depth, clear];
+        const d = key[0] - best.key[0] || key[1] - best.key[1] || key[2] - best.key[2];
+        if (d > 0) best = { x: cx, y: cy, key };
+      }
+    }
+    return { name: L(f), x: best.x, y: best.y + 5 };
+  });
+}
+type StaticMap = {
+  geo: MapGeo;
+  cells: { x: number; y: number; fill: string }[];
+  labels: LabelPos[];
+  ptLabels: { x: number; y: number; t: string }[];
+};
+function staticMap(pts: Pt[], walls: Seg[], m: Flood, withPointNumbers: boolean): StaticMap {
+  const geo = mapGeo(pts, walls, m);
+  const cells: StaticMap['cells'] = [];
+  for (let i = 0; i < m.wX; i++) {
+    for (let j = 0; j < m.wY; j++) {
+      cells.push({ x: MG + i * U, y: MG + (m.wY - 1 - j) * U, fill: FACE_FILL[m.face[i * m.g + j] % FACE_FILL.length] });
+    }
+  }
+  const labels = faceLabelsOf(m, geo);
+  /* เลขจุด: เลือกมุมเฉียงที่ไกลป้ายเลขกำแพงกับป้ายผืนที่สุด */
+  const ptLabels = withPointNumbers
+    ? geo.dots.map((d, k) => {
+        const opts = [[1, -1], [-1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => {
+          const x = d.x + sx * 11;
+          const y = d.y + sy * 11;
+          const clear = Math.min(
+            ...geo.walls.map((w) => Math.hypot(w.mx - x, w.my - y)),
+            ...labels.map((l) => Math.hypot(l.x - x, l.y - 5 - y)),
+          );
+          return { x, y: y + 4, clear };
+        });
+        opts.sort((a, b) => b.clear - a.clear);
+        return { x: opts[0].x, y: opts[0].y, t: String(k + 1) };
+      })
+    : [];
+  return { geo, cells, labels, ptLabels };
+}
+const exMap = staticMap(PTS, WALLS, EX, true);
+const nestMap = staticMap(NEST_PTS, NEST_WALLS, NM, false);
+const nestFaceNames = Array.from({ length: NM.F }, (_, f) => L(f));
+const nestInnerRooms = nestFaceNames.filter((_, f) => f !== 0 && f !== nestRoom);
+
+/* ---------- ตอนที่ 4: เดินรอบหน้าด้วยครึ่งเส้น แบบเดียวกับโค้ดเต็ม ---------- */
+const DIR = ['ตะวันออก', 'เหนือ', 'ตะวันตก', 'ใต้'];
+const TURN = ['ย้อนกลับ', 'เลี้ยวขวา', 'ไปตรง', 'เลี้ยวซ้าย']; // ดัชนี k ของลูป k = 3..0 ในโค้ด
+type WalkStep = { u: number; v: number; head: string; turn: string; term: number; a: number; b: number };
+type Walk = { steps: WalkStep[]; area2: number };
+function faceWalks(pts: Pt[], walls: Seg[]): Walk[] {
+  const out = Array.from({ length: pts.length + 1 }, () => [-1, -1, -1, -1]);
+  const heTo: number[] = [];
+  const heDir: number[] = [];
+  walls.forEach(([a, b], e) => {
+    const p = pts[a - 1];
+    const q = pts[b - 1];
+    const d = p.y === q.y ? (q.x > p.x ? 0 : 2) : q.y > p.y ? 1 : 3;
+    heTo[2 * e] = b;
+    heDir[2 * e] = d;
+    out[a][d] = 2 * e;
+    heTo[2 * e + 1] = a;
+    heDir[2 * e + 1] = d ^ 2;
+    out[b][d ^ 2] = 2 * e + 1;
+  });
+  const seen = new Array<boolean>(2 * walls.length).fill(false);
+  const res: Walk[] = [];
+  for (let s = 0; s < 2 * walls.length; s++) {
+    if (seen[s]) continue;
+    const steps: WalkStep[] = [];
+    let h = s;
+    do {
+      seen[h] = true;
+      const u = heTo[h ^ 1];
+      const v = heTo[h];
+      const a = pts[u - 1].x * pts[v - 1].y;
+      const b = pts[v - 1].x * pts[u - 1].y;
+      const back = heDir[h] ^ 2;
+      let nxt = -1;
+      let turn = '';
+      for (let k = 3; k >= 0; k--) {
+        const dd = (back + k) % 4;
+        if (out[v][dd] >= 0) {
+          nxt = out[v][dd];
+          turn = TURN[k];
+          break;
+        }
+      }
+      steps.push({ u, v, head: DIR[heDir[h]], turn, term: a - b, a, b });
+      h = nxt;
+    } while (h !== s);
+    res.push({ steps, area2: steps.reduce((t, x) => t + x.term, 0) });
+  }
+  return res;
+}
+const exWalks = faceWalks(PTS, WALLS);
+const exRooms = exWalks.filter((w) => w.area2 > 0);
+const exOuters = exWalks.filter((w) => w.area2 <= 0);
+/* ตัวอย่างเป็นก้อนเดียว จำนวนห้องจากการเดินต้องเท่ากับจำนวนผืนในตารางลบทะเล */
+if (exRooms.length !== EX.F - 1 || exOuters.length !== 1) throw new Error('การเดินรอบหน้าของตัวอย่างไม่ตรงกับผืนในตาราง');
+/* เดินห้องที่เล็กที่สุดให้ดูเป็นตัวอย่าง แล้วหาว่ามันคือผืนไหนในตอนที่ 1 */
+const walkShow = [...exRooms].sort((a, b) => a.steps.length - b.steps.length || a.area2 - b.area2)[0];
+const wallIdOf = (u: number, v: number): number => WALLS.findIndex(([a, b]) => (a === u && b === v) || (a === v && b === u)) + 1;
+const walkWalls = walkShow.steps.map((st) => wallIdOf(st.u, st.v));
+const walkFaceCands = Array.from({ length: EX.F }, (_, f) => f).filter((f) => walkWalls.every((w) => EX.side[w - 1].includes(f)) && f !== 0);
+if (walkFaceCands.length !== 1) throw new Error('หาผืนของห้องที่เดินโชว์ไม่ได้');
+const walkFace = L(walkFaceCands[0]);
+if (walkShow.steps.length < 4) throw new Error('ห้องที่โชว์ต้องมีอย่างน้อยสี่ก้าว');
+const exOuterArea2 = exOuters[0].area2;
+const walkFaceCells = EX.face.filter((f, c) => f === walkFaceCands[0] && Math.floor(c / EX.g) < EX.wX && c % EX.g < EX.wY).length;
+if (walkFaceCells * 2 !== walkShow.area2) throw new Error('ผลรวมของห้องที่เดินโชว์ต้องเป็นสองเท่าของจำนวนช่องในผืนนั้น');
+/* สูตรเชือกผูกรองเท้าบนห้องเล็กที่สุดที่คิดในหัวได้: ห้องสี่เหลี่ยมของชุดที่ 1 */
+const sqWalks = faceWalks(FW_LAYOUTS[0].pts.slice(0, 4), FW_LAYOUTS[0].walls.slice(0, 4));
+const sqRoom = sqWalks.find((w) => w.area2 > 0);
+const sqOuter = sqWalks.find((w) => w.area2 < 0);
+if (!sqRoom || !sqOuter || sqRoom.area2 !== -sqOuter.area2) throw new Error('ห้องสี่เหลี่ยม: ห้องกับขอบนอกต้องได้ค่าตรงข้ามกัน');
+const sqSide = FW_LAYOUTS[0].pts[1].x - FW_LAYOUTS[0].pts[0].x;
+if (sqRoom.area2 !== 2 * sqSide * sqSide) throw new Error('ห้องสี่เหลี่ยม: สูตรไม่ได้สองเท่าของพื้นที่');
+const wallLone = faceWalks(FW_LAYOUTS[0].pts.slice(4), [[1, 2]]);
+if (wallLone.length !== 1 || wallLone[0].area2 !== 0) throw new Error('กำแพงเส้นเดียวต้องได้ศูนย์');
+
+/* แผนที่ของโค้ดเต็ม: ส่วนไหนอธิบายอยู่ตอนไหน */
+const codeMap = [
+  { code: 'แตกกำแพง e เป็นครึ่งเส้น 2e กับ 2e+1', part: 'ตอนที่ 4 (ครึ่งเส้น)' },
+  { code: 'เดินรอบแต่ละหน้า ลองเลี้ยวซ้ายก่อน', part: 'ตอนที่ 4 (ลำดับการเลี้ยว)' },
+  { code: 'area2 สูตรเชือกผูกรองเท้า แยกห้องกับขอบนอก', part: 'ตอนที่ 4 (ห้องกับขอบนอก)' },
+  { code: 'ยุบขอบนอกทุกก้อนเป็นทะเล ปม 0', part: 'ตอนที่ 5' },
+  { code: 'กราฟคู่ แล้ว BFS จากทะเล', part: 'ตอนที่ 4 กับ 5 (ชั่วโมงอาจเลื่อนทั้งก้อน แต่ผลรอดหรือพังเท่าเดิม)' },
+  { code: 'เทียบ dist สองฝั่งของกำแพง', part: 'ตอนที่ 1 (กฎที่ได้)' },
 ];
-
+const quizShiftG = Math.max(...PTS.flatMap((p) => [p.x + 1000, p.y])) + 3;
+const quizShiftH = Math.max(...PTS.map((p) => p.y)) + 3;
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · น้ำท่วมทีละชั้น กำแพงพังทีละชั้น</h2>
   <p>
     ปี 1964 เกิดน้ำท่วมใหญ่ที่เมืองซาเกร็บ โจทย์นี้ให้แบบจำลองของเมืองก่อนน้ำท่วม
-    เป็นจุด <code>N</code> จุดบนระนาบ กับกำแพง <code>W</code> เส้น แต่ละเส้นเชื่อมจุดสองจุดและ
-    <strong>ไม่ผ่านจุดอื่นเลย</strong> กำแพงทุกเส้นขนานกับแกน และ<strong>ไม่มีเส้นไหนตัดหรือทับกัน</strong>
-    (แตะกันได้แค่ที่ปลาย)
+    เป็นจุด <code>N</code> จุดบนระนาบ กับกำแพง <code>W</code> เส้น แต่ละเส้นเชื่อมจุดสองจุดและไม่ผ่านจุดอื่นเลย
   </p>
   <p>
-    ตอนเริ่มต้นทุกที่แห้ง แล้วน้ำท่วมบริเวณ<strong>นอกสุด</strong>ทันที หลังจากนั้นทุก ๆ หนึ่งชั่วโมง
-    กำแพงทุกเส้นที่<strong>ข้างหนึ่งเป็นน้ำ อีกข้างเป็นอากาศ</strong> จะพังลง แล้วน้ำก็ไหลเข้าไปในพื้นที่ที่เพิ่งเปิด
-    ทำซ้ำจนน้ำท่วมทั่ว งานของเราคือบอกว่า<strong>กำแพงเส้นไหนบ้างที่ยังยืนอยู่</strong>
+    กำแพงทุกเส้นขนานกับแกน และ<strong>ไม่มีเส้นไหนตัดหรือทับกัน</strong> (แตะกันได้แค่ที่ปลาย)
+  </p>
+  <p>
+    ตอนเริ่มต้นทุกที่แห้ง แล้วน้ำท่วมบริเวณนอกสุดทันที หลังจากนั้นทุก ๆ หนึ่งชั่วโมง
+    กำแพงทุกเส้นที่ข้างหนึ่งเป็นน้ำ อีกข้างเป็นอากาศ จะพังลง แล้วน้ำก็ไหลเข้าไปในพื้นที่ที่เพิ่งเปิด
+  </p>
+  <p>ทำซ้ำจนน้ำท่วมทั่ว งานของเราคือบอกว่ากำแพงเส้นไหนบ้างที่ยังยืนอยู่</p>
+  <p>
+    บทนี้เรียกบริเวณที่เดินถึงกันได้โดยไม่ต้องข้ามกำแพงสักเส้นว่า<b>ผืน</b> กำแพงหนึ่งเส้นจึงมีผืนอยู่สองฝั่ง
+    (หรือผืนเดียวกันทั้งสองฝั่ง ถ้ามันยื่นเข้าไปในห้องโดยไม่ได้ล้อมอะไร)
   </p>
 
   <div class="callout callout-note spec">
@@ -401,7 +790,7 @@ const fwBill = [
       </li>
       <li>
         <strong>ขอบเขต:</strong> <code>2 ≤ N ≤ {fmt(NMAX)}</code>, <code>1 ≤ W ≤ 2N</code>
-        พิกัดอยู่ระหว่าง 0 ถึง 1,000,000 เวลา 2 วินาที หน่วยความจำ 32 เมกะไบต์
+        พิกัดอยู่ระหว่าง 0 ถึง {fmt(COORD_MAX)} เวลา {TIME_LIMIT} วินาที หน่วยความจำ {MEM_LIMIT_MB} เมกะไบต์
       </li>
       <li>
         <strong>เอาต์พุต:</strong> บรรทัดแรกคือจำนวนกำแพงที่ยังอยู่ จากนั้นคือหมายเลขของกำแพงเหล่านั้น
@@ -409,7 +798,7 @@ const fwBill = [
       </li>
       <li>
         <strong>ให้คะแนน:</strong> มี 40 คะแนนสำหรับชุดทดสอบที่พิกัดทุกตัวไม่เกิน {COORDSUB}
-        และอีก 15 คะแนนที่จำนวนจุดไม่เกิน 500
+        และอีก 15 คะแนนที่จำนวนจุดไม่เกิน {NSUB}
       </li>
     </ul>
   </div>
@@ -423,7 +812,7 @@ const fwBill = [
           {PTS.length}<br />{PTS.map((p) => <>{[p.x, p.y].join(' ')}<br /></>)}
           {WALLS.length}<br />{WALLS.map((w) => <>{[w[0], w[1]].join(' ')}<br /></>)}
         </td>
-        <td>{survivors.length}<br />{survivors.map((w) => <>{w.id}<br /></>)}</td>
+        <td>{survivors.length}<br />{survivors.map((w) => <>{w}<br /></>)}</td>
       </tr>
     </tbody>
   </table>
@@ -431,11 +820,10 @@ const fwBill = [
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      กำแพงพังเมื่อ<strong>ข้างหนึ่งเปียก อีกข้างแห้ง</strong> ลองกลับด้านประโยคนี้ดู
-      กำแพงจะ<strong>ไม่พัง</strong> เมื่อไร
+      กำแพงพังเมื่อข้างหนึ่งเปียก อีกข้างแห้ง ลองกลับด้านประโยคนี้ดู กำแพงจะไม่พังเมื่อไร
     </p>
     <p>
-      ถ้าเราหาได้ว่าแต่ละบริเวณ<strong>น้ำถึงเมื่อชั่วโมงที่เท่าไร</strong> คำถามทั้งข้อจะเหลืออะไร
+      ถ้าเราหาได้ว่าน้ำถึงแต่ละผืนเมื่อชั่วโมงที่เท่าไร คำถามทั้งข้อจะเหลืออะไร
     </p>
   </div>
 
@@ -451,6 +839,34 @@ const fwBill = [
 
     <p class="cpg-tease" data-cpg-tease>{fwPuzzles[0].tease}</p>
 
+    <div class="cpg-scroll">
+      {fwBoards.map((b, k) => (
+        <div data-fw-board={String(k)} hidden={k !== 0}>
+          <svg
+            class="fwboard"
+            viewBox={`0 0 ${b.vbW} ${b.vbH}`}
+            xmlns="http://www.w3.org/2000/svg"
+            style={`display:block;margin:0 auto;max-width:${Math.round(b.vbW * 1.25)}px`}
+            role="img"
+            aria-label={`ผังของ${fwPuzzles[k].label} มีกำแพง ${b.walls.length} เส้น แต่ละเส้นมีหมายเลขกำกับ กดที่เส้นเพื่อเลือกได้`}
+          >
+            <rect x={MG} y={MG} width={b.vbW - MG - 12} height={b.vbH - MG - 12} rx="6" fill="#101827" />
+            {b.walls.map((w) => (
+              <g class="fww" data-wall={String(w.id)}>
+                <line class="hit" x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} />
+                <line class="vis" x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} />
+                <circle cx={w.mx} cy={w.my} r="10" />
+                <text x={w.mx} y={w.my + 4}>{w.id}</text>
+              </g>
+            ))}
+            {b.dots.map((d) => (
+              <circle class="fwd" cx={d.x} cy={d.y} r="3" />
+            ))}
+          </svg>
+        </div>
+      ))}
+    </div>
+
     <div class="cpg-controls" data-fw-list></div>
 
     <div class="cpg-controls">
@@ -458,57 +874,122 @@ const fwBill = [
       <button type="button" class="cpg-btn main" data-fw-check>ตรวจคำทาย</button>
     </div>
 
-    <p class="cpg-status" data-cpg-status>กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง</p>
+    <p class="cpg-status" data-cpg-status>กดเลือกกำแพงที่คิดว่าจะรอด (ที่เส้นในรูปหรือที่ปุ่ม) แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง</p>
     <p class="cpg-score" data-cpg-score>เลือกไว้ <b data-fw-picked>0</b> เส้น จากทั้งหมด <b data-fw-total>0</b> เส้น</p>
     <p class="cpg-hint">น้ำเริ่มจากทะเลรอบนอก และทะลุกำแพงได้ชั่วโมงละหนึ่งชั้น</p>
   </div>
-  <p class="io-note">
-    ถ้าทายพลาดบ่อย ลองเปลี่ยนคำถามในหัวจาก "กำแพงนี้แข็งแรงไหม" เป็น "น้ำสองข้างของกำแพงนี้มาถึงพร้อมกันหรือเปล่า"
-  </p>
 
-  <h2>เฉลย · กำแพงรอดก็ต่อเมื่อสองข้างเปียกพร้อมกัน</h2>
+  <h2>เฉลย ตอนที่ 1 · ปล่อยน้ำตามโจทย์ทีละชั่วโมง</h2>
   <Spoiler>
-    <div class="callout callout-warn">
-      <p class="callout-label">ที่มาของแนวคิดนี้ และจุดที่ผมสะดุด</p>
+    <p>
+      เริ่มจากวิธีที่ตรงที่สุด คือทำตามโจทย์ทุกตัวอักษรบนผังตัวอย่าง (ชุดที่ 2 ของเกม)
+      ก่อนอื่นมาดูหน้าตาของผังนี้ให้ชัด
+    </p>
+    <ZoomableDiagram caption={`ผังตัวอย่าง จุด ${PTS.length} จุด (เลขสีเทา) กำแพง ${WALL_COUNT} เส้น (เลขในวงกลม) แบ่งระนาบเป็น ${EX.F} ผืน คือ ${faceNames.join(', ')} โดย A คือทะเลรอบนอก`}>
+      <svg
+        viewBox={`0 0 ${exMap.geo.vbW} ${exMap.geo.vbH + 22}`}
+        xmlns="http://www.w3.org/2000/svg"
+        style={`display:block;margin:0 auto;max-width:${Math.round(exMap.geo.vbW * 1.25)}px`}
+        role="img"
+        aria-label={`ผังตัวอย่างบนตาราง มีจุด ${PTS.length} จุดพร้อมเลขกำกับ กำแพง ${WALL_COUNT} เส้นพร้อมเลขในวงกลม ผืนทั้ง ${EX.F} ผืนระบายคนละสีและมีตัวอักษร ${faceNames.join(' ')} กำกับ`}
+      >
+        {exMap.cells.map((c) => (
+          <rect x={c.x} y={c.y} width={U} height={U} fill={c.fill} />
+        ))}
+        {exMap.labels.map((l) => (
+          <text x={l.x} y={l.y} fill="#cdd6ea" font-size="16" font-weight="700" text-anchor="middle">{l.name}</text>
+        ))}
+        {exMap.geo.walls.map((w) => (
+          <line x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} stroke="#cdd6ea" stroke-width="4" stroke-linecap="round" />
+        ))}
+        {exMap.geo.dots.map((d) => (
+          <circle cx={d.x} cy={d.y} r="3" fill="#cdd6ea" />
+        ))}
+        {exMap.geo.walls.map((w) => (
+          <circle cx={w.mx} cy={w.my} r="10" fill="#0b1220" stroke="#cdd6ea" stroke-width="1.5" />
+        ))}
+        {exMap.geo.walls.map((w) => (
+          <text x={w.mx} y={w.my + 4} fill="#e6ecf7" font-size="11" text-anchor="middle" font-family="monospace">{w.id}</text>
+        ))}
+        {exMap.ptLabels.map((p) => (
+          <text x={p.x} y={p.y} fill="#8a94a8" font-size="10" text-anchor="middle" font-family="monospace">{p.t}</text>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ให้<b>ชั่วโมงของผืน</b>คือจำนวนกำแพงที่น้อยที่สุดที่ต้องข้าม ถ้าเดินจากทะเลมาถึงผืนนั้น ทะเลเองได้ 0
+      เครื่องเดินข้างล่างปล่อยน้ำตามโจทย์ทีละชั่วโมง ลองดูว่าผืนไหนเปียกเมื่อไร
+    </p>
+
+    <CpStepPlayer hook="fwsim" steps={fwSteps} label="กดถัดไปเพื่อปล่อยน้ำทีละชั่วโมง">
+      <svg
+        class="fwmap"
+        viewBox={`0 0 ${exGeo.vbW} ${exGeo.vbH}`}
+        xmlns="http://www.w3.org/2000/svg"
+        style={`display:block;margin:0 auto;max-width:${Math.round(exGeo.vbW * 1.25)}px`}
+        role="img"
+        aria-label={`ผังตัวอย่างบนตาราง แบ่งเป็นผืน ${faceNames.join(' ')} ผืนที่เปียกแล้วเป็นสีฟ้า กำแพงทั้ง ${WALL_COUNT} เส้นมีหมายเลข เส้นแดงคือกำแพงที่จะพังในชั่วโมงถัดไป เส้นประคือกำแพงที่พังแล้ว เส้นเขียวคือกำแพงที่ยืนจนจบ`}
+      >
+        {exCells.map((c) => (
+          <rect class="fwc" x={c.x} y={c.y} width={U} height={U} data-h={String(c.h)} />
+        ))}
+        {exFaceLabels.map((f) => (
+          <text class="fwf" x={f.x} y={f.y}>{f.name}</text>
+        ))}
+        {exGeo.walls.map((w) => (
+          <g class="fww" data-fall={String(w.fall)}>
+            <line class="vis" x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} />
+            <circle cx={w.mx} cy={w.my} r="10" />
+            <text x={w.mx} y={w.my + 4}>{w.id}</text>
+          </g>
+        ))}
+        {exGeo.dots.map((d) => (
+          <circle class="fwd" cx={d.x} cy={d.y} r="3" />
+        ))}
+      </svg>
+      <p class="fg-sub">สีฟ้าคือผืนที่เปียกแล้ว เส้นแดงคือกำแพงที่จะพังในชั่วโมงถัดไป เส้นประคือกำแพงที่พังไปแล้ว เส้นเขียวคือกำแพงที่ยืนจนจบ</p>
+    </CpStepPlayer>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>กำแพง {WALL_COUNT} เส้น จับกลุ่มตามผืนสองฝั่ง</caption>
+        <thead>
+          <tr><th>ผืนสองฝั่ง</th><th>น้ำถึง (ชั่วโมง)</th><th>กำแพง</th><th>ผล</th></tr>
+        </thead>
+        <tbody>
+          {groupRows.map((r) => (
+            <tr>
+              <td>{r.pair}</td>
+              <td class="num">{r.hours}</td>
+              <td class="num">{r.walls}</td>
+              <td>{r.verdict}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>กำแพงในกลุ่มเดียวกันคั่นผืนคู่เดียวกัน ผลของทั้งกลุ่มเลยเหมือนกัน</figcaption>
+    </figure>
+
+    <p>
+      แถวที่รอดมีสองแบบ กำแพง {ids(sameG.walls)} มีผืน {L(sameG.fa)} อยู่ทั้งสองฝั่ง
+      ส่วนกำแพง {ids(tieG.walls)} คั่นผืน {L(tieG.fa)} กับ {L(tieG.fb)} ซึ่งน้ำถึงในชั่วโมง {EX.faceHour[tieG.fa]} เหมือนกัน
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">กฎที่ได้</p>
       <p>
-        ลำดับจริงคือผมไม่ได้เริ่มจากกราฟระนาบเลย ผมเริ่มจากเวอร์ชันง่ายที่สุดคือมองผังเป็น<strong>ตารางช่องละหนึ่งหน่วย</strong>
-        แล้วปล่อยน้ำท่วมทีละชั้น เวอร์ชันนั้นเขียนง่าย ตอบตัวอย่างในโจทย์ถูก และกลายเป็นเฉลยชุดทดสอบย่อย 40 คะแนน
-        พอมันเดินได้ ผมถึงกลับไปอ่านประโยคที่มันใช้ตัดสินใจ คือ "กำแพงรอดเมื่อสองข้างท่วมพร้อมกัน"
-        แล้วเห็นว่าประโยคเดียวกันนี้ไม่ได้ต้องการช่องเลย มันต้องการแค่<strong>คำว่าสองข้าง</strong>
-        ซึ่ง<strong>หน้าของกราฟระนาบ</strong>ก็มีให้เหมือนกัน
-      </p>
-      <p>
-        จุดที่ผมสะดุดอยู่นานคือเรื่องราคา กำแพงหนึ่งเส้นพังทั้งเส้นพร้อมกัน ไม่ได้พังทีละช่อง
-        ตอนนั้นผมนึกว่าการคิดราคา<strong>ทีละช่อง</strong>จะทำให้ตอบผิด สิ่งที่ทำให้กลับมามั่นใจคือ
-        ช่องที่อยู่ในพื้นที่ผืนเดียวกันเชื่อมถึงกันด้วยการเดินที่มีราคาศูนย์ ค่าที่คำนวณได้ของทุกช่องในผืนเดียวกันจึง
-        <strong>เท่ากันเสมอโดยอัตโนมัติ</strong> การคิดทีละช่องกับการคิดทีละผืนจึงให้เลขเดียวกัน
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ เขียนเวอร์ชันหยาบที่ถูกให้เดินได้ก่อน แล้วอ่านว่ามัน<strong>ใช้ประโยคไหนตัดสินใจ</strong>
-        ประโยคนั้นมักไม่ผูกกับโครงสร้างหยาบ ๆ ที่เราใช้ และนั่นคือทางไปเวอร์ชันเต็ม
+        กำแพงยังยืนอยู่ ก็ต่อเมื่อน้ำถึงผืนสองฝั่งของมันในชั่วโมงเดียวกัน
+        (กำแพงที่มีผืนเดียวกันทั้งสองฝั่งก็เข้ากฎนี้ เพราะผืนเดียวกันย่อมเปียกพร้อมกัน)
       </p>
     </div>
-    <p>
-      กำแพงเส้นหนึ่งกั้นพื้นที่สองผืน ให้ <code>dist</code> ของผืนหนึ่งคือชั่วโมงที่น้ำท่วมถึงผืนนั้น
-      ถ้าสองผืนมีค่าต่างกัน ก็ต้องเคยมีช่วงเวลาที่ผืนหนึ่งเป็นน้ำ อีกผืนยังเป็นอากาศ กำแพงจึงพัง
-      แต่ถ้าสองผืน<strong>ท่วมพร้อมกันเป๊ะ</strong> กำแพงเส้นนั้นไม่เคยรับแรงต่างข้างเลยสักชั่วโมง
-    </p>
-    <p class="pull">กำแพงยังยืนอยู่ ก็ต่อเมื่อพื้นที่สองข้างของมันมีชั่วโมงที่น้ำท่วมถึงเท่ากันพอดี</p>
-    <p>
-      แล้ว <code>dist</code> หาได้ยังไง มองว่าการเดินจากพื้นที่หนึ่งไปพื้นที่ที่ติดกัน<strong>ต้องข้ามกำแพงหนึ่งเส้น</strong>
-      ซึ่งราคาหนึ่งชั่วโมง เริ่มจากพื้นที่นอกสุดที่ <code>dist</code> เป็นศูนย์ แล้ว<strong>ค้นตามความกว้าง</strong>
-      ออกไป นี่คือ BFS ธรรมดา ไม่ต้องใช้อะไรหรูกว่านั้นเลย
-    </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
 
-    <ZoomableDiagram caption="กำแพงเส้นซ้ายกั้นพื้นที่ที่น้ำถึงคนละชั่วโมง จึงเคยมีช่วงที่ข้างหนึ่งเป็นน้ำอีกข้างเป็นอากาศ มันจึงพัง ส่วนเส้นขวากั้นพื้นที่ที่น้ำถึงพร้อมกัน มันจึงยืนอยู่ได้ตลอด (วาดประกอบโดยผู้เขียน)">
-      <svg viewBox="0 0 412 201" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเปรียบเทียบกำแพงสองเส้น ทางซ้ายกำแพงหนึ่งเส้นกั้นพื้นที่สองผืน ผืนซ้ายมีเลขศูนย์ ผืนขวามีเลขหนึ่ง กำแพงถูกวาดเป็นเส้นประสีแดงพร้อมข้อความว่าพัง ทางขวากำแพงหนึ่งเส้นกั้นพื้นที่สองผืนที่มีเลขสองทั้งคู่ กำแพงเป็นเส้นทึบสีเขียวพร้อมข้อความว่ารอด">
+    <ZoomableDiagram caption="ซ้าย: ชั่วโมงสองฝั่งต่างกัน กำแพงพัง ขวา: ชั่วโมงเท่ากัน กำแพงรอด">
+      <svg viewBox="0 0 412 201" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:515px" role="img" aria-label="แผนภาพเปรียบเทียบกำแพงสองเส้น ทางซ้ายกำแพงกั้นผืนที่มีเลขชั่วโมงศูนย์กับหนึ่ง กำแพงเป็นเส้นประสีแดงพร้อมคำว่าพัง ทางขวากำแพงกั้นผืนที่มีเลขสองทั้งคู่ กำแพงเป็นเส้นทึบสีเขียวพร้อมคำว่ารอด">
         <rect x="20" y="46" width="70" height="90" rx="6" fill="#12233a" stroke="#2a3350" />
         <rect x="106" y="46" width="70" height="90" rx="6" fill="#1c2536" stroke="#2a3350" />
         <text x="55" y="98" fill="#7dd3fc" font-size="20" text-anchor="middle" font-family="monospace">0</text>
         <text x="141" y="98" fill="#7dd3fc" font-size="20" text-anchor="middle" font-family="monospace">1</text>
         <line x1="98" y1="40" x2="98" y2="142" stroke="#b23b3b" stroke-width="4" stroke-dasharray="7 5" />
-        <text x="98" y="164" fill="#b23b3b" font-size="12" text-anchor="middle">พัง</text>
+        <text x="98" y="164" fill="#e07a7a" font-size="12" text-anchor="middle">พัง</text>
         <text x="98" y="32" fill="#9aa7bd" font-size="11" text-anchor="middle">น้ำถึงคนละชั่วโมง</text>
 
         <rect x="244" y="46" width="70" height="90" rx="6" fill="#12233a" stroke="#2a3350" />
@@ -520,191 +1001,544 @@ const fwBill = [
         <text x="322" y="32" fill="#9aa7bd" font-size="11" text-anchor="middle">น้ำถึงพร้อมกัน</text>
       </svg>
     </ZoomableDiagram>
+
+    <p>เหตุผลที่กฎนี้ใช้ได้กับทุกผัง ไล่ทีละข้อ</p>
+    <ul>
+      <li>
+        น้ำเข้าผืนใหม่ได้ทางเดียว คือผ่านกำแพงที่พังแล้ว และกำแพงพังได้เฉพาะเมื่อติดผืนที่เปียกอยู่ก่อน
+        น้ำรุกได้ชั่วโมงละไม่เกินหนึ่งชั้น ผืนไหนก็เปียกก่อนชั่วโมงของมันไม่ได้
+      </li>
+      <li>
+        ในทางกลับกัน ผืนที่ชั่วโมง k + 1 ติดกับผืนชั่วโมง k อย่างน้อยหนึ่งผืน ถ้าผืนนั้นเปียกตอนชั่วโมง k
+        กำแพงที่คั่นจะพังตอน k + 1 น้ำเลยไม่ช้ากว่านั้นด้วย ไล่จากทะเลขึ้นไปทีละชั้น ทุกผืนเปียกตอนชั่วโมงของมันพอดี
+      </li>
+      <li>ผืนสองผืนที่มีกำแพงคั่น มีชั่วโมงต่างกันไม่เกิน 1 เพราะข้ามกำแพงเส้นนั้นเพิ่มอีกเส้นเดียวก็ถึง</li>
+      <li>ต่างกัน 1: ตลอดหนึ่งชั่วโมงมีข้างหนึ่งเปียกอีกข้างแห้ง กำแพงพัง เท่ากัน: สองข้างเปียกพร้อมกัน กำแพงรอด</li>
+    </ul>
+    <p>
+      ชั่วโมงของผืนคือระยะทางสั้นที่สุด เมื่อการข้ามกำแพงหนึ่งเส้นนับเป็นหนึ่งก้าว
+      เครื่องมือมาตรฐานสำหรับระยะแบบนี้คือ BFS (breadth-first search แปลว่าการค้นตามแนวกว้าง)
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">BFS ทำงานยังไง</p>
+      <ol>
+        <li>ใส่จุดเริ่ม (ที่นี่คือทะเล) ลงคิว ด้วยระยะ 0 คิว (queue) คือแถวรอที่ใครเข้าก่อนได้ออกก่อน</li>
+        <li>หยิบตัวหน้าสุดออกมา เพื่อนบ้านตัวไหนยังไม่มีระยะ ให้ระยะเท่ากับระยะของตัวนี้บวกหนึ่ง แล้วต่อท้ายคิว</li>
+        <li>ทำจนคิวว่าง ตัวที่ระยะน้อยออกจากคิวก่อนเสมอ ระยะที่ให้ไปแต่ละตัวเลยเป็นค่าน้อยที่สุด</li>
+      </ol>
+      <p>อธิบายเต็มพร้อมตัวอย่างอยู่ใน<a href="/cp/state-graph-bfs/">บทกราฟที่โจทย์ไม่ได้ให้มา</a></p>
+    </div>
+    <p>ส่วนที่เหลือของบทคือการหาชั่วโมงของทุกผืนให้เร็วพอ</p>
   </Spoiler>
 
-  <h2>ตารางชั่วโมงที่น้ำถึง ของตัวอย่างในโจทย์</h2>
+  <h2>เฉลย ตอนที่ 2 · ตารางช่องละหนึ่งหน่วย (40 คะแนน)</h2>
   <Spoiler>
-      <CpStepPlayer hook="fwsim" steps={fwNotes} label="กดถัดไปเพื่อตรวจกำแพงทีละเส้น">
-    <table class="rec">
-        <caption>กำแพงทั้ง {WALLS.length} เส้น</caption>
+    <p>ไล่จากช้าไปเร็วมีสี่ขั้น ตอนนี้กับตอนถัดไปคือสองขั้นกลาง</p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ปล่อยน้ำทีละชั่วโมง</h4>
+        <p class="cp-step-cost">ราวจำนวนช่อง × จำนวนชั่วโมง</p>
+        <p>ทำตามโจทย์ตรง ๆ แบบตอนที่ 1 น้ำไหล หากำแพงที่มีน้ำข้างเดียว ทำซ้ำ</p>
+        <p class="cp-step-win">ไม่ได้ส่ง ใช้เป็นตัวตรวจของหน้านี้</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>ตาราง + BFS แบบ 0-1</h4>
+        <p class="cp-step-cost">ราวจำนวนช่อง</p>
+        <p>ได้ชั่วโมงของทุกช่องในรอบเดียว แล้วใช้กฎของตอนที่ 1</p>
+        <p class="cp-step-win">40 คะแนน (พิกัดไม่เกิน {COORDSUB})</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 3</p>
+        <h4>บีบพิกัด + ตารางเดิม</h4>
+        <p class="cp-step-cost">ไม่เกิน (N + 2)² ช่อง</p>
+        <p>แทนพิกัดด้วยลำดับที่ของมัน ตารางเล็กลงตามจำนวนจุด (ตอนที่ 3)</p>
+        <p class="cp-step-win">อีก 15 คะแนน (N ไม่เกิน {NSUB}) รวม 55</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>เดินรอบผืน + BFS บนกราฟคู่</h4>
+        <p class="cp-step-cost">ราว {FACE_STEPS_PER_WALL} ก้าวต่อกำแพง</p>
+        <p>ไม่ใช้ช่องเลย หาผืนจากกำแพงตรง ๆ (ตอนที่ 4 และ 5)</p>
+        <p class="cp-step-win">100 คะแนน</p>
+      </div>
+    </div>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ผมเริ่มจากวิธีที่ 2 ก่อนจะคิดถึงอย่างอื่น มันเขียนง่าย ตอบตัวอย่างถูก และกลายเป็นเฉลย 40 คะแนนของหน้านี้
+        พอมันเดินได้ ผมถึงเห็นว่าประโยคที่มันใช้ตัดสินใจคือ "ชั่วโมงสองฝั่งเท่ากัน" ซึ่งต้องการแค่ผืน ช่องไม่จำเป็นเลย
+      </p>
+    </div>
+
+    <p>
+      วิธีที่ 2 แบ่งระนาบเป็นช่องละหนึ่งหน่วย กำแพงกลายเป็นขอบระหว่างช่องสองช่องที่ติดกัน
+      เดินข้ามขอบที่ไม่มีกำแพงมีค่าข้าม 0 ข้ามขอบที่มีกำแพงมีค่าข้าม 1
+    </p>
+    <ZoomableDiagram caption="ตารางเล็ก ๆ ที่มีกำแพงยาวสองหน่วย ข้ามขอบว่างมีค่าข้าม 0 ข้ามกำแพงมีค่าข้าม 1 แถวล่างอยู่พ้นปลายกำแพงไปแล้ว จึงข้ามได้ด้วยค่าข้าม 0">
+      <svg viewBox="4 0 358 200" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:448px" role="img" aria-label="ตารางสี่คูณสามช่อง มีกำแพงหนาสีขาวยาวสองช่องตามแนวตั้ง ลูกศรสามอันข้ามขอบระหว่างช่อง อันที่ข้ามขอบว่างมีเลขศูนย์ อันที่ข้ามกำแพงมีเลขหนึ่งสีแดง และอันในแถวล่างที่อยู่พ้นปลายกำแพงมีเลขศูนย์">
+        <rect x="16" y="16" width="200" height="150" fill="#131b2c" stroke="#2a3350" />
+        <line x1="66" y1="16" x2="66" y2="166" stroke="#2a3350" />
+        <line x1="116" y1="16" x2="116" y2="166" stroke="#2a3350" />
+        <line x1="166" y1="16" x2="166" y2="166" stroke="#2a3350" />
+        <line x1="16" y1="66" x2="216" y2="66" stroke="#2a3350" />
+        <line x1="16" y1="116" x2="216" y2="116" stroke="#2a3350" />
+        <line x1="116" y1="16" x2="116" y2="116" stroke="#cdd6ea" stroke-width="6" stroke-linecap="round" />
+        <line x1="45" y1="41" x2="82" y2="41" stroke="#6ee7a8" stroke-width="2" />
+        <polygon points="82,36 91,41 82,46" fill="#6ee7a8" />
+        <text x="62" y="33" fill="#6ee7a8" font-size="13" text-anchor="middle">0</text>
+        <line x1="95" y1="41" x2="132" y2="41" stroke="#e07a7a" stroke-width="2" />
+        <polygon points="132,36 141,41 132,46" fill="#e07a7a" />
+        <text x="128" y="33" fill="#e07a7a" font-size="13" text-anchor="middle">1</text>
+        <line x1="95" y1="141" x2="132" y2="141" stroke="#6ee7a8" stroke-width="2" />
+        <polygon points="132,136 141,141 132,146" fill="#6ee7a8" />
+        <text x="128" y="133" fill="#6ee7a8" font-size="13" text-anchor="middle">0</text>
+        <text x="236" y="46" fill="#cdd6ea" font-size="13">เส้นหนา = กำแพง</text>
+        <text x="236" y="84" fill="#6ee7a8" font-size="13">ข้ามขอบว่าง ค่าข้าม 0</text>
+        <text x="236" y="122" fill="#e07a7a" font-size="13">ข้ามกำแพง ค่าข้าม 1</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ตารางกว้างเท่ากับพิกัดสูงสุดบวก 3 ช่อง คือเลื่อนทุกจุดไปหนึ่งหน่วยเพื่อให้แถวและคอลัมน์ที่ 0 เป็นทะเล
+      แล้วเผื่อด้านขวาบนอีกสองแถว ตัวอย่างมีพิกัดสูงสุด {rawG - 3} เลยได้ตาราง {rawG} × {rawG} ช่อง
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">BFS แบบ 0-1 (0-1 BFS)</p>
+      <ol>
+        <li>ค่าข้ามมีแค่ 0 กับ 1 เลยใช้คิวที่ใส่ได้ทั้งหัวและท้าย ภาษาอังกฤษเรียกว่า deque (double-ended queue)</li>
+        <li>ข้ามขอบว่าง (ค่าข้าม 0): ช่องใหม่ได้ระยะเท่าเดิม ใส่ไว้หัวคิว</li>
+        <li>ข้ามกำแพง (ค่าข้าม 1): ช่องใหม่ได้ระยะบวกหนึ่ง ต่อท้ายคิว</li>
+        <li>คิวยังเรียงตามระยะจากน้อยไปมากเสมอ ช่องที่หยิบออกมาได้ระยะน้อยที่สุดแล้ว เหมือน BFS ธรรมดา</li>
+      </ol>
+      <p>มีอธิบายพร้อมตัวอย่างใน<a href="/cp/state-graph-bfs/">บทกราฟที่โจทย์ไม่ได้ให้มา</a>เช่นกัน</p>
+    </div>
+    <p>
+      ถ้าค่าข้ามเป็นเลขอะไรก็ได้ ต้องใช้ Dijkstra (ไดค์สตรา) ซึ่งเก็บคิวที่คอยจัดลำดับตามระยะ
+      ค่าข้ามที่มีแค่ 0 กับ 1 ทำให้เราใช้ deque ที่ง่ายและเร็วกว่าได้
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ทำไมคิดทีละช่องแล้วยังถูก</p>
+      <ul>
+        <li>ช่องในผืนเดียวกันเดินถึงกันด้วยค่าข้าม 0 ทุกช่องในผืนได้ชั่วโมงเท่ากัน (หน้านี้ตรวจข้อนี้กับตัวอย่างตอนบิลด์)</li>
+        <li>
+          กำแพงหนึ่งเส้นคั่นผืนคู่เดิมตลอดความยาว เพราะไม่มีจุดหรือกำแพงอื่นมาแตะกลางเส้น
+          เทียบช่องคู่แรกของกำแพงก็พอ
+        </li>
+      </ul>
+    </div>
+    <p>
+      ที่พิกัดไม่เกิน {COORDSUB} ตารางมีไม่เกิน {subGrid} × {subGrid} = {fmt(subGrid * subGrid)} ช่อง เร็วและเล็กพอ
+      โค้ดอยู่ท้ายตอนที่ 3 เพราะเติมขั้นบีบพิกัดไว้ในตัวเดียวกันแล้ว
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 · บีบพิกัด (อีก 15 คะแนน) แล้วชนเพดาน</h2>
+  <Spoiler>
+    <p>
+      ชุดย่อยที่สองให้จุดไม่เกิน {NSUB} จุด แต่พิกัดยังไปถึง {fmt(COORD_MAX)}
+      ตารางตรง ๆ มีราว {sci(CELLS_RAW).m} × 10¹² ช่อง ใส่หน่วยความจำไม่ได้
+    </p>
+    <p>
+      ทางออกมาจากการสังเกตว่าผืนกับชั่วโมงขึ้นกับแค่ลำดับ คือจุดไหนอยู่ซ้าย ขวา บน หรือล่างของจุดไหน
+      ระยะห่างจริงไม่มีผลเลย
+    </p>
+    <p>
+      <b>บีบพิกัด</b> (coordinate compression) คือแทนพิกัด x แต่ละค่าด้วยลำดับที่ของมันในบรรดาพิกัด x ที่ไม่ซ้ำกัน
+      แล้วทำแบบเดียวกันกับ y ตัวอย่างในโจทย์ได้แบบนี้
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>บีบพิกัดของตัวอย่าง</caption>
         <thead>
-          <tr>
-            <th class="num">เส้นที่</th><th>เชื่อมจุด</th>
-            <th class="num">น้ำถึงฝั่งหนึ่ง</th><th class="num">น้ำถึงอีกฝั่ง</th><th>ผล</th>
-          </tr>
+          <tr><th>แกน</th><th class="num">พิกัดเดิมที่ไม่ซ้ำ</th><th class="num">ลำดับที่</th></tr>
         </thead>
         <tbody>
-          {wallInfo.map((w) => (
-            <tr>
-              <td class="num">{w.id}</td>
-              <td><code>{w.a} ถึง {w.b}</code></td>
-              <td class="num">{w.d1}</td>
-              <td class="num">{w.d2}</td>
-              <td>{w.alive ? 'รอด' : 'พัง'}</td>
-            </tr>
-          ))}
+          <tr><td>x</td><td class="num">{sqX.s.join(' ')}</td><td class="num">{sqX.s.map((_, k) => k + 1).join(' ')}</td></tr>
+          <tr><td>y</td><td class="num">{sqY.s.join(' ')}</td><td class="num">{sqY.s.map((_, k) => k + 1).join(' ')}</td></tr>
         </tbody>
       </table>
-  </CpStepPlayer>
-  <p class="io-note">
-    กำแพงที่รอดมี {survivors.length} เส้น คือเส้นที่ {survivors.map((w) => w.id).join(', ')}
-        ตรงกับคำตอบในโจทย์ ตัวเลขทุกตัวมาจากการเดินน้ำจริงบนตารางในหน้านี้ ไม่ได้พิมพ์มือ
-        น้ำใช้เวลาท่วมทั่วทั้งเมืองนี้ {maxHour} ชั่วโมง
-  </p>
-
+      <figcaption>
+        บีบแล้วตารางกว้างเท่าจำนวนค่าที่ไม่ซ้ำบวก 2 (ทะเลด้านละหนึ่งแถว) ตัวอย่างหดจาก {rawG} × {rawG} เป็น {sqG} × {sqG} ช่อง
+        และกำแพงที่รอดยังเป็นชุดเดิม คือ {ids(survivors)} (ตรวจตอนบิลด์)
+      </figcaption>
+    </figure>
+    <div class="callout callout-tip">
+      <p class="callout-label">ทำไมรูปผังไม่เปลี่ยน</p>
+      <p>
+        การบีบรักษาลำดับของพิกัดทุกค่า กำแพงที่แตะกันยังแตะกัน กำแพงที่แยกกันก็ยังแยกกัน
+        ระหว่างเส้นสองเส้นที่ติดกันยังเหลือช่องอย่างน้อยหนึ่งแถว ผืนทุกผืนอยู่ครบ แค่แคบลง
+      </p>
+    </div>
     <p>
-      สังเกตว่าเส้นที่ {survivors.map((w) => w.id).join(' กับ ')} ล้วนเป็นเส้นที่<strong>ทั้งสองข้างเป็นพื้นที่ผืนเดียวกัน</strong>
-      หรือเป็นผืนที่น้ำเดินไปถึงด้วยจำนวนกำแพงเท่ากันพอดีทั้งสองทาง
-    </p>
-  </Spoiler>
-
-  <h2>อีกมุมหนึ่ง: มองเป็นตารางช่องละหนึ่งหน่วย (ชุดทดสอบย่อย 40 คะแนน)</h2>
-  <Spoiler>
-    <p>
-      ชุดทดสอบย่อยให้พิกัดไม่เกิน {COORDSUB} ซึ่งเป็นคำเชิญให้ทำอะไรที่ตรงไปตรงมามาก
-      แบ่งระนาบเป็นช่องละหนึ่งหน่วย กำแพงกลายเป็นเส้นขอบระหว่างช่อง แล้ว<strong>เดินน้ำบนช่อง</strong>
-      โดยการเดินข้ามขอบที่ไม่มีกำแพงราคาศูนย์ และข้ามขอบที่มีกำแพงราคาหนึ่ง
-    </p>
-    <p>
-      การเดินที่มีราคาแค่ศูนย์กับหนึ่งใช้ <strong>BFS แบบสองแถว</strong> ได้ คือใช้คิวสองหัว
-      เจอราคาศูนย์ก็ยัดหน้าคิว เจอราคาหนึ่งก็ต่อท้าย ได้ผลเหมือน Dijkstra แต่เร็วเท่า BFS
+      เมื่อจุดไม่เกิน {NSUB} จุด แต่ละแกนมีพิกัดต่างกันไม่เกิน {NSUB} ค่า ตารางไม่เกิน {sqSubGrid} × {sqSubGrid} ช่อง
+      ช่องละ {BYTES_PER_CELL} ไบต์ รวมราว {((sqSubGrid * sqSubGrid * BYTES_PER_CELL) / 1e6).toFixed(1)} เมกะไบต์
     </p>
     <details class="expander">
-      <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
+      <summary>ดูโค้ดตาราง + บีบพิกัด (ได้ 55 คะแนน)</summary>
       <div class="expander-body">
         <CodeBlock code={subCode} lang="cpp" title="flood_grid.cpp" />
       </div>
     </details>
-    <div class="callout callout-note">
-      <p class="callout-label">โน้ต</p>
-      <p>
-        มีจุดหนึ่งที่ดูเหมือนจะผิดแต่ไม่ผิด กำแพงพังทั้งเส้นพร้อมกัน ไม่ใช่พังทีละช่อง
-        แล้วทำไมการคิดราคาทีละช่องถึงยังถูก
-      </p>
-      <p>
-        เพราะช่องที่อยู่ในพื้นที่ผืนเดียวกันเชื่อมถึงกันด้วยการเดินราคาศูนย์ทั้งหมด มันจึงได้ค่าเท่ากันเสมออยู่แล้ว
-        และเพราะโจทย์รับประกันว่ากำแพงไม่ตัดกันและไม่มีจุดอื่นอยู่กลางเส้น กำแพงหนึ่งเส้นจึงกั้นพื้นที่
-        <strong>สองผืนเดิมตลอดความยาวของมัน</strong> ทุกช่องคู่ตลอดเส้นจึงตัดสินเหมือนกันหมด
-      </p>
-    </div>
     <p>
-      ท่านี้ได้ 40 คะแนนและตายทันทีที่พิกัดขึ้นเป็นล้าน แต่มันมีค่ามากกว่านั้น เพราะมัน<strong>เป็นตัวตรวจสอบ</strong>
-      ให้เวอร์ชันเต็ม ผมสุ่มผังกำแพงบนตารางเล็ก ๆ 3,000 ชุด (โดยใช้เส้นยาวหนึ่งหน่วยบนแลตทิซ ซึ่งไม่มีทางตัดกันเอง
-      และสร้างผังซ้อนในผังได้ตามธรรมชาติ) แล้วเทียบสองโปรแกรม ตรงกันหมด
+      ที่ N = {fmt(NMAX)} การบีบพิกัดไปต่อไม่ไหว เพราะแต่ละแกนอาจมีพิกัดต่างกันถึง N ค่า
+      ลองเทียบจำนวนงานของสามทางกับงบเวลา
+    </p>
+    <ZoomableDiagram caption={`จำนวนงานเมื่อ N = ${fmt(NMAX)} และพิกัดถึง ${fmt(COORD_MAX)} สเกลแบบ log (ขีดละร้อยเท่า) เส้นทองคืองบ ${TIME_LIMIT} วินาที โดยคิดหยาบ ๆ ว่าเครื่องทำงานง่าย ๆ ได้ราว 10⁸ ก้าวต่อวินาที แท่งตารางนับช่อง แท่งเดินรอบผืนนับ ${FACE_STEPS_PER_WALL} ก้าวต่อกำแพง ตามที่นับในตอนที่ 4`}>
+      <svg viewBox={`0 0 704 ${CH_BOTTOM + 34}`} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:880px" role="img" aria-label="กราฟแท่งแนวนอนเทียบจำนวนงานของตารางพิกัดดิบ ตารางบีบพิกัด และการเดินรอบผืน กับเส้นงบเวลา มีแค่การเดินรอบผืนที่อยู่ใต้งบ">
+        {CH_TICKS.map((t) => (
+          <line x1={chX(10 ** t)} y1="30" x2={chX(10 ** t)} y2={CH_BOTTOM - 14} stroke="#26314a" stroke-width="1" />
+        ))}
+        {CH_TICKS.map((t) => (
+          <text x={chX(10 ** t)} y="22" text-anchor="middle" fill="#7b8397" font-size="13">10<tspan baseline-shift="super" font-size="9">{t}</tspan></text>
+        ))}
+        {CH_BARS.map((b) => (
+          <text x="12" y={b.y + 16} fill="#cdd6ea" font-size="14">{b.name}</text>
+        ))}
+        {CH_BARS.map((b) => (
+          <rect x={CH_X0} y={b.y} width={chX(b.v) - CH_X0} height="22" rx="3" fill={b.ok ? '#6ee7a8' : '#e07a7a'} fill-opacity="0.85" />
+        ))}
+        {CH_BARS.map((b) => (
+          <text x={chX(b.v) + 8} y={b.y + 16} fill={b.ok ? '#6ee7a8' : '#e07a7a'} font-size="13">{b.s.m}×10<tspan baseline-shift="super" font-size="9">{b.s.e}</tspan>{b.ok ? ' ทัน' : ` เกินงบ ${fmt(b.over)} เท่า`}</text>
+        ))}
+        <line x1={chX(BUDGET)} y1="30" x2={chX(BUDGET)} y2={CH_BOTTOM - 8} stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <text x={chX(BUDGET)} y={CH_BOTTOM + 6} text-anchor="middle" fill="#d4af37" font-size="13">งบ {TIME_LIMIT} วินาที</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      หน่วยความจำแย่กว่าเวลาอีก ตารางบีบพิกัดที่ N = {fmt(NMAX)} มีราว 10¹⁰ ช่อง
+      ช่องละ {BYTES_PER_CELL} ไบต์ก็ราว {fmt(SQ_GB)} กิกะไบต์ ขณะที่ลิมิตคือ {MEM_LIMIT_MB} เมกะไบต์
+    </p>
+    <p>
+      งานต้องโตตามจำนวนกำแพงแทนจำนวนช่อง ตอนถัดไปจึงทิ้งช่องไปเลย แล้วหาผืนจากกำแพงตรง ๆ
     </p>
   </Spoiler>
 
-  <h2>เวอร์ชันเต็ม: เปลี่ยนจากช่องเป็นพื้นที่จริง</h2>
+  <h2>เฉลย ตอนที่ 4 · เดินรอบผืนของผังจริง</h2>
   <Spoiler>
-    <div class="callout callout-note">
-      <p class="callout-label">ปัญหาที่โผล่มาตอนออกแบบเวอร์ชันนี้</p>
+    <p>
+      ตอนที่ 1 ใช้ช่องแค่เพื่อรู้ว่ากำแพงแต่ละเส้นคั่นผืนไหนกับผืนไหน และผืนไหนติดทะเล
+      ข้อมูลชุดนี้หาจากกำแพงตรง ๆ ได้
+    </p>
+    <p>
+      ผังที่เส้นไม่ตัดกันแบบนี้คือ<b>กราฟระนาบ</b> (planar graph อ่านว่า แพลนนาร์ กราฟ คือกราฟที่วาดบนกระดาษได้โดยไม่มีเส้นไหนตัดกัน)
+      ผืนที่เส้นล้อมไว้เรียกว่า<b>หน้า</b> (face)
+    </p>
+    <p>
+      ผังที่กำแพงต่อกันเป็นก้อนเดียวอย่างตัวอย่างนี้ หน้าตรงกับผืน {faceNames.join(', ')} พอดี
+      ผังที่มีหลายก้อนต่างออกไปนิดหนึ่ง ซึ่งเป็นเรื่องของตอนที่ 5
+    </p>
+    <p>
+      เครื่องมือที่ใช้หาหน้าคือ<b>ครึ่งเส้น</b> (half-edge) มองกำแพงหนึ่งเส้นเป็นลูกศรสองอันวิ่งสวนกัน อันละฝั่ง
+      ลูกศรแต่ละอันเป็นของหน้าที่อยู่ทางซ้ายมือของมัน
+    </p>
+    <ZoomableDiagram caption="ห้องสี่เหลี่ยมที่มีกำแพงยื่นเข้าไปข้างในหนึ่งเส้น เส้นประเขียวคือการเดินรอบด้านในของห้อง เส้นประทองคือการเดินรอบขอบนอก ทั้งสองแบบให้หน้าที่เดินอยู่ทางซ้ายมือเสมอ">
+      <svg viewBox="8 0 372 330" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:465px" role="img" aria-label="ห้องสี่เหลี่ยมมีกำแพงยื่นจากผนังขวาเข้าไปกลางห้อง เส้นประสีเขียวเดินทวนเข็มรอบด้านในและอ้อมกำแพงที่ยื่นเข้ามาทั้งสองฝั่ง เส้นประสีทองเดินตามเข็มรอบด้านนอก มีหัวลูกศรบอกทิศ">
+        <polyline points="52,258 268,258 268,162 148,162 148,138 268,138 268,42 52,42 52,258" fill="none" stroke="#6ee7a8" stroke-width="2" stroke-dasharray="6 4" />
+        <polyline points="294,284 26,284 26,16 294,16 294,284" fill="none" stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <line x1="40" y1="270" x2="280" y2="270" stroke="#cdd6ea" stroke-width="5" stroke-linecap="round" />
+        <line x1="280" y1="270" x2="280" y2="30" stroke="#cdd6ea" stroke-width="5" stroke-linecap="round" />
+        <line x1="280" y1="30" x2="40" y2="30" stroke="#cdd6ea" stroke-width="5" stroke-linecap="round" />
+        <line x1="40" y1="30" x2="40" y2="270" stroke="#cdd6ea" stroke-width="5" stroke-linecap="round" />
+        <line x1="280" y1="150" x2="160" y2="150" stroke="#cdd6ea" stroke-width="5" stroke-linecap="round" />
+        <polygon points="154,252 166,258 154,264" fill="#6ee7a8" />
+        <polygon points="46,144 52,156 58,144" fill="#6ee7a8" />
+        <polygon points="211,156 199,162 211,168" fill="#6ee7a8" />
+        <polygon points="199,132 211,138 199,144" fill="#6ee7a8" />
+        <polygon points="166,278 154,284 166,290" fill="#d4af37" />
+        <polygon points="20,156 26,144 32,156" fill="#d4af37" />
+        <polygon points="154,10 166,16 154,22" fill="#d4af37" />
+        <text x="100" y="96" fill="#6ee7a8" font-size="13" text-anchor="middle">ด้านในห้อง</text>
+        <text x="100" y="114" fill="#6ee7a8" font-size="13" text-anchor="middle">เดินทวนเข็ม</text>
+        <text x="208" y="200" fill="#9aa7bd" font-size="12" text-anchor="middle">เดินผ่านสองฝั่ง</text>
+        <text x="306" y="140" fill="#d4af37" font-size="13">ขอบนอก</text>
+        <text x="306" y="158" fill="#d4af37" font-size="13">เดินตามเข็ม</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>ทิศในบทนี้ใช้แบบเดียวกับโจทย์ คือ x เพิ่มไปทางขวา (ตะวันออก) และ y เพิ่มขึ้นข้างบน (เหนือ) การเดินรอบหน้าหนึ่งหน้าทำแบบนี้</p>
+    <ol>
+      <li>เริ่มที่ครึ่งเส้นที่ยังไม่มีเจ้าของ แล้วเดินไปตามมันจนถึงจุดปลาย</li>
+      <li>ที่จุดปลาย ลองเลี้ยวซ้ายก่อน ถ้ามีกำแพงทางนั้นก็ไปทางนั้น</li>
+      <li>ไม่มี ก็ลองไปตรง ไม่มีอีก ก็ลองเลี้ยวขวา</li>
+      <li>ไม่มีสักทาง (ปลายตัน) ก็ย้อนกลับตามกำแพงเดิมอีกฝั่ง</li>
+    </ol>
+    <p>
+      ทำซ้ำจนวนกลับถึงครึ่งเส้นแรก ทุกอันที่ผ่านเป็นของหน้าเดียวกัน
+      แต่ละจุดมีทางออกได้ไม่เกินสี่ทิศ และครึ่งเส้นทั้ง 2W อันถูกเดินผ่านอันละครั้ง
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เดินรอบด้านในของห้อง {walkFace} ในตัวอย่าง</caption>
+        <thead>
+          <tr><th class="num">ก้าว</th><th class="num">จุด</th><th>หันไปทาง</th><th>ที่จุดปลาย</th><th class="num">x<sub>u</sub>·y<sub>v</sub> − x<sub>v</sub>·y<sub>u</sub></th></tr>
+        </thead>
+        <tbody>
+          {walkShow.steps.map((st, i) => (
+            <tr>
+              <td class="num">{i + 1}</td>
+              <td class="num">{st.u} ไป {st.v}</td>
+              <td>{st.head}</td>
+              <td>{st.turn}</td>
+              <td class="num">{st.a} − {st.b} = {String(st.term).replace('-', '−')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ก้าวสุดท้ายพากลับถึงครึ่งเส้นแรก ผลรวมคอลัมน์ขวาคือ {walkShow.area2} เป็นบวก เท่ากับสองเท่าของพื้นที่ห้อง {walkFace} ({walkShow.area2 / 2} ช่อง ตรวจตอนบิลด์)
+      </figcaption>
+    </figure>
+    <div class="callout callout-tip">
+      <p class="callout-label">ห้องกับขอบนอก ต่างกันที่ทิศของการเดิน</p>
       <p>
-        ตอนแรกผมคิดว่าเวอร์ชันเต็มคือแค่เปลี่ยนคำว่าช่องเป็นคำว่าหน้า แล้วจบ
-        จนกระทั่งเจอว่าผังไม่จำเป็นต้องเป็นก้อนเดียว มันแตกเป็นหลายก้อนได้ และก้อนหนึ่ง
-        อาจอยู่<strong>ข้างในพื้นที่ปิดของอีกก้อน</strong>ได้ด้วย ถ้าเหมารวมว่าขอบนอกของทุกก้อนคือทะเล
-        คำตอบของผังซ้อนผังจะผิดทันที เพราะน้ำจากทะเลไปไม่ถึงก้อนข้างในจริง ๆ
+        คอลัมน์ขวาของตารางคือ<b>สูตรเชือกผูกรองเท้า</b> (shoelace formula สูตรหาพื้นที่จากพิกัดจุดยอดที่ไล่ตามรอบ)
+        ผลรวมของมันคือสองเท่าของพื้นที่ที่วงล้อม เป็นบวกเมื่อเดินทวนเข็ม และติดลบเมื่อเดินตามเข็ม เพราะห้องอยู่ซ้ายมือเสมอ ด้านในห้องเลยถูกเดินทวนเข็ม ส่วนขอบนอกมีตัวก้อนอยู่ขวามือ ถูกเดินตามเข็ม
       </p>
       <p>
-        ทางแก้คือยิงรังสีลงล่างจากจุดต่ำสุดของขอบนอกแต่ละก้อน แล้วเอาก้อนนั้นไปรวมกับพื้นที่ที่อยู่<strong>เหนือกำแพงแนวนอนเส้นที่รังสีชนก่อน</strong>
-        ถ้าไม่ชนอะไรเลยก็แปลว่าก้อนนั้นติดทะเลจริง
+        ห้องสี่เหลี่ยม {sqSide} × {sqSide} ของชุดที่ 1 เดินด้านในได้ {sqRoom.area2} = 2 × {sqSide * sqSide}
+        ขอบนอกของห้องเดียวกันคือวงเดิมที่เดินกลับทิศ ได้ {String(sqOuter.area2).replace('-', '−')}
+        กำแพงเส้นเดียวที่ไม่ล้อมอะไรถูกเดินไปแล้วกลับ สองพจน์หักล้างกันเหลือ 0
       </p>
       <p>
-        ตอนตรวจ ผมสุ่มผังบนแลตทิซ 3,000 ชุด โดยใช้เส้นยาวหนึ่งหน่วยซึ่งไม่มีทางตัดกันเอง
-        และสร้างผังซ้อนผังขึ้นมาได้เองตามธรรมชาติ แล้วเทียบเวอร์ชันหน้ากับเวอร์ชันตาราง ตรงกันหมด
-        ตรงนี้สำคัญตรงที่<strong>ตัวเทียบเป็นคนละโมเดลกันจริง ๆ</strong> ตัวหนึ่งท่วมบนตาราง อีกตัวท่วมบนหน้าของกราฟ
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาสุ่มเคสมาเทียบ ให้ออกแบบตัวสุ่มให้<strong>ผลิตโครงสร้างที่เรากลัวที่สุดออกมาได้เอง</strong>
-        ไม่งั้นสุ่มเป็นหมื่นชุดก็ไม่เคยเจอผังซ้อนผังสักชุด
+        ผลรวมเป็นบวกแปลว่าห้อง ศูนย์หรือติดลบแปลว่าขอบนอกของก้อน (ขอบนอกของตัวอย่างได้ {String(exOuterArea2).replace('-', '−')})
+        พิกัดถึงล้าน แต่ละพจน์ถึงราว 10¹² เกินขอบของ int ซึ่งอยู่ราว 2.1 × 10⁹ โค้ดเลยเก็บผลรวมเป็น long long (จำนวนเต็ม 64 บิต)
       </p>
     </div>
     <p>
-      พิกัดเป็นล้านจึงแบ่งช่องไม่ได้ ต้องหา<strong>พื้นที่</strong>ของผังจริง ๆ ซึ่งทำได้เพราะกำแพงไม่ตัดกัน
-      ผังนี้จึงเป็นกราฟระนาบ วิธีมาตรฐานคือแตกกำแพงแต่ละเส้นเป็น<strong>ครึ่งเส้นสองอัน</strong>
-      แล้วเดินไปตามครึ่งเส้นโดยให้<strong>พื้นที่อยู่ทางซ้ายมือเสมอ</strong> พอเดินวนกลับที่เดิมก็ได้ขอบของพื้นที่หนึ่งผืน
+      พอรู้หน้าของครึ่งเส้นทุกอัน ก็สร้าง<b>กราฟคู่</b> (dual graph) ได้
+      คือให้หน้าเป็นปม และกำแพงแต่ละเส้นเป็นเส้นเชื่อมสองหน้าที่มันคั่น
     </p>
     <p>
-      เพราะกำแพงขนานแกน แต่ละจุดมีเพื่อนบ้านได้แค่สี่ทิศ การหาว่า "ครึ่งเส้นถัดไปคืออันไหน"
-      จึงเป็นแค่การกวาดทิศทวนเข็มจากทิศที่ย้อนกลับ
+      BFS จากทะเลบนกราฟนี้ให้ชั่วโมงของทุกหน้า เส้นเชื่อมทุกเส้นมีค่าข้าม 1 คิวธรรมดาก็พอ
+      ผังก้อนเดียวอย่างตัวอย่างได้ชั่วโมงตรงกับตอนที่ 1 ทุกผืน
+    </p>
+    <ZoomableDiagram caption={`กราฟคู่ของตัวอย่าง ปมคือผืน วางเป็นคอลัมน์ตามชั่วโมงที่น้ำถึง เลขบนเส้นคือหมายเลขกำแพง เส้นแดงพัง เส้นเขียวรอด ห่วงบน ${L(sameG.fa)} คือกำแพงที่มี ${L(sameG.fa)} ทั้งสองฝั่ง`}>
+      <svg viewBox={`20 0 ${Math.ceil(dgRight + 12) - 20} ${Math.ceil(dgBottom + 34)}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round((dgRight - 8) * 1.25)}px`} role="img" aria-label={`กราฟคู่ของตัวอย่าง มีปม ${faceNames.join(' ')} วางเรียงตามชั่วโมงที่น้ำถึง เส้นเชื่อมระหว่างปมแทนกำแพงพร้อมหมายเลข เส้นที่คั่นปมชั่วโมงเท่ากันเป็นสีเขียว นอกนั้นเป็นสีแดง`}>
+        <g transform={`translate(0 ${dgShift})`}>
+          {dgHourLabels.map((c) => (
+            <text x={c.x} y={dgTop + 12} fill="#7b8397" font-size="12" text-anchor="middle">ชั่วโมง {c.h}</text>
+          ))}
+          {dgEdges.map((e) => (
+            <path d={e.d} fill="none" stroke={e.colour} stroke-width="3" />
+          ))}
+          {dgEdges.map((e) => (
+            <text x={e.lx} y={e.ly} fill={e.colour} font-size="12" font-family="monospace" text-anchor={e.anchor}>{e.text}</text>
+          ))}
+          {dgNodes.map((n) => (
+            <circle cx={n.x} cy={n.y} r={DG_R} fill="#12233a" stroke="#7dd3fc" stroke-width="2" />
+          ))}
+          {dgNodes.map((n) => (
+            <text x={n.x} y={n.y + 6} fill="#e6ecf7" font-size="17" text-anchor="middle">{n.name}</text>
+          ))}
+        </g>
+      </svg>
+    </ZoomableDiagram>
+    <p>ผังที่มีหลายก้อนยังเหลือเรื่องเดียวต้องเคลียร์ คือก้อนที่ลอยอยู่ในห้องของอีกก้อน</p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 5 · ก้อนกำแพงที่ลอยอยู่ในห้อง</h2>
+  <Spoiler>
+    <ul>
+      <li><b>ก้อน</b> คือกลุ่มกำแพงที่ต่อถึงกันทางปลาย</li>
+      <li><b>ขอบนอกของก้อน</b> คือรอบที่เดินแล้วได้ผลรวมไม่เกินศูนย์ (ตอนที่ 4) ก้อนหนึ่งมีขอบนอกหนึ่งรอบ</li>
+      <li>ถ้าก้อนหนึ่งลอยอยู่ข้างในห้องของอีกก้อน เรียกห้องนั้นว่า<b>ห้องที่ห่อ</b></li>
+    </ul>
+    <ZoomableDiagram caption={`ก้อนนอกคือกำแพง 1 ถึง ${NEST_INNER_FROM} ก้อนในคือกำแพง ${NEST_INNER_FROM + 1} ถึง ${NEST_WALLS.length} ลอยอยู่ในห้อง ${L(nestRoom)} ซึ่งเป็นห้องที่ห่อ ผืน ${nestInnerRooms.join(' กับ ')} คือห้องของก้อนใน`}>
+      <svg
+        viewBox={`0 0 ${nestMap.geo.vbW} ${nestMap.geo.vbH + 22}`}
+        xmlns="http://www.w3.org/2000/svg"
+        style={`display:block;margin:0 auto;max-width:${Math.round(nestMap.geo.vbW * 1.25)}px`}
+        role="img"
+        aria-label={`ผังที่มีห้องใหญ่หนึ่งห้อง ข้างในมีก้อนกำแพงรูปโดมิโนสองห้องลอยอยู่ ไม่แตะผนังห้องใหญ่ กำแพงทุกเส้นมีหมายเลข ผืน ${nestFaceNames.join(' ')} ระบายคนละสี`}
+      >
+        {nestMap.cells.map((c) => (
+          <rect x={c.x} y={c.y} width={U} height={U} fill={c.fill} />
+        ))}
+        {nestMap.labels.map((l) => (
+          <text x={l.x} y={l.y} fill="#cdd6ea" font-size="16" font-weight="700" text-anchor="middle">{l.name}</text>
+        ))}
+        {nestMap.geo.walls.map((w) => (
+          <line x1={w.x1} y1={w.y1} x2={w.x2} y2={w.y2} stroke="#cdd6ea" stroke-width="4" stroke-linecap="round" />
+        ))}
+        {nestMap.geo.walls.map((w) => (
+          <circle cx={w.mx} cy={w.my} r="10" fill="#0b1220" stroke="#cdd6ea" stroke-width="1.5" />
+        ))}
+        {nestMap.geo.walls.map((w) => (
+          <text x={w.mx} y={w.my + 4} fill="#e6ecf7" font-size="11" text-anchor="middle" font-family="monospace">{w.id}</text>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      เดินรอบขอบนอกของก้อนใน ได้ผลรวมติดลบ โค้ดเลยมองว่ามันเป็นขอบนอก
+      แต่พื้นที่ฝั่งนอกของรอบนั้นจริง ๆ คือห้อง {L(nestRoom)} คำถามคือ ถ้ายุบมันเข้ากับทะเลไปเลย คำตอบจะเพี้ยนไหม
     </p>
     <div class="callout callout-warn">
-      <p class="callout-label">ระวัง</p>
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
       <p>
-        ผังอาจแตกเป็นหลายก้อนที่ไม่ต่อกัน และก้อนหนึ่งอาจอยู่<strong>ข้างในพื้นที่ปิดของอีกก้อน</strong>
-        ถ้าเหมารวมว่าขอบนอกของทุกก้อนคือทะเล คำตอบจะผิดสำหรับผังซ้อนผัง
+        หน้านี้รุ่นแรกหาห้องที่ห่อด้วยการยิงรังสีลงล่างจากขอบนอกของแต่ละก้อน และใช้เซกเมนต์ทรีหากำแพงแนวนอนเส้นแรกที่ชน
+        รุ่นนั้นเขียนไว้ว่าถ้าข้ามขั้นนี้ คำตอบจะผิด
       </p>
       <p>
-        วิธีแก้ที่ผมใช้คือ ยิงรังสีลงล่างจากจุดต่ำสุดของขอบนอกแต่ละก้อน แล้วดูว่าไปโดนกำแพงแนวนอนเส้นไหนก่อน
-        พื้นที่ที่อยู่<strong>เหนือ</strong>กำแพงเส้นนั้นคือพื้นที่ที่ห่อก้อนนี้ไว้ แล้วรวมสองอันเข้าด้วยกัน
-        ถ้ายิงแล้วไม่โดนอะไรเลย ก็แปลว่าก้อนนี้อยู่ติดทะเลจริง
+        ตอนเขียนบทนี้ใหม่ ผมวัดหน่วยความจำของรุ่นนั้นได้ {OLD_MB} เมกะไบต์ เกินลิมิต {MEM_LIMIT_MB} เมกะไบต์
+        เลยลองตัดขั้นยิงรังสีทิ้งแล้วเทียบกับตัวปล่อยน้ำจริง ผลตรงกัน เหตุผลอยู่ในรายการข้างล่าง
       </p>
     </div>
+    <ol>
+      <li>
+        ขอบนอกของก้อนในล้อมก้อนในไว้ทั้งก้อน และกำแพงไม่ตัดกัน น้ำจากทะเลจะไปถึงผืนใดของก้อนใน
+        ต้องผ่านห้องที่ห่อก่อน แล้วเข้าทางขอบนอกของก้อนในเท่านั้น
+      </li>
+      <li>
+        ชั่วโมงจริงของผืนในก้อนในเท่ากับชั่วโมงของห้องที่ห่อ บวกชั่วโมงที่ได้ถ้าคิดก้อนในแยก
+        โดยให้รอบนอกของมันเป็นทะเล
+      </li>
+      <li>กำแพงของก้อนในคั่นแค่ผืนของก้อนในด้วยกัน (รวมรอบนอกของมัน) บวกเลขเดียวกันทั้งสองฝั่ง ผลต่างเท่าเดิม</li>
+      <li>กำแพงของก้อนนอกอยู่นอกก้อนใน ชั่วโมงของห้องที่ห่อไม่เปลี่ยนเพราะมีก้อนใน</li>
+    </ol>
+    <p>
+      การยุบขอบนอกทุกก้อนเข้ากับทะเลแค่เลื่อนชั่วโมงในแต่ละก้อนลงเท่ากันทั้งก้อน ผลรอดหรือพังของทุกเส้นเท่าเดิม
+      ตารางข้างล่างคือผังในรูป
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ก้อนใน · ชั่วโมงสองฝั่งของกำแพง</caption>
+        <thead>
+          <tr><th class="num">กำแพง</th><th class="num">ผังจริง</th><th class="num">คิดก้อนในแยก</th><th>ผล</th></tr>
+        </thead>
+        <tbody>
+          {nestRows.map((r) => (
+            <tr>
+              <td class="num">{r.id}</td>
+              <td class="num">{r.real.join(' กับ ')}</td>
+              <td class="num">{r.alone.join(' กับ ')}</td>
+              <td>{r.alive ? 'รอด' : 'พัง'} ทั้งสองแบบ</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ชั่วโมงในผังจริงมากกว่าตอนคิดแยก {nestShift} ทุกช่อง เท่ากับชั่วโมงของห้อง {L(nestRoom)}
+        กำแพง {ids(nestSurvivors)} รอดทั้งสองแบบ และกำแพงของก้อนนอกได้ชั่วโมงเท่าเดิมไม่ว่าจะมีก้อนในหรือไม่ (ตรวจตอนบิลด์)
+      </figcaption>
+    </figure>
+    <p>
+      เหตุผลข้างบนคือสิ่งที่หักล้างคำเตือนของรุ่นแรก ส่วนการเทียบ {fmt(STRESS_ROUNDS)} ผังในตอนที่ 6 เป็นหลักฐานเสริม
+      โค้ดเต็มเลยเหลือแค่นี้ หน้าไหนผลรวมไม่เกินศูนย์ ยุบรวมเป็นปมเดียวคือทะเล
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>หน่วยความจำบนผังตาราง {fmt(LAT_N)} จุด</caption>
+        <thead>
+          <tr><th>โค้ด</th><th class="num">เมกะไบต์</th></tr>
+        </thead>
+        <tbody>
+          {memRows.map((r) => (
+            <tr><td>{r.name}</td><td class="num">{r.mb}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        เซกเมนต์ทรีของรุ่นแรกจอง 4 × (x สูงสุด + 2) ช่อง ช่องละ 4 ไบต์ x สูงสุดของผังนี้คือ {fmt(LAT_MAXX)} ต้นไม้อย่างเดียวจึงกิน {OLD_TREE_MB} เมกะไบต์
+        เปิดตามลำดับที่ของ x ({LAT_DISTINCT_X} ค่า) เหลือ {RANK_TREE_KB} กิโลไบต์ ตัวเลขรวมลดลง {TREE_DROP_MB} เมกะไบต์ ใกล้กับขนาดต้นไม้ที่หายไป
+        ส่วนที่ลดลงอีกมาจากการตัดขั้นยิงรังสีกับตัวรวมกลุ่มทิ้ง และการเก็บกราฟคู่เป็นอาร์เรย์ต่อกัน
+      </figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 6 · โค้ดเต็มและการตรวจ</h2>
+  <Spoiler>
+    <p>รวมตอนที่ 4 กับ 5 เข้าด้วยกัน ได้โค้ดข้างล่าง</p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="flood.cpp" />
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม ผังตารางแลตทิซที่มีจุดราวห้าหมื่นจุดและกำแพงเกือบแสนเส้น ใช้เวลา
-      <strong>170 มิลลิวินาที</strong> จากลิมิตสองวินาที
-    </p>
-    <p>
-      ถ้ายังไม่คุ้นกับการมองปัญหาให้กลายเป็นกราฟที่โจทย์ไม่ได้ให้มา ลองอ่าน
-      <a href="/cp/state-graph-bfs/">กราฟที่โจทย์ไม่ได้ให้มา</a> ซึ่งมีหัวข้อ BFS แบบสองแถวที่ข้อนี้ใช้ด้วย
-    </p>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แผนที่ของโค้ดเต็ม</caption>
+        <thead>
+          <tr><th>ส่วนในโค้ด</th><th>อธิบายอยู่ที่</th></tr>
+        </thead>
+        <tbody>
+          {codeMap.map((r) => (
+            <tr><td>{r.code}</td><td>{r.part}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </figure>
+    <details class="expander">
+      <summary>ตัวตรวจ: ปล่อยน้ำตามโจทย์ทีละชั่วโมงจริง ๆ</summary>
+      <div class="expander-body">
+        <p>
+          ตัวตรวจนี้ไม่ใช้กฎชั่วโมงเท่ากันเลย มันทำตามโจทย์ตรง ๆ บนตาราง น้ำไหล หากำแพงที่มีน้ำข้างเดียว ล้มทั้งหมดพร้อมกัน แล้วทำซ้ำ
+          ใช้ได้กับพิกัดเล็กเท่านั้น
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute_flood.cpp" />
+      </div>
+    </details>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>ตอนบิลด์ หน้านี้เทียบกฎชั่วโมงเท่ากันกับการปล่อยน้ำจริงบนตัวอย่าง ทั้งสามชุดของเกม และผังก้อนลอยในตอนที่ 5</li>
+        <li>
+          สุ่มผังบนจุดตารางไม่เกิน 8 × 8 จุด {fmt(STRESS_ROUNDS)} ผัง ({fmt(STRESS_NESTED)} ผังมีก้อนลอยในห้อง)
+          เทียบโค้ดตอนที่ 3 และโค้ดเต็มกับตัวตรวจ แล้วยืดพิกัดของผังเดียวกันไปถึงหลักล้านเทียบอีกรอบ ตรงทุกผัง
+        </li>
+        <li>บนผังตาราง {fmt(LAT_N)} จุด โค้ดเต็มตอบตรงกับโค้ดตอนที่ 3</li>
+      </ul>
+      <p>ทั้งหมดนี้คือการตรวจ ไม่ใช่การพิสูจน์ การสุ่มครอบคลุมแค่ผังเล็ก เหตุผลในตอนที่ 1 และ 5 คือส่วนที่ครอบคลุมผังทุกขนาด</p>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เวลาและหน่วยความจำของโค้ดเต็ม</caption>
+        <thead>
+          <tr><th>ผัง</th><th class="num">จุด</th><th class="num">กำแพง</th><th class="num">วินาที</th><th class="num">เมกะไบต์</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ตาราง {LAT_DISTINCT_X} × {LAT_DISTINCT_X} จุด</td><td class="num">{fmt(LAT_N)}</td><td class="num">{fmt(LAT_W)}</td><td class="num">{LAT_SEC}</td><td class="num">{LAT_MB}</td></tr>
+          <tr><td>ห้องซ้อนกัน {fmt(RING_LAYERS)} ชั้น</td><td class="num">{fmt(RING_N)}</td><td class="num">{fmt(RING_N)}</td><td class="num">{RING_SEC}</td><td class="num">{RING_MB}</td></tr>
+        </tbody>
+      </table>
+      <figcaption>วัดบนเครื่องผม (WSL, g++ -O2) ด้วยโค้ดที่ดึงออกมาจากหน้านี้ แต่ละผังรันสามรอบ ลิมิตคือ {TIME_LIMIT} วินาทีและ {MEM_LIMIT_MB} เมกะไบต์</figcaption>
+    </figure>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
-    <p>
-      ข้อนี้ยืนอยู่บนสองท่า ท่าแรกคือเรามองกำแพงกับพื้นที่เป็นรูปทรงบนระนาบ แล้วถามคำถามเรื่องรูปทรงเหล่านั้น
-      ซึ่งเรียกรวม ๆ ว่า<strong>เรขาคณิตเชิงคำนวณ</strong> (computational geometry) ท่าที่สองคือการไล่ระบายพื้นที่ที่ติดกัน
-      ให้เป็นก้อนเดียว ซึ่งทำด้วย<strong>การไล่ลึก</strong> (DFS) หรือ<strong>การไล่กว้าง</strong> (BFS) ก็ได้ผลเหมือนกัน
-      เพราะเราสนใจแค่ว่าช่องไหนติดกัน ไม่ได้สนใจระยะทาง
-    </p>
-    <div class="callout callout-note">
-      <p class="callout-label">ทบทวนพื้นฐาน · เรขาคณิตเชิงคำนวณ</p>
+  <h2>ทดสอบตัวเอง</h2>
+  <details class="expander">
+    <summary>กำแพงที่มีผืนเดียวกันทั้งสองฝั่ง (เช่นกำแพง {sameG.walls[0]} ในตัวอย่าง) มีโอกาสพังไหม</summary>
+    <div class="expander-body">
+      <p>ไม่มี ผืนเดียวกันเปียกพร้อมกันทั้งผืน ไม่มีจังหวะที่ฝั่งหนึ่งเปียกอีกฝั่งแห้ง</p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ถ้าเลื่อนทุกจุดของตัวอย่างไปทางขวาอีก 1,000 หน่วย คำตอบเปลี่ยนไหม แล้วตารางของตอนที่ 2 จะใหญ่แค่ไหน</summary>
+    <div class="expander-body">
       <p>
-        ที่โจทย์เรขาคณิตน่ากลัวกว่าที่ควร เพราะคนมักรีบกระโดดไปคิดเป็นพิกัดทศนิยม แล้วไปเจอปัญหาความคลาดเคลื่อน
-        ท่าที่ปลอดภัยกว่าคือถามก่อนว่า<strong>คำตอบขึ้นกับพิกัดจริง หรือขึ้นกับความสัมพันธ์เท่านั้น</strong>
-        ข้อนี้เป็นแบบหลัง เราไม่ต้องรู้ว่าน้ำสูงเท่าไรเป็นเลขทศนิยม รู้แค่ว่ากำแพงเส้นไหนเปียกก่อนเส้นไหนก็พอ
-        พอถามแบบนั้นได้ ปัญหาเรขาคณิตก็ยุบเป็นปัญหากราฟที่คิดด้วยจำนวนเต็มได้หมด
-      </p>
-      <p>
-        อีกท่าที่ใช้ซ้ำได้คือ<strong>เปลี่ยนพื้นที่ต่อเนื่องให้เป็นช่องกริด</strong> ก่อนจะกลับไปทำเวอร์ชันเต็ม
-        ซึ่งเป็นสิ่งที่หัวข้อ "อีกมุมหนึ่ง" ข้างบนทำ กริดตอบผิดในรายละเอียด แต่มันถูกในเรื่องโครงสร้าง
-        จึงใช้เป็นตัวตรวจคำตอบของเวอร์ชันเต็มได้
-      </p>
-      <p>
-        ส่วนการไล่ลึกกับการไล่กว้าง มี<a href="/cp/state-graph-bfs/">บทปูพื้นเรื่อง BFS บนกราฟสถานะ</a>
-        และ<a href="/cp/mobiles/">คำอธิบายเรื่องการไล่ลึก</a>อยู่ในคลังนี้แล้ว
+        คำตอบเท่าเดิม เพราะลำดับของจุดเหมือนเดิม โค้ดตอนที่ 2 ใช้ตารางจัตุรัสตามพิกัดที่มากที่สุดของทั้งสองแกน
+        เลยโตเป็น {fmt(quizShiftG)} × {fmt(quizShiftG)} ช่อง ถ้าทำตารางผืนผ้าจะเหลือ {fmt(quizShiftG)} × {quizShiftH}
+        ส่วนตอนที่ 3 บีบกลับมาเหลือ {sqG} × {sqG} เท่าเดิม
       </p>
     </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมโค้ดเต็มใช้คิวธรรมดา แต่ตอนที่ 2 ต้องใช้คิวสองหัว</summary>
+    <div class="expander-body">
+      <p>
+        บนกราฟคู่ เส้นเชื่อมทุกเส้นคือการข้ามกำแพงหนึ่งเส้น ค่าข้าม 1 เท่ากันหมด BFS ธรรมดาก็ได้ระยะถูก
+        บนตาราง การเดินในผืนเดียวกันมีค่าข้าม 0 ปนกับการข้ามกำแพงที่มีค่าข้าม 1 ช่องค่าข้าม 0 ต้องแซงคิว
+      </p>
+    </div>
+  </details>
 
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
-      </thead>
-      <tbody>
-        {fwBill.map((r) => (
-          <tr>
-            <td>{r.name}</td>
-            <td>{r.limit}</td>
-            <td class="num">{r.work}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>หน่วยของสองแถวนี้ไม่ใช่หน่วยเดียวกันโดยธรรมชาติ แถวบนนับช่องของตาราง แถวล่างนับกำแพง ซึ่งเป็นประเด็นทั้งหมดของการเปลี่ยนทาง ตารางโตตามพิกัดยกกำลังสอง ที่พิกัดหนึ่งล้านมันจะเป็นหนึ่งล้านล้านช่อง ซึ่งจองหน่วยความจำไม่ได้ตั้งแต่แรก ส่วนจำนวนกำแพงไม่โตตามพิกัดเลย นั่นคือเหตุผลที่ต้องเลิกคิดเป็นช่อง</figcaption>
-  </figure>
-
-  <h2>สรุปบรรทัดเดียว</h2>
+  <h2>สรุปและท่าที่ติดมือกลับไป</h2>
   <p>
-    เวลาที่บอกว่าอะไรพังทีละชั้น มักแปลเป็นระยะทางบนกราฟได้ ที่นี่พื้นที่คือปม กำแพงคือเส้นราคาหนึ่ง
-    และคำถามว่ากำแพงไหนรอด ก็เหลือแค่การเทียบเลขสองตัวที่ BFS คำนวณให้แล้ว
+    บทนี้ไล่จากปล่อยน้ำจริง ไปตาราง บีบพิกัด แล้วเดินรอบผืน ทุกขั้นตอบคำถามเดียวกันว่าผืนไหนเปียกชั่วโมงเท่าไร
+    ต่างกันแค่ว่าแบ่งพื้นที่ละเอียดแค่ไหน
+  </p>
+  <p>
+    คำถามที่ยกไปใช้ข้ออื่นได้คือ <strong>คำตอบขึ้นกับพิกัดจริง หรือขึ้นกับแค่ลำดับและการแตะกัน</strong>
+    ถ้าเป็นอย่างหลัง จะบีบพิกัดหรือเปลี่ยนไปคิดบนกราฟก็ได้ โดยไม่ต้องยุ่งกับทศนิยมเลย
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -723,78 +1557,33 @@ const fwBill = [
 </CpProblemLayout>
 
 <style>
-  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
-  figure.tbl{
-    margin:1.2rem 0 0.4rem;
-    padding:0;
-    overflow-x:auto;
-    background:#0b1220;
-    border:1px solid var(--dl-border);
-    border-radius:10px;
-    box-shadow:0 4px 16px rgba(0,0,0,0.3);
-  }
-  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
-     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
-  figure.tbl figcaption{
-    width:0;
-    min-width:100%;
-    font-size:0.78rem;
-    color:var(--dl-muted);
-    line-height:1.6;
-    padding:0.6rem 0.85rem 0.75rem;
-    border-top:1px solid var(--dl-border);
-  }
-  table.rec{
-    width:100%;
-    border-collapse:separate;
-    border-spacing:0;
-    font-size:0.84rem;
-  }
-  figure.tbl table.rec{width:auto;}
-  table.rec caption{
-    caption-side:top;
-    text-align:left;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-weight:700;
-    letter-spacing:0.18em;
-    font-size:0.68rem;
-    color:var(--dl-gold);
-    background:#070c17;
-    padding:0.5rem 0.85rem;
-    border-bottom:1px solid var(--dl-border);
-    white-space:nowrap;
-  }
-  table.rec th, table.rec td{
-    padding:0.5rem 0.8rem;
-    text-align:left;
-    vertical-align:middle;
-    border-bottom:1px solid var(--dl-border);
-  }
-  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
-  table.rec tbody tr:last-child td{border-bottom:none;}
-  table.rec th{
-    background:#141b2b;
-    color:var(--dl-muted);
-    font-weight:600;
-    font-size:0.68rem;
-    letter-spacing:0.1em;
-    text-transform:uppercase;
-    white-space:nowrap;
-  }
-  table.rec td{color:var(--dl-ink);line-height:1.55;}
-  table.rec td strong{color:var(--dl-gold);}
-  table.rec td.num{
-    text-align:right;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-variant-numeric:tabular-nums;
-    white-space:nowrap;
-    color:#cdd6ea;
-  }
-  table.rec th.num{text-align:right;}
+  /* ---------- ผังบนตาราง ทั้งในเครื่องเดินและในมินิเกม ---------- */
+  svg.fwmap rect.fwc{fill:#131b2c;stroke:#1b2438;stroke-width:1;}
+  svg.fwmap rect.fwc.wet{fill:#174a73;}
+  svg.fwmap text.fwf{fill:#9aa7bd;font-size:15px;font-weight:700;text-anchor:middle;}
+  .fww line.vis{stroke:#cdd6ea;stroke-width:4;stroke-linecap:round;}
+  .fww circle{fill:#0b1220;stroke:#cdd6ea;stroke-width:1.5;}
+  .fww text{fill:#e6ecf7;font-size:11px;text-anchor:middle;font-family:monospace;}
+  circle.fwd{fill:#cdd6ea;}
+  svg.fwmap .fww.next line.vis{stroke:#e07a7a;stroke-width:6;}
+  svg.fwmap .fww.next circle{stroke:#e07a7a;}
+  svg.fwmap .fww.down{opacity:.55;}
+  svg.fwmap .fww.down line.vis{stroke:#5b6478;stroke-width:3;stroke-dasharray:6 5;}
+  svg.fwmap .fww.keep line.vis{stroke:#6ee7a8;stroke-width:6;}
+  svg.fwmap .fww.keep circle{stroke:#6ee7a8;}
 
-  .dim{color:#7b8397;}
+  svg.fwboard .fww{cursor:pointer;}
+  svg.fwboard .fww line.hit{stroke:transparent;stroke-width:18;}
+  svg.fwboard .fww.picked line.vis{stroke:var(--dl-emerald-bright);stroke-width:6;}
+  svg.fwboard .fww.picked circle{stroke:var(--dl-emerald-bright);}
+  svg.fwboard .fww.right circle{stroke:#2f9e5c;stroke-width:3;}
+  svg.fwboard .fww.wrong circle{stroke:#e07a7a;stroke-width:3;}
 
-  /* ---------- ปุ่มกำแพงของมินิเกมน้ำท่วม ---------- */
+  @media (max-width:640px){
+    svg.fwmap, svg.fwboard{min-width:420px;}
+  }
+
+  /* ---------- ปุ่มกำแพงของมินิเกม (สร้างด้วย JS จึงต้อง :global) ---------- */
   .cpg-controls :global(.fw-wall.picked){background:var(--dl-emerald-bright);border-color:var(--dl-emerald-bright);color:#0b1220;font-weight:700;}
   .cpg-controls :global(.fw-wall.right){outline:2px solid #2f9e5c;outline-offset:2px;}
   .cpg-controls :global(.fw-wall.wrong){outline:2px solid #8a3b3b;outline-offset:2px;}
@@ -804,8 +1593,10 @@ const fwBill = [
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
   import type { CpGameUi } from '../../lib/cpGame';
 
-  type FwWall = { id: number; a: number; b: number; alive: boolean };
+  type FwWall = { id: number; alive: boolean };
   type FwPuzzle = { id: string; label: string; tease: string; walls: FwWall[]; aliveCount: number };
+
+  const IDLE = 'กดเลือกกำแพงที่คิดว่าจะรอด (ที่เส้นในรูปหรือที่ปุ่ม) แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง';
 
   function initFloodGame(): void {
     const maybeUi = cpGameUi('[data-fwgame]');
@@ -822,6 +1613,7 @@ const fwBill = [
     const list: HTMLElement = listEl;
     const pickedOut: HTMLElement = pickedEl;
     const totalOut: HTMLElement = totalEl;
+    const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-fw-board]'));
 
     let pi = 0;
     let guess = new Set<number>();
@@ -830,26 +1622,34 @@ const fwBill = [
     const pz = (): FwPuzzle => puzzles[pi];
 
     function buildList(): void {
-      const p = pz();
       list.textContent = '';
-      for (const w of p.walls) {
+      for (const w of pz().walls) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'cpg-btn fw-wall';
         b.dataset.wall = String(w.id);
-        b.textContent = `กำแพง ${w.id} (${w.a} ถึง ${w.b})`;
+        b.textContent = `กำแพง ${w.id}`;
         list.appendChild(b);
       }
     }
 
+    /* ปุ่มในรายการกับเส้นบนกระดานที่กำลังเปิดอยู่ ถูกระบายจากสถานะชุดเดียวกัน */
+    function wallNodes(): Element[] {
+      const board = boards[pi];
+      return [
+        ...Array.from(list.querySelectorAll('[data-wall]')),
+        ...(board ? Array.from(board.querySelectorAll('[data-wall]')) : []),
+      ];
+    }
+
     function render(): void {
       const p = pz();
-      for (const b of Array.from(list.querySelectorAll<HTMLElement>('[data-wall]'))) {
-        const id = Number(b.dataset.wall);
+      for (const el of wallNodes()) {
+        const id = Number(el.getAttribute('data-wall'));
         const w = p.walls.find((x) => x.id === id);
-        b.classList.toggle('picked', guess.has(id));
-        b.classList.toggle('right', revealed && w !== undefined && guess.has(id) === w.alive);
-        b.classList.toggle('wrong', revealed && w !== undefined && guess.has(id) !== w.alive);
+        el.classList.toggle('picked', guess.has(id));
+        el.classList.toggle('right', revealed && w !== undefined && guess.has(id) === w.alive);
+        el.classList.toggle('wrong', revealed && w !== undefined && guess.has(id) !== w.alive);
       }
       pickedOut.textContent = String(guess.size);
       totalOut.textContent = String(p.walls.length);
@@ -865,7 +1665,7 @@ const fwBill = [
         ui.setStatus(`ถูกทั้ง ${p.walls.length} เส้นครับ กำแพงที่รอดมี ${p.aliveCount} เส้น`, 'good');
       } else {
         ui.setStatus(
-          `ถูก ${right} จาก ${p.walls.length} เส้น เส้นที่ทายพลาดถูกทำเป็นสีแดงไว้แล้ว ลองดูว่าน้ำสองข้างของมันมาถึงพร้อมกันไหม`,
+          `ถูก ${right} จาก ${p.walls.length} เส้น เส้นที่ทายพลาดถูกวงสีแดงไว้แล้ว ลองดูว่าน้ำสองข้างของมันมาถึงพร้อมกันไหม`,
           'bad',
         );
       }
@@ -877,20 +1677,23 @@ const fwBill = [
       revealed = false;
       ui.selectTab(k);
       ui.setTease(pz().tease);
+      boards.forEach((b, i) => {
+        b.hidden = i !== k;
+      });
       buildList();
-      ui.setStatus('กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง');
+      ui.setStatus(IDLE);
       render();
     }
 
-    list.addEventListener('click', (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return;
+    ui.root.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
       const b = e.target.closest('[data-wall]');
-      if (!(b instanceof HTMLElement)) return;
-      const id = Number(b.dataset.wall);
+      if (!b || !ui.root.contains(b)) return;
+      const id = Number(b.getAttribute('data-wall'));
       if (guess.has(id)) guess.delete(id);
       else guess.add(id);
       revealed = false;
-      ui.setStatus('กดเลือกกำแพงที่คิดว่าจะรอด แล้วกดตรวจ กำแพงที่ไม่ได้เลือกคือกำแพงที่คิดว่าจะพัง');
+      ui.setStatus(IDLE);
       render();
     });
 
@@ -904,9 +1707,37 @@ const fwBill = [
 </script>
 
 <script>
-  import { initCpRowPlayers } from '../../lib/cpPlayer';
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  type FwStep = { note: string; t: number };
+  function isStep(x: unknown): x is FwStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const r = x as Record<string, unknown>;
+    return typeof r.note === 'string' && typeof r.t === 'number';
+  }
 
   document.addEventListener('astro:page-load', () => {
-    initCpRowPlayers('[data-fwsim]');
+    initCpPlayers<FwStep>('[data-fwsim]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      countWord: 'ชั่วโมง',
+      zeroBased: true,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const last = ctx.at === ctx.total - 1;
+        root.querySelectorAll('[data-h]').forEach((c) => {
+          c.classList.toggle('wet', Number(c.getAttribute('data-h')) <= st.t);
+        });
+        root.querySelectorAll('[data-fall]').forEach((g) => {
+          const f = Number(g.getAttribute('data-fall'));
+          g.classList.toggle('down', f >= 1 && f <= st.t);
+          g.classList.toggle('next', f === st.t + 1);
+          g.classList.toggle('keep', last && f < 0);
+        });
+      },
+    });
   });
 </script>

@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 
 const href = 'pyramid-base/';
 
@@ -39,14 +40,15 @@ const EX2: Case = {
   ],
 };
 
-/** ค่าใช้จ่ายของจัตุรัสด้าน s ที่มุมล่างซ้ายอยู่ที่ (x, y) */
+/** ค่ารื้อของฐานด้าน s ที่มุมล่างซ้าย (x, y) นับตรงตามนิยาม ก้อนที่ทับคิดเงินครั้งเดียว
+ *  นี่คือตัวตรวจของทั้งหน้า ทุกวิธีที่ตามมาต้องตรงกับมัน */
 const costAt = (cs: Case, s: number, x: number, y: number): number =>
   cs.obs.reduce(
     (t, o) => (x <= o.x2 && x + s - 1 >= o.x1 && y <= o.y2 && y + s - 1 >= o.y1 ? t + o.c : t),
     0,
   );
 
-/** ค่าใช้จ่ายต่ำสุดของจัตุรัสด้าน s ทุกตำแหน่ง คืน null ถ้าวางไม่ได้เลย */
+/** ค่าใช้จ่ายต่ำสุดของฐานด้าน s ทุกตำแหน่ง คืน null ถ้าวางไม่ได้เลย */
 function cheapest(cs: Case, s: number): { cost: number; x: number; y: number } | null {
   if (cs.M - s + 1 < 1 || cs.N - s + 1 < 1) return null;
   let best: { cost: number; x: number; y: number } | null = null;
@@ -57,23 +59,486 @@ function cheapest(cs: Case, s: number): { cost: number; x: number; y: number } |
     }
   return best;
 }
+const fitsAt = (cs: Case, s: number): boolean => {
+  const r = cheapest(cs, s);
+  return r !== null && r.cost <= cs.B;
+};
+
+/** คำตอบแบบไล่ทุกขนาด ไม่พึ่งข้อสังเกตว่าขนาดเล็กกว่าต้องวางได้ */
+function answerOf(cs: Case): number {
+  let best = 0;
+  for (let s = 1; s <= Math.min(cs.M, cs.N); s++) if (fitsAt(cs, s)) best = s;
+  return best;
+}
+const ans1 = answerOf(EX1);
+const ans2 = answerOf(EX2);
+
+const PMAX = 400000;
+const PSUB2 = 30000;
+const PSUB1 = 1000;
+const GRIDMAX = 1000000;
+const fmt = (n: number): string => n.toLocaleString('en-US');
+const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+/** เขียนเลขใหญ่แบบ 4 × 10²³ */
+function sci(v: number): string {
+  const e = Math.floor(Math.log10(v));
+  const m = (v / 10 ** e).toFixed(1).replace(/\.0$/, '');
+  const pow = `10${String(e)
+    .split('')
+    .map((d) => SUP[Number(d)])
+    .join('')}`;
+  return m === '1' ? pow : `${m} × ${pow}`;
+}
+
+/* ---------- ตัวอย่างเล็กที่เฉลยใช้ตั้งแต่ตอนที่ 3 ---------- */
+const EXS: Case = {
+  M: 9,
+  N: 5,
+  B: 3,
+  obs: [
+    { x1: 1, y1: 1, x2: 2, y2: 5, c: 5 },
+    { x1: 4, y1: 1, x2: 4, y2: 2, c: 3 },
+    { x1: 5, y1: 4, x2: 6, y2: 5, c: 4 },
+    { x1: 8, y1: 1, x2: 9, y2: 3, c: 6 },
+  ],
+};
+const NAMES = ['A', 'B', 'C', 'D'];
+const OB_COL = ['#e0b400', '#60a5fa', '#f472b6', '#a78bfa'];
+const SS = answerOf(EXS);
+const EXS0: Case = { ...EXS, B: 0 };
+const SS0 = answerOf(EXS0);
+const SXH = EXS.M - SS + 1;
+const SYH = EXS.N - SS + 1;
+const exsList = EXS.obs.map(
+  (o, i) => `ก้อน ${NAMES[i]}: คอลัมน์ ${o.x1} ถึง ${o.x2} แถว ${o.y1} ถึง ${o.y2} ค่ารื้อ ${o.c}`,
+);
+
+/* ---------- มุมที่ฐานทับก้อน คือสี่เหลี่ยมผืนเดียว ---------- */
+type Rect = { xl: number; xr: number; yl: number; yh: number };
+function cornerRect(cs: Case, s: number, o: Obstacle): Rect | null {
+  const XH = cs.M - s + 1;
+  const YH = cs.N - s + 1;
+  const xl = Math.max(1, o.x1 - s + 1);
+  const xr = Math.min(XH, o.x2);
+  const yl = Math.max(1, o.y1 - s + 1);
+  const yh = Math.min(YH, o.y2);
+  return xl <= xr && yl <= yh ? { xl, xr, yl, yh } : null;
+}
+/* ตรวจตอนบิลด์: ทุกตัวอย่าง ทุกขนาด ทุกมุม ผลรวมของสี่เหลี่ยมที่คลุมมุมนั้นต้องเท่ากับการนับตรง ๆ */
+for (const cs of [EX1, EX2, EXS]) {
+  for (let s = 1; s <= Math.min(cs.M, cs.N); s++)
+    for (let x = 1; x <= cs.M - s + 1; x++)
+      for (let y = 1; y <= cs.N - s + 1; y++) {
+        const viaRect = cs.obs.reduce((t, o) => {
+          const r = cornerRect(cs, s, o);
+          return r && x >= r.xl && x <= r.xr && y >= r.yl && y <= r.yh ? t + o.c : t;
+        }, 0);
+        if (viaRect !== costAt(cs, s, x, y)) throw new Error(`สูตรมุมห้ามไม่ตรงที่ s=${s} (${x}, ${y})`);
+      }
+}
+
+/* ตัวอย่างคำนวณด้วยมือ: ก้อน C ที่ด้าน SS ต้องใช้ทุกพจน์ของสูตรจริง ๆ */
+const WI = 2;
+const wo = EXS.obs[WI];
+const wRawXl = wo.x1 - SS + 1;
+const wRawYl = wo.y1 - SS + 1;
+const wRectMaybe = cornerRect(EXS, SS, wo);
+if (wRectMaybe === null) throw new Error('ก้อน C ต้องห้ามมุมอย่างน้อยหนึ่งมุม');
+const wRect: Rect = wRectMaybe;
+if (!(wRawXl > 1 && wRawYl > 1 && wo.y2 > SYH && wo.x2 <= SXH))
+  throw new Error('ตัวอย่างก้อน C ต้องเลื่อน s − 1 จริงทั้งสองแกน และถูกตัดที่ขอบบน');
+const wDirect: string[] = [];
+for (let x = 1; x <= SXH; x++)
+  for (let y = 1; y <= SYH; y++)
+    if (x <= wo.x2 && x + SS - 1 >= wo.x1 && y <= wo.y2 && y + SS - 1 >= wo.y1) wDirect.push(`${x},${y}`);
+const wCount = (wRect.xr - wRect.xl + 1) * (wRect.yh - wRect.yl + 1);
+const wInside = wDirect.every((k) => {
+  const [x, y] = k.split(',').map(Number);
+  return x >= wRect.xl && x <= wRect.xr && y >= wRect.yl && y <= wRect.yh;
+});
+if (wDirect.length !== wCount || !wInside) throw new Error('สี่เหลี่ยมของก้อน C ไม่ตรงกับการนับตรง ๆ');
+
+/* ---------- กวาดเส้นตามแกน x จำลองตามโค้ดจริงทุกบรรทัด ---------- */
+type SwStep = { note: string; x: number; col: number[]; ev: number; ask: boolean; okNow: boolean; what: string; min: number };
+type SwRun = { steps: SwStep[]; ok: boolean; minSeen: number; stopX: number; stopY: number; asks: number; dels: number };
+function sweepRun(cs: Case, s: number): SwRun {
+  const XH = cs.M - s + 1;
+  const YH = cs.N - s + 1;
+  const col = new Array<number>(YH).fill(0);
+  type Ev = { x: number; add: boolean; i: number; r: Rect };
+  const evs: Ev[] = [];
+  cs.obs.forEach((o, i) => {
+    const r = cornerRect(cs, s, o);
+    if (!r) return;
+    evs.push({ x: r.xl, add: true, i, r });
+    if (r.xr + 1 <= XH) evs.push({ x: r.xr + 1, add: false, i, r });
+  });
+  /* ตำแหน่งเท่ากัน โค้ดหยิบเหตุการณ์เข้าก่อนเหตุการณ์ออก */
+  evs.sort((a, b) => a.x - b.x || (a.add === b.add ? a.i - b.i : a.add ? -1 : 1));
+  const steps: SwStep[] = [];
+  let e = 0;
+  let cur = 1;
+  let minSeen = Infinity;
+  let asks = 0;
+  let dels = 0;
+  while (cur <= XH) {
+    while (e < evs.length && evs[e].x <= cur) {
+      const v = evs[e];
+      const c = cs.obs[v.i].c;
+      for (let y = v.r.yl; y <= v.r.yh; y++) col[y - 1] += v.add ? c : -c;
+      if (!v.add) dels++;
+      const nm = NAMES[v.i];
+      steps.push({
+        note: v.add
+          ? `x = ${cur} · ${nm} เข้า บวก ${c} ที่ y ${v.r.yl} ถึง ${v.r.yh} · คอลัมน์เป็น [${col.join(', ')}]`
+          : `x = ${cur} · ${nm} ออก (ช่วงของมันจบที่ x = ${v.r.xr}) ลบ ${c} ที่ y ${v.r.yl} ถึง ${v.r.yh} · คอลัมน์เป็น [${col.join(', ')}]`,
+        x: cur,
+        col: [...col],
+        ev: v.i,
+        ask: false,
+        okNow: false,
+        what: v.add ? `${nm} เข้า +${c}` : `${nm} ออก −${c}`,
+        min: -1,
+      });
+      e++;
+    }
+    for (let y = 1; y <= YH; y++)
+      if (col[y - 1] !== costAt(cs, s, cur, y)) throw new Error(`กวาดเส้นไม่ตรงการนับตรง ๆ ที่ (${cur}, ${y})`);
+    const m = Math.min(...col);
+    const my = col.indexOf(m) + 1;
+    asks++;
+    minSeen = Math.min(minSeen, m);
+    const ok = m <= cs.B;
+    const nextX = e < evs.length ? evs[e].x : XH + 1;
+    steps.push({
+      note: ok
+        ? `x = ${cur} · ถามราก ได้ค่าน้อยสุด ${m} ที่ y = ${my} ไม่เกินงบ ${cs.B} · ด้าน ${s} วางได้ หยุดกวาด`
+        : `x = ${cur} · ถามราก ได้ค่าน้อยสุด ${m} เกินงบ ${cs.B} · ${nextX <= XH ? `ข้ามไป x = ${nextX} ซึ่งมีเหตุการณ์ถัดไป` : 'ไม่มีเหตุการณ์เหลือ ด้านนี้วางไม่ได้'}`,
+      x: cur,
+      col: [...col],
+      ev: -1,
+      ask: true,
+      okNow: ok,
+      what: 'ถามค่าน้อยสุด',
+      min: m,
+    });
+    if (ok) return { steps, ok: true, minSeen, stopX: cur, stopY: my, asks, dels };
+    cur = nextX;
+  }
+  return { steps, ok: false, minSeen, stopX: -1, stopY: -1, asks, dels };
+}
+const sw = sweepRun(EXS, SS);
+const swNext = sweepRun(EXS, SS + 1);
+const swNextBest = cheapest(EXS, SS + 1);
+if (!sw.ok || sw.asks < 2 || sw.dels < 1) throw new Error('ตัวอย่างกวาดเส้นต้องถามอย่างน้อยสองครั้งและมีก้อนออก');
+if (swNext.ok || swNextBest === null || swNext.minSeen !== swNextBest.cost)
+  throw new Error('ด้านถัดไปต้องวางไม่ได้ และค่าต่ำสุดที่กวาดเจอต้องเท่ากับการไล่ทุกมุม');
+const swLast = sw.steps[sw.steps.length - 1];
+
+/** ผู้สมัครแกน y ตามโค้ด: 1, จุดเริ่มของทุกช่วง และจุดถัดจากปลายช่วง */
+function candYs(cs: Case, s: number): number[] {
+  const YH = cs.N - s + 1;
+  const set = new Set<number>([1]);
+  for (const o of cs.obs) {
+    const lo = Math.max(1, o.y1 - s + 1);
+    const hi = Math.min(YH, o.y2);
+    if (lo > hi) continue;
+    set.add(lo);
+    if (hi + 1 <= YH) set.add(hi + 1);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+const exsCand = candYs(EXS, SS);
+if (exsCand.length !== SYH) throw new Error('ตัวอย่างนี้ควรมีผู้สมัครครบทุกแถว');
+
+/* ---------- บักใบส่วนเกิน จำลองโค้ดที่ผิดแล้วเทียบ ----------
+   ใบส่วนเกินมีเมื่อจำนวนผู้สมัครไม่ใช่กำลังสอง ใบพวกนั้นไม่เคยถูกบวกอะไรเลย รากจึงเห็นศูนย์ตลอด */
+const isPow2 = (k: number): boolean => (k & (k - 1)) === 0;
+const brokenOk = (cs: Case, s: number): boolean =>
+  cs.M - s + 1 >= 1 && cs.N - s + 1 >= 1 && (!isPow2(candYs(cs, s).length) || fitsAt(cs, s));
+type Asked = { s: number; real: boolean; broken: boolean };
+function bsearch(cs: Case, ok: (cs: Case, s: number) => boolean): { ans: number; asked: Asked[] } {
+  let lo = 0;
+  let hi = Math.min(cs.M, cs.N);
+  const asked: Asked[] = [];
+  while (lo < hi) {
+    const md = Math.floor((lo + hi + 1) / 2);
+    const r = ok(cs, md);
+    asked.push({ s: md, real: fitsAt(cs, md), broken: brokenOk(cs, md) });
+    if (r) lo = md;
+    else hi = md - 1;
+  }
+  return { ans: lo, asked };
+}
+const BAD: Case = {
+  M: 9,
+  N: 6,
+  B: 10,
+  obs: [
+    { x1: 2, y1: 5, x2: 4, y2: 5, c: 8 },
+    { x1: 4, y1: 4, x2: 7, y2: 5, c: 3 },
+    { x1: 6, y1: 2, x2: 9, y2: 6, c: 8 },
+    { x1: 4, y1: 4, x2: 4, y2: 6, c: 9 },
+    { x1: 7, y1: 6, x2: 7, y2: 6, c: 5 },
+    { x1: 4, y1: 6, x2: 7, y2: 6, c: 4 },
+  ],
+};
+const badReal = answerOf(BAD);
+const badBroken = bsearch(BAD, brokenOk).ans;
+const badCostAt = cheapest(BAD, badBroken);
+if (badReal === badBroken || badCostAt === null || badCostAt.cost <= BAD.B)
+  throw new Error('เคสที่จับบักได้ต้องทำให้โค้ดผิดตอบเกินจริง');
+for (const [cs, a] of [
+  [EX1, ans1],
+  [EX2, ans2],
+] as const) {
+  const b = bsearch(cs, brokenOk);
+  if (b.ans !== a || b.asked.some((q) => q.broken !== q.real))
+    throw new Error('โค้ดที่ผิดควรตอบตัวอย่างของโจทย์ถูก โดยทุกรอบที่ถามตรงกับของจริง');
+}
+const brokenInput = [`${BAD.M} ${BAD.N}`, String(BAD.B), String(BAD.obs.length), ...BAD.obs.map((o) => [o.x1, o.y1, o.x2, o.y2, o.c].join(' '))].join('\n');
+
+/* ---------- สองตัวชี้บนตัวอย่างเดิมที่ตั้งงบเป็นศูนย์ ---------- */
+type TpRow = {
+  r: number;
+  added: string;
+  removed: string;
+  l: number;
+  run: number;
+  width: number;
+  best: number;
+  up: boolean;
+  line: string;
+  active: number[];
+};
+function longestFree(cover: number[]): number {
+  let best = 0;
+  let run = 0;
+  for (const c of cover) {
+    run = c === 0 ? run + 1 : 0;
+    best = Math.max(best, run);
+  }
+  return best;
+}
+function twoPointer(cs: Case): { rows: TpRow[]; best: number } {
+  const cover = new Array<number>(cs.N).fill(0);
+  const active = new Set<number>();
+  const touch = (o: Obstacle, d: number): void => {
+    for (let y = o.y1; y <= o.y2; y++) cover[y - 1] += d;
+  };
+  let l = 1;
+  let best = 0;
+  const rows: TpRow[] = [];
+  for (let r = 1; r <= cs.M; r++) {
+    const added: string[] = [];
+    const removed: string[] = [];
+    cs.obs.forEach((o, i) => {
+      if (o.x1 === r) {
+        touch(o, 1);
+        active.add(i);
+        added.push(NAMES[i] ?? String(i + 1));
+      }
+    });
+    const lBefore = l;
+    const runBefore = longestFree(cover);
+    while (longestFree(cover) < r - l + 1) {
+      cs.obs.forEach((o, i) => {
+        if (o.x2 === l) {
+          touch(o, -1);
+          active.delete(i);
+          removed.push(NAMES[i] ?? String(i + 1));
+        }
+      });
+      l++;
+    }
+    const width = r - l + 1;
+    const up = width > best;
+    best = Math.max(best, width);
+    const run = longestFree(cover);
+    const head = `r = ${r}${added.length ? ` · ${added.join(', ')} เข้า` : ''}`;
+    const mid =
+      l !== lBefore
+        ? `แถวว่าง ${runBefore} สั้นกว่ากว้าง ${r - lBefore + 1} ขยับ l จาก ${lBefore} เป็น ${l}${removed.length ? ` (${removed.join(', ')} หลุด)` : ''}`
+        : `แถวว่าง ${run} พอสำหรับกว้าง ${width}`;
+    rows.push({
+      r,
+      added: added.join(', '),
+      removed: removed.join(', '),
+      l,
+      run,
+      width,
+      best,
+      up,
+      line: `${head} · ${mid} · ดีที่สุด ${best}`,
+      active: [...active],
+    });
+  }
+  return { rows, best };
+}
+const tp = twoPointer(EXS0);
+if (tp.best !== SS0 || twoPointer(EX2).best !== ans2) throw new Error('สองตัวชี้ไม่ตรงกับการไล่ทุกขนาด');
+if (!tp.rows.some((r) => r.removed !== '')) throw new Error('ตัวอย่างสองตัวชี้ต้องมีก้อนหลุดออก');
+
+/* ---------- ต่อค่าของต้นไม้แถวว่าง จำลองตาม zpull ของโค้ด ---------- */
+type ZNode = { l: number; r: number; pre: number; suf: number; bst: number };
+function zNode(cover: number[], l: number, r: number): ZNode {
+  /* ไม่ใช้ longestFree เพื่อให้เป็นการคิดคนละทางกับตัวตรวจ */
+  if (l === r) {
+    const v = cover[l - 1] === 0 ? 1 : 0;
+    return { l, r, pre: v, suf: v, bst: v };
+  }
+  const m = Math.floor((l + r) / 2);
+  const a = zNode(cover, l, m);
+  const b = zNode(cover, m + 1, r);
+  const la = m - l + 1;
+  const lb = r - m;
+  return {
+    l,
+    r,
+    pre: a.pre === la ? la + b.pre : a.pre,
+    suf: b.suf === lb ? lb + a.suf : b.suf,
+    bst: Math.max(a.bst, b.bst, a.suf + b.pre),
+  };
+}
+const mergeRowMaybe = tp.rows.find((row) => row.added !== '' && row.run > 0 && row.run < EXS.N);
+if (!mergeRowMaybe) throw new Error('ต้องมีแถวที่มีก้อนเข้าแล้วยังเหลือแถวว่าง');
+const mergeRow = mergeRowMaybe;
+const mergeCover = new Array<number>(EXS.N).fill(0);
+for (const i of mergeRow.active) for (let y = EXS.obs[i].y1; y <= EXS.obs[i].y2; y++) mergeCover[y - 1]++;
+const zMid = Math.floor((1 + EXS.N) / 2);
+const zA = zNode(mergeCover, 1, zMid);
+const zB = zNode(mergeCover, zMid + 1, EXS.N);
+const zRoot = zNode(mergeCover, 1, EXS.N);
+if (zRoot.bst !== mergeRow.run) throw new Error('การต่อค่าของต้นไม้แถวว่างไม่ตรงกับการนับตรง ๆ');
+if (zA.suf + zB.pre <= Math.max(zA.bst, zB.bst)) throw new Error('ตัวอย่างการต่อค่าควรได้คำตอบจากรอยต่อ');
+const mergeFree = mergeCover.map((c, i) => (c === 0 ? i + 1 : 0)).filter((y) => y > 0);
+
+/* ---------- ต้นไม้ค่าต่ำสุดของตอนที่ 6 จำลองตาม build/add ของโค้ดทีละบรรทัด ---------- */
+type TreeEv = { what: string; touched: number[] };
+function treeTrace(cs: Case, s: number): { sz: number; k: number; mn: number[]; lz: number[]; evs: TreeEv[] } {
+  const cand = candYs(cs, s);
+  const k = cand.length;
+  let sz = 1;
+  while (sz < k) sz <<= 1;
+  const mn = new Array<number>(2 * sz).fill(0);
+  const lz = new Array<number>(2 * sz).fill(0);
+  for (let i = k; i < sz; i++) mn[sz + i] = Infinity;
+  for (let i = sz - 1; i >= 1; i--) mn[i] = Math.min(mn[2 * i], mn[2 * i + 1]);
+  const leafOf = (y: number): number => {
+    let p = 0;
+    while (p + 1 < cand.length && cand[p + 1] <= y) p++;
+    return p;
+  };
+  const evs: TreeEv[] = [];
+  /* เล่นเหตุการณ์ตามลำดับเดียวกับเครื่องเดินของตอนที่ 5 */
+  for (const st of sw.steps) {
+    if (st.ask) {
+      if (mn[1] !== Math.min(...st.col)) throw new Error('รากของต้นไม้ไม่ตรงกับค่าต่ำสุดของคอลัมน์');
+      continue;
+    }
+    const o = cs.obs[st.ev];
+    const rr = cornerRect(cs, s, o);
+    if (!rr) continue;
+    const add = st.what.includes('เข้า');
+    const v = add ? o.c : -o.c;
+    let L = leafOf(rr.yl) + sz;
+    let R = leafOf(rr.yh) + sz + 1;
+    const l0 = L;
+    const r0 = R - 1;
+    const touched: number[] = [];
+    while (L < R) {
+      if (L & 1) {
+        mn[L] += v;
+        lz[L] += v;
+        touched.push(L);
+        L++;
+      }
+      if (R & 1) {
+        --R;
+        mn[R] += v;
+        lz[R] += v;
+        touched.push(R);
+      }
+      L >>= 1;
+      R >>= 1;
+    }
+    for (let i = l0 >> 1; i >= 1; i >>= 1) mn[i] = Math.min(mn[2 * i], mn[2 * i + 1]) + lz[i];
+    for (let i = r0 >> 1; i >= 1; i >>= 1) mn[i] = Math.min(mn[2 * i], mn[2 * i + 1]) + lz[i];
+    evs.push({ what: `${st.what} ที่ y ${rr.yl} ถึง ${rr.yh}`, touched });
+  }
+  return { sz, k, mn, lz, evs };
+}
+const tt = treeTrace(EXS, SS);
+if (tt.sz === tt.k) throw new Error('ตัวอย่างต้นไม้ควรมีใบส่วนเกินให้เห็น');
+/* ปมที่ใช้อธิบายสูตร: ปมกลางชั้นที่ดูแลสองใบแรก ต้องมีป้ายค้างจริง */
+const TN = 2;
+if (tt.lz[TN] === 0 || tt.mn[2 * TN] === tt.mn[2 * TN + 1]) throw new Error('ปมที่ใช้อธิบายสูตรต้องมีป้ายค้าง');
+/* ค่าของแถว y = ผลรวมป้ายตลอดทางจากใบขึ้นราก ตรวจว่าตรงกับคอลัมน์สุดท้ายของเครื่องเดิน */
+const pathSum = (leaf: number): number => {
+  let t = tt.mn[leaf];
+  for (let i = leaf >> 1; i >= 1; i >>= 1) t += tt.lz[i];
+  return t;
+};
+const swFinal = sw.steps[sw.steps.length - 1].col;
+swFinal.forEach((v, j) => {
+  if (pathSum(tt.sz + j) !== v) throw new Error('ผลรวมป้ายตามทางไม่ตรงกับค่าของแถว');
+});
+const fmtInf = (v: number): string => (v === Infinity ? '∞' : String(v));
+
+/* ---------- ค้นหาแบบไบนารี ---------- */
+const ROUNDS = Math.ceil(Math.log2(GRIDMAX + 1));
+const ladder = Array.from({ length: Math.min(EX1.M, EX1.N) }, (_, i) => i + 1).map((s) => {
+  const r = cheapest(EX1, s);
+  return { s, cost: r === null ? null : r.cost, pos: r === null ? '' : `(${r.x}, ${r.y})`, fits: r !== null && r.cost <= EX1.B };
+});
+
+/* ---------- ต้นทุน นับคร่าว ๆ เป็นจำนวนครั้งที่แตะก้อนหรือแตะปมของต้นไม้ ----------
+   นับตามที่โค้ดทำจริง แต่ไม่ได้นับว่าการแตะหน่วยความจำแต่ละครั้งแพงไม่เท่ากัน */
+const BUDGET_OPS = 5e8; /* กะคร่าว ๆ ราว 10⁸ ครั้งต่อวินาที คูณ 5 วินาที */
+const sumSq = (n: number): number => (n * (n + 1) * (2 * n + 1)) / 6;
+const BRUTE_CORNERS = sumSq(GRIDMAX); /* Σ (M−s+1)(N−s+1) เมื่อ M = N */
+const BRUTE_FULL = BRUTE_CORNERS * PMAX;
+const LOG_LEAF_FULL = Math.ceil(Math.log2(2 * PMAX + 1));
+const LOG_LEAF_SUB2 = Math.ceil(Math.log2(2 * PSUB2 + 1));
+const LOG_N = Math.ceil(Math.log2(GRIDMAX));
+const LOG_P1 = Math.ceil(Math.log2(PSUB1));
+const LOG_PMAX = Math.ceil(Math.log2(PMAX));
+/* หาช่องว่าง: ต่อ x หนึ่งค่า เช็ก P ก้อน แล้วเรียงช่วงได้ถึง P ช่วง (ราว P log₂ P) */
+const gapCost = (p: number, lg: number): number => ROUNDS * (p + 1) * (p + p * lg);
+const COST_GAP_SUB1 = gapCost(PSUB1, LOG_P1);
+/* กวาดเส้น: add แบบไล่จากใบขึ้นรากแตะราว 2 log ปมในลูปแรก แล้วไต่กลับอีกสองสายรวมราว 2 log */
+const sweepCost = (p: number, lg: number): number => ROUNDS * 2 * p * 4 * lg;
+const COST_SWEEP_SUB2 = sweepCost(PSUB2, LOG_LEAF_SUB2);
+/* สองตัวชี้: zadd แบบเรียกซ้ำแวะได้ถึงราว 4 log N ปม บวกการสร้างต้นไม้ 2 × 2^20 ปม และการเดิน r ล้านก้าว */
+const COST_TWO = 2 * PMAX * 4 * LOG_N + 2 * 2 ** LOG_N + GRIDMAX;
+const BARS = [
+  { label: '1 · ไล่ทุกมุม ทุกก้อน', v: ROUNDS * GRIDMAX * GRIDMAX * PMAX, col: '#e06c75' },
+  { label: '2 · หาช่องว่างทีละคอลัมน์', v: gapCost(PMAX, LOG_PMAX), col: '#e0b400' },
+  { label: '3 · ไบนารี + กวาดเส้น', v: sweepCost(PMAX, LOG_LEAF_FULL), col: '#60a5fa' },
+  { label: '4 · สองตัวชี้', v: COST_TWO, col: '#4ade80' },
+];
+if (!(BARS[2].v > BUDGET_OPS && BARS[3].v < BUDGET_OPS)) throw new Error('แผนภูมิต้องแสดงว่าวิธี 3 เกินงบ วิธี 4 อยู่ในงบ');
+const OVER3 = (BARS[2].v / BUDGET_OPS).toFixed(1);
+/* หน่วยความจำของต้นไม้ ใช้อธิบายว่าทำไมตัวนับหยาบ: ต้นไม้แถวว่างมีสี่อาร์เรย์ int ขนาด 4N
+   ต้นไม้ค่าต่ำสุดมีสองอาร์เรย์ long long ขนาด 2 × SZ */
+const MB = (bytes: number): number => Math.round(bytes / 1e6);
+const MEM_TWO = MB(4 * 4 * GRIDMAX * 4);
+const MEM_SWEEP_SUB2 = MB(2 * 2 * 2 ** LOG_LEAF_SUB2 * 8);
+
+/* ---------- เวลาที่วัดได้ (โน้ตบุ๊ก Core i7-1355U, WSL Ubuntu 22.04, g++ 11.4 -O2) ----------
+   ใส่เป็นค่าคงที่เพราะเป็นผลการทดลอง ไม่ใช่สิ่งที่คำนวณได้
+   T_OLD วัดจากโค้ดที่หน้านี้เวอร์ชันก่อนส่งไว้ ซึ่งใช้การกวาดเส้นกับทุกชุด อินพุตสุ่ม P = 400,000 งบศูนย์ */
+const T_OLD = { min: 8.8, max: 11.8, runs: 7 };
+const T_LIMIT = 5;
+const T_TWO = 2.1;
+const T_SUB2 = 0.31;
+const T_SUB1 = 0.07;
+const STRESS = { full: 4000, sub: 2000, broken: 3000, brokenWrong: 135 };
 
 /* ---------- มินิเกม เลื่อนฐานปิรามิดเอง ----------
    ค่าใช้จ่ายของทุกตำแหน่งคิดด้วย costAt ตัวเดียวกับที่บทความใช้
    ส่วนคำตอบของแต่ละชุดหาโดยไล่ทุกขนาดทุกตำแหน่งตรง ๆ ตอนบิลด์ */
 type PbPuzzle = { id: string; label: string; tease: string; cs: Case };
-
-/** ด้านที่ใหญ่ที่สุดที่วางได้ในงบ ไล่ทุกขนาดทุกตำแหน่ง */
-function biggestSide(cs: Case): number {
-  let best = 0;
-  const lim = Math.min(cs.M, cs.N);
-  for (let s = 1; s <= lim; s++) {
-    const c = cheapest(cs, s);
-    if (c && c.cost <= cs.B) best = s;
-  }
-  return best;
-}
-
 const PB_PUZZLES: PbPuzzle[] = [
   { id: 'b1', label: 'ชุดที่ 1 · ตัวอย่างแรก', tease: 'ตารางเดียวกับตัวอย่างแรกของโจทย์ งบ 42', cs: EX1 },
   { id: 'b2', label: 'ชุดที่ 2 · ตัวอย่างที่สอง', tease: 'ชุดนี้งบเป็นศูนย์ ต้องหาที่โล่งล้วน ๆ', cs: EX2 },
@@ -92,18 +557,9 @@ const PB_PUZZLES: PbPuzzle[] = [
       ],
     },
   },
+  { id: 'b4', label: 'ชุดที่ 4 · ตารางของเฉลย', tease: 'ตารางเล็กที่เฉลยจะเดินให้ดูทีละขั้น งบ 3', cs: EXS },
 ];
-
-type PbPuzzleData = {
-  id: string;
-  label: string;
-  tease: string;
-  m: number;
-  n: number;
-  b: number;
-  obs: Obstacle[];
-  answer: number;
-};
+type PbPuzzleData = { id: string; label: string; tease: string; m: number; n: number; b: number; obs: Obstacle[]; answer: number };
 const pbPuzzles: PbPuzzleData[] = PB_PUZZLES.map((p) => ({
   id: p.id,
   label: p.label,
@@ -112,55 +568,153 @@ const pbPuzzles: PbPuzzleData[] = PB_PUZZLES.map((p) => ({
   n: p.cs.N,
   b: p.cs.B,
   obs: p.cs.obs,
-  answer: biggestSide(p.cs),
+  answer: answerOf(p.cs),
 }));
 const pbJson = JSON.stringify(pbPuzzles);
 
-function answerOf(cs: Case): number {
-  let best = 0;
-  for (let s = 1; s <= Math.min(cs.M, cs.N); s++) {
-    const r = cheapest(cs, s);
-    if (r !== null && r.cost <= cs.B) best = s;
-  }
-  return best;
-}
-const ans1 = answerOf(EX1);
-
-/* ---------- ภาพผังของตัวอย่างที่ 1 ----------
-   ตำแหน่งฐานที่วาดมาจาก cheapest() ตัวเดียวกับที่หน้านี้ใช้หาคำตอบ
-   จึงเป็นจุดที่ถูกที่สุดจริงสำหรับด้านยาว ans1 ไม่ใช่จุดที่เลือกด้วยตา */
-const bestSpot = cheapest(EX1, ans1);
+/* ---------- ภาพที่ 1: ผังของตัวอย่างแรก วาดแถว 1 ไว้ล่างสุดแบบเดียวกับเกม ---------- */
+const bestSpotMaybe = cheapest(EX1, ans1);
+if (bestSpotMaybe === null) throw new Error('ตัวอย่างแรกต้องวางได้');
+const bestSpot = bestSpotMaybe;
+const ex1NextMaybe = cheapest(EX1, ans1 + 1);
+if (ex1NextMaybe === null || ex1NextMaybe.cost <= EX1.B) throw new Error('ด้านถัดไปของตัวอย่างแรกต้องเกินงบ');
+const ex1Next = ex1NextMaybe;
 const CELL = 32;
 const GX = 44;
 const GY = 34;
 const gx = (x: number): number => GX + (x - 1) * CELL;
-const gy = (y: number): number => GY + (y - 1) * CELL;
-const pbVB = `0 0 ${gx(EX1.M + 1) + 112} ${gy(EX1.N + 1) + 46}`;
+const gy = (y: number): number => GY + (EX1.N - y) * CELL;
+const LEG_X = gx(EX1.M + 1) + 12;
+const pbVBW = LEG_X + 100 + 12;
+const pbVBH = gy(0) + 34;
 const obsInBase = (o: Obstacle): boolean =>
-  bestSpot !== null &&
-  o.x2 >= bestSpot.x &&
-  o.x1 <= bestSpot.x + ans1 - 1 &&
-  o.y2 >= bestSpot.y &&
-  o.y1 <= bestSpot.y + ans1 - 1;
+  o.x2 >= bestSpot.x && o.x1 <= bestSpot.x + ans1 - 1 && o.y2 >= bestSpot.y && o.y1 <= bestSpot.y + ans1 - 1;
 
-const ans2 = answerOf(EX2);
+/* ---------- ภาพที่ 2: ตารางจริงคู่กับแผนที่ของมุม ---------- */
+const D2C = 30;
+const D2X = 34;
+const D2T = 44;
+const d2lx = (x: number): number => D2X + (x - 1) * D2C;
+const d2ly = (y: number): number => D2T + (EXS.N - y) * D2C;
+const D2RX = D2X + EXS.M * D2C + 72;
+const d2rx = (x: number): number => D2RX + (x - 1) * D2C;
+const d2ry = (y: number): number => D2T + (SYH - y) * D2C;
+const d2VBW = D2RX + SXH * D2C + 12;
+const d2VBH = D2T + EXS.N * D2C + 34;
+const cornerCost: { x: number; y: number; c: number; fits: boolean }[] = [];
+for (let x = 1; x <= SXH; x++) for (let y = 1; y <= SYH; y++) { const c = costAt(EXS, SS, x, y); cornerCost.push({ x, y, c, fits: c <= EXS.B }); }
+const exsRects = EXS.obs.map((o) => cornerRect(EXS, SS, o));
 
-/** ตารางที่แสดงว่าค่าใช้จ่ายต่ำสุดเพิ่มขึ้นตาม s ซึ่งเป็นเหตุผลที่ค้นหาแบบไบนารีได้ */
-const ladder = Array.from({ length: Math.min(EX1.M, EX1.N) }, (_, i) => i + 1).map((s) => {
-  const r = cheapest(EX1, s);
-  return { s, cost: r === null ? null : r.cost, pos: r === null ? '' : `(${r.x}, ${r.y})` };
-});
+/* ---------- ภาพที่ 3: กระดานของเครื่องเดินกวาดเส้น ---------- */
+const PBC = 46;
+const PBX = 40;
+const PBT = 30;
+const pbx = (x: number): number => PBX + (x - 1) * PBC;
+const pby = (y: number): number => PBT + (SYH - y) * PBC;
+const pbsVBW = PBX + SXH * PBC + 12;
+const pbsVBH = PBT + SYH * PBC + 34;
+const xsRange = Array.from({ length: SXH }, (_, i) => i + 1);
+const ysRange = Array.from({ length: SYH }, (_, i) => i + 1);
+const swSteps = sw.steps.map((st) => ({ note: st.note, x: st.x, col: st.col, ev: st.ev, ask: st.ask, okNow: st.okNow }));
 
-const PMAX = 400000;
-const GRIDMAX = 1000000;
-const fmt = (n: number): string => n.toLocaleString('en-US');
+/* ---------- ภาพที่ 4: แผนภูมิแท่งต้นทุน สเกลลอการิทึม ---------- */
+const BC = { x0: 196, x1: 560, lo: 6, hi: 19, top: 44, gap: 46, h: 26 };
+const bx = (v: number): number => BC.x0 + ((Math.log10(v) - BC.lo) / (BC.hi - BC.lo)) * (BC.x1 - BC.x0);
+const bcAxisY = BC.top + BARS.length * BC.gap - BC.gap + BC.h + 12;
+const bcVBW = BC.x1 + 92 + 12;
+const bcVBH = bcAxisY + 18 + 34;
+const bcTicks = [6, 9, 12, 15, 18];
 
+/* ---------- ตารางชุดทดสอบย่อยของโจทย์ ---------- */
+const SUBTASKS = [
+  { id: 1, pts: 35, b: 'B = 0', p: `1 ≤ P ≤ ${fmt(PSUB1)}` },
+  { id: 2, pts: 35, b: '0 < B ≤ 2,000,000,000', p: `1 ≤ P ≤ ${fmt(PSUB2)}` },
+  { id: 3, pts: 30, b: 'B = 0', p: `1 ≤ P ≤ ${fmt(PMAX)}` },
+];
+const ex1First = EX1.obs[0];
+
+/* ---------- ภาพตอนที่ 2: ฐานสองขนาดซ้อนกันที่มุมเดียว ---------- */
+const NC = 22;
+const NX = 12;
+const NT = 26;
+const nx = (x: number): number => NX + (x - 1) * NC;
+const ny = (y: number): number => NT + (EX1.N - y) * NC;
+const nestBig = costAt(EX1, ans1, bestSpot.x, bestSpot.y);
+const nestSmall = costAt(EX1, ans1 - 1, bestSpot.x, bestSpot.y);
+if (nestSmall > nestBig) throw new Error('ฐานเล็กที่มุมเดียวกันต้องไม่แพงกว่า');
+const NLEG = nx(EX1.M + 1) + 12;
+const nestVBW = NLEG + 76 + 12; // 76 = ความกว้างของคำอธิบายสีที่วัดในเบราว์เซอร์
+const nestVBH = ny(0) + 34;
+
+/* ---------- ภาพตอนที่ 3: เลื่อนฐานผ่านก้อน C ทีละตำแหน่ง ---------- */
+const C1 = { cell: 34, x0: 112, top: 34, row: 34 };
+const c1x = (x: number): number => C1.x0 + (x - 1) * C1.cell;
+const c1Rows = [wRect.xl - 1, wRect.xl, wRect.xr, wRect.xr + 1].map((x) => ({
+  x,
+  hit: x <= wo.x2 && x + SS - 1 >= wo.x1,
+}));
+if (c1Rows.map((r) => r.hit).join() !== 'false,true,true,false' || c1Rows[0].x < 1 || c1Rows[3].x > SXH)
+  throw new Error('ภาพเลื่อนฐานต้องเป็น ไม่ทับ ทับ ทับ ไม่ทับ');
+const c1VBW = c1x(EXS.M + 1) + 8 + 50 + 12;
+const c1VBH = C1.top + 34 + 4 * C1.row + 34;
+const colsAll = Array.from({ length: EXS.M }, (_, i) => i + 1);
+
+/* ---------- ภาพตอนที่ 6: ต้นไม้ค่าต่ำสุดหลังเหตุการณ์สุดท้ายของเครื่องเดิน ---------- */
+const TD = { w: 132, top: 30, lv: 74, bw: 112, bh: 50 };
+const tdDepth = (i: number): number => Math.floor(Math.log2(i));
+const tdCx = (i: number): number => {
+  const d = tdDepth(i);
+  const span = (tt.sz / 2 ** d) * TD.w;
+  return 12 + span * (i - 2 ** d) + span / 2;
+};
+const tdY = (i: number): number => TD.top + tdDepth(i) * TD.lv;
+const tdNodes = Array.from({ length: 2 * tt.sz - 1 }, (_, i) => i + 1);
+const tdLeafLabel = (i: number): string => {
+  const j = i - tt.sz;
+  return j < tt.k ? `y = ${exsCand[j]}` : 'ใบส่วนเกิน';
+};
+const tdVBW = 12 + tt.sz * TD.w + 12;
+const tdVBH = TD.top + tdDepth(2 * tt.sz - 1) * TD.lv + TD.bh + 22 + 34;
+
+/* ---------- เรื่องบักใบส่วนเกิน: รอบที่ตัวอย่างของโจทย์ถาม ---------- */
+function roundsText(cs: Case): string {
+  return bsearch(cs, brokenOk)
+    .asked.map((q) => {
+      const k = candYs(cs, q.s).length;
+      return `ด้าน ${q.s} (ผู้สมัคร ${k} จุด ${isPow2(k) ? 'ไม่มีใบส่วนเกิน' : 'มีใบส่วนเกิน'} ของจริง${q.real ? 'วางได้' : 'วางไม่ได้'})`;
+    })
+    .join(' · ');
+}
+const roundsEx1 = roundsText(EX1);
+const roundsEx2 = roundsText(EX2);
+/** ช่วงแถวที่ปม i ดูแล เขียนเป็นคำ */
+function tdRange(i: number): string {
+  const d = tdDepth(i);
+  const span = tt.sz / 2 ** d;
+  const a = (i - 2 ** d) * span;
+  const b = a + span - 1;
+  const ys: number[] = [];
+  for (let j = a; j <= b; j++) if (j < tt.k) ys.push(exsCand[j]);
+  if (ys.length === 0) return 'ใบส่วนเกิน';
+  const core = ys.length === 1 ? `y ${ys[0]}` : `y ${ys[0]} ถึง ${ys[ys.length - 1]}`;
+  return b >= tt.k ? `${core} กับใบส่วนเกิน` : core;
+}
+const ttFirst = tt.evs[0];
+const pathY1 = [tt.mn[tt.sz], ...Array.from({ length: Math.log2(tt.sz) }, (_, d) => tt.lz[tt.sz >> (d + 1)])];
+/* คำถามท้ายบท: ผู้สมัคร 5 จุด */
+const Q1K = 5;
+let Q1SZ = 1;
+while (Q1SZ < Q1K) Q1SZ <<= 1;
+
+/* ---------- โค้ด ---------- */
 const solution = `#include <bits/stdc++.h>
 using namespace std;
 typedef long long ll;
 int P; ll M,N,B;
 vector<ll> X1,Y1,X2,Y2,C;
 vector<int> byX1,byX2,byY1,byY2;
+
+// ---------- งบมากกว่าศูนย์ (ชุดที่ 2): ค้นหาแบบไบนารี + กวาดเส้น ----------
 int SZ; vector<ll> mn,lz;
 const ll INF=(ll)4e18;
 void build(int k){
@@ -219,6 +773,47 @@ bool ok(ll s){
     }
     return false;
 }
+
+// ---------- งบเป็นศูนย์ (ชุดที่ 1 และ 3): สองตัวชี้ ไม่ต้องค้นหาแบบไบนารี ----------
+// ต้นไม้บนแถว y จริงทั้ง N แถว แต่ละปมจำว่ามีกี่ก้อนที่คลุมทั้งช่วงของปม (cov)
+// แถวว่างติดกันยาวสุดในช่วง (bst) และแถวว่างที่ติดขอบล่าง (pre) กับขอบบน (suf)
+vector<int> cov, pre, suf, bst;
+void zpull(int k,int l,int r){
+    if(cov[k]>0){ pre[k]=suf[k]=bst[k]=0; return; }       // ทั้งช่วงถูกคลุม ไม่มีแถวว่าง
+    if(l==r){ pre[k]=suf[k]=bst[k]=1; return; }
+    int m=(l+r)/2, a=2*k, b=2*k+1, la=m-l+1, lb=r-m;
+    pre[k] = pre[a]==la ? la+pre[b] : pre[a];
+    suf[k] = suf[b]==lb ? lb+suf[a] : suf[b];
+    bst[k] = max({bst[a], bst[b], suf[a]+pre[b]});
+}
+void zbuild(int k,int l,int r){
+    if(l<r){ int m=(l+r)/2; zbuild(2*k,l,m); zbuild(2*k+1,m+1,r); }
+    zpull(k,l,r);
+}
+// ก้อนเข้าบวก 1 ออกลบ 1 ที่ช่วงแถวเดิมเสมอ จึงไม่ต้องดันค่า cov ลงลูก
+void zadd(int k,int l,int r,int ql,int qr,int v){
+    if(qr<l||r<ql) return;
+    if(ql<=l&&r<=qr){ cov[k]+=v; zpull(k,l,r); return; }
+    int m=(l+r)/2;
+    zadd(2*k,l,m,ql,qr,v); zadd(2*k+1,m+1,r,ql,qr,v);
+    zpull(k,l,r);
+}
+ll solveZero(){
+    cov.assign(4*N,0); pre=suf=bst=cov; zbuild(1,1,(int)N);
+    // ฐานกินคอลัมน์ l..r  ก้อนที่แตะช่วงนี้คือก้อนที่ X1 <= r และ X2 >= l
+    size_t a=0,b=0; ll l=1, best=0;
+    for(ll r=1;r<=M;r++){
+        while(a<(size_t)P && X1[byX1[a]]==r){ int i=byX1[a++]; zadd(1,1,(int)N,(int)Y1[i],(int)Y2[i],1); }
+        // แถวว่างยาวไม่พอกับความกว้าง r-l+1 ก็หดจากซ้าย ก้อนที่จบที่คอลัมน์ l หลุดออกจากช่วง
+        while(bst[1] < r-l+1){
+            while(b<(size_t)P && X2[byX2[b]]==l){ int i=byX2[b++]; zadd(1,1,(int)N,(int)Y1[i],(int)Y2[i],-1); }
+            l++;
+        }
+        best=max(best,r-l+1);
+    }
+    return best;
+}
+
 int main(){
     if(scanf("%lld %lld",&M,&N)!=2) return 0;
     scanf("%lld",&B); scanf("%d",&P);
@@ -231,6 +826,8 @@ int main(){
     sort(byX2.begin(),byX2.end(),[](int a,int b){return X2[a]<X2[b];});
     sort(byY1.begin(),byY1.end(),[](int a,int b){return Y1[a]<Y1[b];});
     sort(byY2.begin(),byY2.end(),[](int a,int b){return Y2[a]<Y2[b];});
+    if(B==0){ printf("%lld\\n",solveZero()); return 0; }
+    // งบมากกว่าศูนย์ โจทย์รับประกันว่า P ไม่เกิน 30,000 ค้นหาคำตอบแบบไบนารีบนด้านยาว
     ll lo=0,hi=min(M,N);
     while(lo<hi){ ll md=(lo+hi+1)/2; if(ok(md)) lo=md; else hi=md-1; }
     printf("%lld\\n",lo);
@@ -246,7 +843,7 @@ vector<ll> x1_, y1_, x2_, y2_;
 bool ok(ll s) {
     if (M - s + 1 < 1 || N - s + 1 < 1) return false;
     const ll XH = M - s + 1, YH = N - s + 1;
-    // มุมล่างซ้ายที่น่าลองมีแค่ 1 กับขอบซ้ายของแต่ละก้อนที่เลื่อนมา s-1 ช่อง
+    // มุมล่างซ้ายที่น่าลองมีแค่ 1 กับคอลัมน์ถัดจากขอบขวาของแต่ละก้อน
     vector<ll> xs{1};
     for (int i = 0; i < P; i++) { ll v = x2_[i] + 1; if (v <= XH) xs.push_back(v); }
     sort(xs.begin(), xs.end()); xs.erase(unique(xs.begin(), xs.end()), xs.end());
@@ -279,6 +876,30 @@ int main() {
     while (lo < hi) { ll md = (lo + hi + 1) / 2; if (ok(md)) lo = md; else hi = md - 1; }
     printf("%lld\\n", lo);
 }`;
+const bruteCode = `// ตัวตรวจ: ไล่ทุกด้านยาว ทุกมุม ทุกก้อน ตรงตามนิยามของโจทย์
+// ไม่ใช้ข้อสังเกตใดของเฉลยเลย ทั้งการค้นหาแบบไบนารี สี่เหลี่ยมของมุม และสองตัวชี้
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+int main() {
+    ll M, N, B; int P;
+    scanf("%lld %lld %lld %d", &M, &N, &B, &P);
+    vector<array<ll,5>> o(P);
+    for (auto& r : o) scanf("%lld %lld %lld %lld %lld", &r[0], &r[1], &r[2], &r[3], &r[4]);
+    ll best = 0;
+    for (ll s = 1; s <= min(M, N); s++) {                 // ถามทุกขนาด ไม่หยุดที่ขนาดแรกที่วางไม่ได้
+        bool fit = false;
+        for (ll x = 1; x + s - 1 <= M && !fit; x++)
+            for (ll y = 1; y + s - 1 <= N && !fit; y++) {
+                ll c = 0;
+                for (auto& r : o)                          // ก้อนที่ทับฐานคิดเงินครั้งเดียว
+                    if (x <= r[2] && x + s - 1 >= r[0] && y <= r[3] && y + s - 1 >= r[1]) c += r[4];
+                if (c <= B) fit = true;
+            }
+        if (fit) best = s;
+    }
+    printf("%lld\\n", best);
+}`;
 const coreSnippet = `// s ใหญ่ขึ้น ค่าใช้จ่ายก็ไม่มีทางถูกลง เพราะจัตุรัสเล็กที่ซ้อนอยู่ข้างในย่อมชนก้อนไม่มากกว่า
 // เงื่อนไข "มีที่วางได้" จึงเป็นจริงเรียงติดกันแล้วเท็จตลอด ค้นหาแบบไบนารีได้
 ll lo = 0, hi = min(M, N);
@@ -298,53 +919,40 @@ void build(int k){
 }
 
 // ปลายทางที่บักโผล่ อยู่ในลูปกวาดเส้นของ ok()
-if (mn[1] <= B) return true;   // mn[1] ถูกใบศูนย์กดไว้ตลอด บรรทัดนี้จึงตอบ true ทุกครั้ง`;
-const brokenInput = `9 6
-10
-6
-2 5 4 5 8
-4 4 7 5 3
-6 2 9 6 8
-4 4 4 6 9
-7 6 7 6 5
-4 6 7 6 4`;
-/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
-const pbBill = [
-  { name: 'ไล่ช่วง y ที่ถูกห้าม ต่อหนึ่งขนาด', limit: 'P หลักพัน และ B = 0', work: '20,000,000 ครั้ง' },
-  { name: 'ค้นหาไบนารีคู่กับเซกเมนต์ทรี', limit: 'P ถึง 400,000', work: '152,000,000 ครั้ง' },
-];
-
+if (mn[1] <= B) return true;   // ถ้าต้นไม้มีใบส่วนเกิน mn[1] เป็นศูนย์เสมอ บรรทัดนี้จึงตอบ true`;
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · หาที่วางฐานปิรามิดให้ใหญ่ที่สุดในงบที่มี</h2>
   <p>
     พื้นที่สำรวจเป็นตารางขนาด <code>M × N</code> ช่อง ฐานปิรามิดต้องเป็น<strong>จัตุรัส</strong>ที่ด้านขนานกับเส้นตาราง
     บนพื้นที่มีสิ่งกีดขวาง <code>P</code> ก้อน แต่ละก้อนเป็นสี่เหลี่ยมในตาราง (ทับซ้อนกันได้)
-    การทำลายก้อนที่ <code>i</code> เสียค่าใช้จ่าย <code>C</code> และต้องทำลาย<strong>ทั้งก้อน</strong>
-    จะทุบแค่ส่วนที่ขวางไม่ได้
   </p>
   <p>
-    เรามีงบ <code>B</code> งานคือหา<strong>ด้านที่ยาวที่สุด</strong>ของฐานปิรามิดที่วางได้
-    โดยค่าทำลายสิ่งกีดขวางที่ทับพื้นที่ฐานรวมแล้วไม่เกินงบ ถ้าวางไม่ได้เลยให้ตอบ 0
+    การทำลายก้อนที่ <code>i</code> เสียค่าใช้จ่าย <code>C</code> และต้องทำลายทั้งก้อน จะทุบแค่ส่วนที่ขวางไม่ได้
+    เรามีงบ <code>B</code> งานคือหาด้านที่ยาวที่สุดของฐานที่วางได้ โดยค่าทำลายก้อนที่ทับฐานรวมแล้วไม่เกินงบ
+    ถ้าวางไม่ได้เลยให้ตอบ 0
   </p>
 
   <div class="callout callout-note spec">
     <p class="callout-label">อินพุต / ขอบเขต / เอาต์พุต</p>
     <ul>
       <li>
-        <strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>M</code> และ <code>N</code> บรรทัดที่ 2 คือ <code>B</code>
-        บรรทัดที่ 3 คือ <code>P</code> จากนั้น <code>P</code> บรรทัด แต่ละบรรทัดคือพิกัดมุมล่างซ้าย มุมบนขวา
-        และค่าทำลายของก้อนนั้น
+        <strong>อินพุต:</strong> บรรทัดที่ 1 คือ <code>M N</code> บรรทัดที่ 2 คือ <code>B</code> บรรทัดที่ 3 คือ <code>P</code>
+        จากนั้นอีก <code>P</code> บรรทัด บรรทัดละ <code>X1 Y1 X2 Y2 C</code> ตามลำดับนี้ คือช่องล่างซ้ายของก้อน ช่องบนขวาของก้อน และค่ารื้อ
       </li>
       <li>
-        <strong>ขอบเขต:</strong> <code>M, N ≤ {fmt(GRIDMAX)}</code>, <code>C ≤ 7,000</code>
-        เวลา 5 วินาที หน่วยความจำ 256 เมกะไบต์
+        <strong>พิกัด:</strong> นับเป็นช่อง เริ่มที่ 1 ช่องล่างซ้ายสุดของพื้นที่คือ <code>(1, 1)</code> ช่องบนขวาสุดคือ <code>(M, N)</code>
+        ก้อนคลุมทุกช่องตั้งแต่ <code>(X1, Y1)</code> ถึง <code>(X2, Y2)</code> รวมช่องที่ขอบด้วย
+      </li>
+      <li>
+        <strong>ขอบเขต:</strong> <code>1 ≤ M, N ≤ {fmt(GRIDMAX)}</code>, <code>1 ≤ C ≤ 7,000</code>,
+        <code>1 ≤ X1 ≤ X2 ≤ M</code>, <code>1 ≤ Y1 ≤ Y2 ≤ N</code> เวลา {T_LIMIT} วินาที หน่วยความจำ 256 เมกะไบต์
       </li>
       <li><strong>เอาต์พุต:</strong> ความยาวด้านของฐานที่ยาวที่สุด หรือ 0</li>
       <li>
-        <strong>ให้คะแนน:</strong> แบ่งเป็นสามชุด ชุดแรก 35 คะแนน <code>B = 0</code> และ <code>P ≤ 1,000</code>
-        ชุดที่สอง 35 คะแนน <code>B ≤ 2,000,000,000</code> และ <code>P ≤ 30,000</code>
-        ชุดที่สาม 30 คะแนน <code>B = 0</code> และ <code>P ≤ {fmt(PMAX)}</code>
+        <strong>ให้คะแนน:</strong> ชุดแรก 35 คะแนน <code>B = 0</code> และ <code>1 ≤ P ≤ {fmt(PSUB1)}</code>
+        ชุดที่สอง 35 คะแนน <code>0 &lt; B ≤ 2,000,000,000</code> และ <code>1 ≤ P ≤ {fmt(PSUB2)}</code>
+        ชุดที่สาม 30 คะแนน <code>B = 0</code> และ <code>1 ≤ P ≤ {fmt(PMAX)}</code>
       </li>
     </ul>
   </div>
@@ -369,90 +977,23 @@ const pbBill = [
       </tr>
     </tbody>
   </table>
+  <p class="io-note">
+    อ่านตัวอย่างแรก: ตารางกว้าง {EX1.M} ช่องตามแกน x สูง {EX1.N} ช่องตามแกน y งบ {EX1.B} มี {EX1.obs.length} ก้อน
+    บรรทัด <code>{[ex1First.x1, ex1First.y1, ex1First.x2, ex1First.y2, ex1First.c].join(' ')}</code> คือก้อนที่คลุมช่อง ({ex1First.x1}, {ex1First.y1}) ถึง ({ex1First.x2}, {ex1First.y2}) ค่ารื้อ {ex1First.c}
+  </p>
 
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      ตารางใหญ่ได้ถึงล้านคูณล้าน แปลว่าเราจะไม่มีวันแตะทุกช่องได้ แต่สิ่งกีดขวางมีแค่ไม่กี่แสนก้อน
-      ข้อมูลจริงที่มีอยู่จึงน้อยกว่าตารางมหาศาล
+      ตารางใหญ่ได้ถึงล้านคูณล้าน เราแตะทุกช่องไม่ได้ แต่สิ่งกีดขวางมีแค่ไม่กี่แสนก้อน
+      ข้อมูลจริงที่มีอยู่น้อยกว่าตารางมหาศาล
     </p>
     <p>
       ลองถามว่า ถ้ารู้ว่าจัตุรัสด้าน <code>s</code> วางได้ แล้วจัตุรัสด้าน <code>s − 1</code> วางได้ไหม
-      และถ้าเราคิดกลับด้าน มองว่า<strong>มุมล่างซ้าย</strong>ของจัตุรัสวางได้ที่ไหนบ้าง
+      และถ้าคิดกลับด้าน มองว่ามุมล่างซ้ายของจัตุรัสวางได้ที่ไหนบ้าง
       สิ่งกีดขวางหนึ่งก้อนจะห้ามมุมล่างซ้ายไว้ที่บริเวณรูปอะไร
     </p>
   </div>
-
-  {bestSpot !== null && (
-    <ZoomableDiagram caption={`ผังของตัวอย่างที่ 1 กว้าง ${EX1.M} ยาว ${EX1.N} งบรื้อ ${EX1.B} สี่เหลี่ยมทองคือสิ่งกีดขวาง ${EX1.obs.length} ก้อน ตัวเลขในก้อนคือค่ารื้อของก้อนนั้น กรอบเขียวคือฐานจัตุรัสด้านยาว ${ans1} ที่ใหญ่ที่สุดเท่าที่งบไหว วางที่มุมล่างซ้าย (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อรวมของก้อนที่ทับกรอบนี้คือ ${bestSpot.cost} ซึ่งไม่เกินงบ ลองไล่ดูจะเห็นว่าด้าน ${ans1 + 1} วางที่ไหนก็เกินงบทุกจุด (วาดประกอบโดยผู้เขียน)`}>
-      <svg viewBox={pbVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางกว้าง ${EX1.M} ช่อง ยาว ${EX1.N} ช่อง มีสิ่งกีดขวางสี่เหลี่ยม ${EX1.obs.length} ก้อน คือ ${EX1.obs.map((o) => `ก้อนจาก (${o.x1}, ${o.y1}) ถึง (${o.x2}, ${o.y2}) ค่ารื้อ ${o.c}`).join(' ')} และกรอบของฐานจัตุรัสด้านยาว ${ans1} ที่มุมล่างซ้ายอยู่ที่ (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อรวม ${bestSpot.cost} จากงบ ${EX1.B}`}>
-        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) =>
-          Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
-            <rect x={gx(x)} y={gy(y)} width={CELL} height={CELL} fill="#0f1626" stroke="#1e2740" stroke-width="1" />
-          )),
-        )}
-        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) => (
-          <text x={gx(x) + CELL / 2} y={GY - 8} fill="#7b8397" font-size="10.5" text-anchor="middle" font-family="monospace">
-            {x}
-          </text>
-        ))}
-        {Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
-          <text x={GX - 10} y={gy(y) + CELL / 2 + 4} fill="#7b8397" font-size="10.5" text-anchor="end" font-family="monospace">
-            {y}
-          </text>
-        ))}
-        {EX1.obs.map((o) => (
-          <>
-            <rect
-              x={gx(o.x1)}
-              y={gy(o.y1)}
-              width={(o.x2 - o.x1 + 1) * CELL}
-              height={(o.y2 - o.y1 + 1) * CELL}
-              rx="4"
-              fill={obsInBase(o) ? 'rgba(224,108,117,0.30)' : 'rgba(224,180,0,0.22)'}
-              stroke={obsInBase(o) ? '#e06c75' : '#e0b400'}
-              stroke-width="1.8"
-            />
-            <text
-              x={(gx(o.x1) + gx(o.x2) + CELL) / 2}
-              y={(gy(o.y1) + gy(o.y2) + CELL) / 2 + 5}
-              fill={obsInBase(o) ? '#ffb3b8' : '#ffe58a'}
-              font-size="13"
-              text-anchor="middle"
-              font-weight="700"
-              font-family="monospace"
-            >
-              {o.c}
-            </text>
-          </>
-        ))}
-        <rect
-          x={gx(bestSpot.x)}
-          y={gy(bestSpot.y)}
-          width={ans1 * CELL}
-          height={ans1 * CELL}
-          fill="none"
-          stroke="#4ade80"
-          stroke-width="3"
-          rx="3"
-        />
-        <text x={gx(EX1.M + 1) + 12} y={GY + 14} fill="#4ade80" font-size="12" text-anchor="start" font-family="monospace">
-          ฐานด้าน {ans1}
-        </text>
-        <text x={gx(EX1.M + 1) + 12} y={GY + 32} fill="#4ade80" font-size="12" text-anchor="start" font-family="monospace">
-          มุม ({bestSpot.x}, {bestSpot.y})
-        </text>
-        <text x={gx(EX1.M + 1) + 12} y={GY + 50} fill="#e06c75" font-size="12" text-anchor="start" font-family="monospace">
-          รื้อ {bestSpot.cost}
-        </text>
-        <text x={gx(EX1.M + 1) + 12} y={GY + 68} fill="#cdd6ea" font-size="12" text-anchor="start" font-family="monospace">
-          งบ {EX1.B}
-        </text>
-        <text x={gx(EX1.M + 1) + 12} y={GY + 92} fill="#e0b400" font-size="11" text-anchor="start">ทองคือกีดขวาง</text>
-        <text x={gx(EX1.M + 1) + 12} y={GY + 116} fill="#e06c75" font-size="11" text-anchor="start">แดงคือก้อนที่ต้องรื้อ</text>
-      </svg>
-    </ZoomableDiagram>
-  )}
 
   <h2>ลองเอง · หาที่วางฐานให้ใหญ่ที่สุดในงบ</h2>
   <div class="cpgame pbgame" data-pbgame data-puzzles={pbJson}>
@@ -475,52 +1016,149 @@ const pbBill = [
       <button type="button" class="cpg-btn main" data-pb-check>ตรวจตำแหน่งนี้</button>
     </div>
 
-    <p class="cpg-status" data-cpg-status>คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น</p>
+    <p class="cpg-status" data-cpg-status>คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อรวมของก้อนที่ทับช่องนั้น</p>
     <p class="cpg-score" data-cpg-score>ต้องจ่าย <b data-pb-cost>0</b> จากงบ <b data-pb-budget>0</b> · ใหญ่ที่สุดที่วางได้แล้ว <b data-pb-best>0</b></p>
     <p class="cpg-hint">ก้อนหนึ่งก้อนคิดเงินครั้งเดียว ไม่ว่าฐานจะทับมันกี่ช่องก็ตาม</p>
   </div>
   <p class="io-note">
-    ลองเลื่อนฐานไปเรื่อย ๆ แล้วสังเกตว่าค่าใช้จ่ายเปลี่ยนตอนไหน มันไม่ได้เปลี่ยนทุกช่อง แต่เปลี่ยนตอนขอบของฐานข้ามขอบของก้อน
+    ลองเลื่อนฐานทีละช่องแล้วดูว่าค่าใช้จ่ายเปลี่ยนตอนไหน ค่าจะนิ่งอยู่จนกว่าขอบของฐานจะข้ามขอบของก้อนสักก้อน
   </p>
 
-  <h2>เฉลย · ค้นหาคำตอบแบบไบนารี แล้วกวาดเส้นหาจุดที่ถูกที่สุด</h2>
+  <h2>เฉลย ตอนที่ 1 · วิธีช้าแต่ถูก ลองทุกขนาด ทุกมุม</h2>
   <Spoiler>
-    <div class="callout callout-warn">
-      <p class="callout-label">ที่มา และสามรอบที่ยังผิด</p>
+    <p>
+      เริ่มจากวิธีที่ตรงกับโจทย์ที่สุด ไล่ทุกด้านยาว <code>s</code> ทุกมุมล่างซ้าย <code>(x, y)</code>
+      แล้วรวมค่ารื้อของก้อนที่ทับฐาน ก้อนไหนทับก็คิดเงินครั้งเดียว
+    </p>
+    <p>
+      ก้อนทับฐานเมื่อทั้งสองเหลื่อมกันทั้งแนวนอนและแนวตั้ง ภาพข้างล่างคือผลของวิธีนี้บนตัวอย่างแรก
+    </p>
+
+    <ZoomableDiagram caption={`ตัวอย่างแรก กว้าง ${EX1.M} ยาว ${EX1.N} งบ ${EX1.B} ตัวเลขในก้อนคือค่ารื้อ กรอบเขียวคือฐานด้าน ${ans1} ที่มุม (${bestSpot.x}, ${bestSpot.y}) ก้อนสีแดงคือก้อนที่ต้องรื้อ รวม ${bestSpot.cost} ไม่เกินงบ ส่วนด้าน ${ans1 + 1} มุมที่ถูกที่สุดยังต้องจ่าย ${ex1Next.cost} (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={`0 0 ${pbVBW} ${pbVBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(pbVBW * 1.25)}px`} role="img" aria-label={`ตารางกว้าง ${EX1.M} ช่อง ยาว ${EX1.N} ช่อง แถว 1 อยู่ล่างสุด มีสิ่งกีดขวาง ${EX1.obs.length} ก้อน คือ ${EX1.obs.map((o) => `ก้อนจาก (${o.x1}, ${o.y1}) ถึง (${o.x2}, ${o.y2}) ค่ารื้อ ${o.c}`).join(' ')} และกรอบของฐานด้าน ${ans1} ที่มุมล่างซ้าย (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อรวม ${bestSpot.cost} จากงบ ${EX1.B}`}>
+        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) =>
+          Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
+            <rect x={gx(x)} y={gy(y)} width={CELL} height={CELL} fill="#0f1626" stroke="#1e2740" stroke-width="1" />
+          )),
+        )}
+        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) => (
+          <text x={gx(x) + CELL / 2} y={GY - 8} fill="#7b8397" font-size="10.5" text-anchor="middle" font-family="monospace">
+            {x}
+          </text>
+        ))}
+        {Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
+          <text x={GX - 10} y={gy(y) + CELL / 2 + 4} fill="#7b8397" font-size="10.5" text-anchor="end" font-family="monospace">
+            {y}
+          </text>
+        ))}
+        {EX1.obs.map((o) => (
+          <>
+            <rect
+              x={gx(o.x1)}
+              y={gy(o.y2)}
+              width={(o.x2 - o.x1 + 1) * CELL}
+              height={(o.y2 - o.y1 + 1) * CELL}
+              rx="4"
+              fill={obsInBase(o) ? 'rgba(224,108,117,0.30)' : 'rgba(224,180,0,0.22)'}
+              stroke={obsInBase(o) ? '#e06c75' : '#e0b400'}
+              stroke-width="1.8"
+            />
+            <text
+              x={(gx(o.x1) + gx(o.x2) + CELL) / 2}
+              y={(gy(o.y2) + gy(o.y1) + CELL) / 2 + 5}
+              fill={obsInBase(o) ? '#ffb3b8' : '#ffe58a'}
+              font-size="13"
+              text-anchor="middle"
+              font-weight="700"
+              font-family="monospace"
+            >
+              {o.c}
+            </text>
+          </>
+        ))}
+        <rect x={gx(bestSpot.x)} y={gy(bestSpot.y + ans1 - 1)} width={ans1 * CELL} height={ans1 * CELL} fill="none" stroke="#4ade80" stroke-width="3" rx="3" />
+        <text x={LEG_X} y={GY + 14} fill="#4ade80" font-size="12" font-family="monospace">ฐานด้าน {ans1}</text>
+        <text x={LEG_X} y={GY + 32} fill="#4ade80" font-size="12" font-family="monospace">มุม ({bestSpot.x}, {bestSpot.y})</text>
+        <text x={LEG_X} y={GY + 50} fill="#e06c75" font-size="12" font-family="monospace">รื้อ {bestSpot.cost}</text>
+        <text x={LEG_X} y={GY + 68} fill="#cdd6ea" font-size="12" font-family="monospace">งบ {EX1.B}</text>
+        <text x={LEG_X} y={GY + 92} fill="#e0b400" font-size="11">ทองคือกีดขวาง</text>
+        <text x={LEG_X} y={GY + 116} fill="#e06c75" font-size="11">แดงคือก้อนที่ต้องรื้อ</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      วิธีนี้ถูกแน่นอน และหน้านี้ใช้มันเป็นตัวตรวจของทุกวิธีที่ตามมา ปัญหาอยู่ที่ปริมาณงาน
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ลองคูณที่ขอบเขตเต็ม</p>
+      <ul>
+        <li>ด้านยาว <code>s</code> มีได้ตั้งแต่ 1 ถึง {sci(GRIDMAX)}</li>
+        <li>ด้าน <code>s</code> มีมุมให้ลอง <code>(M − s + 1)(N − s + 1)</code> มุม รวมทุกด้านเท่ากับ 1² + 2² + … + M² ≈ M³/3 ≈ {sci(BRUTE_CORNERS)} มุม</li>
+        <li>แต่ละมุมเช็กก้อน {fmt(PMAX)} ก้อน รวมราว {sci(BRUTE_FULL)} ครั้ง</li>
+      </ul>
       <p>
-        จุดตั้งต้นคือความไม่สมดุลของขนาด ตารางกว้างยาวได้ถึงล้านคูณล้าน ซึ่งแตะทุกช่องไม่ได้แน่นอน
-        แต่สิ่งกีดขวางมีแค่หลักแสนก้อน แปลว่า<strong>ข้อมูลจริงน้อยกว่าตารางมหาศาล</strong>
-        อัลกอริทึมจึงต้องเดินตามก้อน ไม่ใช่เดินตามช่อง คำถามที่ปลดล็อกคือ กลับด้านไปถามที่<strong>มุมล่างซ้ายของจัตุรัสที่เราจะวาง</strong>
-        แทนที่จะถามที่ตัวก้อน พอกลับด้านแล้ว ก้อนหนึ่งก้อนก็กลายเป็นสี่เหลี่ยมผืนหนึ่งที่บวกค่าเพิ่มลงไป ซึ่งกวาดเส้นได้
-      </p>
-      <p>
-        บักจริงที่เกิดขึ้นอยู่ในเซกเมนต์ทรี ผมขยายขนาดมันให้เป็นกำลังสองตามปกติ แล้ว<strong>ปล่อยใบส่วนเกินไว้ที่ศูนย์</strong>
-        ค่าที่ <code>mn[1]</code> จึงเป็นศูนย์ตลอดกาล โปรแกรมเลยตอบว่าวางได้ทุกขนาดที่ถาม
-        และมัน<strong>ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด</strong> ตัวสุ่มเทียบจับได้ เคสแรกที่ปริ๊นต์ออกมาคือ
-        M = 9, N = 6, B = 10 ของจริงตอบ 3 แต่โค้ดตอบ 4 ผมสุ่มตารางไม่เกินเก้าคูณเก้า ก้อนไม่เกินหกก้อน รวม 1,500 ชุด
-      </p>
-      <p>
-        พอถูกแล้วยังเหลือเรื่องเวลา รอบแรกจับเวลาได้ <strong>8.1 วินาที</strong> ขณะที่ลิมิตคือห้าวินาที
-        พอไล่ดูว่าเวลาไปอยู่ตรงไหน ตัวการคือ<strong>การเรียงข้อมูลใหม่ทุกรอบ</strong>ของการค้นหาแบบไบนารี
-        ทั้งเรียงพิกัดที่บีบแล้วและเรียงเหตุการณ์ ยี่สิบรอบก็คือเรียงยี่สิบครั้ง แก้โดยเรียงดัชนีล่วงหน้าครั้งเดียวสี่ชุด
-        (ตาม X1, X2, Y1, Y2) แล้วผสานสองสายที่เรียงมาแล้ว เหลือ <strong>6.6 วินาที</strong> ยังไม่พอ
-        จึงเปลี่ยนเซกเมนต์ทรีจากแบบเรียกซ้ำเป็นแบบไล่จากใบขึ้นราก จบที่ <strong>3.8 วินาที</strong>
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้มีสองข้อ หนึ่งคือใบส่วนเกินของเซกเมนต์ทรีที่หาค่าน้อยสุด ต้องตั้งเป็นค่าอนันต์ ไม่ใช่ศูนย์
-        สองคือเวลาช้า ตัวการมักไม่ใช่โครงสร้างข้อมูลที่ดูหนักที่สุด แต่เป็นงานเตรียมข้อมูลที่ถูกทำซ้ำอยู่ในลูปนอก ให้<strong>ไล่ดูว่าเวลาไปอยู่ตรงไหนก่อนรื้อ</strong>
+        เครื่องทั่วไปทำงานง่าย ๆ ได้ราว 10⁸ ครั้งต่อวินาที (กะคร่าว ๆ) ใน {T_LIMIT} วินาทีได้ราว {sci(BUDGET_OPS)} ครั้ง
+        วิธีนี้ช้ากว่างบราว {sci(BRUTE_FULL / BUDGET_OPS)} เท่า
       </p>
     </div>
-    <h3>ขั้นที่ 1 ทำไมค้นหาแบบไบนารีได้</h3>
     <p>
-      ถ้าจัตุรัสด้าน <code>s</code> วางได้ในงบ ให้มองจัตุรัสด้าน <code>s − 1</code> ที่ซ้อนอยู่ข้างในมัน
-      สิ่งกีดขวางที่ชนตัวเล็กย่อมชนตัวใหญ่ด้วย ค่าใช้จ่ายจึงไม่มีทางมากกว่า แปลว่า
-      <strong>เงื่อนไข "วางได้" เป็นจริงเรียงติดกันแล้วเท็จตลอด</strong> ซึ่งพอดีกับการค้นหาแบบไบนารี
+      งานก้อนนี้คือจำนวนขนาด คูณจำนวนมุม คูณจำนวนก้อน ตอนต่อ ๆ ไปลดทีละตัว และชุดทดสอบย่อยแต่ละชุดเปิดทางให้ลดคนละแบบ
     </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="โครงชั้นนอก" />
     <figure class="tbl">
       <table class="rec">
-        <caption>ตัวอย่างที่ 1 · ค่าใช้จ่ายต่ำสุดของแต่ละขนาด (งบ {EX1.B})</caption>
+        <caption>ชุดทดสอบย่อยของโจทย์ (ทุกชุด M, N ≤ {fmt(GRIDMAX)})</caption>
+        <thead><tr><th class="num">ชุด</th><th class="num">คะแนน</th><th>งบ</th><th>จำนวนก้อน</th></tr></thead>
+        <tbody>
+          {SUBTASKS.map((t) => (
+            <tr><td class="num">{t.id}</td><td class="num">{t.pts}</td><td><code>{t.b}</code></td><td><code>{t.p}</code></td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>ชุดที่ 1 กับ 3 งบเป็นศูนย์ทั้งคู่ ต่างกันที่จำนวนก้อน ชุดที่ 2 มีงบจริงแต่ก้อนน้อยกว่าชุดที่ 3 ราว {Math.round(PMAX / PSUB2)} เท่า</figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · ถามว่าขนาดนี้วางได้ไหม แทนการถามว่าใหญ่สุดเท่าไร</h2>
+  <Spoiler>
+    <p>
+      ตัวที่ลดง่ายที่สุดคือจำนวนขนาด ลองดูว่าถ้ารู้แล้วว่าด้าน <code>s</code> วางได้ เราบอกอะไรเกี่ยวกับด้านที่สั้นกว่าได้บ้าง
+    </p>
+    <p>
+      เอาฐานด้าน <code>s − 1</code> ไปวางที่มุมเดียวกับฐานด้าน <code>s</code> ตัวเล็กอยู่ข้างในตัวใหญ่ทั้งตัว
+      ก้อนไหนทับตัวเล็กก็ทับตัวใหญ่ด้วย ค่ารื้อของตัวเล็กเลยไม่เกินตัวใหญ่
+    </p>
+    <ZoomableDiagram caption={`ตัวอย่างแรก ฐานสองขนาดที่มุม (${bestSpot.x}, ${bestSpot.y}) เดียวกัน กรอบเขียวด้าน ${ans1} ค่ารื้อ ${nestBig} กรอบฟ้าด้าน ${ans1 - 1} ค่ารื้อ ${nestSmall} ตัวเล็กอยู่ข้างในตัวใหญ่ ก้อนที่ทับตัวเล็กก็ทับตัวใหญ่ด้วย`}>
+      <svg viewBox={`0 0 ${nestVBW} ${nestVBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(nestVBW * 1.25)}px`} role="img" aria-label={`ตารางของตัวอย่างแรกขนาดย่อ มีกรอบเขียวของฐานด้าน ${ans1} และกรอบฟ้าของฐานด้าน ${ans1 - 1} ซ้อนอยู่ข้างใน ทั้งคู่มีมุมล่างซ้ายที่ (${bestSpot.x}, ${bestSpot.y}) ค่ารื้อ ${nestBig} และ ${nestSmall}`}>
+        {Array.from({ length: EX1.M }, (_, i) => i + 1).map((x) =>
+          Array.from({ length: EX1.N }, (_, j) => j + 1).map((y) => (
+            <rect x={nx(x)} y={ny(y)} width={NC} height={NC} fill="#0f1626" stroke="#1e2740" stroke-width="1" />
+          )),
+        )}
+        {EX1.obs.map((o) => (
+          <rect x={nx(o.x1)} y={ny(o.y2)} width={(o.x2 - o.x1 + 1) * NC} height={(o.y2 - o.y1 + 1) * NC} rx="3" fill="rgba(224,180,0,0.18)" stroke="#e0b400" stroke-width="1.2" />
+        ))}
+        <rect x={nx(bestSpot.x)} y={ny(bestSpot.y + ans1 - 1)} width={ans1 * NC} height={ans1 * NC} fill="none" stroke="#4ade80" stroke-width="3" rx="3" />
+        <rect x={nx(bestSpot.x) + 3} y={ny(bestSpot.y + ans1 - 2) + 3} width={(ans1 - 1) * NC - 6} height={(ans1 - 1) * NC - 6} fill="none" stroke="#60a5fa" stroke-width="2.4" stroke-dasharray="5 3" rx="3" />
+        <text x={NLEG} y={NT + 14} fill="#4ade80" font-size="12">ด้าน {ans1} ค่ารื้อ {nestBig}</text>
+        <text x={NLEG} y={NT + 34} fill="#60a5fa" font-size="12">ด้าน {ans1 - 1} ค่ารื้อ {nestSmall}</text>
+        <text x={NLEG} y={NT + 54} fill="#9aa7bd" font-size="11">มุมเดียวกัน ({bestSpot.x}, {bestSpot.y})</text>
+      </svg>
+    </ZoomableDiagram>
+    <div class="callout callout-tip">
+      <p class="callout-label">ข้อสังเกตของตอนนี้</p>
+      <p>ถ้าด้าน <code>s</code> วางได้ ทุกด้านที่สั้นกว่าวางได้หมด คำตอบของคำถาม "วางได้ไหม" เรียงเป็น ได้ ได้ ... ได้ แล้วไม่ได้ไปตลอด</p>
+    </div>
+    <p>
+      คำตอบที่เรียงแบบนี้ใช้<b>การค้นหาคำตอบแบบไบนารี</b> (binary search on the answer อ่านว่า "ไบนารีเสิร์ช") ได้
+      คือถามขนาดตรงกลางของช่วงที่ยังไม่รู้ ถ้าได้ก็ทิ้งครึ่งล่าง ถ้าไม่ได้ก็ทิ้งครึ่งบน
+    </p>
+    <p>
+      ช่วง 0 ถึง {fmt(GRIDMAX)} หดเหลือค่าเดียวใน {ROUNDS} รอบ เพราะหารครึ่ง {ROUNDS} ครั้งก็เหลือไม่ถึงหนึ่ง
+      ท่านี้มีบทปูพื้นแยกไว้ที่<a href="/cp/segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างแรก · ค่าใช้จ่ายต่ำสุดของแต่ละขนาด (งบ {EX1.B})</caption>
         <thead>
           <tr><th class="num">ด้านยาว</th><th class="num">ค่าใช้จ่ายต่ำสุด</th><th>มุมล่างซ้ายที่ถูกที่สุด</th><th>อยู่ในงบไหม</th></tr>
         </thead>
@@ -530,64 +1168,173 @@ const pbBill = [
               <td class="num">{r.s}</td>
               <td class="num">{r.cost === null ? '' : r.cost}</td>
               <td>{r.cost === null ? <span class="dim">วางไม่ได้</span> : <code>{r.pos}</code>}</td>
-              <td>{r.cost !== null && r.cost <= EX1.B ? 'ได้' : 'ไม่ได้'}</td>
+              <td>{r.fits ? 'ได้' : 'ไม่ได้'}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <figcaption>
-        คอลัมน์ค่าใช้จ่ายไม่มีทางลดลงเมื่อด้านยาวขึ้น คำตอบจึงเป็น {ans1} คือขนาดสุดท้ายที่ยังอยู่ในงบ
-        ตัวเลขทุกตัวคำนวณจากการไล่ทุกตำแหน่งจริง
+        ค่าใช้จ่ายไม่ลดลงเลยเมื่อด้านยาวขึ้น คำตอบคือ {ans1} ซึ่งเป็นขนาดสุดท้ายที่ยังอยู่ในงบ
+        ทุกตัวเลขมาจากการไล่ทุกตำแหน่งจริง
       </figcaption>
     </figure>
-
-    <h3>ขั้นที่ 2 พลิกจากพื้นที่ฐานไปเป็นมุมล่างซ้าย</h3>
-    <p>
-      ตรึง <code>s</code> ไว้แล้วถามว่ามุมล่างซ้ายวางตรงไหนได้บ้าง จัตุรัสที่มุมอยู่ที่ <code>(x, y)</code>
-      ชนก้อนที่ <code>i</code> ก็ต่อเมื่อช่วงของมันเหลื่อมกับช่วงของก้อนทั้งสองแกน ซึ่งเขียนออกมาได้ว่า
-    </p>
-    <p><code>x ต้องอยู่ระหว่าง X1 − s + 1 ถึง X2 และ y ต้องอยู่ระหว่าง Y1 − s + 1 ถึง Y2</code></p>
-    <p>
-      นั่นคือก้อนหนึ่งก้อนกลายเป็น<strong>สี่เหลี่ยมที่บวกค่าใช้จ่ายลงบนระนาบของมุมล่างซ้าย</strong>
-      คำถามเดิมที่ว่า "มีที่วางถูก ๆ ไหม" จึงกลายเป็น <strong>ผลรวมของสี่เหลี่ยมที่ทับกันอยู่ มีจุดไหนที่ต่ำสุดไม่เกินงบ</strong>
-    </p>
-
-    <h3>ขั้นที่ 3 กวาดเส้นตามแกน x</h3>
-    <p>
-      ปัญหาแบบนี้คือปัญหากวาดเส้นมาตรฐาน กวาด <code>x</code> จากซ้ายไปขวา แต่ละก้อนมีเหตุการณ์สองอัน
-      คือ<strong>บวก</strong>ตอนเข้าและ<strong>ลบ</strong>ตอนออก ส่วนแกน <code>y</code> ใช้เซกเมนต์ทรีที่
-      <strong>บวกทั้งช่วง และถามค่าน้อยสุดของทั้งอาเรย์</strong> พอถึงตำแหน่ง <code>x</code> ไหนก็ถามค่าน้อยสุดหนึ่งครั้ง
-      ถ้าไม่เกินงบก็แปลว่าขนาดนี้วางได้
-    </p>
-    <p>
-      พิกัดใหญ่ถึงล้าน จึงต้อง<strong>บีบพิกัด</strong>แกน <code>y</code> ให้เหลือเฉพาะจุดที่ค่าเปลี่ยนจริง
-      ซึ่งมีไม่เกิน <code>2P</code> จุด และเช่นเดียวกัน ตำแหน่ง <code>x</code> ที่ต้องถามก็มีแค่จุดที่มีเหตุการณ์เกิด
-    </p>
-    <div class="callout callout-warn">
-      <p class="callout-label">ระวัง</p>
-      <p>
-        เซกเมนต์ทรีที่ถามค่าน้อยสุดของ<strong>ทั้งอาเรย์</strong> มีกับดักที่ผมตกไปแล้วรอบหนึ่ง
-        ใบส่วนเกินที่ถูกเติมมาเพื่อให้ขนาดเป็นกำลังสอง ถ้าปล่อยค่าไว้ที่ศูนย์ คำตอบของ
-        <code>mn[1]</code> จะเป็นศูนย์ตลอดกาล และโปรแกรมจะตอบว่าวางได้ทุกขนาด
-        ต้องตั้งใบส่วนเกินเป็นอนันต์ตั้งแต่ตอนสร้าง
-      </p>
-      <p>
-        อาการของบักนี้คือ ตอบตัวอย่างในโจทย์<strong>ถูกทั้งสองชุด</strong> แต่พอสุ่มเทียบกับตัวไล่ทุกตำแหน่ง
-        มันตอบเกินจริงทันที
-      </p>
-    </div>
+    <CodeBlock code={coreSnippet} lang="cpp" title="โครงชั้นนอก" />
   </Spoiler>
 
-  <h2>อีกมุมหนึ่ง: ชุดแรก 35 คะแนน ไม่ต้องใช้เซกเมนต์ทรีเลย</h2>
+  <h2>เฉลย ตอนที่ 3 · ก้อนหนึ่งก้อนห้ามมุมเป็นสี่เหลี่ยมผืนเดียว</h2>
   <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        ไบนารีเหลือ {ROUNDS} รอบก็จริง แต่ในแต่ละรอบยังต้องไล่มุมนับล้านล้าน ตารางใหญ่ขนาดนี้แตะทุกช่องไม่ได้
+        ในขณะที่ก้อนมีแค่หลักแสน อัลกอริทึมต้องเดินตามก้อนแทน
+      </p>
+      <p>
+        ผมเลยกลับคำถาม จากเดิมที่ถามว่า "ฐานที่มุมนี้ทับก้อนไหน" เป็น "ก้อนนี้ทับฐานที่มุมไหนบ้าง"
+      </p>
+    </div>
     <p>
-      ชุดทดสอบชุดแรกให้ <code>B = 0</code> ซึ่งแปลว่า<strong>ห้ามชนก้อนไหนเลย</strong>
-      คำถามเลยง่ายลงมาก จาก "หาจุดที่ผลรวมต่ำสุด" เหลือแค่ "มีจุดไหนที่ไม่มีใครทับ"
+      ตอนนี้ใช้ตารางเล็กชุดหนึ่ง (ชุดเดียวกับแท็บที่ 4 ของเกม) จะได้เห็นทุกตัวเลขในหน้าเดียว
+      ตารางกว้าง {EXS.M} สูง {EXS.N} งบ {EXS.B} มี {EXS.obs.length} ก้อน
+    </p>
+    <ul>
+      {exsList.map((t) => <li>{t}</li>)}
+    </ul>
+    <p>
+      ตรึงด้าน <code>s = {SS}</code> มุมล่างซ้ายมี <code>x</code> ได้ 1 ถึง <code>M − s + 1 = {SXH}</code>
+      และ <code>y</code> ได้ 1 ถึง <code>N − s + 1 = {SYH}</code> ถ้ามุมอยู่เลยกว่านี้ ฐานจะยื่นออกนอกตาราง
     </p>
     <p>
-      พอเป็นแบบนี้ ก็ไม่ต้องใช้โครงสร้างข้อมูลอะไรเลย สำหรับแต่ละตำแหน่ง <code>x</code> ที่น่าลอง
-      ก็เก็บ<strong>ช่วงของ y ที่ถูกห้าม</strong>ของก้อนที่ยังคาบเกี่ยวอยู่ เรียงตาม <code>y</code>
-      แล้วไล่หาช่องว่างแรกที่ไม่มีใครทับ ถ้าเจอก็แปลว่าขนาดนี้วางได้
+      เริ่มจากก้อน {NAMES[WI]} ในแนวนอน เลื่อนฐานจากซ้ายไปขวาแล้วดูว่าที่มุมไหนเริ่มทับ และที่มุมไหนเลิกทับ
+    </p>
+    <ZoomableDiagram caption={`แนวนอนอย่างเดียว ก้อน ${NAMES[WI]} อยู่คอลัมน์ ${wo.x1} ถึง ${wo.x2} ฐานกว้าง ${SS} ช่อง มุม x = ${c1Rows[0].x} ยังไม่ถึงก้อน มุม ${c1Rows[1].x} เริ่มทับ มุม ${c1Rows[2].x} ทับเป็นตำแหน่งสุดท้าย มุม ${c1Rows[3].x} พ้นไปแล้ว`}>
+      <svg viewBox={`0 0 ${c1VBW} ${c1VBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(c1VBW * 1.25)}px`} role="img" aria-label={`แถบคอลัมน์ 1 ถึง ${EXS.M} มีก้อน ${NAMES[WI]} ที่คอลัมน์ ${wo.x1} ถึง ${wo.x2} ข้างล่างเป็นฐานกว้าง ${SS} ช่องสี่ตำแหน่ง ${c1Rows.map((r) => `มุม x = ${r.x} ${r.hit ? 'ทับ' : 'ไม่ทับ'}`).join(' ')}`}>
+        {colsAll.map((x) => (
+          <>
+            <rect x={c1x(x)} y={C1.top} width={C1.cell} height={34 + 4 * C1.row - 6} fill="none" stroke="#1e2740" stroke-width="1" />
+            <text x={c1x(x) + C1.cell / 2} y={C1.top - 8} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">{x}</text>
+          </>
+        ))}
+        <text x="12" y={C1.top + 16} fill={OB_COL[WI]} font-size="12">ก้อน {NAMES[WI]}</text>
+        <rect x={c1x(wo.x1) + 2} y={C1.top + 3} width={(wo.x2 - wo.x1 + 1) * C1.cell - 4} height="22" rx="4" fill={OB_COL[WI]} fill-opacity="0.3" stroke={OB_COL[WI]} stroke-width="1.6" />
+        {c1Rows.map((row, i) => (
+          <>
+            <text x="12" y={C1.top + 34 + i * C1.row + 16} fill="#cdd6ea" font-size="12">มุม x = {row.x}</text>
+            <rect x={c1x(row.x) + 2} y={C1.top + 34 + i * C1.row + 3} width={SS * C1.cell - 4} height="22" rx="4" fill={row.hit ? 'rgba(244,114,182,0.18)' : 'rgba(74,222,128,0.14)'} stroke={row.hit ? '#f472b6' : '#4ade80'} stroke-width="1.6" />
+            <text x={c1x(EXS.M + 1) + 8} y={C1.top + 34 + i * C1.row + 16} fill={row.hit ? '#f472b6' : '#4ade80'} font-size="12">{row.hit ? 'ทับ' : 'ไม่ทับ'}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ฐานที่มุม <code>x</code> กินคอลัมน์ <code>x</code> ถึง <code>x + s − 1</code> มันเริ่มทับเมื่อขอบขวา <code>x + s − 1</code> แตะคอลัมน์แรกของก้อน
+      คือ <code>x = X1 − s + 1 = {wo.x1} − {SS} + 1 = {wRawXl}</code> และทับไปจนขอบซ้าย <code>x</code> ยังอยู่ที่คอลัมน์สุดท้ายของก้อน คือ <code>x = X2 = {wo.x2}</code>
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">แนวตั้งของก้อน {NAMES[WI]} แล้วนับให้ครบ</p>
+      <ul>
+        <li>ก้อนอยู่แถว {wo.y1} ถึง {wo.y2} ฐานเริ่มทับที่ <code>y = {wo.y1} − {SS} + 1 = {wRawYl}</code> และทับไปถึง <code>y = {wo.y2}</code></li>
+        <li>แต่มุม <code>y</code> สูงสุดแค่ {SYH} เลยตัดเหลือ <code>y = {wRect.yl}</code> ถึง <code>{wRect.yh}</code></li>
+        <li>แนวนอน {wRect.xl} ถึง {wRect.xr} ไม่เกิน {SXH} ไม่ต้องตัด</li>
+      </ul>
+      <p>
+        มุมที่ทับก้อน {NAMES[WI]} คือกรอบ {wRect.xr - wRect.xl + 1} × {wRect.yh - wRect.yl + 1} = {wCount} มุม
+        ไล่ตรวจทุกมุมด้วยวิธีของตอนที่ 1 ก็เจอ {wDirect.length} มุมชุดเดียวกัน
+      </p>
+    </div>
+    <div class="callout callout-tip">
+      <p class="callout-label">สูตรทั่วไป</p>
+      <ul>
+        <li><code>x</code> อยู่ระหว่าง <code>X1 − s + 1</code> ถึง <code>X2</code></li>
+        <li><code>y</code> อยู่ระหว่าง <code>Y1 − s + 1</code> ถึง <code>Y2</code></li>
+        <li>ทั้งสองแกนตัดให้อยู่ในช่วงมุมที่วางได้ คือ 1 ถึง <code>M − s + 1</code> และ 1 ถึง <code>N − s + 1</code></li>
+      </ul>
+    </div>
+    <p>
+      คำถามในคำใบ้ที่ว่าก้อนหนึ่งก้อนห้ามมุมล่างซ้ายไว้เป็นรูปอะไร คำตอบคือ<b>สี่เหลี่ยมผืนเดียว</b> เพราะแต่ละแกนได้ช่วงต่อเนื่องหนึ่งช่วง
+    </p>
+
+    <ZoomableDiagram caption={`ซ้ายคือตารางจริง ขวาคือแผนที่ของมุมล่างซ้ายเมื่อ s = ${SS} ตัวเลขในแต่ละมุมคือค่ารื้อรวมถ้าวางฐานที่มุมนั้น กรอบประสีชมพูคือมุมที่ทับก้อน ${NAMES[WI]} วงเขียวคือมุม (${sw.stopX}, ${sw.stopY}) ที่ค่ารื้อ ${costAt(EXS, SS, sw.stopX, sw.stopY)} ไม่เกินงบ ${EXS.B} ตรงกับกรอบเขียวทางซ้าย`}>
+      <svg viewBox={`0 0 ${d2VBW} ${d2VBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(d2VBW * 1.25)}px`} role="img" aria-label={`สองภาพเคียงกัน ซ้ายคือตารางกว้าง ${EXS.M} ยาว ${EXS.N} มีก้อน A ถึง D และกรอบเขียวของฐานด้าน ${SS} ที่มุม (${sw.stopX}, ${sw.stopY}) ขวาคือแผนที่ของมุมขนาด ${SXH} คูณ ${SYH} ทุกมุมมีตัวเลขค่ารื้อรวม และกรอบประของมุมที่ทับก้อน ${NAMES[WI]} คือ x ${wRect.xl} ถึง ${wRect.xr} y ${wRect.yl} ถึง ${wRect.yh}`}>
+        <text x={D2X} y="18" fill="#cdd6ea" font-size="12">ตารางจริง กว้าง {EXS.M} ยาว {EXS.N}</text>
+        <text x={D2RX} y="18" fill="#cdd6ea" font-size="12">แผนที่ของมุม เมื่อ s = {SS}</text>
+        {Array.from({ length: EXS.M }, (_, i) => i + 1).map((x) =>
+          Array.from({ length: EXS.N }, (_, j) => j + 1).map((y) => (
+            <rect x={d2lx(x)} y={d2ly(y)} width={D2C} height={D2C} fill="#0f1626" stroke="#1e2740" stroke-width="1" />
+          )),
+        )}
+        {Array.from({ length: EXS.M }, (_, i) => i + 1).map((x) => (
+          <text x={d2lx(x) + D2C / 2} y={D2T - 6} fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">{x}</text>
+        ))}
+        {Array.from({ length: EXS.N }, (_, j) => j + 1).map((y) => (
+          <text x={D2X - 8} y={d2ly(y) + D2C / 2 + 4} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">{y}</text>
+        ))}
+        {EXS.obs.map((o, i) => (
+          <>
+            <rect x={d2lx(o.x1) + 2} y={d2ly(o.y2) + 2} width={(o.x2 - o.x1 + 1) * D2C - 4} height={(o.y2 - o.y1 + 1) * D2C - 4} rx="4" fill={OB_COL[i]} fill-opacity="0.22" stroke={OB_COL[i]} stroke-width="1.6" />
+            <text x={(d2lx(o.x1) + d2lx(o.x2) + D2C) / 2} y={(d2ly(o.y2) + d2ly(o.y1) + D2C) / 2 + 4} fill={OB_COL[i]} font-size="11.5" font-weight="700" text-anchor="middle" font-family="monospace">{NAMES[i]} {o.c}</text>
+          </>
+        ))}
+        <rect x={d2lx(sw.stopX)} y={d2ly(sw.stopY + SS - 1)} width={SS * D2C} height={SS * D2C} fill="none" stroke="#4ade80" stroke-width="2.6" rx="3" />
+        {cornerCost.map((k) => (
+          <>
+            <rect x={d2rx(k.x)} y={d2ry(k.y)} width={D2C} height={D2C} fill="#101827" stroke="#2a3350" stroke-width="1" />
+            <text x={d2rx(k.x) + D2C / 2} y={d2ry(k.y) + D2C / 2 + 4} fill={k.fits ? '#4ade80' : '#cdd6ea'} font-size="11" text-anchor="middle" font-family="monospace">{k.c}</text>
+          </>
+        ))}
+        {xsRange.map((x) => (
+          <text x={d2rx(x) + D2C / 2} y={D2T - 6} fill="#7b8397" font-size="10" text-anchor="middle" font-family="monospace">{x}</text>
+        ))}
+        {ysRange.map((y) => (
+          <text x={D2RX - 8} y={d2ry(y) + D2C / 2 + 4} fill="#7b8397" font-size="10" text-anchor="end" font-family="monospace">{y}</text>
+        ))}
+        <rect x={d2rx(wRect.xl) + 2} y={d2ry(wRect.yh) + 2} width={(wRect.xr - wRect.xl + 1) * D2C - 4} height={(wRect.yh - wRect.yl + 1) * D2C - 4} rx="4" fill="none" stroke={OB_COL[WI]} stroke-width="2" stroke-dasharray="5 3" />
+        <circle cx={d2rx(sw.stopX) + D2C / 2} cy={d2ry(sw.stopY) + D2C / 2} r={D2C / 2 - 2} fill="none" stroke="#4ade80" stroke-width="2" />
+      </svg>
+    </ZoomableDiagram>
+
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        คิดว่าก้อนแต่ละก้อนเป็นด่านเก็บเงินที่ปักป้ายคลุมพื้นที่สี่เหลี่ยมบนแผนที่ของมุม
+        ยืนอยู่ที่มุมไหน ก็จ่ายให้ทุกด่านที่ป้ายคลุมจุดนั้น ด่านละครั้ง
+      </p>
+    </div>
+    <p>
+      คำถาม "ด้าน <code>s</code> วางได้ไหม" เลยเท่ากับถามว่า บนแผนที่ของมุม มีจุดไหนที่ผลรวมของสี่เหลี่ยมที่คลุมอยู่ไม่เกินงบ
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 · ชุดที่ 1 งบศูนย์ หาช่องว่างทีละคอลัมน์</h2>
+  <Spoiler>
+    <p>
+      งบเป็นศูนย์แปลว่าห้ามชนก้อนไหนเลย ผลรวมไม่มีความหมายแล้ว
+      เหลือแค่ถามว่าบนแผนที่ของมุม มีจุดที่ไม่มีสี่เหลี่ยมผืนไหนคลุมหรือเปล่า
+    </p>
+    <p>
+      สมมติเจอมุมว่างสักจุด ลองเลื่อนมันไปทางซ้ายทีละคอลัมน์ ตราบที่ยังว่างก็เลื่อนต่อได้ มันจะหยุดได้สองแบบ
+    </p>
+    <ul>
+      <li>ชนขอบตาราง ที่ <code>x = 1</code></li>
+      <li>คอลัมน์ทางซ้ายของมันอยู่ในสี่เหลี่ยมของก้อนหนึ่ง สี่เหลี่ยมนั้นจบที่ <code>X2</code> คอลัมน์ว่างแรกถัดออกมาคือ <code>x = X2 + 1</code></li>
+    </ul>
+    <p>
+      ถ้ามีมุมว่าง ก็ต้องมีมุมว่างที่ <code>x</code> เป็น 1 หรือ <code>X2 + 1</code> ของสักก้อน
+      <code>x</code> ที่ต้องลองมีไม่เกิน <code>P + 1</code> ค่า ค่าที่เกิน <code>M − s + 1</code> ทิ้งได้ เพราะฐานที่มุมนั้นล้นตาราง
+    </p>
+    <ol>
+      <li>เก็บช่วง <code>y</code> ห้ามของก้อนที่คลุมคอลัมน์ <code>x</code> โดยตัดปลายบนไม่ให้เกิน <code>N − s + 1</code></li>
+      <li>เรียงช่วงตามจุดเริ่ม</li>
+      <li>เดินจาก <code>y = 1</code> ถ้าช่วงถัดไปเริ่มเลยตำแหน่งปัจจุบัน แปลว่าเจอช่องว่าง</li>
+      <li>ไล่ครบทุกช่วงแล้วตำแหน่งปัจจุบันยังไม่เกิน <code>N − s + 1</code> ก็มีช่องว่างเหนือช่วงสุดท้าย</li>
+      <li>ไม่เจอเลยก็ลอง <code>x</code> ถัดไป</li>
+    </ol>
+    <p>
+      ต่อหนึ่งรอบของไบนารีมี <code>x</code> ไม่เกิน <code>P + 1</code> ค่า แต่ละค่าเช็ก <code>P</code> ก้อนแล้วเรียงช่วงอีกราว <code>P log₂ P</code> ครั้ง
+      ชุดที่ 1 รวมได้ราว {sci(COST_GAP_SUB1)} ใช้เวลา {T_SUB1} วินาที แต่ที่ <code>P = {fmt(PMAX)}</code> พุ่งไปราว {sci(BARS[1].v)}
+    </p>
+    <p>
+      ชุดที่ 2 ใช้ท่านี้ไม่ได้ตั้งแต่ต้น งบมากกว่าศูนย์ต้องหาค่าต่ำสุดของผลรวม ซึ่งการหาช่องว่างตอบให้ไม่ได้
     </p>
     <details class="expander">
       <summary>ดูโค้ดของชุดทดสอบย่อยชุดแรก</summary>
@@ -595,100 +1342,439 @@ const pbBill = [
         <CodeBlock code={subCode} lang="cpp" title="pyramid_sub.cpp" />
       </div>
     </details>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 5 · ชุดที่ 2 กวาดเส้นไปตามแกน x</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        พอต้องหาค่าต่ำสุดของผลรวม ผมลองตรึงคอลัมน์ <code>x</code> ของแผนที่มุมไว้คอลัมน์เดียว
+        สี่เหลี่ยมที่คลุมคอลัมน์นั้นแต่ละผืน คือการบวกค่าลงช่วงหนึ่งของ <code>y</code> เหลือแค่ทำให้คอลัมน์เลื่อนได้
+      </p>
+    </div>
     <p>
-      ต้นทุนคือ <code>P²</code> ต่อหนึ่งขนาด คูณจำนวนรอบของการค้นหาแบบไบนารี ที่ <code>P</code> พันก้อนก็ไหวสบาย
-      แต่พอชุดที่สามให้ <code>P</code> ถึงสี่แสน มันตายทันที และชุดที่สองที่มีงบจริงก็ใช้ท่านี้ไม่ได้ตั้งแต่แรก
-      เพราะการหา "จุดที่ผลรวมต่ำสุด" ไม่ใช่การหาช่องว่าง
+      <b>การกวาดเส้น</b> (sweep line อ่านว่า "สวีปไลน์") คือเดินเส้นตั้งจากซ้ายไปขวาบนแผนที่ของมุม
+      แล้วเก็บค่าของคอลัมน์ที่เส้นอยู่ไว้ในโครงสร้างข้อมูลตัวเดียว สี่เหลี่ยมหนึ่งผืนสร้างเหตุการณ์สองครั้ง
+    </p>
+    <ul>
+      <li><b>เข้า</b> ที่ขอบซ้ายของมัน บวกค่ารื้อลงช่วง <code>y</code> ของมัน</li>
+      <li><b>ออก</b> ที่คอลัมน์ถัดจากขอบขวา ลบค่าเดิมออก ถ้าคอลัมน์นั้นเกิน <code>M − s + 1</code> ไม่ต้องสร้างเหตุการณ์ออก เพราะเส้นไปไม่ถึง</li>
+    </ul>
+    <p>
+      ระหว่างสองเหตุการณ์ที่ติดกัน ค่าในคอลัมน์ไม่เปลี่ยน ถามค่าต่ำสุดแค่ที่ <code>x</code> ที่มีเหตุการณ์ก็พอ
     </p>
     <p>
-      บทเรียนที่ผมชอบจากข้อนี้คือ ชุดทดสอบย่อยสามชุดของมันไม่ได้ต่างกันแค่ขนาด แต่ต่างกันที่
-      <strong>รูปของคำถาม</strong> ชุด <code>B = 0</code> ถามหาช่องว่าง ส่วนชุดที่มีงบถามหาค่าต่ำสุด
-      ซึ่งเป็นคำถามที่แพงกว่า และโค้ดที่ตอบคำถามแพงกว่าได้ ก็ตอบคำถามถูกกว่าได้ฟรีในตัว
+      ยกเว้น <code>x = 1</code> ที่ต้องถามเสมอแม้ไม่มีเหตุการณ์ เพราะคอลัมน์ซ้ายสุดอาจว่างทั้งคอลัมน์ โค้ดเริ่มที่ <code>cur = 1</code> แล้วกระโดดไปเหตุการณ์ถัดไปทีละครั้ง
+    </p>
+    <p>
+      ลองเดินด้าน {SS} งบ {EXS.B} บนตารางของตอนที่ 3 ตัวเลขในคอลัมน์ที่ไฮไลต์คือค่ารื้อรวมของแต่ละ <code>y</code> ณ ตอนนั้น
+      ส่วนว่าเก็บค่าพวกนี้ไว้ยังไง ตอนที่ 6 จะเปิดดู
+    </p>
+
+    <CpStepPlayer hook="pbsweep" steps={swSteps} label={`แผนที่ของมุมเมื่อ s = ${SS} กว้าง ${SXH} สูง ${SYH} งบ ${EXS.B}`}>
+      <svg class="pbs-board" viewBox={`0 0 ${pbsVBW} ${pbsVBH}`} width={pbsVBW} height={pbsVBH} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนที่ของมุม ${SXH} คอลัมน์ ${SYH} แถว มีกรอบของก้อน A ถึง D แถบทองคือคอลัมน์ x ที่เส้นกวาดอยู่ ตัวเลขในคอลัมน์นั้นคือค่ารื้อรวมของแต่ละ y ตัวเลขสีเขียวคือค่าที่ไม่เกินงบ`}>
+        <rect data-pbs-col x={pbx(1)} y={PBT} width={PBC} height={SYH * PBC} fill="rgba(212,175,55,0.14)" stroke="#d4af37" stroke-width="2" rx="4" />
+        {xsRange.map((x) =>
+          ysRange.map((y) => <rect x={pbx(x)} y={pby(y)} width={PBC} height={PBC} fill="none" stroke="#2a3350" stroke-width="1" />),
+        )}
+        {exsRects.map((r, i) =>
+          r === null ? null : (
+            <>
+              <rect data-pbs-ob={String(i)} x={pbx(r.xl) + 3 + i * 3} y={pby(r.yh) + 3 + i * 3} width={(r.xr - r.xl + 1) * PBC - 6 - i * 6} height={(r.yh - r.yl + 1) * PBC - 6 - i * 6} rx="5" fill="none" stroke={OB_COL[i]} stroke-width="1.5" stroke-opacity="0.8" />
+              <text x={pbx(r.xl) + 7 + i * 3} y={pby(r.yh) + 15 + i * 3} fill={OB_COL[i]} font-size="10" font-weight="700" font-family="monospace">{NAMES[i]}</text>
+            </>
+          ),
+        )}
+        {xsRange.map((x) =>
+          ysRange.map((y) => (
+            <text data-pbs-v={`${x}-${y}`} x={pbx(x) + PBC / 2} y={pby(y) + PBC / 2 + 6} fill="#e8edf7" font-size="15" text-anchor="middle" font-family="monospace"></text>
+          )),
+        )}
+        {xsRange.map((x) => (
+          <text x={pbx(x) + PBC / 2} y={PBT - 8} fill="#7b8397" font-size="11" text-anchor="middle" font-family="monospace">x {x}</text>
+        ))}
+        {ysRange.map((y) => (
+          <text x={PBX - 8} y={pby(y) + PBC / 2 + 4} fill="#7b8397" font-size="11" text-anchor="end" font-family="monospace">y {y}</text>
+        ))}
+      </svg>
+      <table class="rec pbstab">
+        <thead>
+          <tr><th class="num">ขั้น</th><th class="num">x</th><th>เกิดอะไร</th><th>ค่าที่ y = 1 ถึง {SYH}</th><th class="num">น้อยสุด</th></tr>
+        </thead>
+        <tbody>
+          {sw.steps.map((st, k) => (
+            <tr>
+              <td class="num">{k + 1}</td>
+              <td class="num">{st.x}</td>
+              <td>{st.what}</td>
+              <td>{st.col.join(', ')}</td>
+              <td class="num">{st.ask ? st.min : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+
+    <p>
+      ด้าน {SS} จบที่ <code>x = {swLast.x}</code> เพราะเจอมุมที่ค่ารื้อ {swLast.col[sw.stopY - 1]} ไม่เกินงบ
+      ส่วนด้าน {SS + 1} กวาดจนหมดเหตุการณ์ ค่าต่ำสุดที่เจอคือ {swNext.minSeen} มากกว่างบ {EXS.B} คำตอบของตารางนี้คือ {SS}
     </p>
   </Spoiler>
 
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
-      </thead>
-      <tbody>
-        {pbBill.map((r) => (
-          <tr>
-            <td>{r.name}</td>
-            <td>{r.limit}</td>
-            <td class="num">{r.work}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>ทั้งสองแถวคูณจำนวนรอบของการค้นหาแบบไบนารีไว้แล้ว จึงเทียบกันได้ตรง ๆ แต่ตัวเลขไม่ใช่ประเด็นเดียว ทางบนตอบได้แค่คำถามว่ามีช่องว่างไหม ส่วนทางล่างตอบคำถามว่าผลรวมต่ำสุดเท่าไร ซึ่งเป็นคำถามที่แพงกว่าและครอบคำถามแรกอยู่ในตัว ชุดทดสอบที่มีงบจริงจึงใช้ทางบนไม่ได้เลยแม้ P จะเล็ก</figcaption>
-  </figure>
-
-  <h2>โค้ด C++</h2>
+  <h2>เฉลย ตอนที่ 6 · ต้นไม้ที่ตอบค่าต่ำสุดของคอลัมน์</h2>
   <Spoiler>
     <p>
-      เวอร์ชันแรกที่ผมเขียนใช้เวลา 8.1 วินาที ซึ่งเกินลิมิต 5 วินาที ตัวการคือการ<strong>เรียงข้อมูลใหม่ทุกรอบ</strong>
-      ของการค้นหาแบบไบนารี ทั้งเรียงพิกัดที่บีบแล้วและเรียงเหตุการณ์ รวมยี่สิบรอบก็เป็นการเรียงยี่สิบครั้ง
+      เครื่องเดินของตอนที่ 5 ต้องการสองคำสั่ง คือบวกค่าทั้งช่วง <code>y</code> และถามค่าต่ำสุดของทั้งคอลัมน์
+      โครงสร้างที่ทำทั้งสองอย่างได้เร็วคือ<b>เซกเมนต์ทรี</b> (segment tree อ่านว่า "เซกเมนต์ทรี")
     </p>
     <p>
-      ทางแก้คือเรียงดัชนีไว้ล่วงหน้าครั้งเดียวสี่ชุด (ตาม <code>X1</code>, <code>X2</code>, <code>Y1</code>,
-      <code>Y2</code>) เพราะค่าที่ต้องใช้ในแต่ละรอบเป็นฟังก์ชันไม่ลดของค่าเหล่านั้น
-      ลำดับจึงไม่เปลี่ยน แค่ผสานสองสายที่เรียงมาแล้วก็พอ เหลือ 6.6 วินาที
+      มันเป็นต้นไม้ที่แต่ละปมดูแลช่วงหนึ่งของ <code>y</code> ปมบนสุดเรียกว่ารากดูแลทั้งคอลัมน์ ปมล่างสุดเรียกว่าใบดูแลทีละแถว
+      ปม <code>i</code> มีลูก <code>2i</code> กับ <code>2i + 1</code>
     </p>
     <p>
-      ที่เหลืออีกก้อนคือเซกเมนต์ทรีแบบเรียกซ้ำ ซึ่งถูกเรียกหลายสิบล้านครั้ง เปลี่ยนเป็นแบบไล่จากใบขึ้นราก
-      แล้วจบที่ <strong>3.8 วินาที</strong> ผ่านลิมิต
+      ต้นไม้ของตัวอย่างมี {tt.sz} ใบ คือใบละแถวสำหรับ <code>y</code> = 1 ถึง {tt.k} และใบส่วนเกินอีก {tt.sz - tt.k} ใบที่เติมให้จำนวนใบเป็นกำลังสอง
+      ใบส่วนเกินตั้งเป็นอนันต์ (∞) ไว้ จะได้ไม่ชนะตอนหาค่าต่ำสุด
     </p>
+    <p>
+      การบวกทั้งช่วงไม่ได้ไล่บวกทีละใบ มันวางป้ายไว้ที่ปมที่ช่วงของปมอยู่ในช่วงที่บวกทั้งหมด
+      เช่นเหตุการณ์แรก {ttFirst.what} ป้ายไปอยู่ที่ปม {ttFirst.touched.join(' กับ ')} ({ttFirst.touched.map((i) => tdRange(i)).join(' และ ')})
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เหตุการณ์ของตอนที่ 5 กับปมที่ได้ป้าย</caption>
+        <thead><tr><th>เหตุการณ์</th><th>ปมที่ได้ป้าย</th></tr></thead>
+        <tbody>
+          {tt.evs.map((e) => (
+            <tr><td>{e.what}</td><td>{e.touched.map((i) => `ปม ${i} (${tdRange(i)})`).join(', ')}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </figure>
+    <ZoomableDiagram caption={`ต้นไม้หลังเหตุการณ์สุดท้ายของเครื่องเดิน ในแต่ละปม lz คือป้ายที่ค้างไว้ mn คือค่าต่ำสุดของช่วงนั้น ปมสีทองคือปมที่มีป้ายค้าง รากมี mn = ${tt.mn[1]} ตรงกับค่าต่ำสุดของคอลัมน์ [${swFinal.join(', ')}]`}>
+      <svg viewBox={`0 0 ${tdVBW} ${tdVBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(tdVBW * 1.25)}px`} role="img" aria-label={`ต้นไม้ ${2 * tt.sz - 1} ปม ${tdNodes.map((i) => `ปม ${i} mn ${fmtInf(tt.mn[i])} lz ${tt.lz[i]}`).join(' ')}`}>
+        {tdNodes.filter((i) => i > 1).map((i) => (
+          <line x1={tdCx(i >> 1)} y1={tdY(i >> 1) + TD.bh} x2={tdCx(i)} y2={tdY(i)} stroke="#3a4459" stroke-width="1.5" />
+        ))}
+        {tdNodes.map((i) => (
+          <>
+            <rect x={tdCx(i) - TD.bw / 2} y={tdY(i)} width={TD.bw} height={TD.bh} rx="7" fill={tt.lz[i] !== 0 ? '#2a2410' : '#141c2c'} stroke={tt.lz[i] !== 0 ? '#d4af37' : '#3a4459'} stroke-width="1.6" />
+            <text x={tdCx(i)} y={tdY(i) + 19} fill="#9aa7bd" font-size="11" text-anchor="middle">ปม {i}</text>
+            <text x={tdCx(i)} y={tdY(i) + 39} fill="#e8edf7" font-size="12.5" text-anchor="middle" font-family="monospace">mn {fmtInf(tt.mn[i])} · lz {tt.lz[i]}</text>
+          </>
+        ))}
+        {tdNodes.filter((i) => i >= tt.sz).map((i) => (
+          <text x={tdCx(i)} y={tdY(i) + TD.bh + 18} fill="#7b8397" font-size="11" text-anchor="middle">{tdLeafLabel(i)}</text>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <div class="callout callout-tip">
+      <p class="callout-label">สิ่งที่แต่ละปมจำ</p>
+      <ul>
+        <li><code>lz[i]</code>: ค่าที่บวกให้ทั้งช่วงของปมนี้แล้วค้างไว้ที่นี่ เรียกว่า<b>ป้ายค้าง</b> (lazy)</li>
+        <li><code>mn[i] = min(mn[2i], mn[2i+1]) + lz[i]</code>: ค่าต่ำสุดของช่วงนี้ คือค่าต่ำสุดของลูก บวกป้ายที่ค้างไว้กับทั้งช่วง</li>
+      </ul>
+      <p>
+        ที่ปม {TN}: <code>mn[{TN}] = min({fmtInf(tt.mn[2 * TN])}, {fmtInf(tt.mn[2 * TN + 1])}) + {tt.lz[TN]} = {fmtInf(tt.mn[TN])}</code>
+      </p>
+    </div>
+    <p>
+      ค่าจริงของแถวหนึ่งคือค่าที่ใบบวกป้ายทุกอันบนทางขึ้นราก เช่นแถว <code>y = 1</code> ได้ {pathY1.join(' + ')} = {pathY1.reduce((a, b) => a + b, 0)}
+      ตรงกับคอลัมน์ [{swFinal.join(', ')}] ของขั้นสุดท้ายในเครื่องเดิน
+    </p>
+    <p>
+      คำถามมีแค่ที่ราก และ <code>mn</code> ของทุกปมนับป้ายของตัวเองไว้แล้ว ป้ายเลยไม่ต้องถูกดันลงลูกเลย
+      ถ้าต้องถามค่าของช่วงย่อยถึงจะต้องดัน รายละเอียดอยู่ในบท<a href="/cp/segment-tree/">เซกเมนต์ทรี</a>
+    </p>
+    <p>
+      ในโจทย์จริง แถว <code>y</code> มีได้ถึงล้าน แต่ค่าในคอลัมน์เปลี่ยนได้แค่ที่จุดเริ่มของช่วงและจุดถัดจากปลายช่วง
+      โค้ดเก็บใบเฉพาะจุดเหล่านั้น ไม่เกิน <code>2P + 1</code> ใบ เรียกว่า<b>การบีบพิกัด</b> (coordinate compression)
+    </p>
+    <p>
+      ตัวอย่างนี้มีจุดแบบนั้น {exsCand.length} จุด เท่ากับจำนวนแถวพอดี เลยไม่มีอะไรให้บีบ
+    </p>
+    <p>
+      ถ้าใบส่วนเกินถูกตั้งเป็นศูนย์แทนอนันต์ รากจะเห็นศูนย์เสมอ ผมพลาดจุดนี้จริง เรื่องเต็มอยู่ในส่วนโค้ดท้ายหน้า
+    </p>
+    <p>
+      ต่อหนึ่งรอบของไบนารีมี <code>2P</code> เหตุการณ์ แต่ละครั้งแตะปมราว <code>4 log₂(2P + 1)</code> ปม
+      (วางป้ายสองฝั่ง แล้วคำนวณ <code>mn</code> ใหม่ตามทางขึ้นรากอีกสองสาย) ชุดที่ 2 ได้ราว {sci(COST_SWEEP_SUB2)} ใช้เวลาไม่เกิน {T_SUB2} วินาที
+    </p>
+    <p>
+      วิธีนี้ผ่านชุดที่ 1 ได้ด้วย เพราะงบศูนย์ก็เป็นกรณีหนึ่งของ "ค่าต่ำสุดไม่เกินงบ"
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 7 · ชุดที่ 3 สองตัวชี้แทนการค้นหาแบบไบนารี</h2>
+  <Spoiler>
+    <div class="callout callout-warn">
+      <p class="callout-label">เรื่องจริงที่เกิดขึ้น</p>
+      <p>
+        หน้านี้เวอร์ชันก่อนส่งโค้ดที่ใช้วิธีของตอนที่ 5 และ 6 กับทุกชุด และเขียนไว้ว่าใช้เวลา 3.8 วินาที
+        ผมหาไม่เจอว่าตัวเลขนั้นวัดจากเครื่องไหนหรืออินพุตแบบไหน
+      </p>
+      <p>
+        ตอนเขียนใหม่ ผมวัดโค้ดเวอร์ชันนั้นซ้ำ {T_OLD.runs} ครั้งกับอินพุตสุ่ม <code>P = {fmt(PMAX)}</code> งบศูนย์ ได้ {T_OLD.min} ถึง {T_OLD.max} วินาที
+        เกินลิมิต {T_LIMIT} วินาทีทุกครั้ง ชุดงบศูนย์เลยเปลี่ยนไปใช้สองตัวชี้ ซึ่งใช้เวลาไม่เกิน {T_TWO} วินาทีกับอินพุตแบบเดียวกัน
+      </p>
+    </div>
+    <p>
+      งานของตอนที่ 6 ยังคูณด้วย {ROUNDS} รอบของไบนารี และชุดที่ 3 มีก้อนมากกว่าชุดที่ 2 ราว {Math.round(PMAX / PSUB2)} เท่า งานเลยทะลุงบ
+    </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1 (ตอนที่ 1)</p>
+        <h4>ไล่ทุกมุม ทุกก้อน</h4>
+        <p class="cp-step-cost">ราว {sci(BARS[0].v)} แม้หลังค้นไบนารีแล้ว</p>
+        <p>ตรงตามนิยามที่สุด ใช้ได้แค่ตารางจิ๋ว</p>
+        <p class="cp-step-win">ใช้เป็นตัวตรวจ</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2 (ตอนที่ 4)</p>
+        <h4>หาช่องว่างทีละคอลัมน์</h4>
+        <p class="cp-step-cost">ราว {sci(BARS[1].v)}</p>
+        <p>ลองแค่ x ที่ติดขอบขวาของก้อน ใช้ได้เฉพาะงบศูนย์</p>
+        <p class="cp-step-win">ผ่านชุดที่ 1</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 3 (ตอนที่ 5 และ 6)</p>
+        <h4>ไบนารี + กวาดเส้น</h4>
+        <p class="cp-step-cost">ราว {sci(BARS[2].v)} ใช้เวลา {T_OLD.min} ถึง {T_OLD.max} วินาที</p>
+        <p>ใช้ได้ทุกงบ แต่ทำซ้ำ {ROUNDS} รอบ</p>
+        <p class="cp-step-win">ผ่านชุดที่ 1 และ 2</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีที่ 4 (ตอนนี้)</p>
+        <h4>สองตัวชี้</h4>
+        <p class="cp-step-cost">ราว {sci(BARS[3].v)} ใช้เวลาไม่เกิน {T_TWO} วินาที</p>
+        <p>ไม่ต้องเดาด้านยาว เดินรอบเดียว ใช้ได้เฉพาะงบศูนย์</p>
+        <p class="cp-step-win">ผ่านชุดที่ 1 และ 3 รวมกับวิธีที่ 3 ได้ 100 คะแนน</p>
+      </div>
+    </div>
+
+    <ZoomableDiagram caption={`จำนวนครั้งที่แตะก้อนหรือปมของต้นไม้ตามที่โค้ดทำ ที่ P = ${fmt(PMAX)} สเกลลอการิทึม (แต่ละขีดคูณพันเท่า) เส้นประคืองบเวลา ${T_LIMIT} วินาทีแบบกะคร่าว ๆ ตัวนับนี้หยาบ ใช้ดูลำดับขนาดเท่านั้น`}>
+      <svg viewBox={`0 0 ${bcVBW} ${bcVBH}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(bcVBW * 1.25)}px`} role="img" aria-label={`แผนภูมิแท่งแนวนอนสี่แท่ง สเกลลอการิทึม ${BARS.map((b) => `${b.label} ราว ${sci(b.v)}`).join(' ')} เส้นประแนวตั้งคืองบ ${sci(BUDGET_OPS)} ครั้ง วิธีที่ 3 เกินเส้น วิธีที่ 4 อยู่ใต้เส้น`}>
+        {BARS.map((b, i) => (
+          <>
+            <text x="12" y={BC.top + i * BC.gap + BC.h / 2 + 4} fill="#cdd6ea" font-size="12">{b.label}</text>
+            <rect x={BC.x0} y={BC.top + i * BC.gap} width={bx(b.v) - BC.x0} height={BC.h} rx="4" fill={b.col} fill-opacity="0.75" />
+            <text x={bx(b.v) + 8} y={BC.top + i * BC.gap + BC.h / 2 + 4} fill="#e8edf7" font-size="12" font-family="monospace">{sci(b.v)}</text>
+          </>
+        ))}
+        <line x1={bx(BUDGET_OPS)} y1={BC.top - 12} x2={bx(BUDGET_OPS)} y2={bcAxisY - 6} stroke="#e8edf7" stroke-width="1.5" stroke-dasharray="5 4" />
+        <text x={bx(BUDGET_OPS) + 6} y={BC.top - 16} fill="#e8edf7" font-size="11">งบ {T_LIMIT} วินาที ≈ {sci(BUDGET_OPS)}</text>
+        <line x1={BC.x0} y1={bcAxisY} x2={BC.x1} y2={bcAxisY} stroke="#56627d" stroke-width="1" />
+        {bcTicks.map((t) => (
+          <>
+            <line x1={bx(10 ** t)} y1={bcAxisY} x2={bx(10 ** t)} y2={bcAxisY + 5} stroke="#56627d" stroke-width="1" />
+            <text x={bx(10 ** t)} y={bcAxisY + 18} fill="#9aa7bd" font-size="11" text-anchor="middle" font-family="monospace">{sci(10 ** t)}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ตัวนับนี้บอกได้แค่ลำดับขนาด ตามตัวนับ วิธีที่ 3 เกินงบราว {OVER3} เท่า ส่วนเวลาที่วัดได้เกินลิมิต {(T_OLD.min / T_LIMIT).toFixed(1)} ถึง {(T_OLD.max / T_LIMIT).toFixed(1)} เท่า
+    </p>
+    <p>
+      จุดที่ตัวนับพลาดชัดที่สุดคือวิธีที่ 4 มันนับได้ราว {sci(COST_TWO)} น้อยกว่าวิธีที่ 3 ในชุดที่ 2 ({sci(COST_SWEEP_SUB2)}) แต่ใช้เวลานานกว่าราว {Math.round(T_TWO / T_SUB2)} เท่า
+    </p>
+    <p>
+      ต้นไม้ของวิธีที่ 4 มีสี่อาร์เรย์รวมราว {MEM_TWO} เมกะไบต์ ส่วนต้นไม้ของชุดที่ 2 ใช้ราว {MEM_SWEEP_SUB2} เมกะไบต์
+    </p>
+    <p>
+      ผมเดาว่าการแตะหน่วยความจำที่ใหญ่เกินแคช (หน่วยความจำเร็วที่อยู่ติดซีพียู) แพงกว่ามาก บวกกับการอ่านอินพุตสี่แสนบรรทัด แต่ยังไม่ได้วัดแยกว่าส่วนไหนกินเวลาเท่าไร
+    </p>
+    <p>
+      งบเป็นศูนย์อีกครั้ง ทำให้ใช้ท่าที่ไม่ต้องตรึงด้านยาวได้ คือ<b>สองตัวชี้</b> (two pointers)
+      แทนที่จะเดาด้านแล้วถาม เราให้ช่วงคอลัมน์ <code>l</code> ถึง <code>r</code> ของฐานยืดหดเอง ความกว้างคือ <code>r − l + 1</code>
+    </p>
+    <p>
+      บท<a href="/cp/sliding-window/">สองตัวชี้กับหน้าต่างเลื่อน</a>อธิบายท่านี้ตั้งแต่ต้น
+    </p>
+    <p>
+      ตอนนี้กลับมาคิดบนตารางจริง ก้อนที่แตะช่วงคอลัมน์นี้ปิดแถวของมันทั้งหมด
+      ฐานกว้าง <code>r − l + 1</code> วางได้เมื่อมีแถวว่างติดกันยาวอย่างน้อยเท่าความกว้าง
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">วิธีเดิน</p>
+      <ol>
+        <li>ขยับ <code>r</code> ไปทีละคอลัมน์ ก้อนที่เริ่มที่คอลัมน์ <code>r</code> เข้ามาปิดแถวของมัน</li>
+        <li>ถ้าแถวว่างยาวสุดสั้นกว่าความกว้าง ให้ขยับ <code>l</code> ทีละคอลัมน์ ก้อนที่จบที่คอลัมน์ <code>l</code> หลุดออกก่อนขยับ</li>
+        <li>จดความกว้างที่ดีที่สุดไว้</li>
+      </ol>
+    </div>
+    <p>
+      ถ้าช่วง <code>l</code> ถึง <code>r</code> วางไม่ได้ ช่วง <code>l</code> ถึง <code>r + 1</code> ก็วางไม่ได้ เพราะกว้างขึ้นแต่แถวว่างมีแต่จะลดลง
+      <code>l</code> เลยเดินหน้าอย่างเดียว และทั้งสองตัวชี้เดินรวมกันไม่เกิน <code>2M</code> ก้าว
+    </p>
+    <p>
+      ต้นไม้ของตอนนี้เป็นอีกต้นหนึ่ง คนละต้นกับตอนที่ 6 มันอยู่บนแถว <code>y</code> จริงทั้ง <code>N</code> แถวโดยไม่บีบพิกัด
+      และแต่ละปมจำสี่อย่าง
+    </p>
+    <ul>
+      <li><code>cov</code>: จำนวนก้อนที่คลุมทั้งช่วงของปม</li>
+      <li><code>pre</code> และ <code>suf</code>: แถวว่างที่ติดขอบล่างและขอบบนของช่วงยาวเท่าไร</li>
+      <li><code>bst</code>: แถวว่างติดกันยาวสุดในช่วง ค่าที่รากคือตัวเลขที่ข้อ 2 ของวิธีเดินถาม</li>
+    </ul>
+    <div class="callout callout-note">
+      <p class="callout-label">ต่อค่าสองลูกที่ราก ตอน r = {mergeRow.r}</p>
+      <p>
+        ก้อนที่อยู่ในช่วงตอนนั้นคือ {mergeRow.active.map((i) => NAMES[i]).join(', ')} แถวว่างคือ {mergeFree.join(', ')}
+        ลูกซ้ายดูแลแถว {zA.l} ถึง {zA.r} ลูกขวาดูแลแถว {zB.l} ถึง {zB.r}
+      </p>
+      <ul>
+        <li>ลูกซ้าย: pre {zA.pre} · suf {zA.suf} · bst {zA.bst} และลูกขวา: pre {zB.pre} · suf {zB.suf} · bst {zB.bst}</li>
+        <li>
+          pre ของราก = {zA.pre === zA.r - zA.l + 1 ? `${zA.r - zA.l + 1} + ${zB.pre} = ${zRoot.pre} (ลูกซ้ายว่างทั้งช่วง เลยต่อกับ pre ของลูกขวา)` : `${zRoot.pre} (ลูกซ้ายว่างไม่เต็มช่วง ใช้ pre ของลูกซ้ายเลย)`}
+        </li>
+        <li>
+          suf ของราก = {zB.suf === zB.r - zB.l + 1 ? `${zB.r - zB.l + 1} + ${zA.suf} = ${zRoot.suf} (ลูกขวาว่างทั้งช่วง เลยต่อกับ suf ของลูกซ้าย)` : `${zRoot.suf} (ลูกขวาว่างไม่เต็มช่วง ใช้ suf ของลูกขวาเลย)`}
+        </li>
+        <li>bst ของราก = max({zA.bst}, {zB.bst}, {zA.suf} + {zB.pre}) = {zRoot.bst} แถวว่างที่ยาวที่สุดคร่อมรอยต่อพอดี</li>
+      </ul>
+    </div>
+    <p>
+      ปมที่ <code>cov</code> มากกว่าศูนย์ไม่มีแถวว่างเลย ปมอื่นต่อค่าจากลูกแบบข้างบน
+      ก้อนเข้าและออกที่ช่วงแถวเดิมเสมอ <code>cov</code> เลยไม่ต้องดันลงลูก เหมือนป้ายค้างของตอนที่ 6
+    </p>
+    <p>
+      ลองเดินกับตารางเดิม แต่ตั้งงบเป็น 0 (ห้ามแตะก้อน A ถึง D เลย) คำตอบของการไล่ทุกขนาดคือ {SS0}
+    </p>
+    <figure class="tbl">
+      <table class="rec tptab">
+        <caption>สองตัวชี้บนตาราง {EXS.M} × {EXS.N} งบ 0</caption>
+        <thead>
+          <tr><th class="num">r</th><th>ก้อนที่เข้า</th><th>ก้อนที่หลุด</th><th class="num">l</th><th class="num">แถวว่างยาวสุด</th><th class="num">กว้าง</th><th class="num">ดีที่สุด</th></tr>
+        </thead>
+        <tbody>
+          {tp.rows.map((row) => (
+            <tr class={row.up ? 'up' : undefined}>
+              <td class="num">{row.r}</td>
+              <td>{row.added}</td>
+              <td>{row.removed}</td>
+              <td class="num">{row.l}</td>
+              <td class="num">{row.run}</td>
+              <td class="num">{row.width}</td>
+              <td class="num">{row.best}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>แถวสีเขียวคือตอนที่ความกว้างที่ดีที่สุดเพิ่มขึ้น จบที่ {tp.best} ตรงกับการไล่ทุกขนาด ความกว้าง 0 คือตอนที่ l เลย r ไปแล้ว</figcaption>
+    </figure>
+    <ol class="tp-walk">
+      {tp.rows.map((row) => <li>{row.line}</li>)}
+    </ol>
+    <p>
+      ก้อนเข้าครั้งเดียวและออกครั้งเดียว ครั้งละแวะราว <code>4 log₂ N</code> ปม รวมการสร้างต้นไม้และการเดิน <code>r</code> ล้านก้าวได้ราว {sci(COST_TWO)}
+    </p>
+    <p>
+      โค้ดเต็มเลยแยกทางตามงบ งบศูนย์ใช้สองตัวชี้ (ชุดที่ 1 และ 3) งบมากกว่าศูนย์ใช้ไบนารีกับการกวาดเส้น (ชุดที่ 2 ซึ่งโจทย์รับประกันว่า <code>P</code> ไม่เกิน {fmt(PSUB2)})
+    </p>
+  </Spoiler>
+
+  <h2>โค้ด C++ และสิ่งที่ตรวจแล้ว</h2>
+  <Spoiler>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>ส่วนของโค้ดเต็ม กับตอนที่อธิบาย</caption>
+        <thead><tr><th>ส่วนในโค้ด</th><th>อธิบายไว้ที่</th></tr></thead>
+        <tbody>
+          <tr><td><code>build</code>, <code>add</code></td><td>ตอนที่ 6 · ต้นไม้ค่าต่ำสุด ป้ายค้าง และใบส่วนเกินที่ต้องเป็นอนันต์</td></tr>
+          <tr><td><code>ok</code> ส่วนผู้สมัครแกน y</td><td>ตอนที่ 6 · การบีบพิกัด</td></tr>
+          <tr><td><code>ok</code> ส่วนเหตุการณ์แกน x และลูปกวาด</td><td>ตอนที่ 3 (สี่เหลี่ยมของมุม) และตอนที่ 5 (เข้า ออก ถามราก)</td></tr>
+          <tr><td><code>zpull</code>, <code>zadd</code>, <code>solveZero</code></td><td>ตอนที่ 7 · สองตัวชี้กับต้นไม้แถวว่าง</td></tr>
+          <tr><td><code>main</code></td><td>ตอนที่ 7 (แยกตามงบ) และตอนที่ 2 (ค้นหาแบบไบนารี)</td></tr>
+        </tbody>
+      </table>
+    </figure>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="pyramid.cpp" />
       </div>
     </details>
-    <p>
-      ผมสุ่มตารางเล็ก ๆ ไม่เกินเก้าคูณเก้า พร้อมก้อนไม่เกินหกก้อนและงบสุ่ม จำนวน 1,500 ชุด
-      แล้วเทียบกับตัวไล่ทุกขนาดทุกตำแหน่ง ตรงกันหมด เวอร์ชันที่ลืมตั้งใบส่วนเกินเป็นอนันต์ตกตั้งแต่ชุดต้น ๆ
-    </p>
+    <details class="expander">
+      <summary>ตัวตรวจ และสิ่งที่ตรวจแล้ว</summary>
+      <div class="expander-body">
+        <p>
+          ตัวตรวจไล่ทุกขนาด ทุกมุม ทุกก้อน และไม่หยุดที่ขนาดแรกที่วางไม่ได้ มันไม่พึ่งข้อสังเกตของเฉลยเลยสักข้อ
+        </p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+        <ul>
+          <li>โค้ดเต็ม: ตอบตัวอย่างของโจทย์ถูกทั้งสองชุด และตรงกับตัวตรวจทั้ง {fmt(STRESS.full)} ชุดสุ่ม (ตารางไม่เกิน 9 × 9 ก้อนไม่เกิน 6 ก้อน ครึ่งหนึ่งงบศูนย์)</li>
+          <li>โค้ดชุดที่ 1: ตรงกับตัวตรวจทั้ง {fmt(STRESS.sub)} ชุดสุ่มที่งบศูนย์</li>
+          <li>โค้ดที่ผิด (ใบส่วนเกินเป็นศูนย์ ซึ่งตอนนี้กระทบเฉพาะทางงบมากกว่าศูนย์): ตอบผิด {STRESS.brokenWrong} จาก {fmt(STRESS.broken)} ชุดสุ่ม</li>
+          <li>เวลาทุกตัวในหน้านี้วัดบนโน้ตบุ๊ก Core i7-1355U ผ่าน WSL (Ubuntu 22.04, g++ 11.4 -O2) จากโค้ดที่ดึงออกมาจากหน้านี้ กับอินพุตสุ่มบนตาราง {fmt(GRIDMAX)} × {fmt(GRIDMAX)}</li>
+        </ul>
+        <p>
+          ทั้งหมดนี้คือการตรวจบนตารางเล็กกับอินพุตสุ่ม ยังไม่ใช่การพิสูจน์
+          เหตุผลที่ทำให้ถูกอยู่ในตอนที่ 2 (ขนาดเล็กกว่าวางได้เสมอ) ตอนที่ 3 (สี่เหลี่ยมของมุม) และตอนที่ 7 (<code>l</code> ไม่ต้องถอย)
+        </p>
+      </div>
+    </details>
     <details class="expander">
       <summary>ดูโค้ดที่ผิด กับเคสที่จับมันได้</summary>
       <div class="expander-body">
         <p>
           รอบแรกผมขยายเซกเมนต์ทรีขึ้นเป็นกำลังสองตามความเคยชิน แล้วเผลอตั้งใบทั้งต้นเป็นศูนย์ในคราวเดียว
-          ใบที่ไม่มีผู้สมัครแกน y จริงจึงถือค่าศูนย์ติดตัวไว้ และค่าน้อยสุดของทั้งต้นก็เป็นศูนย์ไปด้วย
-          บรรทัดเดียวกันในโค้ดที่ส่งจริงเขียนว่า <code>mn[SZ+i]=INF</code>
+          บรรทัดเดียวกันในโค้ดที่ถูกเขียนว่า <code>mn[SZ+i]=INF</code>
         </p>
         <CodeBlock code={brokenBuild} lang="cpp" title="pyramid_wrong.cpp · ตัดมาเฉพาะส่วนที่ผิด" />
         <p>
-          ตัวอย่างสองชุดในโจทย์ผ่านทั้งคู่ เพราะคำตอบของทั้งสองชุดบังเอิญตรงกับขนาดที่โค้ดผิดตอบพอดี
-          เคสแรกที่ตัวสุ่มเทียบปริ๊นต์ออกมาคือชุดนี้
+          ใบส่วนเกินไม่เคยถูกบวกอะไร เพราะช่วงที่บวกอยู่ในใบจริงเสมอ ถ้าจำนวนผู้สมัครไม่ใช่กำลังสอง ต้นไม้จะมีใบพวกนี้
+          รากเห็นศูนย์ทันที และรอบนั้นตอบว่าวางได้เสมอ
         </p>
-        <CodeBlock code={brokenInput} lang="text" title="อินพุตที่ทำให้ตก · ตาราง 9 × 6 งบ 10" />
         <p>
-          ของจริงตอบ <strong>3</strong> โค้ดที่ผิดตอบ <strong>4</strong> ที่ขนาด 4 ตำแหน่งที่ถูกที่สุดยังต้องจ่าย
-          เกินงบ 10 อยู่ แต่ <code>mn[1]</code> รายงานศูนย์ การค้นหาแบบไบนารีจึงเชื่อว่าขนาด 4 วางได้แล้วขยับขึ้นไป
+          ตอนนั้นทุกชุดยังใช้วิธีของตอนที่ 5 และตัวอย่างสองชุดของโจทย์ผ่านทั้งคู่ รอบที่การค้นหาแบบไบนารีถามมีดังนี้
+        </p>
+        <ul>
+          <li>ตัวอย่างแรก: {roundsEx1}</li>
+          <li>ตัวอย่างที่สอง: {roundsEx2}</li>
+        </ul>
+        <p>
+          ทุกรอบที่มีใบส่วนเกิน ของจริงก็วางได้อยู่แล้ว คำตอบที่ผิดเลยไม่โผล่ ตัวสุ่มเทียบจับได้ที่ชุดนี้
+        </p>
+        <CodeBlock code={brokenInput} lang="text" title={`อินพุตที่ทำให้ตก · ตาราง ${BAD.M} × ${BAD.N} งบ ${BAD.B}`} />
+        <p>
+          ของจริงตอบ {badReal} โค้ดที่ผิดตอบ {badBroken} ที่ด้าน {badBroken} มุมที่ถูกที่สุดยังต้องจ่าย {badCostAt.cost}
+          เกินงบ {BAD.B} แต่ <code>mn[1]</code> รายงานศูนย์ การค้นหาแบบไบนารีเลยเชื่อว่าวางได้
         </p>
       </div>
     </details>
-    <p>
-      เครื่องมือของข้อนี้อยู่ในบทปูพื้นฐาน <a href="/cp/segment-tree/">เซกเมนต์ทรีกับการค้นหาคำตอบแบบไบนารี</a>
-    </p>
-    <p>
-      ท่าที่ติดมือกลับไปมีสองชั้น ชั้นแรกคือเกณฑ์ว่าจะหยิบการค้นหาคำตอบแบบไบนารีมาใช้ได้เมื่อไร
-      ต้องมีคุณสมบัติว่าถ้าคำตอบขนาดหนึ่งทำได้ ขนาดที่เล็กกว่าต้องทำได้ด้วยเสมอ ข้อนี้มีให้ฟรีเพราะจัตุรัสเล็กกว่า
-      ซุกอยู่ในจัตุรัสใหญ่ได้ พอมีข้อนั้นแล้วคำถามว่า<strong>ใหญ่สุดเท่าไร</strong>ก็แปลงเป็นคำถามว่า
-      <strong>ขนาดนี้ทำได้ไหม</strong> ซึ่งตอบง่ายกว่ามาก ชั้นที่สองคือบทเรียนเรื่องเวลาที่ผมเสียไปข้างบน
-      งานที่อยู่ในลูปของการค้นหาแบบไบนารีถูกทำซ้ำยี่สิบรอบเสมอ ก่อนจะไปรื้อโครงสร้างข้อมูลที่ดูหนักที่สุด
-      ให้ไล่ดูก่อนว่ามีงานเตรียมข้อมูลชิ้นไหนที่ผลลัพธ์เหมือนกันทุกรอบ แล้วยกมันออกไปทำครั้งเดียวนอกลูป
-    </p>
   </Spoiler>
 
-  <h2>สรุปบรรทัดเดียว</h2>
+  <h2>ทดสอบตัวเอง และท่าที่ติดมือกลับไป</h2>
+  <details class="expander">
+    <summary>ถ้าคอลัมน์หนึ่งมีผู้สมัคร {Q1K} จุด ต้นไม้ค่าต่ำสุดในโค้ดมีใบส่วนเกินกี่ใบ</summary>
+    <div class="expander-body">
+      <p>
+        โค้ดตั้ง <code>SZ</code> เป็นกำลังสองที่เล็กที่สุดที่ไม่น้อยกว่าจำนวนผู้สมัคร คือ {Q1SZ}
+        ใบส่วนเกินมี {Q1SZ} − {Q1K} = {Q1SZ - Q1K} ใบ และทั้งหมดต้องเป็นอนันต์
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ถ้าโจทย์บังคับให้ฐานเป็นสี่เหลี่ยมผืนผ้าขนาด a × b ตายตัว ต้องเปลี่ยนอะไรบ้าง</summary>
+    <div class="expander-body">
+      <p>
+        สูตรมุมใช้ <code>a</code> กับแกน x และ <code>b</code> กับแกน y คือ <code>X1 − a + 1</code> ถึง <code>X2</code> และ <code>Y1 − b + 1</code> ถึง <code>Y2</code>
+        ขนาดตายตัวแล้วไม่ต้องค้นหาแบบไบนารี กวาดเส้นรอบเดียวก็ได้คำตอบ
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมสองตัวชี้ใช้กับงบมากกว่าศูนย์ตรง ๆ ไม่ได้</summary>
+    <div class="expander-body">
+      <p>
+        เมื่อมีงบ เราต้องรู้ผลรวมของก้อนที่ทับแถวช่วงหนึ่ง แต่ก้อนคิดเงินครั้งเดียวไม่ว่าทับกี่แถว
+        ค่ารื้อเลยแยกเป็นค่าต่อแถวแล้วบวกกันไม่ได้ ต้องย้ายไปคิดบนแผนที่ของมุม ซึ่งต้องตรึงด้านยาวไว้ก่อน
+      </p>
+    </div>
+  </details>
   <p>
-    เมื่อตารางใหญ่เกินจะแตะทุกช่อง ให้กลับด้านคำถามไปถามที่มุมของสิ่งที่เราวาง แล้วสิ่งกีดขวางแต่ละก้อน
-    จะกลายเป็นสี่เหลี่ยมบวกค่าหนึ่งผืน ซึ่งกวาดเส้นกับเซกเมนต์ทรีจัดการได้ทั้งหมด
+    ท่าที่ยกไปข้ออื่นได้: เมื่อต้นทุนยังคูณจำนวนรอบของการค้นหาแบบไบนารีอยู่ ให้ดูว่ามีชุดทดสอบไหนที่ถามคำถามง่ายกว่า
+    (ข้อนี้คือ "มีที่ว่างไหม") แล้วตอบมันในรอบเดียว
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -707,81 +1793,13 @@ const pbBill = [
 </CpProblemLayout>
 
 <style>
-  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
-  figure.tbl{
-    margin:1.2rem 0 0.4rem;
-    padding:0;
-    overflow-x:auto;
-    background:#0b1220;
-    border:1px solid var(--dl-border);
-    border-radius:10px;
-    box-shadow:0 4px 16px rgba(0,0,0,0.3);
-  }
-  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
-     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
-  figure.tbl figcaption{
-    width:0;
-    min-width:100%;
-    font-size:0.78rem;
-    color:var(--dl-muted);
-    line-height:1.6;
-    padding:0.6rem 0.85rem 0.75rem;
-    border-top:1px solid var(--dl-border);
-  }
-  table.rec{
-    width:100%;
-    border-collapse:separate;
-    border-spacing:0;
-    font-size:0.84rem;
-  }
-  figure.tbl table.rec{width:auto;}
-  table.rec caption{
-    caption-side:top;
-    text-align:left;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-weight:700;
-    letter-spacing:0.18em;
-    font-size:0.68rem;
-    color:var(--dl-gold);
-    background:#070c17;
-    padding:0.5rem 0.85rem;
-    border-bottom:1px solid var(--dl-border);
-    white-space:nowrap;
-  }
-  table.rec th, table.rec td{
-    padding:0.5rem 0.8rem;
-    text-align:left;
-    vertical-align:middle;
-    border-bottom:1px solid var(--dl-border);
-  }
-  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
-  table.rec tbody tr:last-child td{border-bottom:none;}
-  table.rec th{
-    background:#141b2b;
-    color:var(--dl-muted);
-    font-weight:600;
-    font-size:0.68rem;
-    letter-spacing:0.1em;
-    text-transform:uppercase;
-    white-space:nowrap;
-  }
-  table.rec td{color:var(--dl-ink);line-height:1.55;}
-  table.rec td strong{color:var(--dl-gold);}
-  table.rec td.num{
-    text-align:right;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-variant-numeric:tabular-nums;
-    white-space:nowrap;
-    color:#cdd6ea;
-  }
-  table.rec th.num{text-align:right;}
-
   .dim{color:#7b8397;}
 
   /* ---------- กระดานของมินิเกมฐานปิรามิด ---------- */
   .pb-board{display:flex;flex-direction:column;gap:3px;width:max-content;}
   .pb-board :global(.pb-row){display:flex;gap:3px;}
   .pb-board :global(.pb-cell){
+    flex:0 0 auto;
     width:1.8rem;height:1.8rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:0.72rem;
@@ -793,6 +1811,17 @@ const pbBill = [
   .pb-board :global(.pb-cell.rock){background:#241a1a;color:#f0a6a6;border-color:#4a2a2a;}
   .pb-board :global(.pb-cell.in){outline:2px solid #2f9e5c;outline-offset:-2px;}
   .pb-board :global(.pb-cell.over){outline:2px solid #8a3b3b;outline-offset:-2px;}
+
+  /* ---------- เครื่องเดินกวาดเส้น ---------- */
+  .pbs-board{display:block;margin:0.6rem auto 0.4rem;max-width:none;}
+  /* สู้กับ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์ ไม่งั้นแถวที่โผล่ทีละขั้นจะถ่างการ์ด */
+  table.rec.pbstab{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.pbstab td{white-space:normal;}
+  table.rec.pbstab th:nth-child(1),table.rec.pbstab th:nth-child(2){width:3.4rem;}
+  table.rec.pbstab th:nth-child(5){width:4.6rem;}
+
+  /* ---------- ตารางสองตัวชี้ ---------- */
+  table.rec.tptab tr.up > td{color:#6ee7a8;}
 </style>
 
 <script>
@@ -810,6 +1839,8 @@ const pbBill = [
     obs: PbObstacle[];
     answer: number;
   };
+
+  const STATUS_IDLE = 'คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อรวมของก้อนที่ทับช่องนั้น';
 
   function initPyramidGame(): void {
     const maybeUi = cpGameUi('[data-pbgame]');
@@ -922,7 +1953,7 @@ const pbBill = [
       ui.selectTab(k);
       ui.setTease(pz().tease);
       buildBoard();
-      ui.setStatus('คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น');
+      ui.setStatus(STATUS_IDLE);
       render();
     }
 
@@ -932,7 +1963,7 @@ const pbBill = [
       if (!(cell instanceof HTMLElement)) return;
       x = Number(cell.dataset.x);
       y = Number(cell.dataset.y);
-      ui.setStatus('คลิกช่องเพื่อวางมุมล่างซ้ายของฐาน แล้วปรับด้านยาว ตัวเลขในช่องคือค่ารื้อของก้อนนั้น');
+      ui.setStatus(STATUS_IDLE);
       render();
     });
     minusEl.addEventListener('click', () => {
@@ -950,4 +1981,65 @@ const pbBill = [
   }
 
   document.addEventListener('astro:page-load', initPyramidGame);
+</script>
+
+<script>
+  import { initCpPlayers } from '../../lib/cpPlayer';
+
+  /* เครื่องเดินกวาดเส้นของตอนที่ 5 ทุกตัวเลขคำนวณไว้ตอนบิลด์ ฝั่งนี้แค่ระบายสีและเติมตัวเลข
+     ตั้งสีผ่าน attribute ตรง ๆ เพราะสไตล์ scoped ของหน้าลอดผ่านกล่องของ CpStepPlayer ไม่ได้ */
+  type PbsStep = { note: string; x: number; col: number[]; ev: number; ask: boolean; okNow: boolean };
+  const isNumArr = (v: unknown): v is number[] => Array.isArray(v) && v.every((n) => typeof n === 'number');
+  function isPbsStep(v: unknown): v is PbsStep {
+    if (typeof v !== 'object' || v === null) return false;
+    const o = v as Record<string, unknown>;
+    return (
+      typeof o.note === 'string' && typeof o.x === 'number' && isNumArr(o.col) && typeof o.ev === 'number' &&
+      typeof o.ask === 'boolean' && typeof o.okNow === 'boolean'
+    );
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<PbsStep>('[data-pbsweep]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isPbsStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const colRect = root.querySelector<SVGRectElement>('[data-pbs-col]');
+        const thisCell = root.querySelector<SVGTextElement>(`[data-pbs-v^="${st.x}-"]`);
+        if (colRect && thisCell) {
+          /* ตัวเลขของช่องวางไว้กลางช่อง ขอบซ้ายของแถบจึงอยู่ครึ่งช่องทางซ้าย */
+          const cellW = Number(colRect.getAttribute('width') ?? 0);
+          colRect.setAttribute('x', String(Number(thisCell.getAttribute('x') ?? 0) - cellW / 2));
+          colRect.setAttribute('stroke', st.okNow ? '#4ade80' : '#d4af37');
+        }
+        const lo = Math.min(...st.col);
+        root.querySelectorAll<SVGTextElement>('[data-pbs-v]').forEach((t) => {
+          const [cx, cy] = (t.dataset.pbsV ?? '0-0').split('-').map(Number);
+          if (cx !== st.x) {
+            t.textContent = '';
+            return;
+          }
+          const v = st.col[cy - 1];
+          t.textContent = String(v);
+          t.setAttribute('fill', st.ask && v === lo ? (st.okNow ? '#4ade80' : '#ffb3b8') : '#e8edf7');
+        });
+        root.querySelectorAll<SVGRectElement>('[data-pbs-ob]').forEach((r) => {
+          const hit = Number(r.dataset.pbsOb) === st.ev;
+          r.setAttribute('stroke-width', hit ? '3' : '1.5');
+          r.setAttribute('stroke-opacity', hit ? '1' : '0.55');
+        });
+        const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+        rows.forEach((tr, i) => {
+          tr.classList.toggle('is-later', i > ctx.at);
+          tr.classList.toggle('is-now', i === ctx.at);
+        });
+        const now = rows[ctx.at];
+        if (now) ctx.keepInView(now.cells[0] ?? now);
+      },
+    });
+  });
 </script>

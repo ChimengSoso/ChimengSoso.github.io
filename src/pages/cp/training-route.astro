@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 
 const href = 'training-route/';
 
@@ -59,6 +60,8 @@ const info: ExInfo[] = extra.map((e) => {
 
 const keepable = info.filter((x) => x.even);
 const forced = info.filter((x) => !x.even);
+const forcedCost = forced.reduce((s, x) => s + x.e.c, 0);
+const roadName = (e: Edge): string => `${e.a}-${e.b}`;
 
 /** เลือกชุดที่เส้นทางไม่ทับกันเลย แล้วเอาน้ำหนักรวมมากสุด (ไล่ทุกเซตได้เพราะมีไม่กี่เส้น) */
 function bestKeep(): { pick: ExInfo[]; weight: number } {
@@ -90,41 +93,9 @@ function bestKeep(): { pick: ExInfo[]; weight: number } {
 const kept = bestKeep();
 const answer = totalCost - kept.weight;
 
-/* ---------- พิกัดของภาพกราฟ ----------
-   ต้นไม้ของตัวอย่างนี้เป็นเส้นตรง 1 ถึง 5 พอดี จึงวางเมืองเรียงกันได้ตรง ๆ
-   สถานะของถนนไม่ราดยางแต่ละเส้น (ต้องปิด / เก็บได้แต่ไม่ได้เก็บ / เก็บไว้) มาจาก info กับ kept
-   ไม่ได้ระบายสีด้วยตา ถ้าเปลี่ยนตัวอย่าง ภาพก็เปลี่ยนตาม */
-const CITY_R = 21;
-const cityX = (v: number): number => 34 + (v - 1) * 118;
-const CITY_Y = 196;
-const trVB = `0 0 ${cityX(N) + CITY_R + 12} 300`;
-type ArcState = 'kept' | 'passed' | 'forced';
-const stateOf = (x: ExInfo): ArcState =>
-  kept.pick.indexOf(x) !== -1 ? 'kept' : x.even ? 'passed' : 'forced';
-const ARC_INK = { kept: '#4ade80', passed: '#8fa2c4', forced: '#e06c75' };
-/* เรียงเส้นที่กว้างกว่าให้อยู่ชั้นสูงกว่า แต่ละเส้นได้ชั้นของตัวเอง จึงไม่มีสองเส้นซ้อนกันพอดี */
-const arcOrder = [...info]
-  .sort((p, q) => Math.abs(q.e.a - q.e.b) - Math.abs(p.e.a - p.e.b))
-  .map((x) => x.e);
-const arcLane = (x: ExInfo): number => arcOrder.indexOf(x.e);
-const arcTop = (x: ExInfo): number => CITY_Y - CITY_R - 24 - arcLane(x) * 32;
-const arcPath = (x: ExInfo): string => {
-  const x1 = cityX(x.e.a);
-  const x2 = cityX(x.e.b);
-  const top = arcTop(x);
-  return `M${x1} ${CITY_Y - CITY_R} C ${x1} ${top}, ${x2} ${top}, ${x2} ${CITY_Y - CITY_R}`;
-};
-/** ยอดจริงของเส้นโค้งลูกบาศก์ที่จุดควบคุมทั้งสองอยู่ระดับเดียวกัน คือที่ t = 0.5 */
-const arcApex = (x: ExInfo): number => ((CITY_Y - CITY_R) * 2 + 6 * arcTop(x)) / 8;
-const arcLabelY = (x: ExInfo): number => arcApex(x) - 7;
-const treeEdges = paved.map((e) => ({ a: Math.min(e.a, e.b), b: Math.max(e.a, e.b) }));
-
-
-/* ---------- มินิเกม เลือกเองว่าจะปิดถนนเส้นไหน ----------
-   ตัวตัดสินของเกมไม่ได้ใช้กฎสองข้อของเฉลยเลย มันไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้
-   แล้วดูว่ามีวงยาวเป็นเลขคู่ไหม เหมือนตัวตรวจสอบที่บทความใช้
-   ส่วนค่าใช้จ่ายที่ถูกที่สุดหาโดยไล่ทุกวิธีเลือกตอนบิลด์ */
-type TrPuzzle = { id: string; label: string; tease: string; n: number; edges: Edge[] };
+/* ---------- ตัวตัดสินที่ไม่เชื่อกฎของเฉลย ----------
+   ไล่หาวงจรอย่างง่ายทุกวงในกราฟ แล้วดูว่ามีวงยาวเป็นเลขคู่ไหม
+   มินิเกม ตัวอย่างของกฎที่ 2 และตัวอย่างของดีพี เทียบกับตัวนี้ทั้งหมด */
 
 /** มีวงจรอย่างง่ายที่ยาวเป็นเลขคู่ในกราฟนี้ไหม ไล่ทุกวงจริง ๆ */
 function hasEvenCycle(n: number, es: Edge[]): boolean {
@@ -168,24 +139,123 @@ function cheapestClose(n: number, es: Edge[]): number {
   const ex = es.filter((e) => e.c > 0);
   let best = Number.POSITIVE_INFINITY;
   for (let mask = 0; mask < 1 << ex.length; mask++) {
-    const kept: Edge[] = [...pv];
+    const keptEs: Edge[] = [...pv];
     let cost = 0;
     for (let i = 0; i < ex.length; i++) {
-      if (mask & (1 << i)) kept.push(ex[i]);
+      if (mask & (1 << i)) keptEs.push(ex[i]);
       else cost += ex[i].c;
     }
     if (cost >= best) continue;
-    if (!hasEvenCycle(n, kept)) best = cost;
+    if (!hasEvenCycle(n, keptEs)) best = cost;
   }
   return best;
 }
+
+if (cheapestClose(N, EDGES) !== answer) {
+  throw new Error(`training-route: ตัวตรวจแบบไล่ทุกวงได้ ${cheapestClose(N, EDGES)} แต่สองกฎได้ ${answer}`);
+}
+
+/* ---------- ตัวอย่างของกฎที่ 2 คู่ที่เส้นทางทับกัน ----------
+   หาคู่จากตัวอย่างในโจทย์เอง แล้วประกอบวงใหม่จริง ๆ เพื่อนับความยาว เทียบกับสูตร */
+type Pair = { p: ExInfo; q: ExInfo; ov: string[] };
+function findPair(wantOverlap: boolean): Pair | null {
+  for (let i = 0; i < keepable.length; i++)
+    for (let j = i + 1; j < keepable.length; j++) {
+      const p = keepable[i];
+      const q = keepable[j];
+      const ov = p.edges.filter((k) => q.edges.includes(k));
+      const touch = p.path.some((v) => q.path.includes(v));
+      if (wantOverlap ? ov.length > 0 : ov.length === 0 && touch) return { p, q, ov };
+    }
+  return null;
+}
+const ovPair = findPair(true);
+if (!ovPair) throw new Error('training-route: ไม่พบคู่ที่เส้นทางทับกันในตัวอย่าง');
+const r2 = ovPair;
+const r2Cycle = [...r2.p.edges, ...r2.q.edges].filter((k) => !r2.ov.includes(k));
+const r2Len = r2Cycle.length + 2;
+const r2Formula = r2.p.len + 1 + (r2.q.len + 1) - 2 * r2.ov.length;
+{
+  if (r2Formula !== r2Len) throw new Error(`training-route: สูตรได้ ${r2Formula} แต่นับวงจริงได้ ${r2Len}`);
+  if (r2Len % 2 !== 0) throw new Error('training-route: วงที่ประกอบได้ไม่เป็นเลขคู่');
+  // วงที่ประกอบต้องเป็นวงจรอย่างง่ายจริง ทุกเมืองบนวงมีเส้นต่อพอดีสองเส้น
+  const deg = new Map<number, number>();
+  const bump = (v: number): void => {
+    deg.set(v, (deg.get(v) ?? 0) + 1);
+  };
+  for (const k of r2Cycle) k.split('-').map(Number).forEach(bump);
+  [r2.p.e.a, r2.p.e.b, r2.q.e.a, r2.q.e.b].forEach(bump);
+  if ([...deg.values()].some((d) => d !== 2)) throw new Error('training-route: วงที่ประกอบไม่ใช่วงจรอย่างง่าย');
+  if (deg.size !== r2Len) throw new Error('training-route: จำนวนเมืองบนวงไม่เท่าจำนวนถนน');
+  if (hasEvenCycle(N, [...paved, r2.p.e]) || hasEvenCycle(N, [...paved, r2.q.e]))
+    throw new Error('training-route: ถนนในคู่ตัวอย่างควรปลอดภัยเมื่ออยู่เส้นเดียว');
+  if (!hasEvenCycle(N, [...paved, r2.p.e, r2.q.e])) throw new Error('training-route: คู่ที่ทับกันควรเกิดวงคู่');
+}
+/* คู่ที่แตะกันแค่เมืองเดียว ไม่ได้ใช้ถนนราดยางร่วมกัน ต้องอยู่ด้วยกันได้ */
+const touchPair = findPair(false);
+if (touchPair && hasEvenCycle(N, [...paved, touchPair.p.e, touchPair.q.e])) {
+  throw new Error('training-route: คู่ที่แตะกันแค่เมืองเดียวไม่ควรเกิดวงคู่');
+}
+const touchCity = touchPair ? touchPair.p.path.find((v) => touchPair.q.path.includes(v)) : 0;
+/* โจทย์บอกไว้เองว่าปิดสองเส้นนี้เสีย 6 ซึ่งแพงกว่าคำตอบ */
+const stmtAltRoads = ['2-4', '2-5'];
+const stmtAltCost = extra.filter((e) => stmtAltRoads.includes(roadName(e))).reduce((s, e) => s + e.c, 0);
+if (stmtAltCost <= answer) throw new Error('training-route: ทางเลือกที่โจทย์ยกมาควรแพงกว่าคำตอบ');
+
+/* ---------- พิกัดของภาพกราฟ ----------
+   ต้นไม้ของตัวอย่างนี้เป็นเส้นตรง 1 ถึง 5 พอดี จึงวางเมืองเรียงกันได้ตรง ๆ
+   สถานะของถนนไม่ราดยางแต่ละเส้น (ต้องปิด / เก็บได้แต่ไม่ได้เก็บ / เก็บไว้) มาจาก info กับ kept */
+const CITY_R = 21;
+const cityX = (v: number): number => 34 + (v - 1) * 118;
+const CITY_Y = 196;
+const VB_W = cityX(N) + CITY_R + 12;
+type ArcState = 'kept' | 'passed' | 'forced';
+const stateOf = (x: ExInfo): ArcState =>
+  kept.pick.indexOf(x) !== -1 ? 'kept' : x.even ? 'passed' : 'forced';
+const ARC_INK = { kept: '#4ade80', passed: '#8fa2c4', forced: '#e06c75' };
+/* เรียงเส้นที่กว้างกว่าให้อยู่ชั้นสูงกว่า แต่ละเส้นได้ชั้นของตัวเอง จึงไม่มีสองเส้นซ้อนกันพอดี */
+const arcOrder = [...info]
+  .sort((p, q) => Math.abs(q.e.a - q.e.b) - Math.abs(p.e.a - p.e.b))
+  .map((x) => x.e);
+const laneTop = (lane: number): number => CITY_Y - CITY_R - 24 - lane * 32;
+const laneD = (e: Edge, lane: number): string => {
+  const x1 = cityX(e.a);
+  const x2 = cityX(e.b);
+  const top = laneTop(lane);
+  return `M${x1} ${CITY_Y - CITY_R} C ${x1} ${top}, ${x2} ${top}, ${x2} ${CITY_Y - CITY_R}`;
+};
+/** ยอดจริงของเส้นโค้งลูกบาศก์ที่จุดควบคุมทั้งสองอยู่ระดับเดียวกัน คือที่ t = 0.5 */
+const laneLabelY = (lane: number): number => ((CITY_Y - CITY_R) * 2 + 6 * laneTop(lane)) / 8 - 7;
+const arcLane = (x: ExInfo): number => arcOrder.indexOf(x.e);
+const arcMidX = (e: Edge): number => (cityX(e.a) + cityX(e.b)) / 2;
+const treeEdges = paved.map((e) => ({ a: Math.min(e.a, e.b), b: Math.max(e.a, e.b) }));
+/* ขอบบนของ viewBox ตัดที่ป้ายของชั้นสูงสุด ไม่ปล่อยที่ว่างไว้เหนือภาพ */
+const vbTop = (maxLane: number): number => Math.floor(laneLabelY(maxLane) - 12 - 12);
+const MAX_LANE = info.length - 1;
+const hintVB = `0 ${vbTop(MAX_LANE)} ${VB_W} ${CITY_Y + CITY_R + 34 - vbTop(MAX_LANE)}`;
+const fullVB = `0 ${vbTop(MAX_LANE)} ${VB_W} ${CITY_Y + 64 + 30 - vbTop(MAX_LANE)}`;
+/* ภาพของกฎที่ 2: วาดแค่สองเส้นของคู่ เส้นที่กว้างกว่าอยู่ชั้นบน */
+const r2Arcs = [r2.p, r2.q]
+  .sort((p, q) => Math.abs(p.e.a - p.e.b) - Math.abs(q.e.a - q.e.b))
+  .map((x, lane) => ({ x, lane }));
+const r2VB = `0 ${vbTop(1)} ${VB_W} ${CITY_Y + 64 + 30 - vbTop(1)}`;
+const r2EdgeInk = (k: string): string => (r2.ov.includes(k) ? '#e06c75' : r2Cycle.includes(k) ? '#4ade80' : '#3a4459');
+const r2OvMid = r2.ov.map((k) => {
+  const [u, v] = k.split('-').map(Number);
+  return (cityX(u) + cityX(v)) / 2;
+});
+
+/* ---------- มินิเกม เลือกเองว่าจะปิดถนนเส้นไหน ----------
+   ตัวตัดสินของเกมไม่ได้ใช้กฎสองข้อของเฉลยเลย มันไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้
+   ส่วนค่าใช้จ่ายที่ถูกที่สุดหาโดยไล่ทุกวิธีเลือกตอนบิลด์ */
+type TrPuzzle = { id: string; label: string; tease: string; n: number; edges: Edge[] };
 
 const TR_PUZZLES: TrPuzzle[] = [
   { id: 'r1', label: 'ชุดที่ 1 · ตัวอย่างในโจทย์', tease: 'ห้าเมืองเดียวกับที่บทความใช้', n: N, edges: EDGES },
   {
     id: 'r2',
-    label: 'ชุดที่ 2 · ปิดน้อยที่สุด',
-    tease: 'ชุดนี้มีถนนไม่ราดยางสองเส้นที่ตีกันเอง ลองดูว่าจำเป็นต้องปิดทั้งคู่ไหม',
+    label: 'ชุดที่ 2 · เส้นแพงเส้นเดียว',
+    tease: 'มีถนนไม่ราดยางสองเส้น เส้นหนึ่งแพงกว่าอีกเส้นมาก ลองดูว่าเลี่ยงการปิดเส้นแพงได้ไหม',
     n: 4,
     edges: [
       { a: 1, b: 2, c: 0 },
@@ -197,8 +267,8 @@ const TR_PUZZLES: TrPuzzle[] = [
   },
   {
     id: 'r3',
-    label: 'ชุดที่ 3 · ไม่ต้องปิดเลย',
-    tease: 'ชุดนี้อาจไม่ต้องปิดถนนสักเส้น ลองตรวจดูก่อนรีบปิด',
+    label: 'ชุดที่ 3 · ถนนเส้นเดียว',
+    tease: 'ก่อนกดปิดอะไร ลองกดตรวจดูก่อนว่าตอนนี้เป็นยังไง',
     n: 4,
     edges: [
       { a: 1, b: 2, c: 0 },
@@ -207,29 +277,37 @@ const TR_PUZZLES: TrPuzzle[] = [
       { a: 1, b: 3, c: 4 },
     ],
   },
+  {
+    id: 'r4',
+    label: 'ชุดที่ 4 · สองเส้นที่ดูปลอดภัย',
+    tease: 'ลองปิดทีละเส้นแล้วกดตรวจ จากนั้นเปิดคืนทั้งสองเส้นแล้วกดตรวจอีกที',
+    n: 4,
+    edges: [
+      { a: 1, b: 2, c: 0 },
+      { a: 2, b: 3, c: 0 },
+      { a: 3, b: 4, c: 0 },
+      { a: 1, b: 3, c: 4 },
+      { a: 2, b: 4, c: 6 },
+    ],
+  },
 ];
 
-type TrPuzzleData = {
-  id: string;
-  label: string;
-  tease: string;
-  n: number;
-  edges: Edge[];
-  best: number;
-};
-const trPuzzles: TrPuzzleData[] = TR_PUZZLES.map((p) => ({
-  id: p.id,
-  label: p.label,
-  tease: p.tease,
-  n: p.n,
-  edges: p.edges,
-  best: cheapestClose(p.n, p.edges),
-}));
+type TrPuzzleData = TrPuzzle & { best: number };
+const trPuzzles: TrPuzzleData[] = TR_PUZZLES.map((p) => ({ ...p, best: cheapestClose(p.n, p.edges) }));
 {
   // ชุดแรกคือตัวอย่างของบทความ ค่าใช้จ่ายต้องตรงกับคำตอบที่บทความประกาศไว้
   if (trPuzzles[0].best !== answer) {
     throw new Error(`มินิเกมของ training-route: ไล่ทุกวิธีได้ ${trPuzzles[0].best} แต่บทความตอบ ${answer}`);
   }
+  // ชุดที่ 2 ต้องบังคับให้ปิดเส้นแพง ชุดที่ 3 ต้องไม่ต้องปิดเลย
+  // ชุดที่ 4 แต่ละเส้นอยู่คนเดียวได้ แต่อยู่ด้วยกันไม่ได้ ตรงนี้คือสิ่งที่เกมต้องสอน
+  const [p2, p3, p4] = [trPuzzles[1], trPuzzles[2], trPuzzles[3]];
+  if (p2.best !== 7) throw new Error(`ชุดที่ 2 ควรได้ 7 ได้ ${p2.best}`);
+  if (p3.best !== 0) throw new Error(`ชุดที่ 3 ควรได้ 0 ได้ ${p3.best}`);
+  const pv4 = p4.edges.filter((e) => e.c === 0);
+  const ex4 = p4.edges.filter((e) => e.c > 0);
+  if (ex4.some((e) => hasEvenCycle(p4.n, [...pv4, e]))) throw new Error('ชุดที่ 4: แต่ละเส้นควรปลอดภัยเมื่ออยู่คนเดียว');
+  if (!hasEvenCycle(p4.n, p4.edges)) throw new Error('ชุดที่ 4: สองเส้นรวมกันควรเกิดวงคู่');
 }
 const trJson = JSON.stringify(trPuzzles);
 
@@ -271,6 +349,262 @@ function countSimpleCycles(n: number, es: Edge[]): number {
   return total / 2;
 }
 const sampleCycles = countSimpleCycles(N, EDGES);
+
+/* ---------- ตัวอย่างเล็กของตอนที่ 5 (ดีพีบนต้นไม้) ----------
+   ต้นไม้ 12 เมือง ปักรากที่ 1 ถนนไม่ราดยางทุกเส้นยาวคู่ (เส้นคี่ถูกกฎที่ 1 ตัดไปแล้ว)
+   ดีพีข้างล่างเขียนตามโค้ด C++ บรรทัดต่อบรรทัด แล้วเทียบกับตัวตรวจแบบไล่ทุกวง */
+const DP_N = 12;
+const DP_PARENT: number[] = [0, 0, 1, 1, 2, 2, 3, 3, 5, 7, 1, 10, 11];
+const DP_ROADS: Edge[] = [
+  { a: 4, b: 5, c: 3 },
+  { a: 2, b: 8, c: 2 },
+  { a: 3, b: 9, c: 2 },
+  { a: 6, b: 7, c: 3 },
+  { a: 4, b: 6, c: 9 },
+  { a: 2, b: 3, c: 4 },
+  { a: 10, b: 12, c: 3 },
+];
+const dpCh: number[][] = Array.from({ length: DP_N + 1 }, () => [] as number[]);
+for (let v = 2; v <= DP_N; v++) dpCh[DP_PARENT[v]].push(v);
+const dpDep: number[] = new Array<number>(DP_N + 1).fill(0);
+for (let v = 2; v <= DP_N; v++) dpDep[v] = dpDep[DP_PARENT[v]] + 1;
+function dpLca(a: number, b: number): number {
+  while (dpDep[a] > dpDep[b]) a = DP_PARENT[a];
+  while (dpDep[b] > dpDep[a]) b = DP_PARENT[b];
+  while (a !== b) {
+    a = DP_PARENT[a];
+    b = DP_PARENT[b];
+  }
+  return a;
+}
+const bitOf = (node: number, child: number): number => (child === 0 ? 0 : 1 << dpCh[node].indexOf(child));
+type DpTerm = { node: number; child: number };
+type DpCand = { road: number; e: Edge; lca: number; terms: DpTerm[]; se: number[]; seBits: number; path: number[]; len: number };
+/** ไต่จาก x ขึ้นไปหา top (ไม่รวม top) จดว่าแต่ละปมถูกจองลูกคนไหน */
+function climb(x: number, top: number): { terms: DpTerm[]; last: number; nodes: number[] } {
+  const terms: DpTerm[] = [];
+  const nodes: number[] = [];
+  let prev = 0;
+  while (x !== top) {
+    terms.push({ node: x, child: prev });
+    nodes.push(x);
+    prev = x;
+    x = DP_PARENT[x];
+  }
+  return { terms, last: prev, nodes };
+}
+const dpCands: DpCand[] = DP_ROADS.map((e, road) => {
+  const lca = dpLca(e.a, e.b);
+  const A = climb(e.a, lca);
+  const B = climb(e.b, lca);
+  const len = A.nodes.length + B.nodes.length;
+  if (len % 2 !== 0) throw new Error(`training-route: ถนน ${roadName(e)} ในตัวอย่างดีพียาวคี่`);
+  const se = [A.last, B.last].filter((c) => c !== 0);
+  return {
+    road,
+    e,
+    lca,
+    terms: [...A.terms, ...B.terms],
+    se,
+    seBits: se.reduce((s, c) => s | bitOf(lca, c), 0),
+    path: [...A.nodes, lca, ...B.nodes.slice().reverse()],
+    len,
+  };
+});
+const candsAt = (v: number): DpCand[] => dpCands.filter((c) => c.lca === v);
+const dpVal: number[][] = Array.from({ length: DP_N + 1 }, () => [] as number[]);
+const dpPick: number[][] = Array.from({ length: DP_N + 1 }, () => [] as number[]);
+const dpPost: number[] = [];
+const visitPost = (v: number): void => {
+  for (const c of dpCh[v]) visitPost(c);
+  dpPost.push(v);
+};
+visitPost(1);
+const termVal = (t: DpTerm): number => dpVal[t.node][bitOf(t.node, t.child)];
+const candVal = (c: DpCand): number => c.e.c + c.terms.reduce((s, t) => s + termVal(t), 0);
+const dpBase: number[] = new Array<number>(DP_N + 1).fill(0);
+for (const v of dpPost) {
+  const full = 1 << dpCh[v].length;
+  const g: number[] = new Array<number>(full).fill(0);
+  const pick: number[] = new Array<number>(full).fill(-1);
+  for (let mk = 0; mk < full; mk++) g[mk] = dpCh[v].reduce((s, c, j) => ((mk >> j) & 1 ? s : s + dpVal[c][0]), 0);
+  dpBase[v] = g[0];
+  const cs = candsAt(v);
+  for (let mk = full - 1; mk >= 0; mk--)
+    cs.forEach((c, ci) => {
+      if ((c.seBits & mk) !== 0) return;
+      const val = candVal(c) + g[mk | c.seBits];
+      if (val > g[mk]) {
+        g[mk] = val;
+        pick[mk] = ci;
+      }
+    });
+  dpVal[v] = g;
+  dpPick[v] = pick;
+}
+const dpBest = dpVal[1][0];
+/* ย้อนรอยหาว่าเก็บถนนเส้นไหนบ้าง */
+const dpKept: number[] = [];
+function takeBack(v: number, mk: number): void {
+  const ci = dpPick[v][mk];
+  if (ci === -1) {
+    dpCh[v].forEach((c, j) => {
+      if (!((mk >> j) & 1)) takeBack(c, 0);
+    });
+    return;
+  }
+  const c = candsAt(v)[ci];
+  dpKept.push(c.road);
+  for (const t of c.terms) takeBack(t.node, bitOf(t.node, t.child));
+  takeBack(v, mk | c.seBits);
+}
+takeBack(1, 0);
+const dpTotal = DP_ROADS.reduce((s, e) => s + e.c, 0);
+const dpTreeEdges: Edge[] = [];
+for (let v = 2; v <= DP_N; v++) dpTreeEdges.push({ a: v, b: DP_PARENT[v], c: 0 });
+{
+  const keptW = dpKept.reduce((s, r) => s + DP_ROADS[r].c, 0);
+  if (keptW !== dpBest) throw new Error(`training-route: ย้อนรอยได้ ${keptW} แต่ dp ได้ ${dpBest}`);
+  const used = new Set<string>();
+  for (const r of dpKept) {
+    const p = dpCands[r].path;
+    for (let i = 0; i + 1 < p.length; i++) {
+      const k = key(p[i], p[i + 1]);
+      if (used.has(k)) throw new Error('training-route: ถนนที่ดีพีเก็บมีเส้นทางทับกัน');
+      used.add(k);
+    }
+  }
+  const brute = dpTotal - cheapestClose(DP_N, [...dpTreeEdges, ...DP_ROADS]);
+  if (brute !== dpBest) throw new Error(`training-route: ดีพีได้ ${dpBest} แต่ไล่ทุกวงได้ ${brute}`);
+}
+const dpKeptNames = dpKept.map((r) => roadName(DP_ROADS[r]));
+const dpMaskName = (v: number, mk: number): string => {
+  const s = dpCh[v].filter((_, j) => (mk >> j) & 1);
+  return s.length > 0 ? `{${s.join(',')}}` : '∅';
+};
+const dpRowText = (v: number): string => dpVal[v].map((x, mk) => `${dpMaskName(v, mk)} ${x}`).join(' · ');
+const dpTermText = (t: DpTerm): string => `dp[${t.node}][${dpMaskName(t.node, bitOf(t.node, t.child))}] ${termVal(t)}`;
+
+/* ตัวอย่างสูตรที่ราก: ถนนที่รากเลือกจริงตอนไม่มีลูกถูกจอง */
+const rootPick = dpPick[1][0];
+if (rootPick === -1) throw new Error('training-route: รากควรเลือกถนนสักเส้น');
+const rootEx = candsAt(1)[rootPick];
+const rootExVal = candVal(rootEx);
+const rootInner = rootEx.terms.filter((t) => dpCh[t.node].length > 0);
+if (rootInner.length === 0 || rootInner.some((t) => termVal(t) === 0)) {
+  throw new Error('training-route: ตัวอย่างสูตรควรมีพจน์ของปมภายในที่ไม่เป็นศูนย์ทุกตัว');
+}
+const rootRest = dpVal[1][rootEx.seBits];
+if (rootRest === 0) throw new Error('training-route: พจน์ dp[1][mask ∪ se] ของตัวอย่างสูตรควรไม่เป็นศูนย์');
+if (rootExVal + rootRest !== dpBest) throw new Error('training-route: ตัวอย่างสูตรไม่ตรงกับ dp ที่ราก');
+const rootOther = candsAt(1).filter((c) => c !== rootEx);
+const exTerm = rootInner[0];
+const exTermUsable = candsAt(exTerm.node).filter((c) => !c.se.includes(exTerm.child));
+const exTermBlocked = candsAt(exTerm.node).filter((c) => c.se.includes(exTerm.child));
+/* ถนนที่ปลายข้างหนึ่งคือปมร่วมเอง (ไต่ขึ้นข้างเดียว) ใช้อธิบายกรณีพิเศษของสูตร */
+const endAtLca = dpCands.find((c) => c.e.a === c.lca || c.e.b === c.lca);
+if (!endAtLca) throw new Error('training-route: ตัวอย่างควรมีถนนที่ปลายข้างหนึ่งคือปมร่วม');
+
+
+/* สเต็ปของเครื่องเดิน หนึ่งเมืองต่อหนึ่งขั้น ตามลำดับหลังลูก (post-order) แล้วปิดด้วยขั้นสรุป */
+type DpStep = { note: string; v: number; cands: number[]; done: number[]; kept: number[] };
+let leafSeen = 0;
+const dpSteps: DpStep[] = dpPost.map((v, idx) => {
+  const cs = candsAt(v);
+  const done = dpPost.slice(0, idx + 1);
+  let note: string;
+  if (dpCh[v].length === 0) {
+    note =
+      leafSeen === 0
+        ? `เริ่มจากใบก่อน เมือง ${v} ไม่มีลูก และไม่มีถนนเส้นไหนที่ปมร่วมต่ำสุดอยู่ที่นี่ จึงได้ <b>dp[${v}][∅] = 0</b>`
+        : `เมือง ${v} เป็นใบ · <b>dp[${v}][∅] = 0</b>`;
+    leafSeen++;
+  } else {
+    const skipText = (mk: number): string => {
+      const free = dpCh[v].filter((_, j) => !((mk >> j) & 1));
+      const sum = free.reduce((t, c) => t + dpVal[c][0], 0);
+      return free.length > 0 ? `${free.map((c) => `dp[${c}][∅] ${dpVal[c][0]}`).join(' + ')} = ${sum}` : '0';
+    };
+    const takeVal = (c: DpCand, mk: number): number => candVal(c) + dpVal[v][mk | c.seBits];
+    const lines = [`<b>เมือง ${v}</b> ลูก ${dpCh[v].join(', ')}`, `[∅] ไม่เก็บ: ${skipText(0)}`];
+    for (const c of cs) {
+      lines.push(
+        `[∅] เก็บ ${roadName(c.e)}: ${c.e.c} + ${c.terms.map(dpTermText).join(' + ')} + dp[${v}][${dpMaskName(v, c.seBits)}] ${dpVal[v][c.seBits]} = <em>${takeVal(c, 0)}</em>`,
+      );
+    }
+    /* mask ที่ไม่ว่าง: แสดงเฉพาะอันที่ยังมีถนนให้เก็บ ที่เหลือรวบเป็นบรรทัดเดียว */
+    const full = 1 << dpCh[v].length;
+    const onlySkip: string[] = [];
+    for (let mk = 1; mk < full; mk++) {
+      const usable = cs.filter((c) => (c.seBits & mk) === 0);
+      if (usable.length === 0) {
+        onlySkip.push(`[${dpMaskName(v, mk)}] ${dpVal[v][mk]}`);
+        continue;
+      }
+      lines.push(
+        `[${dpMaskName(v, mk)}] ไม่เก็บ ${skipText(mk)} · ${usable.map((c) => `เก็บ ${roadName(c.e)} ${candVal(c)} + dp[${v}][${dpMaskName(v, mk | c.seBits)}] ${dpVal[v][mk | c.seBits]} = ${takeVal(c, mk)}`).join(' · ')} → <em>${dpVal[v][mk]}</em>`,
+      );
+    }
+    if (onlySkip.length > 0) lines.push(`ไม่มีถนนให้เก็บ เหลือแค่ทางไม่เก็บ: ${onlySkip.join(' · ')}`);
+    lines.push(`ได้ <b>dp[${v}]</b> ${dpRowText(v)}`);
+    note = lines.join('<br />');
+  }
+  return { note, v, cands: cs.map((c) => c.road), done, kept: [] };
+});
+dpSteps.push({
+  note: `สรุป: <b>dp[1][∅] = ${dpBest}</b> ย้อนรอยแล้วได้ถนนที่เก็บคือ ${dpKeptNames.join(', ')} (เส้นเขียว) เส้นทางไม่ทับกันเลย ค่าปิดรวม ${dpTotal} คำตอบของต้นไม้นี้จึงเป็น ${dpTotal} − ${dpBest} = ${dpTotal - dpBest}`,
+  v: 0,
+  cands: [],
+  done: dpPost.slice(),
+  kept: dpKept.slice(),
+});
+
+/* พิกัดของต้นไม้ตัวอย่าง วาดเองทีละเมือง ให้กิ่งซ้ายขวาไม่ชนกัน */
+const DP_POS: Record<number, [number, number]> = {
+  1: [330, 40],
+  2: [100, 120],
+  3: [360, 120],
+  4: [30, 200],
+  5: [170, 200],
+  6: [290, 200],
+  7: [430, 200],
+  8: [170, 280],
+  9: [430, 280],
+  10: [560, 120],
+  11: [560, 200],
+  12: [560, 280],
+};
+const DP_R = 18;
+const DP_VB_W = 590;
+const DP_VB = `0 10 ${DP_VB_W} 322`;
+const dpPathD = (c: DpCand): string =>
+  c.path.map((v, i) => `${i === 0 ? 'M' : 'L'}${DP_POS[v][0]} ${DP_POS[v][1]}`).join(' ');
+const dpNodes = Array.from({ length: DP_N }, (_, i) => i + 1);
+
+/* ---------- ต้นทุนของโค้ดเต็ม และผลที่วัดได้ ---------- */
+const COST_CLIMB = MMAX * NMAX; // ไต่หาปมร่วม + รวม dp ตามเส้นทาง เส้นละไม่เกิน N ปม
+const COST_MASK = MMAX * MASKMAX; // เพดาน: ทุกถนนถูกลองกับทุก mask ของปมร่วม (ของจริงคือ 2^จำนวนลูก ซึ่งมักน้อยกว่า)
+const COST_FILL = (NMAX - 1) * MASKMAX; // เติมค่าไม่เก็บ: แต่ละเมือง 2^k × k ก้าว ผลรวม k ไม่เกิน N − 1
+const BUDGET_OPS = 0.3 * 1e8; // คิดหยาบ ๆ ราว 10^8 ก้าวต่อวินาที
+/* วัดบน WSL Ubuntu 22.04, g++ 11.4 -O2 กับโค้ดที่ดึงออกจาก dist (scripts/extract-cp-code.mjs)
+   สุ่มเทียบกับตัวตรวจ 1,000 ชุด (เมืองไม่เกิน 7 ถนนไม่ราดยางไม่เกิน 5) ตรงกันทั้งหมด
+   เวลา: เคสใหญ่เก้าชุด N = 1,000 ถนนเกือบ 5,000 ทุกเมืองไม่เกินสิบสาย สามรูปทรง (ลึก แตกกิ่ง สุ่ม)
+   วัดชุดละสามรอบเอาค่าน้อยสุด ช้าที่สุดคือ 11 มิลลิวินาที (รวมเวลาเปิดโปรแกรม) */
+const STRESS_ROUNDS = 1000;
+const STRESS_MAX_N = 7;
+const STRESS_MAX_EXTRA = 5;
+/* รอบเพิ่มหลังรีวิว: ถนนซ้ำคู่เมืองได้ (เมืองไม่เกิน 7 ถนนไม่ราดยางไม่เกิน 6) 1,000 ชุด
+   และต้นไม้ที่มีเมืองลูกเยอะ (11-14 เมือง ลูกสูงสุด 10 คน ถนนไม่ราดยาง 6-10 เส้น) 400 ชุด ไม่มีชุดไหนต่างกัน
+   ตัวอย่างชุดที่ 2 ของโจทย์ (9 เมือง 14 ถนน) ได้ 48 ทั้งสองโปรแกรม */
+const STRESS_PAR_ROUNDS = 1000;
+const STRESS_PAR_MAX_EXTRA = 6;
+const STRESS_WIDE_ROUNDS = 400;
+const STRESS_WIDE_N = '11 ถึง 14';
+const STRESS_WIDE_MAX_EXTRA = 10;
+const STRESS_WIDE_MAX_CHILD = 10;
+const SAMPLE2_ANSWER = 48;
+const BIG_TESTS = 9;
+const WORST_MS = 11;
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
@@ -396,7 +730,7 @@ for (int mk = 0; mk < full; mk++) {
     for (int j = 0; j < k; j++) if (mk >> j & 1) s -= d0[j];
     g[mk] = s;
 }
-// ไล่จากเซตใหญ่ไปเซตเล็ก เพราะ g[mk] อ้างถึง g[mk | se] ซึ่งมีบิตมากกว่าเสมอ
+// ลูปนอกไล่ mk จากค่ามากลงมาหาค่าน้อย (เหตุผลอยู่ในข้อ 3 ของเช็กความเข้าใจ)
 for (int mk = full - 1; mk >= 0; mk--)
     for (auto& c : cs)                         // cs = ถนนไม่ราดยางที่มีจุดร่วมสูงสุดอยู่ที่ v
         if (!(c.se & mk)) g[mk] = max(g[mk], c.val + g[mk | c.se]);`;
@@ -408,12 +742,12 @@ for (int mk = full - 1; mk >= 0; mk--)
     เพื่อไม่ให้ใครได้เปรียบ ทั้งคู่จึงเลือกซ้อมบนเส้นทางที่<strong>ผ่านถนนเป็นจำนวนคู่</strong>
   </p>
   <p>
-    ในประเทศมีเมือง <code>N</code> เมือง ถนน <code>M</code> สาย ในจำนวนนั้นมี <code>N − 1</code> สายที่
-    <strong>ราดยาง</strong> และเชื่อมทุกเมืองถึงกันพอดี นั่นคือถนนราดยางประกอบกันเป็น<strong>ต้นไม้</strong>
+    ในประเทศมีเมือง <code>N</code> เมือง ถนน <code>M</code> สาย ในจำนวนนั้นมี <code>N − 1</code> สายที่ราดยาง
+    และเชื่อมทุกเมืองถึงกันพอดี นั่นคือถนนราดยางประกอบกันเป็น<strong>ต้นไม้</strong>
     ส่วนที่เหลือเป็นถนนที่ไม่ได้ราดยาง แต่ละเส้นมีค่าใช้จ่ายในการปิด
   </p>
   <p>
-    เส้นทางซ้อมคือวงปิดที่ออกจากเมืองหนึ่งแล้ววนกลับมาที่เดิม โดย<strong>ไม่ซ้ำเมืองและไม่ซ้ำถนน</strong>
+    เส้นทางซ้อมคือวงปิดที่ออกจากเมืองหนึ่งแล้ววนกลับมาที่เดิม โดยไม่ซ้ำเมืองและไม่ซ้ำถนน
     คู่แข่งอยากขัดขวาง จึงจะปิดถนนที่ไม่ได้ราดยางบางเส้น (ปิดถนนราดยางไม่ได้) ให้ไม่เหลือเส้นทางซ้อมที่ยาวเป็นเลขคู่เลย
     งานของเราคือหา<strong>ค่าใช้จ่ายรวมที่ต่ำที่สุด</strong>
   </p>
@@ -428,16 +762,12 @@ for (int mk = full - 1; mk >= 0; mk--)
       </li>
       <li>
         <strong>ขอบเขต:</strong> <code>2 ≤ N ≤ {NMAX}</code>, <code>N − 1 ≤ M ≤ {MMAX}</code>,
-        <code>C ≤ 10,000</code> และ<strong>ทุกเมืองมีถนนต่ออยู่รวมไม่เกิน {DEGMAX} สาย</strong>
+        <code>C ≤ 10,000</code> และทุกเมืองมีถนนต่ออยู่รวมไม่เกิน {DEGMAX} สาย
         เวลา 0.3 วินาที หน่วยความจำ 64 เมกะไบต์
       </li>
       <li><strong>เอาต์พุต:</strong> ค่าใช้จ่ายรวมที่ต่ำที่สุด</li>
     </ul>
   </div>
-  <p class="io-note">
-    ขอบเขตข้อสุดท้ายที่ว่าดีกรีไม่เกิน {DEGMAX} ดูเหมือนของแถม แต่มันคือกุญแจของทั้งข้อ
-    โจทย์ที่ใส่ขอบเขตแปลก ๆ แบบนี้มาให้ มักกำลังบอกใบ้ว่าเฉลยต้องใช้มันตรง ๆ
-  </p>
 
   <table class="io">
     <caption>EXAMPLE</caption>
@@ -453,19 +783,22 @@ for (int mk = full - 1; mk >= 0; mk--)
   <h2>ตรงไหนที่ทำให้ข้อนี้ไม่ง่าย</h2>
   <p>
     สิ่งที่เราเลือกคือเซตของถนนไม่ราดยางที่จะปิด ตัวอย่างในโจทย์มีถนนแบบนั้น {extra.length} สาย
-    จึงมีเซตให้ลองแค่ {sampleSubsets} แบบ ไล่ดูทีละแบบได้สบาย แต่ขอบเขตจริงเปิดให้ถนนไม่ราดยาง
-    มีได้ถึง {trFmt(CLOSABLE_MAX)} สาย จำนวนเซตคือสองยกกำลัง {trFmt(CLOSABLE_MAX)}
+    จึงมีเซตให้ลองแค่ {sampleSubsets} แบบ ไล่ดูทีละแบบได้สบาย
   </p>
   <p>
-    ด่านที่สองหนักกว่าด่านแรก สมมติมีคนยื่นเซตหนึ่งมาให้แล้วบอกให้ตอบว่าเซตนี้ใช้ได้ไหม
-    เงื่อนไขของโจทย์พูดถึง<strong>ทุกวงปิด</strong>ที่ยังเหลืออยู่ในกราฟ กราฟหนึ่งกราฟมีวงปิดได้มากกว่า
-    จำนวนถนนของมันเยอะ ตัวอย่างเล็ก ๆ ในโจทย์มีถนนแค่ {EDGES.length} สาย แต่มีวงจรอย่างง่ายอยู่
-    {sampleCycles} วง แค่การตรวจคำตอบหนึ่งข้อก็แพงแล้ว ยังไม่นับว่าต้องตรวจกี่ข้อ
+    แต่ขอบเขตจริงมีถนนได้ {trFmt(MMAX)} สาย ในนั้นเป็นถนนราดยาง N − 1 = {trFmt(NMAX - 1)} สาย
+    ถนนไม่ราดยางจึงมีได้ถึง {trFmt(CLOSABLE_MAX)} สาย จำนวนเซตคือสองยกกำลัง {trFmt(CLOSABLE_MAX)}
   </p>
   <p>
-    ทางออกจึงต้องมาจากการยุบเงื่อนไขทั้งข้อให้เหลือสิ่งที่ตัดสินได้ระหว่างเดินบนต้นไม้
-    โดยไม่ต้องไปแตะวงปิดสักวงเดียว และตรงนั้นเองที่ขอบเขตดีกรีไม่เกิน {DEGMAX} ซึ่งดูเหมือนของแถม
-    จะได้ใช้งานจริง
+    ด่านที่สองหนักกว่า ต่อให้มีคนยื่นเซตหนึ่งมาให้ การตรวจว่าใช้ได้ไหมต้องดู<strong>ทุกวงปิด</strong>ที่ยังเหลือ
+    ซึ่งในภาษากราฟเรียกว่า<strong>วงจรอย่างง่าย</strong> (simple cycle คือวงที่ไม่ผ่านเมืองซ้ำ)
+  </p>
+  <p>
+    วงพวกนี้มีมากกว่าจำนวนถนนเยอะ ตัวอย่างเล็ก ๆ ในโจทย์มีถนนแค่ {EDGES.length} สาย แต่มีวงจรอย่างง่ายอยู่
+    {sampleCycles} วง แค่ตรวจคำตอบหนึ่งข้อก็แพงแล้ว
+  </p>
+  <p>
+    ทางออกจึงต้องยุบเงื่อนไขทั้งข้อให้เหลือสิ่งที่ตัดสินได้ระหว่างเดินบนต้นไม้ โดยไม่ต้องแตะวงปิดสักวง
   </p>
 
   <div class="callout callout-tip">
@@ -475,45 +808,24 @@ for (int mk = full - 1; mk >= 0; mk--)
       จะสร้างวงขึ้นมาพอดีหนึ่งวง คือเส้นทางบนต้นไม้จาก <code>A</code> ไป <code>B</code> บวกกับตัวมันเอง
     </p>
     <p>
-      ลองถามสองคำถามนี้ดู วงที่เกิดจากถนนเส้นเดียวมีความยาวเท่าไร และถ้าเราเก็บถนนไม่ราดยางไว้สองเส้น
-      ที่เส้นทางบนต้นไม้ของมัน<strong>ทับกัน</strong> จะเกิดวงอะไรขึ้นอีกบ้างที่เราไม่ได้ตั้งใจ
+      ลองถามสองคำถามนี้ดู วงที่เกิดจากถนนเส้นเดียวยาวเท่าไร และถ้าเก็บถนนไม่ราดยางไว้สองเส้น
+      ที่เส้นทางบนต้นไม้ของมันทับกัน จะเกิดวงอะไรขึ้นอีกบ้างที่เราไม่ได้ตั้งใจ
     </p>
   </div>
 
-  <ZoomableDiagram caption={`ตัวอย่างในโจทย์ เมือง ${N} เมืองกับถนนราดยาง ${paved.length} สายที่ทำให้เมืองทั้งหมดต่อกันเป็นต้นไม้ ส่วนเส้นโค้งด้านบนคือถนนไม่ราดยาง ${extra.length} สาย แต่ละสายเขียนไว้ว่าเส้นทางบนต้นไม้ยาวกี่สาย และวงที่มันสร้างยาวเท่าไร เส้นแดงคือเส้นที่วงเป็นเลขคู่ จึงต้องปิดโดยไม่มีทางเลือก ส่วนเส้นสีจางคือเส้นที่เก็บไว้ได้ตามกฎที่หนึ่ง แต่เส้นทางของมันทับกับเส้นที่คุ้มกว่า จึงไม่ได้เก็บตามกฎที่สอง เหลือเส้นเขียวที่เก็บได้จริง น้ำหนักรวม ${kept.weight} จากค่าใช้จ่ายทั้งหมด ${totalCost} คำตอบจึงเป็น ${answer} (วาดประกอบโดยผู้เขียน)`}>
-    <svg viewBox={trVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กราฟของเมือง ${N} เมืองเรียงเป็นแถวจากซ้ายไปขวา เชื่อมกันด้วยถนนราดยางเป็นเส้นตรง เหนือแถวมีเส้นโค้ง ${extra.length} เส้นแทนถนนไม่ราดยาง คือ ${info.map((x) => `เส้นจากเมือง ${x.e.a} ถึงเมือง ${x.e.b} ค่าปิด ${x.e.c} เส้นทางบนต้นไม้ยาว ${x.len} สาย วงยาว ${x.len + 1} ${stateOf(x) === 'forced' ? 'ต้องปิด' : stateOf(x) === 'kept' ? 'เก็บไว้ได้' : 'เก็บได้ตามกฎแรกแต่เส้นทางทับกับเส้นอื่น'}`).join(' ')}`}>
+  <ZoomableDiagram caption={`ตัวอย่างในโจทย์ เมือง ${N} เมืองเรียงตามถนนราดยาง ${paved.length} สาย ส่วนเส้นโค้งด้านบนคือถนนไม่ราดยาง ${extra.length} สายพร้อมค่าปิด ลองนับดูว่าแต่ละเส้นสร้างวงยาวเท่าไร (วาดประกอบโดยผู้เขียน)`}>
+    <svg viewBox={hintVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:680px" role="img" aria-label={`กราฟของเมือง ${N} เมืองเรียงเป็นแถวจากซ้ายไปขวา เชื่อมกันด้วยถนนราดยางเป็นเส้นตรง เหนือแถวมีเส้นโค้ง ${extra.length} เส้นแทนถนนไม่ราดยาง คือ ${info.map((x) => `เส้นจากเมือง ${x.e.a} ถึงเมือง ${x.e.b} ค่าปิด ${x.e.c}`).join(' ')}`}>
       {treeEdges.map((e) => (
         <line x1={cityX(e.a) + CITY_R} y1={CITY_Y} x2={cityX(e.b) - CITY_R} y2={CITY_Y} stroke="#5b6478" stroke-width="3" />
       ))}
       {info.map((x) => (
-        <path
-          d={arcPath(x)}
-          fill="none"
-          stroke={ARC_INK[stateOf(x)]}
-          stroke-width={stateOf(x) === 'kept' ? '2.6' : '1.8'}
-          stroke-dasharray={stateOf(x) === 'kept' ? undefined : '6 5'}
-        />
+        <path d={laneD(x.e, arcLane(x))} fill="none" stroke="#8fa2c4" stroke-width="2" />
       ))}
-      {/* ป้ายทุกใบวาดหลังเส้นทุกเส้น เส้นที่วาดทีหลังจึงไม่พาดทับป้ายของเส้นอื่น */}
       {info.map((x) => (
         <>
-          <rect
-            x={(cityX(x.e.a) + cityX(x.e.b)) / 2 - 62}
-            y={arcLabelY(x) - 12}
-            width="124"
-            height="17"
-            rx="4"
-            fill="#0b1220"
-          />
-          <text
-            x={(cityX(x.e.a) + cityX(x.e.b)) / 2}
-            y={arcLabelY(x)}
-            fill={ARC_INK[stateOf(x)]}
-            font-size="11.5"
-            text-anchor="middle"
-            font-family="monospace"
-          >
-            ค่า {x.e.c} · ยาว {x.len} · วง {x.len + 1}
+          <rect x={arcMidX(x.e) - 40} y={laneLabelY(arcLane(x)) - 12} width="80" height="17" rx="4" fill="#0b1220" />
+          <text x={arcMidX(x.e)} y={laneLabelY(arcLane(x))} fill="#cdd6ea" font-size="11.5" text-anchor="middle" font-family="monospace">
+            ค่าปิด {x.e.c}
           </text>
         </>
       ))}
@@ -525,8 +837,6 @@ for (int mk = full - 1; mk >= 0; mk--)
           </text>
         </>
       ))}
-      <text x="34" y={CITY_Y + 48} fill="#4ade80" font-size="11.5" text-anchor="start">เขียวทึบ เก็บไว้ได้จริง</text>
-      <text x="34" y={CITY_Y + 64} fill="#e06c75" font-size="11.5" text-anchor="start">แดง วงเป็นเลขคู่ ต้องปิด</text>
     </svg>
   </ZoomableDiagram>
 
@@ -550,51 +860,80 @@ for (int mk = full - 1; mk >= 0; mk--)
     </div>
 
     <p class="cpg-status" data-cpg-status>กดปิดถนนที่ไม่ราดยางได้ตามใจ แล้วกดตรวจว่าเหลือเส้นทางซ้อมที่ยุติธรรมไหม</p>
-    <p class="cpg-score" data-cpg-score>จ่ายไปแล้ว <b data-tr-paid>0</b> · ถูกที่สุดคือ <b data-tr-best>0</b></p>
-    <p class="cpg-hint">เส้นทางซ้อมที่ยุติธรรมคือวงจรที่เดินแล้วกลับมาที่เดิม โดยผ่านถนนเป็นจำนวนคู่</p>
+    <p class="cpg-score" data-cpg-score>จ่ายไปแล้ว <b data-tr-paid>0</b> · ถูกที่สุดคือ <b data-tr-best>?</b></p>
+    <p class="cpg-hint">เส้นทางซ้อมที่ยุติธรรมคือวงจรที่เดินแล้วกลับมาที่เดิม โดยผ่านถนนเป็นจำนวนคู่ ค่าที่ถูกที่สุดจะโผล่หลังกดตรวจครั้งแรก</p>
   </div>
   <p class="io-note">
     ตัวตรวจของเกมนี้ไม่ได้ใช้กฎย่อของเฉลยเลย มันไล่หาวงจรทุกวงจริง ๆ ถ้าเดาแล้วผิด แปลว่ากฎในหัวยังไม่ตรงกับของจริง
   </p>
 
-  <h2>เฉลย · เงื่อนไขทั้งข้อยุบเหลือสองกฎ</h2>
+  <h2>เฉลย ตอนที่ 1 · ไล่ทุกเซต ไล่ทุกวง</h2>
   <Spoiler>
-    <div class="callout callout-note">
-      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+    <p>
+      ก่อนหาทางลัด เริ่มจากวิธีที่ตรงกับนิยามของโจทย์ที่สุด ซึ่งก็คือสิ่งที่ตัวตรวจของเกมข้างบนทำ
+    </p>
+    <ul>
+      <li>เลือกว่าจะเก็บถนนไม่ราดยางเส้นไหนไว้บ้าง ไล่ครบทุกแบบ</li>
+      <li>ในแต่ละแบบ ไล่หาวงจรอย่างง่ายทุกวงในกราฟที่เหลือ</li>
+      <li>ถ้าเจอวงยาวคู่แม้วงเดียว ทิ้งแบบนั้นไป</li>
+      <li>แบบที่เหลือ เอาแบบที่น้ำหนักรวมของถนนที่เก็บไว้มากที่สุด คำตอบคือค่าปิดทั้งหมดลบน้ำหนักนั้น</li>
+    </ul>
+    <p>
+      ตั้งแต่ตรงนี้ไป <strong>น้ำหนัก</strong>ของถนนไม่ราดยางคือค่าปิดของมัน มองจากฝั่งที่เก็บไว้
+      เก็บถนนที่หนักไว้ได้มากเท่าไร ก็จ่ายค่าปิดน้อยลงเท่านั้น
+    </p>
+    <p>
+      บนตัวอย่างในโจทย์ วิธีนี้ลอง {sampleSubsets} แบบแล้วได้ {answer} ตรงกับเฉลย
+      แต่ที่ขอบเขตเต็มมันต้องลองสองยกกำลัง {trFmt(CLOSABLE_MAX)} แบบ ซึ่งไม่มีทางจบ
+    </p>
+    <details class="expander">
+      <summary>ดูโค้ดของวิธีนี้ (ใช้เป็นตัวตรวจของทั้งหน้า)</summary>
+      <div class="expander-body">
+        <CodeBlock code={checkCode} lang="cpp" title="train_check.cpp" />
+      </div>
+    </details>
+    <p>
+      ต้องหาทางตัดสินถนนทีละเส้นแทนการไล่เซต ไล่จากช้าไปเร็วมีสามวิธี วิธีที่ 1 คือตอนนี้
+      วิธีที่ 2 ใช้สองกฎจากตอนที่ 2 ถึง 4 และวิธีเต็มคือดีพีในตอนที่ 5 กับโค้ดในตอนที่ 6
+    </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1 · ตอนที่ 1</p>
+        <h4>ไล่ทุกเซต แล้วไล่ทุกวง</h4>
+        <p class="cp-step-cost">สองยกกำลัง K เซต คูณจำนวนวง</p>
+        <p>ตรงกับนิยามที่สุด ไม่ต้องเชื่อทฤษฎีอะไร (K คือจำนวนถนนไม่ราดยาง)</p>
+        <p class="cp-step-win">ได้แค่กราฟจิ๋ว ใช้เป็นตัวตรวจ</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2 · ตอนที่ 2 ถึง 4</p>
+        <h4>สองกฎ แล้วไล่เซตของเส้นที่เหลือ</h4>
+        <p class="cp-step-cost">ยังเป็นสองยกกำลังจำนวนเส้น</p>
+        <p>กฎสองข้อทำให้ไม่ต้องหาวงอีกเลย ตรวจแค่ว่าเส้นทางบนต้นไม้ทับกันไหม แต่ยังต้องไล่เซต</p>
+        <p class="cp-step-win">ได้แค่ถนนไม่ราดยางไม่กี่เส้น</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม · ตอนที่ 5 และ 6</p>
+        <h4>สองกฎ แล้วดีพีบนต้นไม้</h4>
+        <p class="cp-step-cost">ราว M × N + M × 2<sup>{DEGMAX}</sup></p>
+        <p>ดีพี (dynamic programming การจำคำตอบของปัญหาย่อยไว้ใช้ซ้ำ) บนต้นไม้ แต่ละเมืองจำผลไว้ว่าถนนราดยางเส้นไหนที่ติดกับมันถูกจองไปแล้ว</p>
+        <p class="cp-step-win">ครบขอบเขต</p>
+      </div>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 · ถนนหนึ่งเส้น วงหนึ่งวง (กฎที่ 1)</h2>
+  <Spoiler>
+    <p>
+      ดูถนนไม่ราดยางทีละเส้นก่อน ถ้าเส้นทางบนต้นไม้ของมันยาว <code>len</code> สาย วงของมันยาว <code>len + 1</code>
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">กฎที่ 1</p>
       <p>
-        สิ่งที่ผมจับได้ก่อนเป็นอย่างแรก ไม่ใช่กฎสองข้อ แต่เป็นบรรทัดหนึ่งในขอบเขตที่ดูเหมือนของแถม
-        คือ <strong>ทุกเมืองมีถนนต่ออยู่ไม่เกินสิบสาย</strong> ขอบเขตเล็ก ๆ ที่แปะมาเฉพาะที่แบบนี้แทบไม่เคยเป็นของแถม
-        มันมักกำลังใบ้ว่าเฉลยต้องเอาไปใช้ตรง ๆ และเลขสิบกับการเลือกลูกบางตัวรวมกัน มีคำตอบอยู่แบบเดียวคือ
-        <strong>หน้ากากบิต</strong>
-      </p>
-      <p>
-        พอรู้ว่าจะจ่ายเป็นหน้ากากบิตบนลูกของแต่ละปม โจทย์ก็เปลี่ยนจาก "จะตัดถนนเส้นไหน"
-        เป็น "แต่ละปมจะอนุญาตให้ลูกตัวไหนต่อขึ้นมาถึงตัวเองบ้าง" ซึ่งเป็นคำถามที่มีขนาดจำกัดและตอบทีละปมได้
-      </p>
-      <p>
-        ส่วนกฎสองข้อที่ทำให้ยุบมาถึงตรงนี้ได้ ผมไม่กล้าเชื่อจากการนั่งพิสูจน์อย่างเดียว
-        เรื่องนั้นเล่าต่อในหัวข้อถัดไป
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ ขอบเขตที่แปลกและเล็กผิดที่ผิดทาง ให้ถือว่าเป็นคำใบ้ของเฉลยไว้ก่อน
-        แล้วถามว่าเลขตัวนั้นทำให้อะไร<strong>ที่ปกติแพงเกินไป กลายเป็นถูกลง</strong>
+        ถ้า <code>len</code> เป็นเลขคี่ วงยาวเป็นเลขคู่ ถนนเส้นนั้นต้องถูกปิดเสมอ ไม่ว่าจะเก็บเส้นอื่นไว้หรือไม่
       </p>
     </div>
     <p>
-      ถนนไม่ราดยางเส้นหนึ่งที่มีเส้นทางบนต้นไม้ยาว <code>len</code> สร้างวงยาว <code>len + 1</code>
-      วงนั้นเป็นเลขคู่เมื่อ <code>len</code> เป็นเลขคี่ ดังนั้น
-    </p>
-    <p class="pull">กฎที่ 1 ถนนที่เส้นทางบนต้นไม้ยาวเป็นเลขคี่ ต้องถูกปิดเสมอ ไม่มีทางเลือก</p>
-    <p>
-      ส่วนเส้นที่เส้นทางยาวเป็นเลขคู่ จะสร้างวงยาวเป็นเลขคี่ ซึ่งเก็บไว้ได้ แต่ถ้าเราเก็บไว้สองเส้นที่<strong>เส้นทาง
-      บนต้นไม้ใช้ถนนราดยางร่วมกันอย่างน้อยหนึ่งเส้น</strong> เราจะได้วงคี่สองวงที่มีส่วนซ้อนกัน
-      เอาสองวงมารวมกันแล้วตัดส่วนที่ซ้อนออก จะได้วงใหม่ที่ยาว <strong>คี่ + คี่ − 2 × ส่วนซ้อน</strong>
-      ซึ่งเป็นเลขคู่เสมอ
-    </p>
-    <p class="pull">กฎที่ 2 ถนนที่เก็บไว้ ต้องมีเส้นทางบนต้นไม้ที่ไม่ทับกันเลยสักเส้น</p>
-    <p>
-      ปัญหาจึงกลายเป็น <strong>เลือกชุดของถนนที่เส้นทางบนต้นไม้ยาวเป็นเลขคู่ โดยเส้นทางไม่ทับกัน
-      ให้น้ำหนักรวมมากที่สุด</strong> แล้วคำตอบคือค่าใช้จ่ายทั้งหมดลบน้ำหนักที่เก็บได้
+      ส่วนเส้นที่ <code>len</code> เป็นเลขคู่ วงของมันยาวคี่ ถ้าอยู่คนเดียวก็ไม่ผิดกฎ ชุดที่ 3 ของเกมคือกรณีนี้
     </p>
 
     <figure class="tbl">
@@ -609,7 +948,7 @@ for (int mk = full - 1; mk >= 0; mk--)
         <tbody>
           {info.map((x) => (
             <tr>
-              <td><code>{x.e.a} ถึง {x.e.b}</code></td>
+              <td><code>{roadName(x.e)}</code></td>
               <td class="num">{x.e.c}</td>
               <td><code>{x.path.join(' - ')}</code></td>
               <td class="num">{x.len}</td>
@@ -619,10 +958,100 @@ for (int mk = full - 1; mk >= 0; mk--)
         </tbody>
       </table>
       <figcaption>
-        ค่าปิดรวมทุกเส้นคือ {totalCost} มีเส้นที่ต้องปิดแน่นอน {forced.length} เส้น
-        รวมค่าปิด {forced.reduce((s, x) => s + x.e.c, 0)} ที่เหลือคือปัญหาเลือกชุดที่ไม่ทับกัน
+        ค่าปิดรวมทุกเส้นคือ {totalCost} มีเส้นที่ต้องปิดแน่นอน {forced.length} เส้น รวมค่าปิด {forcedCost}
+        เหลือ {keepable.length} เส้นที่ต้องตัดสินกันต่อ
       </figcaption>
     </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 · สองวงที่ทับกัน (กฎที่ 2)</h2>
+  <Spoiler>
+    <p>
+      กฎที่ 1 ยังไม่พอ ถนนสองเส้นที่วงยาวคี่ทั้งคู่ อยู่คนเดียวได้ แต่เปิดพร้อมกันอาจเกิดวงคู่ (เกมชุดที่ 4 คือกรณีนี้)
+    </p>
+    <p>
+      ตัวอย่างในโจทย์ก็มีคู่แบบนั้น คือถนน <code>{roadName(r2.p.e)}</code> กับ <code>{roadName(r2.q.e)}</code>
+      เส้นทางบนต้นไม้ของทั้งสองใช้ถนนราดยาง <code>{r2.ov.join(', ')}</code> ร่วมกัน
+    </p>
+
+    <ZoomableDiagram caption={`ถนน ${roadName(r2.p.e)} กับ ${roadName(r2.q.e)} แต่ละเส้นสร้างวงยาว ${r2.p.len + 1} และ ${r2.q.len + 1} ตัดถนนราดยางที่ทับกัน (สีแดง) ออก ที่เหลือ (สีเขียว) ต่อกันเป็นวงใหม่ยาว ${r2Len} ซึ่งเป็นเลขคู่`}>
+      <svg viewBox={r2VB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:680px" role="img" aria-label={`เมือง ${N} เมืองเรียงเป็นแถว มีถนนไม่ราดยางสองเส้นคือ ${roadName(r2.p.e)} และ ${roadName(r2.q.e)} ถนนราดยาง ${r2.ov.join(', ')} ที่ทั้งสองใช้ร่วมกันเป็นสีแดง ถนนที่เหลือของสองวงเป็นสีเขียว ต่อกันเป็นวงใหม่ยาว ${r2Len}`}>
+      {treeEdges.map((e) => (
+        <line
+          x1={cityX(e.a) + CITY_R}
+          y1={CITY_Y}
+          x2={cityX(e.b) - CITY_R}
+          y2={CITY_Y}
+          stroke={r2EdgeInk(key(e.a, e.b))}
+          stroke-width={r2EdgeInk(key(e.a, e.b)) === '#3a4459' ? '3' : '4'}
+          stroke-dasharray={r2.ov.includes(key(e.a, e.b)) ? '6 5' : undefined}
+        />
+      ))}
+      {r2Arcs.map(({ x, lane }) => (
+        <path d={laneD(x.e, lane)} fill="none" stroke="#4ade80" stroke-width="2.6" />
+      ))}
+      {r2Arcs.map(({ x, lane }) => (
+        <>
+          <rect x={arcMidX(x.e) - 52} y={laneLabelY(lane) - 12} width="104" height="17" rx="4" fill="#0b1220" />
+          <text x={arcMidX(x.e)} y={laneLabelY(lane)} fill="#4ade80" font-size="11.5" text-anchor="middle" font-family="monospace">
+            ถนน {roadName(x.e)} · วง {x.len + 1}
+          </text>
+        </>
+      ))}
+      {Array.from({ length: N }, (_, i) => i + 1).map((v) => (
+        <>
+          <circle cx={cityX(v)} cy={CITY_Y} r={CITY_R} fill="#141b2b" stroke="#7f8db0" stroke-width="2" />
+          <text x={cityX(v)} y={CITY_Y + 6} fill="#cdd6ea" font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">
+            {v}
+          </text>
+        </>
+      ))}
+      {r2OvMid.map((mx) => (
+        <text x={mx} y={CITY_Y + 40} fill="#e06c75" font-size="11.5" text-anchor="middle">ทับกัน ตัดออก</text>
+      ))}
+      <text x="34" y={CITY_Y + 64} fill="#4ade80" font-size="11.5" text-anchor="start">เขียว คือวงใหม่ ยาว {r2Len}</text>
+    </svg>
+    </ZoomableDiagram>
+
+    <div class="callout callout-tip">
+      <p class="callout-label">นับความยาวของวงใหม่</p>
+      <ul>
+        <li>คำถาม: เอาสองวงมาต่อกันแล้วตัดส่วนที่ทับออก ได้วงยาวเท่าไร</li>
+        <li>สูตร: (วงแรก) + (วงที่สอง) − 2 × (จำนวนถนนราดยางที่ทับ)</li>
+        <li>แทนค่า: {r2.p.len + 1} + {r2.q.len + 1} − 2 × {r2.ov.length} = {r2Formula}</li>
+        <li>นับถนนบนวงสีเขียวในภาพตรง ๆ ได้ {r2Len} สายเหมือนกัน</li>
+      </ul>
+    </div>
+    <p>
+      ส่วนที่ทับถูกลบสองครั้ง (ครั้งละวง) จึงหักออกเป็นเลขคู่เสมอ คี่บวกคี่ได้คู่ หักคู่ออกก็ยังคู่
+      วงใหม่จึงยาวคู่ทุกครั้ง ไม่ว่าจะทับกันกี่สาย
+    </p>
+    <p>
+      บนต้นไม้ สองเส้นทางพบกันเป็นช่วงเดียวต่อกันเสมอ (ต้นไม้ไม่มีทางแยกแล้วมาบรรจบกันใหม่)
+      ส่วนที่ไม่ทับของสองเส้นทางจึงไม่มีเมืองร่วมกันเลยนอกจากปลายช่วงนั้น ตัดช่วงที่ทับออกแล้วได้วงเดียวที่ไม่ผ่านเมืองซ้ำ
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">กฎที่ 2</p>
+      <p>
+        ถนนไม่ราดยางที่เก็บไว้ ห้ามมีสองเส้นไหนที่เส้นทางบนต้นไม้ใช้ถนนราดยางเส้นเดียวกัน
+      </p>
+    </div>
+    {touchPair && (
+      <p>
+        แตะกันแค่เมืองเดียวไม่นับว่าทับ เช่น <code>{roadName(touchPair.p.e)}</code> กับ <code>{roadName(touchPair.q.e)}</code>
+        พบกันที่เมือง {touchCity} อย่างเดียว วงสองวงนี้ต่อกันได้แค่แบบเดินผ่านเมือง {touchCity} สองรอบ
+        ซึ่งไม่นับเป็นเส้นทางซ้อม
+      </p>
+    )}
+    <p class="io-note">
+      โจทย์บอกแค่ว่าปลายสองข้างของถนนเป็นคนละเมือง ไม่ได้ห้ามถนนสองเส้นเชื่อมคู่เมืองเดียวกัน
+      สองกฎยังใช้ได้ครบ ถนนที่ขนานกับถนนราดยางมีเส้นทางยาว 1 จึงถูกปิดตามกฎที่ 1
+      ส่วนถนนไม่ราดยางสองเส้นที่ขนานกันมีเส้นทางเดียวกัน จึงทับกันตามกฎที่ 2 (สองเส้นนี้เองก็เป็นวงยาว 2)
+    </p>
+    <p>
+      ถึงตรงนี้ ปัญหาเหลือแค่นี้: เลือกถนนจากเส้นที่ผ่านกฎที่ 1 โดยเส้นทางไม่ทับกัน ให้น้ำหนักรวมมากที่สุด
+      แล้วคำตอบคือค่าปิดทั้งหมดลบน้ำหนักที่เก็บได้
+    </p>
 
     <figure class="tbl">
       <table class="rec">
@@ -633,110 +1062,413 @@ for (int mk = full - 1; mk >= 0; mk--)
         <tbody>
           {keepable.map((x) => (
             <tr>
-              <td><code>{x.e.a} ถึง {x.e.b}</code> เส้นเดียว</td>
+              <td><code>{roadName(x.e)}</code> เส้นเดียว</td>
               <td><code>{x.edges.join(', ')}</code></td>
               <td class="num">{x.e.c}</td>
             </tr>
           ))}
-          <tr>
-            <td><strong>{kept.pick.map((x) => `${x.e.a} ถึง ${x.e.b}`).join(' และ ')}</strong></td>
-            <td><code>{kept.pick.flatMap((x) => x.edges).join(', ')}</code></td>
-            <td class="num"><strong>{kept.weight}</strong></td>
-          </tr>
+          {touchPair && (
+            <tr>
+              <td><code>{roadName(touchPair.p.e)}</code> กับ <code>{roadName(touchPair.q.e)}</code></td>
+              <td><code>{[...touchPair.p.edges, ...touchPair.q.edges].join(', ')}</code></td>
+              <td class="num">{touchPair.p.e.c + touchPair.q.e.c}</td>
+            </tr>
+          )}
         </tbody>
       </table>
       <figcaption>
-        แถวล่างคือชุดที่ดีที่สุด คำตอบจึงเป็น {totalCost} ลบ {kept.weight} เท่ากับ {answer}
-        ตรงกับที่โจทย์เฉลยไว้ และโจทย์ยังบอกเองด้วยว่าถ้าปิดแค่สองเส้นคือ 2-4 กับ 2-5 จะเสีย 6 ซึ่งแพงกว่า
+        ชุดที่หนักที่สุดคือ {kept.pick.map((x) => roadName(x.e)).join(' กับ ')} น้ำหนัก {kept.weight}
+        คำตอบจึงเป็น {totalCost} − {kept.weight} = {answer} ตรงกับที่โจทย์เฉลย
+        โจทย์ยังบอกเองด้วยว่าปิดแค่ {stmtAltRoads.join(' กับ ')} จะเสีย {stmtAltCost} ซึ่งแพงกว่า
       </figcaption>
     </figure>
 
-    <h3>แล้วจะเลือกชุดที่ไม่ทับกันยังไงเมื่อ N เป็นพัน</h3>
-    <p>
-      ตรงนี้แหละที่ขอบเขต "ดีกรีไม่เกิน {DEGMAX}" เข้ามามีบทบาท ปักรากต้นไม้ไว้ที่เมือง 1
-      แล้วคิดดีพีจากใบขึ้นไปหาราก นิยาม <code>dp[v][mask]</code> ว่าคือน้ำหนักมากที่สุดที่เก็บได้ในต้นไม้ย่อยของ
-      <code>v</code> โดยที่<strong>ถนนราดยางที่ต่อ v กับลูกในเซต mask ถูกจองไปแล้ว</strong>โดยเส้นทางของบรรพบุรุษ
-    </p>
-    <p>
-      ลูกของแต่ละปมมีไม่เกิน {DEGMAX} คน หน้ากากจึงมีไม่เกิน {MASKMAX} แบบ ซึ่งเล็กมาก
-      ถนนไม่ราดยางแต่ละเส้นถูกคิดที่<strong>ปมร่วมที่ต่ำที่สุด</strong>ของปลายทั้งสอง
-      เพราะเส้นทางของมันขึ้นสูงสุดแค่นั้น
-    </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
-    <p>
-      ค่าของการเลือกถนนเส้นหนึ่งคือน้ำหนักของมัน บวกกับผลรวมของ <code>dp</code> ของทุกปมที่เส้นทางเดินผ่าน
-      โดยแต่ละปมนั้นถูกจองลูกที่เส้นทางเพิ่งไต่ขึ้นมา ส่วนการไล่หน้ากากจากใหญ่ไปเล็กเป็นเรื่องจำเป็น
-      เพราะสูตรอ้างถึง <code>g[mask | se]</code> ซึ่งมีบิตมากกว่าเสมอ
-    </p>
+    <ZoomableDiagram caption={`ภาพเดียวกับในคำใบ้ ระบายตามสองกฎ เส้นแดงต้องปิดตามกฎที่ 1 เส้นสีจางเก็บได้ตามกฎที่ 1 แต่เส้นทางทับกับเส้นที่คุ้มกว่า จึงไม่ได้เก็บตามกฎที่ 2 เส้นเขียวคือที่เก็บจริง น้ำหนัก ${kept.weight} จากค่าปิดทั้งหมด ${totalCost} คำตอบจึงเป็น ${answer}`}>
+      <svg viewBox={fullVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:680px" role="img" aria-label={`กราฟของตัวอย่างระบายตามสองกฎ ${info.map((x) => `ถนน ${roadName(x.e)} ค่าปิด ${x.e.c} เส้นทางบนต้นไม้ยาว ${x.len} วงยาว ${x.len + 1} ${stateOf(x) === 'forced' ? 'ต้องปิด' : stateOf(x) === 'kept' ? 'เก็บไว้' : 'เก็บได้ตามกฎแรกแต่เส้นทางทับกับเส้นที่เก็บ'}`).join(' ')}`}>
+        {treeEdges.map((e) => (
+          <line x1={cityX(e.a) + CITY_R} y1={CITY_Y} x2={cityX(e.b) - CITY_R} y2={CITY_Y} stroke="#5b6478" stroke-width="3" />
+        ))}
+        {info.map((x) => (
+          <path
+            d={laneD(x.e, arcLane(x))}
+            fill="none"
+            stroke={ARC_INK[stateOf(x)]}
+            stroke-width={stateOf(x) === 'kept' ? '2.6' : '1.8'}
+            stroke-dasharray={stateOf(x) === 'kept' ? undefined : '6 5'}
+          />
+        ))}
+        {/* ป้ายทุกใบวาดหลังเส้นทุกเส้น เส้นที่วาดทีหลังจึงไม่พาดทับป้ายของเส้นอื่น */}
+        {info.map((x) => (
+          <>
+            <rect x={arcMidX(x.e) - 62} y={laneLabelY(arcLane(x)) - 12} width="124" height="17" rx="4" fill="#0b1220" />
+            <text x={arcMidX(x.e)} y={laneLabelY(arcLane(x))} fill={ARC_INK[stateOf(x)]} font-size="11.5" text-anchor="middle" font-family="monospace">
+              ค่า {x.e.c} · ยาว {x.len} · วง {x.len + 1}
+            </text>
+          </>
+        ))}
+        {Array.from({ length: N }, (_, i) => i + 1).map((v) => (
+          <>
+            <circle cx={cityX(v)} cy={CITY_Y} r={CITY_R} fill="#141b2b" stroke="#7f8db0" stroke-width="2" />
+            <text x={cityX(v)} y={CITY_Y + 6} fill="#cdd6ea" font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">
+              {v}
+            </text>
+          </>
+        ))}
+        <text x="34" y={CITY_Y + 48} fill="#4ade80" font-size="11.5" text-anchor="start">เขียวทึบ เก็บไว้ได้จริง</text>
+        <text x="34" y={CITY_Y + 64} fill="#e06c75" font-size="11.5" text-anchor="start">แดง วงเป็นเลขคู่ ต้องปิด</text>
+      </svg>
+    </ZoomableDiagram>
   </Spoiler>
 
-  <h2>ทำไมถึงกล้าเชื่อสองกฎนั้น</h2>
+  <h2>เฉลย ตอนที่ 4 · ไม่ทับกันแล้วปลอดภัยจริงไหม</h2>
   <Spoiler>
-    <p>
-      กฎสองข้อข้างบนฟังดูสมเหตุสมผล แต่ "สมเหตุสมผล" กับ "ถูก" เป็นคนละเรื่อง โดยเฉพาะข้อความว่า
-      <strong>ถ้าเส้นทางไม่ทับกันเลย ก็รับประกันว่าไม่มีวงคู่โผล่มา</strong> ซึ่งเป็นทิศทางที่พิสูจน์ยากกว่าอีกทิศเยอะ
-    </p>
-    <p>
-      ผมจึงเขียนตัวตรวจสอบที่<strong>ไม่เชื่อทฤษฎีอะไรเลย</strong> มันไล่ทุกวิธีเลือกว่าจะเก็บถนนเส้นไหนไว้บ้าง
-      แล้ว<strong>ไล่หาวงจรอย่างง่ายทุกวงในกราฟที่ได้</strong> ถ้าเจอวงยาวเป็นเลขคู่แม้แต่วงเดียวก็ตัดทิ้ง
-      ที่เหลือค่อยเอาน้ำหนักมากที่สุด
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ทำไมไม่เชื่อแค่การพิสูจน์</p>
+      <p>
+        สองกฎข้างบนบอกว่าถนนแบบไหนต้องปิด แต่สิ่งที่ต้องการจริงคือทิศกลับ ถ้าเส้นทางไม่ทับกันเลย ต้องไม่มีวงคู่โผล่มาจากที่ไหนอีก
+        ทิศนี้พิสูจน์ยากกว่า ผมไม่กล้าเชื่อจากการนั่งพิสูจน์อย่างเดียว
+      </p>
+      <p>
+        ผมจึงใช้โค้ดของตอนที่ 1 เป็นตัวตรวจ ตัวนี้ไม่รู้จักสองกฎเลย ถ้าคำตอบตรงกับโค้ดจริง ก็เป็นหลักฐานที่ไม่ได้อาศัยกฎที่กำลังตรวจ
+        (ผลการสุ่มเทียบอยู่ในตอนที่ 6)
+      </p>
+    </div>
+    <p>ส่วนเหตุผลแบบไม่ต้องสุ่ม มองวงเป็นเซตของถนน แล้วไปทีละขั้น</p>
     <details class="expander">
-      <summary>ดูโค้ดตัวตรวจสอบ (ไล่หาวงจรทุกวง)</summary>
+      <summary>อยากเห็นเหตุผลของทิศกลับ</summary>
       <div class="expander-body">
-        <CodeBlock code={checkCode} lang="cpp" title="train_check.cpp" />
+        <ul>
+          <li>
+            วงใด ๆ ในกราฟ (มองเป็นเซตของถนน) เท่ากับเอาวงของถนนไม่ราดยางทุกเส้นที่มันใช้มากองรวมกัน
+            แล้วทิ้งถนนราดยางที่โผล่เป็นจำนวนคู่ครั้ง เพราะมันหักล้างกันเอง
+          </li>
+          <li>
+            ตัวอย่าง: วงใหม่ในภาพของตอนที่ 3 ใช้ถนน {roadName(r2.p.e)} กับ {roadName(r2.q.e)}
+            กองวงของสองเส้นรวมกัน ถนนราดยาง {r2.ov.join(', ')} โผล่สองครั้งจึงหายไป ที่เหลือคือ {r2Cycle.join(', ')}
+            กับถนนไม่ราดยางสองเส้น ตรงกับวงสีเขียวพอดี
+          </li>
+          <li>
+            เมื่อเส้นทางไม่ทับกัน วงของถนนแต่ละเส้นไม่มีถนนราดยางร่วมกันเลย จึงไม่มีอะไรหักล้าง
+            วงใดก็ตามจึงเท่ากับวงของถนนแต่ละเส้นที่มันใช้ วางเรียงกันเฉย ๆ
+          </li>
+          <li>
+            วงจรอย่างง่ายไม่มีวงที่เล็กกว่าซ่อนอยู่ข้างใน ถ้ามันประกอบจากวงของถนนสองเส้นขึ้นไป วงของเส้นเดียวก็จะเป็นวงที่ซ่อนอยู่
+            มันจึงเป็นวงของถนนเส้นเดียว ซึ่งยาวคี่ตามกฎที่ 1
+          </li>
+        </ul>
       </div>
     </details>
     <p>
-      สุ่มต้นไม้เล็ก ๆ ไม่เกินเจ็ดเมือง พร้อมถนนไม่ราดยางสุ่มอีกไม่เกินห้าเส้น จำนวน 500 ชุด
-      แล้วเทียบกับโค้ดจริง ตรงกันหมด นี่เป็นครั้งเดียวที่ผมกล้าพูดว่ากฎสองข้อนั้นถูก
-      เพราะตัวตรวจสอบไม่ได้ใช้กฎนั้นเลยสักนิด
+      สองกฎกับทิศกลับรวมกันคือวิธีที่ 2 ของบันได ไม่ต้องหาวงอีกแล้ว แต่ถ้าเลือกชุดที่ไม่ทับกันโดยไล่ทุกเซต ก็ยังช้าเกินไป
     </p>
   </Spoiler>
 
-  <h2>โค้ด C++</h2>
+  <h2>เฉลย ตอนที่ 5 · ดีพีบนต้นไม้</h2>
+  <Spoiler>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        สิ่งแรกที่ผมสะดุดตอนอ่านโจทย์คือขอบเขตที่ว่าทุกเมืองมีถนนไม่เกิน {DEGMAX} สาย
+        ขอบเขตเล็ก ๆ ที่แปะมาเฉพาะจุดแบบนี้ มักใบ้ว่าเฉลยต้องเอาไปใช้ตรง ๆ
+      </p>
+      <p>
+        เลข {DEGMAX} เข้ากันพอดีกับการเก็บเซตของถนนรอบเมืองหนึ่งไว้ใน mask (หน้ากากบิต คือเลขฐานสองตัวเดียว บิตละหนึ่งสมาชิก)
+        สองยกกำลัง {DEGMAX} คือ {trFmt(MASKMAX)} แบบ ไล่ครบได้ทุกเมือง
+      </p>
+      <p>
+        พอคิดแบบนั้น คำถามก็เปลี่ยนจาก "จะปิดถนนเส้นไหน" เป็น "ถนนรอบเมืองนี้เส้นไหนถูกจองไปแล้ว" ซึ่งตอบทีละเมืองได้
+      </p>
+      <p>
+        ใช้กับข้ออื่นได้ด้วย: เจอขอบเขตที่เล็กผิดที่ผิดทาง ให้ถามว่ามันทำให้อะไรที่ปกติแพงเกินไป กลายเป็นถูกลง
+      </p>
+    </div>
+    <p>
+      ตอนที่ 3 เหลือโจทย์ข้อเดียว คือเลือกถนนที่เส้นทางไม่ทับกันให้น้ำหนักมากสุด ไล่เซตไม่ได้ (ตอนที่ 1) ต้องตัดสินทีละเมือง
+    </p>
+    <p>
+      เริ่มจาก<strong>ปักราก</strong>ต้นไม้ไว้ที่เมือง 1 แล้วแขวนเมืองอื่นลงมาเป็นชั้น ๆ คำที่ใช้ตลอดตอนนี้มีสี่คำ
+    </p>
+    <ul>
+      <li><strong>พ่อ</strong> ของเมืองหนึ่ง คือเมืองที่อยู่ติดกันและอยู่ชั้นบนกว่า (รากไม่มีพ่อ)</li>
+      <li><strong>ลูก</strong> คือเมืองที่อยู่ติดกันและอยู่ชั้นล่างกว่า หนึ่งเมืองมีลูกได้หลายคน</li>
+      <li><strong>ใบ</strong> คือเมืองที่ไม่มีลูก</li>
+      <li><strong>ต้นไม้ย่อย</strong> (subtree) ของเมือง v คือ v กับทุกเมืองที่อยู่ใต้มันลงไป</li>
+    </ul>
+    <p>
+      เราจะคิดจากล่างขึ้นบน เมืองหนึ่งถูกคิดหลังลูกของมันทุกคนคิดเสร็จแล้วเสมอ ลำดับแบบนี้เรียกว่าลำดับหลังลูก (post-order)
+    </p>
+    <p>
+      เส้นทางของถนนแต่ละเส้นไต่ขึ้นจากปลายทั้งสองข้าง ไปพบกันที่เมืองที่สูงที่สุดบนเส้นทาง
+      เมืองนั้นเรียกว่า<strong>ปมร่วมที่ต่ำที่สุด</strong> (lowest common ancestor ย่อว่า LCA) ของปลายทั้งสอง
+    </p>
+    <p>
+      เส้นทางไม่ขึ้นเหนือปมร่วมเลย ถนนแต่ละเส้นจึงตัดสินที่ปมร่วมของมันได้ และเพราะคิดจากล่างขึ้นบน
+      ถึงตอนนั้นทุกเมืองบนเส้นทางก็คิดเสร็จไปแล้ว
+    </p>
+    <p>
+      ตัวอย่างในโจทย์ใช้ตรงนี้ไม่ได้ ต้นไม้ของมันเป็นเส้นตรง ทุกเมืองมีลูกไม่เกินหนึ่งคน จึงไม่มีอะไรให้เลือกจอง
+      ตอนนี้จึงใช้ตัวอย่างเล็กอีกชุดตลอดทั้งตอน ต้นไม้ {DP_N} เมือง กับถนนไม่ราดยาง {DP_ROADS.length} เส้น
+      ทุกเส้นยาวคู่ เพราะเส้นคี่ถูกกฎที่ 1 ตัดไปแล้ว
+    </p>
+    <ZoomableDiagram caption={`ต้นไม้ตัวอย่างของตอนนี้ ปักรากที่เมือง 1 เมืองที่อยู่ใต้กันคือพ่อกับลูก ถนนไม่ราดยางทั้ง ${DP_ROADS.length} เส้นอยู่ในตารางถัดไป`}>
+      <svg viewBox={DP_VB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:680px" role="img" aria-label={`ต้นไม้ ${DP_N} เมือง รากคือเมือง 1 ${dpNodes.filter((v) => v !== 1).map((v) => `เมือง ${v} เป็นลูกของเมือง ${DP_PARENT[v]}`).join(' ')}`}>
+        {dpNodes.filter((v) => v !== 1).map((v) => (
+          <line x1={DP_POS[v][0]} y1={DP_POS[v][1]} x2={DP_POS[DP_PARENT[v]][0]} y2={DP_POS[DP_PARENT[v]][1]} stroke="#5b6478" stroke-width="3" />
+        ))}
+        {dpNodes.map((v) => (
+          <>
+            <circle cx={DP_POS[v][0]} cy={DP_POS[v][1]} r={DP_R} fill="#141b2b" stroke="#7f8db0" stroke-width="2" />
+            <text x={DP_POS[v][0]} y={DP_POS[v][1] + 5} fill="#cdd6ea" font-size="14" text-anchor="middle" font-weight="700" font-family="monospace">{v}</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ถนนไม่ราดยางของตัวอย่าง</caption>
+        <thead>
+          <tr><th>ถนน</th><th class="num">น้ำหนัก</th><th>เส้นทางบนต้นไม้</th><th class="num">ปมร่วม</th><th>ลูกของปมร่วมที่ใช้</th></tr>
+        </thead>
+        <tbody>
+          {dpCands.map((c) => (
+            <tr>
+              <td><code>{roadName(c.e)}</code></td>
+              <td class="num">{c.e.c}</td>
+              <td><code>{c.path.join(' - ')}</code></td>
+              <td class="num">{c.lca}</td>
+              <td>{c.se.join(', ')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์ขวาสุดคือถนนราดยางที่ต่อปมร่วมกับลูกของมัน ซึ่งเส้นทางเส้นนี้จะจองไว้
+      </figcaption>
+    </figure>
+
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        นึกถึงผังองค์กร หัวหน้าแต่ละคนส่งตารางเล็ก ๆ ขึ้นไปให้นายของตัวเอง ทุกบรรทัดตอบคำถามเดียว
+        "ถ้านายจองลูกน้องคนนี้ไปทำงานของนายแล้ว ทีมผมที่เหลือยังทำได้เท่าไร"
+      </p>
+      <p>
+        นายไม่ต้องรู้ว่าข้างใต้ใครทำอะไร อ่านแค่ตารางของหัวหน้าแต่ละคนก็ตัดสินใจได้
+      </p>
+    </div>
+
+    <div class="callout callout-note">
+      <p class="callout-label">สถานะ dp[v][mask]</p>
+      <p>
+        <code>v</code> คือเมือง (ในภาษากราฟเรียกว่าปม หรือ node) และ <code>mask</code> คือเซตของลูกของ <code>v</code>
+        ที่ถนนราดยางเส้น v ถึงลูกคนนั้นถูกเส้นทางจากข้างบนจองไปแล้ว ค่าของมันคือน้ำหนักรวมมากที่สุดของถนนที่เก็บได้ โดย
+      </p>
+      <ul>
+        <li>นับเฉพาะถนนที่ปมร่วมอยู่ในต้นไม้ย่อย (subtree) ของ <code>v</code></li>
+        <li>ไม่นับกิ่งของลูกที่อยู่ใน <code>mask</code> ทั้งกิ่ง เส้นทางที่จองลูกคนนั้นจะคิดกิ่งนั้นให้เอง</li>
+        <li>ห้ามใช้ถนนราดยางที่ต่อ <code>v</code> กับลูกใน <code>mask</code></li>
+        <li>เส้นทางของถนนที่เก็บต้องไม่ทับกัน (กฎที่ 2)</li>
+      </ul>
+      <p>
+        ลูกมีไม่เกิน {DEGMAX} คน <code>mask</code> จึงมีไม่เกิน {trFmt(MASKMAX)} แบบ คำตอบของส่วนนี้คือ <code>dp[1][∅]</code>
+      </p>
+    </div>
+
+    <div class="callout callout-tip">
+      <p class="callout-label">เติม dp[v][mask] สองทาง เอาทางที่มากกว่า</p>
+      <ul>
+        <li>
+          <strong>ไม่เก็บถนนที่ v:</strong> รวม <code>dp[ลูก][∅]</code> ของลูกทุกคนที่ไม่อยู่ใน <code>mask</code>
+        </li>
+        <li>
+          <strong>เก็บถนน e หนึ่งเส้นที่ v</strong> (ลูกที่ e จอง เรียกว่า <code>se</code> ต้องไม่ชนกับ <code>mask</code>):
+          น้ำหนักของ e + ผลรวม dp ของเมืองบนเส้นทางของ e ที่อยู่ใต้ <code>v</code> + <code>dp[v][mask ∪ se]</code>
+        </li>
+      </ul>
+      <p>
+        ผลรวมตามเส้นทาง: แต่ละเมืองบนเส้นทางใช้ค่า dp ที่จองลูกคนที่เส้นทางเพิ่งไต่ขึ้นมา ส่วนเมืองปลายทางใช้ <code>[∅]</code>
+        ถ้าปลายข้างหนึ่งคือ <code>v</code> เอง (เช่นถนน {roadName(endAtLca.e)}) ฝั่งนั้นไม่มีอะไรให้ไต่ ไต่แค่อีกฝั่งเดียว
+      </p>
+      <p>
+        <code>mask ∪ se</code> คือเซตของลูกที่ถูกจองหลังเก็บ e ไปแล้ว ในโค้ดเขียนว่า <code>mask | se</code>
+        คือเอาบิตของสองเซตมารวมกัน (OR) พจน์นี้ถามว่าลูกที่ยังว่างอยู่ ทำต่อได้อีกเท่าไร
+      </p>
+    </div>
+
+    <div class="callout callout-tip">
+      <p class="callout-label">ลองกับตัวอย่าง: ถนน {roadName(rootEx.e)} ที่เมือง 1</p>
+      <ul>
+        <li>คำถาม: ถ้าเก็บถนน {roadName(rootEx.e)} ไว้ ได้น้ำหนักรวมเท่าไร</li>
+        <li>สูตร: น้ำหนัก + dp ของทุกเมืองบนเส้นทาง {rootEx.path.join(' - ')} ยกเว้นเมือง 1 + dp[1][{dpMaskName(1, rootEx.seBits)}]</li>
+        <li>แทนค่า: {rootEx.e.c} + {rootEx.terms.map(dpTermText).join(' + ')} + dp[1][{dpMaskName(1, rootEx.seBits)}] {rootRest} = {rootExVal + rootRest}</li>
+        <li>dp[1][{dpMaskName(1, rootEx.seBits)}] = {rootRest} มาจากลูกที่ยังว่าง: {dpCh[1].filter((c) => !rootEx.se.includes(c)).map((c) => `dp[${c}][∅] ${dpVal[c][0]}`).join(' + ')}</li>
+        <li>
+          {rootOther.length > 0
+            ? `ทางอื่นที่เมือง 1 ได้น้อยกว่า: ไม่เก็บถนนที่เมือง 1 ได้ ${dpBase[1]} · ${rootOther.map((c) => `เก็บ ${roadName(c.e)} แทนได้ ${candVal(c) + dpVal[1][c.seBits]}`).join(' · ')}`
+            : `ไม่เก็บถนนที่เมือง 1 ได้แค่ ${dpBase[1]}`}
+        </li>
+        <li>ได้ dp[1][∅] = {dpBest} ตรงกับการไล่ทุกเซตตรง ๆ (ตอนที่ 1)</li>
+      </ul>
+    </div>
+    <p>
+      ทำไม <code>{dpTermText(exTerm).split(' ')[0]}</code> ได้ {termVal(exTerm)}:
+      เมือง {exTerm.node} ถูกจองลูก {exTerm.child} ไปแล้ว
+      {exTermBlocked.length > 0 && ` ถนน ${exTermBlocked.map((c) => roadName(c.e)).join(', ')} ต้องผ่านลูกคนนั้นจึงใช้ไม่ได้`}
+      {exTermUsable.length > 0 && ` เหลือ ${exTermUsable.map((c) => `${roadName(c.e)} น้ำหนัก ${c.e.c}`).join(', ')} ที่ยังเก็บได้`}
+    </p>
+    <p>
+      ลองเดินทั้งต้นไม้ทีละเมืองตามลำดับหลังลูก แต่ละขั้นเส้นสีคือเส้นทางของถนนที่ตัดสินที่เมืองนั้น
+      บรรทัดที่ขึ้นต้นด้วย [ ] บอกว่ากำลังเติม mask ไหน
+    </p>
+
+    <CpStepPlayer hook="trdp" steps={dpSteps} label={`ต้นไม้ ${DP_N} เมือง ถนนไม่ราดยาง ${DP_ROADS.length} เส้น คิดจากใบขึ้นไปหาราก`}>
+      <svg class="trdp-tree" viewBox={DP_VB} width={DP_VB_W} height="322" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:none" role="img" aria-label="ต้นไม้ตัวอย่าง เมืองที่คิดเสร็จแล้วสว่างขึ้น เมืองที่กำลังคิดเป็นสีทอง เส้นสีคือเส้นทางของถนนที่ตัดสินที่เมืองนั้น ขั้นสุดท้ายเส้นเขียวคือถนนที่เก็บ">
+        {dpNodes.filter((v) => v !== 1).map((v) => (
+          <line x1={DP_POS[v][0]} y1={DP_POS[v][1]} x2={DP_POS[DP_PARENT[v]][0]} y2={DP_POS[DP_PARENT[v]][1]} stroke="#3a4459" stroke-width="3" />
+        ))}
+        {dpCands.map((c) => (
+          <path data-dpr={String(c.road)} d={dpPathD(c)} fill="none" stroke="#d4af37" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0" />
+        ))}
+        {dpNodes.map((v) => (
+          <>
+            <circle data-dpn={String(v)} cx={DP_POS[v][0]} cy={DP_POS[v][1]} r={DP_R} fill="#141b2b" stroke="#3a4459" stroke-width="2" />
+            <text data-dpt={String(v)} x={DP_POS[v][0]} y={DP_POS[v][1] + 5} fill="#7b8397" font-size="14" text-anchor="middle" font-weight="700" font-family="monospace">{v}</text>
+          </>
+        ))}
+      </svg>
+      <table class="rec trdp-rows">
+        <thead><tr><th>เมือง</th><th>ลูก</th><th>ถนนที่ตัดสินที่นี่</th><th>dp ตามลูกที่ถูกจอง</th></tr></thead>
+        <tbody>
+          {dpPost.map((v) => (
+            <tr>
+              <td class="num">{v}</td>
+              <td>{dpCh[v].length > 0 ? dpCh[v].join(', ') : 'ใบ'}</td>
+              <td>{candsAt(v).length > 0 ? candsAt(v).map((c) => roadName(c.e)).join(', ') : '·'}</td>
+              <td class="trdp-val">{dpRowText(v)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+
+    <p>
+      ในโค้ด <code>d0[j]</code> คือ <code>dp[ลูกคนที่ j][∅]</code>, <code>cs</code> คือถนนที่ปมร่วมอยู่ที่ <code>v</code>
+      และ <code>se</code> คือบิตของลูกที่ถนนนั้นจอง ส่วน <code>g</code> คือแถว <code>dp[v]</code> ที่กำลังเติม
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ลูปเติม dp[v] ของหนึ่งเมือง" />
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 6 · โค้ดและเวลา</h2>
   <Spoiler>
     <p>
-      ที่ <code>N</code> ไม่เกิน {NMAX} และ <code>M</code> ไม่เกิน {MMAX} การหาปมร่วมที่ต่ำที่สุดไม่ต้องใช้ท่าหรู
-      แค่ไต่ขึ้นตามพ่อทีละชั้นก็พอ และการหาผลรวม <code>dp</code> ตลอดเส้นทางก็ไล่ทีละปมได้
-      รวมแล้วเป็น <code>M × N</code> ซึ่งคือ {(MMAX * NMAX).toLocaleString('en-US')} ครั้ง
+      ที่ <code>N</code> ไม่เกิน {NMAX} การหาปมร่วมไม่ต้องใช้ท่าหรู ไต่ขึ้นตามพ่อทีละชั้นก็พอ
+      ถนนแต่ละเส้นไต่ไม่เกิน <code>N</code> ชั้น ทั้งการหาปมร่วมและการรวม <code>dp</code> ตามเส้นทาง
     </p>
-    <p>
-      ส่วนดีพีบนหน้ากากเป็น <code>2^ดีกรี</code> คูณจำนวนถนนที่มีปมร่วมอยู่ที่ปมนั้น
-      รวมทั้งต้นไม้แล้วไม่เกิน {(MMAX * MASKMAX).toLocaleString('en-US')} ครั้ง ทั้งสองก้อนอยู่ในลิมิต 0.3 วินาทีสบาย ๆ
-    </p>
+    <ul>
+      <li>ไต่ตามเส้นทาง: ไม่เกิน M × N = {trFmt(COST_CLIMB)} ก้าว</li>
+      <li>
+        ลองเก็บถนน: แต่ละเส้นถูกลองกับทุก mask ของปมร่วม ซึ่งมี 2<sup>จำนวนลูก</sup> แบบ
+        เพดานคือ M × 2<sup>{DEGMAX}</sup> = {trFmt(COST_MASK)} ก้าว ปมร่วมส่วนใหญ่ลูกน้อยกว่านั้น ของจริงจึงน้อยกว่ามาก
+      </li>
+      <li>
+        เติมค่าไม่เก็บ: เมืองที่มีลูก k คนใช้ราว 2<sup>k</sup> × k ก้าว จำนวนลูกรวมทั้งต้นไม้คือ N − 1
+        จึงไม่เกิน (N − 1) × 2<sup>{DEGMAX}</sup> = {trFmt(COST_FILL)} ก้าว
+      </li>
+      <li>งบเวลา 0.3 วินาที ใช้กฎหยาบ ๆ ว่าเครื่องทำได้ราว 10<sup>8</sup> ก้าวต่อวินาที ได้ราว {trFmt(BUDGET_OPS)} ก้าว ทั้งสามก้อนอยู่ในงบ</li>
+    </ul>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แผนที่ของโค้ด</caption>
+        <thead><tr><th>ช่วงในโค้ด</th><th>ทำอะไร</th><th>อ่านคู่กับ</th></tr></thead>
+        <tbody>
+          <tr><td><code>bfsTree</code></td><td>ปักรากที่เมือง 1 จดพ่อ ความลึก และลำดับของลูกแต่ละคน (เป็นตำแหน่งบิต)</td><td>ตอนที่ 5</td></tr>
+          <tr><td><code>lcaOf</code></td><td>ไต่ขึ้นทีละชั้นจนพบปมร่วมที่ต่ำที่สุด</td><td>ตอนที่ 5</td></tr>
+          <tr><td><code>len%2==1</code></td><td>ทิ้งถนนที่เส้นทางยาวคี่ (ปิดเสมอ)</td><td>ตอนที่ 2</td></tr>
+          <tr><td><code>exAt[l]</code></td><td>แขวนถนนไว้ที่ปมร่วมของมัน</td><td>ตอนที่ 5</td></tr>
+          <tr><td><code>pathSum</code></td><td>รวม dp ของเมืองบนเส้นทาง แต่ละเมืองจองลูกที่เส้นทางเพิ่งขึ้นมา</td><td>ตอนที่ 5</td></tr>
+          <tr><td>สองลูปของ <code>g</code></td><td>เติมแถว dp[v] ไล่ mask จากใหญ่ไปเล็ก กฎที่ 2 ซ่อนอยู่ในการเช็กว่าบิตไม่ชน</td><td>ตอนที่ 3, 5</td></tr>
+          <tr><td><code>total - dp[1][0]</code></td><td>ค่าปิดทั้งหมดลบน้ำหนักที่เก็บได้</td><td>ตอนที่ 3</td></tr>
+        </tbody>
+      </table>
+    </figure>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="train.cpp" />
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม ต้นไม้ {NMAX} เมืองที่ทุกปมมีลูกเก้าคน พร้อมถนนไม่ราดยาง {MMAX} เส้น
-      ใช้เวลา <strong>51 มิลลิวินาที</strong> จากลิมิต 0.3 วินาที
-    </p>
-    <p>
-      พื้นฐานสองอย่างที่ข้อนี้ยืนอยู่บนมันคือ <a href="/cp/tree-dp/">ดีพีบนต้นไม้</a> กับการเก็บเซตไว้ในบิต
-      ซึ่งมีตัวอย่างเต็ม ๆ ใน <a href="/cp/rolling-state-dp/">ดีพีที่สถานะคือความจำล่าสุด</a>
+    <ul>
+      <li>ผ่านตัวอย่างทั้งสองชุดของโจทย์ (ชุดที่ 2 ได้ {SAMPLE2_ANSWER} ตรงกับเฉลย)</li>
+      <li>
+        สุ่มเทียบกับตัวตรวจของตอนที่ 1 สามแบบ ไม่มีชุดไหนต่างกัน:
+        ต้นไม้ไม่เกิน {STRESS_MAX_N} เมืองกับถนนไม่ราดยางไม่เกิน {STRESS_MAX_EXTRA} เส้น {trFmt(STRESS_ROUNDS)} ชุด ·
+        แบบเดียวกันแต่ยอมให้ถนนซ้ำคู่เมือง (ไม่เกิน {STRESS_PAR_MAX_EXTRA} เส้น) {trFmt(STRESS_PAR_ROUNDS)} ชุด ·
+        ต้นไม้ {STRESS_WIDE_N} เมืองที่เมืองหนึ่งมีลูกได้ถึง {STRESS_WIDE_MAX_CHILD} คน ถนนไม่ราดยางไม่เกิน {STRESS_WIDE_MAX_EXTRA} เส้น {trFmt(STRESS_WIDE_ROUNDS)} ชุด
+      </li>
+      <li>
+        ขอบเขตของการสุ่มเทียบมีแค่กราฟเล็ก เพราะตัวตรวจไล่ทุกเซตและทุกวง กราฟใหญ่ตรวจได้แค่เวลา ไม่ได้ตรวจคำตอบ
+      </li>
+      <li>
+        เคสใหญ่ {BIG_TESTS} ชุด (N = {trFmt(NMAX)} ถนนเกือบ {trFmt(MMAX)} สาย ทุกเมืองไม่เกิน {DEGMAX} สาย
+        ต้นไม้สามรูปทรง: ลึก แตกกิ่ง และสุ่ม) ช้าที่สุด {WORST_MS} มิลลิวินาที จากงบ 300
+      </li>
+    </ul>
+    <p class="io-note">
+      เวลาวัดบนเครื่องที่ใช้เขียน รวมเวลาเปิดโปรแกรมแล้ว ยังไม่ได้ส่งเข้าเครื่องตรวจของ programming.in.th
     </p>
   </Spoiler>
 
+  <h2>เช็กความเข้าใจ</h2>
+  <p>สามข้อนี้ตอบได้จากสิ่งที่อ่านมา ลองคิดก่อนแล้วค่อยเปิดคำตอบ</p>
+  <p><strong>ข้อ 1.</strong> ถ้าโจทย์กลับด้าน ให้ปิดถนนจนไม่เหลือวงที่ยาว<em>คี่</em>แทน ต้องใช้ดีพีไหม</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 1</summary>
+    <div class="expander-body">
+      <p>
+        ไม่ต้อง ถนนที่เส้นทางยาวคู่สร้างวงคี่ จึงต้องปิดทุกเส้น ส่วนเส้นที่เส้นทางยาวคี่สร้างวงคู่
+        สองวงคู่ที่ทับกันต่อได้แค่วงคู่ (คู่บวกคู่หักคู่) เก็บไว้ได้หมด
+      </p>
+      <p>
+        อีกมุมหนึ่ง กราฟที่ไม่มีวงคี่คือกราฟที่ระบายสองสี (bipartite coloring) ได้ ต้นไม้ระบายสลับสีตามความลึกได้แบบเดียว
+        ถนนที่ปลายสองข้างคนละสีคือเส้นที่เส้นทางยาวคี่ ซึ่งตรงกับข้างบน
+      </p>
+    </div>
+  </details>
+  <p><strong>ข้อ 2.</strong> ทำไมถนนแต่ละเส้นถูกตัดสินที่ปมร่วมที่ต่ำที่สุด ไม่ใช่ที่ปลายทางของมัน</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 2</summary>
+    <div class="expander-body">
+      <p>
+        ปมร่วมคือจุดสูงสุดของเส้นทาง ทุกเมืองบนเส้นทางอยู่ใต้มัน จึงคิด dp เสร็จแล้วเมื่อมาถึงปมร่วม
+        และเมืองที่อยู่เหนือปมร่วมไม่โดนเส้นทางนี้เลย ถ้าตัดสินที่ปลายทาง จะยังไม่รู้ว่าอีกฝั่งของเส้นทางชนใคร
+      </p>
+    </div>
+  </details>
+  <p><strong>ข้อ 3.</strong> ทำไมในแต่ละเมืองต้องไล่ <code>mask</code> จากใหญ่ไปเล็ก</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 3</summary>
+    <div class="expander-body">
+      <p>
+        การเก็บถนนที่จองลูกเซต <code>se</code> อ่านค่าของ <code>mask | se</code> ซึ่งเปิดบิตเพิ่มจาก <code>mask</code>
+        เมื่อมองเป็นตัวเลข การเปิดบิตเพิ่มทำให้ค่ามากขึ้นเสมอ ไล่ mask จากตัวเลขมากลงมาหาน้อย ค่าที่ถูกอ่านจึงคิดเสร็จแล้วทุกครั้ง
+      </p>
+    </div>
+  </details>
+
   <h2>ท่าที่ติดมือกลับไป</h2>
-    <p>
-      สองกฎในเฉลยเป็นข้อสรุปเรื่อง<strong>คู่คี่</strong> (parity) ทั้งคู่ คือเราไม่ได้สนใจว่าเส้นทางยาวเท่าไร
-      สนใจแค่ว่ามัน<strong>ยาวเป็นจำนวนคู่หรือคี่</strong> พอถามแค่นั้น ถนนทั้งกราฟก็ถูกจัดออกเป็นสองพวกทันที
-      และเงื่อนไขทั้งข้อยุบลงเหลือกฎสั้น ๆ สองข้อ
-    </p>
-    <p>
-      ท่านี้เป็นญาติกับ<strong>การระบายสองสี</strong> (bipartite coloring) คือถ้าเราไล่ระบายสีปมสลับกันสองสีตามเส้นเชื่อม
-      แล้วระบายได้สำเร็จโดยไม่มีเส้นไหนเชื่อมสีเดียวกัน กราฟนั้นไม่มีวงคี่เลย ซึ่งเป็นข้อความเดียวกับกฎในเฉลยนี้
-      พูดด้วยคำอีกชุด รู้ความเชื่อมโยงนี้ไว้จะอ่านโจทย์กราฟที่พูดเรื่องคู่คี่ออกเร็วขึ้นมาก
-      มี<a href="/cp/teleporters/">คำอธิบายเรื่องคู่คี่</a>อยู่ในโจทย์เครื่องเคลื่อนย้าย
-    </p>
-    <p>
-      อีกท่าที่ข้อนี้ใช้คือ<strong>การบีบสถานะ</strong> (state compression) ตอนไล่ต้นไม้ เราไม่เก็บทุกอย่างของกิ่ง
-      เก็บแค่ค่าที่พ่อต้องใช้ ซึ่งมี<a href="/cp/rolling-state-dp/">บทปูพื้น</a>อยู่ในคลังนี้แล้ว
-    </p>
+  <p>
+    สองกฎในเฉลยเป็นข้อสรุปเรื่องคู่คี่ (parity) ทั้งคู่ เราไม่ได้สนใจว่าเส้นทางยาวเท่าไร สนใจแค่ว่ายาวคู่หรือคี่
+    พอถามแค่นั้น ถนนทั้งกราฟก็แบ่งเป็นสองพวกทันที
+  </p>
+  <p>
+    โจทย์ฝาแฝดที่ห้ามวงคี่แทน ตอบได้ด้วยการระบายสองสีตรง ๆ (ข้อ 1 ข้างบน) ส่วนข้อนี้ห้ามวงคู่ จึงต้องมีกฎที่ 2 กับดีพีเพิ่ม
+    ถ้าอยากเห็นการใช้คู่คี่อีกแบบ ดูโจทย์<a href="/cp/teleporters/">เครื่องเคลื่อนย้ายมวลสาร</a>
+  </p>
+  <p>
+    อีกท่าที่ข้อนี้ใช้คือ<strong>การบีบสถานะ</strong> (state compression) ตอนไล่ต้นไม้ เราไม่เก็บทุกอย่างของกิ่ง
+    เก็บแค่ค่าที่พ่อต้องใช้ ฝั่งต้นไม้มีบทปูพื้นใน <a href="/cp/tree-dp/">DP บนต้นไม้</a>
+    ฝั่งการเก็บเซตไว้ในบิตมีใน <a href="/cp/rolling-state-dp/">DP ที่สถานะคือความจำล่าสุด</a>
+  </p>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
@@ -760,77 +1492,6 @@ for (int mk = full - 1; mk >= 0; mk--)
 </CpProblemLayout>
 
 <style>
-  /* ตารางประกอบเนื้อหา การ์ดเลื่อนในตัวเอง หน้าเว็บไม่เลื่อนตาม */
-  figure.tbl{
-    margin:1.2rem 0 0.4rem;
-    padding:0;
-    overflow-x:auto;
-    background:#0b1220;
-    border:1px solid var(--dl-border);
-    border-radius:10px;
-    box-shadow:0 4px 16px rgba(0,0,0,0.3);
-  }
-  /* ไทยไม่มีช่องไฟ คำบรรยายยาว ๆ จะถ่างการ์ดที่เป็น fit-content
-     width:0 + min-width:100% ทำให้ความยาวกลายเป็นความสูงแทน */
-  figure.tbl figcaption{
-    width:0;
-    min-width:100%;
-    font-size:0.78rem;
-    color:var(--dl-muted);
-    line-height:1.6;
-    padding:0.6rem 0.85rem 0.75rem;
-    border-top:1px solid var(--dl-border);
-  }
-  table.rec{
-    width:100%;
-    border-collapse:separate;
-    border-spacing:0;
-    font-size:0.84rem;
-  }
-  figure.tbl table.rec{width:auto;}
-  table.rec caption{
-    caption-side:top;
-    text-align:left;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-weight:700;
-    letter-spacing:0.18em;
-    font-size:0.68rem;
-    color:var(--dl-gold);
-    background:#070c17;
-    padding:0.5rem 0.85rem;
-    border-bottom:1px solid var(--dl-border);
-    white-space:nowrap;
-  }
-  table.rec th, table.rec td{
-    padding:0.5rem 0.8rem;
-    text-align:left;
-    vertical-align:middle;
-    border-bottom:1px solid var(--dl-border);
-  }
-  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
-  table.rec tbody tr:last-child td{border-bottom:none;}
-  table.rec th{
-    background:#141b2b;
-    color:var(--dl-muted);
-    font-weight:600;
-    font-size:0.68rem;
-    letter-spacing:0.1em;
-    text-transform:uppercase;
-    white-space:nowrap;
-  }
-  table.rec td{color:var(--dl-ink);line-height:1.55;}
-  table.rec td strong{color:var(--dl-gold);}
-  table.rec td.num{
-    text-align:right;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-variant-numeric:tabular-nums;
-    white-space:nowrap;
-    color:#cdd6ea;
-  }
-  table.rec th.num{text-align:right;}
-
-  .dim{color:#7b8397;}
-
   /* ---------- ตารางถนนของมินิเกมปิดถนน ---------- */
   .tr-list{border-collapse:collapse;font-size:0.85rem;}
   .tr-list :global(th), .tr-list :global(td){
@@ -838,11 +1499,22 @@ for (int mk = full - 1; mk >= 0; mk--)
   }
   .tr-list :global(th){color:#9aa7bd;font-weight:600;white-space:nowrap;}
   .tr-list :global(tr.closed td){background:#241a1a;color:#f0a6a6;text-decoration:line-through;}
+
+  /* ---------- เครื่องเดินดีพีบนต้นไม้ ----------
+     แถวโผล่ทีละแถว และแถวของเมือง 1 (ราก) ยาวกว่าแถวอื่นมาก ถ้าตารางยังให้ความกว้างของตัวเองกับการ์ด
+     การ์ดจะขยายจาก 688 เป็น 1063px ตอนขั้นสุดท้าย จึงให้ตารางเต็มการ์ดโดยไม่ดันการ์ด (width:0 + min-width:100%)
+     แล้วให้คอลัมน์ค่าตัดบรรทัดแทน !important สู้กับ body .panel .dpsim table.rec{width:100%} ของ CpProblemLayout */
+  table.rec.trdp-rows{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.trdp-rows th:nth-child(1){width:4.2rem;}
+  table.rec.trdp-rows th:nth-child(2){width:5.6rem;}
+  table.rec.trdp-rows th:nth-child(3){width:8.6rem;}
+  table.rec.trdp-rows td.trdp-val{white-space:normal;font-family:'JetBrains Mono', monospace;font-size:0.8rem;}
 </style>
 
 <script>
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
   import type { CpGameUi } from '../../lib/cpGame';
+  import { initCpPlayers } from '../../lib/cpPlayer';
 
   type TrEdge = { a: number; b: number; c: number };
   type TrPuzzle = { id: string; label: string; tease: string; n: number; edges: TrEdge[]; best: number };
@@ -865,6 +1537,8 @@ for (int mk = full - 1; mk >= 0; mk--)
 
     let pi = 0;
     let closed = new Set<number>();
+    /* ค่าที่ถูกที่สุดเป็นส่วนหนึ่งของเฉลย จึงซ่อนไว้จนกว่าจะกดตรวจครั้งแรกของชุดนั้น */
+    let tried = false;
 
     const pz = (): TrPuzzle => puzzles[pi];
 
@@ -944,11 +1618,13 @@ for (int mk = full - 1; mk >= 0; mk--)
         b.textContent = closed.has(Number(b.dataset.close)) ? 'เปิดคืน' : 'ปิดเส้นนี้';
       }
       paidOut.textContent = String(paid());
-      bestOut.textContent = String(pz().best);
+      bestOut.textContent = tried ? String(pz().best) : '?';
     }
 
     function check(): void {
       const p = pz();
+      tried = true;
+      render();
       if (hasEvenCycle(keptEdges())) {
         ui.setStatus('ยังมีเส้นทางซ้อมที่ยุติธรรมเหลืออยู่ คือยังมีวงจรที่ยาวเป็นเลขคู่', 'bad');
         return;
@@ -964,6 +1640,7 @@ for (int mk = full - 1; mk >= 0; mk--)
     function selectPuzzle(k: number): void {
       pi = k;
       closed = new Set<number>();
+      tried = false;
       ui.selectTab(k);
       ui.setTease(pz().tease);
       buildList();
@@ -982,11 +1659,79 @@ for (int mk = full - 1; mk >= 0; mk--)
       render();
     });
 
-    ui.onClick('data-tr-reset', () => selectPuzzle(pi));
+    ui.onClick('data-tr-reset', () => {
+      closed = new Set<number>();
+      ui.setStatus('กดปิดถนนที่ไม่ราดยางได้ตามใจ แล้วกดตรวจว่าเหลือเส้นทางซ้อมที่ยุติธรรมไหม');
+      render();
+    });
     ui.onClick('data-tr-check', check);
     ui.onTab(selectPuzzle);
     selectPuzzle(0);
   }
 
-  document.addEventListener('astro:page-load', initTrainGame);
+  /* ---------- เครื่องเดินดีพีบนต้นไม้ ---------- */
+  type DpStep = { note: string; v: number; cands: number[]; done: number[]; kept: number[] };
+  const isNumArr = (x: unknown): x is number[] => Array.isArray(x) && x.every((v) => typeof v === 'number');
+  function isDpStep(x: unknown): x is DpStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.note === 'string' && typeof o.v === 'number' && isNumArr(o.cands) && isNumArr(o.done) && isNumArr(o.kept);
+  }
+  /* สีของเส้นทางถนนที่ตัดสินในขั้นนั้น เส้นแรกหนา เส้นถัดไปบางลง จะได้เห็นทั้งคู่ตอนทับกัน */
+  const CAND_INK = ['#d4af37', '#5fb3ff', '#e06c75'];
+  const CAND_W = ['9', '4', '3'];
+
+  function initTrainPlayer(): void {
+    initCpPlayers<DpStep>('[data-trdp]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isDpStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+        rows.forEach((tr, i) => {
+          tr.classList.toggle('is-later', i > ctx.at);
+          tr.classList.toggle('is-now', i === ctx.at);
+        });
+        /* ตั้งสีผ่าน attribute ตรง ๆ เพื่อไม่ต้องพึ่ง CSS ที่ต้องข้ามสโคปของคอมโพเนนต์ */
+        root.querySelectorAll<SVGCircleElement>('[data-dpn]').forEach((c) => {
+          const v = Number(c.dataset.dpn);
+          const now = v === st.v;
+          const done = st.done.includes(v);
+          c.setAttribute('fill', now ? '#d4af37' : done ? '#22304a' : '#141b2b');
+          c.setAttribute('stroke', now ? '#d4af37' : done ? '#9aa7bd' : '#3a4459');
+        });
+        root.querySelectorAll<SVGTextElement>('[data-dpt]').forEach((t) => {
+          const v = Number(t.dataset.dpt);
+          const now = v === st.v;
+          const done = st.done.includes(v);
+          t.setAttribute('fill', now ? '#0b1220' : done ? '#e6ebf5' : '#7b8397');
+        });
+        root.querySelectorAll<SVGPathElement>('[data-dpr]').forEach((p) => {
+          const r = Number(p.dataset.dpr);
+          const ci = st.cands.indexOf(r);
+          if (st.kept.includes(r)) {
+            p.setAttribute('stroke', '#4ade80');
+            p.setAttribute('stroke-width', '7');
+            p.setAttribute('stroke-opacity', '0.85');
+          } else if (ci !== -1) {
+            p.setAttribute('stroke', CAND_INK[ci % CAND_INK.length]);
+            p.setAttribute('stroke-width', CAND_W[ci % CAND_W.length]);
+            p.setAttribute('stroke-opacity', '0.85');
+          } else {
+            p.setAttribute('stroke-opacity', '0');
+          }
+        });
+        const now = rows[Math.min(ctx.at, rows.length - 1)];
+        if (now) ctx.keepInView(now.cells[0] ?? now);
+      },
+    });
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    initTrainGame();
+    initTrainPlayer();
+  });
 </script>

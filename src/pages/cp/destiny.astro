@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import { mc, texCode } from '../../lib/math';
 
 const href = 'destiny/';
@@ -235,6 +236,9 @@ function labelAt(a: Pt, b: Pt, off: number): Pt {
   }
   return { x: (a.x + b.x) / 2 + nx * off, y: (a.y + b.y) / 2 + ny * off };
 }
+/* ขนาดกระดานต้นไม้ในเครื่องเดิน dp ใช้พิกัดชุดเดียวกับรูปที่หนึ่ง */
+const DPT_W = Math.max(...Object.values(d1Pos).map((p) => p.x)) + D1_R + D1_X0 - D1_R;
+const DPT_H = Math.max(...Object.values(d1Pos).map((p) => p.y)) + D1_R + 16;
 const EDGE_TAG = ['ก', 'ข', 'ค', 'ง'];
 const d1Edges = SAMPLE.edges.map((e, i) => {
   const a = d1Pos[e[0]];
@@ -259,6 +263,123 @@ const D1_RIGHT = GRID_X0 + 3 * GRID_GX + GRID_CW;
 const D1_BOTTOM = Math.max(d1Pos[4].y + D1_R + 4, GRID_Y0 + 3 * GRID_GY + GRID_CH);
 const D1_W = D1_RIGHT + 12;
 const D1_H = D1_BOTTOM + 34;
+
+/* ---------- เครื่องเดินตาราง dp บนตัวอย่างที่หนึ่ง (เฉลยตอนที่ 3) ----------
+   หนึ่งขั้นคือหนึ่งจุด ตามลำดับที่โปรแกรมคำนวณจริง คือจากใบขึ้นไปหาราก
+   ข้อความแต่ละขั้นสร้างจากโมเดล ไม่พิมพ์มือ */
+const fmtRow = (row: number[]): string => '[' + row.join(', ') + ']';
+/* ร่องรอยของตารางระหว่างทาง: ทุกลูกที่ส่งผ่านขอบ ผลหลังรวมทีละลูก และก่อนกับหลังแขวน
+   คำนวณด้วยสูตรเดียวกับ dpTables แล้วตรวจว่าแถวสุดท้ายตรงกัน */
+type DpTrace = { start: number[]; kids: { c: number; g: number[]; after: number[] }[]; beforeAtt: number[]; final: number[] };
+function dpTrace(t: Tree): Record<number, DpTrace> {
+  const r = rootTree(t);
+  const att = new Array<number>(t.n + 1).fill(0);
+  for (const [u, v] of t.pairs) att[v] = Math.max(att[v], r.dep[u]);
+  const fin: number[][] = Array.from({ length: t.n + 1 }, () => []);
+  const out: Record<number, DpTrace> = {};
+  for (let i = r.order.length - 1; i >= 0; i--) {
+    const v = r.order[i];
+    const D = r.dep[v];
+    let cur = new Array<number>(D).fill(0);
+    cur[0] = 1;
+    const start = [...cur];
+    const kids: DpTrace['kids'] = [];
+    for (const c of r.kids[v]) {
+      const d = fin[c];
+      const S = d.reduce((a, b) => a + b, 0);
+      const g = new Array<number>(D).fill(0);
+      g[0] = d[0] + S;
+      for (let j = 1; j < D; j++) g[j] = d[j];
+      const C = new Array<number>(D).fill(0);
+      let pa = 0;
+      let pb = 0;
+      for (let j = 0; j < D; j++) {
+        const pbj = pb + g[j];
+        C[j] = cur[j] * pbj + pa * g[j];
+        pa += cur[j];
+        pb = pbj;
+      }
+      cur = C;
+      kids.push({ c, g, after: [...cur] });
+    }
+    const beforeAtt = [...cur];
+    const b = att[v];
+    if (b >= 1) {
+      let acc = 0;
+      for (let j = 0; j < b; j++) {
+        acc += cur[j];
+        cur[j] = 0;
+      }
+      cur[b] += acc;
+    }
+    fin[v] = cur;
+    out[v] = { start, kids, beforeAtt, final: [...cur] };
+  }
+  return out;
+}
+const SAMPLE_TRACE = dpTrace(SAMPLE);
+for (const v of SAMPLE_DP.order)
+  if (fmtRow(SAMPLE_TRACE[v].final) !== fmtRow(SAMPLE_DP.dp[v])) throw new Error(`destiny: ร่องรอยของจุด ${v} ไม่ตรงกับตาราง dp`);
+const dpSteps = dpRows.map((r, k) => {
+  const kids = SAMPLE_R.kids[r.v];
+  const row = SAMPLE_DP.dp[r.v];
+  const tr = SAMPLE_TRACE[r.v];
+  const parts: string[] = [`<b>จุด ${r.v}</b> (ลึก ${r.dep})`];
+  if (kids.length === 0) parts.push(`เป็นใบ ไม่มีลูกให้รวม ตารางเริ่มที่ ${fmtRow(tr.start)} (ยังไม่มีเส้นให้ระบาย)`);
+  else {
+    parts.push(`เริ่มที่ ${fmtRow(tr.start)} (รวมกับตารางไหนก็ได้ตารางนั้นเหมือนเดิม)`);
+    for (const kd of tr.kids) parts.push(`ลูก ${kd.c} ส่งผ่านขอบขึ้นมาเป็น g = ${fmtRow(kd.g)} รวมแล้วได้ ${fmtRow(kd.after)}`);
+  }
+  if (r.att > 0) {
+    const ps = SAMPLE.pairs.filter((p) => p[1] === r.v).map((p) => `(${p[0]}, ${p[1]})`).join(', ');
+    parts.push(`คู่ ${ps} จบที่นี่ u ลึก ${r.att} กวาดทุกช่องที่ j น้อยกว่า ${r.att} ไปเทลงช่อง ${r.att}: ${fmtRow(tr.beforeAtt)} กลายเป็น ${fmtRow(row)}`);
+  } else parts.push(`ได้แถว ${fmtRow(row)}`);
+  if (k === dpRows.length - 1) parts.push(`ราก ผลรวมทั้งแถวคือคำตอบ <b>${SAMPLE_ANS}</b>`);
+  return { note: parts.join(' · '), v: r.v };
+});
+
+/* ---------- เกมข้อค้างหลายข้อ (ลองเอง เกมที่ 2) ----------
+   โซ่ 6 จุด v อยู่ลึกสุด มีข้อบังคับค้างสามข้อ u ลึก 2, 3, 4 ผู้เล่นเลือกขอบได้ทีละเส้น
+   ขอบระหว่างลึก k กับ k + 1 ปิดข้อบังคับที่ u ลึก a ได้ก็ต่อเมื่อ k >= a */
+const CH_N = 6;
+const CH_US = [2, 3, 4];
+const CH_TOP = 28;
+const CH_DY = 52;
+const CH_X = 120;
+const chY = (d: number): number => CH_TOP + (d - 1) * CH_DY;
+const CH_ARCS = CH_US.map((a, i) => ({ a, x: CH_X + 46 + i * 46 }));
+const CH_W = CH_X + 46 + CH_US.length * 46 + 92;
+const CH_H = chY(CH_N) + 22 + 34;
+const chainCloses = (k: number): number[] => CH_US.filter((a) => k >= a);
+if (chainCloses(Math.max(...CH_US)).length !== CH_US.length) throw new Error('destiny: ขอบใต้ u ที่ลึกที่สุดต้องปิดได้ทุกข้อ');
+if (Array.from({ length: CH_N - 1 }, (_, i) => i + 1).filter((k) => chainCloses(k).length === CH_US.length).length !== CH_N - Math.max(...CH_US))
+  throw new Error('destiny: เกมข้อค้างต้องมีขอบที่ปิดได้ครบเฉพาะใต้ u ที่ลึกที่สุด');
+
+/* ---------- กราฟงบเวลา (เฉลยตอนที่ 1) ต้นไม้เส้นตรงที่ขอบเขตเต็ม สเกล log10 ----------
+   ความเร็วเครื่องเป็นค่าสมมติแบบหยาบ 10^8 ก้าวต่อวินาที เขียนบอกไว้ในหน้า */
+const OPS_PER_SEC = 1e8;
+const BUDGET_OPS = 2 * OPS_PER_SEC;
+const LOG2_N = Math.ceil(Math.log2(N_MAX));
+const TABLE_OPS = (N_MAX * N_MAX) / 2;
+const MERGE_OPS = N_MAX * LOG2_N + M_MAX;
+const GC_LO = 6;
+const GC_HI = 12;
+const GC_X0 = 196;
+const GC_W = 360;
+const GC_Y0 = 46;
+const GC_ROW = 46;
+const gcX = (v: number): number => GC_X0 + ((Math.log10(v) - GC_LO) / (GC_HI - GC_LO)) * GC_W;
+const sciOf = (v: number): { m: string; e: number } => {
+  const e = Math.floor(Math.log10(v));
+  return { m: (v / 10 ** e).toFixed(1).replace(/\.0$/, ''), e };
+};
+const GC_BARS = [
+  { name: 'ตารางเต็ม', v: TABLE_OPS, ok: false },
+  { name: 'เซกเมนต์ทรีควบรวม', v: MERGE_OPS, ok: true },
+].map((b, k) => ({ ...b, y: GC_Y0 + k * GC_ROW, s: sciOf(b.v), over: Math.round(b.v / BUDGET_OPS) }));
+if (GC_BARS.some((b) => b.ok !== b.v < BUDGET_OPS)) throw new Error('destiny: กราฟงบเวลา แท่งทัน/ไม่ทันไม่ตรงกับตัวเลข');
+const GC_TICKS = [6, 8, 10, 12];
+const GC_BOTTOM = GC_Y0 + GC_BARS.length * GC_ROW;
 
 /* ---------- รูปที่สอง สองทางเลือกที่ขอบเดียวกัน ---------- */
 const D2_DEPTHS = 5;
@@ -468,40 +589,302 @@ const puzzlesJson = JSON.stringify(puzzles);
    ชุดทดสอบสร้างด้วย destiny_genbig.cpp ทุกชุด N = M = 500,000 ยกเว้นแถวสองแถวล่าง */
 type Bill = { name: string; who: string; time: string; mem: string };
 const bills: Bill[] = [
-  { name: 'ต้นไม้สุ่ม', who: 'โค้ดเต็ม', time: '0.79 วินาที', mem: '46 เมกะไบต์' },
-  { name: 'ไบนารีสมบูรณ์', who: 'โค้ดเต็ม', time: '0.41 วินาที', mem: '84 เมกะไบต์' },
-  { name: 'เส้นตรง (ลึก 500,000)', who: 'โค้ดเต็ม', time: '0.42 วินาที', mem: '32 เมกะไบต์' },
-  { name: 'ดาว (ลึก 2)', who: 'โค้ดเต็ม', time: '0.33 วินาที', mem: '32 เมกะไบต์' },
-  { name: 'ไม้กวาด (ก้านยาวครึ่งหนึ่ง)', who: 'โค้ดเต็ม', time: '0.42 วินาที', mem: '32 เมกะไบต์' },
-  { name: 'พุ่มลึก (พ่อห่างขึ้นไป 1 ถึง 5)', who: 'โค้ดเต็ม', time: '0.31 วินาที', mem: '32 เมกะไบต์' },
-  { name: 'เส้นตรง N = M = 100,000', who: 'ตารางเต็ม', time: '58.93 วินาที', mem: '11 เมกะไบต์' },
-  { name: 'เส้นตรง N = M = 100,000', who: 'โค้ดเต็ม', time: '0.04 วินาที', mem: '8 เมกะไบต์' },
+  { name: 'ต้นไม้สุ่ม', who: 'โค้ดเต็ม', time: '0.61 วินาที', mem: '63 เมกะไบต์' },
+  { name: 'เส้นตรง (ลึก 500,000)', who: 'โค้ดเต็ม', time: '0.86 วินาที', mem: '116 เมกะไบต์' },
+  { name: 'ดาว (ลึก 2)', who: 'โค้ดเต็ม', time: '0.34 วินาที', mem: '53 เมกะไบต์' },
+  { name: 'ไบนารีสมบูรณ์', who: 'โค้ดเต็ม', time: '0.60 วินาที', mem: '70 เมกะไบต์' },
+  { name: 'ไม้กวาด (ก้านยาวครึ่งหนึ่ง)', who: 'โค้ดเต็ม', time: '0.88 วินาที', mem: '90 เมกะไบต์' },
+  { name: 'พุ่มลึก (พ่อห่างขึ้นไป 1 ถึง 5)', who: 'โค้ดเต็ม', time: '1.10 วินาที', mem: '109 เมกะไบต์' },
+  { name: 'เส้นตรง N = M = 100,000', who: 'ตารางเต็ม', time: '60.23 วินาที', mem: '14 เมกะไบต์' },
+  { name: 'เส้นตรง N = M = 100,000', who: 'โค้ดเต็ม', time: '0.13 วินาที', mem: '23 เมกะไบต์' },
+  { name: 'ไบนารีสมบูรณ์ N = M = 100,000', who: 'ตารางเต็ม', time: '0.19 วินาที', mem: '25 เมกะไบต์' },
 ];
+/* ตัวเลขที่ร้อยแก้วอ้างถึง ดึงจากตารางเดียวกัน */
+const LINE_N = 100000;
+const SLOW_LINE_SEC = 60.23;
+const SLOW_BIN_SEC = 0.19;
 const TIME_LIMIT = '2 วินาที';
 const MEM_LIMIT = '512 เมกะไบต์';
-const STRESS_ROUNDS = 3000;
-const STRESS_MAXN = 12;
-const STRESS_SEED = 20260911;
-const STRESS_MULTI = 758;
-const STRESS_DUP = 2283;
+/* stress test ที่รันจริงกับโค้ดสามตัวที่หน้านี้แสดง (ตัวสร้างอินพุตมีหกรูปทรง ใส่คู่ซ้ำราว 10% และให้ u ลึกเกาะกลุ่มบ้าง) */
+const STRESS_SMALL = 1500;
+const STRESS_SMALL_MAXN = 12;
+const STRESS_MID = 300;
+const STRESS_MID_MAXN = 3049;
 
-const codeFull = `/*@@FULL@@*/`;
-const codeSlow = `/*@@SLOW@@*/`;
-const codeBrute = `/*@@BRUTE@@*/`;
+const codeFull = `// NOI 2020 "Destiny" / โชคชะตา (programming.in.th 2042)
+// เต็มขอบเขต: N, M <= 500,000  เวลา O((N + M) log N)
+//
+// dp[v][j] = จำนวนวิธีระบายเส้นในกิ่งของ v ที่ข้อบังคับในกิ่งปิดครบ
+//            และข้อที่ยังค้าง ข้อที่ u ลึกที่สุดอยู่ที่ความลึก j (j = 0 คือไม่มีอะไรค้าง)
+// ช่อง j = 0 เก็บเป็นตัวแปร s[v] ส่วนช่อง j >= 1 เก็บในเซกเมนต์ทรีที่ควบรวมได้ (แกนคือความลึก)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+const ll MOD = 998244353;
+
+// ---------- อ่านอินพุต ----------
+static char buf[1 << 25];
+int bufLen = 0, bufPos = 0;
+inline int readChar() {
+    if (bufPos == bufLen) { bufLen = (int)fread(buf, 1, sizeof(buf), stdin); bufPos = 0; if (bufLen <= 0) return -1; }
+    return buf[bufPos++];
+}
+inline int readInt() {
+    int c = readChar();
+    while (c != -1 && (c < '0' || c > '9')) c = readChar();
+    int x = 0;
+    while (c >= '0' && c <= '9') { x = x * 10 + (c - '0'); c = readChar(); }
+    return x;
+}
+
+// ---------- เซกเมนต์ทรีที่ควบรวมได้ ----------
+// ปมเก็บผลรวมของช่วง กับป้ายคูณที่ยังไม่ส่งลงลูก (lazy tag)
+// ปมที่ถูกทิ้งตอนควบรวมเข้ากองว่าง freeList แล้วเอากลับมาใช้ใหม่
+vector<int> lc, rc;
+vector<ll> sm, mul;
+vector<int> freeList;
+int newNode() {
+    int x;
+    if (!freeList.empty()) { x = freeList.back(); freeList.pop_back(); }
+    else { x = (int)lc.size(); lc.push_back(0); rc.push_back(0); sm.push_back(0); mul.push_back(1); }
+    lc[x] = rc[x] = 0; sm[x] = 0; mul[x] = 1;
+    return x;
+}
+void freeNode(int x) { freeList.push_back(x); }
+inline void applyMul(int x, ll k) { if (x) { sm[x] = sm[x] * k % MOD; mul[x] = mul[x] * k % MOD; } }
+inline void push(int x) {
+    if (mul[x] != 1) { applyMul(lc[x], mul[x]); applyMul(rc[x], mul[x]); mul[x] = 1; }
+}
+inline void pull(int x) { sm[x] = ((lc[x] ? sm[lc[x]] : 0) + (rc[x] ? sm[rc[x]] : 0)) % MOD; }
+
+// บวก val ที่ช่อง pos
+int addAt(int x, int l, int r, int pos, ll val) {
+    if (!x) x = newNode();
+    if (l == r) { sm[x] = (sm[x] + val) % MOD; return x; }
+    push(x);
+    int m = (l + r) / 2;
+    if (pos <= m) lc[x] = addAt(lc[x], l, m, pos, val);
+    else rc[x] = addAt(rc[x], m + 1, r, pos, val);
+    pull(x);
+    return x;
+}
+// ลบช่วง [ql, qr] ทิ้ง คืนผลรวมของสิ่งที่ลบผ่าน taken
+int cutRange(int x, int l, int r, int ql, int qr, ll &taken) {
+    if (!x || qr < l || r < ql) return x;
+    if (ql <= l && r <= qr) {
+        // ทิ้งทั้งต้นย่อย คืนแค่ปมบนสุดเข้ากองว่าง ปมลูกหลานไม่มีใครชี้ถึงแล้วจึงไม่เป็นปัญหา
+        taken = (taken + sm[x]) % MOD;
+        freeNode(x);
+        return 0;
+    }
+    push(x);
+    int m = (l + r) / 2;
+    lc[x] = cutRange(lc[x], l, m, ql, qr, taken);
+    rc[x] = cutRange(rc[x], m + 1, r, ql, qr, taken);
+    if (!lc[x] && !rc[x]) { freeNode(x); return 0; }
+    pull(x);
+    return x;
+}
+// รวมสองตาราง C[j] = A[j] * preB[j] + B[j] * preA[j-1]
+// pa = ผลรวมของ A ทุกช่องก่อน l, pb = ผลรวมของ B ทุกช่องก่อน l (รวมช่อง 0 ที่อยู่นอกต้นไม้)
+int mergeTree(int a, int b, int l, int r, ll pa, ll pb) {
+    if (!a && !b) return 0;
+    if (!b) { applyMul(a, pb); return a; }          // B ว่างทั้งช่วง preB คงที่เท่ากับ pb
+    if (!a) { applyMul(b, pa); return b; }          // A ว่างทั้งช่วง preA คงที่เท่ากับ pa
+    if (l == r) {
+        ll A = sm[a], B = sm[b];
+        sm[a] = (A * ((pb + B) % MOD) + B * pa) % MOD;
+        freeNode(b);
+        return a;
+    }
+    push(a); push(b);
+    int m = (l + r) / 2;
+    ll aL = lc[a] ? sm[lc[a]] : 0, bL = lc[b] ? sm[lc[b]] : 0;
+    lc[a] = mergeTree(lc[a], lc[b], l, m, pa, pb);
+    rc[a] = mergeTree(rc[a], rc[b], m + 1, r, (pa + aL) % MOD, (pb + bL) % MOD);
+    freeNode(b);
+    pull(a);
+    return a;
+}
+
+int main() {
+    int n = readInt();
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) { int x = readInt(), y = readInt(); adj[x].push_back(y); adj[y].push_back(x); }
+
+    // ---------- ปักรากที่ 1 หาความลึกกับลำดับ ----------
+    // ใช้ BFS เพราะต้นไม้ลึกได้ถึงห้าแสน การเรียกตัวเองซ้ำจะทำสแต็กล้น
+    vector<int> par(n + 1, 0), dep(n + 1, 0), order;
+    order.reserve(n);
+    dep[1] = 1; order.push_back(1);
+    for (size_t i = 0; i < order.size(); i++) {
+        int v = order[i];
+        for (int w : adj[v]) if (w != par[v]) { par[w] = v; dep[w] = dep[v] + 1; order.push_back(w); }
+    }
+    int maxDep = 1;
+    for (int v = 1; v <= n; v++) maxDep = max(maxDep, dep[v]);
+
+    // ---------- ข้อบังคับ: เก็บแค่ u ที่ลึกที่สุดต่อจุดปลาย ----------
+    int m = readInt();
+    vector<int> att(n + 1, 0);
+    for (int i = 0; i < m; i++) { int u = readInt(), v = readInt(); att[v] = max(att[v], dep[u]); }
+
+    // ---------- ไล่จากใบขึ้นหาราก ----------
+    lc.reserve(1 << 22); rc.reserve(1 << 22); sm.reserve(1 << 22); mul.reserve(1 << 22);
+    newNode();                               // ปม 0 คือ "ว่าง" ห้ามใช้
+    vector<ll> s(n + 1, 1);                  // ช่อง j = 0 ของแต่ละจุด เริ่มที่ 1 (ยังไม่มีเส้นให้ระบาย)
+    vector<int> root(n + 1, 0);              // ต้นไม้ของช่อง j >= 1
+    const int L = 1, R = max(1, maxDep);
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        // แขวนข้อบังคับที่จบที่ v: ทุกช่องที่ j < b ถูกกวาดมาเทลงช่อง b
+        int b = att[v];
+        if (b >= 1) {
+            ll acc = s[v];
+            s[v] = 0;
+            if (b - 1 >= 1) root[v] = cutRange(root[v], L, R, 1, b - 1, acc);
+            root[v] = addAt(root[v], L, R, b, acc);
+        }
+        if (v == 1) break;
+        // ส่งขึ้นไปให้พ่อ p ผ่านเส้น (p, v) ให้ D = ความลึกของพ่อ
+        int p = par[v], D = dep[p];
+        ll dead = 0;
+        root[v] = cutRange(root[v], L, R, D, D, dead);    // ช่อง D: ระบาย 0 แล้วตาย (u คือพ่อพอดี)
+        ll S = (s[v] + (root[v] ? sm[root[v]] : 0) + dead) % MOD;  // ทางระบาย 1 รับทั้งตารางเดิม
+        ll g0 = (s[v] + S) % MOD;                          // ช่อง 0: ระบาย 0 ตอนไม่มีอะไรค้าง + ระบาย 1
+        // รวมเข้ากับตารางของพ่อ (A = พ่อ, B = g)
+        ll A0 = s[p];
+        root[p] = mergeTree(root[p], root[v], L, R, A0, g0);
+        s[p] = A0 * g0 % MOD;
+        root[v] = 0;
+    }
+    printf("%lld\\n", s[1] % MOD);
+    return 0;
+}`;
+const codeSlow = `// NOI 2020 "Destiny" / โชคชะตา (programming.in.th 2042) - ตารางเต็ม
+// สูตรของเฉลยตอนที่ 3 เขียนตรง ๆ ตารางของจุดที่ลึก d ยาว d ช่อง
+// เวลาเป็นสัดส่วนกับผลรวมความลึกของทุกจุด: ชนะชุด N <= 2,000 และชุดต้นไม้ไบนารีสมบูรณ์ (ลึกราว log N)
+#include <bits/stdc++.h>
+using namespace std;
+typedef long long ll;
+const ll MOD = 998244353;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<vector<int>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) { int x, y; if (scanf("%d %d", &x, &y) != 2) return 0; adj[x].push_back(y); adj[y].push_back(x); }
+    vector<int> par(n + 1, 0), dep(n + 1, 0), order;
+    dep[1] = 1; order.push_back(1);
+    for (size_t i = 0; i < order.size(); i++) {
+        int v = order[i];
+        for (int w : adj[v]) if (w != par[v]) { par[w] = v; dep[w] = dep[v] + 1; order.push_back(w); }
+    }
+    int m;
+    if (scanf("%d", &m) != 1) return 0;
+    vector<int> att(n + 1, 0);
+    for (int i = 0; i < m; i++) { int u, v; if (scanf("%d %d", &u, &v) != 2) return 0; att[v] = max(att[v], dep[u]); }
+
+    // cur[v] คือตารางของ v ระหว่างที่ลูกทยอยรวมเข้ามา ยาว dep[v] ช่อง (j = 0 ถึง dep[v] - 1)
+    // สร้างตอนต้องใช้ครั้งแรก และทิ้งทันทีที่ส่งขึ้นไปหาพ่อแล้ว ถ้าสร้างล่วงหน้าทุกจุด
+    // ต้นไม้เส้นตรงแสนจุดจะกินห้าพันล้านช่องพร้อมกัน
+    vector<vector<ll>> cur(n + 1);
+    auto ensure = [&](int v) { if (cur[v].empty()) { cur[v].assign(dep[v], 0); cur[v][0] = 1; } };
+    for (int i = n - 1; i >= 0; i--) {
+        int v = order[i];
+        ensure(v);
+        vector<ll> &d = cur[v];
+        // แขวนข้อบังคับที่จบที่ v
+        int b = att[v];
+        if (b >= 1) {
+            ll acc = 0;
+            for (int j = 0; j < b; j++) { acc = (acc + d[j]) % MOD; d[j] = 0; }
+            d[b] = (d[b] + acc) % MOD;
+        }
+        if (v == 1) break;
+        // ขอบ (p, v): ช่อง 0 รับ dp[0] + S, ช่อง 1..D-1 รับตรง ๆ, ช่อง D ตาย
+        int p = par[v], D = dep[p];
+        ll S = 0;
+        for (ll x : d) S = (S + x) % MOD;
+        vector<ll> g(D, 0);
+        g[0] = (d[0] + S) % MOD;
+        for (int j = 1; j < D; j++) g[j] = d[j];
+        // รวมแบบเอาค่ามากสุด: C[j] = A[j] * preB[j] + B[j] * preA[j-1]
+        ensure(p);
+        vector<ll> &A = cur[p];
+        ll pa = 0, pb = 0;
+        for (int j = 0; j < D; j++) {
+            ll pbj = (pb + g[j]) % MOD;
+            ll c = (A[j] * pbj + pa * g[j]) % MOD;
+            pa = (pa + A[j]) % MOD;
+            pb = pbj;
+            A[j] = c;
+        }
+        vector<ll>().swap(d);
+    }
+    ll ans = 0;
+    for (ll x : cur[1]) ans = (ans + x) % MOD;
+    printf("%lld\\n", ans);
+    return 0;
+}`;
+const codeBrute = `// NOI 2020 "Destiny" / โชคชะตา (programming.in.th 2042) - ตัวตรวจ
+// ไล่ทุกการระบาย 2^(N-1) แบบ แล้วเดินวิถีของทุกคู่ตามนิยามในโจทย์ตรง ๆ
+// ไม่ใช้ความลึก ไม่มีสถานะ ไม่ยุบข้อบังคับ ใช้ได้กับชุด N <= 10 และเป็นตัวเทียบตอน stress test
+#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    int n;
+    if (scanf("%d", &n) != 1) return 0;
+    vector<vector<pair<int, int>>> adj(n + 1);
+    for (int i = 0; i < n - 1; i++) {
+        int x, y;
+        if (scanf("%d %d", &x, &y) != 2) return 0;
+        adj[x].push_back({y, i});
+        adj[y].push_back({x, i});
+    }
+    // พ่อและเลขเส้นที่ต่อขึ้นไปหาพ่อ
+    vector<int> par(n + 1, 0), pe(n + 1, -1), st = {1};
+    vector<bool> seen(n + 1, false);
+    seen[1] = true;
+    while (!st.empty()) {
+        int v = st.back(); st.pop_back();
+        for (auto [w, e] : adj[v]) if (!seen[w]) { seen[w] = true; par[w] = v; pe[w] = e; st.push_back(w); }
+    }
+    int m;
+    if (scanf("%d", &m) != 1) return 0;
+    vector<long long> need(m, 0);   // มาสก์ของเส้นบนวิถีของแต่ละคู่
+    for (int i = 0; i < m; i++) {
+        int u, v;
+        if (scanf("%d %d", &u, &v) != 2) return 0;
+        for (int x = v; x != u; x = par[x]) need[i] |= 1LL << pe[x];
+    }
+    long long cnt = 0;
+    for (long long mask = 0; mask < (1LL << (n - 1)); mask++) {
+        bool ok = true;
+        for (int i = 0; i < m && ok; i++) if (!(mask & need[i])) ok = false;
+        if (ok) cnt++;
+    }
+    printf("%lld\\n", cnt % 998244353);
+    return 0;
+}`;
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ &middot; ระบายเส้นบนต้นไม้ให้ทุกคู่ที่สั่งไว้มีเส้นสำคัญคั่น</h2>
   <p>
     โจทย์เล่าว่าโชคชะตาของคนหนึ่งคนคือต้นไม้ที่ปักรากไว้ที่จุด 1 รากคือการเกิด ใบคือการตาย
-    และการเดินจากจุดหนึ่งลงไปหาอีกจุดหนึ่งคือช่วงชีวิตช่วงหนึ่ง เมื่อเราหยิบคู่ <code>(u, v)</code> ที่
-    <code>u</code> เป็น<strong>บรรพบุรุษ</strong> (ancestor อ่านว่า "แอนเซสเตอร์" แปลว่าผู้ที่มาก่อน)
-    ของ <code>v</code> วิถีจาก <code>u</code> ลงไปถึง <code>v</code> ก็คือประสบการณ์ชีวิตหนึ่งชิ้น
+    การเดินจากจุดหนึ่งลงไปหาอีกจุดคือช่วงชีวิตช่วงหนึ่ง
   </p>
   <p>
-    ทีนี้เราจะระบายเส้นเชื่อมทุกเส้นในต้นไม้ ด้วยเลข 0 หรือ 1 เส้นที่ได้ 1 โจทย์เรียกว่า
-    <strong>เส้นสำคัญ</strong> เงื่อนไขมีข้อเดียว คือคู่ <code>(u, v)</code> ทุกคู่ที่โจทย์ระบุมา
-    วิถีของมันต้องมีเส้นสำคัญอย่างน้อยหนึ่งเส้น คำถามคือระบายได้ทั้งหมดกี่แบบ
-    คู่ที่โจทย์ให้มาซ้ำกันได้ และคำตอบใหญ่มากจนต้องตอบเป็นเศษจากการหารด้วย {fmt(MODULUS)}
+    คู่ <code>(u, v)</code> ที่ <code>u</code> เป็น<strong>บรรพบุรุษ</strong> (ancestor อ่านว่า "แอนเซสเตอร์" แปลว่าผู้ที่มาก่อน)
+    ของ <code>v</code> คือจุดที่อยู่เหนือ v บนทางขึ้นไปหาราก วิถีจาก u ลงไป v ก็คือประสบการณ์หนึ่งช่วงของชีวิต
+  </p>
+  <p>
+    เราระบายเส้นเชื่อมทุกเส้นด้วยเลข 0 หรือ 1 เส้นที่ได้ 1 เรียกว่า<strong>เส้นสำคัญ</strong>
+    เงื่อนไขมีข้อเดียว: วิถีของทุกคู่ที่โจทย์ระบุต้องมีเส้นสำคัญอย่างน้อยหนึ่งเส้น
+  </p>
+  <p>
+    คำถามคือระบายได้ทั้งหมดกี่แบบ คู่ซ้ำกันได้ และคำตอบใหญ่มากจนต้องตอบเป็นเศษจากการหารด้วย {fmt(MODULUS)}
   </p>
 
   <div class="callout callout-note spec">
@@ -525,10 +908,9 @@ const codeBrute = `/*@@BRUTE@@*/`;
         หารด้วย {fmt(MODULUS)} แล้วเอาเศษ
       </li>
       <li>
-        <strong>ให้คะแนน:</strong> โจทย์แบ่งเป็นหลายชุดย่อย ชุดเล็กสุด 16% คือ <code>N &le; 10</code> และ
-        <code>M &le; 10</code> แล้วไล่ขึ้นไปเป็นชุดที่ <code>N &le; 2{' '}000</code> (8%) ชุดที่
-        <code>M &le; 2{' '}000</code> (8%) ชุดที่ต้นไม้เป็นไบนารีสมบูรณ์และ <code>N, M &le; 10^5</code> (8%)
-        และชุดสุดท้าย 12% ที่ไม่มีเงื่อนไขเพิ่มเลย
+        <strong>ให้คะแนน:</strong> แบ่งเป็นหลายชุดย่อย ชุดที่หน้านี้พูดถึงคือ
+        <code>N, M &le; 10</code> (16%), <code>N &le; 2{' '}000</code> (8%),
+        ต้นไม้ไบนารีสมบูรณ์ที่ <code>N, M &le; 10^5</code> (8%) และชุดสุดท้ายที่ไม่มีเงื่อนไขเพิ่ม (12%)
       </li>
     </ul>
   </div>
@@ -555,34 +937,33 @@ const codeBrute = `/*@@BRUTE@@*/`;
 
   <div class="callout callout-note">
     <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <ul>
+      <li>บรรทัดแรก: มี {SAMPLE.n} จุด</li>
+      <li>อีก {SAMPLE.n - 1} บรรทัด: เส้นเชื่อม {SAMPLE.edges.map(edgeName).join(', ')} พอปักรากที่ 1 ได้โซ่ 1, 2, 3 แล้วแตกเป็นใบ 4 กับ 5</li>
+      <li>บรรทัดถัดมา: {SAMPLE.pairs.length} คือมีข้อบังคับสองข้อ</li>
+      <li>สองบรรทัดสุดท้าย: คู่ {SAMPLE.pairs.map((p) => `(${p[0]}, ${p[1]})`).join(' กับ ')} เป็นเลขจุดยอด ตัวหน้าคือบรรพบุรุษเสมอ</li>
+    </ul>
     <p>
-      บรรทัดแรกบอกว่ามี {SAMPLE.n} จุด อีก {SAMPLE.n - 1} บรรทัดคือเส้นเชื่อม ({SAMPLE.edges.map(edgeName).join(', ')})
-      ซึ่งพอปักรากที่จุด 1 แล้วได้โซ่ 1 ไป 2 ไป 3 แล้วแตกเป็นใบ 4 กับใบ 5 บรรทัดถัดมาคือ {SAMPLE.pairs.length}
-      แปลว่ามีข้อบังคับสองข้อ แล้วสองบรรทัดสุดท้ายคือคู่ {SAMPLE.pairs.map((p) => `(${p[0]}, ${p[1]})`).join(' กับ ')}
-      สังเกตว่าเลขในสองบรรทัดนี้เป็น<strong>เลขจุดยอด</strong> ไม่ใช่เลขเส้น และตัวหน้าคือบรรพบุรุษเสมอ
+      เอาต์พุตคือ<strong>จำนวนแบบของการระบาย</strong> หารด้วย {fmt(MODULUS)} แล้วเอาเศษ ไม่ใช่จำนวนเส้นสำคัญที่น้อยที่สุด
+      (ซึ่งในตัวอย่างนี้คือ 1 เส้น) ต้นไม้นี้มี {SAMPLE.n - 1} เส้น จึงมีการระบายทั้งหมด {SAMPLE_TOTAL} แบบก่อนเอาเงื่อนไขมากรอง
     </p>
     <p>
-      เอาต์พุตมีหน่วยเป็น<strong>จำนวนแบบของการระบาย</strong> หารด้วย {fmt(MODULUS)} แล้วเอาเศษ
-      จุดที่คนอ่านพลาดบ่อยที่สุดคือตรงนี้ โจทย์ไม่ได้ถามว่าต้องใช้เส้นสำคัญน้อยที่สุดกี่เส้น
-      (ในตัวอย่างนี้คำตอบของคำถามนั้นคือ 1 เส้น) และไม่ได้ถามว่าเส้นไหนบ้าง มันถามว่ามีทั้งหมดกี่แบบ
-      ต้นไม้นี้มี {SAMPLE.n - 1} เส้น จึงมีวิธีระบายทั้งหมด {SAMPLE_TOTAL} แบบ ก่อนเอาเงื่อนไขมากรอง
+      วิถีของคู่ ({SAMPLE.pairs[0][0]}, {SAMPLE.pairs[0][1]}) คือเส้น {edgeName(SAMPLE.edges[E_UP])} กับ {edgeName(SAMPLE.edges[E_KEY])}
+      ส่วนคู่ ({SAMPLE.pairs[1][0]}, {SAMPLE.pairs[1][1]}) คือเส้น {edgeName(SAMPLE.edges[E_KEY])} กับ {edgeName(SAMPLE.edges[E_DOWN])}
+      เส้น {edgeName(SAMPLE.edges[E_KEY])} อยู่บนวิถีของทั้งสองคู่ จึงแบ่งคำตอบเป็นสองกอง
     </p>
-    <p>
-      วิถีของคู่ ({SAMPLE.pairs[0][0]}, {SAMPLE.pairs[0][1]}) คือเส้น {edgeName(SAMPLE.edges[E_UP])} กับ
-      {' '}{edgeName(SAMPLE.edges[E_KEY])} ส่วนวิถีของคู่ ({SAMPLE.pairs[1][0]}, {SAMPLE.pairs[1][1]}) คือเส้น
-      {' '}{edgeName(SAMPLE.edges[E_KEY])} กับ {edgeName(SAMPLE.edges[E_DOWN])} เส้น {edgeName(SAMPLE.edges[E_KEY])}
-      อยู่บนวิถีของทั้งสองคู่ มันจึงแบ่งคำตอบออกเป็นสองกอง กองแรกคือ {KEY_ON.length} แบบที่ระบายเส้น
-      {' '}{edgeName(SAMPLE.edges[E_KEY])} เป็น 1 กองนี้ผ่านหมดทุกแบบเพราะเส้นเดียวคุมทั้งสองคู่
-      กองที่สองคือ {KEY_OFF.length} แบบที่ระบายมันเป็น 0 กองนี้รอดแค่ {KEY_OFF_GOOD.length} แบบ
-      คือแบบที่เปิดทั้งเส้น {edgeName(SAMPLE.edges[E_UP])} และเส้น {edgeName(SAMPLE.edges[E_DOWN])} พร้อมกัน
-      ส่วนเส้น {edgeName(SAMPLE.edges[E_FREE])} จะเป็นอะไรก็ได้เพราะไม่มีคู่ไหนวิ่งผ่านมัน
-      รวมสองกองได้ {KEY_ON.length} บวก {KEY_OFF_GOOD.length} เท่ากับ {SAMPLE_ANS} ตรงกับเอาต์พุต
-      และอีก {SAMPLE_BAD.length} แบบที่ตก ทุกแบบมีเส้น {edgeName(SAMPLE.edges[E_KEY])} เป็น 0 เหมือนกันหมด
-    </p>
+    <ul>
+      <li>เส้น {edgeName(SAMPLE.edges[E_KEY])} เป็น 1: ผ่านหมดทั้ง {KEY_ON.length} แบบ เพราะเส้นเดียวคุมทั้งสองคู่</li>
+      <li>
+        เส้น {edgeName(SAMPLE.edges[E_KEY])} เป็น 0: รอด {KEY_OFF_GOOD.length} จาก {KEY_OFF.length} แบบ
+        คือแบบที่ระบายทั้ง {edgeName(SAMPLE.edges[E_UP])} และ {edgeName(SAMPLE.edges[E_DOWN])} เป็น 1 ส่วนเส้น {edgeName(SAMPLE.edges[E_FREE])} เป็นอะไรก็ได้เพราะไม่มีคู่ไหนผ่าน
+      </li>
+    </ul>
+    <p>รวม {KEY_ON.length} + {KEY_OFF_GOOD.length} = <strong>{SAMPLE_ANS}</strong> ตรงกับเอาต์พุต</p>
   </div>
 
   <ZoomableDiagram
-    caption={`ซ้ายคือต้นไม้ของตัวอย่างที่หนึ่ง เส้นทั้ง ${SAMPLE.n - 1} เส้นชื่อ ${EDGE_TAG.join(' ')} ตามลำดับในอินพุต ขวาคือการระบายทั้ง ${SAMPLE_TOTAL} แบบ เรียงตามค่า ก ข ค ง กรอบเขียวคือ ${SAMPLE_ANS} แบบที่ผ่าน กรอบแดงคือ ${SAMPLE_BAD.length} แบบที่ตก สังเกตว่าแบบที่ตกอยู่รวมกันเป็นกลุ่มที่เส้น ข เป็น 0`}
+    caption={`ซ้ายคือต้นไม้ของตัวอย่าง เส้นชื่อ ${EDGE_TAG.join(' ')} ตามลำดับในอินพุต ขวาคือการระบายทั้ง ${SAMPLE_TOTAL} แบบ เขียว ${SAMPLE_ANS} แบบผ่าน แดง ${SAMPLE_BAD.length} แบบตก แบบที่ตกทุกแบบมีเส้น ข เป็น 0`}
   >
     <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="ต้นไม้ของตัวอย่างที่หนึ่งพร้อมชื่อเส้นสี่เส้น และตารางการระบายสิบหกแบบที่แยกแบบที่ผ่านกับแบบที่ตกด้วยสี">
       <text x="16" y="30" fill="#9aa7bd" font-size="13">ต้นไม้ของตัวอย่างที่หนึ่ง</text>
@@ -621,18 +1002,21 @@ const codeBrute = `/*@@BRUTE@@*/`;
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      ขอบเขตปิดทางนับตรง ๆ ตั้งแต่แรก จำนวนการระบายคือ 2 ยกกำลัง {fmt(N_MAX - 1)} และการแยกกรณีตามข้อบังคับ
-      ทีละข้อก็ได้ 2 ยกกำลัง {fmt(M_MAX)} กอง สองอย่างนี้ไม่ใช่ตัวเลขที่เขียนลงกระดาษได้
-      สิ่งที่เหลือคือไล่ต้นไม้จากใบขึ้นไปหาราก แล้วสรุปทุกอย่างที่อยู่ข้างล่างให้เป็นของชิ้นเล็ก ๆ ชิ้นเดียว
+      นับตรง ๆ ไม่ไหวตั้งแต่แรก การระบายมี 2 ยกกำลัง {fmt(N_MAX - 1)} แบบ
+      ทางที่เหลือคือไล่ต้นไม้จากใบขึ้นไปหาราก แล้วสรุปทุกอย่างข้างล่างให้เป็นของชิ้นเล็ก ๆ ชิ้นเดียว
     </p>
     <p>
-      ลองยืนที่จุดหนึ่งแล้วถามว่า ของที่คุณต้องหอบขึ้นไปให้พ่อของมันคืออะไร ข้อบังคับที่จบอยู่ในกิ่งนี้แล้วจัดการเสร็จ
-      ไม่ต้องหอบไปด้วย เหลือแต่ข้อบังคับที่ยังค้าง ซึ่งแต่ละข้อพูดเรื่องเดียวกันหมด คือ
-      "ต้องมีเส้นสำคัญโผล่ก่อนไต่พ้นความลึกเท่านี้" ถ้ามีข้อค้างหลายข้อพร้อมกัน คุณต้องจำทุกข้อจริงหรือเปล่า
+      ลองยืนที่จุดหนึ่งแล้วถามว่า ของที่ต้องหอบขึ้นไปให้พ่อคืออะไร ข้อบังคับที่วิถีอยู่ในกิ่งนี้ทั้งเส้นจัดการเสร็จแล้ว ไม่ต้องหอบ
     </p>
+    <p>
+      ที่ต้องหอบคือ<strong>ข้อค้าง</strong>: ข้อที่ปลายล่างอยู่ในกิ่งนี้ ปลายบนอยู่เหนือขึ้นไป และบนทางจากปลายล่างขึ้นมาถึงจุดนี้
+      ยังไม่มีเส้นไหนเป็น 1 ทุกข้อค้างพูดเรื่องเดียวกัน: "ต้องมีเส้นสำคัญโผล่ก่อนไต่พ้นความลึกของ u"
+    </p>
+    <p>ถ้ามีข้อค้างหลายข้อพร้อมกัน ต้องจำทุกข้อจริงหรือเปล่า</p>
   </div>
 
   <h2>ลองเอง &middot; ระบายเส้นเอง แล้วดูว่ามีกี่แบบ</h2>
+  <p>ลองหาคำตอบด้วยมือก่อน เกมแรกให้ระบายเองบนต้นไม้เล็ก ๆ เกมที่สองตอบคำถามที่ใบ้เพิ่งทิ้งไว้</p>
   <div class="cpgame dstgame" data-dstgame data-puzzles={puzzlesJson}>
     <div class="cpg-tabs" role="tablist" aria-label="เลือกต้นไม้">
       {puzzles.map((p, k) => (
@@ -657,62 +1041,210 @@ const codeBrute = `/*@@BRUTE@@*/`;
     <p class="cpg-status" data-cpg-status>แตะที่ป้ายบนเส้นเพื่อสลับระหว่าง 0 กับ 1</p>
     <p class="cpg-score" data-cpg-score></p>
     <p class="cpg-hint">
-      โจทย์ถามจำนวนแบบ ไม่ได้ถามจำนวนเส้นที่น้อยที่สุด พอหาแบบที่ผ่านได้แล้ว การ์ดจะบอกว่าต้นไม้นั้นมีทั้งหมดกี่แบบ
+      พอหาแบบที่ผ่านได้แล้ว การ์ดจะบอกว่าต้นไม้นั้นมีทั้งหมดกี่แบบ
     </p>
     <p class="cpg-cap">
       ชิปใต้กระดานคือคู่ที่โจทย์สั่งไว้ คู่ที่ยังไม่ผ่านจะมีวิถีของมันเน้นสีแดงบนกระดาน
     </p>
   </div>
+  <p>
+    เกมที่สอง: ถ้ามีข้อค้างหลายข้อพร้อมกัน ขอบเส้นไหนปิดได้ครบทุกข้อ
+  </p>
+  <div class="cpgame dstchain" data-dstchain>
+    <p class="cpg-tease" data-cpg-tease>โซ่ {CH_N} จุด v อยู่ลึกสุด มีข้อบังคับค้าง {CH_US.length} ข้อ ลองระบายขอบเป็น 1 ทีละเส้น แล้วดูว่าปิดได้กี่ข้อ</p>
+    <div class="cpg-scroll">
+      <svg class="dst-chsvg" viewBox={`0 0 ${CH_W} ${CH_H}`} width={CH_W} height={CH_H} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="โซ่หกจุดเรียงจากรากลงไปหา v มีเส้นโค้งสามเส้นแทนข้อบังคับที่ยังค้าง จาก v ขึ้นไปหา u ที่ความลึก 2, 3 และ 4">
+        {Array.from({ length: CH_N - 1 }, (_, i) => i + 1).map((k) => (
+          <line data-ch-edge={String(k)} x1={CH_X} y1={chY(k)} x2={CH_X} y2={chY(k + 1)} stroke="#39425e" stroke-width="3" />
+        ))}
+        {Array.from({ length: CH_N }, (_, i) => i + 1).map((d) => (
+          <circle cx={CH_X} cy={chY(d)} r="13" fill="#121a2b" stroke="#2f9e5c" stroke-width="1.5" />
+        ))}
+        {Array.from({ length: CH_N }, (_, i) => i + 1).map((d) => (
+          <text x={CH_X - 24} y={chY(d) + 4} text-anchor="end" fill="#7b8397" font-size="12">ลึก {d}</text>
+        ))}
+        <text x={CH_X} y={chY(CH_N) + 4} text-anchor="middle" fill="#eaf2ff" font-size="11">v</text>
+        {CH_ARCS.map((c) => (
+          <path data-ch-arc={String(c.a)} d={`M ${CH_X + 14} ${chY(c.a)} C ${c.x} ${chY(c.a)}, ${c.x} ${chY(CH_N)}, ${CH_X + 14} ${chY(CH_N)}`} fill="none" stroke="#e07a7a" stroke-width="2" stroke-dasharray="5 4" />
+        ))}
+        {CH_ARCS.map((c) => (
+          <text x={c.x - 4} y={chY(c.a) - 6} fill="#cdd6ea" font-size="11">u ลึก {c.a}</text>
+        ))}
+      </svg>
+    </div>
+    <div class="cpg-controls dst-chbtns">
+      {Array.from({ length: CH_N - 1 }, (_, i) => i + 1).map((k) => (
+        <button type="button" class="cpg-btn" data-ch-pick={String(k)}>ขอบลึก {k} ถึง {k + 1}</button>
+      ))}
+    </div>
+    <p class="cpg-status" data-cpg-status>ยังไม่ได้ระบายขอบไหน ทั้ง {CH_US.length} ข้อยังค้าง</p>
+    <p class="cpg-score" data-cpg-score>ลองแล้ว 0 จาก {CH_N - 1} ขอบ</p>
+    <p class="cpg-hint" data-cpg-hint></p>
+  </div>
   <p class="ns-cue">
-    ลองให้ครบทั้งสี่ต้นก่อนนะครับ โดยเฉพาะต้นที่สองกับต้นที่สาม เพราะสองอันนั้นคือสิ่งที่เฉลยข้างล่างจะพูดถึง
+    ลองให้ครบทั้งสองเกมก่อนนะครับ โดยเฉพาะต้นที่สองกับต้นที่สามในเกมแรก และผลของเกมที่สอง เพราะเฉลยข้างล่างจะพูดถึงมัน
   </p>
 
-  <h2>เฉลย ตอนที่ 1 &middot; จำแค่ข้อบังคับที่ค้างอยู่ลึกที่สุด</h2>
+  <h2>เฉลย ตอนที่ 1 &middot; เริ่มจากวิธีที่ช้าแต่ถูก แล้ววัดว่ายังขาดอีกเท่าไร</h2>
   <Spoiler>
+    <p>
+      ไล่จากช้าไปเร็ว มีสามขั้น ทุกขั้นตอบถูกเหมือนกัน ต่างกันแค่ว่ารอดต้นไม้แบบไหน
+    </p>
+    <p>
+      ขั้นที่สองกับสามใช้ <strong>dp</strong> (ย่อจาก dynamic programming อ่านว่า "ไดนามิก โปรแกรมมิง")
+      คือแก้ปัญหาใหญ่จากคำตอบของปัญหาย่อยที่เก็บไว้ ที่นี่ปัญหาย่อยคือ "กิ่ง" ของแต่ละจุด หมายถึงจุดนั้นกับทุกจุดที่อยู่ใต้มัน
+    </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ไล่ทุกการระบาย</h4>
+        <p class="cp-step-cost">2<sup>N − 1</sup> แบบ × เดินทุกคู่</p>
+        <p>ลองทุกแบบแล้วเช็กทุกคู่ตามนิยามตรง ๆ หน้านี้ใช้มันเป็นตัวตรวจคำตอบด้วย</p>
+        <p class="cp-step-win">ได้ชุด N, M ≤ 10 (16%)</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>dp ตารางเต็ม</h4>
+        <p class="cp-step-cost">ผลรวมความลึกของทุกจุด</p>
+        <p>แต่ละจุดถือตารางยาวเท่าความลึกของมัน งานรวมจึงเท่ากับผลรวมความลึก ซึ่งบนเส้นตรงเป็นราว N² ÷ 2 (ตอนที่ 2 และ 3 เล่าสถานะกับสูตร)</p>
+        <p class="cp-step-win">ได้ชุด N ≤ 2,000 และชุดไบนารีสมบูรณ์</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>เซกเมนต์ทรีควบรวม</h4>
+        <p class="cp-step-cost">ราว N log N + M</p>
+        <p>สูตรเดียวกับวิธีที่ 2 แต่เก็บตารางในเซกเมนต์ทรี (ต้นไม้ที่แต่ละปมเก็บผลรวมของช่วง) แบบที่ช่องว่างไม่กินเวลา เล่าในตอนที่ 4</p>
+        <p class="cp-step-win">ได้ครบทุกชุด</p>
+      </div>
+    </div>
+    <p>
+      วิธีที่ 1 ตายเร็วมาก ต้นไม้ 30 จุดก็มีการระบายเกินห้าร้อยล้านแบบแล้ว ส่วนวิธีที่ 2 ตายเฉพาะต้นไม้ลึก
+      เพราะจุดที่ลึก d ถือตารางยาว d ช่อง
+    </p>
+    <ZoomableDiagram caption={`จำนวนก้าวบนต้นไม้เส้นตรง ${fmt(N_MAX)} จุด สเกลแบบ log (ขีดละร้อยเท่า) เส้นทองคืองบ 2 วินาที โดยคิดหยาบ ๆ ว่าเครื่องทำได้ราว 10⁸ ก้าวต่อวินาที วิธีที่ 1 ไม่ได้วาดเพราะ 2 ยกกำลัง ${fmt(N_MAX - 1)} ยาวเกินกราฟไปไกลมาก`}>
+      <svg viewBox={`0 0 655 ${GC_BOTTOM + 53}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto" role="img" aria-label="กราฟแท่งเทียบจำนวนก้าวของตารางเต็มกับเซกเมนต์ทรีควบรวมบนต้นไม้เส้นตรง ตารางเต็มเกินงบไปมาก เซกเมนต์ทรีอยู่ใต้งบ">
+        {GC_TICKS.map((t) => (
+          <line x1={gcX(10 ** t)} y1="30" x2={gcX(10 ** t)} y2={GC_BOTTOM - 8} stroke="#26314a" stroke-width="1" />
+        ))}
+        {GC_TICKS.map((t) => (
+          <text x={gcX(10 ** t)} y="22" text-anchor="middle" fill="#7b8397" font-size="13">10<tspan baseline-shift="super" font-size="9">{t}</tspan></text>
+        ))}
+        {GC_BARS.map((b) => (
+          <text x="12" y={b.y + 16} fill="#cdd6ea" font-size="14">{b.name}</text>
+        ))}
+        {GC_BARS.map((b) => (
+          <rect x={GC_X0} y={b.y} width={gcX(b.v) - GC_X0} height="22" rx="3" fill={b.ok ? '#6ee7a8' : '#e07a7a'} fill-opacity="0.85" />
+        ))}
+        {GC_BARS.map((b) => (
+          <text x={gcX(b.v) + 8} y={b.y + 16} fill={b.ok ? '#6ee7a8' : '#e07a7a'} font-size="13">{b.s.m}×10<tspan baseline-shift="super" font-size="9">{b.s.e}</tspan>{b.ok ? ' ทัน' : ` เกินงบ ${fmt(b.over)} เท่า`}</text>
+        ))}
+        <line x1={gcX(BUDGET_OPS)} y1="30" x2={gcX(BUDGET_OPS)} y2={GC_BOTTOM} stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <text x={gcX(BUDGET_OPS)} y={GC_BOTTOM + 16} text-anchor="middle" fill="#d4af37" font-size="13">งบ 2 วินาที</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      ตารางเต็มบนเส้นตรงแค่ {fmt(LINE_N)} จุด วัดได้จริง <strong>{SLOW_LINE_SEC} วินาที</strong>
+      ทั้งที่ขอบเขตจริงยาวกว่านั้นห้าเท่า และเวลาโตเป็นกำลังสอง
+    </p>
+    <p>
+      สิ่งที่ทั้งวิธีที่ 2 และวิธีเต็มใช้ร่วมกันคือสถานะของ dp ซึ่งเป็นแก่นของข้อนี้ เริ่มจากตรงนั้นก่อน
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; จำแค่ข้อบังคับที่ค้างอยู่ลึกที่สุด</h2>
+  <Spoiler>
+    <p>
+      เกมที่สองเมื่อกี้ให้ผลว่า ขอบใดก็ได้ที่อยู่ระหว่าง u ที่ลึกที่สุดกับ v ปิดได้ครบทุกข้อ
+      ส่วนขอบที่สูงกว่านั้นปิดได้ไม่ครบ ตอนนี้มาดูว่าข้อสังเกตนี้กลายเป็นสถานะของ dp ได้ยังไง
+    </p>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>ผมรู้ตั้งแต่อ่านโจทย์จบว่านี่เป็น dp บนต้นไม้ สิ่งที่ยังไม่รู้คือสถานะต้องเป็นอะไร</p>
       <p>
-        ผมรู้ตั้งแต่อ่านโจทย์จบว่านี่เป็น dp บนต้นไม้ ไม่ได้ลองท่าอื่นแล้วทิ้ง แต่สิ่งที่ยังไม่รู้คือ
-        สถานะต้องเป็นอะไร แรงกดดันที่บีบให้เลือกสถานะนี้มาจากการนับ ถ้าจะแยกกรณีตามข้อบังคับทีละข้อ
-        จำนวนกองคือ 2 ยกกำลัง {fmt(M_MAX)} และถ้าจะเก็บว่า "ข้อไหนยังค้างอยู่บ้าง" เป็นเซตในสถานะ
-        จุดหนึ่งจุดก็อาจมีข้อค้างเป็นแสนข้อ สถานะจึงต้องยุบเซตนั้นให้เหลือตัวเลขตัวเดียวให้ได้
+        แรงกดดันมาจากการนับ ถ้าเก็บว่า "ข้อไหนยังค้างอยู่บ้าง" เป็นเซต จุดหนึ่งอาจมีข้อค้างเป็นแสนข้อ
+        สถานะจึงต้องยุบเซตนั้นให้เหลือตัวเลขตัวเดียว
       </p>
       <p>
-        ทางออกมาจากการสังเกตว่าข้อค้างทุกข้อพูดเรื่องเดียวกันหมด ข้อบังคับ <code>(u, v)</code> ที่ยังไม่ถูกปิด
-        แปลว่าต้องมีเส้นสำคัญโผล่ก่อนที่เราจะไต่พ้น <code>u</code> ขึ้นไป ซึ่งเป็นข้อความเกี่ยวกับ
-        <strong>ความลึกของ <code>u</code></strong> อย่างเดียว และถนนจากจุดที่เรายืนขึ้นไปข้างบนมีสายเดียว
-        ข้อที่ <code>u</code> ลึกที่สุดจึงเป็นข้อที่เข้มงวดที่สุด ปิดข้อนั้นได้เมื่อไร ข้อที่ตื้นกว่าปิดตามทันที
-        เซตของข้อค้างยุบเหลือเลขเดียวได้ คือความลึกที่มากที่สุดในเซตนั้น
-      </p>
-      <p>
-        ส่วนการเปลี่ยนจากตารางเต็มไปเป็นเซกเมนต์ทรี ผมไม่ได้เดาว่ามันช้า ผมวัด ตารางเต็มบนต้นไม้ที่เป็น
-        เส้นตรงยาว 100,000 จุด ใช้เวลา <strong>58.93 วินาที</strong> ทั้งที่ลิมิตคือ {TIME_LIMIT}
-        และขอบเขตจริงใหญ่กว่านั้นอีกห้าเท่า บทเรียนที่เอาไปใช้ข้ออื่นได้คือ เวลาสถานะของคุณเป็น "เซตของสิ่งที่ค้างอยู่"
-        ให้ถามก่อนว่าของในเซตเทียบกันได้ไหม ถ้ามันเรียงลำดับความเข้มงวดได้ เซตทั้งเซตมักยุบเหลือตัวแทนตัวเดียว
+        พอวาดโซ่ดูก็เห็นว่าข้อที่ u ลึกกว่าเข้มกว่าเสมอ เพราะทางที่เหลือให้มันปิดสั้นกว่า
+        บทเรียนที่เอาไปใช้ข้ออื่นได้: เวลาสถานะอยากเป็นเซต ให้ถามก่อนว่าของในเซตเทียบความเข้มงวดกันได้ไหม
       </p>
     </div>
-
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        ข้อค้างแต่ละข้อเหมือนพัสดุที่ต้องส่งก่อนเส้นตายของตัวเอง ระหว่างไต่ขึ้นหาราก เราเจอเส้นตายของ u ที่ลึกที่สุดก่อนเสมอ
+      </p>
+      <p>
+        ส่งทันเส้นตายที่ใกล้ที่สุดได้เมื่อไร ชิ้นที่เส้นตายไกลกว่าก็ทันไปด้วย จึงจำแค่เส้นตายที่ใกล้ที่สุดก็พอ
+      </p>
+    </div>
+    <div class="callout callout-tip">
+      <p class="callout-label">สถานะที่ใช้ทั้งหน้า</p>
+      <p>
+        ให้ความลึกของรากเป็น 1 แล้ว <code>dp[v][j]</code> = จำนวนวิธีระบายเส้นในกิ่งของ <code>v</code> ที่
+      </p>
+      <ul>
+        <li>ทุกข้อบังคับที่ทั้ง u และปลายล่างอยู่ในกิ่งนี้ ถูกปิดแล้ว</li>
+        <li>ในบรรดาข้อค้าง ข้อที่ u ลึกที่สุดอยู่ที่ความลึก <code>j</code> พอดี</li>
+      </ul>
+      <p>
+        <strong>ข้อค้าง</strong> คือข้อ <code>(u, x)</code> ที่ x อยู่ในกิ่งนี้ u อยู่เหนือ v ขึ้นไป
+        และบนทางจาก x ขึ้นมาถึง v ยังไม่มีเส้นไหนเป็น 1 <code>j</code> เรียกว่า<strong>ระดับค้าง</strong> ส่วน <code>j = 0</code> คือไม่มีอะไรค้าง
+      </p>
+    </div>
     <p>
-      นิยามที่จะใช้ทั้งหน้า ให้ <code>ความลึก</code> ของรากเป็น 1 แล้ว
-      <code>dp[v][j]</code> คือจำนวนวิธีระบายเส้นที่อยู่<strong>ข้างในกิ่งของ <code>v</code></strong> ล้วน ๆ
-      โดยข้อบังคับทุกข้อที่มีปลายทั้งสองอยู่ในกิ่งนี้ถูกปิดเรียบร้อยแล้ว และในบรรดาข้อบังคับที่ยังค้าง
-      (คือข้อ <code>(u, x)</code> ที่ <code>x</code> อยู่ในกิ่งนี้ แต่ <code>u</code> อยู่เหนือ <code>v</code> ขึ้นไป)
-      ข้อที่ <code>u</code> ลึกที่สุดอยู่ที่ความลึก <code>j</code> พอดี ผมจะเรียก <code>j</code> ว่า
-      <strong>ระดับค้าง</strong> และ <code>j = 0</code> แปลว่าไม่มีอะไรค้างเลย
+      ระดับค้างอยู่ในช่วง 0 ถึง ความลึกของ v ลบหนึ่ง เพราะ u อยู่เหนือ v เสมอ
     </p>
     <p>
-      ระดับค้างของ <code>v</code> จึงอยู่ในช่วง 0 ถึง <code>ความลึกของ v</code> ลบหนึ่ง เพราะ <code>u</code>
-      ต้องเป็นบรรพบุรุษแท้ จึงตื้นกว่า <code>v</code> เสมอ ข้อดีของการเก็บแค่ตัวที่ลึกที่สุด
-      เห็นได้ชัดที่สุดตอนมีข้อบังคับหลายข้อจบที่จุดเดียวกัน ต้นที่สองในเกมข้างบนเป็นกรณีนั้นพอดี
-      คู่ ({PZ_DEEPEST.pairs[0][0]}, {PZ_DEEPEST.pairs[0][1]}) กับคู่ ({PZ_DEEPEST.pairs[1][0]},{' '}
-      {PZ_DEEPEST.pairs[1][1]}) จบที่จุด {PZ_DEEPEST.pairs[0][1]} เหมือนกัน วิถีของคู่หลังสั้นกว่าและซ้อนอยู่ในวิถีของคู่แรก
-      ปิดคู่หลังได้เมื่อไรคู่แรกก็ปิดตาม เราจึงโยนคู่แรกทิ้งได้เลย เหลือเลขเดียวคือความลึกของจุด{' '}
-      {PZ_DEEPEST.pairs[1][0]} โค้ดทำสิ่งนี้ด้วยบรรทัดเดียว คือเก็บ <code>att[v]</code> เป็นค่ามากสุดของ
-      ความลึกของ <code>u</code> ทุกตัวที่จบที่ <code>v</code> ซึ่งเป็นเหตุผลเดียวกับที่คู่ซ้ำไม่ต้องนับสองรอบ
+      ต้นที่สองในเกมแรกเป็นตัวอย่างพอดี คู่ ({PZ_DEEPEST.pairs[0][0]}, {PZ_DEEPEST.pairs[0][1]}) กับคู่
+      ({PZ_DEEPEST.pairs[1][0]}, {PZ_DEEPEST.pairs[1][1]}) จบที่จุดเดียวกัน วิถีของคู่หลังสั้นกว่าและซ้อนอยู่ในวิถีของคู่แรก
+      ปิดคู่หลังได้เมื่อไรคู่แรกก็ปิดตาม
     </p>
+    <p>
+      โค้ดทำสิ่งนี้ด้วยบรรทัดเดียว คือเก็บ <code>att[v]</code> (ย่อจาก attach แปลว่าแขวน) เป็นค่ามากสุดของความลึกของ u
+      ทุกตัวที่จบที่ v คู่ซ้ำจึงไม่ต้องนับสองรอบไปด้วยเลย
+    </p>
+  </Spoiler>
 
+  <h2>เฉลย ตอนที่ 3 &middot; สองทางเลือกที่ขอบ กับการรวมสองกิ่งเข้าด้วยกัน</h2>
+  <Spoiler>
+    <p>
+      พอสถานะเป็นเลขตัวเดียว การเดินขึ้นก็เหลือสามเรื่อง: ส่งตารางผ่านขอบขึ้นไปหาพ่อ รวมหลายกิ่งเข้าด้วยกัน
+      และแขวนข้อบังคับที่จบที่จุดนั้น
+    </p>
+    <h3>เรื่องแรก · ส่งตารางผ่านขอบขึ้นไปหาพ่อ</h3>
+    <p>
+      ขอบที่ต่อจุด <code>c</code> กับพ่อ ให้ <code>D</code> เป็นความลึกของพ่อ
+      ตารางที่ <code>c</code> ส่งขึ้นไปคือ <code>g</code> มีช่อง 0 ถึง <code>D − 1</code> และ <code>S</code> คือผลรวมทั้งตารางของลูก
+    </p>
+    <Fragment set:html={texSum} />
+    <Fragment set:html={texEdge} />
+    <p>
+      อ่านสูตรนี้แบบยืนที่ช่องปลายทางแล้วถามว่ามีอะไรไหลเข้ามาบ้าง ดัชนีในตารางเป็นความลึก
+      จึงไม่ขยับตอนเราไต่ขึ้นหนึ่งขั้น สิ่งที่เปลี่ยนคือช่วงที่ยังใช้ได้หดลงหนึ่งช่อง
+    </p>
+    <ul>
+      <li>
+        ช่อง <code>0</code> รับ <code>S</code> มาจากการ<strong>ระบายขอบนี้เป็น 1</strong> ข้อค้างทุกข้อที่หอบขึ้นมา
+        ถูกปิดตรงนี้พร้อมกันหมด ไม่ว่าก่อนหน้านี้จะค้างอยู่ระดับไหน ตารางทั้งตารางจึงยุบมาลงช่องเดียว
+      </li>
+      <li>
+        ช่อง <code>0</code> รับ <code>dp[c][0]</code> เพิ่มอีกทาง จากการระบายเป็น 0 ตอนที่ไม่มีอะไรค้างอยู่แล้ว
+        ไม่มีอะไรให้หอบ มันก็ยังไม่มีอะไรให้หอบต่อ
+      </li>
+      <li>
+        ช่อง <code>j</code> ตั้งแต่ 1 ถึง <code>D - 1</code> รับ <code>dp[c][j]</code> ตรง ๆ จากการระบายเป็น 0
+        ทั้งที่ยังค้างอยู่ที่ระดับ <code>j</code> เส้นตายไม่เลื่อน เพราะมันผูกกับความลึกของ <code>u</code>
+        แค่เสียโอกาสไปหนึ่งเส้น
+      </li>
+      <li>
+        ช่อง <code>dp[c][D]</code> ไม่ไหลไปไหนเลยในทางระบาย 0 เพราะ <code>D</code> คือความลึกของพ่อ
+        แปลว่าข้อค้างนั้นมี <code>u</code> เป็นพ่อของ <code>c</code> พอดี ขอบนี้คือเส้นสุดท้ายบนวิถีของมัน
+        ระบาย 0 คือยอมแพ้ (ส่วนทางระบาย 1 นับมันไปแล้วใน <code>S</code>)
+      </li>
+    </ul>
     <ZoomableDiagram
-      caption={`โซ่ที่ ${D2_DEPTHS} ระดับ จุดล่างสุดคือ v เส้นหนาคือขอบที่ต่อ v กับพ่อของมัน ซ้ายคือข้อบังคับที่ u อยู่ลึก ${D2_UA} ระบาย 0 แล้วยังค้างที่ระดับ ${D2_UA} ต่อได้ ขวาคือข้อบังคับที่ u เป็นพ่อของ v พอดี (ลึก ${D2_UB}) ขอบนี้เป็นโอกาสสุดท้ายของมัน ระบาย 0 แล้วสายนี้ตายทันที`}
+      caption={`โซ่ ${D2_DEPTHS} ระดับ v อยู่ล่างสุด เส้นหนาคือขอบเหนือ v ซ้าย: u ลึก ${D2_UA} ระบาย 0 แล้วยังค้างต่อได้ ขวา: u ลึก ${D2_UB} คือพ่อของ v พอดี ระบาย 0 แล้วสายนี้ตาย`}
     >
       <svg viewBox={`0 0 ${D2_W} ${D2_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="สองแผงเปรียบเทียบ แต่ละแผงเป็นโซ่ห้าระดับ แสดงว่าการระบายขอบเหนือ v เป็น 1 หรือ 0 ทำให้ระดับค้างกลายเป็นอะไร">
         {d2Panels.map((pn) => (
@@ -772,50 +1304,14 @@ const codeBrute = `/*@@BRUTE@@*/`;
         ))}
       </svg>
     </ZoomableDiagram>
-  </Spoiler>
-
-  <h2>เฉลย ตอนที่ 2 &middot; สองทางเลือกที่ขอบ กับการรวมสองกิ่งเข้าด้วยกัน</h2>
-  <Spoiler>
+    <h3>เรื่องที่สอง · รวมหลายกิ่งเข้าด้วยกัน</h3>
     <p>
-      พอสถานะเป็นเลขตัวเดียว การเดินขึ้นก็เหลือสองเรื่อง เรื่องแรกคือขอบที่ต่อจุด <code>c</code> กับพ่อของมัน
-      ให้ <code>D</code> เป็นความลึกของพ่อ ตารางที่ <code>c</code> ส่งขึ้นไปให้พ่อคือ <code>g</code> ซึ่งมีช่อง
-      0 ถึง <code>D - 1</code> และให้ <code>S</code> เป็นผลรวมทั้งตารางของลูก
+      แต่ละกิ่งหอบระดับค้างของตัวเองขึ้นมา แต่ถนนข้างบนมีสายเดียว ระดับค้างหลังรวมจึงเป็น<strong>ค่ามากสุดของระดับค้างทั้งสองฝั่ง</strong>
+      (มากสุดของระดับ ส่วนตัวเลขในตารางเอามาคูณกัน เพราะแต่ละฝั่งเลือกได้อิสระ)
     </p>
-    <Fragment set:html={texSum} />
-    <Fragment set:html={texEdge} />
     <p>
-      อ่านสูตรนี้แบบยืนที่ช่องปลายทางแล้วถามว่ามีอะไรไหลเข้ามาบ้าง ดัชนีในตารางเป็น<strong>ความลึก</strong>
-      ไม่ใช่ระยะทาง มันจึงไม่ขยับตอนเราไต่ขึ้นหนึ่งขั้น สิ่งที่เปลี่ยนคือช่วงที่ยังใช้ได้หดลงหนึ่งช่อง
-    </p>
-    <ul>
-      <li>
-        ช่อง <code>0</code> รับ <code>S</code> มาจากการ<strong>ระบายขอบนี้เป็น 1</strong> ข้อค้างทุกข้อที่หอบขึ้นมา
-        ถูกปิดตรงนี้พร้อมกันหมด ไม่ว่าก่อนหน้านี้จะค้างอยู่ระดับไหน ตารางทั้งตารางจึงยุบมาลงช่องเดียว
-      </li>
-      <li>
-        ช่อง <code>0</code> รับ <code>dp[c][0]</code> เพิ่มอีกทาง จากการระบายเป็น 0 ตอนที่ไม่มีอะไรค้างอยู่แล้ว
-        ไม่มีอะไรให้หอบ มันก็ยังไม่มีอะไรให้หอบต่อ
-      </li>
-      <li>
-        ช่อง <code>j</code> ตั้งแต่ 1 ถึง <code>D - 1</code> รับ <code>dp[c][j]</code> ตรง ๆ จากการระบายเป็น 0
-        ทั้งที่ยังค้างอยู่ที่ระดับ <code>j</code> เส้นตายไม่เลื่อน เพราะมันผูกกับความลึกของ <code>u</code>
-        เราแค่ปล่อยโอกาสหนึ่งครั้งทิ้งไป
-      </li>
-      <li>
-        ช่อง <code>dp[c][D]</code> ไม่ไหลไปไหนเลยในทางระบาย 0 เพราะ <code>D</code> คือความลึกของพ่อ
-        แปลว่าข้อค้างนั้นมี <code>u</code> เป็นพ่อของ <code>c</code> พอดี ขอบนี้คือเส้นสุดท้ายบนวิถีของมัน
-        ระบาย 0 คือยอมแพ้ (ส่วนทางระบาย 1 นับมันไปแล้วใน <code>S</code>)
-      </li>
-    </ul>
-    <p>
-      ผลที่ตามมาคือช่อง 0 เป็นช่องเดียวที่มีทางเข้าสองทาง ช่องอื่นมีทางเดียว และมีของหายไปหนึ่งช่องต่อหนึ่งขอบเสมอ
-    </p>
-
-    <p>
-      เรื่องที่สองคือจุดที่มีลูกหลายตัว กิ่งแต่ละกิ่งหอบระดับค้างของตัวเองขึ้นมา แต่ถนนที่อยู่เหนือจุดนี้มีสายเดียว
-      ข้อที่ลึกที่สุดในบรรดาทุกกิ่งจึงเป็นตัวที่เข้มงวดที่สุด การรวมสองตารางเข้าด้วยกันจึงคือการรวมแบบ
-      <strong>เอาค่ามากสุด</strong> ให้ <code>A</code> กับ <code>B</code> เป็นสองตารางที่จะรวม และ
-      <code>preA</code> กับ <code>preB</code> เป็นผลรวมสะสม
+      ให้ <code>A</code> กับ <code>B</code> เป็นสองตาราง <code>preA</code>, <code>preB</code> เป็นผลรวมสะสม และถือว่า <code>preA[−1] = 0</code>
+      จุดที่ยังไม่มีลูกเริ่มจากตาราง <code>[1, 0, 0, …]</code> ซึ่งรวมกับอะไรก็ได้ของเดิม
     </p>
     <Fragment set:html={texPre} />
     <Fragment set:html={texMerge} />
@@ -830,21 +1326,40 @@ const codeBrute = `/*@@BRUTE@@*/`;
         ก็เพราะกรณีที่ทั้งคู่เท่ากับ <code>j</code> ถูกนับไปแล้วในพจน์แรก นับซ้ำเมื่อไรคำตอบพัง
       </li>
     </ul>
+    <h3>เรื่องที่สาม · แขวนข้อบังคับที่จบที่จุดนี้</h3>
     <p>
-      สุดท้ายคือการแขวนข้อบังคับที่จบที่จุดนี้ ทำหลังรวมลูกครบแล้ว ให้ <code>b</code> คือความลึกของ
-      <code>u</code> ที่ลึกที่สุดในบรรดาคู่ที่จบที่จุดนี้ ทุกช่อง <code>j</code> ที่น้อยกว่า <code>b</code>
-      ถูกกวาดมารวมกันแล้วเทลงช่อง <code>b</code> เพราะเงื่อนไขใหม่เข้มกว่าของเดิม ส่วนช่องที่ <code>j</code>
-      มากกว่าหรือเท่ากับ <code>b</code> อยู่แล้วไม่ต้องแตะ เพราะของเดิมเข้มกว่า นี่ก็คือการเอาค่ามากสุดอีกครั้ง
-      แค่ทำกับเลขตัวเดียวแทนที่จะทำกับอีกตาราง
+      ทำหลังรวมลูกครบแล้ว ให้ <code>b = att[v]</code>
+      ทุกช่องที่ <code>j</code> น้อยกว่า <code>b</code> ถูกกวาดมาเทลงช่อง <code>b</code> เพราะเงื่อนไขใหม่เข้มกว่าของเดิม
+      ช่องที่ <code>j</code> ไม่น้อยกว่า <code>b</code> ไม่ต้องแตะ เพราะของเดิมเข้มกว่าอยู่แล้ว
     </p>
-
-    <figure class="tbl">
-      <table class="rec">
-        <caption>ตาราง dp ของตัวอย่างที่หนึ่ง</caption>
+    <p>ลองเดินดูกับตัวอย่างที่หนึ่ง จุดสีทองบนต้นไม้คือจุดที่กำลังคำนวณ ข้อความใต้กระดานแสดงตารางระหว่างทางทุกจังหวะ</p>
+    <details class="expander">
+      <summary>ลองทายก่อน: แถวของจุด 3 คือ {fmtRow(SAMPLE_DP.dp[3])} แล้วแถวของจุด 2 คืออะไร</summary>
+      <div class="expander-body">
+        <p>
+          จุด 2 ลึก 2 ตารางจึงมีสองช่อง ส่งจุด 3 ผ่านขอบ 2-3: ผลรวมทั้งแถวคือ {SAMPLE_DP.dp[3].reduce((a, b) => a + b, 0)}
+          ช่อง 0 ได้ {SAMPLE_DP.dp[3][0]} + {SAMPLE_DP.dp[3].reduce((a, b) => a + b, 0)} ช่อง 1 รับ {SAMPLE_DP.dp[3][1]} ตรง ๆ
+          ส่วนช่อง 2 ({DIE_AT_3}) หายเพราะ u ของมันคือจุด 2 เอง จุด 2 ไม่มีคู่จบที่ตัวเอง แถวจึงเป็น <strong>{fmtRow(DP2)}</strong>
+        </p>
+      </div>
+    </details>
+    <CpStepPlayer hook="dstdp" steps={dpSteps} label="ตาราง dp ของตัวอย่างที่หนึ่ง จากใบขึ้นไปหาราก">
+      <svg class="dst-dptree" viewBox={`0 0 ${DPT_W} ${DPT_H}`} width={DPT_W} height={DPT_H} xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ต้นไม้ของตัวอย่างที่หนึ่ง จุดที่กำลังคำนวณเป็นสีทอง จุดที่คำนวณแล้วเป็นสีเขียว">
+        {d1Edges.map((e) => (
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#39425e" stroke-width="2.5" />
+        ))}
+        {Object.keys(d1Pos).map((k) => (
+          <circle data-dpt-node={k} cx={d1Pos[Number(k)].x} cy={d1Pos[Number(k)].y} r={D1_R} fill="#121a2b" stroke="#39425e" stroke-width="1.5" />
+        ))}
+        {Object.keys(d1Pos).map((k) => (
+          <text x={d1Pos[Number(k)].x} y={d1Pos[Number(k)].y + 5} fill="#eaf2ff" font-size="13" text-anchor="middle">{k}</text>
+        ))}
+      </svg>
+      <table class="rec dst-dptab">
         <thead>
           <tr>
             <th>จุด</th>
-            <th class="num">ความลึก</th>
+            <th class="num">ลึก</th>
             <th class="num">att</th>
             {Array.from({ length: DP_MAXJ + 1 }, (_, j) => <th class="num">j = {j}</th>)}
           </tr>
@@ -860,61 +1375,125 @@ const codeBrute = `/*@@BRUTE@@*/`;
           ))}
         </tbody>
       </table>
-      <figcaption>
-        ค่าหลังจากรวมลูกครบและแขวนข้อบังคับของจุดนั้นแล้ว เรียงตามลำดับที่โปรแกรมคำนวณจริง คือจากใบขึ้นไปหาราก
-        จุด "·" คือช่องที่ไม่มีอยู่ เพราะระดับค้างต้องตื้นกว่าตัวจุดเอง แถวสุดท้ายคือคำตอบ
-      </figcaption>
-    </figure>
-
-    <p>
-      เดินตามตารางนี้จะเห็นสูตรทั้งสองทำงานจริง จุด {dpRows[0].v} มี <code>att</code> เท่ากับ{' '}
-      {SAMPLE_DP.att[5]} เพราะคู่ ({SAMPLE.pairs[1][0]}, {SAMPLE.pairs[1][1]}) จบที่นั่น ของทั้งหมดจึงถูกกวาดไปไว้ที่ช่อง{' '}
-      {SAMPLE_DP.att[5]} ตั้งแต่แรก ส่วนจุด {dpRows[1].v} ไม่มีข้อบังคับ ของจึงค้างอยู่ที่ช่อง 0
-      พอทั้งสองไหลขึ้นมารวมกันที่จุด 3 แล้วแขวนคู่ ({SAMPLE.pairs[0][0]}, {SAMPLE.pairs[0][1]}) ทับอีกที
-      แถวของจุด 3 จึงเป็น {DP3.join(', ')}
+    </CpStepPlayer>
+    <p class="io-note">
+      "·" คือช่องที่ไม่มีอยู่ เพราะระดับค้างต้องตื้นกว่าตัวจุดเอง
     </p>
     <p>
-      สองแถวบนสุดในการไต่ขึ้นคือจุดที่ของหายจริง ตอนไต่จากจุด 3 ขึ้นไปหาจุด 2 ช่อง{' '}
-      {SAMPLE_DP.dep[3] - 1} ของจุด 3 ซึ่งมีค่า {DIE_AT_3} จะหายไปในทางระบาย 0 เพราะระดับค้าง{' '}
-      {SAMPLE_DP.dep[3] - 1} หมายถึง <code>u</code> คือจุด 2 พอดี และตอนไต่จากจุด 2 ขึ้นไปหาราก ช่อง{' '}
-      {SAMPLE_DP.dep[2] - 1} ซึ่งมีค่า {DIE_AT_2} ก็หายไปด้วยเหตุผลเดียวกัน คำตอบสุดท้ายจึงเป็น
-      ผลรวมทั้งแถวของจุด 2 ซึ่งเท่ากับ {SUM_DP2} (ทางระบาย 1) บวกช่อง 0 ของมันซึ่งเท่ากับ {DP2[0]}
-      (ทางระบาย 0 ที่ไม่มีอะไรค้าง) รวมเป็น {SAMPLE_ANS}
+      สองจังหวะที่ของหายจริงอยู่ตอนไต่ขึ้น จากจุด 3 ขึ้นไปจุด 2 ช่อง {SAMPLE_DP.dep[3] - 1} ของจุด 3 (ค่า {DIE_AT_3})
+      หายในทางระบาย 0 เพราะ u ของมันคือจุด 2 พอดี และจากจุด 2 ขึ้นไปราก ช่อง {SAMPLE_DP.dep[2] - 1} (ค่า {DIE_AT_2}) ก็หายด้วยเหตุผลเดียวกัน
     </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">อ่านคำตอบจากแถวของจุด 2</p>
+      <p>
+        ทางระบายขอบ 1-2 เป็น 1 = ผลรวมทั้งแถว = {SUM_DP2}<br />
+        ทางระบายเป็น 0 ที่ไม่มีอะไรค้าง = ช่อง 0 = {DP2[0]}<br />
+        รวม {SUM_DP2} + {DP2[0]} = <strong>{SAMPLE_ANS}</strong> ตรงกับเอาต์พุต
+      </p>
+    </div>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 3 &middot; ตารางเต็มตายที่ต้นไม้ลึก เซกเมนต์ทรีที่ควบรวมได้ช่วยตรงนี้</h2>
+  <h2>เฉลย ตอนที่ 4 &middot; ตารางเต็มตายที่ต้นไม้ลึก เซกเมนต์ทรีที่ควบรวมได้ช่วยตรงนี้</h2>
   <Spoiler>
     <p>
-      เขียนตามสูตรข้างบนตรง ๆ จะได้โปรแกรมที่ทำงานเป็นสัดส่วนกับ<strong>ผลรวมความลึกของทุกจุด</strong>
-      เพราะจุดที่ลึก <code>d</code> ถือตารางยาว <code>d</code> ช่อง ต้นไม้ที่เป็นดาวไม่มีปัญหาเลย
-      ผลรวมความลึกแค่ประมาณ <code>2N</code> แต่ต้นไม้ที่เป็นเส้นตรงยาว <code>N</code> จุด
-      ผลรวมความลึกคือ <code>N</code> กำลังสองหารสอง ที่ <code>N</code> เท่ากับ {fmt(N_MAX)}
-      นั่นคือราว {fmt(125000000000)} ช่อง ซึ่งไม่ใช่แค่ช้า แต่ใส่ในหน่วยความจำไม่ลงด้วยซ้ำ
+      สูตรของตอนที่ 3 ถูกแล้ว ปัญหาคือเวลา บนต้นไม้เส้นตรง {fmt(N_MAX)} จุด ผลรวมความลึกคือราว
+      {' '}{fmt(TABLE_OPS)} ช่อง ซึ่งต้องแตะทีละช่อง (ส่วนหน่วยความจำไม่ใช่ปัญหา เพราะตารางถูกทิ้งทันทีที่ส่งขึ้นไป)
     </p>
     <p>
-      ทางแก้คือเก็บตารางเป็น<strong>เซกเมนต์ทรีแบบสร้างปมเมื่อจำเป็น</strong> บนแกน <code>j</code>
-      แล้วรวมสองตารางด้วยการ<strong>ควบรวมเซกเมนต์ทรี</strong> (segment tree merging อ่านว่า
-      "เซกเมนต์ ทรี เมิร์จจิ้ง" แปลว่าเดินสองต้นพร้อมกันแล้วยุบเป็นต้นเดียว) หัวใจของมันคือ
-      เวลาเดินลงไปเจอช่วงที่ต้นหนึ่งไม่มีปมเลย ฝั่งนั้นไม่มีของ ผลรวมสะสมของมันในช่วงนั้นจึงเป็น
-      <strong>ค่าคงที่</strong> สูตรรวมข้างบนเลยกลายเป็นการคูณทั้งช่วงด้วยค่าคงที่ตัวเดียว
-      ซึ่งเป็นงานที่เซกเมนต์ทรีทำได้ด้วยป้ายค้างหนึ่งป้าย ไม่ต้องเดินลงไปแตะทุกใบ
+      แต่ตารางพวกนี้<strong>ว่างเกือบหมด</strong> ช่อง j ≥ 1 ที่มีค่าไม่เป็นศูนย์เกิดจากการแขวนเท่านั้น ซึ่งเกิดได้แค่ครั้งเดียวต่อจุด
+      ที่เก็บที่ดีจึงต้องไม่เสียที่และไม่เสียเวลากับช่องว่าง
+    </p>
+    <ul>
+      <li>
+        <strong>เซกเมนต์ทรี</strong> (segment tree อ่านว่า "เซกเมนต์ ทรี") คือต้นไม้ที่แต่ละปมเก็บผลรวมของช่วงหนึ่ง
+        (ปูพื้นไว้ใน<a href="/cp/segment-tree/">หน้าเซกเมนต์ทรี</a>)
+      </li>
+      <li>
+        <strong>สร้างปมเมื่อจำเป็น</strong> คือช่วงที่ว่างทั้งช่วงไม่มีปมเลย ตารางยาวห้าแสนช่องที่มีของแค่สามช่องจึงใช้ปมแค่ราวหกสิบปม
+      </li>
+      <li>
+        <strong>ป้ายคูณ</strong> (lazy tag) คือโน้ตแปะไว้ที่ปมว่า "ทั้งช่วงนี้ต้องคูณด้วย k" แล้วค่อยส่งลงลูกตอนจำเป็น
+        การคูณทั้งช่วงจึงทำได้ที่ปมเดียว
+      </li>
+    </ul>
+    <p>
+      การรวมสองตารางทำด้วย<strong>การควบรวม</strong> (merging อ่านว่า "เมิร์จจิ้ง" แปลว่าควบรวม) คือเดินสองต้นลงไปพร้อมกัน
+      แล้วยุบเหลือต้นเดียว ตรงที่ทั้งสองต้นมีปม เดินลงต่อ ตรงที่ต้นหนึ่งว่าง ทำงานจบในขั้นเดียว
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ทำไมฝั่งว่างจบในขั้นเดียว</p>
+      <p>
+        ถ้า <code>B</code> ว่างทั้งช่วง <code>[l, r]</code> แปลว่า <code>B[j] = 0</code> และ <code>preB[j]</code>
+        เท่ากับผลรวมของ B ก่อน <code>l</code> ทุกช่อง สูตรรวมเหลือ <code>C[j] = A[j] × ค่าคงที่</code>
+      </p>
+      <p>
+        ค่าคงที่นี้รู้ได้ระหว่างเดิน เพราะการควบรวมพกผลรวมสะสมของทั้งสองฝั่งไปจากซ้ายไปขวา (รวมช่อง 0 ที่อยู่นอกต้นไม้ด้วย)
+        ก่อนลงลูกขวาก็บวกผลรวมของลูกซ้ายเข้าไป
+      </p>
+      <p>นั่นคือการคูณทั้งช่วงด้วยเลขตัวเดียว ซึ่งป้ายคูณทำได้ที่ปมเดียว ฝั่ง A ว่างก็เหมือนกัน แค่สลับบทบาท</p>
+    </div>
+    <ZoomableDiagram caption="การควบรวมเดินลงเฉพาะตรงที่ทั้งสองต้นมีปม (เขียว) ตรงที่ต้นหนึ่งว่าง (เทา) ปมของอีกต้นถูกแปะป้ายคูณแล้วจบทันที">
+      <svg viewBox="0 0 621 262" xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:760px" role="img" aria-label="แผนภาพการควบรวมเซกเมนต์ทรีสองต้น ช่วงที่มีปมทั้งสองฝั่งเดินลงต่อ ช่วงที่ฝั่งหนึ่งว่างแปะป้ายคูณแล้วจบ">
+        <text x="20" y="22" fill="#cdd6ea" font-size="14">ต้น A</text>
+        <text x="360" y="22" fill="#cdd6ea" font-size="14">ต้น B</text>
+        <g stroke="#39425e" stroke-width="2">
+          <line x1="170" y1="52" x2="95" y2="112" /><line x1="170" y1="52" x2="245" y2="112" />
+          <line x1="95" y1="112" x2="57" y2="172" /><line x1="245" y1="112" x2="283" y2="172" />
+          <line x1="510" y1="52" x2="435" y2="112" /><line x1="510" y1="52" x2="585" y2="112" />
+          <line x1="435" y1="112" x2="473" y2="172" />
+        </g>
+        <circle cx="170" cy="52" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="95" cy="112" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="245" cy="112" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="57" cy="172" r="16" fill="#1a2136" stroke="#d4af37" stroke-width="2" />
+        <circle cx="283" cy="172" r="16" fill="#1a2136" stroke="#7b8397" stroke-width="2" />
+        <circle cx="510" cy="52" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="435" cy="112" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="585" cy="112" r="16" fill="#10291d" stroke="#2f9e5c" stroke-width="2" />
+        <circle cx="473" cy="172" r="16" fill="#1a2136" stroke="#d4af37" stroke-width="2" />
+        <rect x="397" y="156" width="32" height="32" rx="6" fill="none" stroke="#56627d" stroke-dasharray="4 4" />
+        <text x="57" y="208" text-anchor="middle" fill="#d4af37" font-size="12">B ว่างตรงนี้</text>
+        <text x="57" y="224" text-anchor="middle" fill="#d4af37" font-size="12">คูณค่าคงที่ จบ</text>
+        <text x="473" y="208" text-anchor="middle" fill="#d4af37" font-size="12">A ว่างตรงนี้</text>
+        <text x="473" y="224" text-anchor="middle" fill="#d4af37" font-size="12">คูณค่าคงที่ จบ</text>
+        <text x="413" y="208" text-anchor="middle" fill="#7b8397" font-size="12">ไม่มีปม</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>อีกสองงานของตอนที่ 3 ทำบนต้นไม้แบบนี้</p>
+    <ul>
+      <li><strong>ส่งผ่านขอบ</strong>: ตัดช่อง D ทิ้ง (ลบหนึ่งช่อง) แล้วบวกผลรวมทั้งต้นเข้าช่อง 0 ใช้ราว log N</li>
+      <li><strong>แขวน</strong>: ตัดช่วง 1 ถึง b − 1 ทิ้งพร้อมเก็บผลรวม แล้วบวกผลรวมนั้นเข้าช่อง b ใช้ราว log N</li>
+    </ul>
+    <p>
+      เวลาทั้งหมดคุมด้วยจำนวนปมที่<strong>เคยถูกสร้าง</strong> ทุกชั้นที่การควบรวมเดินลง ปมของต้น B หายไปหนึ่งปม ปมหายได้ไม่เกินจำนวนที่เคยสร้าง
     </p>
     <p>
-      เวลาทั้งหมดจึงคุมด้วยจำนวนปมที่เคย<strong>ถูกสร้าง</strong> ไม่ใช่ความยาวของตาราง
-      ทุกครั้งที่การควบรวมเดินลึกลงไปหนึ่งชั้น มันทำลายปมทิ้งไปหนึ่งปมเสมอ และปมถูกสร้างเพิ่ม
-      เฉพาะตอนแขวนข้อบังคับ ซึ่งเกิดไม่เกินหนึ่งครั้งต่อจุด รวมแล้วเป็น <code>O((N + M) log N)</code>
+      ปมใหม่เกิดเฉพาะตอนแขวน ครั้งละไม่เกินราว log N ปม และไม่เกินหนึ่งครั้งต่อจุด
+      รวมแล้วเป็นราว <code>O(N log N + M)</code> โดย M มาจากการอ่านคู่ ซึ่งยุบเหลือ att ต่อจุดตั้งแต่อ่าน
     </p>
-    <p>
-      รายละเอียดที่โค้ดเต็มทำต่างจากสูตรอยู่สองที่ ที่แรกคือช่อง <code>j = 0</code> ไม่ได้อยู่ในเซกเมนต์ทรี
-      มันเป็นตัวแปรธรรมดาชื่อ <code>s[v]</code> เพราะทางระบาย 1 ยุบทุกอย่างมาลงช่องนี้ทุกขอบ
-      ถ้าปล่อยให้มันอยู่ในต้นไม้ ทุกขอบจะต้องสร้างปมใหม่ ที่สองคือปมที่ปล่อยแล้วถูกเก็บเข้ากองว่าง
-      (<code>freeList</code>) เอามาใช้ซ้ำ แทนที่จะปล่อยให้อาเรย์โตไปเรื่อย ๆ
-    </p>
+    <p>รายละเอียดที่โค้ดเต็มทำต่างจากสูตรมีสองที่</p>
+    <ul>
+      <li>ช่อง <code>j = 0</code> เป็นตัวแปรธรรมดาชื่อ <code>s[v]</code> ไม่อยู่ในต้นไม้ เพราะทางระบาย 1 เทของลงช่องนี้ทุกขอบ ถ้าอยู่ในต้นไม้ทุกขอบจะต้องสร้างปมใหม่</li>
+      <li>ปมที่ทิ้งแล้วเข้ากองว่าง (<code>freeList</code>) แล้วเอามาใช้ซ้ำ</li>
+    </ul>
   </Spoiler>
 
   <h2>โค้ด</h2>
   <Spoiler>
+    <p>โค้ดเต็มแบ่งเป็นห้าช่วง แต่ละช่วงมีคอมเมนต์หัวเป็นชื่อเดียวกับคอลัมน์แรก อ่านคู่กับเฉลยตอนที่ระบุได้เลย</p>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แผนที่โค้ด</caption>
+        <thead><tr><th>ช่วงในโค้ด</th><th>ทำอะไร</th><th>อ่านคู่กับ</th></tr></thead>
+        <tbody>
+          <tr><td>อ่านอินพุต</td><td>อ่านทั้งก้อนแล้วแกะตัวเลขเอง อินพุตใหญ่ราว 13 เมกะไบต์</td><td>ตารางเวลา</td></tr>
+          <tr><td>เซกเมนต์ทรีที่ควบรวมได้</td><td>บวกช่องเดียว ตัดช่วงทิ้ง และควบรวมสองต้นพร้อมป้ายคูณ</td><td>ตอนที่ 4</td></tr>
+          <tr><td>ปักรากที่ 1 หาความลึกกับลำดับ</td><td>ใช้ BFS (ค้นตามแนวกว้าง) เพราะต้นไม้ลึกได้ห้าแสน การเรียกตัวเองซ้ำจะทำสแต็กล้น ลำดับย้อนกลับคือจากใบขึ้นราก</td><td>ตอนที่ 3</td></tr>
+          <tr><td>ข้อบังคับ: เก็บแค่ u ที่ลึกที่สุดต่อจุดปลาย</td><td>att[v] = ค่ามากสุด คู่ซ้ำหายไปเองตรงนี้</td><td>ตอนที่ 2</td></tr>
+          <tr><td>ไล่จากใบขึ้นหาราก</td><td>แขวน ส่งผ่านขอบ แล้วรวมเข้าตารางของพ่อ</td><td>ตอนที่ 3</td></tr>
+        </tbody>
+      </table>
+    </figure>
     <details class="expander">
       <summary>ดูโค้ดเต็มขอบเขต (เซกเมนต์ทรีควบรวม)</summary>
       <div class="expander-body">
@@ -926,10 +1505,11 @@ const codeBrute = `/*@@BRUTE@@*/`;
       <div class="expander-body">
         <CodeBlock code={codeSlow} lang="cpp" title="destiny_slow.cpp" />
         <p>
-          โค้ดนี้คือสูตรในเฉลยตอนที่ 2 แบบเขียนตรง ๆ ด้วย <code>vector</code> หนึ่งอันต่อหนึ่งจุด
-          มันชนะชุดที่ <code>N</code> เล็ก และชนะชุดต้นไม้ไบนารีสมบูรณ์ด้วย เพราะความลึกแค่ราว
-          <code>log N</code> ผมวัดชุดไบนารีสมบูรณ์ที่ <code>N = M = 100,000</code> ได้ 0.05 วินาที
-          และตอบตรงกับโค้ดเต็ม แต่พอต้นไม้ลึก มันตายทันที ดูแถวล่างสุดของตารางเวลา
+          โค้ดนี้คือสูตรในเฉลยตอนที่ 3 แบบเขียนตรง ๆ ตารางถูกสร้างตอนต้องใช้และทิ้งทันทีที่ส่งขึ้นไปหาพ่อ
+        </p>
+        <p>
+          มันชนะชุดที่ <code>N</code> เล็ก และชุดไบนารีสมบูรณ์ (วัดที่ <code>N = M = 100,000</code> ได้ {SLOW_BIN_SEC} วินาที)
+          แต่พอต้นไม้ลึกก็ตายทันที ดูแถวเส้นตรงในตารางเวลา
         </p>
       </div>
     </details>
@@ -938,10 +1518,11 @@ const codeBrute = `/*@@BRUTE@@*/`;
       <div class="expander-body">
         <CodeBlock code={codeBrute} lang="cpp" title="destiny_brute.cpp" />
         <p>
-          ตัวตรวจไม่ใช้ความลึก ไม่มีสถานะ ไม่มีการยุบข้อบังคับ มันไล่ทุกมาสก์ของ
-          <code>2</code> ยกกำลัง <code>N - 1</code> แล้วเดินวิถีของทุกคู่ตามนิยามในโจทย์ตรง ๆ
-          จงใจไม่ใช้ข้ออ้างใด ๆ ที่หน้านี้พิสูจน์ไว้ หน้าเว็บนี้ก็รันตัวตรวจแบบเดียวกันตอนบิลด์
-          กับต้นไม้ทั้งสี่ต้นในเกมและตัวอย่างทั้งสองชุด แล้วเทียบกับท่า dp ถ้าไม่ตรงกันหน้านี้ไม่ขึ้น
+          ตัวตรวจไล่ทุกการระบาย 2 ยกกำลัง N − 1 แบบ แล้วเดินวิถีของทุกคู่ตามนิยามในโจทย์ตรง ๆ
+          จงใจไม่ใช้ข้ออ้างใด ๆ ที่หน้านี้พิสูจน์ไว้
+        </p>
+        <p>
+          หน้าเว็บนี้ก็รันตัวไล่แบบเดียวกันตอนบิลด์ กับต้นไม้ทุกต้นในเกมและตัวอย่างทั้งสองชุด ถ้าไม่ตรงกับท่า dp หน้านี้ไม่ขึ้น
         </p>
       </div>
     </details>
@@ -964,48 +1545,75 @@ const codeBrute = `/*@@BRUTE@@*/`;
         </tbody>
       </table>
       <figcaption>
-        หกแถวบนคือ N เท่ากับ M เท่ากับ {fmt(N_MAX)} ทุกแถว สองแถวล่างเป็นเส้นตรง 100,000 จุด
-        เพื่อเทียบสองโปรแกรมกันตรง ๆ วัดบน WSL Ubuntu 22.04 ด้วย g++ 11.4.0 แบบ -O2
+        หกแถวบนคือ N เท่ากับ M เท่ากับ {fmt(N_MAX)} สามแถวล่างเป็น {fmt(LINE_N)} จุด เพื่อเทียบสองโปรแกรมกันตรง ๆ
+        วัดบน WSL Ubuntu 22.04 ด้วย g++ 11.4.0 แบบ -O2
         เอาค่าที่แย่ที่สุดจากสามรอบ เวลานี้รวมเวลาอ่านอินพุตขนาด 12 ถึง 13 เมกะไบต์ด้วย
-        และเป็นเครื่องของผม ไม่ใช่เครื่องของเกรดเดอร์
       </figcaption>
     </figure>
 
+    <ul>
+      <li>ทั้งสามโปรแกรมตอบตัวอย่างที่หนึ่งได้ {SAMPLE_ANS} และตัวอย่างที่สองได้ {SAMPLE2_ANS}</li>
+      <li>สุ่มต้นไม้ {fmt(STRESS_SMALL)} ต้น ขนาดไม่เกิน {STRESS_SMALL_MAXN} จุด หกรูปทรง (สุ่ม เส้นตรง ดาว ไบนารีสมบูรณ์ ไม้กวาด พุ่มลึก) โค้ดเต็มและตารางเต็มตรงกับตัวไล่ทุกแบบทุกต้น</li>
+      <li>อีก {STRESS_MID} ต้น ขนาดไม่เกิน {fmt(STRESS_MID_MAXN)} จุด โค้ดเต็มตรงกับตารางเต็มทุกต้น</li>
+      <li>ตัวสร้างอินพุตใส่คู่ซ้ำราวหนึ่งในสิบ และให้ u ลึกเกาะกลุ่มบ้าง จะได้มีจุดที่รับข้อบังคับหลายความลึก</li>
+    </ul>
     <p class="io-note">
-      ผมรันตัวเทียบสามทาง (ไล่ทุกแบบ / ตารางเต็ม / เซกเมนต์ทรีควบรวม) {fmt(STRESS_ROUNDS)} รอบ
-      ที่ต้นไม้ไม่เกิน {STRESS_MAXN} จุด ด้วยเมล็ดสุ่ม {STRESS_SEED} ตรงกันหมดทุกรอบ
-      ในรอบเหล่านั้นมี {STRESS_MULTI} รอบที่มีจุดหนึ่งรับข้อบังคับที่ความลึกของ u ต่างกันตั้งแต่สองค่าขึ้นไป
-      และ {fmt(STRESS_DUP)} รอบที่มีคู่ซ้ำ รูปทรงที่อยากทดสอบจึงถูกแตะจริง ทั้งสามโปรแกรมยังตอบ
-      ตัวอย่างที่หนึ่งได้ {SAMPLE_ANS} และตัวอย่างที่สองได้ {SAMPLE2_ANS} ตรงกันด้วย
-      ต้องบอกไว้ตรงนี้ว่าทั้งหมดนี้คือการตรวจกับตัวตรวจของผมเองกับตัวอย่างในโจทย์
-      ไม่ได้ตรวจกับข้อมูลทดสอบจริงของระบบตรวจ
+      ทั้งหมดนี้ตรวจกับตัวตรวจของผมเองกับตัวอย่างในโจทย์ ยังไม่ได้ส่งเข้าเครื่องตรวจจริง
     </p>
   </Spoiler>
 
+  <h2>เช็กความเข้าใจ</h2>
+  <p>สามข้อนี้ตอบได้จากสิ่งที่อ่านมา ลองคิดก่อนแล้วค่อยเปิดคำตอบ</p>
+  <p><strong>ข้อ 1.</strong> ถ้าคู่เดิมโผล่ซ้ำสิบครั้ง โค้ดต้องทำอะไรเพิ่มไหม</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 1</summary>
+    <div class="expander-body">
+      <p>
+        ไม่ต้อง <code>att[v]</code> เก็บค่ามากสุดของความลึกของ u คู่ซ้ำให้ความลึกเดิม ค่ามากสุดจึงไม่เปลี่ยน
+        และข้อบังคับเดิมสิบข้อก็คือข้อเดียวกัน ปิดหนึ่งข้อก็ปิดทั้งสิบ
+      </p>
+    </div>
+  </details>
+  <p><strong>ข้อ 2.</strong> ตอนส่งตารางจากจุด c ขึ้นไปหาพ่อ ทำไมช่อง D (ความลึกของพ่อ) ถึงหายไปในทางระบาย 0</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 2</summary>
+    <div class="expander-body">
+      <p>
+        ระดับค้าง D แปลว่าข้อค้างที่เข้มที่สุดมี u เป็นพ่อของ c พอดี ขอบระหว่าง c กับพ่อจึงเป็นเส้นสุดท้ายบนวิถีของมัน
+        ระบาย 0 คือปล่อยโอกาสสุดท้ายทิ้ง สายนั้นจึงไม่มีทางถูกต้อง (ทางระบาย 1 ยังนับมันไว้ใน S)
+      </p>
+    </div>
+  </details>
+  <p><strong>ข้อ 3.</strong> ทำไมตารางเต็มเร็วบนต้นไม้ไบนารีสมบูรณ์ แต่ช้ามากบนเส้นตรง ทั้งที่ N เท่ากัน</p>
+  <details class="expander">
+    <summary>ดูคำตอบข้อ 3</summary>
+    <div class="expander-body">
+      <p>
+        งานของตารางเต็มเท่ากับผลรวมความลึกของทุกจุด ไบนารีสมบูรณ์ลึกแค่ราว log N ผลรวมจึงราว N log N
+        ส่วนเส้นตรงลึกถึง N ผลรวมเป็นราว N² ÷ 2 ที่ {fmt(LINE_N)} จุดจึงต่างกัน {SLOW_BIN_SEC} วินาที กับ {SLOW_LINE_SEC} วินาที
+      </p>
+    </div>
+  </details>
+
   <h2>ท่าที่ติดมือกลับไป</h2>
-  <p>
-    ท่าแรกคือเวลาสถานะของ dp อยากเป็น "เซตของสิ่งที่ยังค้างอยู่" ให้ถามว่าของในเซตเทียบความเข้มงวดกันได้ไหม
-    ถ้าปิดตัวที่เข้มที่สุดแล้วตัวอื่นปิดตามทันที เซตทั้งเซตยุบเหลือตัวแทนตัวเดียว
-    ที่นี่ตัวแทนคือความลึก ซึ่งเป็นเหตุผลเดียวกับที่คู่ที่จบจุดเดียวกันยุบด้วย <code>max</code> ได้
-    และเป็นเหตุผลเดียวกับที่คู่ซ้ำไม่ต้องทำอะไรเพิ่ม
-  </p>
-  <p>
-    ท่าที่สองคือเวลาสถานะเป็นตารางยาวตามความลึกแล้วต้องรวมกันขึ้นไปเรื่อย ๆ ให้มองว่ามันเป็น
-    เซกเมนต์ทรีที่ควบรวมได้ สิ่งที่ทำให้ท่านี้ใช้ได้คือรูปของสูตรรวม พอฝั่งหนึ่งว่างทั้งช่วง
-    ผลรวมสะสมของมันกลายเป็นค่าคงที่ งานทั้งช่วงจึงเหลือแค่คูณด้วยเลขตัวเดียว
-    ถ้าสูตรรวมของคุณไม่มีสมบัตินี้ การควบรวมจะไม่ช่วยอะไร
-  </p>
-  <p>
-    ท่าที่สามไม่เกี่ยวกับอัลกอริทึม คือเวลาจะบอกว่าท่าง่ายช้าเกินไป ให้วัด ไม่ใช่ประมาณ
-    ตัวเลข 58.93 วินาทีที่วัดได้บนเส้นตรง 100,000 จุด บอกได้ทันทีว่าห่างจากลิมิตแค่ไหน
-    ในแบบที่ประโยค "มันช้าไป" บอกไม่ได้
-  </p>
+  <ul>
+    <li>
+      <strong>สถานะที่อยากเป็นเซต ลองยุบเหลือตัวแทน</strong> ถ้าของในเซตเทียบความเข้มงวดกันได้ และปิดตัวที่เข้มที่สุดแล้วตัวอื่นปิดตาม
+      เซตทั้งเซตเหลือตัวเลขตัวเดียว ที่นี่คือความลึก และเป็นเหตุผลเดียวกับที่คู่ซ้ำไม่ต้องทำอะไรเพิ่ม
+    </li>
+    <li>
+      <strong>ตารางยาวตามความลึกที่ต้องรวมกันขึ้นไป ลองเซกเมนต์ทรีควบรวม</strong> ใช้ได้เมื่อสูตรรวมมีสมบัติว่า
+      ฝั่งหนึ่งว่างทั้งช่วงแล้วงานทั้งช่วงเหลือแค่คูณค่าคงที่ ถ้าไม่มีสมบัตินี้ การควบรวมไม่ช่วย
+    </li>
+    <li>
+      <strong>จะบอกว่าท่าง่ายช้า ให้วัด</strong> {SLOW_LINE_SEC} วินาทีบนเส้นตรง {fmt(LINE_N)} จุดบอกได้ทันทีว่าห่างจากลิมิตแค่ไหน
+    </li>
+  </ul>
 
   <h2>สรุปบรรทัดเดียว</h2>
   <p>
-    เก็บสถานะเป็นความลึกของข้อบังคับที่ยังค้างและลึกที่สุด ที่ขอบแต่ละเส้นเลือกได้สองทาง
-    ระบาย 1 ยุบทุกอย่างลงช่องศูนย์ ระบาย 0 เก็บสถานะเดิมไว้แต่ฆ่าสายที่หมดโอกาสพอดี
-    รวมกิ่งด้วยการเอาค่ามากสุด แล้วเปลี่ยนตารางเป็นเซกเมนต์ทรีที่ควบรวมได้เพื่อให้รอดต้นไม้ลึก
+    จำแค่ข้อบังคับที่ค้างอยู่ลึกที่สุด ส่งผ่านขอบด้วยสองทางเลือก รวมกิ่งด้วยค่ามากสุด
+    แล้วเก็บตารางเป็นเซกเมนต์ทรีที่ควบรวมได้เพื่อรอดต้นไม้ลึก
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -1026,73 +1634,13 @@ const codeBrute = `/*@@BRUTE@@*/`;
 </CpProblemLayout>
 
 <style>
-  figure.tbl{
-    margin:1.2rem 0 0.4rem;
-    padding:0;
-    overflow-x:auto;
-    background:#0b1220;
-    border:1px solid var(--dl-border);
-    border-radius:10px;
-    box-shadow:0 4px 16px rgba(0,0,0,0.3);
-  }
-  figure.tbl figcaption{
-    width:0;
-    min-width:100%;
-    font-size:0.78rem;
-    color:var(--dl-muted);
-    line-height:1.6;
-    padding:0.6rem 0.85rem 0.75rem;
-    border-top:1px solid var(--dl-border);
-  }
-  table.rec{
-    width:100%;
-    border-collapse:separate;
-    border-spacing:0;
-    font-size:0.84rem;
-  }
-  figure.tbl table.rec{width:auto;}
-  table.rec caption{
-    caption-side:top;
-    text-align:left;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-weight:700;
-    letter-spacing:0.18em;
-    font-size:0.68rem;
-    color:var(--dl-gold);
-    background:#070c17;
-    padding:0.5rem 0.85rem;
-    border-bottom:1px solid var(--dl-border);
-    white-space:nowrap;
-  }
-  table.rec th, table.rec td{
-    padding:0.5rem 0.8rem;
-    text-align:left;
-    vertical-align:middle;
-    border-bottom:1px solid var(--dl-border);
-  }
-  table.rec th + th, table.rec td + td{border-left:1px solid var(--dl-border);}
-  table.rec tbody tr:last-child td{border-bottom:none;}
-  table.rec th{
-    background:#141b2b;
-    color:var(--dl-muted);
-    font-weight:600;
-    font-size:0.68rem;
-    letter-spacing:0.1em;
-    text-transform:uppercase;
-    white-space:nowrap;
-  }
-  table.rec td{color:var(--dl-ink);line-height:1.55;white-space:nowrap;}
-  table.rec td.num{
-    text-align:right;
-    font-family:"Fira Code","Fira Mono",monospace;
-    font-variant-numeric:tabular-nums;
-    white-space:nowrap;
-    color:#cdd6ea;
-  }
-  table.rec th.num{text-align:right;}
+  /* ต่างจากตารางกลางใน CpProblemLayout */
+  table.rec td{white-space:nowrap;}
 
   /* ---------- กระดานของมินิเกม สร้างด้วย JS จึงต้อง :global ---------- */
   .dst-board{display:flex;justify-content:center;}
+  .dst-chsvg, .dst-dptree{display:block;margin:0 auto;max-width:none;}
+  .dst-chbtns{flex-wrap:wrap;justify-content:center;}
   .dst-board :global(svg){display:block;}
   .dst-board :global(.dst-hit){stroke:transparent;stroke-width:26;fill:none;}
   .dst-board :global(.dst-edge){cursor:pointer;}
@@ -1125,6 +1673,7 @@ const codeBrute = `/*@@BRUTE@@*/`;
 <script>
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
   import type { CpGameUi } from '../../lib/cpGame';
+  import { initCpPlayers } from '../../lib/cpPlayer';
 
   type DstNode = { id: number; x: number; y: number };
   type DstEdge = { id: number; name: string; x1: number; y1: number; x2: number; y2: number; lx: number; ly: number };
@@ -1352,4 +1901,82 @@ const codeBrute = `/*@@BRUTE@@*/`;
   }
 
   document.addEventListener('astro:page-load', initDestinyGame);
+
+  /* เกมข้อค้างหลายข้อ: เลือกขอบที่ระบายเป็น 1 ได้ทีละเส้น แล้วดูว่าปิดข้อบังคับข้อไหนได้
+     ขอบระหว่างลึก k กับ k + 1 ปิดข้อที่ u ลึก a ได้ก็ต่อเมื่อ k >= a (ขอบอยู่บนวิถีจาก u ลงไปหา v) */
+  function initChainGame(): void {
+    const maybeUi = cpGameUi('[data-dstchain]');
+    if (!maybeUi) return;
+    const ui: CpGameUi = maybeUi;
+    const arcs = Array.from(ui.root.querySelectorAll<SVGPathElement>('[data-ch-arc]'));
+    const edges = Array.from(ui.root.querySelectorAll<SVGLineElement>('[data-ch-edge]'));
+    const btns = Array.from(ui.root.querySelectorAll<HTMLButtonElement>('[data-ch-pick]'));
+    const hintEl = ui.root.querySelector<HTMLElement>('[data-cpg-hint]');
+    const us = arcs.map((a) => Number(a.dataset.chArc));
+    const deepest = Math.max(...us);
+    const tried = new Set<number>();
+
+    function pick(k: number): void {
+      tried.add(k);
+      const closed = us.filter((a) => k >= a);
+      edges.forEach((e) => {
+        const on = Number(e.dataset.chEdge) === k;
+        e.setAttribute('stroke', on ? '#d4af37' : '#39425e');
+        e.setAttribute('stroke-width', on ? '6' : '3');
+      });
+      arcs.forEach((a) => {
+        const ok = k >= Number(a.dataset.chArc);
+        a.setAttribute('stroke', ok ? '#6ee7a8' : '#e07a7a');
+        a.setAttribute('stroke-dasharray', ok ? '' : '5 4');
+      });
+      btns.forEach((b) => b.classList.toggle('main', Number(b.dataset.chPick) === k));
+      ui.setStatus(
+        closed.length === us.length
+          ? `ขอบลึก ${k} ถึง ${k + 1} ปิดได้ครบทั้ง ${us.length} ข้อ`
+          : `ขอบลึก ${k} ถึง ${k + 1} ปิดได้ ${closed.length} จาก ${us.length} ข้อ ข้อที่ u ลึก ${us.filter((a) => k < a).join(', ')} ยังค้าง`,
+        closed.length === us.length ? 'good' : 'bad',
+      );
+      ui.setScore(`ลองแล้ว ${tried.size} จาก ${btns.length} ขอบ`);
+      if (hintEl) hintEl.textContent = tried.size === btns.length
+        ? `ขอบที่ปิดได้ครบคือทุกขอบที่อยู่ใต้ u ที่ลึกที่สุด (ลึก ${deepest}) ลงไปถึง v ข้อที่ตื้นกว่าปิดตามไปเองเสมอ จึงจำแค่ความลึกของข้อที่ลึกที่สุดก็พอ`
+        : '';
+    }
+    btns.forEach((b) => b.addEventListener('click', () => pick(Number(b.dataset.chPick))));
+  }
+  document.addEventListener('astro:page-load', initChainGame);
+
+  /* เครื่องเดินตาราง dp: หนึ่งขั้นคือหนึ่งจุด แถวของตารางทยอยเผย และจุดบนต้นไม้เปลี่ยนสีตาม
+     ตั้งสีผ่าน attribute ตรง ๆ เพราะสไตล์ scoped ของหน้าไม่ได้คุมสีของจุดอยู่แล้ว */
+  type DpStep = { note: string; v: number };
+  function isDpStep(x: unknown): x is DpStep {
+    if (typeof x !== 'object' || x === null) return false;
+    const o = x as Record<string, unknown>;
+    return typeof o.note === 'string' && typeof o.v === 'number';
+  }
+  document.addEventListener('astro:page-load', () => {
+    initCpPlayers<DpStep>('[data-dstdp]', {
+      narrow: (raw) => {
+        const ok = raw.filter(isDpStep);
+        return ok.length === raw.length ? ok : null;
+      },
+      sayFrom: (st) => st.note,
+      draw: (st, ctx) => {
+        const root = ctx.parts.root;
+        const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+        rows.forEach((tr, i) => {
+          tr.classList.toggle('is-later', i > ctx.at);
+          tr.classList.toggle('is-now', i === ctx.at);
+        });
+        const doneIds = new Set(rows.slice(0, ctx.at).map((tr) => tr.cells[0]?.textContent ?? ''));
+        root.querySelectorAll<SVGCircleElement>('[data-dpt-node]').forEach((c) => {
+          const id = c.dataset.dptNode ?? '';
+          const now = Number(id) === st.v;
+          const done = doneIds.has(id);
+          c.setAttribute('fill', now ? '#3a2f0b' : done ? '#10291d' : '#121a2b');
+          c.setAttribute('stroke', now ? '#d4af37' : done ? '#2f9e5c' : '#39425e');
+          c.setAttribute('stroke-width', now ? '3' : '1.5');
+        });
+      },
+    });
+  });
 </script>
