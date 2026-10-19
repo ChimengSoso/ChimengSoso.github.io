@@ -270,6 +270,8 @@ const steadyClaim = parkedRank === 1;
 const roles1 = steadyRoles(EX1, 1);
 const roles2 = steadyRoles(EX2, 3);
 /** ข้ออ้างที่ต้องตรวจ: คนที่หมุนคือลำดับ 2 ถึง N+1 พอดี ทั้งสองตัวอย่าง */
+const rolesOk = (cs: Case, r: { circulators: number[] }): boolean =>
+  r.circulators.length === cs.N && r.circulators.every((a, i) => a === i + 2);
 const rolesClaim =
   [
     [EX1, roles1] as const,
@@ -280,13 +282,28 @@ const rolesClaim =
       r.circulators.every((a, i) => a === i + 2),
   );
 
-/** เวลาที่วัดได้จริงบนเครื่องผมกับอินพุตสุ่มเต็มขอบเขต R */
+/** เวลาของโค้ดรอบแรก วัดใหม่ 19 ต.ค. 2026 จากโค้ดที่ดึงออกจากหน้านี้จริง (g++ -O2 บน WSL)
+ *  อินพุตสุ่ม R = 1,000,000,000 */
 const timing = [
-  { n: 200, ms: 34 },
-  { n: 500, ms: 216 },
-  { n: 800, ms: 828 },
-  { n: 1200, ms: 2273 },
+  { n: 200, ms: 38 },
+  { n: 500, ms: 501 },
+  { n: 800, ms: 2053 },
+  { n: 1200, ms: 6388 },
 ];
+const LIMIT_MS = 2000;
+const firstOkN = Math.max(...timing.filter((t) => t.ms < LIMIT_MS).map((t) => t.n));
+const firstBadN = Math.min(...timing.filter((t) => t.ms >= LIMIT_MS).map((t) => t.n));
+
+/** การสุ่มเทียบที่รันจริงกับโค้ดสามชุดที่ดึงออกจากหน้านี้ (19 ต.ค. 2026) */
+const STRESS = { small: 2000, smallMaxN: 8, mid: 500, midMinN: 9, midMaxN: 60, bad: 0 };
+/** จำนวนครั้งที่โค้ดเต็มเรียก evalU ที่ N = 200,000 วัดจากโค้ดเดียวกันที่ใส่ตัวนับเพิ่ม
+ *  อินพุตห้าแบบในตารางเวลา: แบบที่เราเป็นลำดับ 1 ไม่เรียกเลย อีกสี่แบบเรียก min ถึง max ครั้ง */
+const EVALS = { inputs: 4, min: 20, max: 39 };
+/** การตรวจเชิงทดลองด้วยสคริปต์แยก (จำลองคนจริงทุกคน ไม่ใช้ท่าย่อ) 19 ต.ค. 2026
+ *  boards: กระดานสุ่ม N = 1..maxN ดูว่ากระดานเริ่มซ้ำทุก N รอบตั้งแต่รอบไหน (ช้าสุดที่เจอคือรอบ N)
+ *  และหลังรอบ 2N คนที่ขยับคือลำดับ 2 ถึง N+1 ทุกกระดาน
+ *  uBoards: กระดานสุ่ม N = 2..uMaxN ทุกจุดเริ่ม ตรวจว่า u(k) ไม่ลด และเดิน T รอบให้ผลเท่าเดิน R รอบ */
+const EMP = { boards: 7600, maxN: 40, latestStartOverN: 1, uBoards: 960, uMaxN: 25, bad: 0 };
 
 /** ความพยายามแต่ละรอบกับสูตรที่เป้า 1 ตัวเลขคือจุดที่ไม่ตรงกับการเดินกระดานจริง */
 const formulaTries = [
@@ -295,16 +312,86 @@ const formulaTries = [
   { name: 'ใช้ค่ามากสุดสะสมตามเวลาแทน', wrong: 278, of: 14394 },
   { name: 'ทดสอบเฉพาะกรณีที่เป้า 1 มีคนแข็งอยู่แล้ว', wrong: 0, of: 18264 },
   { name: 'แยกสองเฟส (เฉลยจริง)', wrong: 0, of: 36510 },
-];
+].map((t) => ({ ...t, pct: ((100 * t.wrong) / t.of).toFixed(1) }));
 
-/** เวลาของโค้ดเต็มขอบเขต วัดที่ N = 200,000 กับ R = 1,000,000,000 */
+/** เวลาของโค้ดเต็มขอบเขต วัดที่ N = 200,000 กับ R = 1,000,000,000 (ดีที่สุดในสามรอบ วัดพร้อมกับตารางบน) */
 const timingFull = [
-  { name: 'อินพุตสุ่ม', ms: 340 },
-  { name: 'เรียงจากเก่งไปอ่อน (เราคือลำดับ 1)', ms: 143 },
-  { name: 'เรียงจากอ่อนไปเก่ง', ms: 338 },
-  { name: 'เราอ่อนที่สุด คนแข็งกองท้ายแถว', ms: 334 },
-  { name: 'เราลำดับ 2 คนเก่งสุดอยู่ท้ายแถว', ms: 336 },
+  { name: 'อินพุตสุ่ม', ms: 252 },
+  { name: 'เรียงจากเก่งไปอ่อน (เราคือลำดับ 1)', ms: 28 },
+  { name: 'เรียงจากอ่อนไปเก่ง', ms: 407 },
+  { name: 'เราอ่อนที่สุด คนแข็งกองท้ายแถว', ms: 409 },
+  { name: 'เราลำดับ 2 คนเก่งสุดอยู่ท้ายแถว', ms: 468 },
 ];
+const fullMaxMs = Math.max(...timingFull.map((t) => t.ms));
+
+/* ---------- ช่องว่างระหว่างโค้ดรอบแรกกับงบ (ตอนที่ 5) ----------
+   ไม่เดาความเร็วเครื่อง ใช้เวลาที่วัดได้จริงที่ N = 1,200 หารด้วยงานจริงของมัน (N จุดเริ่ม × T รอบ × N เป้า)
+   แล้วคูณกลับด้วยงานที่ N = 200,000 โดยใช้ T ของแต่ละขนาดตามที่โค้ดรอบแรกคำนวณจริง */
+const roundsFull = (N: number, R: number): number => (R <= 2 * N ? R : 2 * N + ((R - 2 * N) % N));
+const lastTiming = timing[timing.length - 1];
+const firstRoundsAt = (N: number): number => roundsNeeded(N, R_MAX);
+const msPerCell = lastTiming.ms / (lastTiming.n * firstRoundsAt(lastTiming.n) * lastTiming.n);
+const firstRoundsAtMax = firstRoundsAt(N_MAX);
+const firstProjMs = msPerCell * N_MAX * firstRoundsAtMax * N_MAX;
+/** สมมติให้การจำลองคนจริงเดินรอบละเร็วเท่าโค้ดรอบแรก ซึ่งใจดีกับมันแล้ว ต่างกันแค่ต้องเดินครบ R รอบ */
+const bruteProjMs = firstProjMs * (R_MAX / firstRoundsAtMax);
+const oneStartMs = firstProjMs / N_MAX;
+const oneStartOver = Math.round(oneStartMs / LIMIT_MS);
+const fullRoundsAtMax = roundsFull(N_MAX, R_MAX);
+
+/* เพดานจำนวนครั้งที่โค้ดเต็มประเมิน u(k) อ่านจากโครงของ main()
+   u อยู่ระหว่าง 1 - T ถึง N และ T ไม่เกิน 3N - 1 จึงคร่อมได้ไม่เกิน BLOCKS_MAX บล็อก
+   = 2 ครั้ง (u(1), u(N)) + เส้นแบ่งบล็อกละ (ค้นหาแบบทวิภาค + 1) + lastLE อีกหนึ่งการค้นหา */
+const BS_ITERS = Math.ceil(Math.log2(N_MAX + 1));
+const T_FULL_MAX = 3 * N_MAX - 1;
+const blockOfU = (u: number): number => Math.floor((u - 1) / N_MAX);
+const BLOCKS_MAX = blockOfU(N_MAX) - blockOfU(1 - T_FULL_MAX) + 1;
+const EVAL_BOUND = 2 + (BLOCKS_MAX - 1) * (BS_ITERS + 1) + BS_ITERS;
+if (EVALS.max > EVAL_BOUND) throw new Error('archery: จำนวนครั้งที่วัดได้เกินเพดานที่คิดจากโค้ด');
+/** ถ้าลองจุดเริ่มได้ไม่เกิน EVAL_BOUND ครั้ง แต่ละรอบของการเดินมีงบกี่นาโนวินาที */
+const nsBudgetRaw = (LIMIT_MS * 1e6) / (EVAL_BOUND * fullRoundsAtMax);
+const nsPerRoundBudget = Math.round(nsBudgetRaw);
+/** โค้ดรอบแรกใช้กี่นาโนวินาทีต่อหนึ่งรอบของหนึ่งจุดเริ่ม */
+const nsFirstRaw = (firstProjMs * 1e6) / (N_MAX * firstRoundsAtMax);
+const nsPerRoundFirst = Math.round(nsFirstRaw);
+const roundGap = Math.round(nsFirstRaw / nsBudgetRaw);
+if (oneStartOver < 2 || roundGap < 10) throw new Error('archery: ตัวเลขช่องว่างไม่สอดคล้องกับเรื่องที่ตอนที่ 5 เล่า');
+
+const fmtSec = (ms: number): string => {
+  const s = ms / 1000;
+  if (s < 1) return `${fmt(Math.round(ms))} มิลลิวินาที`;
+  if (s < 60) return `${Math.round(s)} วินาที`;
+  if (s < 3600) return `${(s / 60).toFixed(1).replace(/\.0$/, '')} นาที`;
+  if (s < 86400) return `${Math.round(s / 3600)} ชั่วโมง`;
+  if (s < 86400 * 365) return `${Math.round(s / 86400)} วัน`;
+  return `${fmt(Math.round(s / (86400 * 365)))} ปี`;
+};
+
+/* กราฟแท่งเวลา สเกล log10 หน่วยมิลลิวินาที */
+const CH_LO = 2;
+const CH_HI = 14;
+const CH_X0 = 186;
+const CH_W = 380;
+const CH_ROW = 46;
+const CH_Y0 = 46;
+const chX = (v: number): number => CH_X0 + ((Math.log10(v) - CH_LO) / (CH_HI - CH_LO)) * CH_W;
+const sci = (v: number): { m: string; e: number } => {
+  const e = Math.floor(Math.log10(v));
+  return { m: (v / 10 ** e).toFixed(1).replace(/\.0$/, ''), e };
+};
+const CH_BARS = [
+  { name: 'จำลองครบ R รอบ', v: bruteProjMs, ok: false },
+  { name: 'โค้ดรอบแรก', v: firstProjMs, ok: false },
+  { name: 'โค้ดเต็ม (วัดจริง)', v: fullMaxMs, ok: true },
+].map((b, k) => ({ ...b, y: CH_Y0 + k * CH_ROW, s: sci(b.v), over: Math.round(b.v / LIMIT_MS) }));
+if (CH_BARS.some((b) => b.ok !== b.v <= LIMIT_MS)) throw new Error('archery: กราฟงบเวลา แท่งที่บอกว่าทันไม่ตรงกับตัวเลข');
+const CH_TICKS = Array.from({ length: (CH_HI - CH_LO) / 3 + 1 }, (_, k) => CH_LO + k * 3);
+const CH_BOTTOM = CH_Y0 + CH_BARS.length * CH_ROW;
+
+/* เรื่องเล่าในกล่อง "สองทางที่ผมลองก่อน" คิดจากขอบเขตจริง ไม่พิมพ์มือ */
+const BIT_WORDS = Math.ceil(N_MAX / 64);
+const LOG_N = Math.ceil(Math.log2(N_MAX));
+const BIT_TOTAL = BIT_WORDS * 2 * N_MAX * LOG_N;
 
 /* ---------- พิกัดภาพสภาวะคงตัว ----------
    เป้าเรียงซ้ายไปขวา ตรงกับกติกาที่ผู้ชนะไหลไปทางซ้าย
@@ -319,39 +406,75 @@ const steadyVB = `0 0 ${stx(EX1.N) + STW + 12} 284`;
 /** ที่นั่งของเป้าหนึ่งเป้า เรียงลำดับน้อยไปมาก */
 const seatsAt = (i: number): SteadySeat[] => steady1.filter((x) => x.target === i);
 
-/* ---------- ภาพสองเฟสในตอนที่ 6 ----------
-   เฟสแรกยาว i0 - 1 รอบ เมื่อ i0 คือเป้าซ้ายสุดที่มีคนแข็งอยู่ตั้งแต่ต้น
-   ค่านี้คิดจาก n(0) จริง ไม่ได้กำหนดเอง และเลือกจุดเริ่มที่ทำให้เฟสแรกไม่เป็นศูนย์
-   เพื่อให้ภาพแสดงสิ่งที่มันต้องแสดง */
-/* ตัวอย่างในโจทย์ทั้งสองชุดไม่มีจุดเริ่มไหนเลยที่ทำให้เป้า 1 ว่างจากคนแข็ง
-   (เป้า 1 มีค่า n อย่างน้อยหนึ่งเสมอ) ภาพนี้จึงใช้กระดานเล็กที่ยกมาเอง
-   เพื่อให้เห็นเคสที่สูตรเดียวพังจริง ๆ */
-const PH_CS: Case = { N: 4, R: 5, skills: [3, 4, 5, 6, 7, 1, 2, 8] };
-/** จุดเริ่มที่ทำให้เป้า 1 ยังว่างจากคนแข็ง ซึ่งเป็นเคสที่สูตรเดียวพัง */
-const phaseK = (() => {
-  for (let k = 1; k <= PH_CS.N; k++) {
-    if (boardFor(PH_CS, k)[1] === 0) return k;
-  }
-  return 0;
-})();
-const phaseN0 = boardFor(PH_CS, phaseK).slice(1);
-/** เป้าซ้ายสุดที่มีคนแข็ง นับจาก 1 */
-const phaseI0 = phaseN0.findIndex((v) => v >= 1) + 1;
-const phaseOneLen = phaseI0 - 1;
-if (phaseK === 0 || phaseOneLen < 1) {
-  throw new Error('ภาพสองเฟส: กระดานที่เลือกไม่ได้ทำให้เป้า 1 ว่างจากคนแข็ง ภาพจะเล่าเรื่องที่ไม่ตรงกับคำบรรยาย');
+/* ---------- ตัวอย่างประจำตอนที่ 6 และ 7 ----------
+   ใช้กระดานเดียวทั้งสองตอน ผู้อ่านจะได้เรียนตัวเลขชุดเดียว
+   เลือกด้วยสคริปต์ค้นหา ให้ (ก) เป้า 1 ว่างจากคนแข็งตอนเริ่ม ซึ่งเป็นเคสที่ตอนที่ 7 ต้องใช้
+   และ (ข) ค่าน้อยสุดในสูตรการไหลชนะที่ j ตรงกลาง ไม่ใช่ปลาย ซึ่งตรวจซ้ำข้างล่าง */
+const FX: Case = { N: 6, R: 12, skills: [6, 12, 7, 8, 10, 11, 3, 2, 5, 9, 4, 1] };
+const FX_K = 3;
+
+/** n(0) แบบในโค้ดเต็ม: จำนวนคนที่แข็งกว่าเราที่แต่ละเป้า "ไม่นับตัวเรา" (c ในตอนที่ 1 นับตัวเราด้วย) */
+function strongBoard(cs: Case, k: number): number[] {
+  return boardFor(cs, k).map((v, i) => (i === k ? v - 1 : v));
 }
 
-/* ---------- ภาพของสูตร min over j ในตอนที่ 5 ----------
-   เลือกเป้าและรอบที่ทำให้เห็นการแลกกันชัดที่สุด คือค่าที่ j ตัวชนะไม่ใช่ j = 0
-   ค่าของทุก j คิดจาก n(0) จริงที่ boardFor() คืนมา ไม่ได้พิมพ์มือ */
-const FLOW_CS = EX1;
-const FLOW_K = ans1.start;
-const flowN0 = boardFor(FLOW_CS, FLOW_K).slice(1);
-/** n(0) ของเป้าที่ i โดยวนรอบวงเมื่อเลยขอบ */
-const n0at = (i: number): number => flowN0[(i - 1) % FLOW_CS.N];
-const FLOW_I = 1;
-const FLOW_T = FLOW_CS.N;
+/** นับตรง ๆ: เดินกระดานคนแข็ง t รอบ แล้วนับว่าเป้า i ปล่อยคนแข็งออกไปกี่คน */
+function emittedDirect(n0: number[], i: number, t: number): number {
+  let b = n0.slice();
+  let out = 0;
+  for (let q = 0; q < t; q++) {
+    out += i === 1 ? (b[1] === 2 ? 1 : 0) : b[i] >= 1 ? 1 : 0;
+    b = nextBoard(b);
+  }
+  return out;
+}
+
+/** สูตรการไหล: ค่าน้อยสุดของ (t - j) + ผลรวม n(0) ของ j เป้าแรกนับจากเป้า i
+ *  ใช้ได้เมื่อทุกเป้าบนทางเป็นเป้าธรรมดา คือ i >= 2 และ i + t - 1 <= N */
+function emittedFormula(n0: number[], i: number, t: number): number {
+  let best = Infinity;
+  let sum = 0;
+  for (let j = 0; j <= t; j++) {
+    best = Math.min(best, t - j + sum);
+    if (j < t) sum += n0[i + j];
+  }
+  return best;
+}
+
+/** ตรวจสูตรกับการนับตรง ๆ ทุกเป้าทุกจำนวนรอบที่สูตรใช้ได้ บนกระดานสุ่มหลายร้อยแบบ ไม่ตรงคือบิลด์พัง */
+let lcg = 20261019;
+const rnd = (m: number): number => {
+  lcg = (lcg * 1103515245 + 12345) % 2147483648;
+  return Math.floor((lcg / 2147483648) * m);
+};
+const randomCase = (N: number, extra: number): Case => {
+  const p = Array.from({ length: 2 * N }, (_, i) => i + 1);
+  for (let i = p.length - 1; i > 0; i--) {
+    const j = rnd(i + 1);
+    [p[i], p[j]] = [p[j], p[i]];
+  }
+  return { N, R: 2 * N + extra, skills: p };
+};
+const RANDOM_CASES: Case[] = Array.from({ length: 300 }, (_, q) => randomCase(1 + (q % 7), rnd(3 * (1 + (q % 7)) + 1)));
+let flowChecks = 0;
+for (const cs of [FX, ...RANDOM_CASES]) {
+  for (let k = 1; k <= cs.N; k++) {
+    const n0 = strongBoard(cs, k);
+    for (let i = 2; i <= cs.N; i++) {
+      for (let t = 0; i + t - 1 <= cs.N; t++) {
+        if (emittedFormula(n0, i, t) !== emittedDirect(n0, i, t)) {
+          throw new Error(`archery: สูตรการไหลไม่ตรงกับการนับตรง ๆ ที่ N=${cs.N} k=${k} เป้า ${i} รอบ ${t}`);
+        }
+        flowChecks++;
+      }
+    }
+  }
+}
+
+/* ภาพและเครื่องเดินของสูตรการไหล: เป้า 2 ผ่านไป N - 1 รอบ ทางเดินจึงครอบเป้า 2 ถึง N ซึ่งเป็นเป้าธรรมดาทั้งหมด */
+const flowN0 = strongBoard(FX, FX_K);
+const FLOW_I = 2;
+const FLOW_T = FX.N - 1;
 interface FlowOpt {
   j: number;
   straight: number;
@@ -361,39 +484,200 @@ interface FlowOpt {
 }
 const flowOpts: FlowOpt[] = Array.from({ length: FLOW_T + 1 }, (_, j) => {
   const targets = Array.from({ length: j }, (_, q) => FLOW_I + q);
-  const diag = targets.reduce((sum, t) => sum + n0at(t), 0);
+  const diag = targets.reduce((sum, t) => sum + flowN0[t], 0);
   return { j, straight: FLOW_T - j, diag, total: FLOW_T - j + diag, targets };
 });
 const flowBest = flowOpts.reduce((b, x) => (x.total < b.total ? x : b), flowOpts[0]);
+const flowTies = flowOpts.filter((o) => o.total === flowBest.total).length;
+const flowDirect = emittedDirect(flowN0, FLOW_I, FLOW_T);
+if (flowBest.total !== flowDirect || flowBest.j === 0 || flowBest.j === FLOW_T || flowTies !== 1) {
+  throw new Error('archery: ตัวอย่างประจำตอนที่ 6 ไม่ได้ให้ทางชนะที่ j ตรงกลางเพียงทางเดียว หรือสูตรไม่ตรงกับการนับ');
+}
+/** เป้าคนแข็งที่ใกล้เป้า FLOW_I ที่สุดทางขวา ใช้ในคำบรรยายของเครื่องเดิน */
+const flowNear = flowN0.findIndex((v, i) => i >= FLOW_I && v >= 1);
+
+/** เครื่องเดินของการไหล: แถวที่ t คือกระดานหลังผ่านไป t รอบ */
+interface FlowFrame {
+  t: number;
+  board: number[];
+  emit: boolean;
+  F: number;
+}
+const flowFrames: FlowFrame[] = (() => {
+  const out: FlowFrame[] = [];
+  let b = flowN0.slice();
+  let F = 0;
+  for (let t = 0; t <= FLOW_T; t++) {
+    const emit = t < FLOW_T && b[FLOW_I] >= 1;
+    out.push({ t, board: b.slice(1), emit, F });
+    if (t < FLOW_T) {
+      F += emit ? 1 : 0;
+      b = nextBoard(b);
+    }
+  }
+  return out;
+})();
+if (flowFrames[flowFrames.length - 1].F !== flowBest.total) throw new Error('archery: เครื่องเดินการไหลจบไม่ตรงกับสูตร');
+const flowNotes = flowFrames.map((f, idx) => {
+  const here = f.board[FLOW_I - 1];
+  let note: string;
+  if (idx === 0) {
+    note =
+      `ก่อนเริ่ม เป้า ${FLOW_I} มีคนแข็ง ${here} คน ` +
+      (f.emit
+        ? 'จึงปล่อยออกหนึ่งคนในรอบแรกได้เลย'
+        : `ยังไม่มีใครให้ปล่อย คนแข็งที่ใกล้ที่สุดอยู่เป้า ${flowNear} ต้องเดินมาอีก ${flowNear - FLOW_I} รอบ`);
+  } else if (idx === flowFrames.length - 1) {
+    note = `ครบ ${FLOW_T} รอบ เป้า ${FLOW_I} ปล่อยไปทั้งหมด <b>${f.F}</b> คน ตรงกับสูตรที่ให้ ${flowBest.total}`;
+  } else if (idx === 1) {
+    note =
+      `ผ่านไป 1 รอบ ทุกเป้าที่มีคนแข็ง (ยกเว้นเป้า 1) ส่งออกไปทางซ้ายเป้าละหนึ่งคน ตอนนี้เป้า ${FLOW_I} มี ${here} คน ` +
+      `ที่ออกไปแล้วรวม F = ${f.F}` +
+      (f.emit ? ' รอบนี้ปล่อยได้อีกหนึ่ง' : ' รอบนี้ยังปล่อยไม่ได้');
+  } else {
+    note = `ผ่านไป ${f.t} รอบ · เป้า ${FLOW_I} มี ${here} คน · ${f.emit ? 'ปล่อย 1' : 'ไม่ปล่อย'} · F = ${f.F}`;
+  }
+  return { note };
+});
+
+/* ---------- ภาพสองเฟสในตอนที่ 7 ใช้กระดานเดียวกับตอนที่ 6 ---------- */
+const phaseN0 = flowN0.slice(1);
+/** เป้าซ้ายสุดที่มีคนแข็ง นับจาก 1 */
+const phaseI0 = phaseN0.findIndex((v) => v >= 1) + 1;
+const phaseOneLen = phaseI0 - 1;
+if (phaseN0[0] !== 0 || phaseOneLen < 1) {
+  throw new Error('ภาพสองเฟส: กระดานที่เลือกไม่ได้ทำให้เป้า 1 ว่างจากคนแข็ง ภาพจะเล่าเรื่องที่ไม่ตรงกับคำบรรยาย');
+}
 
 /* พิกัดของภาพสองเฟส เส้นเวลาเดียวแบ่งสองช่วง */
 const PHW = 58;
 const PHGAP = 9;
 const phx = (i: number): number => 116 + (i - 1) * (PHW + PHGAP);
 const PH_TOP = 74;
-const phaseVB = `0 0 ${phx(PH_CS.N) + PHW + 12} 262`;
+const phaseVB = `0 0 ${phx(FX.N) + PHW + 12} 262`;
 
-/* พิกัดของภาพ แถวบนคือ n(0) ของแต่ละเป้า แถวล่างคือตัวเลือกของ j ทีละแถว */
+/* พิกัดของภาพสูตร แถวบนคือ n(0) ของเป้า 2 ถึง N แถวล่างคือตัวเลือกของ j ทีละแถว */
 const FLW = 58;
 const FLGAP = 9;
-const flx = (i: number): number => 128 + (i - 1) * (FLW + FLGAP);
+const flx = (i: number): number => 96 + (i - FLOW_I) * (FLW + FLGAP);
 const FL_TOP = 66;
 const FL_ROW = 30;
-const flowVB = `0 0 ${flx(FLOW_T + 1) + FLW + 81} ${FL_TOP + 44 + (FLOW_T + 1) * FL_ROW + 80}`;
+const flowVB = `0 0 ${flx(FLOW_I + FLOW_T - 1) + FLW + 112} ${FL_TOP + 44 + (FLOW_T + 1) * FL_ROW + 80}`;
 
-/* ---------- พิกัดภาพเป้าที่ไปจบของทุกจุดเริ่ม ---------- */
-const UKW = 62;
-const UKGAP = 10;
-const ukx = (i: number): number => 46 + i * (UKW + UKGAP);
-const UK_TOP = 56;
-const UK_ROW = 34;
-const ukVB = `0 0 ${ukx(EX1.N - 1) + UKW + 24} ${UK_TOP + 2 * UK_ROW + 121}`;
-/** จุดเริ่มที่ให้เป้าสุดท้ายดีที่สุด อาจมีหลายจุด โจทย์ให้ตอบจุดที่มากที่สุด */
-const ukTies = ans1.finals
-  .map((v, i) => ({ k: i + 1, v }))
-  .filter((x) => x.v === ans1.best)
-  .map((x) => x.k);
+/* ---------- u(k) ตำแหน่งที่คลี่วงออกเป็นเส้นตรง (ตอนที่ 8) ----------
+   ทุกก้าวของเราเป็นก้าวซ้าย รวมถึงตอนแพ้ที่เป้า 1 ซึ่งคือก้าวจาก 1 ไป 0 บนเส้นที่คลี่ออก (0 กับ N คือเป้าเดียวกัน) */
+interface UInfo {
+  k: number;
+  steps: number;
+  u: number;
+  f: number;
+  block: number;
+}
+const blockOf = (u: number, N: number): number => Math.floor((u - 1) / N);
+function uOf(cs: Case, k: number): UInfo {
+  const fr = trace(cs, k, roundsFull(cs.N, cs.R));
+  let steps = 0;
+  for (let q = 0; q + 1 < fr.length; q++) if (fr[q + 1].pos !== fr[q].pos) steps++;
+  const u = k - steps;
+  const f = (((u - 1) % cs.N) + cs.N) % cs.N + 1;
+  if (f !== fr[fr.length - 1].pos) throw new Error(`archery: u(${k}) แปลงกลับเป็นเป้าไม่ตรง`);
+  return { k, steps, u, f, block: blockOf(u, cs.N) };
+}
+/** วิธีของโค้ดเต็ม: ผู้เข้าชิงคือ u ตัวเล็กสุดของแต่ละบล็อก เสมอกันเอา u มาก แล้วตอบ k มากสุดที่ u(k) ไม่เกินค่านั้น */
+function viaCandidates(cs: Case): { cands: number[]; start: number } {
+  const us = Array.from({ length: cs.N }, (_, i) => uOf(cs, i + 1));
+  const cands = us.filter((x, i) => i === 0 || x.block !== us[i - 1].block).map((x) => x.u);
+  let bestF = Infinity;
+  let bestU = 0;
+  for (const u of cands) {
+    const f = (((u - 1) % cs.N) + cs.N) % cs.N + 1;
+    if (f < bestF || (f === bestF && u > bestU)) {
+      bestF = f;
+      bestU = u;
+    }
+  }
+  const start = Math.max(...us.filter((x) => x.u <= bestU).map((x) => x.k));
+  return { cands, start };
+}
+/* ตรวจสองข้ออ้างของตอนที่ 8 กับการจำลองคนจริงครบ R รอบ (ไม่ใช้ท่าย่อเลย):
+   u(k) ไม่ลด และวิธีผู้เข้าชิงให้คำตอบเดียวกับการลองทุกจุด */
+let uChecks = 0;
+for (const cs of [EX1, EX2, FX, ...AR_PUZZLES.map((p) => p.cs), ...RANDOM_CASES]) {
+  let prev = -Infinity;
+  let bestF = Infinity;
+  let bestK = -1;
+  for (let k = 1; k <= cs.N; k++) {
+    const x = uOf(cs, k);
+    if (x.u < prev) throw new Error(`archery: u(k) ลดลงที่ N=${cs.N} k=${k}`);
+    prev = x.u;
+    const real = simulateFull(cs, k, cs.R);
+    if (real !== x.f) throw new Error(`archery: u(k) ให้เป้า ${x.f} แต่จำลองจริงได้ ${real}`);
+    if (real <= bestF) {
+      bestF = real;
+      bestK = k;
+    }
+  }
+  if (viaCandidates(cs).start !== bestK) throw new Error(`archery: วิธีผู้เข้าชิงตอบไม่ตรงกับการลองทุกจุดที่ N=${cs.N}`);
+  uChecks++;
+}
+const uRows1 = Array.from({ length: EX1.N }, (_, i) => uOf(EX1, i + 1));
+const cand1 = viaCandidates(EX1);
+if (cand1.start !== ans1.start) throw new Error('archery: ตาราง u ของตัวอย่างที่ 1 ตอบไม่ตรง');
+const uBlocks1 = new Set(uRows1.map((x) => x.block)).size;
+const uCandRow1 = uRows1.map((x, i) => i === 0 || x.block !== uRows1[i - 1].block);
 
+/** ภาพเส้นที่คลี่แล้วของ N = 4: ตำแหน่ง u แต่ละค่าตรงกับเป้าไหน และอยู่บล็อกไหน */
+const unrollCells = Array.from({ length: 12 }, (_, q) => {
+  const u = q - 3;
+  return { u, target: (((u - 1) % EX1.N) + EX1.N) % EX1.N + 1, block: blockOf(u, EX1.N) };
+});
+
+/* ---------- ตัวอย่างประจำตอน: n(0) มาจากไหน ---------- */
+const fxLine = lineFor(FX, FX_K);
+const fxPairs = Array.from({ length: FX.N }, (_, i) => {
+  const pair = [fxLine[2 * i], fxLine[2 * i + 1]].map((v) => (v === meOf(FX) ? 'เรา' : String(v)));
+  return { target: i + 1, pair: pair.join(', '), strong: flowN0[i + 1] };
+});
+
+/* ---------- P กับ G ของตัวอย่างประจำตอน (ตอนที่ 6) ---------- */
+const fxP = Array.from({ length: FX.N + 2 }, (_, y) => {
+  let s = 0;
+  for (let q = 1; q < y; q++) s += q <= FX.N ? flowN0[q] : 0;
+  return s;
+});
+const fxG = fxP.map((p, y) => p - y);
+const pgYs = Array.from({ length: FLOW_T + 1 }, (_, q) => FLOW_I + q);
+const pgMin = Math.min(...pgYs.map((y) => fxG[y]));
+const pgF = FLOW_T - fxP[FLOW_I] + FLOW_I + pgMin;
+if (pgF !== flowBest.total) throw new Error('archery: สูตร P กับ G ให้ผลไม่ตรงกับตัวเลือก j');
+
+/* ---------- จบเฟสแรกของตัวอย่างประจำตอน (ตอนที่ 7) ----------
+   เฟสแรกเป้า 1 ยังไม่ปล่อยใคร จึงนับว่าเลยเป้า N ไปไม่มีคนแข็ง (ค่าเป็น 0) แล้วใช้สูตรเส้นตรงได้ทุกเป้า */
+function emittedPadded(n0: number[], N: number, i: number, t: number): number {
+  let best = Infinity;
+  let sum = 0;
+  for (let j = 0; j <= t; j++) {
+    best = Math.min(best, t - j + sum);
+    sum += i + j <= N ? n0[i + j] : 0;
+  }
+  return best;
+}
+const t1 = phaseOneLen;
+const phaseF = Array.from({ length: FX.N + 2 }, (_, i) => (i >= 2 && i <= FX.N ? emittedPadded(flowN0, FX.N, i, t1) : 0));
+const phaseEnd = Array.from({ length: FX.N }, (_, q) => {
+  const i = q + 1;
+  return flowN0[i] + (i < FX.N ? phaseF[i + 1] : 0) - phaseF[i];
+});
+const phaseEndDirect = (() => {
+  let b = flowN0.slice();
+  for (let q = 0; q < t1; q++) b = nextBoard(b);
+  return b.slice(1);
+})();
+if (phaseEnd.join() !== phaseEndDirect.join() || phaseEnd[0] < 1) {
+  throw new Error('archery: สภาพกระดานตอนจบเฟสแรกจากสูตรไม่ตรงกับการเดินกระดาน');
+}
+/** ค่าที่เฟสสองใช้: เป้า 1 ใช้ n ลบหนึ่ง ที่เหลือใช้ตามจริง วางซ้ำสองรอบวงให้เห็นเส้นที่คลี่ */
+const phaseLine = [0, 1].flatMap(() => phaseEnd.map((v, q) => ({ target: q + 1, v: q === 0 ? v - 1 : v })));
 /* ---------- สูตร ---------- */
 
 const texBoard = texCode(
@@ -518,13 +802,15 @@ const coreLine = `bool oppStrong = (c[pos] == 2);
 if (pos == 1) pos = oppStrong ? N : 1;   // แพ้ที่เป้า 1 คือถูกส่งไปท้ายแถว
 else if (!oppStrong) pos--;              // ชนะที่เป้าอื่นคือขยับไปทางซ้าย`;
 
-const flowIdea = `// F_i(t) = จำนวนโทเคนที่ออกจากเป้า i ครบ t รอบ
-// ความจริงข้อเดียวที่ต้องเชื่อ: เป้าที่มีโทเคนจะปล่อยออกไปหนึ่งตัวต่อรอบเสมอ
-//   n_i(t) = n_i(0) + F_{i+1}(t) - F_i(t)          จำนวนโทเคนที่เป้า i ตอนนี้
+const flowIdea = `// F_i(t) = จำนวนคนแข็งที่ออกจากเป้า i ไปแล้ว เมื่อผ่านไป t รอบ
+// ความจริงข้อเดียวที่ต้องเชื่อ: เป้าธรรมดาที่มีคนแข็ง ปล่อยออกไปรอบละหนึ่งคนเสมอ
+//   n_i(t)   = n_i(0) + F_{i+1}(t) - F_i(t)        ตั้งต้น + ไหลเข้า - ไหลออก
 //   F_i(t+1) = F_i(t) + [ n_i(t) >= 1 ]
-// เขียนใหม่เป็นรูป min-plus ได้ เพราะ n_i(t) >= 0 เสมอ
+// เมื่อ n ไม่ติดลบ [ n >= 1 ] มีค่าเท่ากับ min(1, n) แทนค่าแล้วได้
 //   F_i(t+1) = min( F_i(t) + 1 , F_{i+1}(t) + n_i(0) )
-// คลี่ออกมาแล้วเหลือแค่การเลือกว่าจะเดิน "ทแยง" กี่ก้าว
+// คลี่ซ้ำไปจนถึงรอบ 0 (ที่ F ทุกตัวเป็น 0) ทุกขั้นเลือกได้สองทาง
+//   "ตรง" อยู่เป้าเดิม บวก 1   หรือ   "ทแยง" ขยับไปเป้าขวา บวก n(0) ของเป้าที่ผ่าน
+// เดินทแยง j ครั้ง ตรง t - j ครั้ง ลำดับไม่มีผล เหลือแค่เลือก j
 //   F_i(t) = min over j in [0, t] ของ  (t - j) + ( n_i(0) + ... + n_{i+j-1}(0) )`;
 
 const rmqIdea = `// ให้ P[y] = ผลรวมของ n(0) ตั้งแต่เป้าลำดับที่ 1 ถึง y-1 (คลี่วงออกเป็นเส้นตรง)
@@ -724,6 +1010,20 @@ int main() {
     return 0;
 }`;
 
+/** แผนที่โค้ดเต็ม: ท่อนในโค้ด กับตอนที่เล่าเหตุผลของมัน */
+const CODE_MAP: { code: string; where: string }[] = [
+  { code: 'T = 2N + ((R - 2N) % N)', where: 'ตอนที่ 3 (ไม่ต้องเดินครบ R รอบ)' },
+  { code: 'if (me == 1) ... N', where: 'ตอนที่ 3 (ลำดับ 1 จอดที่เป้า 1 ทุกจุดเริ่มจึงจบเท่ากัน)' },
+  { code: 'b[] และ n0[] ใน evalU', where: 'ตอนที่ 1 และ 6 (นับคนแข็ง ไม่นับตัวเรา)' },
+  { code: 'blocked = n0[pos] + fs - fp >= 1', where: 'ตอนที่ 6 (สิ่งเดียวที่ต้องรู้ต่อรอบ)' },
+  { code: 'P, G, winL/winR, mnCur', where: 'ตอนที่ 6 (ค่าน้อยสุดของหน้าต่างที่มีแต่ขยาย)' },
+  { code: 'i0, t1 และ เฟส 1', where: 'ตอนที่ 7 (ช่วงที่เป้า 1 ยังว่าง)' },
+  { code: 'deque ตอนจบเฟสแรก', where: 'ตอนที่ 7 (สภาพกระดานตอนเปลี่ยนเฟส ใช้ deque คือคิวที่หยิบเข้าออกได้สองหัว)' },
+  { code: 'เฟส 2: nt1[s] - (s == 1 ? 1 : 0)', where: 'ตอนที่ 7 (ใช้ n ของเป้า 1 ลบหนึ่ง)' },
+  { code: 'cand, firstGE, lastLE', where: 'ตอนที่ 8 (ผู้เข้าชิงบล็อกละตัว)' },
+  { code: 'f == bestF && u > bestU', where: 'ตอนที่ 8 และกล่องบักตอนเสมอกันข้างบน' },
+];
+
 /* ท่อนเลือกผู้ชนะจากผู้เข้าชิง เวอร์ชันที่ผมเขียนผิดรอบแรก ต่างจากโค้ดเต็มแค่บรรทัดเดียว */
 const brokenPick = `// ผู้เข้าชิงคือค่า u ที่เล็กที่สุดของแต่ละบล็อก สองบล็อกให้เป้าสุดท้ายเท่ากันได้
 ll bestF = LLONG_MAX, bestU = 0;
@@ -782,7 +1082,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
   </p>
 
   <ZoomableDiagram caption="กติกาการย้ายที่ ผู้ชนะไหลไปทางซ้ายทีละเป้า ผู้แพ้อยู่กับที่ ยกเว้นผู้แพ้ที่เป้า 1 ที่ถูกเหวี่ยงกลับไปท้ายแถว วงจรจึงปิดเป็นวงกลม (วาดประกอบโดยผู้เขียน)">
-    <svg viewBox="0 0 544 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพเป้ายิงธนูสี่เป้าเรียงกัน มีลูกศรจากเป้าขวาชี้ไปเป้าซ้ายกำกับว่าผู้ชนะ และลูกศรโค้งใหญ่จากเป้าหนึ่งอ้อมกลับไปเป้าสุดท้ายกำกับว่าผู้แพ้ที่เป้า 1">
+    <svg viewBox="0 0 544 250" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:680px" role="img" aria-label="แผนภาพเป้ายิงธนูสี่เป้าเรียงกัน มีลูกศรจากเป้าขวาชี้ไปเป้าซ้ายกำกับว่าผู้ชนะ และลูกศรโค้งใหญ่จากเป้าหนึ่งอ้อมกลับไปเป้าสุดท้ายกำกับว่าผู้แพ้ที่เป้า 1">
       <defs>
         <marker id="ar-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
           <path d="M0 0 L10 5 L0 10 z" fill="#4ade80" />
@@ -864,8 +1164,8 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
   <p>
     ท่าแรกที่ทุกคนคิดถึงคือจำลองมันตรง ๆ ลองแทรกตัวเองทุกจุด แล้วเดินการแข่งให้ครบ <code>R</code> รอบ
     ปัญหาคือตัวเลขในโจทย์ไม่ยอมให้ทำ จุดที่แทรกได้มี <code>N</code> จุด แต่ละจุดต้องเดิน <code>R</code> รอบ
-    และหนึ่งรอบต้องจัดการทั้ง <code>N</code> เป้า คูณกันแล้วได้ราว <code>N × R × N</code> ซึ่งที่ขอบเขตบนคือ
-    ตัวเลขที่ยาวเกินกว่าจะเขียนเป็นชื่อหน่วยได้
+    และหนึ่งรอบต้องจัดการทั้ง <code>N</code> เป้า คูณกันแล้วได้ราว <code>N × R × N</code> ซึ่งที่ขอบเขตบนคือราว
+    {fmt(N_MAX * R_MAX * N_MAX)} ก้าว
   </p>
   <p>
     ที่แสบกว่าตัวเลขคือ<strong>ค่า <code>R</code> ที่ใหญ่ถึง {fmt(R_MAX)}</strong> มันบอกใบ้อยู่กลาย ๆ ว่า
@@ -906,7 +1206,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
     <p class="cpg-hint">เป้าหมายคือจบให้ได้เป้าที่เลขน้อยที่สุด ถ้ามีหลายจุดที่จบเท่ากัน โจทย์ขอจุดยืนที่เลขมากที่สุด</p>
   </div>
   <p class="io-note">
-    ลองไล่ให้ครบทุกจุดแล้วดูลำดับของผลลัพธ์ ถ้ามันขึ้นแล้วลง แปลว่าท่าที่อาศัยความเรียงอย่างการค้นแบบไบนารีใช้ไม่ได้
+    ลองไล่ให้ครบทุกจุดแล้วดูลำดับของผลลัพธ์ ถ้ามันไม่ได้เรียงจากน้อยไปมาก แปลว่าท่าที่อาศัยความเรียง อย่างการค้นหาแบบทวิภาค (binary search คือเดาตรงกลางแล้วตัดทิ้งครึ่งหนึ่งทุกครั้ง) ใช้ตรง ๆ ไม่ได้
   </p>
 
   <h2>เฉลย ตอนที่ 1 · โลกทั้งใบเหลือคนสองประเภท</h2>
@@ -929,23 +1229,24 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       และ <code>0</code> ให้คนที่เราชนะ
     </p>
     <p>
-      คำถามคือแล้วป้ายพวกนี้ขยับยังไงเมื่อเวลาผ่านไป ซึ่งตอบได้จากกติกาโดยไม่ต้องรู้หมายเลขจริงของใครเลย
-      เพราะที่เป้าหนึ่ง ๆ ผู้ชนะคือคนที่เก่งกว่า และ<strong>คนที่เก่งกว่าย่อมมีป้ายไม่ต่ำกว่าคู่ของตัวเอง</strong>
-      ไล่ทั้งสามกรณีแล้วได้กฎเดียว
+      แล้วป้ายพวกนี้ขยับยังไงเมื่อเวลาผ่านไป ตอบได้จากกติกาโดยไม่ต้องรู้หมายเลขจริงของใครเลย
+      เพราะผู้ชนะคือคนที่เก่งกว่า และคนที่เก่งกว่าย่อมมีป้ายไม่ต่ำกว่าคู่ของตัวเอง ไล่ทั้งสามกรณีได้แบบนี้
     </p>
     <ul>
-      <li>ป้าย <code>1</code> เจอป้าย <code>1</code> ผู้ชนะเป็น <code>1</code> ผู้แพ้เป็น <code>1</code></li>
+      <li>ป้าย <code>1</code> เจอป้าย <code>1</code> คนที่เก่งกว่าในสองคนชนะแล้วออกไป อีกคนอยู่ต่อ ทั้งคู่เป็น <code>1</code></li>
       <li>ป้าย <code>1</code> เจอป้าย <code>0</code> ผู้ชนะเป็น <code>1</code> ผู้แพ้เป็น <code>0</code></li>
       <li>ป้าย <code>0</code> เจอป้าย <code>0</code> ผู้ชนะเป็น <code>0</code> ผู้แพ้เป็น <code>0</code></li>
     </ul>
     <p>
-      สรุปเป็นประโยคเดียวว่า <strong>ทุกเป้าส่งป้ายที่สูงกว่าออกไป และเก็บป้ายที่ต่ำกว่าไว้</strong> เท่านั้นเอง
-      พอเป็นแบบนี้ เราไม่ต้องเก็บว่าใครยืนตรงไหนอีกแล้ว เก็บแค่ตัวเลขเดียวต่อหนึ่งเป้าคือ
-      <strong>เป้านั้นมีคนป้าย <code>1</code> อยู่กี่คน</strong> ซึ่งเป็น 0, 1 หรือ 2 เรียกมันว่า <code>c[i]</code>
+      สรุปเป็นกฎเดียวว่า <strong>ทุกเป้าส่งป้ายที่สูงกว่าออกไป และเก็บป้ายที่ต่ำกว่าไว้</strong>
+    </p>
+    <p>
+      ตอนนี้ไม่ต้องเก็บว่าใครยืนตรงไหนอีกแล้ว เก็บแค่ตัวเลขเดียวต่อเป้า คือเป้านั้นมีคนป้าย <code>1</code> กี่คน
+      ซึ่งเป็น 0, 1 หรือ 2 เรียกมันว่า <code>c[i]</code>
     </p>
 
     <ZoomableDiagram caption="ทุกเป้าส่งป้ายที่สูงกว่าออกไปทางซ้าย และเก็บป้ายที่ต่ำกว่าไว้ สนามทั้งสนามจึงเล่าได้ด้วยตัวเลข 0 ถึง 2 ต่อหนึ่งเป้า (วาดประกอบโดยผู้เขียน)">
-      <svg viewBox="0 0 434 216" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="แผนภาพสามกรณีของการเจอกันที่หนึ่งเป้า หนึ่งเจอหนึ่ง หนึ่งเจอศูนย์ และศูนย์เจอศูนย์ แต่ละกรณีมีลูกศรชี้ออกทางซ้ายกำกับว่าคนที่ออกไป และป้ายกำกับว่าคนที่อยู่ต่อ">
+      <svg viewBox="0 0 434 216" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:540px" role="img" aria-label="แผนภาพสามกรณีของการเจอกันที่หนึ่งเป้า หนึ่งเจอหนึ่ง หนึ่งเจอศูนย์ และศูนย์เจอศูนย์ แต่ละกรณีมีลูกศรชี้ออกทางซ้ายกำกับว่าคนที่ออกไป และป้ายกำกับว่าคนที่อยู่ต่อ">
         {[
           { pair: ['1', '1'], out: '1', stay: '1' },
           { pair: ['1', '0'], out: '1', stay: '0' },
@@ -1000,35 +1301,33 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       แปลงกฎ "ส่งตัวสูงออก เก็บตัวต่ำไว้" ให้เป็นสมการของ <code>c</code> ได้ตรง ๆ โดยจำไว้ว่าเป้า 1
       กับเป้า <code>N</code> ผิดฝาผิดตัวกว่าเพื่อน เพราะที่เป้า 1 ผู้ชนะอยู่ต่อและผู้แพ้ถูกเหวี่ยงไปเป้า <code>N</code>
     </p>
-    <div set:html={texBoard} />
     <p>
-      ก่อนอ่านสามบรรทัดนี้ ต้องรู้ก่อนว่าทุกบรรทัดพูดเรื่องเดียวกัน คือ<strong>เป้าหนึ่งเป้าจะมีป้าย 1 กี่คนในรอบถัดไป</strong>
-      และคำตอบประกอบจากสองส่วนเสมอ คือ<strong>คนที่เป้านี้เก็บไว้เอง</strong> บวก<strong>คนที่รับมาจากเป้าทางขวา</strong>
-      วงเล็บเหลี่ยมในสมการอ่านว่า "ถ้าเงื่อนไขนี้จริงให้นับหนึ่ง ถ้าไม่จริงให้นับศูนย์" สามบรรทัดจึงต่างกันแค่ว่า
-      ใครคือคนที่ถูกเก็บไว้ และใครคือคนที่ถูกส่งต่อ
+      ทุกบรรทัดข้างล่างตอบคำถามเดียวกัน คือเป้านี้จะมีป้าย 1 กี่คนในรอบถัดไป คำตอบมาจากสองส่วนเสมอ
+      คือคนที่เป้านี้เก็บไว้เอง บวกคนที่รับมาจากเป้าทางขวา
     </p>
+    <p>
+      วงเล็บเหลี่ยมอย่าง <code>[c[1] ≥ 1]</code> อ่านว่า "ถ้าเงื่อนไขในวงเล็บจริงนับหนึ่ง ไม่จริงนับศูนย์"
+      และ <code>c'</code> คือค่าในรอบถัดไป
+    </p>
+    <div set:html={texBoard} />
+    <p>สามบรรทัดต่างกันแค่ว่าใครถูกเก็บ ใครถูกส่งต่อ</p>
     <ul>
       <li>
-        <strong>บรรทัดกลาง ใช้กับเป้า 2 ถึง <code>N - 1</code></strong> ซึ่งเป็นกรณีปกติ
-        เป้านี้เก็บ<strong>ผู้แพ้</strong>ของตัวเองไว้ ซึ่งเป็นป้าย <code>1</code> ก็ต่อเมื่อเดิมมีป้าย <code>1</code>
-        อยู่<strong>สองคน</strong> (ถ้ามีคนเดียว คนนั้นชนะแล้วเดินออกไป) แล้วรับ<strong>ผู้ชนะ</strong>
-        จากเป้าทางขวามาอีกหนึ่งคน ซึ่งเป็นป้าย <code>1</code> ก็ต่อเมื่อเป้านั้นมีป้าย <code>1</code> อย่างน้อยหนึ่งคน
+        <strong>บรรทัดกลาง (เป้า 2 ถึง <code>N - 1</code>)</strong> เก็บผู้แพ้ของตัวเอง ซึ่งเป็นป้าย <code>1</code>
+        ก็ต่อเมื่อเดิมมีป้าย <code>1</code> สองคน (ถ้ามีคนเดียว คนนั้นชนะแล้วเดินออกไป)
+        แล้วรับผู้ชนะจากเป้าทางขวา ซึ่งเป็นป้าย <code>1</code> เมื่อเป้านั้นมีป้าย <code>1</code> อย่างน้อยหนึ่งคน
       </li>
       <li>
-        <strong>บรรทัดบน คือเป้า 1</strong> ต่างจากปกติเพราะที่นี่<strong>ผู้ชนะอยู่ต่อ</strong>
-        ของที่เก็บไว้จึงเป็นผู้ชนะ ซึ่งเป็นป้าย <code>1</code> ก็ต่อเมื่อมีป้าย <code>1</code> อย่างน้อยหนึ่งคน
-        ไม่ต้องถึงสอง นี่คือเหตุผลที่เป้า 1 กลายเป็นตะแกรงที่ดูดคนเก่งไปจอด และเป็นบรรทัดเดียวที่ทำให้
-        สูตรการไหลในตอนที่ 6 ต้องแบ่งสองเฟส
+        <strong>บรรทัดบน (เป้า 1)</strong> ที่นี่ผู้ชนะอยู่ต่อ ของที่เก็บไว้จึงเป็นป้าย <code>1</code>
+        เมื่อมีป้าย <code>1</code> แค่หนึ่งคนก็พอ เป้า 1 จึงเป็นตะแกรงที่ดูดคนเก่งไปจอด (และเป็นเหตุให้ตอนที่ 7 ต้องแบ่งสองเฟส)
       </li>
       <li>
-        <strong>บรรทัดล่าง คือเป้า <code>N</code></strong> ซึ่งไม่มีเป้าทางขวาให้รับของ มันรับ
-        <strong>ผู้แพ้ของเป้า 1</strong> ที่ถูกเหวี่ยงข้ามมาแทน จึงนับเมื่อเป้า 1 มีป้าย <code>1</code> ครบสองคน
-        คือตอนที่ผู้แพ้ของเป้า 1 เป็นป้าย <code>1</code> ด้วย
+        <strong>บรรทัดล่าง (เป้า <code>N</code>)</strong> ไม่มีเป้าทางขวาให้รับ มันรับผู้แพ้ของเป้า 1 ที่ถูกเหวี่ยงมาแทน
+        จึงนับเมื่อเป้า 1 มีป้าย <code>1</code> ครบสองคน
       </li>
     </ul>
     <p>
-      ผลที่ได้จากสามบรรทัดนี้คือ<strong>กระดานทั้งกระดานเดินต่อได้โดยไม่ต้องรู้ว่าใครเป็นใคร</strong>
-      รู้แค่จำนวนป้าย <code>1</code> ต่อเป้าก็พอ ซึ่งเป็นการบีบข้อมูลที่ทำให้ทุกอย่างหลังจากนี้เป็นไปได้
+      สามบรรทัดนี้ทำให้กระดานเดินต่อได้โดยไม่ต้องรู้ว่าใครเป็นใคร รู้แค่จำนวนป้าย <code>1</code> ต่อเป้าก็พอ
     </p>
   </Spoiler>
 
@@ -1038,14 +1337,12 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       ตอนที่แล้วเราติดป้ายให้คนอื่น ทีนี้ตัวเราเองล่ะ เราชนะทุกคนที่ป้าย <code>0</code> จึงต้องนับตัวเองเป็นป้าย <code>1</code>
       แต่เราก็แพ้ทุกคนที่ป้าย <code>1</code> ด้วย พูดอีกแบบคือ <strong>เราคือป้าย <code>1</code> ที่อ่อนที่สุดในสนาม</strong>
     </p>
+    <ul>
+      <li>ถ้าเรายืนที่เป้า <code>i</code> แล้ว <code>c[i] = 2</code> ป้าย <code>1</code> อีกคนที่ไม่ใช่เราอยู่ด้วย เราแพ้เขาแน่นอน</li>
+      <li>ถ้า <code>c[i] = 1</code> ป้าย <code>1</code> ตัวเดียวนั้นคือเรา คู่แข่งจึงเป็นป้าย <code>0</code> และเราชนะแน่นอน</li>
+    </ul>
     <p>
-      ข้อสรุปที่ตามมาสวยมาก ถ้าเรายืนอยู่ที่เป้า <code>i</code> แล้ว <code>c[i] = 2</code> แปลว่าที่เป้านี้มีป้าย <code>1</code>
-      สองคน ซึ่งคนหนึ่งคือเราเอง อีกคนจึงเป็นป้าย <code>1</code> ที่ไม่ใช่เรา และเราแพ้เขาแน่นอน ส่วนถ้า <code>c[i] = 1</code>
-      ป้าย <code>1</code> ตัวเดียวนั้นคือเรา คู่แข่งจึงเป็นป้าย <code>0</code> และเราชนะแน่นอน
-    </p>
-    <p>
-      แปลว่า<strong>เราไม่ต้องรู้อะไรเกี่ยวกับคู่แข่งเลยนอกจากเลข <code>c</code> ของช่องที่เรายืนอยู่</strong>
-      ชะตาของเราแต่ละรอบจึงเขียนได้สามบรรทัด
+      สรุปคือเราไม่ต้องรู้อะไรเกี่ยวกับคู่แข่งเลย นอกจากเลข <code>c</code> ของช่องที่เรายืน ชะตาของเราแต่ละรอบเขียนได้สามบรรทัด
     </p>
     <CodeBlock code={coreLine} lang="cpp" title="ชะตาของเราหนึ่งรอบ" />
     <p>
@@ -1057,219 +1354,35 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
   <h2>เฉลย ตอนที่ 3 · ทำไมโจทย์ถึงรับประกันว่า R ≥ 2N</h2>
   <Spoiler>
     <p>
-      กลับไปที่ข้อสังเกตค้างคาว่าทำไมโจทย์ต้องบอกว่ารอบมีมากพอ คำตอบคือเพราะระบบนี้<strong>เข้าสู่วงรอบ</strong>
-      ลองคิดถึงคนที่เก่งที่สุดในสนาม เขาชนะทุกครั้ง จึงไหลไปทางซ้ายทุกรอบจนถึงเป้า 1 แล้วก็ปักหลักอยู่ตรงนั้นตลอดไป
-      คนที่เก่งรองลงมาไต่มาถึงเป้า 1 แล้วแพ้ ถูกส่งไปเป้า <code>N</code> ไต่กลับมาใหม่ แพ้อีก วนแบบนี้ด้วยคาบ <code>N</code>
-      รอบเป๊ะ ๆ
+      ค้างไว้ตั้งแต่ก่อนลองเอง ว่าทำไมโจทย์ต้องรับประกันว่ารอบมากพอ คำตอบคือระบบนี้เดินไปสักพักแล้วจะ
+      <strong>เข้าวงรอบ</strong> คือหน้าตาสนามกลับมาซ้ำเดิมเป็นจังหวะ
     </p>
-    <p>
-      พอทุกคนเข้าที่แล้ว หน้าตาของสนามทั้งสนามก็ซ้ำเดิมทุก <code>N</code> รอบ ช่วงตั้งตัวก่อนเข้าวงรอบกินเวลาไม่เกิน
-      <code>2N</code> รอบ ซึ่งตรงกับเงื่อนไข <code>R ≥ 2N</code> ที่โจทย์แถมมาให้พอดี โจทย์กำลังบอกเราว่า
-      "รับประกันว่าเลยช่วงตั้งตัวไปแล้ว" การเดินจริงจึงไม่ต้องครบ <code>R</code> รอบ แค่เดินให้พ้นช่วงตั้งตัว
-      แล้วเก็บเศษของคาบไว้
-    </p>
-    <div set:html={texRounds} />
-    <p>
-      ผมเผื่อไว้ที่ <code>3N</code> แทนที่จะเป็น <code>2N</code> ตามที่โจทย์รับประกัน เพราะการเผื่ออีกหนึ่งคาบ
-      ราคาถูกมาก แต่กันความผิดพลาดตรงขอบพอดีได้หมด ผลคือเดินจริงไม่เกิน <code>4N</code> รอบ ไม่ว่า <code>R</code>
-      จะใหญ่แค่ไหน
-    </p>
-  </Spoiler>
-
-  <h2>เดินกระดานให้ดูหนึ่งชุด</h2>
-  <Spoiler>
-    <p>
-      เอาตัวอย่างที่สองมาเดินจริง หมายเลขทักษะของเราคือ {meOf(DEMO)} จากทั้งหมด {2 * DEMO.N} คน จึงมีป้าย
-      <code>1</code> อยู่แค่ {demoBetter} คน (นับตัวเราเองด้วย) และเราเลือกเริ่มที่เป้า {DEMO_K}
-    </p>
-      <CpStepPlayer hook="arcsim" steps={arcNotes} label="กดถัดไปเพื่อเดินกระดานทีละรอบ">
-    <table class="rec arcboard">
-        <caption>ตัวอย่างที่ 2 · เริ่มที่เป้า {DEMO_K}</caption>
-        <thead>
-          <tr>
-            <th class="num">รอบ</th>
-            {Array.from({ length: DEMO.N }, (_, i) => (
-              <th class="num">c[{i + 1}]</th>
-            ))}
-            <th>เรายืนที่</th>
-            <th>คู่แข่ง</th>
-            <th>ผล</th>
-          </tr>
-        </thead>
-        <tbody>
-          {demoFrames.slice(0, -1).map((f, idx) => {
-            const nextPos = demoFrames[idx + 1].pos;
-            const outcome = f.oppStrong
-              ? f.pos === 1
-                ? `แพ้ ถูกส่งไปเป้า ${nextPos}`
-                : 'แพ้ อยู่ที่เดิม'
-              : f.pos === 1
-                ? 'ชนะ อยู่ที่เดิม'
-                : `ชนะ ขยับไปเป้า ${nextPos}`;
-            return (
-              <tr>
-                <td class="num">{f.round}</td>
-                {f.board.slice(1).map((v, i) => (
-                  <td class="num">{i + 1 === f.pos ? `[${v}]` : v}</td>
-                ))}
-                <td><code>เป้า {f.pos}</code></td>
-                <td>{f.oppStrong ? 'ป้าย 1 เก่งกว่าเรา' : 'ป้าย 0 เราชนะ'}</td>
-                <td>{outcome}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-  </CpStepPlayer>
-  <p class="io-note">
-    ช่องที่ใส่วงเล็บเหลี่ยมคือเป้าที่เรายืนอยู่ในรอบนั้น อ่านคอลัมน์ c ไล่ลงมาจะเห็นเลข <code>1</code>
-        ไหลไปทางซ้ายรอบละหนึ่งช่อง พอสองตัวมาเจอกันที่เป้า 1 ช่องนั้นขึ้นเป็น <code>2</code> แล้วตัวที่อ่อนกว่า
-        ก็ถูกเหวี่ยงไปโผล่ที่เป้า {DEMO.N} รอบถัดมา ทั้งหมดนี้มี {demoWins} รอบที่เราเจอป้าย <code>0</code>
-        แล้วเดินไปทางซ้ายได้ และ {demoLosses} รอบที่เจอป้าย <code>1</code> ซึ่งเป็นรอบที่โดนส่งกลับไปท้ายแถว
-        จบลงที่เป้า {demoEnd}
-  </p>
-
-    <p>
-      ทำแบบเดียวกันกับทุกจุดที่แทรกได้ แล้วเทียบกัน
-    </p>
-    <figure class="tbl">
-      <table class="rec">
-        <caption>เป้าที่ไปจบ เทียบทุกจุดที่แทรกได้</caption>
-        <thead>
-          <tr>
-            <th>เริ่มที่เป้า</th>
-            {Array.from({ length: EX1.N }, (_, i) => (
-              <th class="num">{i + 1}</th>
-            ))}
-            <th>ตอบ</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>ตัวอย่างที่ 1 จบที่เป้า</td>
-            {ans1.finals.map((f) => (
-              <td class="num">{f}</td>
-            ))}
-            <td><code>{ans1.start}</code></td>
-          </tr>
-          <tr>
-            <td>ตัวอย่างที่ 2 จบที่เป้า</td>
-            {ans2.finals.map((f) => (
-              <td class="num">{f}</td>
-            ))}
-            <td><code>{ans2.start}</code></td>
-          </tr>
-        </tbody>
-      </table>
-      <figcaption>
-        ตัวอย่างแรกจบที่เป้า {ans1.best} ได้จากสองจุดเริ่มต้น กติกาข้อรองจึงเข้ามาตัดสิน ให้เลือกจุดเริ่มที่มากกว่า
-        ได้คำตอบ {ans1.start} ส่วนตัวอย่างที่สองมีจุดเดียวที่จบถึงเป้า {ans2.best}
-      </figcaption>
-    </figure>
-    <p>
-      แถวบนของตารางนี้เตือนอะไรบางอย่างด้วย ค่าที่ได้คือ <code>{ans1.finals.join(' ')}</code> ซึ่งขึ้นแล้วลง
-      ไม่ได้เรียงจากน้อยไปมาก แปลว่า<strong>เดาไม่ได้ว่าเริ่มขวาขึ้นแล้วจะจบขวาขึ้นตาม</strong> จะข้ามการลองบางจุด
-      ด้วยการค้นหาแบบทวิภาคไม่ได้ตรง ๆ
-    </p>
-  </Spoiler>
-
-  <h2>โค้ด C++ รอบแรก · ท่าตรงไปตรงมาที่ได้ 20 คะแนน</h2>
-  <Spoiler>
-    <p>
-      โค้ดเดินตามสามชั้นที่เล่ามา สร้างกระดาน <code>c</code> ของจุดเริ่มต้นหนึ่งจุด เดินไม่เกิน <code>4N</code> รอบ
-      โดยแต่ละรอบขยับตำแหน่งเราด้วยเลขตัวเดียว แล้วอัปเดตกระดานทั้งแถว
-    </p>
-    <p>
-      งานต่อหนึ่งจุดเริ่มต้นคือ <code>4N</code> รอบ คูณ <code>N</code> เป้า ทั้งข้อจึงเป็น <strong>O(N³)</strong>
-      ซึ่งฟังดูน่ากลัว แต่ค่าคงที่ต่ำมากเพราะงานในวงในคือการบวกเลข 0 กับ 1 เท่านั้น
-    </p>
-
-    <figure class="tbl">
-      <table class="rec">
-        <caption>เวลาที่วัดได้บนเครื่องผม · R เต็มขอบเขต</caption>
-        <thead>
-          <tr><th class="num">N</th><th class="num">เวลา (มิลลิวินาที)</th><th>เทียบกับลิมิต 2 วินาที</th></tr>
-        </thead>
-        <tbody>
-          {timing.map((t) => (
-            <tr>
-              <td class="num">{fmt(t.n)}</td>
-              <td class="num">{fmt(t.ms)}</td>
-              <td>{t.ms < 2000 ? `เหลือเวลา ${fmt(2000 - t.ms)} มิลลิวินาที` : 'เกินลิมิต'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <figcaption>
-        เทสของ subtest 20 คะแนนคือ <code>N ≤ {SUB20}</code> ซึ่งจบใน {timing[0].ms} มิลลิวินาที เหลือเวลาเกือบเต็ม
-        โค้ดชุดนี้ยังไปได้ถึงราว <code>N = 800</code> ก่อนจะชนลิมิต
-      </figcaption>
-    </figure>
-
-    <div class="callout callout-note">
-      <p class="callout-label">โค้ดชุดนี้ได้กี่คะแนน</p>
-      <p>
-        โค้ดรอบแรกกิน subtest 20 คะแนน (<code>N ≤ {SUB20}</code>) เต็มสบาย แต่ไปได้ถึงราว <code>N = 800</code>
-        ก่อนชนลิมิต ยังไม่ถึง subtest 60 คะแนนที่ <code>N ≤ {fmt(SUB60)}</code> เพราะ <code>N³</code>
-        ที่ห้าพันคือแสนสองหมื่นห้าพันล้าน
-      </p>
-      <p>
-        สิ่งที่แพงคือ<strong>การเดินกระดานใหม่ทั้งแถว ทุกรอบ ทุกจุดเริ่มต้น</strong> หัวข้อถัดไปจะรื้อทั้งสามชั้นนี้ทิ้ง
-        แล้วเหลือ <code>O(N log N)</code> ซึ่งจบ <code>N</code> สองแสนใน {timingFull[0].ms} มิลลิวินาที
-      </p>
-    </div>
-
-    <details class="expander">
-      <summary>ดูโค้ดเต็ม</summary>
-      <div class="expander-body">
-        <CodeBlock code={solution} lang="cpp" title="archery.cpp" />
-      </div>
-    </details>
-
-    <details class="expander">
-      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
-      <div class="expander-body">
-        <p>
-          ตัวย่อในหน้านี้กล้าทิ้งหมายเลขทักษะของคนอื่นทั้งหมด ซึ่งเป็นการอ้างที่ต้องพิสูจน์ด้วยของจริง
-          ผมจึงเขียนตัวจำลองคนจริงทุกคนครบทุกรอบข้างล่างนี้ แล้วสุ่มเทียบ 1,200 เทส แบ่งเป็นสองชุด
-          ชุดแรก <code>N ≤ 7</code> กับ <code>R</code> ใกล้ ๆ <code>2N</code> เพื่อกดดันช่วงตั้งตัว
-          ชุดที่สอง <code>N ≤ 9</code> กับ <code>R</code> ที่ใหญ่กว่า <code>2N</code> ไปหลายร้อยรอบ
-          เพื่อกดดันการตัดคาบทิ้ง ตรงกันทั้งหมด
-        </p>
-        <p>
-          ในหน้านี้เองก็มีการตรวจแบบเดียวกันอยู่ตอนสร้างหน้า คือเทียบผลของท่าย่อกับการจำลองคนจริงในตัวอย่างทั้งสองชุด
-          ทุกจุดเริ่มต้น ตอนนี้ผลคือ <strong>{crossCheck ? 'ตรงกันทุกจุด' : 'ไม่ตรง'}</strong>
-        </p>
-        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
-      </div>
-    </details>
-  </Spoiler>
-
-  <h2>เฉลย ตอนที่ 4 · สภาวะคงตัวมีรูปที่ตายตัวเสมอ</h2>
-  <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        ผมไม่ได้พิสูจน์อะไรก่อนเลย ผมสั่งพิมพ์กระดานออกมาดูเฉย ๆ หลังผ่านไป 2N รอบ แล้วดูอีก N รอบว่า
-        <strong>ใครเปลี่ยนเป้าบ้าง ใครไม่เปลี่ยนเลย</strong> พอเห็นว่าคนที่วนคือลำดับ 2 ถึง N+1 พอดีเป๊ะ
-        ผมถึงกลับไปหาเหตุผลจากกติกา ไม่ใช่ทางกลับกัน
+        หลักฐานแรกมาจากการพิมพ์กระดานออกมาดูเฉย ๆ หลังผ่านไป 2N รอบ แล้วดูอีก N รอบว่า
+        ใครเปลี่ยนเป้าบ้าง ใครไม่เปลี่ยนเลย พอเห็นว่าคนที่วนคือลำดับ 2 ถึง N+1 พอดีเป๊ะ
+        ผมถึงกลับไปหาเหตุผลจากกติกา
       </p>
       <p>
         ก่อนเชื่อ ผมสุ่มมาตรวจกับ N ตั้งแต่ 2 ถึง 8 อย่างละ 150 ชุด ไม่มีชุดไหนที่ชุดคนวนไม่ใช่ 2 ถึง N+1
-        นี่คือจังหวะที่การ<strong>สังเกตก่อน แล้วค่อยพิสูจน์</strong>ประหยัดเวลาไปมาก
-        เพราะถ้าเริ่มจากพยายามพิสูจน์ ผมคงยังไม่รู้ด้วยซ้ำว่าจะพิสูจน์อะไร
+        ถ้าเริ่มจากพยายามพิสูจน์ ผมคงยังไม่รู้ด้วยซ้ำว่าจะพิสูจน์อะไร การสังเกตก่อนจึงประหยัดเวลาไปมาก
       </p>
     </div>
     <p>
-      ก่อนจะรื้อโค้ด ต้องรู้ก่อนว่าปลายทางหน้าตาเป็นยังไง ผมเดินกระดานจริงไปจนพ้นช่วงตั้งตัว แล้วดูว่าใครขยับใครไม่ขยับ
-      คำตอบเหมือนกันทุกอินพุตที่ลอง และมันสวยกว่าที่คิด
+      เริ่มจากคนที่เก่งที่สุดในสนาม เขาชนะทุกครั้ง จึงไหลไปทางซ้ายทุกรอบจนถึงเป้า 1 แล้วปักหลักอยู่ตรงนั้นตลอดไป
+      เพราะที่เป้า 1 ผู้ชนะอยู่ต่อ
+    </p>
+    <p>
+      คนที่เก่งรองลงมาไต่มาถึงเป้า 1 แล้วแพ้ ถูกส่งไปเป้า <code>N</code> ไต่กลับมาใหม่ แพ้อีก วนแบบนี้ทุก <code>N</code> รอบ
+      ภาพรวมของสนามหลังทุกคนเข้าที่ (สภาวะคงตัว หรือ <i>steady state</i>) จึงเป็นแบบนี้
     </p>
     <p class="pull">
       พอเข้าสภาวะคงตัว ลำดับ 1 จอดที่เป้า 1 ถาวร ลำดับ 2 ถึง N+1 กลายเป็นขบวนที่วนซ้ายรอบละหนึ่งช่อง
       ส่วนที่เหลือคือลำดับ N+2 ถึง 2N ค้างนิ่งอยู่เป้าละคน
     </p>
     <ZoomableDiagram caption={`สภาพกระดานจริงของตัวอย่างที่ 1 หลังเดินไปจนพ้นช่วงตั้งตัว วาดจากการเดินกระดานจริง ${2 * EX1.N} รอบ ไม่ได้จัดวางด้วยมือ ช่องเขียวที่เป้า 1 คือลำดับ ${parkedRank} ซึ่งจอดถาวรเพราะที่เป้า 1 ผู้ชนะอยู่ต่อ ช่องทองคือขบวนที่วนไปทางซ้ายรอบละหนึ่งเป้า มี ${EX1.N} คนพอดี คือลำดับ ${roles1.circulators.join(', ')} ส่วนช่องเทาคือคนที่ค้างนิ่งเป้าละคน คือลำดับ ${roles1.frozen.filter((r) => r !== parkedRank).join(', ')} ผลตรวจอัตโนมัติว่าคนที่จอดที่เป้า 1 เป็นลำดับ 1 จริงคือ ${steadyClaim ? 'ตรง' : 'ไม่ตรง'} (วาดประกอบโดยผู้เขียน)`}>
-      <svg viewBox={steadyVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวเป้า ${EX1.N} เป้า แต่ละเป้ามีคนสองคน เป้า 1 มีลำดับ ${seatsAt(1).map((x) => x.rank).join(' กับ ')} โดยลำดับ ${parkedRank} จอดถาวร ${[2, 3, 4].map((i) => `เป้า ${i} มีลำดับ ${seatsAt(i).map((x) => x.rank).join(' กับ ')}`).join(' ')} ลูกศรด้านล่างแสดงขบวนที่วนไปทางซ้าย และวนกลับจากเป้า 1 ไปเป้า ${EX1.N}`}>
+      <svg viewBox={steadyVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:610px" role="img" aria-label={`แถวเป้า ${EX1.N} เป้า แต่ละเป้ามีคนสองคน เป้า 1 มีลำดับ ${seatsAt(1).map((x) => x.rank).join(' กับ ')} โดยลำดับ ${parkedRank} จอดถาวร ${[2, 3, 4].map((i) => `เป้า ${i} มีลำดับ ${seatsAt(i).map((x) => x.rank).join(' กับ ')}`).join(' ')} ลูกศรด้านล่างแสดงขบวนที่วนไปทางซ้าย และวนกลับจากเป้า 1 ไปเป้า ${EX1.N}`}>
         <text x={stx(1)} y="28" fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
           เขียว จอดถาวร
         </text>
@@ -1349,13 +1462,13 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
             <td>ที่ 1 (N = {EX1.N})</td>
             <td><code>{roles1.circulators.join(', ')}</code></td>
             <td><code>{roles1.frozen.join(', ')}</code></td>
-            <td>ตรง</td>
+            <td>{rolesOk(EX1, roles1) ? 'ตรง' : 'ไม่ตรง'}</td>
           </tr>
           <tr>
             <td>ที่ 2 (N = {EX2.N})</td>
             <td><code>{roles2.circulators.join(', ')}</code></td>
             <td><code>{roles2.frozen.join(', ')}</code></td>
-            <td>ตรง</td>
+            <td>{rolesOk(EX2, roles2) ? 'ตรง' : 'ไม่ตรง'}</td>
           </tr>
         </tbody>
       </table>
@@ -1366,69 +1479,416 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
     </figure>
     <p>
       เหตุผลอ่านออกได้จากกติกา ที่เป้า 2 ถึง N ผู้ชนะเดินต่อ ผู้แพ้ค้าง ขบวนจึงกวาดคนแข็งขึ้นมาเรื่อย ๆ
-      ส่วนที่เป้า 1 กติกากลับด้าน ผู้ชนะอยู่ต่อ มันจึงเป็นตะแกรงที่ดูดคนเก่งที่สุดออกจากขบวนไปจอดถาวร
-      เหลือให้วนพอดี N คน คือลำดับ 2 ถึง N+1
+      ส่วนเป้า 1 เป็นตะแกรงที่ดูดคนเก่งที่สุดไปจอดถาวร เหลือให้วนพอดี N คน คือลำดับ 2 ถึง N+1
     </p>
     <p>
-      ผลที่ใช้ได้ทันทีมีสองข้อ หนึ่ง ถ้าเราเป็นลำดับ 2 ถึง N+1 สุดท้ายเราจะขยับทุกรอบ ตำแหน่งจึงเป็นแค่เลขคณิต
-      สอง ระบบวนคาบ N หลังผ่านไปไม่เกิน N รอบ ดังนั้น <code>T = 2N + ((R − 2N) mod N)</code> ก็พอ
-      ไม่ต้องเผื่อถึง 3N เหมือนโค้ดรอบแรก
+      ช่วงก่อนทุกคนเข้าที่ เรียกว่าช่วงตั้งตัว ผมอ่านเงื่อนไข <code>R ≥ 2N</code> ว่าโจทย์ใส่มาเพื่อให้ R เลยช่วงนี้ไปแล้ว
+    </p>
+    <p>
+      ผมไม่มีบทพิสูจน์ว่าช่วงตั้งตัวสั้นแค่ไหน ที่มีคือการทดลองบนกระดานสุ่มหลายขนาด กระดานเริ่มซ้ำทุก N รอบช้าที่สุดตั้งแต่รอบที่ {EMP.latestStartOverN === 1 ? '' : EMP.latestStartOverN}N
+      และคนที่วนคือลำดับ 2 ถึง N+1 ทุกกระดาน (ขอบเขตอยู่ในตารางการตรวจ หัวข้อโค้ดเต็ม) การใช้ 2N จึงเหลือระยะเผื่ออีกราว N รอบจากที่เห็นจริง
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ไม่ต้องเดินครบ R รอบ</p>
+      <p>หลังช่วงตั้งตัว ทุก N รอบสนามกลับมาหน้าเดิม เดินให้พ้นช่วงตั้งตัว แล้วเดินต่อแค่เศษที่หารคาบไม่ลงตัว (<code>mod</code> คือเศษจากการหาร เช่น 10 mod 4 = 2)</p>
+      <div set:html={texRounds} />
+      <p>
+        โค้ดรอบแรกเผื่อไว้ที่ <code>3N</code> แทน <code>2N</code> เพราะเผื่ออีกหนึ่งคาบราคาถูก
+        ได้ T ไม่เกิน <code>4N</code> รอบ ไม่ว่า R จะใหญ่แค่ไหน ส่วนโค้ดเต็มใช้ <code>2N</code> ตามที่อธิบายข้างบน
+      </p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 4 · เดินกระดานให้ดูหนึ่งชุด</h2>
+  <Spoiler>
+    <p>
+      ลองเอากระดาน <code>c</code> กติกาแพ้ชนะของเรา และจำนวนรอบ T มาเดินบนตัวอย่างจริง
+    </p>
+    <p>
+      เอาตัวอย่างที่สองมาเดิน หมายเลขทักษะของเราคือ {meOf(DEMO)} จากทั้งหมด {2 * DEMO.N} คน จึงมีป้าย
+      <code>1</code> อยู่แค่ {demoBetter} คน (นับตัวเราเองด้วย) และเราเลือกเริ่มที่เป้า {DEMO_K}
+    </p>
+      <CpStepPlayer hook="arcsim" steps={arcNotes} label="กดถัดไปเพื่อเดินกระดานทีละรอบ">
+    <table class="rec arcboard">
+        <caption>ตัวอย่างที่ 2 · เริ่มที่เป้า {DEMO_K}</caption>
+        <thead>
+          <tr>
+            <th class="num">รอบ</th>
+            {Array.from({ length: DEMO.N }, (_, i) => (
+              <th class="num">c[{i + 1}]</th>
+            ))}
+            <th>เรายืนที่</th>
+            <th>คู่แข่ง</th>
+            <th>ผล</th>
+          </tr>
+        </thead>
+        <tbody>
+          {demoFrames.slice(0, -1).map((f, idx) => {
+            const nextPos = demoFrames[idx + 1].pos;
+            const outcome = f.oppStrong
+              ? f.pos === 1
+                ? `แพ้ ถูกส่งไปเป้า ${nextPos}`
+                : 'แพ้ อยู่ที่เดิม'
+              : f.pos === 1
+                ? 'ชนะ อยู่ที่เดิม'
+                : `ชนะ ขยับไปเป้า ${nextPos}`;
+            return (
+              <tr>
+                <td class="num">{f.round}</td>
+                {f.board.slice(1).map((v, i) => (
+                  <td class="num">{i + 1 === f.pos ? `[${v}]` : v}</td>
+                ))}
+                <td><code>เป้า {f.pos}</code></td>
+                <td>{f.oppStrong ? 'ป้าย 1 เก่งกว่าเรา' : 'ป้าย 0 เราชนะ'}</td>
+                <td>{outcome}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+  </CpStepPlayer>
+  <p class="io-note">
+    ช่องที่ใส่วงเล็บเหลี่ยมคือเป้าที่เรายืน ไล่คอลัมน์ c ลงมาจะเห็นเลข <code>1</code> ไหลไปทางซ้ายรอบละช่อง
+    รวมแล้วเราเจอป้าย <code>0</code> (ชนะ) {demoWins} รอบ เจอป้าย <code>1</code> (แพ้) {demoLosses} รอบ และจบที่เป้า {demoEnd}
+  </p>
+
+    <p>
+      ทำแบบเดียวกันกับทุกจุดที่แทรกได้ แล้วเทียบกัน
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เป้าที่ไปจบ เทียบทุกจุดที่แทรกได้</caption>
+        <thead>
+          <tr>
+            <th>เริ่มที่เป้า</th>
+            {Array.from({ length: EX1.N }, (_, i) => (
+              <th class="num">{i + 1}</th>
+            ))}
+            <th>ตอบ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ตัวอย่างที่ 1 จบที่เป้า</td>
+            {ans1.finals.map((f) => (
+              <td class="num">{f}</td>
+            ))}
+            <td><code>{ans1.start}</code></td>
+          </tr>
+          <tr>
+            <td>ตัวอย่างที่ 2 จบที่เป้า</td>
+            {ans2.finals.map((f) => (
+              <td class="num">{f}</td>
+            ))}
+            <td><code>{ans2.start}</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ตัวอย่างแรกจบที่เป้า {ans1.best} ได้จากสองจุดเริ่มต้น กติกาข้อรองจึงเข้ามาตัดสิน ให้เลือกจุดเริ่มที่มากกว่า
+        ได้คำตอบ {ans1.start} ส่วนตัวอย่างที่สองมีจุดเดียวที่จบถึงเป้า {ans2.best}
+      </figcaption>
+    </figure>
+    <p>
+      แถวบนของตารางนี้เตือนอะไรบางอย่าง ค่าที่ได้คือ <code>{ans1.finals.join(' ')}</code> ซึ่งไม่ได้เรียงทางเดียว
+      เริ่มขวากว่าไม่ได้แปลว่าจบขวากว่า
+    </p>
+    <p>
+      จึงข้ามการลองบางจุดด้วยการค้นหาแบบทวิภาคตรง ๆ ไม่ได้ ตอนที่ 8 จะกลับมาแก้เรื่องนี้
     </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 5 · เลิกเดินกระดาน เปลี่ยนไปนับ "การไหล"</h2>
+  <h2>โค้ด C++ รอบแรก · ท่าตรงไปตรงมาที่ได้ 20 คะแนน</h2>
+  <Spoiler>
+    <p>
+      โค้ดเดินตามสี่ตอนที่เล่ามา สร้างกระดาน <code>c</code> ของจุดเริ่มต้นหนึ่งจุด เดินไม่เกิน <code>4N</code> รอบ
+      แต่ละรอบขยับตำแหน่งเราด้วยเลขตัวเดียว แล้วอัปเดตกระดานทั้งแถว
+    </p>
+    <p>
+      งานต่อหนึ่งจุดเริ่มต้นคือ <code>4N</code> รอบ คูณ <code>N</code> เป้า ทั้งข้อจึงเป็น O(N³)
+      (อ่านว่า "โอ เอ็นกำลังสาม" แปลว่างานโตตาม N คูณกันสามครั้ง) ค่าคงที่ต่ำเพราะวงในบวกแค่เลข 0 กับ 1
+    </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เวลาที่วัดได้บนเครื่องผม · R เต็มขอบเขต</caption>
+        <thead>
+          <tr><th class="num">N</th><th class="num">เวลา (มิลลิวินาที)</th><th>เทียบกับลิมิต 2 วินาที</th></tr>
+        </thead>
+        <tbody>
+          {timing.map((t) => (
+            <tr>
+              <td class="num">{fmt(t.n)}</td>
+              <td class="num">{fmt(t.ms)}</td>
+              <td>{t.ms < LIMIT_MS ? `เหลือเวลา ${fmt(LIMIT_MS - t.ms)} มิลลิวินาที` : `เกินลิมิต ${fmt(t.ms - LIMIT_MS)} มิลลิวินาที`}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ชุด 20 คะแนนคือ <code>N ≤ {SUB20}</code> จบใน {timing[0].ms} มิลลิวินาที ที่ <code>N = {firstOkN}</code> ยังทัน
+        แต่ที่ <code>N = {firstBadN}</code> เกินลิมิตแล้ว ห่างจากชุด 60 คะแนน (<code>N ≤ {fmt(SUB60)}</code>) อีกไกล
+      </figcaption>
+    </figure>
+
+    <details class="expander">
+      <summary>ดูโค้ดเต็ม</summary>
+      <div class="expander-body">
+        <CodeBlock code={solution} lang="cpp" title="archery.cpp" />
+      </div>
+    </details>
+
+    <details class="expander">
+      <summary>ของแถม: ตัวตรวจสอบที่ผมใช้ก่อนส่ง</summary>
+      <div class="expander-body">
+        <p>
+          ตัวย่อในหน้านี้กล้าทิ้งหมายเลขทักษะของคนอื่นทั้งหมด ซึ่งเป็นการอ้างที่ต้องพิสูจน์ด้วยของจริง
+          ผมจึงเขียนตัวจำลองคนจริงทุกคนครบทุกรอบข้างล่างนี้ไว้เทียบ
+        </p>
+        <p>ผลการเทียบทั้งหมดรวมไว้ที่เดียวในหัวข้อโค้ดเต็มขอบเขต</p>
+        <CodeBlock code={bruteCode} lang="cpp" title="brute.cpp" />
+      </div>
+    </details>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 5 · ขาดอีกกี่เท่า และต้องตัดตรงไหน</h2>
+  <Spoiler>
+    <p>
+      โค้ดรอบแรกได้ 20 คะแนน ก่อนคิดท่าใหม่ ลองวัดก่อนว่าที่ขอบเขตเต็มมันห่างจากงบแค่ไหน
+      และห่างเพราะงานส่วนไหน ตัวเลขจะบอกเองว่าต้องตัดตรงไหน
+    </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>จำลองคนจริงครบ R รอบ</h4>
+        <p class="cp-step-cost">N × R × N</p>
+        <p>แทรกตัวทุกจุด แล้วเดินคนจริงทุกคนครบ R รอบ คือ brute.cpp ที่หน้านี้ใช้เป็นตัวตรวจ</p>
+        <p class="cp-step-win">ไม่ผ่านชุดไหนเลย เพราะทุกชุดยอมให้ R ถึง {fmt(R_MAX)}</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>โค้ดรอบแรก</h4>
+        <p class="cp-step-cost">N × 4N × N</p>
+        <p>ย่อเป็นกระดาน c และเดินแค่ T รอบ (ตอนที่ 1 ถึง 3) แต่ยังเดินกระดานทั้งแถวทุกรอบ ทุกจุดเริ่ม</p>
+        <p class="cp-step-win">ได้ชุด N ≤ {SUB20} (20 คะแนน)</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>นับการไหล + ลองแค่ไม่กี่จุด</h4>
+        <p class="cp-step-cost">ราว (จำนวนจุดที่ลอง) × N</p>
+        <p>หนึ่งรอบใช้งานคงที่ (ตอนที่ 6 และ 7) และลองจุดเริ่มแค่ไม่กี่สิบจุด (ตอนที่ 8)</p>
+        <p class="cp-step-win">ได้ครบ 100 คะแนน</p>
+      </div>
+    </div>
+    <p>
+      ชุด 60 คะแนน (<code>N ≤ {fmt(SUB60)}</code>) ไม่มีวิธีกลางของมันเองในหน้านี้ วิธีเต็มกินไปพร้อมกันเลย
+    </p>
+
+    <ZoomableDiagram caption={`เวลาที่ N = ${fmt(N_MAX)} และ R = ${fmt(R_MAX)} สเกลแบบ log (ขีดละพันเท่า) แท่งโค้ดรอบแรกขยายจากเวลาที่วัดจริงที่ N = ${fmt(lastTiming.n)} ตามงานจริง (จุดเริ่ม × จำนวนรอบ T × จำนวนเป้า) แท่งจำลองครบ R รอบสมมติว่าเดินรอบละเร็วเท่าโค้ดรอบแรก ซึ่งใจดีกับมันแล้ว แท่งโค้ดเต็มคือเคสที่ช้าที่สุดที่วัดได้จริง เส้นทองคือลิมิต 2 วินาที`}>
+      <svg viewBox={`0 0 730 ${CH_BOTTOM + 53}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto" role="img" aria-label={`กราฟแท่งสเกล log เทียบเวลาสามวิธีกับลิมิต 2 วินาที จำลองครบ R รอบใช้ราว ${fmtSec(bruteProjMs)} โค้ดรอบแรกราว ${fmtSec(firstProjMs)} มีแค่โค้ดเต็มที่ใช้ ${fullMaxMs} มิลลิวินาทีและอยู่ใต้เส้นลิมิต`}>
+        {CH_TICKS.map((t) => (
+          <line x1={chX(10 ** t)} y1="30" x2={chX(10 ** t)} y2={CH_BOTTOM - 8} stroke="#26314a" stroke-width="1" />
+        ))}
+        {CH_TICKS.map((t) => (
+          <text x={chX(10 ** t)} y="22" text-anchor="middle" fill="#7b8397" font-size="13">10<tspan baseline-shift="super" font-size="9">{t}</tspan></text>
+        ))}
+        <text x={CH_X0 + CH_W} y="22" text-anchor="start" fill="#7b8397" font-size="11" dx="10">มิลลิวินาที</text>
+        {CH_BARS.map((b) => (
+          <text x="12" y={b.y + 16} fill="#cdd6ea" font-size="14">{b.name}</text>
+        ))}
+        {CH_BARS.map((b) => (
+          <rect x={CH_X0} y={b.y} width={chX(b.v) - CH_X0} height="22" rx="3" fill={b.ok ? '#6ee7a8' : '#e07a7a'} fill-opacity="0.85" />
+        ))}
+        {CH_BARS.map((b) => (
+          <text x={chX(b.v) + 8} y={b.y + 16} fill={b.ok ? '#6ee7a8' : '#e07a7a'} font-size="13">{fmtSec(b.v)}{b.ok ? ' ทัน' : ` เกินงบ ${sci(b.over).m}×10`}<tspan baseline-shift="super" font-size="9">{b.ok ? '' : sci(b.over).e}</tspan>{b.ok ? '' : ' เท่า'}</text>
+        ))}
+        <line x1={chX(LIMIT_MS)} y1="30" x2={chX(LIMIT_MS)} y2={CH_BOTTOM} stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <text x={chX(LIMIT_MS)} y={CH_BOTTOM + 16} text-anchor="middle" fill="#d4af37" font-size="13">ลิมิต 2 วินาที</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <p>
+      โค้ดรอบแรกที่ <code>N = {fmt(N_MAX)}</code> ใช้ราว {fmtSec(firstProjMs)} คำถามคือควรตัดอะไรก่อน
+      ระหว่างจำนวนจุดเริ่ม กับงานต่อหนึ่งจุด
+    </p>
+    <p>
+      ต่อให้ลองจุดเริ่มแค่<strong>จุดเดียว</strong> ก็ยังใช้ราว {fmtSec(oneStartMs)} เกินงบ {oneStartOver} เท่า
+      ลดจำนวนจุดเริ่มอย่างเดียวไม่มีทางพอ ต้องลดงานต่อหนึ่งรอบด้วย
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">คิดกลับจากงบ หนึ่งรอบใช้ได้เท่าไร</p>
+      <ul>
+        <li>ตอนที่ 8 จะลดจำนวนครั้งที่ต้องประเมินจุดเริ่มเหลือไม่เกิน {EVAL_BOUND} ครั้ง แต่ละครั้งเดิน T = {fmt(fullRoundsAtMax)} รอบ</li>
+        <li>งบต่อรอบ = 2,000 มิลลิวินาที ÷ ({EVAL_BOUND} × {fmt(fullRoundsAtMax)}) ≈ <strong>{nsPerRoundBudget} นาโนวินาที</strong> (หนึ่งนาโนวินาทีคือหนึ่งในพันล้านวินาที)</li>
+        <li>โค้ดรอบแรกใช้ราว {fmt(nsPerRoundFirst)} นาโนวินาทีต่อรอบ เพราะไล่ทั้ง {fmt(N_MAX)} เป้า ช้ากว่างบราว {fmt(roundGap)} เท่า</li>
+      </ul>
+      <p>แปลว่าในหนึ่งรอบ เราแตะได้แค่ไม่กี่ช่อง ห้ามไล่กระดานทั้งแถว</p>
+    </div>
+    <p>
+      แผนมีสองชั้น ตอนที่ 6 และ 7 ทำให้หนึ่งรอบเหลืองานคงที่ แล้วตอนที่ 8 ลดจุดเริ่มจาก N จุดเหลือไม่กี่สิบ
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 6 · เลิกเดินกระดาน เปลี่ยนไปนับ "การไหล"</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">สองทางที่ผมลองก่อน แล้วทิ้ง</p>
       <p>
-        ทางแรกคือ<strong>บีบกระดานเป็นบิต</strong> เพราะการเดินกระดานหนึ่งรอบเขียนเป็น
-        <code>E' = S | (E &gt;&gt; 1)</code> กับ <code>S' = S &amp; (E &gt;&gt; 1)</code> ได้ตรง ๆ
-        เร็วขึ้น 64 เท่า ฟังดูน่าจะพอ แต่พอคูณเลขออกมาคือ 3,125 คำต่อรอบ คูณสี่แสนรอบ คูณอีกสิบแปดครั้ง
-        ยังเป็นหมื่นล้าน ตกไป
+        ทางแรกคือบีบกระดานเป็นบิต เพราะการเดินกระดานหนึ่งรอบเขียนเป็น
+        <code>E' = S | (E &gt;&gt; 1)</code> กับ <code>S' = S &amp; (E &gt;&gt; 1)</code> ได้ตรง ๆ เร็วขึ้น 64 เท่า
       </p>
       <p>
-        ทางที่สองคือ<strong>ตารางกระโดด</strong> เก็บว่าเดิน 1, 2, 4, 8 รอบไปอยู่ไหน ซึ่งเป็นท่ามาตรฐานของ
-        "เดินไกลมาก" แต่มันกินหน่วยความจำ <code>N log R</code> คือราวหกสิบเท่าของอาเรย์ ชนลิมิต 64 เมกะไบต์แน่ ๆ ตกไปอีก
+        คูณเลขออกมาคือ {fmt(BIT_WORDS)} คำต่อรอบ คูณ {fmt(2 * N_MAX)} รอบ คูณจำนวนครั้งที่ต้องประเมินจุดเริ่ม ซึ่งตอนนั้นผมประมาณไว้ log N ≈ {LOG_N} ครั้ง
+        ยังได้ {fmt(BIT_TOTAL)} ตกไป
       </p>
       <p>
-        พอสองทางที่คุ้นเคยตกทั้งคู่ คำถามจึงเปลี่ยนจาก "จะเดินกระดานให้เร็วขึ้นยังไง" เป็น
-        <strong>"จริง ๆ แล้วเราต้องรู้อะไรกันแน่"</strong> คำตอบคือค่าเดียว คือช่องที่เรายืน
-        และนั่นคือจุดที่ผมเลิกสนใจกระดานแล้วหันไปหาปริมาณอื่นที่คำนวณล่วงหน้าได้
+        ทางที่สองคือตารางกระโดด (เก็บว่าเดิน 1, 2, 4, 8 รอบแล้วไปอยู่ไหน) ซึ่งเป็นท่ามาตรฐานของการเดินไกลมาก
+        แต่ก้าวถัดไปของเราขึ้นกับกระดานทั้งแผ่นที่เปลี่ยนทุกรอบ ตำแหน่งเราอย่างเดียวจึงไม่พอเป็นสถานะของตาราง ตกไปอีก
+      </p>
+      <p>
+        พอสองทางที่คุ้นเคยตกทั้งคู่ คำถามจึงเปลี่ยนเป็น "จริง ๆ แล้วเราต้องรู้อะไรกันแน่" คำตอบคือค่าเดียว คือช่องที่เรายืน
       </p>
     </div>
-    <h3>เปลี่ยนจากถามกระดาน เป็นถามการไหล</h3>
     <p>
-      ค่าที่เราต้องรู้ในแต่ละรอบมีค่าเดียว คือ<strong>เป้าที่เรายืนอยู่มีคนแข็งกว่าเราไหม</strong>
-      การเดินกระดานทั้งแถวเพื่อตอบคำถามช่องเดียวคือการทำงานเกิน ทางออกคือเปลี่ยนตัวแปรที่ติดตาม
+      ตอนที่ 2 บอกว่าชะตาของเราแต่ละรอบขึ้นกับเลขช่องเดียว คือช่องที่เรายืน แต่โค้ดรอบแรกเดินกระดานทั้งแถวเพื่อรู้เลขช่องนั้น
+      ตอนนี้จะหาเลขช่องเดียวนั้นโดยไม่เดินกระดาน
+    </p>
+
+    <h3>ตัวอย่างประจำตอนที่ 6 และ 7</h3>
+    <div class="callout callout-note">
+      <p class="callout-label">กระดานที่จะใช้ทั้งสองตอน</p>
+      <ul>
+        <li><code>N = {FX.N}</code> หมายเลขทักษะเรียงตามอินพุตคือ <code>{FX.skills.join(' ')}</code> ตัวแรกคือเรา หมายเลข {meOf(FX)}</li>
+        <li>คนที่แข็งกว่าเราคือหมายเลข 1 ถึง {meOf(FX) - 1} รวม {meOf(FX) - 1} คน เราเลือกเริ่มที่เป้า {FX_K}</li>
+      </ul>
+      <p>
+        <code>n</code> คือจำนวนคนแข็งต่อเป้า ต่างจาก <code>c</code> ของตอนที่ 1 ตรงที่ไม่นับตัวเรา
+        คนแข็งชนะเราทุกคน การเคลื่อนที่ของพวกเขาจึงไม่ขึ้นกับเรา และ <code>c</code> ของช่องที่เรายืนคือ <code>n</code> บวกหนึ่ง
+      </p>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>n(0) มาจากไหน · แทรกตัวที่เป้า {FX_K} แล้วจับคู่ทีละสองคน</caption>
+        <thead>
+          <tr><th class="num">เป้า</th><th>สองคนในเป้า</th><th class="num">คนแข็ง (หมายเลขน้อยกว่า {meOf(FX)})</th></tr>
+        </thead>
+        <tbody>
+          {fxPairs.map((p) => (
+            <tr><td class="num">{p.target}</td><td><code>{p.pair}</code></td><td class="num">{p.strong}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>คอลัมน์ขวาอ่านจากบนลงล่างคือ n(0) = {flowN0.slice(1).join(', ')}</figcaption>
+    </figure>
+
+    <h3>นับคนที่ออก แทนการดูกระดาน</h3>
+    <p>
+      ให้ <code>F_i(t)</code> คือจำนวนคนแข็งที่<strong>ออกจากเป้า i ไปแล้วทั้งหมด</strong> เมื่อผ่านไป t รอบ
+      คนที่อยู่ในเป้าตอนนี้คือคนตั้งต้น บวกคนที่ไหลเข้ามาจากเป้าทางขวา ลบคนที่ไหลออกไป
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">สิ่งเดียวที่ต้องรู้ต่อรอบ</p>
+      <p><code>n_pos(t) = n_pos(0) + F_pos+1(t) − F_pos(t)</code></p>
+      <p>ถ้าค่านี้อย่างน้อย 1 คู่แข่งของเราแข็งกว่า เราแพ้ ถ้าเป็น 0 เราชนะ ใช้ F แค่สองเป้า ไม่ต้องดูเป้าอื่นเลย</p>
+    </div>
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        ให้เป้าแต่ละเป้าคือด่านเก็บเงินบนทางด่วนเลนเดียว และคนแข็งแต่ละคนคือรถหนึ่งคัน
+        รถวิ่งจากขวาไปซ้าย ด่านที่มีรถรออยู่ปล่อยได้รอบละคัน <code>F_i(t)</code> จึงคือจำนวนรถที่ผ่านเป้า i ไปแล้ว
+      </p>
+    </div>
+    <p>
+      จากภาพนี้ จำนวนที่ผ่านเป้า i ใน t รอบมีเพดานได้หลายแบบ ซึ่งคิดได้โดยไม่ต้องเดินทีละรอบ
+    </p>
+    <ul>
+      <li><strong>ปล่อยได้รอบละคน</strong> จึงผ่านได้ไม่เกิน t คน (เพดานแบบ j = 0)</li>
+      <li>
+        <strong>ต้องมาถึงก่อน</strong> มองแค่ j เป้าแรกนับจากเป้า i คนแข็งที่อยู่ในช่วงนั้นตั้งแต่ต้นผ่านได้อย่างมากเท่าที่มี
+        ส่วนคนที่อยู่ไกลกว่านั้นต้องใช้อย่างน้อย j รอบกว่าจะมาถึง จึงผ่านได้อีกไม่เกิน t − j คน
+      </li>
+    </ul>
+    <div class="callout callout-tip">
+      <p class="callout-label">สูตรการไหล</p>
+      <p><code>F_i(t) = ค่าน้อยสุด เมื่อ j = 0..t ของ (t − j) + n_i(0) + n_i+1(0) + … + n_i+j−1(0)</code></p>
+      <p>
+        สูตรที่มีแค่การบวกกับการเลือกค่าน้อยสุดแบบนี้ เรียกว่าแบบ min-plus (อ่านว่า มิน-พลัส)
+        ใช้ได้เมื่อทุกเป้าบนทางเป็นเป้าธรรมดา คือเป้า 2 ถึง N ส่วนเป้า 1 รอตอนที่ 7
+      </p>
+    </div>
+    <p>
+      เพดานบอกแค่ว่าไม่เกิน ส่วนเหตุที่ค่าน้อยสุด<strong>เท่ากับ</strong>คำตอบพอดี มาจากพีชคณิต ไม่ได้มาจากภาพ
+      ทุกรอบ F เพิ่มขึ้น <code>[n ≥ 1]</code> พอดี และเมื่อ n ไม่ติดลบ ค่านี้เท่ากับ <code>min(1, n)</code> เป๊ะ
     </p>
     <p>
-      ให้ <code>n_i(t)</code> คือจำนวนคนแข็งกว่าเราที่เป้า <code>i</code> ตอนรอบที่ <code>t</code> และ
-      <code>F_i(t)</code> คือ<strong>จำนวนคนแข็งที่ออกจากเป้า i ไปแล้วทั้งหมด</strong> สองตัวนี้ผูกกันตรง ๆ
-      เพราะคนที่เป้า <code>i</code> คือคนตั้งต้น บวกคนที่ไหลเข้ามา ลบคนที่ไหลออกไป
+      ได้สมการแบบเท่ากับทุกรอบ <code>F_i(t+1) = min(F_i(t) + 1, n_i(0) + F_i+1(t))</code>
+      แทนซ้ำลงไปจนถึงรอบ 0 ก็ยังเป็นเท่ากับตลอดทาง และผลที่ได้คือสูตรข้างบน (ไล่ทีละบรรทัดในโค้ดข้างล่าง)
     </p>
-    <CodeBlock code={flowIdea} lang="cpp" title="จากกระดานเป็นการไหล" />
-    <h3>สูตรปิด และเหตุผลที่มันยุบเหลือค่าน้อยสุดของช่วง</h3>
+    <CodeBlock code={flowIdea} lang="cpp" title="ที่มาของสูตร ทีละบรรทัด" />
+
+    <div class="callout callout-note">
+      <p class="callout-label">ลองกับตัวอย่างประจำตอน</p>
+      <p>คำถาม: ผ่านไป {FLOW_T} รอบ เป้า {FLOW_I} ปล่อยคนแข็งออกไปกี่คน แทนค่า n(0) ของเป้า {FLOW_I} ถึง {FX.N} ซึ่งคือ {flowN0.slice(FLOW_I).join(', ')}</p>
+      <ul>
+        {flowOpts.map((o) => (
+          <li>j = {o.j}: {o.straight} + {o.diag} = {o.total}</li>
+        ))}
+      </ul>
+      <p>
+        ค่าน้อยสุดคือ <strong>{flowBest.total}</strong> ที่ j = {flowBest.j} อ่านว่า "รอ {flowBest.j} รอบให้คนแข็งเดินมาถึง แล้วปล่อยรอบละคน"
+        นับตรง ๆ จากการเดินกระดานได้ {flowDirect} ตรงกับการนับตรง ๆ
+      </p>
+    </div>
     <p>
-      บรรทัดสุดท้ายคือหัวใจ ปัญหาที่ดูเหมือนต้องจำลองทีละรอบ กลายเป็น<strong>สูตรปิด</strong>ที่เลือกแค่ว่า
-      จะเดินทแยงกี่ก้าว และผลรวมของ <code>n(0)</code> ตลอดทาง ก็คือผลรวมของช่วงบนอาเรย์ตั้งต้น
+      เดินกระดานคนแข็งให้ดูทีละรอบ จะเห็นช่วงที่เป้า {FLOW_I} ต้องรอ และช่วงที่ปล่อยได้รอบละคน
     </p>
-    <CodeBlock code={rmqIdea} lang="cpp" title="ยุบเหลือค่าน้อยสุดของช่วง" />
-    <ZoomableDiagram caption={`สูตร min over j อ่านเป็นรูปได้แบบนี้ ใช้ตัวอย่างที่ 1 ที่จุดเริ่ม ${FLOW_K} ซึ่งให้ n(0) เป็น ${flowN0.join(', ')} แถวบนคือจำนวนคนแข็งตั้งต้นของแต่ละเป้า แถวล่างแต่ละแถวคือทางเลือกหนึ่งค่าของ j นั่นคือเดินทแยงไป ${'j'} ก้าวแล้วเดินตรงอีก ${FLOW_T} ลบ j ก้าว ค่าของแต่ละทางเลือกคิดจาก n(0) จริง และทางที่ชนะคือ j เท่ากับ ${flowBest.j} ซึ่งให้ F เท่ากับ ${flowBest.total} สิ่งที่ต้องเห็นคือช่องทแยงที่ถูกรวมเป็นช่วงติดกันเสมอ ผลรวมของมันจึงเป็นผลรวมของช่วงบนอาเรย์เดียว ซึ่งเป็นเหตุผลที่สูตรยุบเหลือการถามค่าน้อยสุดของช่วงได้ (วาดประกอบโดยผู้เขียน)`}>
-      <svg viewBox={flowVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวบนคือค่า n ศูนย์ ของเป้า 1 ถึง ${FLOW_T + 1} คือ ${Array.from({ length: FLOW_T + 1 }, (_, q) => n0at(FLOW_I + q)).join(' ')} ใต้ลงมามี ${FLOW_T + 1} แถว แต่ละแถวคือค่า j หนึ่งค่า พร้อมค่ารวมของทางเลือกนั้น ทางที่ให้ค่าน้อยที่สุดคือ j เท่ากับ ${flowBest.j} ค่ารวม ${flowBest.total}`}>
+    <CpStepPlayer hook="flowsim" steps={flowNotes} label="กดถัดไปเพื่อดูคนแข็งไหลทีละรอบ">
+      <table class="rec arcboard">
+        <caption>ตัวอย่างประจำตอน · เริ่มที่เป้า {FX_K} · ดูเป้า {FLOW_I}</caption>
+        <thead>
+          <tr>
+            <th class="num">รอบที่ผ่าน</th>
+            {Array.from({ length: FX.N }, (_, i) => (
+              <th class="num">n[{i + 1}]</th>
+            ))}
+            <th>เป้า {FLOW_I} รอบนี้</th>
+            <th class="num">F</th>
+          </tr>
+        </thead>
+        <tbody>
+          {flowFrames.map((f) => (
+            <tr>
+              <td class="num">{f.t}</td>
+              {f.board.map((v, i) => (
+                <td class="num">{i + 1 === FLOW_I ? `[${v}]` : v}</td>
+              ))}
+              <td>{f.t === FLOW_T ? 'จบ' : f.emit ? 'ปล่อย 1' : 'ไม่ปล่อย'}</td>
+              <td class="num">{f.F}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p class="io-note">
+      ช่องในวงเล็บเหลี่ยมคือเป้า {FLOW_I} ส่วนคอลัมน์ F คือจำนวนที่ออกไปแล้วก่อนรอบนั้น
+    </p>
+
+    <ZoomableDiagram caption={`สูตรเดียวกันในรูปภาพ แถวบนคือ n(0) ของเป้า ${FLOW_I} ถึง ${FX.N} แต่ละแถวข้างล่างคือ j หนึ่งค่า ช่องที่ระบายคือ j เป้าที่ถูกรวม ตัวเลขทางขวาคือเพดานของแถวนั้น แถวเขียวคือเพดานที่ต่ำที่สุด j = ${flowBest.j} ได้ ${flowBest.total} ช่องที่ถูกรวมเป็นช่วงติดกันเสมอ ซึ่งเป็นเหตุผลของหัวข้อถัดไป (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={flowVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:670px" role="img" aria-label={`แถวบนคือ n ศูนย์ ของเป้า ${FLOW_I} ถึง ${FX.N} คือ ${flowN0.slice(FLOW_I).join(' ')} ใต้ลงมามี ${FLOW_T + 1} แถว แต่ละแถวคือค่า j หนึ่งค่า ระบายช่อง j ช่องแรก พร้อมค่าเพดาน ${flowOpts.map((o) => o.total).join(' ')} เพดานที่ต่ำที่สุดคือ j เท่ากับ ${flowBest.j} ได้ ${flowBest.total}`}>
         <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">
-          F ที่เป้า {FLOW_I} เมื่อผ่านไป {FLOW_T} รอบ คือค่าน้อยสุดของทุกทางเลือกข้างล่าง
+          F ของเป้า {FLOW_I} เมื่อผ่านไป {FLOW_T} รอบ คือเพดานที่ต่ำที่สุดข้างล่าง
         </text>
         <text x="16" y={FL_TOP + 18} fill="#cdd6ea" font-size="11.5" text-anchor="start" font-family="monospace">
           n(0)
         </text>
-        {Array.from({ length: FLOW_T + 1 }, (_, q) => FLOW_I + q).map((i) => (
+        {Array.from({ length: FLOW_T }, (_, q) => FLOW_I + q).map((i) => (
           <>
             <rect x={flx(i)} y={FL_TOP} width={FLW} height="28" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4" />
             <text x={flx(i) + FLW / 2} y={FL_TOP + 19} fill="#cdd6ea" font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">
-              {n0at(i)}
+              {flowN0[i]}
             </text>
             <text x={flx(i) + FLW / 2} y={FL_TOP - 8} fill="#7b8397" font-size="10.5" text-anchor="middle" font-family="monospace">
-              เป้า {((i - 1) % FLOW_CS.N) + 1}
+              เป้า {i}
             </text>
           </>
         ))}
@@ -1454,7 +1914,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
                   stroke-width={win ? '1.8' : '1.1'}
                 />
               ))}
-              <text x={flx(FLOW_T + 1) + FLW + 12} y={y + 18} fill={ink} font-size="11.5" text-anchor="start" font-family="monospace">
+              <text x={flx(FLOW_I + FLOW_T - 1) + FLW + 12} y={y + 18} fill={ink} font-size="11.5" text-anchor="start" font-family="monospace">
                 {o.straight} + {o.diag} = {o.total}
               </text>
             </>
@@ -1462,7 +1922,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
         })}
 
         <text x="16" y={FL_TOP + 44 + (FLOW_T + 1) * FL_ROW + 24} fill="#4ade80" font-size="11.5" text-anchor="start">
-          เขียวคือทางที่ชนะ เดินทแยง {flowBest.j} ก้าว ได้ F เท่ากับ {flowBest.total}
+          เขียวคือเพดานที่ต่ำที่สุด j = {flowBest.j} ได้ F เท่ากับ {flowBest.total}
         </text>
         <text x="16" y={FL_TOP + 44 + (FLOW_T + 1) * FL_ROW + 42} fill="#98a3ba" font-size="11.5" text-anchor="start">
           ช่องที่ถูกรวมเป็นช่วงติดกันเสมอ ผลรวมจึงเป็นผลรวมของช่วง
@@ -1470,33 +1930,61 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       </svg>
     </ZoomableDiagram>
 
+    <h3>ทำไมสูตรยุบเหลือค่าน้อยสุดของช่วง</h3>
     <p>
-      จุดที่ทำให้มันถูกและเร็วพร้อมกันคือ<strong>หน้าต่างมีแต่ขยาย</strong> เพราะทุกรอบเราขยับซ้ายได้ไม่เกินหนึ่งช่อง
-      ขอบซ้ายของหน้าต่างจึงเลื่อนออกทีละหนึ่ง ขอบขวาก็เลื่อนออกทีละหนึ่ง ไม่มีจังหวะไหนที่ต้องเอาของออก
-      เก็บค่าน้อยสุดสะสมไว้ตัวเดียวก็พอ ไม่ต้องมีเซกเมนต์ทรีหรือตารางกระโดดเลย
+      ช่องที่ถูกรวมเป็นช่วงติดกันเสมอ จึงใช้ผลรวมสะสมได้ ให้ <code>P[y]</code> คือผลรวม n(0) ของเป้า 1 ถึง y − 1
+      ผลรวมของเป้า i ถึง i + j − 1 ก็คือ <code>P[i + j] − P[i]</code> ลบกันครั้งเดียว
+    </p>
+    <p>
+      แทนลงในสูตรแล้วย้ายส่วนที่ไม่ขึ้นกับ j ออกมา จะเหลือ <code>F_i(t) = t − P[i] + i + ค่าน้อยสุดของ G[i..i+t]</code>
+      เมื่อ <code>G[y] = P[y] − y</code>
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>P กับ G ของตัวอย่างประจำตอน (ดัชนี y ตั้งแต่ {FLOW_I} ถึง {FLOW_I + FLOW_T})</caption>
+        <thead>
+          <tr><th>y</th>{pgYs.map((y) => <th class="num">{y}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr><td>P[y]</td>{pgYs.map((y) => <td class="num">{fxP[y]}</td>)}</tr>
+          <tr><td>G[y] = P[y] − y</td>{pgYs.map((y) => <td class="num">{fxG[y]}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ค่าน้อยสุดของแถว G คือ {pgMin} ได้ F = {FLOW_T} − {fxP[FLOW_I]} + {FLOW_I} + ({pgMin}) = {pgF} ตรงกับตัวเลือก j ข้างบน
+        (ดัชนี {FX.N + 1} เลยเป้าสุดท้ายไปหนึ่งช่อง ใช้เป็นแค่ขอบของผลรวม)
+      </figcaption>
+    </figure>
+    <CodeBlock code={rmqIdea} lang="cpp" title="ยุบเหลือค่าน้อยสุดของช่วง" />
+    <p>
+      ช่วงดัชนีที่ต้องหาค่าน้อยสุด ขอเรียกว่าหน้าต่าง (window) คือ <code>[pos, pos + t]</code>
+      ผ่านไปหนึ่งรอบ t เพิ่มหนึ่ง ถ้าเราอยู่ที่เดิม ขอบขวาขยับออกหนึ่ง ถ้าเราก้าวซ้าย pos ลดหนึ่ง ขอบซ้ายขยับออกหนึ่งและขอบขวาอยู่ที่เดิม
+    </p>
+    <p>
+      ทุกรอบมีขอบเดียวที่ขยาย และไม่เคยหด เก็บค่าน้อยสุดสะสมไว้ตัวเดียวก็พอ (ในโค้ดคือขอบ <code>winL</code>, <code>winR</code> กับค่าน้อยสุด <code>mnCur</code>)
+      หนึ่งรอบใช้งานคงที่ ตรงตามงบของตอนที่ 5
     </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 6 · เป้า 1 กติกากลับด้าน สูตรจึงต้องแบ่งสองเฟส</h2>
+  <h2>เฉลย ตอนที่ 7 · เป้า 1 กติกากลับด้าน สูตรจึงต้องแบ่งสองเฟส</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มา และสามรอบที่ยังผิด</p>
       <p>
-        ผมไม่ได้มองออกตั้งแต่แรกว่าเป้า 1 จะพัง ผมเขียนสูตรแล้วเอาไปเทียบกับการเดินกระดานจริง
-        ทุกช่องทุกรอบ แล้วดูว่าผิดกี่จุด รอบแรกผิดพันกว่าจุด และ<strong>ทุกจุดที่ผิดมีค่าติดลบ</strong>
+        สูตรผิดตั้งแต่ครั้งแรกที่เอาไปเทียบกับการเดินกระดานจริงทุกช่องทุกรอบ ผมนับว่าผิดกี่จุด รอบแรกผิดพันกว่าจุด และ<strong>ทุกจุดที่ผิดมีค่าติดลบ</strong>
         นั่นคือเบาะแสว่ามีคนออกจากเป้า 1 ไปแล้วทั้งที่ยังไม่มีใครไปถึง
       </p>
       <p>
         จากตรงนั้นผมเดาทางแก้ไปสองรอบ ทั้งสองรอบดีขึ้นแต่ยังผิด และรอบที่สามผมเลิกเดา
-        กลับไปคัดเฉพาะเคสที่<strong>เป้า 1 มีคนแข็งอยู่ตั้งแต่ต้น</strong> มาทดสอบอย่างเดียว ผลคือตรงหมด
-        ตรงนั้นเองที่รู้ว่าปัญหาไม่ได้อยู่ที่สูตร แต่อยู่ที่<strong>เงื่อนไขที่สูตรต้องการ</strong>
+        กลับไปคัดเฉพาะเคสที่เป้า 1 มีคนแข็งอยู่ตั้งแต่ต้น มาทดสอบอย่างเดียว ผลคือตรงหมด
+        ตรงนั้นเองที่รู้ว่าปัญหาอยู่ที่<strong>เงื่อนไขที่สูตรต้องการ</strong>
         เหลือแค่ทำให้เงื่อนไขนั้นเป็นจริง
       </p>
       <figure class="tbl">
         <table class="rec">
           <caption>ห้ารอบของการไล่หาสูตรที่เป้า 1</caption>
           <thead>
-            <tr><th>ทำอะไร</th><th class="num">จุดที่ผิด</th><th class="num">จากทั้งหมด</th></tr>
+            <tr><th>ทำอะไร</th><th class="num">จุดที่ผิด</th><th class="num">จากทั้งหมด</th><th class="num">ผิดกี่เปอร์เซ็นต์</th></tr>
           </thead>
           <tbody>
             {formulaTries.map((t) => (
@@ -1504,49 +1992,59 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
                 <td>{t.name}</td>
                 <td class="num">{fmt(t.wrong)}</td>
                 <td class="num">{fmt(t.of)}</td>
+                <td class="num">{t.pct}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <figcaption>
-          สองแถวกลางคือการเดาทางแก้ ซึ่งลดจำนวนจุดที่ผิดลงได้แต่ไม่เคยถึงศูนย์
-          แถวที่สี่ไม่ใช่ทางแก้ มันคือ<strong>การทดลองเพื่อระบุสาเหตุ</strong> และมันคือแถวที่ทำให้เห็นทางออก
+          แต่ละรอบสุ่มชุดทดสอบใหม่ จำนวนจุดทั้งหมดจึงไม่เท่ากัน ให้เทียบกันที่คอลัมน์เปอร์เซ็นต์
+          สองแถวกลางคือการเดาทางแก้ ซึ่งลดสัดส่วนที่ผิดลงได้แต่ไม่เคยถึงศูนย์
+          แถวที่สี่คือการทดลองเพื่อระบุสาเหตุ และเป็นแถวที่ทำให้เห็นทางออก
         </figcaption>
       </figure>
     </div>
     <h3>สูตรพังที่เป้า 1 เพราะกติกาที่นั่นกลับด้าน</h3>
     <p>
-      สูตร min-plus ข้างบนตั้งอยู่บนข้อเท็จจริงว่า "เป้าที่มีโทเคนจะปล่อยออกหนึ่งตัวต่อรอบ" ซึ่ง<strong>ไม่จริงที่เป้า 1</strong>
-      เพราะที่นั่นผู้ชนะอยู่ต่อ เป้า 1 จึงปล่อยคนแข็งออกไปก็ต่อเมื่อมีคนแข็ง<strong>สองคน</strong>
+      สูตรการไหลตั้งอยู่บนความจริงว่า "เป้าที่มีคนแข็งปล่อยออกรอบละคน" ซึ่งไม่จริงที่เป้า 1
+      เพราะที่นั่นผู้ชนะอยู่ต่อ เป้า 1 จึงปล่อยคนแข็งออกไปก็ต่อเมื่อมีคนแข็งสองคน
     </p>
     <p>
-      ตรงนี้แก้ได้ด้วยการลดค่าของเป้า 1 ลงหนึ่ง คือใช้ <code>c₁ = n₁(0) − 1</code> แทน แล้วสูตรก็ตรงเป๊ะ
-      ผมสุ่มกระดานเล็ก ๆ มาเทียบทุกช่องทุกรอบรวมหนึ่งหมื่นแปดพันจุด ไม่มีจุดไหนต่างกันเลย
-      <strong>แต่มีเงื่อนไขข้อเดียว</strong> คือเป้า 1 ต้องมีคนแข็งอยู่แล้ว
+      พอเป้า 1 มีคนแข็งแล้ว มันมีอย่างน้อยหนึ่งคนตลอดไป เพราะผู้ชนะไม่ไปไหน คนแรกเหมือนถูกตรึงไว้
+      คนที่เกินมาเท่านั้นที่ปล่อยได้ เป้า 1 จึงทำตัวเหมือนเป้าธรรมดาที่มีคนแข็ง <code>n₁ − 1</code> คน
+      แทนค่านี้ลงในสูตรแทน n ของเป้า 1
+    </p>
+    <p>
+      ผมสุ่มกระดานเล็ก ๆ มาเทียบทุกช่องทุกรอบรวม {fmt(formulaTries[3].of)} จุด ไม่มีจุดไหนต่างกันเลย
+      แต่มีเงื่อนไขข้อเดียว คือเป้า 1 ต้องมีคนแข็งอยู่แล้ว
     </p>
     <div class="callout callout-warn">
       <p class="callout-label">ระวัง</p>
       <p>
-        ถ้าเป้า 1 ยังว่างจากคนแข็ง สูตรจะให้ค่าติดลบ ซึ่งแปลว่ามีคนออกจากเป้า 1 ไปแล้วทั้งที่ยังไม่มีใครไปถึงเลย
-        และนี่ไม่ใช่เคสหายาก มันคือเคสที่เราไปนั่งรอที่เป้า 1 ก่อนคนเก่งจะมาถึง ซึ่งเป็นตัวถ่วงหลักของทั้งข้อ
+        ถ้าเป้า 1 ยังว่างจากคนแข็ง <code>n₁ − 1</code> ติดลบ สูตรจึงนับว่ามีคนออกจากเป้า 1 ไปแล้วทั้งที่ยังไม่มีใครไปถึง
+      </p>
+      <p>
+        เคสนี้ไม่หายาก ตัวอย่างประจำตอนก็เป็น เป้า 1 ถึง {phaseOneLen} ว่างทั้งหมด
       </p>
     </div>
     <h3>ทางแก้ แบ่งเวลาเป็นสองเฟส</h3>
     <p>
-      ทางแก้ตรงไปตรงมา แบ่งเวลาเป็นสองเฟส เฟสแรกคือช่วงที่<strong>ยังไม่มีคนแข็งไปถึงเป้า 1</strong>
-      ช่วงนั้นไม่มีใครวนกลับไปท้ายแถวเลย ระบบจึงเป็นเส้นตรงล้วน สูตรเดิมใช้ได้โดยให้เส้นทางไปจบที่เป้า 1
-      เฟสแรกยาวเท่าไรก็รู้ทันที คือ <code>i₀ − 1</code> เมื่อ <code>i₀</code> คือเป้าซ้ายสุดที่มีคนแข็งอยู่
-      เพราะคนแข็งตัวนั้นไม่มีอะไรขวางข้างหน้าเลย
+      เฟสแรกคือช่วงที่<strong>ยังไม่มีคนแข็งไปถึงเป้า 1</strong> ช่วงนั้นไม่มีใครถูกเหวี่ยงกลับไปท้ายแถวเลย
+      ระบบเป็นเส้นตรงล้วน สูตรเดิมใช้ได้โดยให้เส้นทางไปจบที่เป้า 1
     </p>
-    <ZoomableDiagram caption={`ทำไมต้องแบ่งสองเฟส ใช้กระดานเล็กที่ยกมาเอง เพราะตัวอย่างในโจทย์ไม่มีจุดเริ่มไหนที่เป้า 1 ว่างจากคนแข็งเลย ที่จุดเริ่ม ${phaseK} เป้า 1 ยังว่างจากคนแข็ง n(0) ของกระดานนี้คือ ${phaseN0.join(', ')} เป้าซ้ายสุดที่มีคนแข็งคือเป้า ${phaseI0} คนแข็งตัวนั้นไม่มีอะไรขวางข้างหน้าเลย จึงเดินซ้ายได้รอบละหนึ่งเป้า และใช้เวลา ${phaseOneLen} รอบจึงถึงเป้า 1 ช่วง ${phaseOneLen} รอบนั้นคือเฟสแรก ซึ่งไม่มีใครวนกลับไปท้ายแถวเลย ระบบจึงเป็นเส้นตรงล้วน หลังจากนั้นเป้า 1 มีคนแข็งแน่นอน สูตรวงจึงใช้ได้ตลอด (วาดประกอบโดยผู้เขียน)`}>
-      <svg viewBox={phaseVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวเป้า ${PH_CS.N} เป้า พร้อมค่า n ศูนย์ คือ ${phaseN0.join(' ')} เป้า ${phaseI0} เป็นเป้าซ้ายสุดที่มีคนแข็ง มีลูกศรชี้จากเป้านั้นไปทางซ้ายจนถึงเป้า 1 กินเวลา ${phaseOneLen} รอบ ซึ่งคือความยาวของเฟสแรก ด้านล่างเป็นเส้นเวลาแบ่งสองช่วง ช่วงแรกเป็นเส้นตรง ช่วงที่สองเป็นวง`}>
+    <p>
+      เฟสแรกยาวเท่าไรก็รู้ทันที คือ <code>i₀ − 1</code> รอบ เมื่อ <code>i₀</code> คือเป้าซ้ายสุดที่มีคนแข็ง
+      เพราะคนแข็งตัวนั้นไม่มีใครขวางข้างหน้า จึงเดินซ้ายได้ทุกรอบ
+    </p>
+    <ZoomableDiagram caption={`ทำไมต้องแบ่งสองเฟส ใช้ตัวอย่างประจำตอน (เริ่มที่เป้า ${FX_K}) n(0) คือ ${phaseN0.join(', ')} เป้าซ้ายสุดที่มีคนแข็งคือเป้า ${phaseI0} คนแข็งตัวนั้นเดินซ้ายได้รอบละหนึ่งเป้า ใช้ ${phaseOneLen} รอบจึงถึงเป้า 1 ช่วง ${phaseOneLen} รอบนั้นคือเฟสแรก ไม่มีใครวนกลับไปท้ายแถวเลย หลังจากนั้นเป้า 1 มีคนแข็งแน่นอน สูตรแบบวงจึงใช้ได้ตลอด (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={phaseVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:650px" role="img" aria-label={`แถวเป้า ${FX.N} เป้า พร้อมค่า n ศูนย์ คือ ${phaseN0.join(' ')} เป้า ${phaseI0} เป็นเป้าซ้ายสุดที่มีคนแข็ง มีลูกศรชี้จากเป้านั้นไปทางซ้ายจนถึงเป้า 1 กินเวลา ${phaseOneLen} รอบ ซึ่งคือความยาวของเฟสแรก ด้านล่างเป็นเส้นเวลาแบ่งสองช่วง ช่วงแรกเป็นเส้นตรง ช่วงที่สองเป็นวง`}>
         <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">
-          จุดเริ่ม {phaseK} ทำให้เป้า 1 ยังว่างจากคนแข็ง ซึ่งเป็นเคสที่สูตรเดียวพัง
+          เริ่มที่เป้า {FX_K} เป้า 1 ยังว่างจากคนแข็ง ซึ่งเป็นเคสที่สูตรเดียวพัง
         </text>
         <text x="16" y={PH_TOP + 19} fill="#cdd6ea" font-size="11.5" text-anchor="start" font-family="monospace">
           n(0)
         </text>
-        {Array.from({ length: PH_CS.N }, (_, q) => q + 1).map((i) => {
+        {Array.from({ length: FX.N }, (_, q) => q + 1).map((i) => {
           const first = i === phaseI0;
           const empty = phaseN0[i - 1] === 0;
           return (
@@ -1598,7 +2096,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
         <rect
           x={116 + phaseOneLen * 46}
           y={PH_TOP + 94}
-          width={phx(PH_CS.N) + PHW - (116 + phaseOneLen * 46)}
+          width={phx(FX.N) + PHW - (116 + phaseOneLen * 46)}
           height="20"
           rx="4"
           fill="rgba(74,222,128,0.14)"
@@ -1628,114 +2126,155 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       </svg>
     </ZoomableDiagram>
 
+    <h3>รอยต่อระหว่างสองเฟส</h3>
     <p>
-      พอจบเฟสแรก เป้า 1 มีคนแข็งแน่นอน ก็คำนวณสภาพกระดาน ณ วินาทีนั้นในเวลาเชิงเส้น แล้วตั้งต้นเฟสสองด้วยสูตรวง
-      ซึ่งคราวนี้ถูกต้องตลอด
+      เฟสสองต้องรู้ว่าตอนจบเฟสแรก (รอบที่ {t1}) แต่ละเป้ามีคนแข็งกี่คน ใช้สูตรการไหลของเฟสแรกหา F ของทุกเป้าที่รอบ {t1}
+      ในเฟสแรกเป้า 1 ยังไม่ปล่อยใคร จึงนับว่าเลยเป้า N ไปไม่มีคนแข็ง แล้ว n = n(0) + ไหลเข้า − ไหลออก
+    </p>
+    <p>
+      F ของเป้า i ที่รอบ {t1} คือค่าน้อยสุดของหน้าต่างกว้าง {t1 + 1} ช่องที่เริ่มที่เป้า i
+      เลื่อนหน้าต่างไปทีละเป้า เก็บด้วย deque (คิวที่หยิบเข้าออกได้ทั้งสองหัว) ซึ่งทั้งแถวใช้เวลาราว N
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตัวอย่างประจำตอน · จากรอบ 0 ถึงรอบ {t1} ที่เฟสแรกจบ</caption>
+        <thead>
+          <tr><th>เป้า</th>{phaseEnd.map((_, q) => <th class="num">{q + 1}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr><td>n(0)</td>{flowN0.slice(1).map((v) => <td class="num">{v}</td>)}</tr>
+          <tr><td>ออกไปแล้ว F</td>{phaseEnd.map((_, q) => <td class="num">{phaseF[q + 1]}</td>)}</tr>
+          <tr><td>n ที่รอบ {t1}</td>{phaseEnd.map((v) => <td class="num">{v}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>แถวล่างตรงกับการเดินกระดานทีละรอบ และเป้า 1 มีคนแข็ง {phaseEnd[0]} คนแล้ว เฟสสองจึงเริ่มได้</figcaption>
+    </figure>
+    <p>
+      เฟสสองเป็นวง เป้า N ต่อกับเป้า 1 วิธีที่โค้ดใช้คือคลี่วงเป็นเส้นตรงยาว โดยวางเป้า 1 ถึง N ซ้ำกันไปเรื่อย ๆ
+      ทุกช่องที่เป็นเป้า 1 ใช้ค่า n ลบหนึ่ง ผลรวมสะสมกับหน้าต่างจึงทำงานบนเส้นนี้เหมือนตอนที่ 6 ทุกอย่าง
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เส้นที่คลี่ของตัวอย่างประจำตอน (สองรอบวง)</caption>
+        <thead>
+          <tr><th>เป้า</th>{phaseLine.map((c) => <th class="num">{c.target}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr><td>ค่าที่ใช้</td>{phaseLine.map((c) => <td class="num">{c.v}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>ช่องเป้า 1 ใช้ {phaseEnd[0]} − 1 = {phaseEnd[0] - 1} ทุกครั้งที่วงวนมาถึง</figcaption>
+    </figure>
+    <p>
+      ตำแหน่งของเราบนเส้นนี้ลดหนึ่งทุกครั้งที่ก้าวซ้าย รวมถึงตอนแพ้ที่เป้า 1 ซึ่งคือการถอยไปช่องเป้า N ที่อยู่ทางซ้ายของมันบนเส้น
+      หน้าต่างยังขยายทีละขอบเหมือนเดิม ส่วนโค้ดบวกค่าเลื่อน <code>OFF</code> ไว้ไม่ให้ดัชนีติดลบ
     </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 7 · ไม่ต้องลองทุกจุดเริ่มต้น</h2>
+  <h2>เฉลย ตอนที่ 8 · ไม่ต้องลองทุกจุดเริ่มต้น</h2>
   <Spoiler>
-    <div class="callout callout-note">
-      <p class="callout-label">ที่มา และจุดที่ผมมองข้ามหลักฐานของตัวเอง</p>
-      <p>
-        ข้ออ้างว่า <code>u(k)</code> ไม่ลด ผมได้มาจากสัญชาตญาณก่อน คือคนที่ออกตัวทีหลังไม่น่าจะแซงคนที่ออกตัวก่อนได้
-        แล้วผมเขียนสคริปต์สุ่มสี่ร้อยชุดมาตรวจ ซึ่ง<strong>ตรวจสองอย่างพร้อมกัน</strong>
-        คือความไม่ลด กับความกว้างของช่วง เพราะตอนนั้นผมเชื่อว่าช่วงกว้างไม่เกิน N
-      </p>
-      <p>
-        ผลคือความไม่ลดผ่านหมด แต่มีสี่ชุดที่ช่วง<strong>กว้างเท่ากับ N พอดี</strong> ซึ่งสคริปต์ปริ๊นต์ออกมาว่า BAD
-        ผมดูแล้วคิดว่าไม่เป็นไร เพราะคำตอบยังถูก แล้วก็เดินหน้าต่อ
-      </p>
-      <p>
-        มันกลับมาเล่นงานตอนเขียนโค้ดจริง ผมสมมติว่าข้ามเส้นแบ่งได้ครั้งเดียว
-        แล้วตัวสุ่มเทียบจับได้ที่ <code>N = 5</code> ชุดหนึ่งซึ่งมีสองบล็อกให้เป้าสุดท้ายเท่ากัน
-        โค้ดเลือกบล็อกแรกเพราะเจอก่อน ทั้งที่โจทย์ขอเป้าเริ่มต้นที่<strong>มากที่สุด</strong> ตอบ 3 แทนที่จะเป็น 5
-      </p>
-      <p>
-        บทเรียนไม่ได้อยู่ที่สูตร แต่อยู่ที่<strong>ตอนที่ตัวตรวจสอบบอกว่ามีอะไรผิดปกติ อย่าเพิ่งตัดสินว่าไม่สำคัญ</strong>
-        หลักฐานมันอยู่ตรงหน้าผมตั้งแต่วันแรก ผมแค่อ่านผ่าน
-      </p>
+    <p>
+      ตอนที่ 6 และ 7 ทำให้หนึ่งจุดเริ่มใช้งานราว N แต่ยังต้องลองครบ N จุด จำตารางในตอนที่ 4 ได้ไหม
+      เป้าที่ไปจบไม่ได้เรียงทางเดียว จึงค้นหาแบบทวิภาคบนค่านั้นตรง ๆ ไม่ได้ ต้องหาค่าอื่นที่เรียงกันจริง
+    </p>
+    <p>
+      ค่านั้นคือตำแหน่งบนวงที่<strong>คลี่ออกเป็นเส้นตรง</strong> ทุกก้าวของเราเป็นก้าวซ้าย รวมถึงตอนแพ้ที่เป้า 1
+      ซึ่งนับเป็นก้าวจาก 1 ไป 0 และช่อง 0 บนเส้นก็คือเป้า N ของวงก่อนหน้า
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เส้นที่คลี่เมื่อ N = {EX1.N} · ตำแหน่ง u ตรงกับเป้าไหน</caption>
+        <thead>
+          <tr><th>u</th>{unrollCells.map((c) => <th class="num">{c.u}</th>)}</tr>
+        </thead>
+        <tbody>
+          <tr><td>เป้า</td>{unrollCells.map((c) => <td class="num">{c.target}</td>)}</tr>
+          <tr><td>บล็อก</td>{unrollCells.map((c) => <td class="num">{c.block}</td>)}</tr>
+        </tbody>
+      </table>
+      <figcaption>ทุก {EX1.N} ช่องเป้าวนกลับมาซ้ำ ช่องที่เป้าซ้ำรอบเดียวกันคือหนึ่งบล็อก</figcaption>
+    </figure>
+    <div class="callout callout-tip">
+      <p class="callout-label">ตำแหน่งที่คลี่แล้ว</p>
+      <p><code>u(k) = k − (จำนวนก้าวซ้ายทั้งหมดเมื่อเริ่มที่เป้า k)</code></p>
+      <p><code>เป้าที่จบ f(k) = ((u(k) − 1) mod N) + 1</code> และบล็อกคือ <code>⌊(u − 1) / N⌋</code> (หารแล้วปัดลง)</p>
     </div>
+    <figure class="tbl">
+      <table class="rec urows">
+        <caption>ตัวอย่างที่ 1 · u(k) ของทุกจุดเริ่ม</caption>
+        <thead>
+          <tr><th class="num">เริ่มที่เป้า k</th><th class="num">ก้าวซ้าย</th><th class="num">u(k)</th><th class="num">บล็อก</th><th class="num">เป้าที่จบ f(k)</th></tr>
+        </thead>
+        <tbody>
+          {uRows1.map((x, idx) => (
+            <tr class={uCandRow1[idx] ? 'cand' : undefined}>
+              <td class="num">{x.k}</td>
+              <td class="num">{x.steps}</td>
+              <td class="num">{x.u}</td>
+              <td class="num">{x.block}</td>
+              <td class="num">{x.f}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        คอลัมน์ u ไม่ลดเลย ส่วน f ไม่เรียง เพราะ f คือ u ที่ถูกพับกลับเข้าวงทุก N ช่อง
+        ตัวอย่างนี้ u คร่อม {uBlocks1} บล็อก แถวที่ไฮไลต์คือตัวแรกของแต่ละบล็อก
+      </figcaption>
+    </figure>
+    <p class="pull">u(k) ไม่ลดเมื่อ k เพิ่ม ทั้งโค้ดเต็มพึ่งข้อนี้</p>
     <p>
-      เหลืออีกชั้นเดียว คือยังต้องลอง <code>k</code> ครบทั้ง <code>N</code> ค่า
-      ให้ <code>u(k) = k −</code> จำนวนก้าวซ้ายทั้งหมด ซึ่งเป็นตำแหน่งแบบ "คลี่วงออกเป็นเส้นตรง"
-      เป้าสุดท้ายคือ <code>u(k)</code> หารเอาเศษด้วย <code>N</code>
+      ข้อนี้ผมไม่มีบทพิสูจน์ ภาพ "คนออกตัวหลังแซงคนออกตัวก่อนไม่ได้" ก็ใช้ตรง ๆ ไม่ได้
+      เพราะแต่ละจุดเริ่มคือกระดานคนละแบบ เราแทรกคนละที่ คนอื่นจึงถูกจับคู่ต่างกันตั้งแต่รอบแรก
     </p>
-    <p class="pull">u(k) เป็นฟังก์ชันไม่ลดของ k ถ้าเริ่มขวากว่า ก็ไม่มีทางไปจบซ้ายกว่าเมื่อคลี่วงออกแล้ว</p>
     <p>
-      อ่านเป็นภาษาคนคือ <strong>คนที่ออกตัวหลังแซงคนที่ออกตัวก่อนไม่ได้</strong> ซึ่งเป็นเรื่องปกติของระบบที่ทุกคน
-      เดินทางเดียวและติดกันเองได้ ผมสุ่มมาตรวจสี่ร้อยชุด ไม่มีชุดไหนที่ <code>u</code> ลดลง
+      ที่มีคือการตรวจด้วยการจำลองคนจริง บนกระดานสุ่มหลายขนาด ไม่เคยเจอ u ลดลง (จำนวนและขอบเขตของการตรวจอยู่ในหัวข้อโค้ดเต็ม)
     </p>
     <p>
-      แต่<strong>ช่วงของ <code>u</code> กว้างเกิน N ได้</strong> จึงข้ามเส้นแบ่งของการหารเอาเศษได้หลายครั้ง
-      ตรงนี้ผมพลาดรอบแรก เขียนไปว่าข้ามได้ครั้งเดียว แล้วตัวสุ่มเทียบจับได้ที่เคส <code>N = 5</code>
-      ซึ่งมีสองบล็อกที่ให้เป้าสุดท้ายเท่ากัน แต่โค้ดเลือกบล็อกแรกเพราะเจอก่อน ทั้งที่โจทย์ขอเป้าเริ่มต้นที่<strong>มากที่สุด</strong>
+      ในบล็อกเดียวกัน f เพิ่มตาม u ตัวที่ดีที่สุดของแต่ละบล็อกคือ u ตัวเล็กที่สุดของบล็อกนั้น
+      ผู้เข้าชิงมีบล็อกละหนึ่งตัว และหาได้ด้วยการค้นหาแบบทวิภาค เพราะ u เรียงอยู่แล้ว
+    </p>
+    <p>
+      u อยู่ระหว่าง <code>1 − T</code> ถึง <code>N</code> และ T ในโค้ดเต็มไม่เกิน <code>3N − 1</code>
+      ค่า <code>⌊(u − 1) / N⌋</code> อยู่ระหว่าง −3 ถึง 0 คร่อมได้ไม่เกิน {BLOCKS_MAX} บล็อก
     </p>
     <CodeBlock code={bsIdea} lang="cpp" title="ผู้เข้าชิงมีไม่กี่ตัว" />
     <p>
-      ในหนึ่งบล็อก <code>f</code> เพิ่มตาม <code>u</code> ผู้เข้าชิงจึงมีแค่ค่า <code>u</code> ที่เล็กที่สุดของแต่ละบล็อก
-      และจำนวนบล็อกไม่เกินห้า เพราะ <code>u</code> กว้างไม่เกิน <code>N + T</code> รวมแล้วเราประเมิน
-      <code>u(k)</code> แค่ราว <code>log N</code> ครั้ง ครั้งละ <code>O(N)</code>
+      ในโค้ด <code>firstGE(v)</code> หา k ตัวแรกที่ u(k) ไม่ต่ำกว่า v ส่วน <code>lastLE(v)</code> หา k ตัวสุดท้ายที่ u(k) ไม่เกิน v
+      ทั้งสองเป็นการค้นหาแบบทวิภาคบน k
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ลองกับตัวอย่างที่ 1</p>
+      <p>
+        ผู้เข้าชิงคือ u = {cand1.cands.join(' และ ')} ถ้าสองบล็อกให้ f เท่ากัน ให้เก็บ u ตัวที่มากกว่า
+        แล้วตอบ k มากที่สุดที่ u(k) ยังไม่เกินค่านั้น ได้ <code>{cand1.start}</code> ตรงกับคำตอบของโจทย์
+      </p>
+    </div>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มา และสัญญาณที่ผมอ่านผ่าน</p>
+      <p>
+        ตอนแรกผมเชื่อว่าช่วงของ u กว้างไม่เกิน N สคริปต์สุ่มสี่ร้อยชุดที่ผมใช้ตรวจความไม่ลด
+        ตรวจความกว้างนี้ไปด้วย และพิมพ์ BAD ออกมาสี่ชุดที่ช่วงกว้างเท่ากับ N พอดี ผมอ่านผ่านเพราะคำตอบยังถูก
+      </p>
+      <p>
+        โค้ดรอบนั้นรองรับการข้ามเส้นแบ่งบล็อกแค่ครั้งเดียว และเมื่อสองบล็อกให้ f เท่ากันก็เก็บตัวที่เจอก่อน
+        ตัวสุ่มเทียบจับได้ที่ <code>N = 5</code> ชุดหนึ่งที่สองบล็อกให้เป้าสุดท้ายเท่ากัน โค้ดตอบ 3 แทนที่จะเป็น 5
+      </p>
+      <p>
+        โค้ดเต็มตอนนี้ไล่ทุกเส้นแบ่งบล็อก และเมื่อเสมอเก็บ u ที่มากกว่า กล่องบักในหัวข้อถัดไปแสดงบรรทัดเสมอกันที่ผิด
+        บทเรียนของตอนนี้คือ เมื่อตัวตรวจพิมพ์อะไรแปลก ๆ ให้อ่านให้จบก่อนเดินต่อ
+      </p>
+    </div>
+    <p>
+      นับจำนวนครั้งที่โค้ดเต็มประเมิน u(k) ได้จากโครงของมัน คือ u(1) กับ u(N) สองครั้ง เส้นแบ่งบล็อกละหนึ่งการค้นหา
+      ({BS_ITERS} ครั้ง) บวกหนึ่ง และ lastLE อีกหนึ่งการค้นหา รวมไม่เกิน 2 + {BLOCKS_MAX - 1} × {BS_ITERS + 1} + {BS_ITERS} = {EVAL_BOUND} ครั้ง
+    </p>
+    <p>
+      ที่วัดจริงกับอินพุตในตารางเวลาข้างล่าง {EVALS.inputs} แบบเรียก {EVALS.min} ถึง {EVALS.max} ครั้ง
+      ส่วนแบบที่เราเป็นลำดับ 1 ไม่เรียกเลย ครั้งละราว N งาน ทั้งข้อจึงเป็น O(N log N)
+      (งานโตราว N คูณ log N ซึ่ง log N ของสองแสนคือราว {BS_ITERS})
     </p>
   </Spoiler>
-
-  <ZoomableDiagram caption={`ตัวอย่างที่ 1 เป้าที่ไปจบของทุกจุดยืนเริ่มต้น คำนวณด้วยการจำลองคนจริงทุกจุด ไม่ได้พิมพ์มือ แถวบนคือจุดเริ่ม แถวล่างคือเป้าที่ไปจบ ค่าที่ดีที่สุดคือเป้า ${ans1.best} ซึ่งได้จากจุดเริ่ม ${ukTies.join(' และ ')} เมื่อมีหลายจุดให้ผลเท่ากัน โจทย์ให้ตอบจุดที่มากที่สุด จึงตอบ ${ans1.start} สังเกตว่าแถวล่างไม่ได้เรียงจากน้อยไปมาก จึงค้นหาแบบทวิภาคบนค่านี้ตรง ๆ ไม่ได้ (วาดประกอบโดยผู้เขียน)`}>
-    <svg viewBox={ukVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางสองแถว แถวบนคือจุดยืนเริ่มต้น 1 ถึง ${EX1.N} แถวล่างคือเป้าที่ไปจบซึ่งได้ ${ans1.finals.join(' ')} ตามลำดับ ค่าที่ดีที่สุดคือ ${ans1.best} และคำตอบที่โจทย์ต้องการคือจุดเริ่ม ${ans1.start}`}>
-      <text x={ukx(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">
-        ลองยืนทุกเป้า แล้วดูว่าจบที่ไหน
-      </text>
-      <text x={ukx(0) - 12} y={UK_TOP + 20} fill="#cdd6ea" font-size="11.5" text-anchor="end" font-family="monospace">
-        เริ่ม
-      </text>
-      <text x={ukx(0) - 12} y={UK_TOP + UK_ROW + 20} fill="#cdd6ea" font-size="11.5" text-anchor="end" font-family="monospace">
-        จบ
-      </text>
-      {ans1.finals.map((fin, idx) => {
-        const k = idx + 1;
-        const isBest = fin === ans1.best;
-        const isAns = k === ans1.start;
-        return (
-          <>
-            <rect x={ukx(idx)} y={UK_TOP} width={UKW} height="28" rx="6" fill="#141b2b" stroke="#2a3350" stroke-width="1.4" />
-            <text x={ukx(idx) + UKW / 2} y={UK_TOP + 19} fill="#cdd6ea" font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">
-              {k}
-            </text>
-            <rect
-              x={ukx(idx)}
-              y={UK_TOP + UK_ROW}
-              width={UKW}
-              height="28"
-              rx="6"
-              fill={isAns ? '#12291c' : isBest ? '#2e2510' : '#161d2e'}
-              stroke={isAns ? '#4ade80' : isBest ? '#e0b400' : '#2a3350'}
-              stroke-width={isBest ? '2' : '1.4'}
-            />
-            <text
-              x={ukx(idx) + UKW / 2}
-              y={UK_TOP + UK_ROW + 19}
-              fill={isAns ? '#d7ffe4' : isBest ? '#ffe58a' : '#8f9ab2'}
-              font-size="13"
-              text-anchor="middle"
-              font-weight="700"
-              font-family="monospace"
-            >
-              {fin}
-            </text>
-          </>
-        );
-      })}
-      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 34} fill="#e0b400" font-size="11.5" text-anchor="start">
-        ทองคือจุดที่จบถึงเป้า {ans1.best} ซึ่งเป็นค่าที่ดีที่สุด มี {ukTies.length} จุด
-      </text>
-      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 58} fill="#4ade80" font-size="11.5" text-anchor="start">
-        เขียวคือคำตอบ เพราะเสมอกันแล้วโจทย์ให้เอาจุดเริ่มที่มากที่สุด
-      </text>
-      <text x={ukx(0)} y={UK_TOP + 2 * UK_ROW + 82} fill="#98a3ba" font-size="11.5" text-anchor="start">
-        แถวล่างขึ้นแล้วลง จึงห้ามค้นหาแบบทวิภาคบนค่านี้
-      </text>
-    </svg>
-  </ZoomableDiagram>
 
   <h2>โค้ดเต็มขอบเขต</h2>
   <Spoiler>
@@ -1750,14 +2289,14 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
             <tr>
               <td>{t.name}</td>
               <td class="num">{fmt(t.ms)}</td>
-              <td>เหลือเวลา {fmt(2000 - t.ms)} มิลลิวินาที</td>
+              <td>เหลือเวลา {fmt(LIMIT_MS - t.ms)} มิลลิวินาที</td>
             </tr>
           ))}
         </tbody>
       </table>
       <figcaption>
         แถวที่เร็วที่สุดคือกรณีที่เราเป็นลำดับ 1 ซึ่งตอบได้ทันทีโดยไม่ต้องคำนวณอะไรเลย
-        ที่เหลือเดินครบทุกขั้น และยังเหลือเวลามากกว่าห้าเท่าของที่ใช้
+        ที่เหลือเดินครบทุกขั้น เคสที่ช้าที่สุดใช้ {fullMaxMs} มิลลิวินาที ยังเร็วกว่าลิมิตเกิน {Math.floor(LIMIT_MS / fullMaxMs)} เท่า
       </figcaption>
     </figure>
     <details class="expander">
@@ -1781,8 +2320,12 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
         <p>
           กระดานนี้ยืนเป้าไหนก็จบที่เป้า 1 เหมือนกันทั้งสองจุด โจทย์จึงให้ตอบจุดเริ่มที่มากที่สุด คือ <strong>2</strong>
           ผู้เข้าชิงสองตัวคือ <code>u = −3</code> จากจุดเริ่ม 1 กับ <code>u = −1</code> จากจุดเริ่ม 2
+        </p>
+        <p>
           ทั้งคู่ให้ <code>f = 1</code> เท่ากัน เวอร์ชันที่ผิดเก็บ <code>u = −3</code> ไว้เพราะเจอก่อน
           แล้ว <code>lastLE(−3)</code> ก็คืนจุดเริ่ม <strong>1</strong> ออกมา
+        </p>
+        <p>
           ทางแก้คือให้เงื่อนไขรับกรณีเสมอด้วย <code>f == bestF &amp;&amp; u &gt; bestU</code> ซึ่งเก็บ <code>u</code> ที่มากกว่าไว้
         </p>
         <p>
@@ -1790,55 +2333,77 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
         </p>
       </div>
     </details>
-    <p>
-      การตรวจก่อนเชื่อทำสี่ชั้น ชั้นแรกเทียบสูตรการไหลกับการเดินกระดานจริงทุกช่องทุกรอบ สามหมื่นหกพันจุด
-      ชั้นที่สองเทียบคำตอบทั้งข้อกับตัวจำลองคนจริงที่ <code>N</code> ไม่เกิน 8 จำนวนสี่พันชุด
-      ชั้นที่สามเทียบที่ <code>N</code> ระหว่าง 9 ถึง 40 อีกสี่ร้อยชุด บวกชุดที่จงใจจัดแถวให้โหด
-      (เรียงขึ้น เรียงลง คนแข็งกองท้าย เราเป็นลำดับสุดขั้ว) อีกสี่ร้อยชุด
-      ชั้นที่สี่เทียบที่ <code>N</code> ระหว่าง 60 ถึง 220 อีกหกสิบชุด ตรงกันทั้งหมด
-    </p>
-    <p>
-      สองบักที่ตัวตรวจสอบจับได้ระหว่างทาง คือสูตรที่เป้า 1 ให้ค่าติดลบตอนเป้า 1 ยังว่าง
-      กับการเลือกบล็อกผิดตอนเสมอกัน ทั้งคู่เป็นบักที่<strong>ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด</strong>
-    </p>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>การตรวจทั้งหมดของหน้านี้ รวมไว้ที่เดียว</caption>
+        <thead>
+          <tr><th>ตรวจอะไร</th><th>ขอบเขต</th><th>ผล</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>กระดาน c (ตอนที่ 1) เทียบกับจำลองคนจริง</td><td>ตัวอย่างในโจทย์สองชุด ทุกจุดเริ่ม (ตอนสร้างหน้า)</td><td>{crossCheck ? 'ตรงทุกจุด' : 'ไม่ตรง'}</td></tr>
+          <tr><td>สูตรการไหล (ตอนที่ 6) เทียบกับนับตรง ๆ</td><td>{fmt(flowChecks)} กรณี บนกระดานสุ่ม N ไม่เกิน 7 (ตอนสร้างหน้า)</td><td>ตรงทุกกรณี</td></tr>
+          <tr><td>สูตรเป้า 1 และสองเฟส (ตอนที่ 7)</td><td>{fmt(formulaTries[4].of)} จุด ช่วงพัฒนา</td><td>ตรงทุกจุด</td></tr>
+          <tr><td>u(k) ไม่ลด, เดิน T รอบได้เท่าเดิน R รอบ, วิธีผู้เข้าชิง (ตอนที่ 8)</td><td>{fmt(uChecks)} กระดาน N ไม่เกิน 7 (ตอนสร้างหน้า) และอีก {fmt(EMP.uBoards)} กระดาน N 2 ถึง {EMP.uMaxN} ด้วยสคริปต์แยก</td><td>ไม่เจอข้อยกเว้น</td></tr>
+          <tr><td>ช่วงตั้งตัวกับคนที่วน (ตอนที่ 3)</td><td>{fmt(EMP.boards)} กระดาน N 1 ถึง {EMP.maxN} ด้วยสคริปต์แยก</td><td>ซ้ำทุก N รอบตั้งแต่ไม่เกินรอบ N, คนวนคือลำดับ 2 ถึง N+1</td></tr>
+          <tr><td>โค้ดทั้งสามชุดที่ดึงออกจากหน้านี้</td><td>{fmt(STRESS.small)} เทส N ไม่เกิน {STRESS.smallMaxN} เทียบตัวจำลองคนจริง และ {fmt(STRESS.mid)} เทส N {STRESS.midMinN} ถึง {STRESS.midMaxN} (R ถึงพันล้าน) เทียบโค้ดรอบแรก</td><td>ผิด {STRESS.bad} เทส</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        แถวที่เขียนว่าตอนสร้างหน้า ถ้าไม่ตรงแม้ครั้งเดียว หน้านี้จะ build ไม่ผ่าน ทั้งหมดนี้คือการทดลอง ไม่ใช่บทพิสูจน์
+        สองบักที่จับได้ระหว่างทาง (เป้า 1 ติดลบ และการเลือกบล็อกตอนเสมอ) ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด
+      </figcaption>
+    </figure>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แผนที่โค้ดเต็ม · ท่อนไหนเล่าไว้ตอนไหน</caption>
+        <thead>
+          <tr><th>ท่อนในโค้ด</th><th>เล่าไว้ที่</th></tr>
+        </thead>
+        <tbody>
+          {CODE_MAP.map((r) => (
+            <tr><td><code>{r.code}</code></td><td>{r.where}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>ในโค้ดเรียกคนแข็งว่าโทเคน (token แปลว่าเบี้ย ใช้เรียกของที่นับเป็นชิ้น ๆ) ส่วน n0 คือ n(0) ของตอนที่ 6</figcaption>
+    </figure>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
-  <p>
-    ข้อนี้ยาวเพราะมันซ้อนสามชั้น แต่ละชั้นเป็นท่าที่ยกไปใช้กับข้ออื่นได้เอง และคุ้มที่จะจำแยกจากตัวโจทย์
-  </p>
-  <ul>
-    <li>
-      <strong>ย่อโลกให้เหลือสิ่งที่ตัวเองต้องรู้</strong> คนอื่นทั้ง 2N คนสำคัญกับเราแค่เรื่องเดียว คือแข็งกว่าเราหรือไม่
-      พอถามแค่นั้น ข้อมูลทั้งกองยุบเหลือเลข 0, 1 หรือ 2 ต่อเป้า คำถามที่ใช้ซ้ำได้คือ
-      <strong>อะไรคือสิ่งที่น้อยที่สุดที่ต้องรู้ เพื่อตอบคำถามของโจทย์</strong> ทุกอย่างที่เหลือคือรายละเอียดที่ทิ้งได้
-    </li>
-    <li>
-      <strong>สังเกตปลายทางก่อนพิสูจน์</strong> สภาวะคงตัวในตอนที่ 4 ผมไม่ได้พิสูจน์ก่อน ผมสั่งพิมพ์กระดานออกมาดู
-      แล้วเห็นรูปของมัน จากนั้นจึงกลับไปหาเหตุผล การรู้ว่าจะพิสูจน์อะไรทำให้การพิสูจน์ง่ายขึ้นคนละเรื่อง
-    </li>
-    <li>
-      <strong>เปลี่ยนตัวแปรที่ติดตาม เมื่อการจำลองแพงเกินไป</strong> ตอนที่ 5 เลิกเดินกระดานทั้งแถว
-      แล้วหันไปนับ "จำนวนคนที่ออกจากเป้านี้ไปแล้ว" แทน ซึ่งมีสูตรปิด พอเจอโจทย์ที่ต้องจำลองหลายรอบเกินไป
-      ให้ถามว่า <strong>มีปริมาณอื่นที่คำนวณล่วงหน้าได้ แล้วตอบคำถามเดิมได้ไหม</strong>
-    </li>
-    <li>
-      <strong>ให้ตัวตรวจสอบเทียบทุกจุด ไม่ใช่เทียบแค่คำตอบสุดท้าย</strong> สูตรที่เป้า 1 ผิดอยู่สามรอบ
-      และสิ่งที่พาไปถึงสาเหตุคือการเทียบทุกช่องทุกรอบ แล้วเห็นว่าจุดที่ผิด<strong>ติดลบทั้งหมด</strong>
-      คำตอบสุดท้ายที่ถูกไม่ได้แปลว่าข้างในถูก
-    </li>
-  </ul>
-  <p>
-    และท่าที่ควรติดมือที่สุดคือท่าที่ตอนที่ 7 สอน คือ<strong>ตอนที่ตัวตรวจสอบบอกว่ามีอะไรผิดปกติ อย่าเพิ่งตัดสินว่าไม่สำคัญ</strong>
-    ผมมีหลักฐานว่าช่วงกว้างเท่ากับ N อยู่ตรงหน้าตั้งแต่วันแรก แล้วอ่านผ่านไป มันกลับมาเล่นงานตอนเขียนโค้ดจริง
-    เจอสัญญาณแปลก ๆ จากตัวตรวจครั้งหน้า ให้หยุดอ่านมันให้จบก่อนเดินหน้า
-  </p>
+  <h2>ทดสอบความเข้าใจ</h2>
+  <details class="expander">
+    <summary>ถ้าเราเก่งที่สุดในสนาม (หมายเลข 1) ควรตอบอะไร</summary>
+    <div class="expander-body">
+      <p>
+        ตอบ <code>N</code> ทุกครั้ง เราชนะทุกรอบจึงไหลไปจอดที่เป้า 1 ได้จากทุกจุดเริ่ม เพราะ T อย่างน้อย 2N รอบ
+        ทุกจุดจบที่เป้า 1 เท่ากัน โจทย์จึงขอจุดเริ่มที่มากที่สุด โค้ดเต็มตอบบรรทัดเดียวด้วยเหตุผลนี้
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>เรายืนที่เป้า 5 และ c[5] = 1 รอบนี้จะเกิดอะไรขึ้น</summary>
+    <div class="expander-body">
+      <p>
+        ป้าย 1 ตัวเดียวในเป้านั้นคือตัวเราเอง คู่แข่งจึงเป็นป้าย 0 เราชนะ และขยับไปเป้า 4 (ตอนที่ 2)
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมค้นหาแบบทวิภาคบน u(k) ได้ แต่บนเป้าที่จบ f(k) ไม่ได้</summary>
+    <div class="expander-body">
+      <p>
+        u ไม่ลดเมื่อ k เพิ่ม ส่วน f คือ u ที่ถูกพับกลับเข้าวงทุก N ช่อง พอ u ข้ามเส้นแบ่งบล็อก f ก็กระโดดกลับไปเลขน้อย
+        จึงไม่เรียงทางเดียว (ตอนที่ 8)
+      </p>
+    </div>
+  </details>
 
-  <h2>สรุปบรรทัดเดียว</h2>
+  <h2>สรุป</h2>
   <p>
-    หมายเลขทักษะของคนอื่นไม่มีความหมายกับเราเลยนอกจากมันมากหรือน้อยกว่าของเรา สนามจึงยุบเหลือเลข 0 ถึง 2 ต่อหนึ่งเป้า
-    จากนั้นเลิกเดินกระดานแล้วหันไปนับการไหลแทน ซึ่งมีสูตรปิดที่ยุบเหลือค่าน้อยสุดของช่วง
-    และเพราะจบขวากว่าไม่ได้ถ้าออกตัวซ้ายกว่า จุดเริ่มต้นทั้ง N จุดจึงเหลือให้ลองแค่ราว log N จุด
+    หมายเลขทักษะของคนอื่นสำคัญแค่ว่ามากหรือน้อยกว่าของเรา สนามจึงยุบเหลือเลข 0 ถึง 2 ต่อเป้า
+    คูณเลขแล้วรู้ว่าต้องตัดงานต่อรอบก่อน เลยเลิกเดินกระดานแล้วนับการไหล ซึ่งยุบเหลือค่าน้อยสุดของช่วง
+  </p>
+  <p>
+    สุดท้ายตำแหน่งที่คลี่ออก u(k) ไม่ลดในทุกกระดานที่ตรวจ จุดเริ่มทั้ง N จุดจึงเหลือให้ประเมินแค่ไม่กี่สิบครั้ง
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -1875,6 +2440,9 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
      มันจึงถือ cid ของคอมโพเนนต์ ไม่ใช่ของหน้านี้ สไตล์ที่สโคปไว้กับหน้าจะไม่ตรงเลย
      ทางที่ตรงคือให้ตารางมีคลาสของตัวเอง แล้วจับที่คลาสนั้น
      ส่วน !important จำเป็นเพราะเลย์เอาต์ตั้ง width:100% ด้วยตัวเลือกที่ยาวกว่า */
+  /* แถวผู้เข้าชิงในตาราง u(k) ของตอนที่ 8 */
+  table.rec.urows tr.cand > td{background:rgba(74,222,128,0.12);color:#d7ffe4;}
+
   table.rec.arcboard{table-layout:fixed;width:0 !important;min-width:100%;}
   table.rec.arcboard th:first-child,
   table.rec.arcboard td:first-child{width:3.6rem;}
@@ -1988,7 +2556,7 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
       if (p.finals[picked - 1] === p.best) {
         const note = p.monotone
           ? ''
-          : ' และสังเกตไหมว่าผลของแต่ละจุดเริ่มต้นไม่ได้เรียงจากน้อยไปมาก การค้นแบบไบนารีจึงใช้กับข้อนี้ไม่ได้';
+          : ' และสังเกตไหมว่าผลของแต่ละจุดเริ่มต้นไม่ได้เรียงจากน้อยไปมาก การค้นหาแบบทวิภาคจึงใช้กับค่านี้ตรง ๆ ไม่ได้';
         ui.setStatus(`ถูกครับ จบที่เป้า ${p.best} ซึ่งดีที่สุดแล้ว${note}`, 'good');
       } else {
         ui.setStatus(
@@ -2029,5 +2597,6 @@ const arcNotes = demoFrames.slice(0, -1).map((f, idx) => {
 
   document.addEventListener('astro:page-load', () => {
     initCpRowPlayers('[data-arcsim]');
+    initCpRowPlayers('[data-flowsim]');
   });
 </script>
