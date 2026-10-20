@@ -1,3 +1,5 @@
+import { assertDatePair } from '../lib/dates';
+
 export interface DivineLoreEntry {
   /** Directory-style path relative to /divine-lore/ (e.g. 'global-workspace/'). */
   href: string;
@@ -62,6 +64,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'เข้าใจ donut.c ตั้งแต่ศูนย์',
     desc: 'โค้ดโดนัทหมุนของ Andy Sloane ถูกแชร์มาสิบกว่าปี แต่คำอธิบายทุกอันเริ่มที่เมทริกซ์หมุน บทนี้เริ่มจากศูนย์จริง ๆ ปูไซน์กับโคไซน์ด้วยสามเหลี่ยมมุมฉาก ปูเปอร์สเปกทีฟด้วยสามเหลี่ยมคล้าย แล้วต่อทีละชั้นจนครบ 6 ชั้น พร้อมบทพิสูจน์ทุกสูตรและโดนัทที่ถอดชิ้นส่วนเล่นได้ในหน้า',
     dateISO: '2026-08-27',
+    updatedISO: '2026-08-30',
     readingMinutes: 33,
   },
   {
@@ -70,6 +73,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'Forex-3D: คุก 49,110 ปี กับเลขที่ไม่มีวันจริง',
     desc: 'แกะคดี Forex-3D ทั้งเครื่อง ตั้งแต่ Forex คือตลาดอะไร โบรกเกอร์กินเงินตรงไหน ทำไมไทยไม่เคยออกใบอนุญาตให้ใคร เลขคณิตที่บอกว่าแชร์ลูกโซ่ต้องพังเดือนไหน การจดบริษัทให้อะไรกับคนตั้งจริง ๆ ภาษีบุคคลกับนิติบุคคลต่างกันแค่ไหน ทำไมคนมีเงินถึงโดนหลอก พร้อมไทม์ไลน์ 11 ปีจนถึงคำพิพากษาวันที่ 13 สิงหาคม 2026',
     dateISO: '2026-08-13',
+    updatedISO: '2026-08-15',
     readingMinutes: 32,
   },
   {
@@ -78,6 +82,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'คนรวยก็กู้ซื้อบ้าน: แกะดอกเบี้ยทีละบาท',
     desc: 'เกร็ดการเงินชิ้นแรก แกะโพสต์ยอดนิยมเรื่องมหาเศรษฐีที่ยังกู้แบงก์ซื้อบ้าน ว่าดอกเบี้ยลดต้นลดดอกทำงานยังไง ประวัติของ Buffett, Zuckerberg, Musk, Griffin, Jay-Z จริงแค่ไหน ทำไมจุดคุ้มทุนคืออัตราดอกเบี้ยพอดี และส่วนไหนของวิธีคิดนี้ใช้ในไทยไม่ได้เลย',
     dateISO: '2026-07-30',
+    updatedISO: '2026-08-15',
     readingMinutes: 16,
   },
   {
@@ -86,6 +91,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'Options 101: หุ้นอยู่ที่เดิม เราก็ขาดทุนได้',
     desc: 'สรุป Webull Master Class ตอน Zero to Options Trader แบบละเอียด พร้อมภาพ payoff ทุกท่า ตั้งแต่ Call/Put, Covered Call, Cash Secured Put ไปจนถึงการหาโซนราคาด้วย Reverse DCF',
     dateISO: '2026-07-27',
+    updatedISO: '2026-08-15',
     readingMinutes: 29,
   },
   {
@@ -94,6 +100,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'LLM ชอบ "หลบด่าน" ที่เราตั้งไว้',
     desc: 'สรุปบทความ LLMs Will Cheese Your Types ของ Justin Le รวมท่าที่ AI ใช้เลี่ยงกฎ type ทั้งที่คอมไพล์ผ่านหมด ยกโค้ดมาครบทุกตัวอย่าง พร้อมเวอร์ชัน Scala 3 (cats, cats-effect, fs2, Pekko) และ TypeScript (Effect-TS) คู่กันทุกท่า',
     dateISO: '2026-07-26',
+    updatedISO: '2026-07-29',
     readingMinutes: 18,
   },
   {
@@ -102,6 +109,7 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'ICPC 2026 ไทย รอบย่อย: สรุปโจทย์ + เฉลยแบบเข้าใจง่าย',
     desc: 'เล่าและเฉลยโจทย์รอบย่อย ICPC 2026 แบบเข้าใจง่าย',
     dateISO: '2026-07-19',
+    updatedISO: '2026-07-21',
     readingMinutes: 17,
   },
   {
@@ -110,9 +118,13 @@ export const divineLoreEntries: DivineLoreEntry[] = [
     title: 'Anthropic ส่องเห็น "ห้องคิดกลาง" ในหัว AI ได้แล้ว',
     desc: 'เปิดกล่องดำ AI ได้จริง Anthropic เจอโครงสร้างในโมเดลที่ทำหน้าที่เหมือนการรู้ตัวของสมองคน อ่านความคิดเงียบ ๆ ได้ แก้มันได้ และเห็นสัญญาณเจตนาที่ซ่อนอยู่ก่อนมันจะลงมือ',
     dateISO: '2026-07-12',
+    updatedISO: '2026-07-14',
     readingMinutes: 17,
   },
 ];
+
+// ตรวจวันที่ตอน build (DivineLoreLayout import ไฟล์นี้ทุกหน้า จึงรันทุกครั้งที่ build)
+for (const e of divineLoreEntries) assertDatePair(`divineLore.ts: "${e.href}"`, e.dateISO, e.updatedISO);
 
 export function getDivineLoreEntry(href: string): DivineLoreEntry | undefined {
   return divineLoreEntries.find((e) => e.href === href);

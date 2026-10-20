@@ -1,6 +1,8 @@
 // หมวด competitive programming: เข้าได้ทางเดียวคือผ่านหน้า /divine-lore/
 // (เหมือน /games/) จึงไม่มีลิงก์จากหน้าไหนในเว็บสาธารณะ และถูกกันออกจาก sitemap
 
+import { assertDatePair } from '../lib/dates';
+
 /** ชุดโจทย์ (คอนเทสต์/คอร์ส/แหล่งที่มา) ใช้จัดกลุ่มการ์ดบนหน้า /cp/ */
 export interface CpSet {
   /** id สั้น ๆ ใช้อ้างจาก CpProblem.setId */
@@ -90,6 +92,8 @@ export interface CpProblem {
   kind?: 'problem' | 'lesson';
   /** วันที่เขียนเฉลย (YYYY-MM-DD) */
   dateISO: string;
+  /** วันที่แก้เนื้อหาครั้งล่าสุด (YYYY-MM-DD) ใส่เมื่อเขียนใหม่หรือเพิ่มเนื้อหาหลังเผยแพร่ ไม่ใส่สำหรับงานกวาด CSS/ลิงก์ */
+  updatedISO?: string;
   readingMinutes: number;
   /** การ์ดตัวอย่างของข้อที่ยังไม่ได้เขียน */
   soon?: boolean;
@@ -119,6 +123,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['prefix sum', 'BIT', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 25,
   },
   {
@@ -130,6 +135,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['bfs', 'state space', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 14,
   },
   {
@@ -141,6 +147,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -152,6 +159,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['hashing', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -163,6 +171,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'interval dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-08-27',
+    updatedISO: '2026-09-10',
     readingMinutes: 22,
   },
   {
@@ -174,6 +183,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'state compression', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 17,
   },
   {
@@ -185,6 +195,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -196,6 +207,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['trie', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 10,
   },
   {
@@ -207,6 +219,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 11,
   },
   {
@@ -218,6 +231,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'tree', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 10,
   },
   {
@@ -229,6 +243,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['segment tree', 'binary search', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 31,
   },
   {
@@ -294,6 +309,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'stack'],
     difficulty: 3,
     dateISO: '2026-08-26',
+    updatedISO: '2026-09-07',
     readingMinutes: 7,
   },
   {
@@ -305,6 +321,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'state compression'],
     difficulty: 3,
     dateISO: '2026-09-05',
+    updatedISO: '2026-09-08',
     readingMinutes: 9,
   },
   {
@@ -316,6 +333,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['bfs', 'constructive'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-08',
     readingMinutes: 10,
   },
   {
@@ -323,11 +341,12 @@ export const cpProblems: CpProblem[] = [
     setId: 'programming-in-th',
     label: '2004',
     title: 'คู่ที่ได้ยินกัน: หมุนพิกัดเพื่อแยกเงื่อนไขสองแกนที่พัวพันกันออกจากกัน',
-    desc: 'ข้อที่ยกของจากบทผลรวมสะสมกับต้นไม้เฟนวิกมาใช้จริงทั้งชุด แกนของมันคือเอกลักษณ์บรรทัดเดียวที่ทำให้เงื่อนไขซึ่งผูกสองแกนไว้ด้วยกัน กลายเป็นเงื่อนไขที่ตรวจแยกกันได้ กับบทเรียนว่าทำไมท่าเดียวกันนี้ถึงช่วยอะไรไม่ได้เลยบนกระดานสามมิติ',
+    desc: 'ข้อที่ยกของจากบทผลรวมสะสมกับต้นไม้เฟนวิกมาใช้จริงทั้งชุด แกนของมันคือเอกลักษณ์บรรทัดเดียวที่ทำให้เงื่อนไขซึ่งผูกสองแกนไว้ด้วยกัน กลายเป็นเงื่อนไขที่ตรวจแยกกันได้ กับเหตุผลที่กระดานสามมิติหมุนทั้งก้อนไม่ได้ ต้องซอยเป็นชั้นแล้วหมุนทีละชั้นแทน',
     topics: ['sweep line', 'BIT', 'prefix sum'],
     difficulty: 4,
     dateISO: '2026-09-06',
-    readingMinutes: 11,
+    updatedISO: '2026-10-20',
+    readingMinutes: 13,
   },
   {
     href: 'killer-square/',
@@ -338,6 +357,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['hashing', 'dp', 'string'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-08',
     readingMinutes: 8,
   },
   {
@@ -349,6 +369,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dfs', 'greedy'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-09',
     readingMinutes: 9,
   },
   {
@@ -360,6 +381,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['simulation', 'invariant', 'binary search', 'ad hoc'],
     difficulty: 5,
     dateISO: '2026-09-06',
+    updatedISO: '2026-10-19',
     readingMinutes: 26,
   },
   {
@@ -371,6 +393,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'string', 'ad hoc'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 8,
   },
   {
@@ -382,6 +405,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['trie', 'dfs', 'greedy'],
     difficulty: 3,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 11,
   },
   {
@@ -393,29 +417,32 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'state compression'],
     difficulty: 3,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-08',
     readingMinutes: 11,
   },
   {
     href: 'sails/',
     setId: 'programming-in-th',
     label: '2015',
-    title: 'ใบเรือโจรสลัด: ฟังก์ชันนูนบอกคำตอบไปแล้ว เหลือแค่ใครได้เลือกก่อน',
-    desc: 'ข้อที่ท่าโลภถูกตั้งแต่บรรทัดแรก แต่พังที่กฎตัดสินตอนค่าเสมอกัน ซึ่งไม่ได้ทำให้คำตอบผิดโดยตรง แต่ไปทำลายความเป็นระเบียบที่โค้ดชั้นในพึ่งพาอยู่ เป็นบักสองชั้นที่หายากมากถ้าไม่มีตัวตรวจสอบ',
+    title: 'ใบเรือโจรสลัด: แจกใบเรือลงระดับให้บังลมกันน้อยที่สุด',
+    desc: 'เสาสูงไม่เท่ากัน แต่ละต้นต้องติดใบตามจำนวน ใบที่อยู่ระดับเดียวกันบังลมกัน จะจัดยังไงให้เสียน้อยที่สุด ไล่จากวิธีนับทุกแบบไปจนถึงโค้ดที่ทันทุกขนาด',
     topics: ['greedy', 'BIT', 'binary search'],
     difficulty: 4,
     dateISO: '2026-09-07',
-    readingMinutes: 11,
+    updatedISO: '2026-10-20',
+    readingMinutes: 12,
   },
   {
     href: 'dna-kth/',
     setId: 'programming-in-th',
     label: '2016',
-    title: 'ลำดับ DNA ตัวที่ R: นิยามที่เรียกตัวเอง ซ่อนการนับง่าย ๆ ไว้ข้างใน',
-    desc: 'ข้อที่ฝึกสองอย่างพร้อมกัน คือแกะนิยามแบบเรียกซ้ำให้กลายเป็นเงื่อนไขที่นับได้ กับท่ามาตรฐานของโจทย์ตระกูลตัวที่ R ซึ่งใช้ซ้ำได้อีกหลายข้อ พร้อมสองกับดักคือเทียบผิดข้างกับค่าล้น',
+    title: 'ลำดับ DNA ตัวที่ R: นิยามที่เรียกตัวเอง',
+    desc: 'เติมช่องว่างในสาย DNA แล้วหาสายตัวที่ R ตามพจนานุกรม เมื่อ R ใหญ่ได้ถึงสองล้านล้าน และนิยามรูปแบบของสายเรียกตัวเอง',
     topics: ['dp', 'counting', 'string'],
     difficulty: 4,
     dateISO: '2026-09-07',
-    readingMinutes: 11,
+    updatedISO: '2026-10-20',
+    readingMinutes: 9,
   },
   {
     href: 'teleporters/',
@@ -426,6 +453,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'greedy', 'parity'],
     difficulty: 4,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 12,
   },
   {
@@ -437,6 +465,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'tree', 'dp'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 16,
   },
   {
@@ -448,6 +477,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'state compression', 'parity'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 15,
   },
   {
@@ -459,6 +489,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['counting', 'segment tree', 'greedy'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 14,
   },
   {
@@ -470,6 +501,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['binary search', 'sweep line', 'segment tree'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 17,
   },
   {
@@ -481,6 +513,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['geometry', 'bfs', 'dfs'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 16,
   },
   {
@@ -509,11 +542,12 @@ export const cpProblems: CpProblem[] = [
     href: 'mole-tunnels/',
     setId: 'programming-in-th',
     label: '2025',
-    title: 'อุโมงค์ตัวตุ่น: พอรู้ว่าจะปิดเส้นไหน ที่เหลือไม่มีอะไรให้เลือกอีกแล้ว',
-    desc: 'ปิดอุโมงค์หนึ่งเส้นเปิดใหม่หนึ่งเส้น ให้ห้องที่ไกลกันที่สุดใกล้กันที่สุด บทนี้ตัดมิติของคำถามทิ้งด้วยการเขียนสูตรออกมาก่อน แล้วหาความยาวของสองก้อนให้ครบทุกเส้นด้วยการไล่ค่าขึ้นลงรอบเดียว',
+    title: 'อุโมงค์ตัวตุ่น: พอรู้ว่าจะปิดเส้นไหน ต่อที่ห้องกลางได้เสมอ',
+    desc: 'ปิดอุโมงค์หนึ่งเส้น เปิดใหม่หนึ่งเส้น ให้คู่ห้องที่ไกลกันที่สุดใกล้กันที่สุด บทนี้ไล่จากลองทุกแบบ ไปสูตรที่บอกว่าต้องต่อที่จุดกึ่งกลาง แล้วหาความยาวของสองก้อนของทุกเส้นด้วยการไล่ค่าขาลงกับขาขึ้น',
     topics: ['tree', 'dp', 'bfs'],
     difficulty: 5,
     dateISO: '2026-09-09',
+    updatedISO: '2026-10-20',
     readingMinutes: 14,
   },
   {
@@ -536,7 +570,8 @@ export const cpProblems: CpProblem[] = [
     topics: ['greedy', 'binary lifting'],
     difficulty: 5,
     dateISO: '2026-09-09',
-    readingMinutes: 14,
+    updatedISO: '2026-10-20',
+    readingMinutes: 13,
   },
   {
     href: 'atm-robbery/',
@@ -564,11 +599,12 @@ export const cpProblems: CpProblem[] = [
     href: 'hiring/',
     setId: 'programming-in-th',
     label: '2031',
-    title: 'จ้างคนงาน: คนเดียวในทีมเป็นคนตั้งราคาให้ทั้งทีม',
-    desc: 'ค่าจ้างต้องเป็นสัดส่วนกับคุณวุฒิ และทุกคนต้องได้ไม่ต่ำกว่าที่ขอ ห้าแสนคนจึงลองทีละทีมไม่ได้ บทนี้หาว่าใครคุมราคา แล้วเดินจากคนราคาถูกไปแพง พร้อมฮีปที่คอยทิ้งคนที่แพงที่สุดในมือ',
+    title: 'จ้างคนงาน: งบเท่าเดิม ทีมใหญ่ได้แค่ไหน',
+    desc: 'ค่าจ้างต้องเป็นสัดส่วนกับคุณวุฒิ และทุกคนต้องได้ไม่ต่ำกว่าที่ขอ ผู้สมัครห้าแสนคน ลองทีละทีมไม่ทัน บทนี้ไล่จากวิธีที่ถูกแต่ช้าไปจนถึงวิธีที่ทันทุกขนาด',
     topics: ['greedy', 'heap'],
     difficulty: 4,
     dateISO: '2026-09-11',
+    updatedISO: '2026-10-20',
     readingMinutes: 12,
   },
   {
@@ -631,33 +667,36 @@ export const cpProblems: CpProblem[] = [
     setId: 'programming-in-th',
     label: '2039',
     title: 'ส่งนินจาไปทำงาน: พอล็อกผู้จัดการแล้ว เหลือแค่ซื้อคนให้ได้มากที่สุด',
-    desc: 'คะแนนคือจำนวนคนที่ส่งไปคูณความเป็นผู้นำของผู้จัดการ พอเลือกผู้จัดการแล้วตัวคูณกลายเป็นค่าคงที่ โจทย์จึงเหลือแค่งบเท่านี้จ้างได้กี่คน ซึ่งตอบด้วยการเลือกคนค่าจ้างถูกก่อน แต่ละปมถือฮีปของคนที่ซื้อไหว แล้วยกฮีปนั้นขึ้นไปให้หัวหน้า โดยคนแพงที่ถูกทิ้งไปแล้วไม่มีวันถูกเรียกกลับ',
+    desc: 'คะแนนคือจำนวนคนที่ส่งไปคูณความเป็นผู้นำของผู้จัดการ ต้นไม้มีแสนคนและงบจำกัด จะเลือกผู้จัดการกับทีมยังไงให้ได้มากที่สุดโดยไม่ต้องลองทุกทาง',
     topics: ['tree', 'heap', 'greedy'],
     difficulty: 4,
     dateISO: '2026-09-11',
+    updatedISO: '2026-10-20',
     readingMinutes: 13,
   },
   {
     href: 'tournament/',
     setId: 'programming-in-th',
     label: '2040',
-    title: 'Tournament: ใครชนะไม่สำคัญ ก้อนที่ถูกยุบสำคัญกว่า',
-    desc: 'แทรกอัศวินที่มาสายลงในแถวตรงไหนก็ได้ ให้เขาชนะมากที่สุด กับดักอยู่ที่คำตอบเป็นตำแหน่งที่แทรก ไม่ใช่จำนวนรอบที่ชนะ กุญแจคือก้อนของตำแหน่งที่ถูกยุบในแต่ละรอบเหมือนกันหมดไม่ว่าจะแทรกตรงไหน คิดครั้งเดียวใช้ได้ทุกตำแหน่ง แล้วมองว่าเขาไม่มีวันตายจนถึงรอบที่แพ้จริง',
+    title: 'Tournament: แทรกอัศวินมาสายตรงไหนดี',
+    desc: 'อัศวินคนหนึ่งมาสาย เลือกช่องในแถวให้เขาชนะได้มากรอบที่สุดก่อนตกรอบ ช่องให้ลองมีเกือบแสนช่อง รอบก็เกือบแสนรอบ จำลองทุกช่องตรง ๆ ไม่ทันแน่ ระวังด้วยว่าโจทย์ให้ตอบเป็นเลขช่อง',
     topics: ['BIT', 'dsu', 'offline'],
     difficulty: 4,
     dateISO: '2026-09-11',
-    readingMinutes: 12,
+    updatedISO: '2026-10-20',
+    readingMinutes: 13,
   },
   {
     href: 'delicacy/',
     setId: 'programming-in-th',
     label: '2041',
     title: 'นักชิม: หนึ่งวันคือการคูณเมทริกซ์หนึ่งครั้ง',
-    desc: 'ต้องออกจากเมือง 1 แล้วกลับมาให้พอดี T วัน โดย T ถึงพันล้าน ถนนยาวไม่เกิน 5 วัน จึงหั่นเมืองเป็นสำเนาให้ทุกถนนยาวหนึ่งวันเท่ากัน แล้วเดินทีละวันกลายเป็นคูณเมทริกซ์บนพีชคณิต max-plus ยกกำลังแบบทวิภาคข้ามช่วงที่ไม่มีเทศกาล',
+    desc: 'ออกจากเมือง 1 แล้วกลับมาให้พอดีวันที่ T ซึ่งไกลถึงพันล้าน เริ่มจากไล่ทุกเส้นทางกับตารางรายวันที่ได้ 40% แล้วหั่นเมืองเป็นสำเนาจนทุกวันเป็นก้าวแบบเดียวกัน หนึ่งวันกลายเป็นการคูณเมทริกซ์แบบ max-plus ที่กระโดดข้ามช่วงระหว่างเทศกาลได้',
     topics: ['dp', 'binary lifting', 'state space'],
     difficulty: 5,
     dateISO: '2026-09-11',
-    readingMinutes: 14,
+    updatedISO: '2026-10-20',
+    readingMinutes: 16,
   },
   {
     href: 'destiny/',
@@ -668,6 +707,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'segment tree', 'counting'],
     difficulty: 5,
     dateISO: '2026-09-11',
+    updatedISO: '2026-10-16',
     readingMinutes: 16,
   },
   {
@@ -679,6 +719,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['offline', 'prefix sum', 'BIT', 'counting'],
     difficulty: 5,
     dateISO: '2026-09-12',
+    updatedISO: '2026-10-15',
     readingMinutes: 16,
   },
 ];
@@ -719,8 +760,7 @@ function assertCpData(): void {
 
     if (p.soon) continue; // การ์ด "เร็วๆ นี้" ยังไม่ต้องมีวันที่กับเวลาอ่าน
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.dateISO) || Number.isNaN(Date.parse(p.dateISO)))
-      throw new Error(`${at}: dateISO "${p.dateISO}" ต้องเป็นวันที่จริงในรูป YYYY-MM-DD`);
+    assertDatePair(at, p.dateISO, p.updatedISO);
     if (!Number.isInteger(p.readingMinutes) || p.readingMinutes <= 0)
       throw new Error(`${at}: readingMinutes ต้องเป็นจำนวนเต็มบวก`);
   }

@@ -10,8 +10,9 @@ const href = 'convention-centre/';
 /* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
 
 type Req = { id: number; s: number; e: number };
+const overlaps = (a: Req, b: Req): boolean => !(a.e < b.s || b.e < a.s);
 
-/** จำนวนงานมากที่สุดที่วางได้ทั้งก้อนในช่วงวัน [l, r] ท่าโลภมาตรฐาน คือเลือกตัวที่จบเร็วที่สุดก่อน */
+/** cnt(l, r): จำนวนงานมากที่สุดที่วางได้ทั้งก้อนในช่วงวัน [l, r] ด้วยท่าโลภจบเร็วก่อน */
 function countIn(reqs: Req[], l: number, r: number): number {
   const fit = reqs.filter((q) => q.s >= l && q.e <= r).sort((a, b) => a.e - b.e);
   let cur = l - 1;
@@ -24,42 +25,56 @@ function countIn(reqs: Req[], l: number, r: number): number {
   return n;
 }
 
-type Trace = { id: number; s: number; e: number; taken: boolean; gap: [number, number] | null; c1: number; c2: number; c: number };
+/** งานที่ท่าโลภหยิบจริงในช่วง [lo, hi] เรียงตามลำดับที่หยิบ */
+function greedyChain(reqs: Req[], lo: number, hi: number): Req[] {
+  const out: Req[] = [];
+  let p = lo;
+  for (;;) {
+    const cand = reqs.filter((q) => q.s >= p && q.e <= hi).sort((a, b) => a.e - b.e)[0];
+    if (!cand) break;
+    out.push(cand);
+    p = cand.e + 1;
+  }
+  return out;
+}
 
-/** ไล่ตามหมายเลขบริษัท รับได้ก็รับ ตราบใดที่จำนวนรวมยังไม่ลด */
+type Kind = 'take' | 'count' | 'straddle' | 'full';
+type Trace = { id: number; s: number; e: number; kind: Kind; gl: number; gr: number; c: number; c1: number; c2: number; hit: Req | null };
+
+/** ไล่ตามหมายเลขบริษัท ช่องว่างแต่ละช่องจำจำนวนของตัวเอง รับเมื่อซ้าย + 1 + ขวา เท่าของเดิม */
 function lexSmallest(reqs: Req[], LO: number, HI: number): { chosen: number[]; total: number; trace: Trace[] } {
   const total = countIn(reqs, LO, HI);
-  let gaps: [number, number][] = [[LO, HI]];
+  let gaps: { l: number; r: number; c: number }[] = [{ l: LO, r: HI, c: total }];
   const chosen: number[] = [];
   const trace: Trace[] = [];
+  const blank = { gl: 0, gr: 0, c: 0, c1: 0, c2: 0, hit: null };
   for (const q of reqs) {
     if (chosen.length === total) {
-      trace.push({ id: q.id, s: q.s, e: q.e, taken: false, gap: null, c1: 0, c2: 0, c: 0 });
+      trace.push({ id: q.id, s: q.s, e: q.e, kind: 'full', ...blank });
       continue;
     }
-    const gi = gaps.findIndex((g) => q.s >= g[0] && q.e <= g[1]);
-    if (gi < 0) {
-      trace.push({ id: q.id, s: q.s, e: q.e, taken: false, gap: null, c1: 0, c2: 0, c: 0 });
+    const g = gaps.find((x) => q.s >= x.l && q.e <= x.r);
+    if (!g) {
+      const hit = reqs.find((o) => chosen.includes(o.id) && overlaps(o, q)) ?? null;
+      trace.push({ id: q.id, s: q.s, e: q.e, kind: 'straddle', ...blank, hit });
       continue;
     }
-    const [gl, gr] = gaps[gi];
-    const c = countIn(reqs, gl, gr);
-    const c1 = countIn(reqs, gl, q.s - 1);
-    const c2 = countIn(reqs, q.e + 1, gr);
-    const ok = c1 + 1 + c2 === c;
+    const c1 = countIn(reqs, g.l, q.s - 1);
+    const c2 = countIn(reqs, q.e + 1, g.r);
+    const ok = c1 + 1 + c2 === g.c;
     if (ok) {
-      gaps = gaps.filter((_, i) => i !== gi);
-      if (gl <= q.s - 1) gaps.push([gl, q.s - 1]);
-      if (q.e + 1 <= gr) gaps.push([q.e + 1, gr]);
-      gaps.sort((a, b) => a[0] - b[0]);
+      gaps = gaps.filter((x) => x !== g);
+      if (g.l <= q.s - 1) gaps.push({ l: g.l, r: q.s - 1, c: c1 });
+      if (q.e + 1 <= g.r) gaps.push({ l: q.e + 1, r: g.r, c: c2 });
+      gaps.sort((a, b) => a.l - b.l);
       chosen.push(q.id);
     }
-    trace.push({ id: q.id, s: q.s, e: q.e, taken: ok, gap: [gl, gr], c1, c2, c });
+    trace.push({ id: q.id, s: q.s, e: q.e, kind: ok ? 'take' : 'count', gl: g.l, gr: g.r, c: g.c, c1, c2, hit: null });
   }
   return { chosen, total, trace };
 }
 
-/** ตัวตรวจ ลองทุกเซตย่อย เอาเซตใหญ่ที่สุดที่เรียงแล้วเล็กที่สุดตามพจนานุกรม */
+/** ตัวตรวจ ลองทุกเซตย่อย เอาเซตใหญ่ที่สุดที่เรียงแล้วเล็กที่สุดตามพจนานุกรม ไม่มีท่าโลภหรือช่องว่างอยู่ในนี้ */
 function bruteLex(reqs: Req[]): number[] {
   let best: number[] = [];
   for (let m = 0; m < 1 << reqs.length; m++) {
@@ -67,11 +82,7 @@ function bruteLex(reqs: Req[]): number[] {
     for (let i = 0; i < reqs.length; i++) if ((m >> i) & 1) ids.push(i);
     let ok = true;
     for (let a = 0; a < ids.length && ok; a++)
-      for (let b = a + 1; b < ids.length && ok; b++) {
-        const x = reqs[ids[a]];
-        const y = reqs[ids[b]];
-        if (!(x.e < y.s || y.e < x.s)) ok = false;
-      }
+      for (let b = a + 1; b < ids.length && ok; b++) if (overlaps(reqs[ids[a]], reqs[ids[b]])) ok = false;
     if (!ok) continue;
     const list = ids.map((i) => reqs[i].id);
     if (list.length > best.length) best = list;
@@ -87,20 +98,33 @@ function bruteLex(reqs: Req[]): number[] {
   }
   return best;
 }
+const bruteCount = (reqs: Req[], l: number, r: number): number => bruteLex(reqs.filter((q) => q.s >= l && q.e <= r)).length;
 
 const mk = (rows: [number, number][]): Req[] => rows.map(([s, e], i) => ({ id: i + 1, s, e }));
+const fmt = (n: number): string => n.toLocaleString('en-US');
 
 /* ---------- ตัวอย่างในโจทย์ ---------- */
 const SAMPLE = mk([[4, 9], [9, 11], [13, 19], [10, 17]]);
 const SAMPLE_RUN = lexSmallest(SAMPLE, 1, 1000000000);
+if (SAMPLE_RUN.chosen.join(' ') !== '1 3') throw new Error('convention-centre: ตัวอย่างในโจทย์ไม่ได้ 1 3');
+
+/* ภาพตัวอย่างในโจทย์ แท่งละบริษัท เรียงตามหมายเลข */
+const SP_LO = Math.min(...SAMPLE.map((q) => q.s));
+const SP_HI = Math.max(...SAMPLE.map((q) => q.e));
+const SP_UNIT = 38;
+const SP_L = 44;
+const spX = (d: number): number => SP_L + (d - SP_LO) * SP_UNIT;
+const SP_DAYS = Array.from({ length: SP_HI - SP_LO + 1 }, (_, i) => SP_LO + i);
+const SP_W = spX(SP_HI) + SP_UNIT + 12;
+const SP_H = 30 + SAMPLE.length * 30 + 34;
 
 /* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับการลองทุกเซตย่อย ไม่งั้นหน้านี้ไม่ขึ้น */
 const SWEEP_CASES = 400;
 {
   let seed = 20280909;
   const rnd = (m: number): number => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed % m;
+    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+    return (seed >>> 8) % m;
   };
   for (let t = 0; t < SWEEP_CASES; t++) {
     const n = 1 + rnd(9);
@@ -116,132 +140,402 @@ const SWEEP_CASES = 400;
     if (got.join(',') !== want.join(','))
       throw new Error(`convention-centre: ได้ [${got}] แต่ควรได้ [${want}] ที่ ${JSON.stringify(rows)}`);
   }
-  if (SAMPLE_RUN.chosen.join(' ') !== '1 3') throw new Error('convention-centre: ตัวอย่างในโจทย์ไม่ได้ 1 3');
 }
 
-/* ---------- ชุดสาธิตสำหรับตัวเล่นทีละขั้น ---------- */
-const DEMO = mk([[2, 5], [1, 3], [4, 6], [6, 9], [7, 8], [10, 12], [9, 11], [3, 4]]);
-const DEMO_RUN = lexSmallest(DEMO, 1, 20);
-const demoSteps = DEMO_RUN.trace.map((t) => ({
-  note: t.gap
-    ? `บริษัท <b>${t.id}</b> ขอวันที่ <b>${t.s}</b> ถึง <b>${t.e}</b> ซึ่งอยู่ในช่องว่าง ${t.gap[0]} ถึง ${t.gap[1]} ` +
-      `ช่องว่างนี้เดิมวางได้ <b>${t.c}</b> งาน ถ้ารับบริษัทนี้ จะเหลือซ้าย <b>${t.c1}</b> และขวา <b>${t.c2}</b> ` +
-      `รวมเป็น <b>${t.c1 + 1 + t.c2}</b> ` +
-      (t.taken ? 'ซึ่งเท่าเดิม จึง<b>รับได้</b>' : 'ซึ่ง<b>น้อยกว่าเดิม</b> จึงต้องปฏิเสธ')
-    : `บริษัท <b>${t.id}</b> ขอวันที่ <b>${t.s}</b> ถึง <b>${t.e}</b> ซึ่ง<b>คร่อมงานที่รับไปแล้ว</b> จึงรับไม่ได้ตั้งแต่ต้น`,
+/* ---------- ชุดตัวอย่างของบทนี้ 8 บริษัท ใช้ตั้งแต่ตอนที่ 2 จนจบ ---------- */
+const DEMO = mk([[7, 10], [9, 10], [11, 12], [1, 3], [2, 4], [2, 2], [8, 8], [12, 12]]);
+const DEMO_HI = 14;
+const DEMO_RUN = lexSmallest(DEMO, 1, DEMO_HI);
+if (DEMO_RUN.chosen.join(',') !== bruteLex(DEMO).join(',')) throw new Error('convention-centre: ชุดตัวอย่างไม่ตรงกับการลองทุกเซตย่อย');
+for (const t of DEMO_RUN.trace) {
+  if (t.kind !== 'take' && t.kind !== 'count') continue;
+  if (t.c !== bruteCount(DEMO, t.gl, t.gr) || t.c1 !== bruteCount(DEMO, t.gl, t.s - 1) || t.c2 !== bruteCount(DEMO, t.e + 1, t.gr))
+    throw new Error(`convention-centre: ตัวเลขของบริษัท ${t.id} ไม่ตรงกับการนับตรง ๆ`);
+  if ((t.kind === 'take') !== (t.c1 + 1 + t.c2 === t.c)) throw new Error(`convention-centre: ผลของบริษัท ${t.id} ขัดกับสูตร`);
+}
+const demoKinds = new Set(DEMO_RUN.trace.map((t) => t.kind));
+for (const k of ['take', 'count', 'straddle', 'full'] as Kind[])
+  if (!demoKinds.has(k)) throw new Error(`convention-centre: ชุดตัวอย่างไม่มีกรณี ${k}`);
+
+/* ตัวอย่างสูตรสองตัว ต้องมีทุกพจน์ไม่เป็นศูนย์ ทั้งตัวที่รับและตัวที่ไม่รับ */
+const wxMaybe = DEMO_RUN.trace.find((t) => t.kind === 'take' && t.c1 > 0 && t.c2 > 0);
+const wrMaybe = DEMO_RUN.trace.find((t) => t.kind === 'count' && t.c1 > 0 && t.c2 > 0);
+if (!wxMaybe || !wrMaybe) throw new Error('convention-centre: ไม่มีตัวอย่างสูตรที่ทุกพจน์ไม่เป็นศูนย์');
+const WX: Trace = wxMaybe;
+const WR: Trace = wrMaybe;
+/* ภาพของตอนที่ 3 บอกว่าทั้งสองตัวอยู่ในช่องว่างเต็มท่อน ตอนที่ยังไม่มีใครถูกรับ */
+for (const t of [WX, WR])
+  if (t.gl !== 1 || t.gr !== DEMO_HI || t.c !== DEMO_RUN.total) throw new Error('convention-centre: ตัวอย่างสูตรไม่ได้อยู่ในช่องว่างเต็มท่อน');
+const WX_SUM = WX.c1 + 1 + WX.c2;
+const WR_SUM = WR.c1 + 1 + WR.c2;
+const straddleMaybe = DEMO_RUN.trace.find((t) => t.kind === 'straddle');
+if (!straddleMaybe || !straddleMaybe.hit || !DEMO_RUN.trace.some((t) => t.kind === 'full'))
+  throw new Error('convention-centre: ขาดกรณีทับหรือกรณีครบ');
+const STRADDLE: Trace = straddleMaybe;
+const STRADDLE_HIT: Req = straddleMaybe.hit;
+
+/* ท่าโลภของตอนที่ 2 หยิบชุดหนึ่ง ซึ่งต้องไม่ใช่คำตอบ ไม่งั้นตอนที่ 3 ไม่มีเหตุให้มีอยู่ */
+const DEMO_CHAIN = greedyChain(DEMO, 1, DEMO_HI);
+const DEMO_CHAIN_SORTED = DEMO_CHAIN.map((q) => q.id).sort((a, b) => a - b);
+if (DEMO_CHAIN.length !== DEMO_RUN.total) throw new Error('convention-centre: ท่าโลภนับไม่ตรงกับจำนวนรวม');
+if (DEMO_CHAIN_SORTED.join(',') === DEMO_RUN.chosen.join(',')) throw new Error('convention-centre: ท่าโลภบังเอิญได้คำตอบ ตัวอย่างนี้สอนอะไรไม่ได้');
+
+/* โน้ตของตัวเล่นทีละขั้น ใช้รูปแบบเดียวทุกบรรทัด */
+const demoSteps = DEMO_RUN.trace.map((t) => {
+  const head = `#${t.id} ขอ ${t.s} ถึง ${t.e}`;
+  if (t.kind === 'full') return { note: `${head} · รับครบ ${DEMO_RUN.total} งานแล้ว · หยุด ไม่ต้องดูตัวที่เหลือ` };
+  if (t.kind === 'straddle')
+    return { note: `${head} · ทับ #${t.hit?.id} (${t.hit?.s} ถึง ${t.hit?.e}) ที่รับไว้แล้ว · ไม่รับ โดยไม่ต้องนับ` };
+  const sum = t.c1 + 1 + t.c2;
+  const verdict = t.kind === 'take' ? 'เท่าเดิม รับ' : `น้อยกว่า ${t.c} ไม่รับ`;
+  return { note: `${head} · ช่องว่าง ${t.gl} ถึง ${t.gr} เดิมได้ ${t.c} · ซ้าย ${t.c1} + 1 + ขวา ${t.c2} = ${sum} · ${verdict}` };
+});
+const demoRows = DEMO_RUN.trace.map((t) => ({
+  id: t.id,
+  span: `${t.s} ถึง ${t.e}`,
+  gap: t.kind === 'take' || t.kind === 'count' ? `${t.gl} ถึง ${t.gr}` : t.kind === 'straddle' ? `ทับ #${t.hit?.id}` : '·',
+  c: t.kind === 'take' || t.kind === 'count' ? String(t.c) : '·',
+  sum: t.kind === 'take' || t.kind === 'count' ? `${t.c1} + 1 + ${t.c2} = ${t.c1 + 1 + t.c2}` : '·',
+  res: t.kind === 'take' ? 'รับ' : t.kind === 'full' ? 'หยุด' : 'ไม่รับ',
+  yes: t.kind === 'take',
 }));
 
-/* ---------- แผนภาพเส้นเวลา แสดงการกระโดดของท่าโลภ ---------- */
-const TL_LO = 1;
-const TL_HI = 12;
-const TL_X = 40;
-const TL_UNIT = 52;
+/* ---------- ภาพชุดตัวอย่าง แท่งละบริษัท + เลนของท่าโลภ (ตอนที่ 2) ---------- */
+const TL_UNIT = 44;
+const TL_L = 44;
 const TL_ROW = 30;
-const tlX = (d: number): number => TL_X + (d - TL_LO) * TL_UNIT;
-/** จากตำแหน่ง p งานที่เริ่มไม่ก่อน p และจบเร็วที่สุด คือตัวที่ท่าโลภหยิบ */
-function greedyChain(reqs: Req[], lo: number, hi: number): Req[] {
-  const out: Req[] = [];
-  let p = lo;
-  for (;;) {
-    const cand = reqs.filter((q) => q.s >= p && q.e <= hi).sort((a, b) => a.e - b.e)[0];
-    if (!cand) break;
-    out.push(cand);
-    p = cand.e + 1;
-  }
-  return out;
-}
-const TL_CHAIN = greedyChain(DEMO, TL_LO, TL_HI);
-const TL_ROWS = DEMO.slice().sort((a, b) => a.e - b.e);
-const TL_W = tlX(TL_HI) + TL_UNIT + 12;
-const TL_LANE = 34 + TL_ROWS.length * TL_ROW + 22;
+const tlX = (d: number): number => TL_L + (d - 1) * TL_UNIT;
+const TL_DAYS = Array.from({ length: DEMO_HI }, (_, i) => i + 1);
+const TL_W = tlX(DEMO_HI) + TL_UNIT + 12;
+const TL_LANE = 34 + DEMO.length * TL_ROW + 22;
 const TL_H = TL_LANE + 22 + 34;
+const TL_PICKED = new Set(DEMO_CHAIN.map((q) => q.id));
+/* ลูกศรโค้งเหนือเลน จากกลางท้ายแท่งที่เพิ่งหยิบ ไปหัวแท่งถัดไป แท่งที่ติดกันก็ยังเห็นลูกศร */
+const TL_ARCS = DEMO_CHAIN.slice(0, -1).map((q, i) => {
+  const nxt = DEMO_CHAIN[i + 1];
+  const x1 = tlX(q.e) + TL_UNIT * 0.6;
+  const x2 = tlX(nxt.s) + TL_UNIT * 0.4;
+  const y = TL_LANE - 1;
+  return `M${x1} ${y} Q${(x1 + x2) / 2} ${y - 16} ${x2} ${y}`;
+});
 
-/* ---------- มินิเกม เลือกชุดที่ใหญ่ที่สุดและเล็กที่สุดตามพจนานุกรม ---------- */
+/* ---------- ภาพการเทียบสองบริษัทในช่องว่าง (ตอนที่ 3) ---------- */
+const GD_UNIT = 44;
+const GD_L = 12;
+const gdX = (d: number): number => GD_L + (d - 1) * GD_UNIT;
+const GD_W = gdX(DEMO_HI) + GD_UNIT + 12;
+const gdPanel = (t: Trace, py: number) => {
+  const left = t.gl <= t.s - 1 ? greedyChain(DEMO, t.gl, t.s - 1) : [];
+  const right = t.e + 1 <= t.gr ? greedyChain(DEMO, t.e + 1, t.gr) : [];
+  if (left.length !== t.c1 || right.length !== t.c2) throw new Error('convention-centre: ภาพช่องว่างนับไม่ตรงกับตาราง');
+  const sum = t.c1 + 1 + t.c2;
+  return {
+    py,
+    t,
+    left,
+    right,
+    title: `#${t.id} ขอวันที่ ${t.s} ถึง ${t.e} · ช่องว่าง ${t.gl} ถึง ${t.gr} เดิมได้ ${t.c} · ซ้าย ${t.c1} + 1 + ขวา ${t.c2} = ${sum} · ${t.kind === 'take' ? 'รับ' : 'ไม่รับ'}`,
+    leftMid: (gdX(t.gl) + gdX(t.s)) / 2,
+    rightMid: (gdX(t.e + 1) + gdX(t.gr) + GD_UNIT) / 2,
+  };
+};
+const GD_PANELS = [gdPanel(WR, 30), gdPanel(WX, 154)];
+const GD_DAYS = TL_DAYS;
+const GD_H = 154 + 112 + 34;
+
+/* ---------- ตารางกระโดดของชุดตัวอย่าง (ตอนที่ 5) ---------- */
+/** ก้าวเดียวจากวัน p: หยิบงานที่เริ่มไม่ก่อน p และจบเร็วที่สุด แล้วไปยืนที่วันจบ + 1 */
+const pickFrom = (p: number): Req | undefined => DEMO.filter((q) => q.s >= p).sort((a, b) => a.e - b.e)[0];
+const jump1 = (p: number): number | null => {
+  const q = pickFrom(p);
+  return q ? q.e + 1 : null;
+};
+const jumpK = (p: number, steps: number): number | null => {
+  let cur: number | null = p;
+  for (let i = 0; i < steps && cur !== null; i++) cur = jump1(cur);
+  return cur;
+};
+const JT_COORDS = [...new Set([1, ...DEMO.map((q) => q.e + 1), DEMO_HI + 1])].sort((a, b) => a - b);
+const JT_LEVELS = [1, 2, 4];
+if (DEMO_RUN.total >= 2 * JT_LEVELS[JT_LEVELS.length - 1]) throw new Error('convention-centre: ชั้นของตารางตัวอย่างไม่พอ');
+const JT_ROWS = JT_COORDS.map((p) => {
+  const q = pickFrom(p);
+  const ties = q ? DEMO.filter((o) => o.s >= p && o.e === q.e && o.id !== q.id).map((o) => `#${o.id}`) : [];
+  const pickText = q ? `#${q.id} (${q.s} ถึง ${q.e})${ties.length ? ` เสมอ ${ties.join(', ')}` : ''}` : '·';
+  return { p, pick: pickText, to: JT_LEVELS.map((k) => jumpK(p, k) ?? '·') };
+});
+/** cnt ด้วยการกระโดด ไล่ชั้นจากใหญ่ลงเล็ก ก้าวเมื่อยังไม่เลย r + 1 */
+function cntByJumps(l: number, r: number): number {
+  let cur = l;
+  let res = 0;
+  for (const k of [...JT_LEVELS].reverse()) {
+    const to = jumpK(cur, k);
+    if (to !== null && to <= r + 1) {
+      res += k;
+      cur = to;
+    }
+  }
+  return res;
+}
+for (const l of JT_COORDS)
+  for (let r = l - 1; r <= DEMO_HI; r++)
+    if (cntByJumps(l, r) !== countIn(DEMO, l, r)) throw new Error(`convention-centre: การกระโดดนับ [${l}, ${r}] ไม่ตรง`);
+/* ตัวอย่างการกระโดดใช้ซ้าย ของสูตรในตอนที่ 3 เพื่อให้เป็นตัวเลขเดียวกัน */
+const CJ_L = WX.gl;
+const CJ_R = WX.s - 1;
+const CJ = (() => {
+  let cur = CJ_L;
+  let res = 0;
+  return [...JT_LEVELS].reverse().map((k) => {
+    const from = cur;
+    const to = jumpK(cur, k);
+    const ok = to !== null && to <= CJ_R + 1;
+    if (ok && to !== null) {
+      res += k;
+      cur = to;
+    }
+    return { k, from, to: to === null ? 'ไปต่อไม่ได้' : String(to), ok, res };
+  });
+})();
+const CJ_RES = CJ[CJ.length - 1].res;
+if (CJ_RES !== WX.c1) throw new Error('convention-centre: ตัวอย่างการกระโดดไม่ได้ค่าซ้ายของตอนที่ 3');
+if (!CJ.some((x) => x.ok) || !CJ.some((x) => !x.ok)) throw new Error('convention-centre: ตัวอย่างการกระโดดต้องมีทั้งชั้นที่ก้าวและไม่ก้าว');
+
+/* ---------- มินิเกม ---------- */
 type GamePuzzle = { id: string; label: string; tease: string; reqs: Req[]; answer: number[]; lo: number; hi: number };
-function makePuzzle(id: string, label: string, tease: string, rows: [number, number][], hi: number): GamePuzzle {
-  const reqs = mk(rows);
+function makePuzzle(id: string, label: string, tease: string, reqs: Req[], hi: number): GamePuzzle {
   const byGap = lexSmallest(reqs, 1, 1000000000).chosen;
   const byBrute = bruteLex(reqs);
   if (byGap.join(',') !== byBrute.join(',')) throw new Error(`convention-centre: เฉลยเกม ${id} ไม่ตรงกัน`);
   return { id, label, tease, reqs, answer: byBrute, lo: 1, hi };
 }
 const puzzles: GamePuzzle[] = [
-  makePuzzle('a', 'ตัวอย่างในโจทย์ 4 บริษัท', 'ชุดนี้วางได้มากที่สุดสองงาน แต่มีหลายวิธี คำถามคือชุดไหนที่หมายเลขเรียงแล้วเล็กที่สุด', [[4, 9], [9, 11], [13, 19], [10, 17]], 20),
-  makePuzzle('b', '7 บริษัท ที่มีตัวล่อ', 'ตัวที่เริ่มเร็วที่สุดไม่ได้ควรรับเสมอ ลองดูว่าตัวไหนกินที่ของอีกสองตัว', [[1, 6], [1, 2], [3, 4], [5, 6], [7, 9], [8, 12], [10, 12]], 14),
-  makePuzzle('c', '8 บริษัทของบทนี้', 'ชุดนี้คือชุดที่ตารางเดินทีละขั้นข้างล่างใช้ ลองทำเองก่อนแล้วค่อยไปเทียบ', [[2, 5], [1, 3], [4, 6], [6, 9], [7, 8], [10, 12], [9, 11], [3, 4]], 14),
+  makePuzzle('a', 'ตัวอย่างในโจทย์ 4 บริษัท', 'ชุดนี้มีหลายวิธีที่ได้จำนวนเท่ากัน คำถามคือชุดไหนที่หมายเลขเรียงแล้วเล็กที่สุด', SAMPLE, 20),
+  makePuzzle('b', '7 บริษัท ที่มีตัวล่อ', 'ตัวที่เริ่มเร็วที่สุดไม่ได้ควรรับเสมอ ลองดูว่าตัวไหนยาวจนกินที่ของอีกสองตัว', mk([[1, 6], [1, 2], [3, 4], [5, 6], [7, 9], [8, 12], [10, 12]]), 14),
+  makePuzzle('c', '8 บริษัทของบทนี้', 'ชุดนี้คือชุดที่เฉลยใช้ตั้งแต่ตอนที่ 2 จนจบ ลองทำเองก่อนแล้วค่อยไปเทียบ', DEMO, DEMO_HI),
 ];
 const puzzlesJson = JSON.stringify(puzzles);
 
-/* ---------- บิลค่าใช้จ่าย ---------- */
+/* ---------- ค่าใช้จ่าย นับตามที่โค้ดทำจริง ---------- */
 const N_MAX = 200000;
-const fmt = (n: number): string => n.toLocaleString('en-US');
-const bill = [
-  { name: 'ลองรับทีละตัว แล้วคำนวณจำนวนรวมใหม่ทั้งชุด', limit: 'N ไม่เกินราวสามพัน', work: `${fmt(N_MAX)} คูณ ${fmt(N_MAX)} คือสี่หมื่นล้าน` },
-  { name: 'ตารางกระโดดสองยกกำลัง แล้วถามสี่ครั้งต่อบริษัท', limit: `N ถึง ${fmt(N_MAX)}`, work: `ราว ${fmt(N_MAX * 4 * 18 / 1000000)} ล้านครั้ง` },
+const N_SUB = 3000;
+const TIME_LIMIT = 1.5;
+const MEM_LIMIT = 64;
+const STEPS_PER_SEC = 1e8; /* กติกาหยาบ ๆ ไม่ใช่ค่าที่วัด */
+const BUDGET = TIME_LIMIT * STEPS_PER_SEC;
+const LOG = 18;
+if (2 ** LOG <= N_MAX || 2 ** (LOG - 1) > N_MAX) throw new Error('convention-centre: LOG ไม่พอดีกับ N');
+const BS = Math.ceil(Math.log2(N_MAX + 2)); /* ค้นหาแบบแบ่งครึ่งหนึ่งครั้งบนพิกัด N + 2 ตัว */
+/* วิธีไล่ทีละงาน: ต่อบริษัทนับสองครั้ง แต่ละครั้งไล่งานได้ถึง N ตัว */
+const slowOps = (n: number): number => 2 * n * n;
+/* วิธีตารางกระโดด: ต่อบริษัทนับสองครั้ง ครั้งละค้นแบบแบ่งครึ่งสองที (จุดเริ่มกับขอบขวา) + อ่านตาราง LOG ชั้น
+   บวกหาช่องว่างใน map อีกหนึ่งที และตอนเตรียม: เรียงสองรอบกับสร้างตาราง LOG ชั้น */
+const FULL_PER_COMPANY = 2 * (2 * BS + LOG) + BS;
+const fullOps = (n: number): number => n * FULL_PER_COMPANY + 2 * n * BS + LOG * (n + 2);
+const sci = (v: number): { m: string; e: number } => {
+  const e = Math.floor(Math.log10(v));
+  return { m: (v / 10 ** e).toFixed(1), e };
+};
+const CH_X0 = 196;
+const CH_DEC = 58;
+const chX = (v: number): number => CH_X0 + (Math.log10(v) - 6) * CH_DEC;
+const CH_TICKS = [6, 8, 10, 12];
+const CH_BOTTOM = 166;
+const CH_BARS = [
+  { name: `ไล่ทีละงาน N = ${fmt(N_SUB)}`, v: slowOps(N_SUB), y: 44 },
+  { name: `ไล่ทีละงาน N = ${fmt(N_MAX)}`, v: slowOps(N_MAX), y: 84 },
+  { name: `ตารางกระโดด N = ${fmt(N_MAX)}`, v: fullOps(N_MAX), y: 124 },
+].map((b) => ({ ...b, s: sci(b.v), ok: b.v <= BUDGET, over: Math.round(b.v / BUDGET) }));
+if (!CH_BARS[0].ok || CH_BARS[1].ok || !CH_BARS[2].ok) throw new Error('convention-centre: กราฟแท่งทัน/ไม่ทันผิดจากที่บทความเล่า');
+/* ป้ายท้ายแท่งยาวราว 160 หน่วย ความกว้างจริงต้องวัดในเบราว์เซอร์อีกรอบ */
+const CH_W = Math.round(Math.max(chX(1e12), ...CH_BARS.map((b) => chX(b.v) + 8 + 85))) + 12; // 85 = ความกว้างป้ายตัวเลขที่วัดจริงในเบราว์เซอร์
+
+/* หน่วยความจำของตารางกระโดด หน่วย MB ในหน้านี้คือ 1,048,576 ไบต์ ตรงกับที่ /usr/bin/time รายงาน */
+const MIB = 1048576;
+const mb = (bytes: number): string => (bytes / MIB).toFixed(1);
+const TABLE_OLD = (3 * N_MAX + 2) * LOG * 4;
+const TABLE_NEW = (N_MAX + 2) * LOG * 4;
+
+/* ---------- ค่าที่วัดจริง ----------
+   วิธีวัด: WSL Ubuntu 22.04, g++ 11.4 -O2, /usr/bin/time (เวลาจริงกับหน่วยความจำสูงสุด)
+   หกชุดที่ N = 200,000 (งานยาวสุ่มเต็มช่วง งานทับกันหนาแน่น งานสั้นกระจายห่าง งานยาวหนึ่งถึงสองวัน และแบบผสม)
+   ตัวเลขข้างล่างคือค่าที่แย่ที่สุดในหกชุด ของเวลาที่เร็วที่สุดจาก 5 รอบ และหน่วยความจำสูงสุด
+   ใช้รอบที่เร็วที่สุดเพราะเครื่องมีงานอื่นรันอยู่พร้อมกัน */
+const MEASURED = {
+  oldSec: 0.92,
+  oldKb: 60452,
+  newSec: 0.59,
+  newKb: 34704,
+  /* ชุดเดียวกัน (งานสั้นกระจายห่าง) ใช้เทียบหน่วยความจำก่อนกับหลัง */
+  oldSameKb: 60432,
+  newSameKb: 32636,
+  slowFullSec: 23.0,
+  brute20Sec: 0.26,
+  brute22Sec: 1.37,
+  stressSmall: 3000,
+  stressMedium: 300,
+};
+const mbKb = (kb: number): string => (kb / 1024).toFixed(1);
+const OLD_HEADROOM = (MEM_LIMIT - MEASURED.oldKb / 1024).toFixed(1);
+/* บนชุดเดียวกัน หน่วยความจำที่ลดต้องใกล้กับที่ตารางเล็กลง ไม่งั้นคำอธิบายผิด */
+const SAME_DROP = (MEASURED.oldSameKb - MEASURED.newSameKb) / 1024;
+const TABLE_DROP = (TABLE_OLD - TABLE_NEW) / MIB;
+if (Math.abs(SAME_DROP - TABLE_DROP) > 1.5) throw new Error('convention-centre: หน่วยความจำที่ลดไม่ตรงกับขนาดตาราง');
+
+/* ---------- ข้อความที่งอกจากชุดตัวอย่าง ---------- */
+const DEMO_LIST = DEMO.map((q) => `#${q.id} (${q.s} ถึง ${q.e})`);
+
+/* ท่าโลภเดินจากวันที่ 1 ทีละก้าว พร้อมบอกตัวที่จบวันเดียวกัน */
+const GREEDY_STEPS = (() => {
+  let p = 1;
+  return DEMO_CHAIN.map((q) => {
+    const ties = DEMO.filter((o) => o.s >= p && o.e <= DEMO_HI && o.e === q.e && o.id !== q.id).map((o) => o.id);
+    const step = { p, q, ties, next: q.e + 1 };
+    p = q.e + 1;
+    return step;
+  });
+})();
+const TIE_STEP = GREEDY_STEPS.find((g) => g.ties.length > 0);
+if (!TIE_STEP) throw new Error('convention-centre: ชุดตัวอย่างไม่มีตัวที่จบวันเดียวกัน ข้อความเรื่องเสมอใช้ไม่ได้');
+const TIE: { p: number; id: number; other: number; e: number } = { p: TIE_STEP.p, id: TIE_STEP.q.id, other: TIE_STEP.ties[0], e: TIE_STEP.q.e };
+
+/* สภาพหลังรับตัวแรก: ตัวที่รับ + ผลรวมของแต่ละช่องว่าง ต้องเท่ากับจำนวนรวม */
+const FIRST_TAKE = DEMO_RUN.trace.find((t) => t.kind === 'take');
+if (!FIRST_TAKE || FIRST_TAKE.id !== WX.id) throw new Error('convention-centre: ตัวแรกที่รับต้องเป็นตัวอย่างสูตร');
+const GAP_STATE = [
+  { l: WX.gl, r: WX.s - 1, c: WX.c1 },
+  { l: WX.e + 1, r: WX.gr, c: WX.c2 },
 ];
+for (const g of GAP_STATE) if (g.c !== bruteCount(DEMO, g.l, g.r)) throw new Error('convention-centre: จำนวนของช่องว่างไม่ตรง');
+if (1 + GAP_STATE[0].c + GAP_STATE[1].c !== DEMO_RUN.total) throw new Error('convention-centre: ตัวที่รับ + ช่องว่างไม่เท่ากับจำนวนรวม');
 
-const solution = `#include <bits/stdc++.h>
+/* แจกแจงจำนวนก้าวของโค้ดเต็ม ให้รวมกันได้ fullOps พอดี */
+const OPS_QUERY = N_MAX * FULL_PER_COMPANY;
+const OPS_SORT = 2 * N_MAX * BS;
+const OPS_BUILD = LOG * (N_MAX + 2);
+if (OPS_QUERY + OPS_SORT + OPS_BUILD !== fullOps(N_MAX)) throw new Error('convention-centre: แจกแจงก้าวไม่ครบ');
+const SLOW_MEASURED_X = Math.round(MEASURED.slowFullSec / TIME_LIMIT);
+
+const slowCode = `// ชุดย่อย N <= 3,000: ตรรกะช่องว่างเหมือนตัวเต็มทุกบรรทัด ต่างกันแค่ cnt ที่ไล่งานทีละตัว
+#include <bits/stdc++.h>
 using namespace std;
-int n, m_, LOG;
-vector<int> xs;                       // พิกัดวันที่ถูกบีบแล้ว
-vector<vector<int>> up;               // up[k][i] = ดัชนีพิกัดหลังกระโดด 2^k ครั้ง
-const int NONE = -1;
-inline int idxOf(int v){ return (int)(lower_bound(xs.begin(), xs.end(), v) - xs.begin()); }
 
-// จำนวนงานที่ไม่ทับกันมากที่สุด ที่วางได้ทั้งก้อนในช่วงวัน [l, r]
+vector<pair<int,int>> byEnd;          // (วันจบ, วันเริ่ม) เรียงตามวันจบ
+
+// ท่าโลภ: ไล่งานตามวันจบ หยิบทุกตัวที่อยู่ในช่วงและเริ่มหลังตัวที่หยิบล่าสุด
 int cnt(int l, int r){
-    if(l > r) return 0;
-    int cur = idxOf(l);               // พิกัดแรกที่ไม่ก่อน l
-    if(cur >= m_) return 0;
-    int res = 0;
-    for(int k = LOG - 1; k >= 0; k--){
-        int q = up[k][cur];
-        if(q != NONE && xs[q] <= r + 1){ res += 1 << k; cur = q; }
+    int cur = l - 1, res = 0;
+    for(auto [en, st] : byEnd){
+        if(en > r) break;
+        if(st > cur){ cur = en; res++; }
+        // st >= l เป็นจริงเองเมื่อ st > cur เพราะ cur เริ่มที่ l - 1
     }
     return res;
 }
 
 int main(){
+    int n;
     if(scanf("%d", &n) != 1) return 0;
     vector<int> s(n), e(n);
-    for(int i = 0; i < n; i++) scanf("%d %d", &s[i], &e[i]);
-    xs.reserve(3 * n + 2);
-    for(int i = 0; i < n; i++){ xs.push_back(s[i]); xs.push_back(e[i]); xs.push_back(e[i] + 1); }
-    xs.push_back(1); xs.push_back(1000000001);
-    sort(xs.begin(), xs.end()); xs.erase(unique(xs.begin(), xs.end()), xs.end());
-    m_ = (int)xs.size();
+    for(int i = 0; i < n; i++) if(scanf("%d %d", &s[i], &e[i]) != 2) return 0;
+    for(int i = 0; i < n; i++) byEnd.push_back({e[i], s[i]});
+    sort(byEnd.begin(), byEnd.end());
 
-    // f[i] = วันจบที่น้อยที่สุด ในบรรดางานที่เริ่มไม่ก่อนพิกัด xs[i]
-    vector<int> f(m_, INT_MAX);
-    { vector<vector<int>> byStart(m_);
-      for(int i = 0; i < n; i++) byStart[idxOf(s[i])].push_back(e[i]);
-      int best = INT_MAX;
-      for(int i = m_ - 1; i >= 0; i--){ for(int v : byStart[i]) best = min(best, v); f[i] = best; } }
-
-    LOG = 1; while((1 << LOG) <= n) LOG++;
-    up.assign(LOG, vector<int>(m_, NONE));
-    for(int i = 0; i < m_; i++) if(f[i] != INT_MAX) up[0][i] = idxOf(f[i] + 1);
-    for(int k = 1; k < LOG; k++) for(int i = 0; i < m_; i++){
-        int q = up[k-1][i]; up[k][i] = (q == NONE) ? NONE : up[k-1][q]; }
-
-    int LO = 1, HI = 1000000000;
+    const int LO = 1, HI = 1000000000;
     int total = cnt(LO, HI);
-
-    // ไล่ตามหมายเลขบริษัท รับได้ก็รับ ตราบใดที่จำนวนรวมยังไม่ลด
-    set<pair<int,int>> gaps; gaps.insert({LO, HI});
+    map<int, pair<int,int>> gaps;     // วันเริ่มช่องว่าง -> (วันจบช่องว่าง, วางได้กี่งาน)
+    gaps[LO] = {HI, total};
     vector<int> chosen;
     for(int i = 0; i < n && (int)chosen.size() < total; i++){
-        auto it = gaps.upper_bound({s[i], INT_MAX});
+        auto it = gaps.upper_bound(s[i]);
         if(it == gaps.begin()) continue;
         --it;
-        int gl = it->first, gr = it->second;
-        if(s[i] < gl || e[i] > gr) continue;                  // คร่อมงานที่รับไปแล้ว
-        if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;
+        int gl = it->first, gr = it->second.first, c = it->second.second;
+        if(e[i] > gr) continue;                                  // คร่อมงานที่รับไปแล้ว
+        int c1 = cnt(gl, s[i] - 1), c2 = cnt(e[i] + 1, gr);
+        if(c1 + 1 + c2 != c) continue;                           // รับแล้วช่องว่างนี้เสียจำนวน
         gaps.erase(it);
-        if(gl <= s[i] - 1) gaps.insert({gl, s[i] - 1});
-        if(e[i] + 1 <= gr) gaps.insert({e[i] + 1, gr});
+        if(gl <= s[i] - 1) gaps[gl] = {s[i] - 1, c1};
+        if(e[i] + 1 <= gr) gaps[e[i] + 1] = {gr, c2};
         chosen.push_back(i + 1);
     }
+
+    printf("%d\\n", total);
+    for(size_t i = 0; i < chosen.size(); i++) printf("%d%c", chosen[i], i + 1 == chosen.size() ? '\\n' : ' ');
+    if(chosen.empty()) printf("\\n");
+}`;
+
+const solution = `#include <bits/stdc++.h>
+using namespace std;
+
+const int LOG = 18;                   // 2^18 = 262,144 มากกว่า N ที่มากที่สุด
+const int NONE = INT_MAX;             // ไปต่อไม่ได้ ตั้งเป็นค่าใหญ่สุดเพื่อให้ตกการเทียบ q <= lim เอง
+vector<int> xs;                       // พิกัดที่การนับไปยืนได้: วันที่ 1 และวันจบ + 1 ของทุกงาน
+vector<array<int, LOG>> up;           // up[i][k] = กระโดด 2^k ก้าวจากพิกัด i แล้วไปถึงพิกัดไหน
+inline int idxOf(int v){ return (int)(lower_bound(xs.begin(), xs.end(), v) - xs.begin()); }
+
+// ---- นับ: วางงานที่ไม่ทับกันได้มากที่สุดกี่งาน ในช่วงวัน [l, r] ----
+int cnt(int l, int r){
+    if(l > r) return 0;
+    int cur = idxOf(l), res = 0;
+    int lim = (int)(upper_bound(xs.begin(), xs.end(), r + 1) - xs.begin()) - 1;  // พิกัดสุดท้ายที่ไม่เกิน r + 1
+    for(int k = LOG - 1; k >= 0; k--){
+        int q = up[cur][k];
+        if(q <= lim){ res += 1 << k; cur = q; }   // ก้าวนี้ยังไม่เลยขอบขวา ก้าวได้
+    }
+    return res;
+}
+
+int main(){
+    int n;
+    if(scanf("%d", &n) != 1) return 0;
+    vector<int> s(n), e(n);
+    for(int i = 0; i < n; i++) if(scanf("%d %d", &s[i], &e[i]) != 2) return 0;
+
+    // ---- บีบพิกัด: ไม่ต้องเก็บวันเริ่ม เพราะการนับไม่เคยไปยืนที่วันเริ่ม ----
+    xs.reserve(n + 2);
+    for(int i = 0; i < n; i++) xs.push_back(e[i] + 1);
+    xs.push_back(1); xs.push_back(1000000001);
+    sort(xs.begin(), xs.end()); xs.erase(unique(xs.begin(), xs.end()), xs.end());
+    int m = (int)xs.size();
+
+    // ---- ก้าวเดียว: จากพิกัด i หยิบงานที่เริ่มไม่ก่อน xs[i] และจบเร็วที่สุด แล้วไปต่อที่วันจบ + 1 ----
+    vector<pair<int,int>> byStart(n);
+    for(int i = 0; i < n; i++) byStart[i] = {s[i], e[i]};
+    sort(byStart.begin(), byStart.end());
+    up.assign(m, {});
+    int best = INT_MAX, j = n - 1;
+    for(int i = m - 1; i >= 0; i--){
+        while(j >= 0 && byStart[j].first >= xs[i]){ best = min(best, byStart[j].second); j--; }
+        up[i][0] = (best == INT_MAX) ? NONE : idxOf(best + 1);
+    }
+
+    // ---- ตารางกระโดด: 2^k ก้าว = 2^(k-1) ก้าว สองรอบ ----
+    for(int k = 1; k < LOG; k++) for(int i = 0; i < m; i++){
+        int q = up[i][k - 1];
+        up[i][k] = (q == NONE) ? NONE : up[q][k - 1];
+    }
+
+    // ---- ไล่ตามหมายเลข: ช่องว่างแต่ละช่องจำไว้ว่าวางได้กี่งาน ----
+    const int LO = 1, HI = 1000000000;
+    int total = cnt(LO, HI);
+    map<int, pair<int,int>> gaps;     // วันเริ่มช่องว่าง -> (วันจบช่องว่าง, วางได้กี่งาน)
+    gaps[LO] = {HI, total};
+    vector<int> chosen;
+    for(int i = 0; i < n && (int)chosen.size() < total; i++){
+        auto it = gaps.upper_bound(s[i]);
+        if(it == gaps.begin()) continue;
+        --it;
+        int gl = it->first, gr = it->second.first, c = it->second.second;
+        if(e[i] > gr) continue;                                  // คร่อมงานที่รับไปแล้ว
+        int c1 = cnt(gl, s[i] - 1), c2 = cnt(e[i] + 1, gr);
+        if(c1 + 1 + c2 != c) continue;                           // รับแล้วช่องว่างนี้เสียจำนวน
+        gaps.erase(it);
+        if(gl <= s[i] - 1) gaps[gl] = {s[i] - 1, c1};
+        if(e[i] + 1 <= gr) gaps[e[i] + 1] = {gr, c2};
+        chosen.push_back(i + 1);
+    }
+
     printf("%d\\n", total);
     for(size_t i = 0; i < chosen.size(); i++) printf("%d%c", chosen[i], i + 1 == chosen.size() ? '\\n' : ' ');
     if(chosen.empty()) printf("\\n");
@@ -267,21 +561,19 @@ int main(){
     for(size_t i = 0; i < best.size(); i++) printf("%d%c", best[i] + 1, i + 1 == best.size() ? '\\n' : ' ');
     if(best.empty()) printf("\\n");
 }`;
-
-const coreSnippet = `// รับบริษัทนี้ได้ก็ต่อเมื่อจำนวนรวมของช่องว่างที่มันตกอยู่ ไม่ลดลง
-// ซ้ายของมัน บวกตัวมันเอง บวกขวาของมัน ต้องเท่ากับที่ช่องว่างนี้เคยวางได้
-if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ &middot; ให้เช่าห้องประชุมให้ได้จำนวนบริษัทมากที่สุด</h2>
   <p>
     ศูนย์ประชุมมีห้องเดียว บริษัท <code>N</code> รายยื่นขอเช่า แต่ละรายบอกวันเริ่มกับวันจบของงานตัวเอง
-    และจะเช่าก็ต่อเมื่อได้ห้อง<strong>คนเดียวตลอดช่วงนั้น</strong> ฝ่ายการตลาดอยากปล่อยห้องให้ได้<strong>จำนวนบริษัทมากที่สุด</strong>
+    และจะเช่าก็ต่อเมื่อได้ห้องคนเดียวตลอดช่วงนั้น ฝ่ายการตลาดอยากปล่อยห้องให้ได้<strong>จำนวนบริษัทมากที่สุด</strong>
   </p>
   <p>
-    ปัญหาคือชุดที่ได้จำนวนมากที่สุดมักมีหลายชุด ฝ่ายการตลาดจึงตั้งกติกาเพิ่มว่า
-    ในบรรดาชุดที่ใหญ่ที่สุดทั้งหมด ให้เลือกชุดที่เขียนหมายเลขบริษัทเรียงจากน้อยไปมากแล้ว
-    <strong>เล็กที่สุดตามลำดับพจนานุกรม</strong>
+    ชุดที่ได้จำนวนมากที่สุดมักมีหลายชุด ฝ่ายการตลาดเลยเพิ่มกติกา: เขียนหมายเลขบริษัทของแต่ละชุดเรียงจากน้อยไปมาก
+    แล้วเลือกชุดที่เล็กที่สุดตามลำดับพจนานุกรม (lexicographic order)
+  </p>
+  <p>
+    ลำดับพจนานุกรมคือเทียบตัวแรกก่อน ถ้าเท่ากันค่อยเทียบตัวที่สอง แบบเดียวกับการเรียงคำในพจนานุกรม
   </p>
 
   <div class="callout callout-note spec">
@@ -289,16 +581,16 @@ if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
     <ul>
       <li>
         <strong>อินพุต:</strong> บรรทัดแรกคือ <code>N</code> จากนั้นอีก <code>N</code> บรรทัด
-        บรรทัดที่ <code>i</code> คือวันเริ่มกับวันจบของบริษัทที่ <code>i</code>
+        บรรทัดที่ <code>i</code> คือวันเริ่มกับวันจบของบริษัทที่ <code>i</code> (นับรวมทั้งสองวัน)
       </li>
       <li>
         <strong>ขอบเขต:</strong> <code>N &le; {fmt(N_MAX)}</code> วันเริ่มไม่น้อยกว่า 1 และวันจบไม่เกิน
-        {fmt(1000000000)} เวลา 1.5 วินาที หน่วยความจำ 64 เมกะไบต์
+        {fmt(1000000000)} เวลา {TIME_LIMIT} วินาที หน่วยความจำ {MEM_LIMIT} MB
       </li>
       <li>
         <strong>เอาต์พุต:</strong> บรรทัดแรกคือจำนวนบริษัทมากที่สุด บรรทัดที่สองคือหมายเลขของบริษัทในชุดนั้น
       </li>
-      <li><strong>ให้คะแนน:</strong> 50% ของชุดทดสอบมี <code>N</code> ไม่เกิน 3,000</li>
+      <li><strong>ให้คะแนน:</strong> 50% ของชุดทดสอบมี <code>N</code> ไม่เกิน {fmt(N_SUB)}</li>
     </ul>
   </div>
 
@@ -312,23 +604,38 @@ if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
       </tr>
     </tbody>
   </table>
+
+  <ZoomableDiagram caption={`ตัวอย่างในโจทย์วาดเป็นเส้นเวลา แท่งละบริษัท ตัวเลขด้านบนคือวันที่ ${SP_LO} ถึง ${SP_HI} สองแท่งที่ซ้อนวันเดียวกันแม้แค่วันเดียวรับพร้อมกันไม่ได้`}>
+    <svg viewBox={`0 0 ${SP_W} ${SP_H}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(SP_W * 1.25)}px`} role="img" aria-label={`เส้นเวลาของตัวอย่างในโจทย์ บริษัทที่ 1 ขอวันที่ 4 ถึง 9 บริษัทที่ 2 ขอ 9 ถึง 11 บริษัทที่ 3 ขอ 13 ถึง 19 บริษัทที่ 4 ขอ 10 ถึง 17 แท่งของบริษัท 1 กับ 2 ชนกันที่วันที่ 9`}>
+      {SP_DAYS.map((d) => (
+        <text x={spX(d) + SP_UNIT / 2} y="16" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{d}</text>
+      ))}
+      {SAMPLE.map((q, ri) => (
+        <>
+          <text x="12" y={30 + ri * 30 + 16} fill="#9aa7bd" font-size="13" font-family="monospace">#{q.id}</text>
+          <rect x={spX(q.s) + 2} y={30 + ri * 30} width={(q.e - q.s + 1) * SP_UNIT - 4} height="22" rx="5" fill="#1c2536" stroke="#3d4a6b" />
+          <text x={spX(q.s) + ((q.e - q.s + 1) * SP_UNIT) / 2} y={30 + ri * 30 + 16} fill="#cdd6ea" font-size="12" text-anchor="middle">{q.s} ถึง {q.e}</text>
+        </>
+      ))}
+    </svg>
+  </ZoomableDiagram>
+
   <Spoiler label="แตะเพื่อดูว่าทำไมคำตอบเป็นชุดนี้">
     <p class="io-note">
       ชุดที่ใหญ่ที่สุดของตัวอย่างนี้มีสามชุด คือ (1, 3), (2, 3) และ (1, 4)
-      เรียงตามพจนานุกรมแล้ว (1, 3) มาก่อน (1, 4) และ (1, 4) มาก่อน (2, 3) คำตอบจึงเป็น (1, 3)
+      เรียงตามพจนานุกรมแล้ว (1, 3) มาก่อน (1, 4) และ (1, 4) มาก่อน (2, 3) คำตอบคือ (1, 3)
     </p>
   </Spoiler>
 
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      ครึ่งแรกของโจทย์คือ<strong>จัดตารางให้ได้จำนวนมากที่สุด</strong> ซึ่งเป็นโจทย์คลาสสิก
-      คำตอบคือเรียงตามวันจบแล้วเลือกตัวที่จบเร็วที่สุดที่ยังไม่ชนกับที่เลือกไว้
+      โจทย์มีสองชั้น ชั้นแรกคือจำนวนต้องมากที่สุด ชั้นที่สองคือหมายเลขต้องเล็กที่สุด
+      ชั้นแรกเป็นโจทย์คลาสสิกที่มีวิธีตอบสั้น ๆ อยู่แล้ว
     </p>
     <p>
-      ครึ่งหลังหนักกว่ามาก เพราะเราต้องได้ชุด<strong>ที่หมายเลขเล็กที่สุด</strong> ท่าที่อยากทำคือ
-      ไล่บริษัทที่ 1, 2, 3 ไปเรื่อย ๆ แล้วรับถ้ารับได้ คำถามคือ<strong>รับได้แปลว่าอะไร</strong>
-      และตรวจมันด้วยราคาเท่าไร
+      สำหรับชั้นที่สอง ลองไล่บริษัทที่ 1, 2, 3 ไปเรื่อย ๆ แล้วรับตัวที่รับได้
+      คำถามที่ต้องตอบคือ <strong>"รับได้" แปลว่าอะไร และตรวจมันได้เร็วแค่ไหน</strong>
     </p>
   </div>
 
@@ -348,17 +655,17 @@ if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
       {puzzles.map((p, k) => {
         const unit = 34;
         const left = 54;
-        const w = left + (p.hi - p.lo + 1) * unit + 14;
+        const w = left + (p.hi - p.lo + 1) * unit + 2;
         const h = 30 + p.reqs.length * 28 + 10;
         return (
           <div class="cc-wrap" data-cc-board={String(k)} hidden={k !== 0}>
-            <svg class="cc-board" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`เส้นเวลาแสดงคำขอของบริษัท ${p.reqs.length} ราย แต่ละแท่งคือช่วงวันที่บริษัทนั้นขอใช้ห้อง กดที่แท่งเพื่อเลือกบริษัทนั้น`}>
+            <svg class="cc-board" viewBox={`0 0 ${w} ${h}`} xmlns="http://www.w3.org/2000/svg" style={`max-width:min(100%, ${Math.round(w * 1.25)}px)`} role="img" aria-label={`เส้นเวลาแสดงคำขอของบริษัท ${p.reqs.length} ราย แต่ละแท่งคือช่วงวันที่บริษัทนั้นขอใช้ห้อง กดที่แท่งเพื่อเลือกบริษัทนั้น`}>
               {Array.from({ length: p.hi - p.lo + 1 }, (_, i) => (
                 <text class="cc-day" x={left + i * unit + unit / 2} y="18" text-anchor="middle">{p.lo + i}</text>
               ))}
               {p.reqs.map((q, ri) => (
                 <>
-                  <text class="cc-name" x="8" y={30 + ri * 28 + 17}>#{q.id}</text>
+                  <text class="cc-name" x="12" y={30 + ri * 28 + 17}>#{q.id}</text>
                   <rect
                     class="cc-bar"
                     data-cc-req={`${k}:${q.id}`}
@@ -384,245 +691,556 @@ if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
 
     <p class="cpg-status" data-cpg-status>กดที่แท่งเพื่อรับบริษัทนั้น แท่งที่ทับกันรับพร้อมกันไม่ได้</p>
     <p class="cpg-score" data-cpg-score>รับไว้ 0 บริษัท</p>
-    <p class="cpg-hint">เป้าหมายมีสองชั้น ชั้นแรกคือจำนวนต้องมากที่สุด ชั้นที่สองคือถ้าจำนวนเท่ากัน หมายเลขต้องเล็กที่สุด</p>
+    <p class="cpg-hint">เลือกครบแล้วกดตรวจคำตอบ หน้านี้จะบอกว่าจำนวนยังขาด หรือยังมีชุดที่หมายเลขเล็กกว่า</p>
   </div>
   <p class="io-note">
-    ถ้าลองชุดที่สองจะเห็นตัวล่อชัด ๆ คือบริษัทที่เริ่มวันแรกสุดแต่ยาวจนกินที่ของอีกสองราย
+    ชุดที่สองมีตัวล่อ (บริษัทที่ดูน่ารับเพราะหมายเลขเล็กหรือเริ่มเร็ว แต่รับแล้วเสียจำนวน) คือบริษัทที่เริ่มวันแรกสุดแต่ยาวจนกินที่ของอีกสองราย
     รับมันแล้วจำนวนรวมลดลงทันที ทั้งที่หมายเลขมันเล็กที่สุด
   </p>
 
-  <h2>เฉลย ตอนที่ 1 &middot; ครึ่งแรกคือท่าโลภที่รู้กันอยู่แล้ว</h2>
+  <h2>เฉลย ตอนที่ 1 &middot; ลองทุกชุด ถูกแน่แต่ไปได้แค่ N ราว 22</h2>
   <Spoiler>
-    <div class="callout callout-note">
-      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+    <p>วิธีที่ถูกแน่นอนแต่ช้า จะเป็นตัวตรวจของทุกวิธีที่ตามมา</p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ลองทุกเซตย่อย</p>
+      <ul>
+        <li>ไล่ทุกชุดของบริษัท ซึ่งมี 2<sup>N</sup> ชุด</li>
+        <li>ชุดไหนมีสองบริษัทที่ทับวันกัน ทิ้ง</li>
+        <li>เก็บชุดที่ใหญ่ที่สุด ถ้าใหญ่เท่ากันเก็บชุดที่เล็กกว่าตามพจนานุกรม</li>
+      </ul>
+    </div>
+    <p>
+      ทุก ๆ บริษัทที่เพิ่มขึ้นหนึ่งราย จำนวนชุดเพิ่มเป็นสองเท่า วัดจริงที่ N = 20 ใช้ {MEASURED.brute20Sec} วินาที
+      ที่ N = 22 ใช้ {MEASURED.brute22Sec} วินาที ใกล้ลิมิต {TIME_LIMIT} วินาทีแล้ว
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ชุดทดสอบของโจทย์</caption>
+        <thead><tr><th>ส่วน</th><th class="num">N ไม่เกิน</th><th>ลองทุกเซตย่อยผ่านไหม</th></tr></thead>
+        <tbody>
+          <tr><td>50% แรก</td><td class="num">{fmt(N_SUB)}</td><td>ไม่ผ่าน</td></tr>
+          <tr><td>อีก 50%</td><td class="num">{fmt(N_MAX)}</td><td>ไม่ผ่าน</td></tr>
+        </tbody>
+      </table>
+      <figcaption>วิธีนี้ไม่ได้คะแนนเลย แต่ทุกโค้ดในหน้านี้ถูกเทียบกับมันบนชุดเล็ก</figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; ครึ่งแรก: นับว่าวางได้มากที่สุดกี่งาน</h2>
+  <Spoiler>
+    <p>
+      การหาจำนวนมากที่สุดคือโจทย์จัดตารางช่วงเวลา (interval scheduling) ซึ่งมีวิธีตอบที่รู้กันมานาน
+      เรียกว่าวิธีโลภ (greedy อ่านว่า "กรีดดี้" แปลว่าตะกละ) คือทุกครั้งหยิบตัวที่ดูดีที่สุดตรงหน้า แล้วไม่ย้อนกลับมาแก้
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">กฎการหยิบ</p>
       <p>
-        ผมเริ่มจากท่าที่อยากทำที่สุด คือไล่บริษัทตามหมายเลข แล้วถามทีละตัวว่า
-        "ถ้ารับตัวนี้ จำนวนรวมยังเท่าเดิมไหม" ซึ่งถูกต้องแน่นอน เพราะการรับตัวที่หมายเลขน้อยที่สุด
-        เท่าที่รับได้โดยไม่เสียจำนวนรวม คือนิยามของคำว่าเล็กที่สุดตามพจนานุกรมพอดี
-      </p>
-      <p>
-        ปัญหาอยู่ที่ราคา ถ้าตอบคำถามนั้นด้วยการคำนวณจำนวนรวมของทั้งชุดใหม่ทุกครั้ง
-        มันคือ <code>N</code> คูณ <code>N</code> ซึ่งที่สองแสนคือสี่หมื่นล้าน ผมจึงต้องหาวิธี
-        ตอบคำถามนี้แบบ<strong>เฉพาะที่</strong>
-      </p>
-      <p>
-        สิ่งที่ปลดล็อกคือสังเกตว่า งานที่รับไปแล้วทำให้ช่วงเวลาทั้งหมด<strong>ถูกซอยเป็นช่องว่างที่เป็นอิสระต่อกัน</strong>
-        งานหนึ่งงานตกอยู่ในช่องว่างเดียวเสมอ และการรับมันมีผลแค่กับช่องว่างนั้น
-        คำถามจึงเล็กลงเหลือ "ช่องว่างนี้เคยวางได้กี่งาน และถ้าตัดตรงนี้จะวางได้กี่งาน"
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาต้องตอบคำถามว่า "รับตัวนี้แล้วคำตอบรวมเปลี่ยนไหม" ซ้ำ ๆ
-        ให้หาก่อนว่าของที่รับไปแล้ว<strong>แบ่งปัญหาออกเป็นก้อนอิสระ</strong>ได้หรือเปล่า
-        ถ้าได้ คำถามระดับโลกจะกลายเป็นคำถามระดับก้อน ซึ่งมักถูกกว่ามาก
+        ยืนอยู่ที่วัน <code>p</code> หยิบงานที่เริ่มไม่ก่อน <code>p</code> และจบเร็วที่สุด
+        ถ้างานนั้นจบวัน <code>e</code> ก็ย้ายไปยืนที่วัน <code>e + 1</code> แล้วทำซ้ำ
       </p>
     </div>
     <p>
-      ครึ่งแรกคือโจทย์จัดตารางแบบคลาสสิก เรียงตาม<strong>วันจบ</strong> แล้วไล่เลือกตัวที่จบเร็วที่สุด
-      ที่เริ่มหลังงานที่เลือกไว้ล่าสุด ท่านี้ได้จำนวนมากที่สุดเสมอ เพราะการเลือกตัวที่จบเร็วที่สุด
-      <strong>เหลือเวลาข้างหลังให้มากที่สุด</strong> จึงไม่มีทางเสียเปรียบทางเลือกอื่น
+      ตั้งแต่ตอนนี้จนจบบทใช้ชุดตัวอย่างชุดเดียว (ชุดเดียวกับแท็บที่สามของเกม) มี {DEMO.length} บริษัท
+      ช่วงวันที่ 1 ถึง {DEMO_HI}: {DEMO_LIST.join(', ')}
     </p>
-    <p class="pull">รับตัวที่หมายเลขเล็กที่สุดเท่าที่รับได้โดยจำนวนรวมไม่ลด ทำแบบนี้ไปเรื่อย ๆ ก็ได้ชุดที่เล็กที่สุดตามพจนานุกรม</p>
-  </Spoiler>
-
-  <h2>เฉลย ตอนที่ 2 &middot; ถามว่า "ช่วงนี้วางได้กี่งาน" ให้ได้ในเวลาลอการิทึม</h2>
-  <Spoiler>
+    <p>เริ่มยืนที่วันที่ 1 แล้วทำตามกฎ</p>
+    <ul>
+      {GREEDY_STEPS.map((g) => (
+        <li>
+          ยืนวัน {g.p} · เริ่มไม่ก่อนวัน {g.p} และจบเร็วสุดคือ #{g.q.id} ({g.q.s} ถึง {g.q.e}) · ไปยืนวัน {g.next}
+          {g.ties.length > 0 ? ` (#${g.ties.join(', #')} ก็จบวัน ${g.q.e} หยิบตัวหมายเลขน้อยกว่า)` : ''}
+        </li>
+      ))}
+      <li>ยืนวัน {GREEDY_STEPS[GREEDY_STEPS.length - 1].next} · ไม่มีงานที่เริ่มตั้งแต่วันนี้และจบไม่เกินวัน {DEMO_HI} · หยุด ได้ {DEMO_CHAIN.length} งาน</li>
+    </ul>
     <p>
-      ต้องมีฟังก์ชัน <code>cnt(l, r)</code> ที่บอกว่า<strong>ช่วงวัน <code>[l, r]</code> วางงานที่ไม่ทับกันได้มากที่สุดกี่งาน</strong>
-      โดยนับเฉพาะงานที่อยู่ในช่วงนั้นทั้งก้อน
+      ถ้ามีหลายงานจบวันเดียวกัน จะหยิบตัวไหนก็ได้จำนวนเท่ากัน เพราะก้าวต่อไปยืนวันเดียวกัน
+      หน้านี้หยิบตัวหมายเลขน้อยกว่าเสมอ
     </p>
-    <p>
-      ท่าโลภบอกไว้แล้วว่าจากตำแหน่ง <code>p</code> เราควรหยิบงานที่<strong>เริ่มไม่ก่อน <code>p</code> และจบเร็วที่สุด</strong>
-      เรียกวันจบของมันว่า <code>f(p)</code> แล้วตำแหน่งถัดไปคือ <code>f(p) + 1</code>
-      การนับจึงเป็นการ<strong>กระโดดตามฟังก์ชันเดิมซ้ำ ๆ</strong> จนกว่าจะเลยขอบขวา
-    </p>
-    <p>
-      การกระโดดทีละก้าวยังช้า จึงใช้<strong>ตารางกระโดดสองยกกำลัง</strong> คือเก็บไว้ว่าจากตำแหน่งนี้
-      กระโดด 1 ครั้งไปไหน 2 ครั้งไปไหน 4 ครั้งไปไหน ไปจนถึง <code>N</code> ครั้ง
-      แล้วนับจำนวนก้าวด้วยการไล่จากก้าวใหญ่ลงมา เหมือนเขียนเลขเป็นฐานสอง
-    </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
-
-    <ZoomableDiagram caption={`ชุดคำขอเดียวกันนี้เรียงตามวันจบ แท่งเขียวคือสิ่งที่ท่าโลภหยิบเมื่อถามช่วงวัน ${TL_LO} ถึง ${TL_HI} แถวล่างสุดใต้เส้นคั่นคือลำดับที่หยิบจริง เรียงต่อกันโดยไม่ทับกัน ลูกศรทองคือการกระโดดจากวันจบของงานที่เพิ่งหยิบ ไปยังงานถัดไปที่หยิบได้ จำนวนแท่งในแถวนั้นคือค่าของ cnt ของช่วงนี้ ซึ่งเท่ากับ ${TL_CHAIN.length}`}>
-      <svg viewBox={`0 0 ${TL_W} ${TL_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`เส้นเวลาวันที่หนึ่งถึงสิบสอง มีแท่งแทนคำขอของแต่ละบริษัทเรียงตามวันจบ แท่งที่ท่าโลภเลือกถูกระบายสีเขียว และมีลูกศรสีทองชี้จากวันจบของแท่งที่เลือก ไปยังจุดเริ่มของแท่งถัดไปที่เลือก`}>
+    <ZoomableDiagram caption={`ชุดตัวอย่าง ${DEMO.length} บริษัท เรียงตามหมายเลข แท่งเขียวคืองานที่วิธีโลภหยิบ แถวล่างใต้เส้นคั่นเรียงงานที่หยิบตามลำดับ ลูกศรทองคือการย้ายไปยืนวันถัดจากวันจบ ที่วันที่ ${TIE.p} บริษัท ${TIE.id} กับ ${TIE.other} จบวัน ${TIE.e} เท่ากัน ภาพนี้หยิบ ${TIE.id}`}>
+      <svg viewBox={`0 0 ${TL_W} ${TL_H}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(TL_W * 1.25)}px`} role="img" aria-label={`เส้นเวลาวันที่ 1 ถึง ${DEMO_HI} มีแท่งแทนคำขอของบริษัท 1 ถึง ${DEMO.length} แท่งที่วิธีโลภหยิบเป็นสีเขียว คือบริษัท ${DEMO_CHAIN.map((q) => q.id).join(', ')} ตามลำดับที่หยิบ แถวล่างวางแท่งเหล่านี้เรียงต่อกันพร้อมลูกศร`}>
         <defs>
           <marker id="ccArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
             <path d="M0 0 L9 4.5 L0 9 z" fill="#d8b25a" />
           </marker>
         </defs>
-        {Array.from({ length: TL_HI - TL_LO + 1 }, (_, i) => (
-          <text x={tlX(TL_LO + i) + TL_UNIT / 2} y="16" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{TL_LO + i}</text>
+        {TL_DAYS.map((d) => (
+          <text x={tlX(d) + TL_UNIT / 2} y="16" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{d}</text>
         ))}
-        {TL_ROWS.map((q, ri) => {
-          const picked = TL_CHAIN.some((c) => c.id === q.id);
+        {DEMO.map((q, ri) => {
+          const picked = TL_PICKED.has(q.id);
           return (
             <>
-              <rect
-                x={tlX(q.s) + 2}
-                y={34 + ri * TL_ROW}
-                width={(q.e - q.s + 1) * TL_UNIT - 4}
-                height="22"
-                rx="5"
-                fill={picked ? '#163a2a' : '#1c2536'}
-                stroke={picked ? '#2f9e5c' : '#3d4a6b'}
-              />
-              <text x={tlX(q.s) + ((q.e - q.s + 1) * TL_UNIT) / 2} y={34 + ri * TL_ROW + 16} fill={picked ? '#4ade80' : '#9aa7bd'} font-size="12" text-anchor="middle" font-family="monospace">#{q.id}</text>
+              <text x="12" y={34 + ri * TL_ROW + 16} fill="#9aa7bd" font-size="13" font-family="monospace">#{q.id}</text>
+              <rect x={tlX(q.s) + 2} y={34 + ri * TL_ROW} width={(q.e - q.s + 1) * TL_UNIT - 4} height="22" rx="5" fill={picked ? '#163a2a' : '#1c2536'} stroke={picked ? '#2f9e5c' : '#3d4a6b'} />
+              <text x={tlX(q.s) + ((q.e - q.s + 1) * TL_UNIT) / 2} y={34 + ri * TL_ROW + 16} fill={picked ? '#4ade80' : '#9aa7bd'} font-size="12" text-anchor="middle">{q.s} ถึง {q.e}</text>
             </>
           );
         })}
-        <line x1="8" y1={TL_LANE - 14} x2={TL_W - 12} y2={TL_LANE - 14} stroke="#2a3350" />
-        {TL_CHAIN.map((q) => (
+        <line x1="12" y1={TL_LANE - 14} x2={TL_W - 12} y2={TL_LANE - 14} stroke="#2a3350" />
+        {DEMO_CHAIN.map((q) => (
           <>
             <rect x={tlX(q.s) + 2} y={TL_LANE} width={(q.e - q.s + 1) * TL_UNIT - 4} height="22" rx="5" fill="#163a2a" stroke="#2f9e5c" />
             <text x={tlX(q.s) + ((q.e - q.s + 1) * TL_UNIT) / 2} y={TL_LANE + 16} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">#{q.id}</text>
           </>
         ))}
-        {/* ลูกศรอยู่ในเลนของตัวเองใต้เส้นคั่น จึงไม่ตัดผ่านป้ายของแท่งไหนเลย */}
-        {TL_CHAIN.slice(0, -1).map((q, i) => {
-          const nxt = TL_CHAIN[i + 1];
-          const x1 = tlX(q.e) + TL_UNIT - 2;
-          const x2 = tlX(nxt.s) + 2;
-          return <path d={`M${x1} ${TL_LANE + 11} L${x2 - 1} ${TL_LANE + 11}`} stroke="#d8b25a" stroke-width="1.8" fill="none" marker-end="url(#ccArrow)" />;
-        })}
+        {TL_ARCS.map((d) => (
+          <path d={d} stroke="#d8b25a" stroke-width="1.8" fill="none" marker-end="url(#ccArrow)" />
+        ))}
       </svg>
     </ZoomableDiagram>
-
     <div class="callout callout-note">
-      <p class="callout-label">โน้ต &middot; ทำไมต้องบีบพิกัดวัน</p>
+      <p class="callout-label">ทำไมจบเร็วก่อนถึงได้จำนวนมากที่สุด</p>
       <p>
-        วันมีได้ถึงพันล้าน แต่ตำแหน่งที่มีความหมายจริง ๆ มีแค่วันเริ่ม วันจบ และวันจบบวกหนึ่ง
-        ของทุกบริษัท ซึ่งไม่เกินสามเท่าของ <code>N</code> เราจึงเก็บเฉพาะพิกัดเหล่านั้น
-        แล้วอ้างถึงมันด้วยดัชนี ตารางกระโดดจึงมีขนาดพอดีกับข้อมูลจริง ไม่ใช่พอดีกับช่วงเวลา
+        เอาชุดที่ดีที่สุดชุดไหนก็ได้มาหนึ่งชุด แล้วสลับงานแรกของมันเป็นงานที่จบเร็วที่สุด
+        งานที่สองของชุดเดิมเริ่มหลังงานแรกเดิมจบ และงานใหม่จบไม่ช้ากว่างานแรกเดิม งานที่สองก็ยังเริ่มหลังงานใหม่จบ
       </p>
+      <p>
+        จำนวนไม่ลด ทำแบบเดียวกันกับงานที่สอง ที่สาม ไปเรื่อย ๆ ชุดที่ดีที่สุดก็กลายเป็นชุดของวิธีโลภทีละตัว
+      </p>
+    </div>
+    <p>
+      วิธีนี้ตอบได้แค่<strong>จำนวน</strong> ชุดที่มันหยิบมาเรียงแล้วคือ {DEMO_CHAIN_SORTED.join(', ')}
+      แต่คำตอบของชุดนี้คือ {DEMO_RUN.chosen.join(', ')} ซึ่งเล็กกว่าตามพจนานุกรม
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">นิยาม cnt(l, r)</p>
+      <p>
+        เริ่มยืนที่วัน <code>l</code> แล้วหยิบตามกฎข้างบน โดยนับเฉพาะงานที่จบไม่เกินวัน <code>r</code>
+        ได้กี่งานคือ <code>cnt(l, r)</code> พูดง่าย ๆ คือช่วงวัน l ถึง r วางงานที่ไม่ทับกันได้มากสุดกี่งาน
+      </p>
+      <p>เช่น <code>cnt(1, {DEMO_HI})</code> = {DEMO_RUN.total} ตามที่เพิ่งเดินไป ถ้า <code>l &gt; r</code> ให้ค่าเป็น 0</p>
     </div>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 3 &middot; ช่องว่างที่เป็นอิสระต่อกัน</h2>
+  <h2>เฉลย ตอนที่ 3 &middot; ครึ่งหลัง: ไล่ตามหมายเลข รับเมื่อช่องว่างไม่เสียจำนวน</h2>
   <Spoiler>
-    <p>
-      งานที่รับไปแล้วซอยเวลาออกเป็นช่องว่าง ซึ่งเก็บไว้ในเซตที่เรียงตามจุดเริ่ม
-      พอถึงคิวบริษัทที่ <code>i</code> เราหาว่ามันตกอยู่ในช่องว่างไหน ถ้ามันคร่อมงานที่รับไปแล้ว
-      ก็ปฏิเสธทันที ถ้าอยู่ในช่องว่างเดียวพอดี ก็เทียบสามตัวเลข
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ที่มาของแนวคิดนี้</p>
+      <p>
+        วิธีที่อยากทำที่สุดคือไล่บริษัทตามหมายเลข แล้วถามทีละตัวว่า "ถ้ารับตัวนี้ จำนวนรวมยังเท่าเดิมไหม"
+        คำถามนี้ถูกต้อง แต่ถ้าตอบด้วยการนับใหม่ทั้งชุดทุกครั้ง ราคาคือ <code>N</code> คูณ <code>N</code>
+      </p>
+      <p>
+        ช่องว่างที่จะเล่าต่อไปไม่ได้ทำให้ถูกลงด้วยตัวเอง (ตอนที่ 4 จะเห็นว่ามันยังราว 2 × N × N)
+        สิ่งที่มันให้คือคำถามเหลือแค่นับสองช่วง แล้วการนับช่วงหนึ่งทำให้เร็วได้ด้วยตารางกระโดดในตอนที่ 5
+      </p>
+    </div>
+    <p>เริ่มจากเหตุผลว่าทำไมไล่ตามหมายเลขแล้วได้ชุดที่เล็กที่สุด</p>
     <ul>
-      <li><code>cnt(gl, gr)</code> คือช่องว่างนี้เคยวางได้กี่งาน</li>
-      <li><code>cnt(gl, s - 1)</code> คือถ้ารับตัวนี้ ฝั่งซ้ายของมันยังวางได้กี่งาน</li>
-      <li><code>cnt(e + 1, gr)</code> คือฝั่งขวายังวางได้กี่งาน</li>
+      <li>
+        ถ้ามีชุดที่ใหญ่ที่สุดสักชุดที่มีบริษัท 1 ชุดนั้นชนะทุกชุดที่ไม่มีบริษัท 1
+        เพราะตัวแรกของมันคือ 1 ส่วนอีกฝั่งขึ้นต้นด้วยเลขที่มากกว่า
+      </li>
+      <li>ต้องรับบริษัท 1 ถ้ารับแล้วยังทำจำนวนมากที่สุดได้ ถ้าทำไม่ได้ก็ข้าม</li>
+      <li>จากนั้นถามแบบเดียวกันกับบริษัท 2 โดยถือว่าตัวที่รับไว้แล้วต้องอยู่ในชุดเสมอ แล้วไล่ไปจนครบ</li>
+      <li>
+        บริษัทที่ข้ามไปไม่ต้องกลับมาดูอีก ตอนที่ข้ามมัน ไม่มีชุดที่ใหญ่ที่สุดไหนมีทั้งมันและตัวที่รับไว้ตอนนั้น
+        ตัวที่รับเพิ่มทีหลังมีแต่ทำให้เงื่อนไขแน่นขึ้น
+      </li>
     </ul>
     <p>
-      ถ้าซ้ายบวกหนึ่งบวกขวา<strong>เท่ากับ</strong>ของเดิม แปลว่ารับตัวนี้แล้วไม่เสียอะไรเลย จึงรับ
-      แล้วแทนที่ช่องว่างเดิมด้วยสองช่องว่างใหม่ ถ้าน้อยกว่า แปลว่ารับแล้วจำนวนรวมลด จึงต้องปฏิเสธ
+      ตัวที่รับไปแล้วยึดวันของมันไว้ วันที่เหลือแตกเป็นท่อนที่ไม่ติดกัน เรียกแต่ละท่อนว่า<strong>ช่องว่าง</strong> (gap)
     </p>
-    <p class="pull">การรับงานหนึ่งงาน มีผลแค่กับช่องว่างเดียวที่มันตกอยู่ คำถามระดับทั้งชุดจึงยุบเหลือคำถามระดับช่องว่าง</p>
-  </Spoiler>
-
-  <h2>เดินตารางให้ดูหนึ่งชุด</h2>
-  <Spoiler>
-    <CpStepPlayer hook="ccsim" steps={demoSteps} label={`ไล่ทีละบริษัทบนชุด ${DEMO.length} ราย ซึ่งวางได้มากที่สุด ${DEMO_RUN.total} งาน`}>
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        ถนนริมทางที่มีรถจอดอยู่แล้วบางคัน ที่ว่างระหว่างรถสองคันเป็นช่องแยกกัน
+        รถคันใหม่ต้องลงในช่องเดียวทั้งคัน และการจอดในช่องหนึ่งไม่กินที่ของช่องอื่น
+      </p>
+    </div>
+    <div class="callout callout-tip">
+      <p class="callout-label">สิ่งที่เป็นจริงตลอดการไล่</p>
+      <p>จำนวนตัวที่รับไว้ + ผลรวมของ <code>cnt</code> ของทุกช่องว่าง = จำนวนมากที่สุดของทั้งโจทย์</p>
+    </div>
+    <p>
+      ในชุดตัวอย่าง ตัวแรกที่ถูกรับคือ #{WX.id} ({WX.s} ถึง {WX.e}) หลังรับแล้วเหลือช่องว่าง
+      {GAP_STATE[0].l} ถึง {GAP_STATE[0].r} (วางได้ {GAP_STATE[0].c}) กับ {GAP_STATE[1].l} ถึง {GAP_STATE[1].r} (วางได้ {GAP_STATE[1].c})
+      รวม 1 + {GAP_STATE[0].c} + {GAP_STATE[1].c} = {DEMO_RUN.total} เท่ากับจำนวนมากที่สุด
+    </p>
+    <p>
+      เรียกจำนวนที่ช่องว่างหนึ่งวางได้ว่า <code>c</code> และเก็บไว้คู่กับช่องว่างตั้งแต่ตอนสร้าง
+      บริษัทใหม่ที่อยู่ในช่องว่าง <code>[gl, gr]</code> แตะได้แค่ช่องนี้ ถ้ารับมัน ช่องนี้แตกเป็นฝั่งซ้ายกับฝั่งขวาของมัน
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">เงื่อนไขรับ</p>
+      <p>
+        <code>cnt(gl, s - 1) + 1 + cnt(e + 1, gr) == c</code> โดย <code>s</code>, <code>e</code>
+        คือวันเริ่มกับวันจบของบริษัทนี้
+      </p>
+    </div>
+    <p>
+      ซ้ายบวกตัวมันเองบวกขวาจะมากกว่า <code>c</code> ไม่ได้ เพราะ <code>c</code> คือค่ามากที่สุดของช่องนี้อยู่แล้ว
+      ถ้าเท่ากัน สิ่งที่เป็นจริงตลอดยังจริงอยู่ ถ้าน้อยกว่า รับแล้วทั้งโจทย์เสียจำนวน
+    </p>
+    <p>ย้อนไปตอนเริ่ม ยังไม่มีใครถูกรับ ช่องว่างยังเป็นวันที่ 1 ถึง {DEMO_HI} ทั้งท่อน ภาพข้างล่างเทียบบริษัทสองรายแรก</p>
+    <ZoomableDiagram caption={`ช่องว่างวันที่ 1 ถึง ${DEMO_HI} วางได้ ${WX.c} งาน แท่งทองคือบริษัทที่กำลังพิจารณา แท่งเขียวคืองานที่วิธีโลภหยิบได้ในฝั่งซ้ายและฝั่งขวาของมัน`}>
+      <svg viewBox={`0 0 ${GD_W} ${GD_H}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(GD_W * 1.25)}px`} role="img" aria-label={`สองแผงเทียบบริษัท ${WR.id} กับบริษัท ${WX.id} บริษัท ${WR.id} ทำให้ซ้าย ${WR.c1} ขวา ${WR.c2} รวมกับตัวมันได้ ${WR_SUM} น้อยกว่า ${WR.c} ไม่รับ บริษัท ${WX.id} ทำให้ซ้าย ${WX.c1} ขวา ${WX.c2} รวมได้ ${WX_SUM} เท่ากับ ${WX.c} รับ`}>
+        {GD_DAYS.map((d) => (
+          <text x={gdX(d) + GD_UNIT / 2} y="16" fill="#7b8397" font-size="12" text-anchor="middle" font-family="monospace">{d}</text>
+        ))}
+        {GD_PANELS.map((pn) => (
+          <>
+            <text x="12" y={pn.py + 12} fill={pn.t.kind === 'take' ? '#4ade80' : '#f08b8b'} font-size="13">{pn.title}</text>
+            <rect x={gdX(pn.t.gl)} y={pn.py + 22} width={gdX(pn.t.gr) + GD_UNIT - gdX(pn.t.gl)} height="68" rx="6" fill="#111a2c" stroke="#2a3350" />
+            <line x1={gdX(pn.t.s)} y1={pn.py + 22} x2={gdX(pn.t.s)} y2={pn.py + 90} stroke="#d8b25a" stroke-dasharray="4 4" />
+            <line x1={gdX(pn.t.e + 1)} y1={pn.py + 22} x2={gdX(pn.t.e + 1)} y2={pn.py + 90} stroke="#d8b25a" stroke-dasharray="4 4" />
+            <rect x={gdX(pn.t.s) + 2} y={pn.py + 30} width={(pn.t.e - pn.t.s + 1) * GD_UNIT - 4} height="22" rx="5" fill="#3a2f12" stroke="#d8b25a" />
+            <text x={gdX(pn.t.s) + ((pn.t.e - pn.t.s + 1) * GD_UNIT) / 2} y={pn.py + 46} fill="#f5d98a" font-size="12" text-anchor="middle" font-family="monospace">#{pn.t.id}</text>
+            {[...pn.left, ...pn.right].map((q) => (
+              <>
+                <rect x={gdX(q.s) + 2} y={pn.py + 60} width={(q.e - q.s + 1) * GD_UNIT - 4} height="22" rx="5" fill="#163a2a" stroke="#2f9e5c" />
+                <text x={gdX(q.s) + ((q.e - q.s + 1) * GD_UNIT) / 2} y={pn.py + 76} fill="#4ade80" font-size="12" text-anchor="middle" font-family="monospace">#{q.id}</text>
+              </>
+            ))}
+            <text x={pn.leftMid} y={pn.py + 108} fill="#cdd6ea" font-size="13" text-anchor="middle">ซ้าย {pn.t.c1} งาน</text>
+            <text x={pn.rightMid} y={pn.py + 108} fill="#cdd6ea" font-size="13" text-anchor="middle">ขวา {pn.t.c2} งาน</text>
+          </>
+        ))}
+      </svg>
+    </ZoomableDiagram>
+    <div class="callout callout-note">
+      <p class="callout-label">แทนตัวเลขลงในเงื่อนไข</p>
+      <ul>
+        <li>
+          บริษัท {WR.id} ขอ {WR.s} ถึง {WR.e}: <code>cnt({WR.gl}, {WR.s - 1}) + 1 + cnt({WR.e + 1}, {WR.gr})</code>
+          = {WR.c1} + 1 + {WR.c2} = {WR_SUM} น้อยกว่า {WR.c} ไม่รับ
+        </li>
+        <li>
+          บริษัท {WX.id} ขอ {WX.s} ถึง {WX.e}: <code>cnt({WX.gl}, {WX.s - 1}) + 1 + cnt({WX.e + 1}, {WX.gr})</code>
+          = {WX.c1} + 1 + {WX.c2} = {WX_SUM} เท่ากับ {WX.c} รับ
+        </li>
+      </ul>
+      <p>ทุกค่า cnt ในสองบรรทัดนี้ตรงกับการลองทุกเซตย่อยของช่วงนั้น (หน้านี้ตรวจตอนสร้างหน้า)</p>
+    </div>
+    <p>มีอีกสองกรณีที่ไม่ต้องนับ</p>
+    <ul>
+      <li>
+        บริษัทที่ทับวันของตัวที่รับไว้แล้ว ไม่ได้อยู่ในช่องว่างไหนทั้งก้อน ข้ามได้ทันที
+        เช่นบริษัท {STRADDLE.id} ขอ {STRADDLE.s} ถึง {STRADDLE.e} ทับบริษัท {STRADDLE_HIT.id} ({STRADDLE_HIT.s} ถึง {STRADDLE_HIT.e})
+      </li>
+      <li>
+        พอรับครบจำนวนมากที่สุดแล้วก็หยุดได้ ในชุดตัวอย่างเป้าคือ {DEMO_RUN.total} ซึ่งได้จาก
+        <code>cnt(1, {DEMO_HI})</code> ของตอนที่ 2
+      </li>
+    </ul>
+    <p>ตารางข้างล่างเดินชุดตัวอย่างทีละบริษัท กดถัดไปเพื่อเปิดทีละแถว ทุกบรรทัดใช้รูปแบบเดียวกับที่แทนตัวเลขไปเมื่อกี้</p>
+    <CpStepPlayer hook="ccsim" steps={demoSteps} label={`ไล่ทีละบริษัทบนชุด ${DEMO.length} ราย ช่วงวันที่ 1 ถึง ${DEMO_HI} วางได้มากที่สุด ${DEMO_RUN.total} งาน`}>
       <table class="rec ccrec">
         <caption>ไล่ตามหมายเลขบริษัท</caption>
         <thead>
           <tr>
-            <th class="num">บริษัท</th><th>ขอวันที่</th>
-            <th class="num">ช่องว่างเดิมวางได้</th><th class="num">ถ้ารับจะได้</th><th>ผล</th>
+            <th class="num">บริษัท</th><th>ขอวันที่</th><th>ช่องว่าง</th>
+            <th class="num">เดิมได้</th><th>ซ้าย + 1 + ขวา</th><th>ผล</th>
           </tr>
         </thead>
         <tbody>
-          {DEMO_RUN.trace.map((t) => (
+          {demoRows.map((r) => (
             <tr>
-              <td class="num">{t.id}</td>
-              <td><code>{t.s} ถึง {t.e}</code></td>
-              <td class="num">{t.gap ? t.c : '·'}</td>
-              <td class="num">{t.gap ? t.c1 + 1 + t.c2 : '·'}</td>
-              <td class={t.taken ? 'cc-yes' : ''}>{t.taken ? 'รับ' : 'ไม่รับ'}</td>
+              <td class="num">#{r.id}</td>
+              <td>{r.span}</td>
+              <td>{r.gap}</td>
+              <td class="num">{r.c}</td>
+              <td>{r.sum}</td>
+              <td class={r.yes ? 'cc-yes' : ''}>{r.res}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </CpStepPlayer>
     <p class="io-note">
-      ชุดนี้วางได้มากที่สุด {DEMO_RUN.total} งาน และชุดที่หมายเลขเล็กที่สุดคือ
-      <strong>{DEMO_RUN.chosen.join(', ')}</strong> ตัวเลขทุกช่องคำนวณตอนสร้างหน้า
-      และถูกเทียบกับการลองทุกเซตย่อยแล้วว่าตรงกัน
+      ชุดที่รับคือ {DEMO_RUN.chosen.join(', ')} ตรงกับการลองทุกเซตย่อย
     </p>
   </Spoiler>
 
-  <h2>โค้ด</h2>
+  <h2>เฉลย ตอนที่ 4 &middot; นับแบบไล่ทีละงานได้ 50% แล้ววัดว่าขาดเท่าไร</h2>
   <Spoiler>
+    <p>
+      วิธีนับ <code>cnt(l, r)</code> ที่ตรงที่สุดคือเรียงงานตามวันจบไว้ครั้งเดียว
+      แล้วทุกครั้งที่ถามก็เดินวิธีโลภไปตามรายการนั้น
+    </p>
+    <ul>
+      <li>ต่อบริษัทหนึ่งราย นับสองครั้ง (ซ้ายกับขวา) ส่วน <code>c</code> อ่านจากช่องว่างได้เลย</li>
+      <li>แต่ละครั้งไล่รายการได้ถึง <code>N</code> งาน</li>
+      <li>รวมไม่เกิน 2 × N × N ก้าว ไม่ได้ดีกว่าการนับใหม่ทั้งชุด (ราว N × N) เลย</li>
+    </ul>
+    <details class="expander">
+      <summary>ดูโค้ดวิธีที่ 2 (ได้ 50%)</summary>
+      <div class="expander-body">
+        <CodeBlock code={slowCode} lang="cpp" title="convention_slow.cpp" />
+      </div>
+    </details>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ลองทุกเซตย่อย</h4>
+        <p class="cp-step-cost">ราว 2<sup>N</sup> ชุด</p>
+        <p>ถูกแน่นอน ไปได้ถึง N ราว 22</p>
+        <p class="cp-step-win">ไม่ได้คะแนน ใช้เป็นตัวตรวจ</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>ช่องว่าง + นับแบบไล่ทีละงาน</h4>
+        <p class="cp-step-cost">ไม่เกิน 2 × N × N ก้าว</p>
+        <p>เงื่อนไขของตอนที่ 3 กับ cnt ที่เดินวิธีโลภตรง ๆ</p>
+        <p class="cp-step-win">50% (N ไม่เกิน {fmt(N_SUB)})</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>ช่องว่าง + ตารางกระโดด</h4>
+        <p class="cp-step-cost">ราว {FULL_PER_COMPANY} ก้าวต่อบริษัท</p>
+        <p>เงื่อนไขเดิมทุกบรรทัด เปลี่ยนแค่วิธีนับ (ตอนที่ 5)</p>
+        <p class="cp-step-win">100%</p>
+      </div>
+    </div>
+    <ZoomableDiagram caption={`จำนวนก้าวสเกลแบบ log (ขีดละร้อยเท่า) เส้นทองคืองบ ${TIME_LIMIT} วินาที โดยคิดหยาบ ๆ ว่าเครื่องทำงานง่าย ๆ ได้ราว 10⁸ ก้าวต่อวินาที แท่งไล่ทีละงานนับกรณีเลวสุด 2 × N × N วัดจริงที่ N = ${fmt(N_MAX)} ช้ากว่าลิมิตราว ${SLOW_MEASURED_X} เท่า แท่งตารางกระโดดนับตามที่ตอนที่ 5 แจกแจง`}>
+      <svg viewBox={`0 0 ${CH_W} ${CH_BOTTOM + 34}`} xmlns="http://www.w3.org/2000/svg" style={`display:block;margin:0 auto;max-width:${Math.round(CH_W * 1.25)}px`} role="img" aria-label="กราฟแท่งแนวนอนเทียบจำนวนก้าวของวิธีไล่ทีละงานที่ N สามพัน วิธีไล่ทีละงานที่ N สองแสน และวิธีตารางกระโดดที่ N สองแสน กับเส้นงบเวลา แท่งแรกกับแท่งสุดท้ายอยู่ใต้งบ แท่งกลางเกินงบ">
+        {CH_TICKS.map((t) => (
+          <line x1={chX(10 ** t)} y1="30" x2={chX(10 ** t)} y2={CH_BOTTOM - 14} stroke="#26314a" stroke-width="1" />
+        ))}
+        {CH_TICKS.map((t) => (
+          <text x={chX(10 ** t)} y="22" text-anchor="middle" fill="#7b8397" font-size="13">10<tspan baseline-shift="super" font-size="9">{t}</tspan></text>
+        ))}
+        {CH_BARS.map((b) => (
+          <text x="12" y={b.y + 16} fill="#cdd6ea" font-size="13">{b.name}</text>
+        ))}
+        {CH_BARS.map((b) => (
+          <rect x={CH_X0} y={b.y} width={chX(b.v) - CH_X0} height="22" rx="3" fill={b.ok ? '#6ee7a8' : '#e07a7a'} fill-opacity="0.85" />
+        ))}
+        {CH_BARS.map((b) => (
+          <text x={chX(b.v) + 8} y={b.y + 16} fill={b.ok ? '#6ee7a8' : '#e07a7a'} font-size="13">{b.s.m}×10<tspan baseline-shift="super" font-size="9">{b.s.e}</tspan>{b.ok ? ' ทัน' : ' เกินงบ'}</text>
+        ))}
+        <line x1={chX(BUDGET)} y1="30" x2={chX(BUDGET)} y2={CH_BOTTOM - 8} stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <text x={chX(BUDGET)} y={CH_BOTTOM + 6} text-anchor="middle" fill="#d4af37" font-size="13">งบ {TIME_LIMIT} วินาที</text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      วัดจริงที่ N = {fmt(N_MAX)} วิธีที่ 2 ใช้ {MEASURED.slowFullSec} วินาที ช้ากว่าลิมิตราว {SLOW_MEASURED_X} เท่า
+      น้อยกว่าที่กราฟบอก เพราะกราฟนับกรณีที่ทุกการนับไล่ครบทุกงาน และลูปนี้ง่ายจนเครื่องทำได้เกิน 10⁸ ก้าวต่อวินาที
+    </p>
+    <p>
+      ตัวที่ต้องแก้คือการนับหนึ่งครั้ง เป้าคือให้ใช้ราว log₂ N ก้าวแทน N ก้าว
+      (log₂ N คือจำนวนครั้งที่หาร N ด้วย 2 จนเหลือ 1 ที่ N = {fmt(N_MAX)} ได้ราว {LOG})
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 5 &middot; นับช่วงด้วยตารางกระโดด</h2>
+  <Spoiler>
+    <p>
+      วิธีโลภของตอนที่ 2 ไม่ได้เลือกอะไรเลย ยืนที่วัน <code>p</code> แล้วก้าวต่อไปถูกกำหนดตายตัว
+      เขียนเป็นฟังก์ชันได้
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">jump(p)</p>
+      <p>
+        <code>jump(p)</code> = วันจบของงานที่เริ่มไม่ก่อน <code>p</code> และจบเร็วที่สุด แล้วบวก 1
+        ส่วน <code>cnt(l, r)</code> คือจำนวนครั้งที่ก้าวจากวัน <code>l</code> ได้ โดยยังยืนไม่เลยวัน <code>r + 1</code>
+      </p>
+    </div>
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        รถไฟสายหนึ่งที่สถานีถัดไปของทุกสถานีตายตัว มีขบวนธรรมดาไปสถานีถัดไป
+        และขบวนด่วนที่ข้ามไปทีละ 2 สถานี 4 สถานี 8 สถานี
+      </p>
+      <p>
+        อยากรู้ว่าไปได้กี่สถานีก่อนเลยปลายทาง ให้ลองขบวนที่ไกลที่สุดก่อน ถ้าเลยปลายทางก็ไม่ขึ้น
+        ถ้าไม่เลยก็ขึ้น แล้วลองขบวนที่สั้นลงครึ่งหนึ่งต่อจากที่ยืนอยู่
+      </p>
+    </div>
+    <p>
+      ตารางที่เก็บว่าจากแต่ละจุด ก้าว 1, 2, 4, 8, … ครั้งแล้วไปถึงไหน เรียกว่าตารางกระโดด
+      (binary lifting อ่านว่า "ไบนารี ลิฟติ้ง" แปลตรง ๆ ว่ายกทีละกำลังสอง)
+    </p>
+    <p>
+      ช่อง 2 ก้าวได้จากการก้าว 1 ก้าวสองรอบ ช่อง 4 ก้าวได้จากช่อง 2 ก้าวสองรอบ ไล่ขึ้นไปเรื่อย ๆ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">บีบพิกัด (coordinate compression)</p>
+      <p>
+        วันมีถึงพันล้าน แต่จุดที่การนับไปยืนได้มีแค่วันที่ 1 กับวันจบ + 1 ของทุกงาน
+        เพราะการนับเริ่มที่ขอบซ้ายของช่องว่างหรือวันจบ + 1 ของใครสักคน และทุกก้าวก็ลงที่วันจบ + 1
+      </p>
+      <p>
+        โค้ดเก็บตารางแค่ที่จุดเหล่านี้ บวกจุดปิดท้ายอีกหนึ่งจุดที่วันสุดท้าย + 1 ซึ่งไม่มีงานเริ่มได้
+        รวมไม่เกิน N + 2 จุด (+2 คือวันที่ 1 กับจุดปิดท้าย)
+      </p>
+    </div>
+    <p>
+      ในชุดตัวอย่าง วันสุดท้ายคือ {DEMO_HI} (โจทย์จริงคือพันล้าน) จุดปิดท้ายคือวัน {DEMO_HI + 1}
+      แถวของมันเป็น · ทั้งแถว
+    </p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตารางกระโดดของชุดตัวอย่าง</caption>
+        <thead>
+          <tr><th class="num">ยืนที่วัน</th><th>ก้าวแรกหยิบ</th>{JT_LEVELS.map((k) => <th class="num">{k} ก้าว</th>)}</tr>
+        </thead>
+        <tbody>
+          {JT_ROWS.map((r) => (
+            <tr><td class="num">{r.p}</td><td>{r.pick}</td>{r.to.map((v) => <td class="num">{v}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        ช่องที่เป็น · คือไปต่อไม่ได้ ถ้ามีงานจบวันเดียวกันหยิบตัวหมายเลขน้อยกว่า ปลายทางเหมือนกันอยู่แล้ว
+        ชุดนี้วางได้อย่างมาก {DEMO_RUN.total} งาน ชั้น {JT_LEVELS.join(', ')} ก้าวก็พอ
+      </figcaption>
+    </figure>
+    <p>
+      ทำไมลองจากก้าวใหญ่ลงก้าวเล็กแล้วได้คำตอบพอดี ก้าวยิ่งมากยิ่งไปไกล ไม่มีทางถอยหลัง
+      ถ้า 4 ก้าวเลยขอบ คำตอบต้องน้อยกว่า 4 ถ้า 2 ก้าวไม่เลย คำตอบอย่างน้อย 2
+    </p>
+    <p>
+      ทุกชั้นตัดสินหลักหนึ่งหลักของคำตอบในเลขฐานสอง ชั้นที่ก้าวคือหลักที่เป็น 1
+      ลองนับซ้ายของบริษัท {WX.id} จากตอนที่ 3 คือ <code>cnt({CJ_L}, {CJ_R})</code> ห้ามยืนเลยวัน {CJ_R + 1}
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">นับ cnt({CJ_L}, {CJ_R}) ด้วยการกระโดด</p>
+      <ul>
+        {CJ.map((x) => (
+          <li>
+            ลอง {x.k} ก้าวจากวัน {x.from} ไปถึง {x.to} ·{' '}
+            {x.ok ? `ไม่เกิน ${CJ_R + 1} ก้าว นับรวมเป็น ${x.res}` : `เกิน ${CJ_R + 1} ไม่ก้าว นับเท่าเดิม ${x.res}`}
+          </li>
+        ))}
+      </ul>
+      <p>
+        ได้ {CJ_RES} = {CJ.map((x) => `${x.ok ? 1 : 0}×${x.k}`).join(' + ')} ตรงกับค่าซ้ายในตอนที่ 3
+      </p>
+    </div>
+    <p>
+      โค้ดจริงต้องรองรับคำตอบถึง {fmt(N_MAX)} ซึ่งน้อยกว่า 2<sup>{LOG}</sup> = {fmt(2 ** LOG)}
+      เขียนเป็นเลขฐานสองได้ไม่เกิน {LOG} หลัก ตาราง {LOG} ชั้นก็พอ
+    </p>
+    <p>
+      ส่วนการหาว่าจุดไหนอยู่ตรงวันไหน ใช้การค้นหาแบบแบ่งครึ่ง (binary search) คือหาตำแหน่งในรายการที่เรียงแล้ว
+      โดยตัดครึ่งทีละรอบ รายการยาว {fmt(N_MAX + 2)} ใช้ราว {BS} รอบ
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">นับก้าวของโค้ดเต็มที่ N = {fmt(N_MAX)}</p>
+      <ul>
+        <li>นับหนึ่งครั้ง: ค้นแบบแบ่งครึ่งสองครั้ง (จุดเริ่มกับจุดสุดท้ายที่ไม่เกินขอบขวา) 2 × {BS} บวกอ่านตาราง {LOG} ชั้น = {2 * BS + LOG}</li>
+        <li>ต่อบริษัท: นับสองครั้ง บวกหาช่องว่างของมันอีกราว {BS} = {FULL_PER_COMPANY}</li>
+        <li>ทุกบริษัท: {fmt(N_MAX)} × {FULL_PER_COMPANY} = {fmt(OPS_QUERY)}</li>
+        <li>เรียงสองรอบ (พิกัด กับงานตามวันเริ่ม): 2 × {fmt(N_MAX)} × {BS} = {fmt(OPS_SORT)}</li>
+        <li>สร้างตาราง: {LOG} × {fmt(N_MAX + 2)} = {fmt(OPS_BUILD)}</li>
+      </ul>
+      <p>รวม {fmt(fullOps(N_MAX))} ก้าว ราว {sci(fullOps(N_MAX)).m}×10<sup>{sci(fullOps(N_MAX)).e}</sup> ต่ำกว่างบ</p>
+    </div>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 6 &middot; โค้ดเต็ม เวลา และหน่วยความจำ</h2>
+  <Spoiler>
+    <p>โค้ดเต็มคือโค้ดวิธีที่ 2 ทุกบรรทัด เปลี่ยนแค่ <code>cnt</code> เป็นการกระโดด แล้วเพิ่มการเตรียมตาราง</p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="convention.cpp" />
       </div>
     </details>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แต่ละส่วนของโค้ด อธิบายไว้ที่ไหน</caption>
+        <thead><tr><th>ส่วนของโค้ด</th><th>อธิบายใน</th></tr></thead>
+        <tbody>
+          <tr><td>นับ cnt(l, r)</td><td>ตอนที่ 5 การนับด้วยการกระโดด</td></tr>
+          <tr><td>บีบพิกัด</td><td>ตอนที่ 5 จุดที่การนับไปยืนได้</td></tr>
+          <tr><td>ก้าวเดียว</td><td>ตอนที่ 2 กฎการหยิบ และตอนที่ 5 ฟังก์ชัน jump</td></tr>
+          <tr><td>ตารางกระโดด</td><td>ตอนที่ 5 ช่อง 2 ก้าวได้จาก 1 ก้าวสองรอบ</td></tr>
+          <tr><td>ไล่ตามหมายเลข</td><td>ตอนที่ 3 เงื่อนไขรับ</td></tr>
+        </tbody>
+      </table>
+    </figure>
+    <p>
+      ตัวเลขเวลาและหน่วยความจำในส่วนนี้วัดด้วยวิธีเดียวกันทั้งหมด (บอกไว้ท้ายส่วน)
+      และ MB ในหน้านี้หมายถึง 1,048,576 ไบต์
+    </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">โค้ดรุ่นแรกใช้หน่วยความจำเกือบเต็มลิมิต</p>
+      <p>
+        โค้ดรุ่นแรกใช้เวลามากสุด {MEASURED.oldSec} วินาที และหน่วยความจำสูงสุด {mbKb(MEASURED.oldKb)} MB จากลิมิต {MEM_LIMIT} MB
+        เหลือที่ว่างแค่ {OLD_HEADROOM} MB
+      </p>
+      <p>
+        ตัวกินที่คือตารางกระโดด รุ่นแรกเก็บพิกัดทั้งวันเริ่ม วันจบ และวันจบ + 1 รวม 3N + 2 จุด
+        ตาราง {LOG} ชั้นหนัก {mb(TABLE_OLD)} MB พอเหลือ N + 2 จุด ตารางเหลือ {mb(TABLE_NEW)} MB ประหยัด {TABLE_DROP.toFixed(1)} MB
+      </p>
+      <p>
+        บนชุดเดียวกัน (งานสั้นกระจายห่าง) หน่วยความจำลดจาก {mbKb(MEASURED.oldSameKb)} เหลือ {mbKb(MEASURED.newSameKb)} MB
+        ลดไป {SAME_DROP.toFixed(1)} MB ใกล้กับที่ตารางเล็กลง
+      </p>
+      <p>
+        ค่าสูงสุดของโค้ดใหม่ {mbKb(MEASURED.newKb)} MB มาจากอีกชุดหนึ่งที่งานแทบไม่ทับกัน
+        บริษัทถูกรับเกือบทุกราย ช่องว่างที่ต้องเก็บมีเกือบเท่าจำนวนบริษัท
+      </p>
+      <p>แก้อีกสามจุดพร้อมกัน โดยไม่เปลี่ยนวิธีคิด</p>
+      <ul>
+        <li>แต่ละช่องว่างเก็บ <code>c</code> ของมันไว้ ต่อบริษัทนับสองครั้งแทนสามครั้ง</li>
+        <li>เก็บทั้ง {LOG} ชั้นของจุดเดียวกันไว้ติดกันในหน่วยความจำ</li>
+        <li>เทียบขอบขวาด้วยลำดับของพิกัด ไม่ต้องอ่านวันที่ของจุดปลายทางทุกชั้น</li>
+      </ul>
+      <p>เวลามากสุดลดเหลือ {MEASURED.newSec} วินาที ไม่ได้แยกวัดว่าแต่ละจุดช่วยเวลาเท่าไร</p>
+    </div>
     <details class="expander">
       <summary>ดูตัวตรวจที่ใช้เทียบ</summary>
       <div class="expander-body">
         <CodeBlock code={bruteCode} lang="cpp" title="brute_convention.cpp" />
-        <p>
-          ตัวตรวจไล่ทุกเซตย่อยแล้วเทียบตามพจนานุกรมตรง ๆ ไม่มีท่าโลภอยู่ในนั้นเลย
-          ซึ่งสำคัญ เพราะข้ออ้างของหน้านี้มีสองชั้น คือท่าโลภให้จำนวนมากที่สุดจริง
-          และการรับตัวที่หมายเลขน้อยที่สุดเท่าที่ไม่เสียจำนวน ให้ชุดที่เล็กที่สุดจริง
-        </p>
-        <p>
-          ผมสุ่มชุดคำขอไม่เกิน 11 บริษัท บนช่วงวันแคบ ๆ เพื่อให้ทับกันเยอะ รวม 1,500 เคส
-          แล้วเทียบ<strong>ทั้งสองบรรทัดของเอาต์พุต</strong> ตรงกันหมด
-          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ {SWEEP_CASES} ชุด
-        </p>
+        <p>ตัวตรวจไล่ทุกเซตย่อยแล้วเทียบตามพจนานุกรมตรง ๆ ไม่มีวิธีโลภหรือช่องว่างอยู่ในนั้นเลย</p>
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม ที่ <code>N</code> เท่ากับ {fmt(N_MAX)} และวันกระจายเต็มพันล้าน
-      ใช้เวลา <strong>0.46 วินาที</strong> ส่วนชุดที่จงใจให้ทับกันหนามาก คือทุกงานยาวไม่เกินสี่วันในช่วงพันวัน
-      ใช้เวลา <strong>0.14 วินาที</strong> จากลิมิต 1.5 วินาที
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปบ้าง</p>
+      <ul>
+        <li>ตัวอย่างในโจทย์ ทั้งสามโปรแกรมได้ 2 กับ 1 3</li>
+        <li>สุ่ม {fmt(MEASURED.stressSmall)} ชุด N ไม่เกิน 14 วันแคบให้ทับกันเยอะ บางชุดวันกระจายถึงพันล้าน วิธีที่ 2 กับโค้ดเต็มตรงกับตัวตรวจทั้งสองบรรทัด</li>
+        <li>สุ่ม {MEASURED.stressMedium} ชุด N ระหว่าง 500 ถึง 3,000 โค้ดเต็มตรงกับวิธีที่ 2</li>
+        <li>ตอนสร้างหน้านี้ โมเดลในหน้ารันเทียบการลองทุกเซตย่อยอีก {SWEEP_CASES} ชุด</li>
+      </ul>
+      <p>
+        วิธีวัด: WSL Ubuntu, g++ -O2 และ /usr/bin/time บนหกชุดที่ N = {fmt(N_MAX)} รันชุดละห้ารอบ
+        ใช้รอบที่เร็วที่สุดของแต่ละชุด แล้วรายงานชุดที่แย่ที่สุด
+      </p>
+      <p>ตัวเลขเหล่านี้เป็นผลทดสอบบนชุดที่เลือกมา ยังไม่ได้พิสูจน์ว่าทุกอินพุตทันเวลา</p>
+    </div>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
+  <h2>ทดสอบตัวเองและสรุป</h2>
+  <details class="expander">
+    <summary>ถ้ามีชุดที่ใหญ่ที่สุดสักชุดที่มีบริษัท 1 ทำไมต้องรับบริษัท 1 แน่นอน</summary>
+    <div class="expander-body">
+      <p>ชุดที่มีบริษัท 1 ขึ้นต้นด้วย 1 ส่วนชุดที่ไม่มีขึ้นต้นด้วยเลขที่มากกว่า เทียบตัวแรกก็ชนะแล้ว</p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ในชุดตัวอย่าง ทำไมบริษัท {STRADDLE.id} ถูกข้ามโดยไม่ต้องนับ</summary>
+    <div class="expander-body">
+      <p>
+        มันขอ {STRADDLE.s} ถึง {STRADDLE.e} ซึ่งทับบริษัท {STRADDLE_HIT.id} ({STRADDLE_HIT.s} ถึง {STRADDLE_HIT.e}) ที่รับไว้แล้ว
+        มันไม่ได้อยู่ในช่องว่างไหนทั้งก้อน
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมก้าวถัดไปเริ่มที่วันจบ + 1 ไม่ใช่วันจบ</summary>
+    <div class="expander-body">
+      <p>
+        วันในโจทย์นับรวมทั้งวันเริ่มและวันจบ งานที่จบวัน e ยังใช้ห้องในวัน e อยู่
+        ในตัวอย่างของโจทย์ บริษัท 1 กับ 2 ชนกันที่วันที่ 9 วันเดียวก็รับพร้อมกันไม่ได้
+      </p>
+    </div>
+  </details>
   <p>
-    ท่าแรกคือ<strong>ตารางกระโดดสองยกกำลัง</strong> (binary lifting) ซึ่งใช้ได้ทุกครั้งที่มีฟังก์ชัน
-    "จากตรงนี้ไปตรงไหนต่อ" แล้วต้องถามว่าเดินซ้ำกี่ครั้งถึงจะพ้นขอบ ท่าที่สองคือ
-    <strong>ตรวจว่ารับของชิ้นนี้แล้วเสียของหรือเปล่า ด้วยการเทียบจำนวนก่อนกับหลัง</strong>
-    ซึ่งเป็นวิธีมาตรฐานของโจทย์ที่ขอคำตอบเล็กที่สุดตามพจนานุกรม
+    สองชั้นของข้อนี้ตอบด้วยวิธีโลภกับการรับตามหมายเลขเมื่อช่องว่างไม่เสียจำนวน และทันเวลาได้เพราะนับช่วงด้วยตารางกระโดด
   </p>
-  <div class="callout callout-note">
-    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมท่าโลภแบบจบเร็วก่อนถึงถูก</p>
-    <p>
-      สมมติมีคำตอบที่ดีที่สุดชุดหนึ่งที่ไม่ได้เลือกงานที่จบเร็วที่สุด ให้สลับงานแรกของชุดนั้น
-      ด้วยงานที่จบเร็วที่สุด งานที่เหลือทั้งหมดยังวางได้เหมือนเดิม เพราะงานใหม่จบไม่ช้ากว่างานเดิม
-      จำนวนจึงไม่ลด ทำแบบนี้ซ้ำไปเรื่อย ๆ ก็แปลงคำตอบที่ดีที่สุดให้กลายเป็นคำตอบของท่าโลภได้
-    </p>
-    <p>
-      ข้อควรระวังคือท่านี้ตอบได้แค่<strong>จำนวน</strong> ไม่ได้ตอบว่าชุดไหน
-      โจทย์ข้อนี้จึงยากขึ้นอีกชั้นตรงที่ถามถึงตัวชุดเอง
-    </p>
-  </div>
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
-      </thead>
-      <tbody>
-        {bill.map((r) => (
-          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>สองแถวนี้นับจำนวนครั้งที่ต้องแตะข้อมูลหนึ่งชิ้นเหมือนกัน ต่างกันที่แถวบนคำนวณคำตอบของทั้งชุดใหม่ทุกครั้งที่พิจารณาบริษัทหนึ่งราย ส่วนแถวล่างถามแค่สี่ครั้งต่อราย ครั้งละราวสิบแปดก้าวของตารางกระโดด</figcaption>
-  </figure>
-
-  <h2>สรุปบรรทัดเดียว</h2>
   <p>
-    ชุดที่เล็กที่สุดตามพจนานุกรมได้จากการไล่รับตามหมายเลข โดยรับเมื่อจำนวนรวมไม่ลด
-    และคำถามว่าจำนวนรวมลดไหม ยุบเหลือการนับงานในช่องว่างเดียว
-    ซึ่งตอบได้ด้วยการกระโดดตามท่าโลภแบบสองยกกำลัง
+    ส่วนที่ยกไปใช้ข้ออื่นได้คือ เวลาต้องถามซ้ำ ๆ ว่ารับตัวนี้แล้วคำตอบรวมเปลี่ยนไหม ให้ดูก่อนว่าของที่รับไปแล้วแบ่งปัญหาออกเป็นก้อนอิสระได้หรือเปล่า
   </p>
 
   <h2>แหล่งที่มา</h2>
   <ol class="references">
     <li>
-      โจทย์ <i>Convention Centre</i> บน programming.in.th ข้อ 2028
+      โจทย์ <i>The Siruseri Convention Centre</i> บน programming.in.th ข้อ 2028
       <a href="https://programming.in.th/tasks/2028" target="_blank" rel="noopener noreferrer">
         programming.in.th/tasks/2028
       </a>
@@ -633,17 +1251,18 @@ if(cnt(gl, s[i] - 1) + 1 + cnt(e[i] + 1, gr) != cnt(gl, gr)) continue;`;
 </CpProblemLayout>
 
 <style>
-
-  /* คอลัมน์กว้างคงที่ ตารางจึงไม่ขยับตอนเลขเปลี่ยนหลัก
+  /* ตารางของตัวเล่นทีละขั้น: แถวโผล่ทีละแถว จึงต้องเต็มการ์ดโดยไม่ดันความกว้างการ์ด
      ต้องใช้ !important เพราะกฎ body .panel .dpsim table.rec ในเลย์เอาต์ตั้ง width:100% ไว้ */
-  table.rec.ccrec{width:auto !important;table-layout:fixed;}
-  table.rec.ccrec th:nth-child(1), table.rec.ccrec td:nth-child(1){width:6rem;}
-  table.rec.ccrec th:nth-child(2), table.rec.ccrec td:nth-child(2){width:8rem;}
-  table.rec.ccrec th:nth-child(3), table.rec.ccrec td:nth-child(3){width:9.5rem;}
-  table.rec.ccrec th:nth-child(4), table.rec.ccrec td:nth-child(4){width:8rem;}
-  table.rec.ccrec th:nth-child(5), table.rec.ccrec td:nth-child(5){width:5.5rem;}
+  table.rec.ccrec{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.ccrec th, table.rec.ccrec td{white-space:normal;overflow-wrap:anywhere;}
+  table.rec.ccrec th:nth-child(1), table.rec.ccrec td:nth-child(1){width:12%;}
+  table.rec.ccrec th:nth-child(2), table.rec.ccrec td:nth-child(2){width:17%;}
+  table.rec.ccrec th:nth-child(3), table.rec.ccrec td:nth-child(3){width:17%;}
+  table.rec.ccrec th:nth-child(4), table.rec.ccrec td:nth-child(4){width:12%;}
+  table.rec.ccrec th:nth-child(5), table.rec.ccrec td:nth-child(5){width:27%;}
+  table.rec.ccrec th:nth-child(6), table.rec.ccrec td:nth-child(6){width:15%;}
   table.rec.ccrec td.cc-yes{color:#4ade80;font-weight:700;}
-  table.rec.ccrec tbody tr.is-later td{color:#4a5468;}
+  table.rec.ccrec tbody tr.is-later td{visibility:hidden;}
   table.rec.ccrec tbody tr.is-now td{background:#163a2a;}
   table.rec.ccrec tbody tr.is-now td.num{color:#eaf2ff;font-weight:700;}
 
