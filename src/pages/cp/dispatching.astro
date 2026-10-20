@@ -3,6 +3,7 @@ import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 
 const href = 'dispatching/';
 
@@ -85,16 +86,35 @@ function bestKnapsack(inst: Inst): number {
 }
 
 /** ท่าที่หน้านี้สอน เดิน i จาก n ลงมา 1 แต่ละปมถือชุดคนที่ซื้อไหว แล้วยกชุดนั้นขึ้นไปให้หัวหน้า */
-type WalkRow = { i: number; kept: number[]; sum: number; cnt: number; drop: number[]; score: number };
+type KidHeap = { c: number; kept: number[] };
+type WalkRow = {
+  i: number;
+  /** กองที่ลูกแต่ละคนยกขึ้นมาให้ เรียงตามหมายเลขลูก */
+  kids: KidHeap[];
+  /** กองหลังรวมของลูกทุกคน ก่อนใส่ตัวเอง */
+  merged: number[];
+  /** กองหลังใส่ตัวเอง ก่อนปลดใครออก และยอดรวมตอนนั้น */
+  before: number[];
+  sumBefore: number;
+  kept: number[];
+  sum: number;
+  cnt: number;
+  drop: number[];
+  score: number;
+};
 function heapWalk(inst: Inst): { ans: number; mgr: number; rows: WalkRow[] } {
   const held: number[][] = Array.from({ length: inst.n + 1 }, () => []);
+  const fromKids: KidHeap[][] = Array.from({ length: inst.n + 1 }, () => []);
   const rows: WalkRow[] = [];
   let ans = 0;
   let mgr = 0;
   for (let i = inst.n; i >= 1; i--) {
+    const merged = held[i].slice().sort((a, b) => a - b);
     held[i].push(inst.cost[i]);
     held[i].sort((a, b) => a - b);
+    const before = [...held[i]];
     let sum = held[i].reduce((a, b) => a + b, 0);
+    const sumBefore = sum;
     const drop: number[] = [];
     while (held[i].length > 0 && sum > inst.M) {
       const gone = held[i].pop();
@@ -107,9 +127,13 @@ function heapWalk(inst: Inst): { ans: number; mgr: number; rows: WalkRow[] } {
       ans = score;
       mgr = i;
     }
-    rows.push({ i, kept: [...held[i]], sum, cnt: held[i].length, drop, score });
+    const kids = fromKids[i].slice().sort((a, b) => a.c - b.c);
+    rows.push({ i, kids, merged, before, sumBefore, kept: [...held[i]], sum, cnt: held[i].length, drop, score });
     const p = inst.par[i];
-    if (p !== 0) held[p] = held[p].concat(held[i]);
+    if (p !== 0) {
+      held[p] = held[p].concat(held[i]);
+      fromKids[p].push({ c: i, kept: [...held[i]] });
+    }
   }
   return { ans, mgr, rows };
 }
@@ -251,10 +275,66 @@ if (SAMPLE_LEADFIRST >= SAMPLE_ANS.best) throw new Error('dispatching: ตัว
 const SAMPLE_MGR_STAYS = !SAMPLE_ANS.set.includes(SAMPLE_ANS.mgr);
 if (!SAMPLE_MGR_STAYS) throw new Error('dispatching: คำตอบของตัวอย่างควรเป็นชุดที่ผู้จัดการอยู่บ้าน');
 
-const sampleClauses = SAMPLE_MGR.map(
-  (r) =>
-    `ผู้จัดการ ${r.m} คุมคนได้ ${r.sub.length} คน คือนินจา ${r.sub.join(' ')} งบ ${SAMPLE.M} ซื้อคนถูกที่สุดได้ ${r.cnt} คน คูณความเป็นผู้นำ ${SAMPLE.lead[r.m]} เท่ากับ ${r.score}`,
-);
+/* แถวของตารางตัวอย่าง: ตั้งใครเป็นผู้จัดการ ซื้อคนถูกก่อนได้กี่คน */
+const sampleRows = SAMPLE_MGR.map((r) => ({
+  m: r.m,
+  sub: r.sub.join(' '),
+  buy: r.buy.map((v) => `${v} (${SAMPLE.cost[v]})`).join(' '),
+  score: `${r.cnt} x ${SAMPLE.lead[r.m]} = ${r.score}`,
+  best: r.m === SAMPLE_ANS.mgr,
+}));
+/* ประโยคว่าทำไมผู้จัดการอยู่บ้าน: สองคนที่ถูกที่สุดใช้งบหมดพอดี */
+const BEST_BUY_COSTS = SAMPLE_BEST_ROW.buy.map((v) => SAMPLE.cost[v]);
+if (SAMPLE_BEST_ROW.m !== SAMPLE_ANS.mgr || SAMPLE_BEST_ROW.spend !== SAMPLE.M || SAMPLE_BEST_ROW.buy.includes(SAMPLE_BEST_ROW.m))
+  throw new Error('dispatching: ประโยค "สองคนที่ถูกที่สุดใช้งบหมดพอดี" ไม่จริงแล้ว');
+
+/* ตัวอย่างเล็กของการสลับในตอนที่ 1 */
+const SWAP = { M: 5, wages: [1, 2, 4], bad: [1, 4], good: [1, 2] };
+{
+  const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
+  if (sum(SWAP.bad) > SWAP.M || sum(SWAP.good) >= sum(SWAP.bad) || SWAP.bad.length !== SWAP.good.length)
+    throw new Error('dispatching: ตัวอย่างการสลับไม่ได้แสดงสิ่งที่ข้อความบอก');
+}
+const SWAP_BAD_SUM = SWAP.bad.reduce((x, y) => x + y, 0);
+const SWAP_GOOD_SUM = SWAP.good.reduce((x, y) => x + y, 0);
+
+/* ---------- เครื่องเดินทีละปมบนตัวอย่างในโจทย์ ---------- */
+/* ตรวจแบบไม่พึ่งท่าที่สอน: กองที่แต่ละปมเหลือต้องเท่ากับการซื้อคนถูกก่อนในสายของปมนั้นตรง ๆ */
+for (const r of SAMPLE_WALK.rows) {
+  const direct = cheapestFirst(SAMPLE, r.i);
+  if (r.cnt !== direct.cnt || r.sum !== direct.spend)
+    throw new Error(`dispatching: กองของนินจา ${r.i} ไม่ตรงกับการซื้อคนถูกก่อนในสายของเขา`);
+}
+/* ตัวอย่างที่เดินต้องใช้ทุกขั้นของท่า: มีปมที่รับกองจากลูกสองคน และมีปมที่ต้องปลดคนแพงทิ้ง */
+if (!SAMPLE_WALK.rows.some((r) => r.kids.length >= 2)) throw new Error('dispatching: ตัวอย่างไม่มีปมที่รวมกองจากลูกสองคน');
+if (!SAMPLE_WALK.rows.some((r) => r.drop.length > 0)) throw new Error('dispatching: ตัวอย่างไม่มีปมที่ต้องปลดคนแพง');
+const ROOT_ROW = SAMPLE_WALK.rows[SAMPLE_WALK.rows.length - 1];
+if (ROOT_ROW.i !== 1 || SAMPLE_ANS.mgr !== 1 || Math.max(...ROOT_ROW.merged) >= SAMPLE.cost[1] || !ROOT_ROW.drop.includes(SAMPLE.cost[1]) || ROOT_ROW.merged.includes(SAMPLE.cost[1])) throw new Error('dispatching: แถวของรากควรปลดค่าจ้างของตัวเองทิ้ง');
+const DROP_ROWS = SAMPLE_WALK.rows.filter((r) => r.drop.length > 0).map((r) => r.i);
+
+const heapList = (h: number[]): string => `[${h.join(', ')}]`;
+const walkCells = SAMPLE_WALK.rows.map((r) => ({
+  node: `นินจา ${r.i}`,
+  kids: r.kids.length > 0 ? r.kids.map((k) => `จาก ${k.c}: ${heapList(k.kept)}`).join(' ') : 'ไม่มีลูก',
+  self: String(SAMPLE.cost[r.i]),
+  drop: r.drop.length > 0 ? r.drop.join(', ') : '·',
+  kept: `${heapList(r.kept)} รวม ${r.sum}`,
+  score: `${r.cnt} x ${SAMPLE.lead[r.i]} = ${r.score}`,
+  best: r.score === SAMPLE_WALK.ans,
+}));
+const walkSteps = SAMPLE_WALK.rows.map((r) => {
+  const got =
+    r.kids.length > 0
+      ? `รับกองจากลูก ${r.kids.map((k) => `นินจา ${k.c} ${heapList(k.kept)}`).join(' กับ ')} รวมเป็น ${heapList(r.merged)}`
+      : 'ไม่มีลูก กองเริ่มจากว่าง';
+  const evict =
+    r.drop.length > 0
+      ? `ยอด ${r.sumBefore} เกินงบ ${SAMPLE.M} ต้องหยิบตัวบนสุด (แพงสุด) ออก ${r.drop.length} ครั้ง ได้ ${r.drop.join(', ')} เหลือ ${heapList(r.kept)} รวม ${r.sum}`
+      : `ยอด ${r.sumBefore} ไม่เกินงบ ${SAMPLE.M} ไม่ต้องปลดใคร`;
+  const score = `ถ้านินจา ${r.i} เป็นผู้จัดการ ได้ ${r.cnt} x ${SAMPLE.lead[r.i]} = <b>${r.score}</b>${r.score === SAMPLE_WALK.ans ? ' ซึ่งเป็นค่ามากที่สุดของทั้งต้นไม้' : ''}`;
+  const up = SAMPLE.par[r.i] !== 0 ? ` แล้วยกกอง ${heapList(r.kept)} ขึ้นไปให้นินจา ${SAMPLE.par[r.i]}` : ' นินจา 1 เป็นราก ไม่ต้องยกต่อ';
+  return { note: `<b>นินจา ${r.i}</b>: ${got} ใส่ค่าจ้างตัวเอง ${SAMPLE.cost[r.i]} ได้ ${heapList(r.before)} ${evict} ${score}${up}` };
+});
 
 /* ---------- รูปที่ 1 ต้นไม้ของตัวอย่าง กับคะแนนของผู้จัดการแต่ละคน ---------- */
 type Box = { id: number; x: number; y: number };
@@ -311,7 +391,10 @@ const EV_WALK = heapWalk(EV_INST);
 const EV_ROW = EV_WALK.rows.find((r) => r.i === EV_CHILD);
 if (!EV_ROW) throw new Error('dispatching: ไม่พบแถวของปมที่ใช้ในรูปที่สอง');
 if (EV_ROW.drop.length === 0) throw new Error('dispatching: ปมในรูปที่สองต้องมีการปลดคนแพงออกจริง');
+const EV_PUZZLE = PUZZLES.find((p) => p.cost === EV_INST.cost);
+if (!EV_PUZZLE) throw new Error('dispatching: รูปในตอนที่ 3 ต้องมาจากชุดในมินิเกม');
 const EV_TOP = bestEnum(EV_INST);
+const EV_PARENT = EV_INST.par[EV_CHILD];
 const EV_BRANCH = subtreeOf(EV_INST, EV_CHILD);
 const EV_TAKEN = EV_TOP.set.filter((v) => EV_BRANCH.includes(v)).map((v) => EV_INST.cost[v]);
 if (EV_TAKEN.length > EV_ROW.cnt) throw new Error('dispatching: คำตอบหยิบจากกิ่งนี้มากกว่าที่ลูกเก็บไว้ ข้ออ้างของหน้าพัง');
@@ -335,25 +418,26 @@ const SUB_PCT = 30;
 const M_MAX = 1000000000;
 const L_MAX = 1000000000;
 const LOG_FULL = Math.ceil(Math.log2(N_MAX));
-const LOG_SUB = Math.ceil(Math.log2(N_SUB));
 const WORK_NAIVE_SUB = N_SUB * N_SUB;
 const WORK_NAIVE_FULL = N_MAX * N_MAX;
-const WORK_HEAP_SUB = N_SUB * LOG_SUB;
-const WORK_HEAP_FULL = N_MAX * LOG_FULL;
-const bill = [
-  {
-    name: `ลองผู้จัดการทีละคน แล้วกวาดคนถูกก่อนในสายของเขา`,
-    sub: `${fmt(WORK_NAIVE_SUB)} ครั้ง`,
-    full: `${fmt(WORK_NAIVE_FULL)} ครั้ง`,
-    time: `0.015 ถึง 0.058 วินาที ที่ N = ${fmt(N_SUB)}`,
-  },
-  {
-    name: `ถือฮีปไว้ที่ทุกปม แล้วยุบขึ้นไปหาหัวหน้า`,
-    sub: `ราว ${fmt(WORK_HEAP_SUB)} ครั้ง`,
-    full: `ราว ${fmt(WORK_HEAP_FULL)} ครั้ง`,
-    time: `0.100 วินาที ที่ N = ${fmt(N_MAX)} ในชุดที่หนักที่สุด`,
-  },
-];
+/* คนละราว 3 ก้าวของฮีป (ใส่ ปลด ยกขึ้นไป) ก้าวละราว log N */
+const HEAP_STEPS = 3 * N_MAX * LOG_FULL;
+const HEAP_STEPS_M = Math.round(HEAP_STEPS / 1e6);
+if (WORK_NAIVE_FULL / HEAP_STEPS < 1000 || WORK_NAIVE_FULL / HEAP_STEPS >= 10000) throw new Error('dispatching: คำว่าต่างกันหลักพันเท่าไม่จริงแล้ว');
+/* ทางเลือก: priority_queue + เทกองเล็กลงกองใหญ่ ราว N log² N */
+const SMALL_LARGE_M = Math.round((N_MAX * LOG_FULL * LOG_FULL) / 1e6);
+const BRUTE_MAX_N = 16;
+/* ลิมิตจากหัวกระดาษโจทย์บน programming.in.th */
+const TIME_LIMIT_S = 1;
+const MEM_LIMIT_MB = 256;
+/* วัดจริง 2026-10-20: WSL Ubuntu, g++ -O2, /usr/bin/time -v
+ * โค้ดเต็ม: 13 ชุดที่ N = 100,000 (ดาว สายยาว สุ่ม ไบนารี ก้างปลา, ค่าจ้างกว้างและแคบ, งบเล็ก)
+ * ชุดที่ช้าสุดคือดาว 0.04 วินาที ชุดอื่น 0.00 ถึง 0.03 หน่วยความจำสูงสุด 7,660 KB
+ * โค้ด subtask: 3 ชุดที่ N = 3,000 ช้าสุด 0.02 วินาที หน่วยความจำสูงสุด 3,936 KB */
+const T_FULL_WORST = '0.04';
+const MEM_FULL_MB = '7.5';
+const T_SUB_WORST = '0.02';
+const MEM_SUB_MB = '3.9';
 
 /* จำนวนรอบที่เทียบกับตัวตรวจจริง ๆ */
 const ROUNDS_A = 2600;
@@ -570,16 +654,17 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
   <h2>โจทย์ &middot; รวบรวมนินจาไปส่งลูกค้าหนึ่งราย</h2>
   <p>
     นิกายนินจาแห่งหนึ่งมีคนอยู่ <code>N</code> คน มีหัวหน้าใหญ่หนึ่งคน และคนที่เหลือมีหัวหน้าคนละหนึ่งคนพอดี
-    กติกาของนิกายคือคำสั่งเรื่องงานเดินจากหัวหน้าลงไปหาลูกน้องเท่านั้น จะข้ามสายไปสั่งคนอื่นไม่ได้
-    โครงแบบนี้คือต้นไม้ต้นหนึ่ง โดยหัวหน้าใหญ่เป็นราก
+    คำสั่งเรื่องงานเดินจากหัวหน้าลงไปหาลูกน้องเท่านั้น โครงแบบนี้คือต้นไม้ต้นหนึ่ง โดยหัวหน้าใหญ่เป็นราก
   </p>
-  <p>
-    วันนี้เรากำลังรวบรวมนินจาไปส่งให้ลูกค้าหนึ่งราย นินจาที่ถูกส่งออกไปแต่ละคนคิดค่าจ้างของตัวเองไว้แล้ว
-    รวมกันแล้วต้องไม่เกินงบ <code>M</code> และเราต้องตั้งนินจาคนหนึ่งเป็น<strong>ผู้จัดการ</strong>
-    ซึ่งต้องสั่งงานถึงทุกคนที่ถูกส่งออกไปได้ คนที่เขาสั่งถึงคือคนที่อยู่ในสายบังคับบัญชาใต้เขาทั้งหมด
-    ซึ่งก็คือ<strong>ต้นไม้ย่อย (subtree)</strong> ของเขานั่นเอง ผู้จัดการจะถูกส่งไปทำงานเองหรือจะอยู่บ้านก็ได้
-    ถ้าอยู่บ้านก็ไม่ได้ค่าจ้าง
-  </p>
+  <p>วันนี้เรากำลังรวบรวมนินจาไปส่งให้ลูกค้าหนึ่งราย กติกามีดังนี้</p>
+  <ul>
+    <li>นินจาแต่ละคนคิดค่าจ้างของตัวเองไว้แล้ว ค่าจ้างของทุกคนที่ส่งไปรวมกันต้องไม่เกินงบ <code>M</code></li>
+    <li>
+      ต้องตั้งนินจาคนหนึ่งเป็น<strong>ผู้จัดการ</strong> ซึ่งต้องสั่งงานถึงทุกคนที่ถูกส่งไป
+      คนที่เขาสั่งถึงคือคนในสายบังคับบัญชาใต้เขาทั้งหมด หรือ<strong>ต้นไม้ย่อย (subtree)</strong> ของเขา
+    </li>
+    <li>ผู้จัดการจะถูกส่งไปทำงานเองหรือจะอยู่บ้านก็ได้ ถ้าอยู่บ้านก็ไม่ได้ค่าจ้าง</li>
+  </ul>
   <p>
     ความพอใจของลูกค้าคือ <strong>จำนวนนินจาที่ถูกส่งไป คูณกับความเป็นผู้นำของผู้จัดการ</strong>
     งานของเราคือจัดให้ตัวเลขนี้สูงที่สุด
@@ -601,6 +686,7 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
       <li>
         <strong>ให้คะแนน:</strong> กรณีทดสอบที่ <code>N &le; {fmt(N_SUB)}</code> คิดเป็น {SUB_PCT}% ของคะแนนเต็ม
       </li>
+      <li><strong>ลิมิต:</strong> เวลา {TIME_LIMIT_S} วินาที หน่วยความจำ {MEM_LIMIT_MB} MB</li>
     </ul>
   </div>
 
@@ -625,29 +711,48 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
     <p>
       บรรทัดแรกบอกว่ามีนินจา {SAMPLE.n} คน และงบ {SAMPLE.M} อีก {SAMPLE.n} บรรทัดถัดมาเป็นของนินจาคนที่ 1 ถึง {SAMPLE.n} ตามลำดับ
       บรรทัดละสามตัวเลข คือหัวหน้า ค่าจ้าง ความเป็นผู้นำ อ่านทีละบรรทัดได้ว่า
-      {SAMPLE_IDS.map((i) => ` นินจา ${i} หัวหน้าคือ ${SAMPLE.par[i] === 0 ? 'ไม่มี เขาคือหัวหน้าใหญ่' : `นินจา ${SAMPLE.par[i]}`} ค่าจ้าง ${SAMPLE.cost[i]} ความเป็นผู้นำ ${SAMPLE.lead[i]}`).join(' ')}
-      ต้นไม้ที่ได้จึงมีนินจา 1 อยู่บนสุด ใต้เขาคือนินจา 2 กับ 4 และใต้นินจา 2 คือนินจา 3 กับ 5
+    </p>
+    <ul>
+      {SAMPLE_IDS.map((i) => (
+        <li>นินจา {i} หัวหน้าคือ {SAMPLE.par[i] === 0 ? 'ไม่มี เขาคือหัวหน้าใหญ่' : `นินจา ${SAMPLE.par[i]}`} ค่าจ้าง {SAMPLE.cost[i]} ความเป็นผู้นำ {SAMPLE.lead[i]}</li>
+      ))}
+    </ul>
+    <p>ต้นไม้ที่ได้มีนินจา 1 อยู่บนสุด ใต้เขาคือนินจา 2 กับ 4 และใต้นินจา 2 คือนินจา 3 กับ 5</p>
+    <p>
+      เอาต์พุตเป็น<strong>ผลคูณ</strong> ไม่ใช่จำนวนคนหรือจำนวนเงิน คำตอบ {SAMPLE_OUT} มาจากส่งไป {SAMPLE_ANS.set.length} คน
+      คูณความเป็นผู้นำ {SAMPLE.lead[SAMPLE_ANS.mgr]} ของผู้จัดการ
+    </p>
+    <p>ลองตั้งผู้จัดการทีละคน แล้วซื้อคนที่ค่าจ้างถูกที่สุดในสายของเขาก่อน ได้ตามตารางนี้ (ในวงเล็บคือค่าจ้าง)</p>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตั้งใครเป็นผู้จัดการ งบ {SAMPLE.M}</caption>
+        <thead>
+          <tr><th class="num">ผู้จัดการ</th><th>คนในสาย</th><th>ซื้อได้</th><th class="num">คะแนน</th></tr>
+        </thead>
+        <tbody>
+          {sampleRows.map((r) => (
+            <tr class={r.best ? 'hit' : undefined}>
+              <td class="num">{r.m}</td>
+              <td>{r.sub}</td>
+              <td>{r.buy}</td>
+              <td class="num">{r.score}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </figure>
+    <p>
+      ผู้จัดการที่ดีที่สุดคือนินจา {SAMPLE_ANS.mgr} แต่ตัวเขาเองไม่ได้ไป สองคนที่ถูกที่สุดในสาย
+      (ค่าจ้าง {BEST_BUY_COSTS.join(' กับ ')}) ใช้งบ {SAMPLE.M} หมดพอดี ไม่เหลือให้ค่าจ้าง {SAMPLE.cost[SAMPLE_ANS.mgr]} ของเขา
     </p>
     <p>
-      เอาต์พุตเป็น<strong>ผลคูณ</strong> ไม่ใช่จำนวนคนและไม่ใช่จำนวนเงิน คำตอบ {SAMPLE_OUT} ของตัวอย่างนี้
-      มาจาก {SAMPLE_ANS.set.length} คูณ {SAMPLE.lead[SAMPLE_ANS.mgr]} ใครที่ตอบ {SAMPLE_ANS.set.length} (จำนวนคน)
-      หรือ {SAMPLE_ANS.set.reduce((a, v) => a + SAMPLE.cost[v], 0)} (เงินที่จ่าย) คือหลงหน่วยไปแล้ว
-    </p>
-    <p>
-      เดินทั้งห้าทางเลือกให้ครบ {sampleClauses.join(' ')} ทางที่ดีที่สุดจึงเป็น {SAMPLE_BEST_ROW.score}
-      ซึ่งตรงกับคำตอบ และชุดที่ได้คือส่งนินจา {SAMPLE_ANS.set.join(' กับ ')} ไป จ่ายคนละ {SAMPLE.cost[SAMPLE_ANS.set[0]]}
-      รวม {SAMPLE_ANS.set.reduce((a, v) => a + SAMPLE.cost[v], 0)} พอดีงบ
-    </p>
-    <p>
-      สังเกตสองอย่างจากชุดนี้ อย่างแรกคือ นินจา {SAMPLE_ANS.mgr} เป็นผู้จัดการแต่ตัวเขาเองไม่ได้ถูกส่งไป
-      เพราะค่าจ้างเขาคือ {SAMPLE.cost[SAMPLE_ANS.mgr]} ซึ่งกินงบเท่ากับคนอื่นหนึ่งคนครึ่ง
-      อย่างที่สองคือ นินจา {SAMPLE_TOP_LEAD} มีความเป็นผู้นำสูงที่สุดในนิกาย ({SAMPLE.lead[SAMPLE_TOP_LEAD]})
-      แต่ตั้งเขาเป็นผู้จัดการแล้วได้แค่ {SAMPLE_TOP_ROW.score} เพราะสายของเขาสั้นและคนในสายแพง
+      ส่วนนินจา {SAMPLE_TOP_LEAD} มีความเป็นผู้นำสูงที่สุดในนิกาย ({SAMPLE.lead[SAMPLE_TOP_LEAD]})
+      แต่ตั้งเขาเป็นผู้จัดการแล้วได้แค่ {SAMPLE_TOP_ROW.score} เพราะสายของเขามีคนเดียว
     </p>
   </div>
 
   <ZoomableDiagram caption={`ต้นไม้ของตัวอย่าง กล่องหนึ่งกล่องคือนินจาหนึ่งคน บรรทัดกลางคือค่าจ้าง บรรทัดล่างคือความเป็นผู้นำ กล่องขอบทองคือผู้จัดการที่ชนะ กล่องเขียวคือคนที่ถูกส่งไป ตารางขวาคือคะแนนของผู้จัดการทั้ง ${SAMPLE.n} ทางเลือก งบ ${SAMPLE.M} เท่ากันทุกทาง`}>
-    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label={`ต้นไม้ของตัวอย่างห้าคน พร้อมตารางคะแนนของผู้จัดการแต่ละคน ทางที่ดีที่สุดได้ ${SAMPLE_OUT}`}>
+    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style={`display:block;margin:0 auto;max-width:${Math.round(D1_W * 1.25)}px`} role="img" aria-label={`ต้นไม้ของตัวอย่างห้าคน พร้อมตารางคะแนนของผู้จัดการแต่ละคน ทางที่ดีที่สุดได้ ${SAMPLE_OUT}`}>
       <text x="6" y="18" fill="#9aa7bd" font-size="12">ต้นไม้ของตัวอย่าง</text>
       <text x={D1_PANEL_X} y="18" fill="#9aa7bd" font-size="12">ตั้งใครเป็นผู้จัดการ ได้เท่าไร</text>
       {D1.edges.map((e) => (
@@ -761,150 +866,217 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        รูปของข้อนี้ผมเห็นตั้งแต่อ่านจบ คะแนนเป็นผลคูณของสองอย่างที่ไม่ยุ่งกันเลย คือจำนวนคนที่ส่งไป
-        กับความเป็นผู้นำของผู้จัดการ เจอผลคูณแบบนี้ท่าแรกคือล็อกข้างที่มีตัวเลือกน้อยกว่าไว้ก่อน
-        ซึ่งที่นี่คือผู้จัดการ มีให้เลือกแค่ <code>N</code> แบบ ผมจึงไม่มีทางที่ลองแล้วทิ้งจะมาเล่าตรงจุดนี้
-        เรื่องที่ต้องตัดสินใจจริงอยู่ถัดไปอีกสองก้าว
+        คะแนนเป็นผลคูณของสองอย่างที่ไม่ยุ่งกันเลย คือจำนวนคนที่ส่งไป กับความเป็นผู้นำของผู้จัดการ
+        เจอผลคูณแบบนี้ ผมล็อกข้างที่มีตัวเลือกน้อยกว่าไว้ก่อน ซึ่งที่นี่คือผู้จัดการ มีให้เลือกแค่ <code>N</code> แบบ
       </p>
       <p>
-        ก้าวแรกคือราคาของการล็อกทีละคน พอผู้จัดการถูกล็อก คำถามที่เหลือคือ "งบเท่านี้จ้างคนในสายเขาได้กี่คน"
-        ซึ่งตอบได้ด้วยการซื้อคนถูกก่อน ผมคูณเลขดูก่อนลงมือเขียน ทำแบบนี้ทีละคนคือ <code>N</code> คูณ <code>N</code>
-        ที่ <code>N = {fmt(N_SUB)}</code> ได้ {fmt(WORK_NAIVE_SUB)} ครั้ง ซึ่งสบายมาก
-        แต่ที่ <code>N = {fmt(N_MAX)}</code> ได้ {fmt(WORK_NAIVE_FULL)} ครั้ง ตัวเลขคู่นี้อ่านได้สองอย่างพร้อมกัน
-        คือชุดทดสอบ {SUB_PCT}% เขาแจกให้ท่านี้ตรง ๆ และเต็มขอบเขตต้องหาวิธีให้คำตอบของลูกน้องส่งต่อขึ้นไปให้หัวหน้าใช้ได้
-      </p>
-      <p>
-        ก้าวที่สองคือก้าวที่ผมหยุดอยู่นานที่สุด เวลาลูกยกกองของตัวเองขึ้นไปให้พ่อ มันได้ทิ้งคนแพงบางคนไปแล้ว
-        ถ้าพ่อเกิดอยากได้คนที่ถูกทิ้งไปขึ้นมา โค้ดจะตอบน้อยกว่าความจริงแบบเงียบ ๆ ผมจึงเขียนตัวตรวจ
-        ที่ไม่รู้จักคำว่าฮีปหรือการเรียงเลย มันอ่านนิยามในโจทย์ตรง ๆ แล้วลองทุกเซตย่อย
-        บทเรียนที่เอาไปใช้ข้ออื่นได้คือ เวลาโครงสร้างข้อมูลถูกยุบขึ้นไปเรื่อย ๆ ของที่ถูกทิ้งกลางทางคือข้ออ้าง
-        ที่ต้องพิสูจน์ก่อนเสมอ และตัวตรวจที่ใช้เทียบต้องไม่รู้จักข้ออ้างนั้น
+        ก่อนลงมือเขียน ผมคูณเลขดูว่าลองผู้จัดการทีละคนแพงแค่ไหน ที่ <code>N = {fmt(N_SUB)}</code> ได้ {fmt(WORK_NAIVE_SUB)} ครั้ง ซึ่งสบาย
+        ที่ <code>N = {fmt(N_MAX)}</code> ได้ {fmt(WORK_NAIVE_FULL)} ครั้ง ชุดเต็มต้องให้ลูกน้องส่งงานที่ทำไว้ต่อขึ้นไปให้หัวหน้าใช้
       </p>
     </div>
     <p>
-      เริ่มจากสมมติว่ารู้แล้วว่าผู้จัดการคือนินจา <code>m</code> ตัวคูณ <code>Lm</code> กลายเป็นค่าคงที่ทันที
-      คะแนนจึงขึ้นกับของเหลือข้างเดียว คือจำนวนคนที่ส่งไปได้ คำถามหดเหลือประโยคเดียวคือ
-      <strong>งบ <code>M</code> ซื้อคนในสายของ <code>m</code> ได้มากที่สุดกี่คน</strong>
+      สมมติว่ารู้แล้วว่าผู้จัดการคือนินจา <code>m</code> ตัวคูณ <code>Lm</code> (ความเป็นผู้นำของ <code>m</code>)
+      กลายเป็นค่าคงที่ทันที คะแนนขึ้นกับจำนวนคนที่ส่งไปได้อย่างเดียว
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">พอล็อกผู้จัดการ m แล้ว</p>
+      <p>งบ <code>M</code> ซื้อคนในสายของ <code>m</code> ได้มากที่สุดกี่คน</p>
+      <p>ตอบด้วยการเรียงค่าจ้างจากถูกไปแพง แล้วซื้อไปเรื่อย ๆ จนงบไม่พอ</p>
+    </div>
+    <p>
+      ทำไมซื้อถูกก่อนไม่พลาด ดูตัวอย่างเล็ก ๆ งบ {SWAP.M} มีคนค่าจ้าง {SWAP.wages.join(', ')}
+      ถ้าเลือก {SWAP.bad.join(' กับ ')} (รวม {SWAP_BAD_SUM}) ได้ {SWAP.bad.length} คน
+      สลับ {SWAP.bad[SWAP.bad.length - 1]} ออกแล้วใส่ {SWAP.good[SWAP.good.length - 1]} ที่ถูกกว่าแทน ยังได้ {SWAP.good.length} คน แต่จ่ายแค่ {SWAP_GOOD_SUM}
     </p>
     <p>
-      คำถามนี้ตอบได้ด้วยการเรียงค่าจ้างจากถูกไปแพงแล้วซื้อไปเรื่อย ๆ จนงบหมด เหตุผลสั้นมาก
-      สมมติชุดที่ดีที่สุดชุดหนึ่งมี <code>k</code> คนแต่ไม่ใช่ <code>k</code> คนที่ถูกที่สุด
-      แปลว่ามีคนแพงอยู่ในชุดและมีคนถูกกว่าอยู่นอกชุด สลับสองคนนั้น จำนวนคนเท่าเดิม ยอดเงินลดลง ยังอยู่ในงบ
-      ทำซ้ำจนหมด ก็ได้ชุดของ <code>k</code> คนที่ถูกที่สุด แปลว่าซื้อของถูกก่อนไม่เคยเสียเปรียบ
+      กรณีทั่วไปก็เหมือนกัน ถ้าชุดที่ดีที่สุดมี <code>k</code> คนแต่ไม่ใช่ <code>k</code> คนที่ถูกที่สุด
+      ก็มีคนแพงอยู่ในชุดและคนถูกกว่าอยู่นอกชุด สลับกันได้เรื่อย ๆ จนได้ <code>k</code> คนที่ถูกที่สุดโดยไม่หลุดงบ
     </p>
     <p>
-      คำตอบของทั้งข้อจึงเป็น "ค่ามากที่สุดของ (จำนวนคนที่ซื้อไหวในสายของ <code>m</code>) คูณ <code>Lm</code>
-      เมื่อไล่ <code>m</code> ครบทุกคน" ที่เหลือคือเรื่องความเร็วล้วน ๆ
-      ถ้ายอมเดินสายของผู้จัดการทีละคนก็ได้ {SUB_PCT} คะแนนแล้ว และนั่นคือโค้ดชุดแรกในหัวข้อโค้ดข้างล่าง
+      คำตอบของทั้งข้อคือค่ามากที่สุดของ (จำนวนคนที่ซื้อไหวในสายของ <code>m</code>) คูณ <code>Lm</code>
+      เมื่อไล่ <code>m</code> ครบทุกคน ที่เหลือคือเรื่องความเร็ว ไล่จากช้าไปเร็วได้สามขั้น
     </p>
+
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ชุดทดสอบตามโจทย์</caption>
+        <thead>
+          <tr><th>ชุด</th><th class="num">ขอบเขต</th><th class="num">คะแนน</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ชุดเล็ก</td><td class="num">N &le; {fmt(N_SUB)}</td><td class="num">{SUB_PCT}%</td></tr>
+          <tr><td>ชุดเต็ม</td><td class="num">N &le; {fmt(N_MAX)}</td><td class="num">{100 - SUB_PCT}%</td></tr>
+        </tbody>
+      </table>
+    </figure>
+
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ลองทุกเซตย่อย</h4>
+        <p class="cp-step-cost">2<sup>(จำนวนคนในสาย)</sup> ชุดต่อผู้จัดการ</p>
+        <p>อ่านนิยามตรง ๆ ถูกแน่นอน ไปได้ถึงราว {BRUTE_MAX_N} คน</p>
+        <p class="cp-step-win">ไม่ได้คะแนน ใช้เป็นตัวตรวจ</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>ล็อกผู้จัดการทีละคน + ซื้อถูกก่อน</h4>
+        <p class="cp-step-cost">N &times; N = {fmt(WORK_NAIVE_SUB)} ที่ N = {fmt(N_SUB)}</p>
+        <p>ผู้จัดการ N คน แต่ละคนเดินรายชื่อที่เรียงค่าจ้างไว้แล้วได้ถึง N คน วัดได้ไม่เกิน {T_SUB_WORST} วินาที</p>
+        <p class="cp-step-win">{SUB_PCT}%</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>ส่งงานของลูกน้องต่อขึ้นไปให้หัวหน้า</h4>
+        <p class="cp-step-cost">ราว 3 &times; N &times; log N &asymp; {HEAP_STEPS_M} ล้านก้าว ที่ N = {fmt(N_MAX)}</p>
+        <p>
+          log N คือจำนวนครั้งที่หาร N ครึ่งหนึ่งจนเหลือ 1 (ราว {LOG_FULL} ที่แสนคน)
+          ข้อสรุปเดิมทุกบรรทัด เปลี่ยนแค่ไม่ต้องนับใหม่ (ตอนที่ 2 และ 3) วัดได้ไม่เกิน {T_FULL_WORST} วินาที
+        </p>
+        <p class="cp-step-win">100%</p>
+      </div>
+    </div>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 2 &middot; ทุกปมถือกองของตัวเอง แล้วยกขึ้นไปให้หัวหน้า</h2>
+  <h2>เฉลย ตอนที่ 2 &middot; ทุกนินจาถือกองของตัวเอง แล้วยกขึ้นไปให้หัวหน้า</h2>
   <Spoiler>
     <p>
-      สิ่งที่แพงในท่าแรกคือการเริ่มนับใหม่ทุกครั้งที่เปลี่ยนผู้จัดการ ทั้งที่สายของหัวหน้าคนหนึ่ง
-      คือสายของลูกน้องทุกคนต่อกัน บวกตัวเขาเอง ของที่ลูกคำนวณไว้แล้วจึงควรยกขึ้นไปใช้ต่อได้
+      สิ่งที่แพงในวิธีที่ 2 คือการเริ่มนับใหม่ทุกครั้งที่เปลี่ยนผู้จัดการ ทั้งที่สายของหัวหน้าคนหนึ่ง
+      คือสายของลูกน้องทุกคนต่อกัน บวกตัวเขาเอง งานที่ลูกทำไว้แล้วควรยกขึ้นไปใช้ต่อได้
     </p>
     <p>
-      ให้แต่ละปม <code>i</code> ถือ<strong>กองค่าจ้างของคนที่ซื้อไหว</strong>ในสายของตัวเอง
-      คือชุดที่ถูกที่สุดเท่าที่ยังอยู่ในงบ พร้อมยอดรวมกับจำนวนคนของกองนั้น ขั้นตอนต่อปมมีสามอย่าง
-      คือรวมกองของลูกทุกคนเข้าด้วยกัน ใส่ตัวเองลงไป แล้วถ้ายอดเกินงบก็ปลดคนที่ค่าจ้างแพงที่สุดออกทีละคนจนพอดีงบ
-      ระหว่างนั้นจดคะแนนไว้ว่าถ้า <code>i</code> เป็นผู้จัดการจะได้เท่าไร
+      ต่อจากนี้เรียกนินจาหนึ่งคนบนต้นไม้ว่า<strong>ปม (node)</strong> และให้ทุกปมถือ<strong>กอง</strong>ค่าจ้างของคนที่ซื้อไหวในสายของตัวเอง
     </p>
+    <div class="callout callout-note">
+      <p class="callout-label">กอง (heap) คืออะไร</p>
+      <p>
+        <strong>ฮีป (heap)</strong> อ่านว่า "ฮีป" แปลว่ากอง ในหน้านี้คือกองตัวเลขที่ตัวมากที่สุดอยู่บนสุดเสมอ
+        หยิบตัวบนสุดออกได้เร็ว และใส่ตัวใหม่ได้เร็ว
+      </p>
+      <ul>
+        <li>กองค่าจ้าง 2, 3, 3 ตัวบนสุดคือ 3</li>
+        <li>หยิบตัวบนสุดออกหนึ่งครั้ง เหลือ 2, 3 ตัวบนสุดใหม่คือ 3</li>
+        <li>หยิบอีกครั้ง เหลือ 2</li>
+      </ul>
+    </div>
+    <p>ขั้นตอนต่อปมมีสี่อย่าง</p>
+    <ol>
+      <li>รวมกองของลูกทุกคนเข้าด้วยกัน</li>
+      <li>ใส่ค่าจ้างของตัวเองลงไป</li>
+      <li>ถ้ายอดเกินงบ หยิบตัวบนสุด (คนแพงสุด) ออกทีละคนจนพอดีงบ</li>
+      <li>จดคะแนนว่าถ้าปมนี้เป็นผู้จัดการจะได้เท่าไร แล้วยกกองที่เหลือขึ้นไปให้หัวหน้า</li>
+    </ol>
     <p>
-      งานที่ต้องทำกับกองนี้มีสองอย่างเท่านั้น คือรวมสองกองเข้าด้วยกัน กับหยิบคนที่ค่าจ้างแพงที่สุดออก
-      โครงสร้างที่ทำสองอย่างนี้ได้เร็วคือ<a href="/cp/hiring/">ฮีป</a>แบบที่ค่ามากที่สุดอยู่บนสุด
-      แต่ฮีปของไลบรารีมาตรฐานรวมสองกองไม่ได้ เลยต้องใช้ฮีปที่รวมกันได้ ซึ่งตัวที่เขียนสั้นที่สุดคือ leftist heap
+      งานที่ทำกับกองมีสองอย่าง คือรวมสองกอง กับหยิบตัวแพงสุดออก
+      ฮีปสำเร็จรูปของ C++ (<code>priority_queue</code>) หยิบได้เร็ว แต่รวมสองกองตรง ๆ ไม่ได้ มีสองทางให้เลือก
     </p>
+    <ul>
+      <li>
+        ใช้ <code>priority_queue</code> ต่อ แล้วรวมแบบเทกองเล็กลงกองใหญ่ (small-to-large) ทีละตัว
+        แต่ละคนถูกเทย้ายไม่เกินราว log N ครั้ง รวมราว N log² N &asymp; {SMALL_LARGE_M} ล้านก้าว ยังทันใน {TIME_LIMIT_S} วินาที
+      </li>
+      <li>
+        ใช้ฮีปที่รวมกันได้ในตัว (mergeable heap) ซึ่งสะดวกกว่า หน้านี้ใช้ leftist heap ส่วน skew heap ก็เขียนสั้นกว่าอีก
+      </li>
+    </ul>
 
     <div class="callout callout-note">
       <p class="callout-label">แกะคำศัพท์ &middot; leftist heap</p>
       <p>
-        <i>leftist</i> อ่านว่า <strong>"เลฟทิสต์"</strong> แปลตรงตัวว่า <strong>พวกเอียงซ้าย</strong>
-        ชื่อนี้ไม่ได้เกี่ยวกับการเมือง มันมาจากกติกาข้อเดียวของโครงสร้างนี้ คือทุกปมต้องให้กิ่งซ้าย
-        "ลึกกว่าหรือเท่ากับ" กิ่งขวาเสมอ ตัวมันจึงหนักไปทางซ้ายโดยตั้งใจ ผลคือเส้นทางขวาสุดสั้นเสมอ
-        (ไม่เกินราว <code>log</code> ของจำนวนปม) และการรวมสองกองก็ทำด้วยการไล่เฉพาะเส้นทางขวาของทั้งคู่
-        จึงถูก ส่วนคำว่า <i>merge</i> ในโค้ดคือ<strong>การยุบสองกองให้เป็นกองเดียว</strong>
-        โครงสร้างนี้ Clark Crane เสนอไว้ในปี 1972 และ Donald Knuth ทำให้เป็นที่รู้จักในเล่มที่สามของ
-        <i>The Art of Computer Programming</i>
+        <i>leftist</i> อ่านว่า <strong>"เลฟทิสต์"</strong> แปลว่า <strong>เอียงซ้าย</strong>
+        จะมองมันเป็นกล่องดำก็ได้ ขอแค่รู้ว่ามันทำได้สองอย่าง คือรวมสองกอง กับหยิบตัวแพงสุดออก อย่างละราว log N ก้าว
+      </p>
+      <p>
+        ข้างในเป็นต้นไม้ที่ค่าของพ่อมากกว่าหรือเท่ากับค่าของลูกเสมอ ทุกปมจดระยะสั้นที่สุดจากตัวเองลงไปถึงช่องว่าง (<code>dis</code> ในโค้ด)
+        และลูกซ้ายต้องมี <code>dis</code> ไม่น้อยกว่าลูกขวา
+      </p>
+      <p>
+        ผลคือเส้นทางขวาสุดยาวไม่เกินราว log ของจำนวนปม การรวมสองกองเดินลงตามเส้นทางขวาของทั้งคู่อย่างเดียว ก้าวจึงน้อย
       </p>
     </div>
 
     <p>
-      แล้วไล่ปมตามลำดับไหน ตรงนี้ของแถมที่โจทย์ให้มาตั้งแต่หน้าแรกก็ออกฤทธิ์ เงื่อนไข <code>Bi &lt; i</code>
-      แปลว่าลูกมีหมายเลขมากกว่าหัวหน้าเสมอ ถ้าเราเดิน <code>i</code> จาก <code>N</code> ถอยลงมาถึง 1
-      ตอนถึงปมไหน ลูกทุกคนของปมนั้นถูกจัดการและยกกองขึ้นมาให้เรียบร้อยแล้ว ไม่ต้องมี DFS
-      ไม่ต้องเรียงลำดับใหม่ ไม่ต้องกลัวต้นไม้ลึกแสนชั้นจนสแต็กแตกด้วย
+      แล้วไล่ปมตามลำดับไหน เงื่อนไข <code>Bi &lt; i</code> ในบรรทัดขอบเขตตอบให้แล้ว ลูกมีหมายเลขมากกว่าหัวหน้าเสมอ
     </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ถ้าเดิน <code>i</code> จาก <code>N</code> ถอยลงมาถึง 1 ตอนถึงปมไหน ลูกทุกคนของปมนั้นยกกองขึ้นมาให้เรียบร้อยแล้ว
+      ไม่ต้องมี DFS (การเดินลงไปในต้นไม้ด้วยฟังก์ชันที่เรียกตัวเอง) และไม่ต้องกลัวต้นไม้ลึกแสนชั้นจนสแต็กแตก
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ลูปหลัก (ตัดมาจากโค้ดเต็ม)" />
 
-    <figure class="tbl">
-      <table class="rec">
-        <caption>เดินตัวอย่างในโจทย์ จาก i = {SAMPLE.n} ลงมา 1</caption>
+    <p>
+      ลองเดินตัวอย่างในโจทย์ทีละปม เริ่มที่นินจา {SAMPLE.n} แล้วไล่ลงมาถึง 1 ตาม <code>Bi &lt; i</code> ลูกถึงคิวก่อนหัวหน้าเสมอ
+      ในตารางเขียนกองเรียงจากถูกไปแพงเพื่อให้อ่านง่าย ตัวขวาสุดคือตัวบนสุดของฮีป
+    </p>
+    <CpStepPlayer hook="dspsim" steps={walkSteps} label={`เดินตัวอย่างในโจทย์ จาก i = ${SAMPLE.n} ลงมา 1 งบ ${SAMPLE.M}`}>
+      <table class="rec dsprec">
+        <caption>ทีละปม จากหมายเลขมากไปน้อย</caption>
         <thead>
           <tr>
-            <th>ปมที่กำลังยุบ</th>
-            <th class="num">กองที่ถืออยู่</th>
-            <th class="num">รวม</th>
-            <th class="num">จำนวนคน</th>
-            <th class="num">ปลดใครออก</th>
-            <th class="num">คะแนนถ้าเขาเป็นผู้จัดการ</th>
+            <th>ปม</th>
+            <th>รับกองจากลูก</th>
+            <th class="num">ค่าจ้างตัวเอง</th>
+            <th class="num">ปลดทิ้ง</th>
+            <th>กองที่เหลือ</th>
+            <th class="num">คะแนนถ้าเป็นผู้จัดการ</th>
           </tr>
         </thead>
         <tbody>
-          {SAMPLE_WALK.rows.map((r) => (
-            <tr class={r.score === SAMPLE_WALK.ans ? 'hit' : undefined}>
-              <td>นินจา {r.i}</td>
-              <td class="num">{r.kept.join(', ')}</td>
-              <td class="num">{r.sum}</td>
-              <td class="num">{r.cnt}</td>
-              <td class="num">{r.drop.length > 0 ? r.drop.join(', ') : '·'}</td>
-              <td class="num">{r.cnt} x {SAMPLE.lead[r.i]} = {r.score}</td>
+          {walkCells.map((c) => (
+            <tr class={c.best ? 'hit' : undefined}>
+              <td>{c.node}</td>
+              <td>{c.kids}</td>
+              <td class="num">{c.self}</td>
+              <td class="num">{c.drop}</td>
+              <td>{c.kept}</td>
+              <td class="num">{c.score}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <figcaption>
-        คอลัมน์ "กองที่ถืออยู่" คือค่าจ้างของคนที่ปมนั้นซื้อไหว งบเท่ากับ {SAMPLE.M} ทุกแถว
-        แถวของนินจา 2 คือแถวที่ปลดคนแพงออกสองคน และแถวของนินจา 1 ปลดค่าจ้าง {SAMPLE.cost[SAMPLE_ANS.mgr]} ของตัวเองทิ้ง
-        ซึ่งก็คือเหตุผลที่ผู้จัดการอยู่บ้านในคำตอบ แถวสุดท้ายให้ {SAMPLE_WALK.ans} ตรงกับตัวตรวจ
-      </figcaption>
-    </figure>
+    </CpStepPlayer>
+    <p class="io-note">
+      ปมที่ต้องปลดคนแพงคือนินจา {DROP_ROWS.join(' กับ ')} แถวของนินจา 1 ปลดค่าจ้าง {SAMPLE.cost[1]} ของตัวเองทิ้ง
+      ซึ่งก็คือเหตุผลที่ผู้จัดการอยู่บ้านในคำตอบ คะแนนสูงสุด {SAMPLE_WALK.ans} ตรงกับตัวตรวจ
+    </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 3 &middot; คนแพงที่ถูกปลดไปแล้ว ไม่มีวันถูกเรียกกลับ</h2>
+  <h2>เฉลย ตอนที่ 3 &middot; ทำไมทิ้งคนแพงไปแล้วไม่เสียคำตอบ</h2>
   <Spoiler>
     <p>
-      ขั้นที่ทั้งข้อแขวนอยู่คือขั้นนี้ ตอนลูก <code>v</code> ยกกองขึ้นไปให้พ่อ มันยกขึ้นไปแค่คนที่มันเก็บไว้
-      ส่วนคนแพงที่มันปลดทิ้งระหว่างทางหายไปเลย ไม่มีใครเก็บไว้ให้พ่อเปลี่ยนใจทีหลัง คำถามคือทิ้งแบบนั้นปลอดภัยจริงไหม
+      ดูชุด "{EV_PUZZLE.label}" ในมินิเกม (งบ {EV_INST.M}) นินจา {EV_CHILD} ได้กอง {EV_ROW.before.join(', ')} รวม {EV_ROW.sumBefore}
+      ซึ่งเกินงบ เขาหยิบ {EV_ROW.drop.join(', ')} ทิ้ง แล้วยกแค่ {EV_ROW.kept.join(', ')} ขึ้นไปให้นินจา {EV_PARENT}
     </p>
     <p>
-      สมมติว่าลูก <code>v</code> เก็บไว้ <code>k</code> คน ซึ่งคือ <code>k</code> คนที่ถูกที่สุดในสายของมัน
-      และ <code>k</code> คือจำนวนมากที่สุดที่งบซื้อไหวในสายนั้น ทีนี้มองคำตอบที่ดีที่สุดของพ่อ
-      สมมติคำตอบนั้นหยิบคนจากสายของ <code>v</code> ไป <code>j</code> คน
+      ไม่มีใครเก็บคนที่ถูกทิ้งไว้ให้หัวหน้าเปลี่ยนใจทีหลัง ตอนนี้จะพิสูจน์ว่าหัวหน้าไม่มีวันต้องการคนนั้นคืน
     </p>
-    <ul>
+    <div class="callout callout-tip">
+      <p class="callout-label">ข้อที่ต้องพิสูจน์</p>
+      <p>
+        หลังจัดการปม <code>v</code> เสร็จ กองของ <code>v</code> คือชุดเดียวกับที่ได้จากการซื้อคนถูกก่อนในสายของ <code>v</code> ทั้งสายตรง ๆ
+        (ค่าจ้างที่เท่ากันสลับกันได้ จำนวนคนและยอดเงินไม่เปลี่ยน)
+      </p>
+    </div>
+    <p>พิสูจน์ไล่จากล่างขึ้นบน ตามลำดับที่โค้ดเดินจริง</p>
+    <ol>
       <li>
-        <code>j</code> คนนั้นเป็นส่วนหนึ่งของชุดที่รวมแล้วไม่เกินงบ <code>M</code> ดังนั้นลำพัง <code>j</code> คนนี้
-        ก็รวมกันไม่เกิน <code>M</code> อยู่แล้ว
+        <strong>ปมที่ไม่มีลูก</strong> กองมีแค่ตัวเอง และโจทย์รับประกัน <code>Ci &le; M</code> จึงซื้อไหวเสมอ ข้อนี้จริง
       </li>
       <li>
-        แปลว่างบซื้อคนในสายของ <code>v</code> ได้อย่างน้อย <code>j</code> คน แต่ <code>k</code> คือจำนวนมากที่สุดที่ซื้อไหว
-        จึงได้ <code>j &le; k</code>
+        <strong>ปม <code>v</code> ที่ลูกทุกคนจริงตามข้อนี้แล้ว</strong> ให้ <code>S</code> คือชุดซื้อถูกก่อนของสาย <code>v</code> ทั้งสาย
+        คนใน <code>S</code> ที่มาจากสายของลูก <code>c</code> เป็นคนที่ถูกที่สุดของสาย <code>c</code> และรวมกันไม่เกินงบ
+        จำนวนของพวกเขาจึงไม่เกินจำนวนที่ <code>c</code> เก็บไว้ และทุกคนอยู่ในกองของ <code>c</code>
       </li>
       <li>
-        และในเมื่อพ่ออยากได้คนให้เยอะที่สุดเหมือนกัน พ่อเปลี่ยน <code>j</code> คนนั้นเป็น <code>j</code> คนที่ถูกที่สุด
-        ในสายของ <code>v</code> ได้เสมอ (เหตุผลเดียวกับการสลับในตอนที่ 1) ซึ่ง <code>j</code> คนที่ถูกที่สุด
-        เมื่อ <code>j &le; k</code> ก็อยู่ในกองที่ลูกเก็บไว้ครบทุกคน
+        แปลว่า <code>S</code> อยู่ครบในกองที่รวมจากลูกบวกตัว <code>v</code> หยิบคนแพงสุดออกจนพอดีงบ
+        ได้คนถูกที่สุดของกองนั้นเท่าที่ซื้อไหว ซึ่งก็คือ <code>S</code> พอดี เพราะ <code>S</code> เป็นคนถูกที่สุดของทั้งสายอยู่แล้ว และเพิ่มคนถัดไปอีกคนก็เกินงบ
       </li>
-    </ul>
+    </ol>
     <p>
-      คนที่ถูกปลดออกไปแล้วจึงไม่เคยจำเป็นกับใครเบื้องบนอีกเลย ถ้าข้ออ้างนี้ผิด โปรแกรมจะไม่แครช
-      ไม่ช้าลง และยังตอบตัวอย่างในโจทย์ได้ถูก มันแค่ตอบน้อยกว่าความจริงในบางกรณีเท่านั้น
-      ซึ่งเป็นความผิดชนิดที่หาเจอยากที่สุดตอนแข่ง
+      โค้ดเดินจาก <code>N</code> ลงมา 1 ลูกถูกจัดการก่อนหัวหน้าเสมอ ข้อนี้จริงต่อขึ้นไปทุกชั้นจนถึงราก
+      คะแนนที่จดไว้ที่ทุกปมตรงกับคำตอบของตอนที่ 1 สำหรับผู้จัดการคนนั้นทุกตัว
     </p>
-
-    <ZoomableDiagram caption={`ตัวอย่างจริงจากชุด "${PUZZLES[1].label}" ที่คุณเพิ่งเล่น งบ ${EV_INST.M} กิ่งของนินจา ${EV_CHILD} มีค่าจ้าง ${EV_CHIPS.map((c) => c.cost).join(' ')} รวม ${EV_CHIPS.reduce((a, c) => a + c.cost, 0)} ซึ่งเกินงบ มันจึงเก็บไว้ ${EV_ROW.cnt} คน (k = ${EV_ROW.cnt}) และปลดค่าจ้าง ${EV_ROW.drop.join(' ')} ทิ้ง ส่วนคำตอบที่ดีที่สุดของทั้งต้นไม้หยิบจากกิ่งนี้ไปแค่ ${EV_TAKEN.length} คน (j = ${EV_TAKEN.length}) และคนนั้นอยู่ในกองที่ลูกเก็บไว้`}>
+    <ZoomableDiagram caption={`ชุด "${EV_PUZZLE.label}" ในมินิเกม งบ ${EV_INST.M} กิ่งของนินจา ${EV_CHILD} มีค่าจ้าง ${EV_CHIPS.map((c) => c.cost).join(' ')} รวม ${EV_CHIPS.reduce((a, c) => a + c.cost, 0)} ซึ่งเกินงบ มันจึงเก็บไว้ ${EV_ROW.cnt} คน (k = ${EV_ROW.cnt}) และปลดค่าจ้าง ${EV_ROW.drop.join(' ')} ทิ้ง ส่วนคำตอบที่ดีที่สุดของทั้งต้นไม้หยิบจากกิ่งนี้ไปแค่ ${EV_TAKEN.length} คน (j = ${EV_TAKEN.length}) และคนนั้นอยู่ในกองที่ลูกเก็บไว้`}>
       <svg viewBox={`0 0 ${EV_W} ${EV_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:660px" role="img" aria-label="ซ้ายคือกองค่าจ้างที่ลูกเก็บไว้กับที่ถูกปลดทิ้ง ขวาคือชุดค่าจ้างที่คำตอบใช้จริง">
         <text x={EV_LEFT_X} y="18" fill="#9aa7bd" font-size="12">นินจา {EV_CHILD} ยกอะไรขึ้นไป</text>
         <text x={EV_RIGHT_X} y="18" fill="#9aa7bd" font-size="12">ชุดที่คำตอบใช้จริง</text>
@@ -946,10 +1118,12 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
     </ZoomableDiagram>
 
     <p>
-      ค่าใช้จ่ายรวมของทั้งท่านี้นับง่ายกว่าที่คิด นินจาแต่ละคนถูกใส่เข้ากองครั้งเดียว และถูกปลดออกได้มากสุดครั้งเดียว
-      การรวมกองและการปลดหนึ่งครั้งจ่ายราว <code>log</code> ของจำนวนคน รวมทั้งข้อจึงราว
-      {' '}{fmt(WORK_HEAP_FULL)} ครั้งที่ <code>N = {fmt(N_MAX)}</code>
-      ซึ่งห่างจาก {fmt(WORK_NAIVE_FULL)} ครั้งของท่าแรกอยู่หลายพันเท่า
+      ค่าใช้จ่ายรวมนับได้ตรง ๆ นินจาแต่ละคนถูกใส่เข้ากองครั้งเดียว ถูกหยิบออกได้มากสุดครั้งเดียว
+      และกองถูกยกขึ้นไปหาหัวหน้า <code>N - 1</code> ครั้ง แต่ละอย่างใช้ราว log N ก้าว
+    </p>
+    <p>
+      รวมราว 3 &times; N &times; log N &asymp; {HEAP_STEPS_M} ล้านก้าวที่ <code>N = {fmt(N_MAX)}</code>
+      เทียบกับ {fmt(WORK_NAIVE_FULL)} ก้าวของวิธีที่ 2 ที่ N เดียวกัน ต่างกันหลักพันเท่า
     </p>
   </Spoiler>
 
@@ -959,11 +1133,26 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
       <summary>ดูโค้ดเต็มขอบเขต</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="dispatching.cpp" />
+        <figure class="tbl">
+          <table class="rec prose">
+            <caption>แผนที่ของโค้ด</caption>
+            <thead>
+              <tr><th>ส่วน</th><th>ทำอะไร</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>lc rc dis val</code></td><td>leftist heap ในรูปอาเรย์ ปมที่ <code>k</code> ของฮีปคือนินจา <code>k</code> และคีย์คือค่าจ้าง</td></tr>
+              <tr><td><code>mergeHeap</code></td><td>ยุบสองกองเป็นกองเดียว ให้ค่าจ้างแพงสุดอยู่บนสุด แล้วสลับลูกให้ฝั่งซ้ายหนักกว่า</td></tr>
+              <tr><td><code>rt cnt sum</code></td><td>รากของกอง จำนวนคน และยอดเงินของกองที่ปมแต่ละปมถืออยู่</td></tr>
+              <tr><td><code>readInt</code></td><td>อ่านตัวเลขเร็วด้วย <code>getchar_unlocked</code> เพราะอินพุตมีราวสามแสนตัวเลข</td></tr>
+              <tr><td>ลูป <code>i = n .. 1</code></td><td>ใส่ตัวเอง ปลดคนแพงสุดจนพอดีงบ จดคะแนน แล้วยกกองขึ้นไปให้หัวหน้า (ขั้นตอนสี่อย่างของตอนที่ 2)</td></tr>
+            </tbody>
+          </table>
+        </figure>
         <p>
-          ตัว <code>rt[i]</code> คือรากฮีปของปม <code>i</code> ส่วน <code>sum[i]</code> กับ <code>cnt[i]</code>
-          คือยอดเงินและจำนวนคนของกองนั้น ค่าจ้างสูงสุด {fmt(M_MAX)} คูณคนแสนคนทะลุ <code>int</code> ไปไกล
-          <code>sum</code> กับคำตอบจึงเป็น <code>long long</code> ส่วน <code>val</code> ที่เก็บค่าจ้างรายคนยังเป็น
-          <code>int</code> ได้ เพราะ <code>Ci &le; M &le; {fmt(M_MAX)}</code> พอดี
+          ค่าจ้างสูงสุด {fmt(M_MAX)} คูณคนแสนคนทะลุ <code>int</code> ไปไกล <code>sum</code> กับคำตอบจึงเป็น <code>long long</code>
+        </p>
+        <p>
+          ส่วน <code>val</code> ที่เก็บค่าจ้างรายคนยังเป็น <code>int</code> ได้ เพราะ <code>Ci &le; M &le; {fmt(M_MAX)}</code> พอดี
         </p>
       </div>
     </details>
@@ -972,9 +1161,15 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
       <div class="expander-body">
         <CodeBlock code={subCode} lang="cpp" title="dispatching_sub.cpp" />
         <p>
-          ท่านี้เรียงค่าจ้างครั้งเดียว แล้วเดินรายชื่อที่เรียงไว้ให้ผู้จัดการทีละคน เจอใครอยู่ในสายก็ซื้อไปจนงบไม่พอ
-          การเช็คว่า <code>v</code> อยู่ในสายของ <code>m</code> ไหม ใช้ Euler tour เทียบช่วงเวลาเข้าและออก
-          และผมเขียนมันเป็นลูปแทนการเรียกตัวเอง เพราะต้นไม้ที่เป็นสายยาวสามพันชั้นก็ยังเป็นต้นไม้ที่ถูกต้อง
+          วิธีนี้เรียงค่าจ้างครั้งเดียว แล้วเดินรายชื่อที่เรียงไว้ให้ผู้จัดการทีละคน เจอใครอยู่ในสายก็ซื้อไปจนงบไม่พอ
+        </p>
+        <p>
+          การเช็คว่า <code>v</code> อยู่ในสายของ <code>m</code> ไหม ใช้ Euler tour (เดินทั่วต้นไม้แล้วจดเวลาเข้าและออกของแต่ละปม
+          ปมที่อยู่ใต้ <code>m</code> จะมีเวลาเข้าอยู่ในช่วงของ <code>m</code>)
+        </p>
+        <p>
+          สามพันชั้นเขียนแบบเรียกตัวเองก็ไม่ทำให้สแต็กแตก ผมเขียนเป็นลูปเพราะใช้ได้กับต้นไม้ทุกความลึก
+          (ถ้าจะเลี่ยง Euler tour ทั้งหมด ก็ใช้ <code>Bi &lt; i</code> เดินจาก <code>N</code> ลงมาแบบโค้ดเต็มได้)
         </p>
       </div>
     </details>
@@ -983,85 +1178,77 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
       <div class="expander-body">
         <CodeBlock code={bruteCode} lang="cpp" title="brute_dispatching.cpp" />
         <p>
-          ตัวนี้ไม่รู้จักคำว่าเรียง ฮีป หรือซื้อของถูกก่อนเลย มันอ่านนิยามในโจทย์มาทำตามตรง ๆ
-          คือลองผู้จัดการทุกคน ลองทุกเซตย่อยของคนใต้เขา เช็คงบ แล้วเก็บค่ามากสุด ใช้ได้ถึงราว 16 คน
+          ตัวนี้ไม่รู้จักคำว่าเรียง ฮีป หรือซื้อของถูกก่อน มันอ่านนิยามในโจทย์มาทำตามตรง ๆ
+          คือลองผู้จัดการทุกคน ลองทุกเซตย่อยของคนใต้เขา เช็คงบ แล้วเก็บค่ามากสุด ใช้ได้ถึงราว {BRUTE_MAX_N} คน
         </p>
       </div>
     </details>
     <details class="expander">
-      <summary>ดูตัวตรวจที่ 2 knapsack เต็มรูปแบบ</summary>
+      <summary>ดูตัวตรวจที่ 2 knapsack (ปัญหาเป้สะพาย) เต็มรูปแบบ</summary>
       <div class="expander-body">
         <CodeBlock code={knapCode} lang="cpp" title="brute_knapsack.cpp" />
         <p>
-          ตัวตรวจสองตัวที่ผิดคนละแบบดีกว่าตัวเดียวที่แม่น ตัวนี้รับคนได้เยอะกว่า (ติดที่ <code>M</code> ต้องเล็ก)
-          และมันหาจำนวนคนมากสุดด้วย knapsack ซึ่งไม่ได้แตะข้ออ้างเรื่องซื้อของถูกก่อนเลยแม้แต่นิดเดียว
-          ถ้าข้ออ้างนั้นผิด ตัวนี้จะเป็นตัวที่ส่งเสียง
+          ตัวนี้รับคนได้เยอะกว่าตัวแรก (ติดที่ <code>M</code> ต้องเล็ก) มันหาจำนวนคนมากสุดด้วย knapsack
+          (ปัญหาเป้สะพาย: เลือกของใส่เป้ที่รับน้ำหนักได้จำกัด) แบบตารางเต็ม
+        </p>
+        <p>
+          ตารางนี้ไม่ได้ใช้ข้ออ้างเรื่องซื้อของถูกก่อน ถ้าข้ออ้างนั้นผิด ตัวนี้จะเป็นตัวที่ตอบต่าง
         </p>
       </div>
     </details>
-    <p class="io-note">
-      โค้ดเต็มขอบเขตถูกเทียบกับตัวตรวจ {fmt(ROUNDS_A)} รอบ แล้วผมรันเพิ่มอีก {fmt(ROUNDS_B)} รอบ
-      ด้วยตัวสุ่มของตัวเองและตัวตรวจทั้งสองตัวข้างบน รวม {fmt(ROUNDS_ALL)} รอบ ครอบคลุมต้นไม้แบบสุ่ม
-      แบบสายยาว แบบดาว และแบบไบนารีเต็มต้น พร้อมค่าจ้างและความเป็นผู้นำที่จงใจให้ซ้ำกันเยอะ ๆ ไม่มีรอบไหนตอบต่างกันเลย
-      เวลาที่วัดได้ ชุดที่หนักที่สุดของโค้ดเต็มขอบเขตคือต้นไม้แบบดาวที่ <code>N = {fmt(N_MAX)}</code>
-      และค่าจ้างกระจายทั้งช่วง ใช้ <strong>0.100 วินาที</strong> ส่วนทรงอื่นอยู่ที่ 0.01 ถึง 0.04 วินาที
-      โค้ดของ subtask ที่ <code>N = {fmt(N_SUB)}</code> ใช้ 0.015 ถึง 0.058 วินาที
-      โจทย์ฉบับที่ผมมีไม่ได้ระบุลิมิตเวลาไว้ ผมจึงบอกได้แค่เวลาที่วัดได้ ไม่ได้บอกว่าเหลือที่ว่างเท่าไร
-      หน้านี้ยังรันด่านตรวจของตัวเองตอนบิลด์อีก {SWEEP_CASES} ต้น ซึ่งมี {sweepDrops} ต้นที่เกิดการปลดคนแพงทิ้งจริง
-      โดยเทียบท่าที่สอนกับตัวตรวจทั้งสองแบบ ถ้าไม่ตรงกันแม้แต่ต้นเดียว หน้านี้จะไม่ถูกสร้างขึ้นมาเลย
-      ขอบเขตของคำว่า "ยืนยันแล้ว" ในหน้านี้คือ ตัวตรวจสองตัวที่ผมเขียนเองกับตัวอย่างที่มาในโจทย์
-      ผมยังไม่ได้ส่งโค้ดไปให้เกรดเดอร์ของ programming.in.th ตัดสิน จึงยังไม่มีผลจากข้อมูลทดสอบชุดจริงมายืนยันอีกชั้น
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>
+          โค้ดเต็ม: เทียบกับตัวตรวจที่ 1 (ไล่เซตย่อย) และตัวตรวจที่ 2 (knapsack) รวม {fmt(ROUNDS_ALL)} รอบบนต้นไม้สุ่มหลายทรง
+          ไม่ต่างกัน ยังไม่ได้ส่งให้เกรดเดอร์จริงตัดสิน
+        </li>
+        <li>
+          หน้านี้เอง: ตอนบิลด์เทียบวิธีที่สอนกับตัวตรวจทั้งสองบนต้นไม้สุ่ม {SWEEP_CASES} ต้น ({sweepDrops} ต้นมีการหยิบคนแพงทิ้งจริง) ถ้าต่างแม้ต้นเดียว หน้านี้ไม่ถูกสร้าง
+        </li>
+        <li>
+          เวลา: ลิมิต {TIME_LIMIT_S} วินาที {MEM_LIMIT_MB} MB โค้ดเต็มที่ <code>N = {fmt(N_MAX)}</code> ช้าสุด {T_FULL_WORST} วินาที ใช้ราว {MEM_FULL_MB} MB
+          โค้ด subtask ที่ <code>N = {fmt(N_SUB)}</code> ช้าสุด {T_SUB_WORST} วินาที ใช้ราว {MEM_SUB_MB} MB
+        </li>
+      </ul>
+    </div>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
+  <h2>ทดสอบตัวเองและสรุป</h2>
+  <details class="expander">
+    <summary>ในตัวอย่างของโจทย์ ทำไมผู้จัดการ (นินจา {SAMPLE_ANS.mgr}) ไม่ได้ถูกส่งไปเอง</summary>
+    <div class="expander-body">
+      <p>
+        ตอนถึงปมของเขา กองเป็น {heapList(ROOT_ROW.before)} รวม {ROOT_ROW.sumBefore} เกินงบ {SAMPLE.M}
+        ตัวบนสุดคือค่าจ้าง {SAMPLE.cost[1]} ของเขาเอง ถูกหยิบออกก่อน เหลือ {ROOT_ROW.cnt} คนที่ถูกกว่า
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมเดิน i จาก N ลงมา 1 ได้เลย โดยไม่ต้องไล่ต้นไม้ก่อน</summary>
+    <div class="expander-body">
+      <p>
+        โจทย์รับประกัน <code>Bi &lt; i</code> ลูกมีหมายเลขมากกว่าหัวหน้าเสมอ
+        พอถึงปม <code>i</code> ลูกทุกคนถูกเดินผ่านและยกกองขึ้นมาให้แล้ว
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไม sum และคำตอบต้องเป็น long long</summary>
+    <div class="expander-body">
+      <p>
+        ก่อนหยิบใครออก กองของหัวหน้ารับยอดจากลูกได้ถึงราว {fmt(N_MAX)} x {fmt(M_MAX)} และคำตอบคือจำนวนคน (ถึง {fmt(N_MAX)})
+        คูณความเป็นผู้นำ (ถึง {fmt(L_MAX)}) ทั้งคู่เกิน <code>int</code> ที่รับได้ราว 2,147,483,647
+      </p>
+    </div>
+  </details>
   <p>
-    ท่าแรกคือเวลาเจอคะแนนที่เป็นผลคูณของสองอย่าง ให้นับก่อนว่าข้างไหนมีตัวเลือกน้อยกว่า แล้วล็อกข้างนั้นไว้
-    ข้อนี้ล็อกผู้จัดการแล้วของที่เหลือกลายเป็นคำถามง่าย ๆ ที่ทุกคนเคยทำ
+    ข้อนี้มีสามชั้น ตอนที่ 1 เปลี่ยนผลคูณให้เหลือคำถามนับคน ตอนที่ 2 ทำให้ไม่ต้องนับใหม่ทุกผู้จัดการ
+    และตอนที่ 3 คือเหตุผลที่ตอนที่ 2 ไม่ทำให้คำตอบผิด
   </p>
   <p>
-    ท่าที่สองคือ เวลาคำตอบของลูกในต้นไม้ต้องยกขึ้นไปให้พ่อใช้ต่อ ให้ถามว่ามีอะไรที่ลูก "ตัดทิ้งได้ตลอดกาล" บ้าง
-    ถ้ามี ขนาดของสิ่งที่ยกขึ้นไปจะไม่บวม และทั้งต้นไม้จะจ่ายรวมกันแค่ครั้งเดียวต่อคน
-    ตัวนับที่ช่วยได้เสมอคือ "ของแต่ละชิ้นเข้าและออกจากโครงสร้างอย่างละกี่ครั้ง"
-  </p>
-  <p>
-    และท่าที่สาม เงื่อนไขแปลก ๆ ในบรรทัดขอบเขต เช่น <code>Bi &lt; i</code> มักไม่ได้อยู่ตรงนั้นเฉย ๆ
-    ที่นี่มันแทน DFS ทั้งอันด้วยลูป <code>for</code> ที่นับถอยหลัง
-  </p>
-
-  <figure class="tbl">
-    <table class="rec dsp-bill">
-      <caption>บิลค่าใช้จ่าย</caption>
-      <thead>
-        <tr>
-          <th>ทาง</th>
-          <th class="num">ครั้งที่แตะนินจา ที่ N = {fmt(N_SUB)}</th>
-          <th class="num">ครั้งที่แตะนินจา ที่ N = {fmt(N_MAX)}</th>
-          <th class="num">เวลาที่วัดได้</th>
-        </tr>
-      </thead>
-      <tbody>
-        {bill.map((r) => (
-          <tr>
-            <td>{r.name}</td>
-            <td class="num">{r.sub}</td>
-            <td class="num">{r.full}</td>
-            <td class="num">{r.time}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>
-      สองแถวนับหน่วยเดียวกัน คือจำนวนครั้งที่โปรแกรมแตะนินจาหนึ่งคน แถวบนต้องเดินรายชื่อทั้งนิกายใหม่ให้ผู้จัดการทุกคน
-      แถวล่างแตะแต่ละคนตอนเข้ากองครั้งหนึ่งและตอนถูกปลดอีกไม่เกินครั้งหนึ่ง คูณด้วยความสูงของฮีป
-      ช่องเวลาของแถวบนวัดที่ N = {fmt(N_SUB)} เพราะที่ N = {fmt(N_MAX)} ผมไม่ได้รันมัน ตัวเลขงานบอกไว้แล้วว่าจะเกิดอะไรขึ้น
-    </figcaption>
-  </figure>
-
-  <h2>สรุปบรรทัดเดียว</h2>
-  <p>
-    ล็อกผู้จัดการทีละคนจนคะแนนเหลือแค่ "จ้างได้กี่คน" แล้วให้ทุกปมถือกองค่าจ้างที่ซื้อไหวไว้ในฮีปที่รวมกันได้
-    เดิน <code>i</code> จาก <code>N</code> ลงมา 1 ยกกองขึ้นไปหาหัวหน้า แล้วปลดคนแพงสุดทิ้งทุกครั้งที่เกินงบ
+    ส่วนที่ยกไปใช้ข้ออื่นได้คือ เวลาโครงสร้างข้อมูลถูกยุบขึ้นไปตามต้นไม้ ของที่ถูกทิ้งกลางทางคือข้ออ้างที่ต้องพิสูจน์
+    และตัวตรวจที่ใช้เทียบต้องไม่รู้จักข้ออ้างนั้น
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -1073,14 +1260,13 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
       </a>
       (สืบค้น 11 กันยายน 2026)
     </li>
-    <li>ต้นฉบับจาก Asia-Pacific Informatics Olympiad 2012 วันเสาร์ที่ 12 พฤษภาคม 2555 ตามที่ระบุไว้บนหัวกระดาษโจทย์</li>
+    <li>ต้นฉบับจาก Asia-Pacific Informatics Olympiad 2012 12 พฤษภาคม 2012 ตามที่ระบุไว้บนหัวกระดาษโจทย์</li>
     <li>
       Clark A. Crane, <i>Linear Lists and Priority Queues as Balanced Binary Trees</i>, Stanford University, 1972
       (ต้นทางของ leftist heap)
     </li>
     <li>
       ชุดโจทย์ทั้งสี่ชุดในมินิเกมผมแต่งขึ้นเอง ยกเว้นชุดแรกที่เป็นตัวอย่างในโจทย์
-      เฉลยของทุกชุดคิดด้วยการไล่ทุกเซตย่อยและ knapsack ตอนบิลด์ ไม่ได้ใช้ท่าที่หน้านี้สอน
     </li>
   </ol>
 </CpProblemLayout>
@@ -1092,16 +1278,16 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
   table.rec tbody tr.hit td{background:#163a2a;}
   table.rec tbody tr.hit td.num{color:#eaf2ff;font-weight:700;}
 
-  /* ตารางบิลมีสี่คอลัมน์ที่ข้อความไทยยาว ถ้าปล่อย nowrap ไว้ทุกช่อง ตารางจะกว้างจนชนเพดาน 66rem
-     แล้วการ์ด (body .panel{width:fit-content}) โตตามไปจนสุดจอ อ่านได้เป็น "บทความกว้างเกินไป"
-     จึงยอมให้คอลัมน์ข้อความตัดบรรทัด ส่วนคอลัมน์ตัวเลขยังคง nowrap เพื่อไม่ให้เลขแตกกลางตัว */
-  table.rec.dsp-bill{table-layout:fixed;}
-  table.rec.dsp-bill th, table.rec.dsp-bill td{white-space:normal;}
-  table.rec.dsp-bill th.num, table.rec.dsp-bill td.num{white-space:normal;}
-  table.rec.dsp-bill th:first-child, table.rec.dsp-bill td:first-child{width:15rem;}
-  table.rec.dsp-bill th:nth-child(2), table.rec.dsp-bill td:nth-child(2),
-  table.rec.dsp-bill th:nth-child(3), table.rec.dsp-bill td:nth-child(3){width:8.5rem;}
-  table.rec.dsp-bill th:last-child, table.rec.dsp-bill td:last-child{width:11rem;}
+  /* ตารางของเครื่องเดินทีละปม แถวโผล่ทีละแถว ถ้าปล่อยให้ตารางวัดความกว้างจากเนื้อหา การ์ดจะยืดหดทุกก้าว
+     width:0 ต้องมี !important เพราะ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์เฉพาะเจาะจงกว่า */
+  table.rec.dsprec{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.dsprec th, table.rec.dsprec td{white-space:normal;overflow-wrap:anywhere;}
+  table.rec.dsprec th:nth-child(1), table.rec.dsprec td:nth-child(1){width:13%;}
+  table.rec.dsprec th:nth-child(2), table.rec.dsprec td:nth-child(2){width:25%;}
+  table.rec.dsprec th:nth-child(3), table.rec.dsprec td:nth-child(3){width:12%;}
+  table.rec.dsprec th:nth-child(4), table.rec.dsprec td:nth-child(4){width:12%;}
+  table.rec.dsprec th:nth-child(5), table.rec.dsprec td:nth-child(5){width:18%;}
+  table.rec.dsprec th:nth-child(6), table.rec.dsprec td:nth-child(6){width:20%;}
 
   /* ---------- กระดานของมินิเกม เป็น SVG ที่เขียนไว้ในเทมเพลต สไตล์แบบสโคปจึงใช้ได้ตรง ๆ ---------- */
   .dsp-slot{display:block;}
@@ -1133,6 +1319,7 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
 
 <script>
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
   import type { CpGameUi } from '../../lib/cpGame';
 
   type DspPuzzle = {
@@ -1307,4 +1494,5 @@ rt[par[i]] = mergeHeap(rt[par[i]], rt[i]);   // แล้วยกทั้ง�
   }
 
   document.addEventListener('astro:page-load', initDispatchingGame);
+  document.addEventListener('astro:page-load', () => initCpRowPlayers('[data-dspsim]'));
 </script>
