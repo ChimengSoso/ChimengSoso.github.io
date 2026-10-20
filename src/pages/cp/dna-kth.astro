@@ -39,6 +39,11 @@ const RR = 5;
 const listed = enumerate(PAT, KK);
 const answer = listed[RR - 1];
 const firstSeven = listed.slice(0, 7);
+/* เจ็ดตัวแรกที่โจทย์พิมพ์ไว้ และคำตอบของตัวอย่างทั้งสอง */
+const STATEMENT_SEVEN = ['ACAAACAAG', 'ACAAACACG', 'ACAAACAGG', 'ACAAACCAG', 'ACAAACCCG', 'ACAAACCGG', 'ACAAACCTG'];
+if (firstSeven.join() !== STATEMENT_SEVEN.join() || answer !== 'ACAAACCCG') {
+  throw new Error('dna-kth: เจ็ดตัวแรกหรือคำตอบตัวอย่างแรกไม่ตรงกับโจทย์');
+}
 
 /* ---------- ภาพเทียบลำดับที่ผ่านกับลำดับที่ตกเพราะรอยต่อเกิน ----------
    ตัวที่ตกหามาจากการไล่ทุกลำดับที่เข้ากันได้กับแพตเทิร์นโดยไม่กรองรอยต่อ
@@ -82,15 +87,52 @@ const K2 = 4;
 const R2 = 10;
 const answer2 = enumerate(PAT2, K2)[R2 - 1];
 
+/* ---------- นิยามรูปแบบ-k ตามโจทย์คำต่อคำ (ไม่ใช้การนับรอยต่อ) ----------
+   รูปแบบ-1 = เรียงไม่ลด, รูปแบบ-k = เป็นรูปแบบ-(k-1) อยู่แล้ว หรือ (รูปแบบ-(k-1) ต่อด้วย รูปแบบ-1) */
+const sortedUp = (s: string): boolean => {
+  for (let i = 0; i + 1 < s.length; i++) if (s[i] > s[i + 1]) return false;
+  return true;
+};
+const formMemo = new Map<string, boolean>();
+function isForm(s: string, k: number): boolean {
+  const key = `${s}|${k}`;
+  const hit = formMemo.get(key);
+  if (hit !== undefined) return hit;
+  let ok = sortedUp(s);
+  if (!ok && k > 1) {
+    ok = isForm(s, k - 1);
+    for (let p = 1; !ok && p < s.length; p++) ok = isForm(s.slice(0, p), k - 1) && sortedUp(s.slice(p));
+  }
+  formMemo.set(key, ok);
+  return ok;
+}
+/** ลำดับที่ผ่านนิยามเรียกซ้ำ เรียงตามพจนานุกรมด้วย sort */
+const listByDefinition = (pat: string, k: number): string[] =>
+  allMatchingSorted(pat).filter((s) => isForm(s, k));
+function allMatchingSorted(pat: string): string[] {
+  const out: string[] = [''];
+  let cur = out;
+  for (const c of pat) {
+    const nxt: string[] = [];
+    for (const s of cur) for (const x of AL) if (c === 'N' || c === x) nxt.push(s + x);
+    cur = nxt;
+  }
+  return cur.slice().sort();
+}
+
 /* ---------- มินิเกม เติมช่องว่างให้ได้ลำดับอันดับที่ R ----------
-   ทุกชุดเล็กพอที่จะไล่ลำดับที่เข้ากันได้ออกมาครบตอนบิลด์
-   อันดับที่เกมใช้ตัดสินจึงมาจากรายการจริง ตัวเดียวกับที่บทความใช้ */
+   คำตอบของเกมมาจากนิยามเรียกซ้ำข้างบน แล้วตรวจไขว้กับการนับรอยต่อ ถ้าไม่ตรงกัน บิลด์ล้ม */
 type DnaPuzzle = { id: string; label: string; tease: string; pat: string; k: number; r: number };
 const DNA_PUZZLES: DnaPuzzle[] = [
-  { id: 'd1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'ช่องว่างสองช่อง พอให้เห็นว่ารอยต่อคืออะไร', pat: 'ACNN', k: 2, r: 3 },
-  { id: 'd2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'แพตเทิร์นเดียวกับที่บทความใช้เดินให้ดู', pat: PAT, k: KK, r: RR },
-  { id: 'd3', label: 'ชุดที่ 3 · เพดานรอยต่อบีบขึ้น', tease: 'ชุดนี้ K น้อย ลำดับที่ผ่านจึงเหลือไม่มาก เดาสุ่มยาก', pat: 'NNCNN', k: 2, r: 12 },
+  { id: 'd1', label: 'ชุดที่ 1 · อุ่นเครื่อง', tease: 'ช่องว่างสองช่อง ลองทุกแบบได้ในเวลาไม่นาน', pat: 'ACNN', k: 2, r: 3 },
+  { id: 'd2', label: 'ชุดที่ 2 · ตัวอย่างในโจทย์', tease: 'ตัวอย่างแรกของโจทย์', pat: PAT, k: KK, r: RR },
+  { id: 'd3', label: 'ชุดที่ 3 · K น้อยลง', tease: 'ชุดนี้ K = 2 ช่องว่างสี่ช่อง เติมแล้วไม่ผ่านทุกสาย', pat: 'NNCNN', k: 2, r: 12 },
 ];
+for (const p of DNA_PUZZLES) {
+  if (listByDefinition(p.pat, p.k).join() !== enumerate(p.pat, p.k).join()) {
+    throw new Error(`dna-kth: ชุด ${p.id} นิยามเรียกซ้ำกับการนับรอยต่อให้รายการไม่ตรงกัน`);
+  }
+}
 
 type DnaPuzzleData = {
   id: string;
@@ -104,7 +146,7 @@ type DnaPuzzleData = {
   slots: number[];
 };
 const dnaPuzzles: DnaPuzzleData[] = DNA_PUZZLES.map((p) => {
-  const list = enumerate(p.pat, p.k);
+  const list = listByDefinition(p.pat, p.k);
   if (p.r < 1 || p.r > list.length) {
     throw new Error(`มินิเกมของ dna-kth: ชุด ${p.id} ขออันดับ ${p.r} แต่มีลำดับที่ผ่านแค่ ${list.length} แบบ`);
   }
@@ -123,19 +165,30 @@ const dnaPuzzles: DnaPuzzleData[] = DNA_PUZZLES.map((p) => {
   };
 });
 const dnaJson = JSON.stringify(dnaPuzzles);
+/* สถานะแรกของเกม (ช่อง N เริ่มเป็น A) เรนเดอร์ไว้ก่อนสคริปต์ทำงาน ให้ตรงกับที่สคริปต์จะแสดง */
+const game0 = dnaPuzzles[0].pat.replace(/N/g, 'A');
+const game0Pass = isForm(game0, dnaPuzzles[0].k);
 
-/** ตัวอย่างที่โจทย์ยกมาว่าอันไหนเป็นรูปแบบ-1 อันไหนไม่ใช่ */
-const shapeDemo = ['AACCGT', 'AACGTC', 'AACCC', 'ACACC', 'ACACA', 'GCACAC', 'ACACACA'].map((s) => ({
-  s,
-  d: drops(s),
-  form: drops(s) + 1,
-}));
+/** ตัวอย่างที่โจทย์ยกมา: k คือรูปแบบที่โจทย์พูดถึง claim คือโจทย์บอกว่าเป็นหรือไม่ */
+const SHAPE_CLAIMS: { s: string; k: number; claim: boolean }[] = [
+  { s: 'AACCGT', k: 1, claim: true },
+  { s: 'AACGTC', k: 1, claim: false },
+  { s: 'AACCC', k: 3, claim: true },
+  { s: 'ACACC', k: 3, claim: true },
+  { s: 'ACACA', k: 3, claim: true },
+  { s: 'GCACAC', k: 3, claim: false },
+  { s: 'ACACACA', k: 3, claim: false },
+];
+const shapeDemo = SHAPE_CLAIMS.map(({ s, k, claim }) => {
+  const byDrops = drops(s) < k;
+  if (byDrops !== claim) throw new Error(`dna-kth: การนับรอยต่อของ ${s} ไม่ตรงกับที่โจทย์บอก`);
+  return { s, d: drops(s), form: drops(s) + 1, said: `${claim ? 'เป็น' : 'ไม่เป็น'}รูปแบบ-${k}` };
+});
 
-/* เดินหาตัวที่ R ทีละตำแหน่ง เพื่อทำตารางไล่ */
-type Walk = { i: number; tried: { ch: string; cnt: number; taken: boolean }[]; pick: string; rest: number };
-function walk(pat: string, K: number, R: number): Walk[] {
+/* ---------- ตาราง f แบบเดียวกับโค้ด C++ (ดัชนีตำแหน่งนับจาก 0) ----------
+   f[i][c][d] = จำนวนวิธีเติมตำแหน่ง i..n-1 เมื่อตัวก่อนหน้าคือ c (4 = ยังไม่มี) และยังใช้ได้อีก d ท่อน */
+function buildF(pat: string, K: number): number[][][] {
   const n = pat.length;
-  // f[i][c][d] = จำนวนวิธีเติมตำแหน่ง i..n-1 เมื่อตัวก่อนหน้าคือ c (4 = ยังไม่มี) เหลือท่อนได้ d
   const f: number[][][] = Array.from({ length: n + 1 }, () =>
     Array.from({ length: 5 }, () => new Array<number>(K + 1).fill(0)),
   );
@@ -152,28 +205,62 @@ function walk(pat: string, K: number, R: number): Walk[] {
         }
         f[i][c][d] = v;
       }
+  return f;
+}
+const fEx = buildF(PAT, KK);
+if (fEx[0][4][KK] !== listed.length) throw new Error('dna-kth: f[0][4][K] ต้องเท่ากับจำนวนลำดับที่ผ่าน');
+
+/* ช่องตัวอย่างหนึ่งช่องสำหรับอธิบายสูตร: ตำแหน่งท้าย ๆ ที่เป็น N มีทั้งตัวที่ถูกข้ามเพราะท่อนหมดและตัวที่แพตเทิร์นตัดทิ้ง */
+const EX_I = PAT.length - 2;
+const EX_C = 1; // C
+const EX_D = 1;
+type ExTerm = { ch: string; why: string; val: number };
+const exTerms: ExTerm[] = [];
+for (let x = 0; x < 4; x++) {
+  const nd = x < EX_C ? EX_D - 1 : EX_D;
+  if (nd < 1) {
+    exTerms.push({ ch: AL[x], why: `${AL[x]} เล็กกว่า C ต้องขึ้นท่อนใหม่ แต่ไม่มีท่อนเหลือ ข้าม`, val: 0 });
+    continue;
+  }
+  exTerms.push({ ch: AL[x], why: `อ่าน f[${EX_I + 1}][${AL[x]}][${nd}]`, val: fEx[EX_I + 1][x][nd] });
+}
+const exSum = exTerms.reduce((s, t) => s + t.val, 0);
+if (PAT[EX_I] !== 'N' || exSum !== fEx[EX_I][EX_C][EX_D] || !exTerms.some((t) => t.val === 0 && t.why.includes('ไม่มีท่อน'))) {
+  throw new Error('dna-kth: ช่องตัวอย่างของสูตรต้องเป็นช่อง N และมีตัวที่ถูกข้ามเพราะท่อนหมด');
+}
+const exNext = PAT[EX_I + 1];
+/* สายที่ช่องนี้นับ หาด้วยการไล่ตรง ๆ: ต่อท้าย C แล้วต้องไม่มีรอยต่อเพิ่ม (เหลือท่อนเดียว) */
+const exStrings = allMatchingSorted(PAT.slice(EX_I)).filter((s) => drops(AL[EX_C] + s) <= EX_D - 1);
+if (exStrings.length !== fEx[EX_I][EX_C][EX_D]) throw new Error('dna-kth: สายของช่องตัวอย่างไม่ตรงกับค่าในตาราง');
+
+/* เดินหาตัวที่ R ทีละตำแหน่ง เพื่อทำตารางไล่ ตำแหน่ง i ในแถวนับจาก 1 จำนวนที่ตามมาอ่านจาก f[i][x][nd] */
+type Tried = { ch: string; nd: number; cnt: number; taken: boolean };
+type Walk = { i: number; tried: Tried[]; pick: string; rest: number };
+function walk(pat: string, K: number, R: number): Walk[] {
+  const n = pat.length;
+  const f = buildF(pat, K);
   const rows: Walk[] = [];
   let c = 4;
   let d = K;
   let r = R;
   for (let i = 0; i < n; i++) {
-    const tried: { ch: string; cnt: number; taken: boolean }[] = [];
+    const tried: Tried[] = [];
     for (let x = 0; x < 4; x++) {
       if (pat[i] !== 'N' && pat[i] !== AL[x]) continue;
       const nd = c < 4 && x < c ? d - 1 : d;
       if (nd < 1) {
-        tried.push({ ch: AL[x], cnt: 0, taken: false });
+        tried.push({ ch: AL[x], nd, cnt: 0, taken: false });
         continue;
       }
       const cnt = f[i + 1][x][nd];
       if (r <= cnt) {
-        tried.push({ ch: AL[x], cnt, taken: true });
+        tried.push({ ch: AL[x], nd, cnt, taken: true });
         rows.push({ i: i + 1, tried, pick: AL[x], rest: r });
         c = x;
         d = nd;
         break;
       }
-      tried.push({ ch: AL[x], cnt, taken: false });
+      tried.push({ ch: AL[x], nd, cnt, taken: false });
       r -= cnt;
     }
   }
@@ -182,13 +269,139 @@ function walk(pat: string, K: number, R: number): Walk[] {
 const walkRows = walk(PAT, KK, RR);
 
 const MMAX = 50000;
-const RMAX = '2 × 10^18';
+const KMAX = 10;
+const RMAX = '2 × 10^12';
 const fmt = (n: number): string => n.toLocaleString('en-US');
+
+/* ---------- กับดักที่ทำให้ R ≤ cnt ต้องเป็น ≤ ----------
+   เขียนเป็น R < cnt คือการเดินแบบนับจาก 0 จึงได้ตัวถัดไปจากที่ขอ */
+const ltWrong1 = listed[RR];
+const ltWrong2 = enumerate(PAT2, K2)[R2];
+if (!ltWrong1 || !ltWrong2 || ltWrong1 === answer || ltWrong2 === answer2) {
+  throw new Error('dna-kth: ตัวอย่างของกับดัก R < cnt ต้องให้คำตอบที่ต่างจากคำตอบจริง');
+}
+
+/* ---------- ช่องที่เดินไม่ถึงแต่ใหญ่เกิน long long ----------
+   แพตเทิร์น TA ตามด้วย N อีก n ตัว และ K = 2 รอยต่อที่ T→A ใช้ท่อนที่สองไปแล้ว
+   ช่อง f[2][A][2] (ยังเหลือสองท่อน) จึงไม่มีคำนำหน้าไหนเดินถึง แต่มันนับสายยาว n ที่มีรอยต่อไม่เกินหนึ่งรอย
+   (ตัวก่อนหน้าคือ A ซึ่งเล็กที่สุด จึงไม่เกิดรอยต่อตรงรอยเชื่อม) นับด้วย BigInt หา n แรกที่เกิน */
+const LL_MAX = BigInt('9223372036854775807');
+function firstOverflowN(): { n: number; cell: bigint; reach: bigint } {
+  const zero = BigInt(0);
+  const one = BigInt(1);
+  // g[c][e] = จำนวนสายที่จบด้วยตัว c และใช้รอยต่อไป e รอย (e = 0 หรือ 1)
+  let g: bigint[][] = [0, 1, 2, 3].map(() => [one, zero]);
+  for (let n = 1; n < 5000; n++) {
+    const cell = g.reduce((s, r) => s + r[0] + r[1], zero);
+    if (cell > LL_MAX) {
+      const reach = (BigInt(n + 3) * BigInt(n + 2) * BigInt(n + 1)) / BigInt(6);
+      return { n, cell, reach };
+    }
+    const h: bigint[][] = [0, 1, 2, 3].map(() => [zero, zero]);
+    for (let c = 0; c < 4; c++)
+      for (let e = 0; e < 2; e++)
+        for (let x = 0; x < 4; x++) {
+          const ne = x < c ? e + 1 : e;
+          if (ne < 2) h[x][ne] += g[c][e];
+        }
+    g = h;
+  }
+  throw new Error('dna-kth: หา n ที่ช่องล้นไม่เจอ');
+}
+const ovf = firstOverflowN();
+/* ตรวจตัวนับข้างบนกับการไล่ทุกสายตรง ๆ ที่ n เล็ก */
+{
+  const zero = BigInt(0);
+  const one = BigInt(1);
+  let g: bigint[][] = [0, 1, 2, 3].map(() => [one, zero]);
+  for (let n = 1; n <= 6; n++) {
+    const viaDp = g.reduce((s, r) => s + r[0] + r[1], zero);
+    const viaBrute = allMatching('N'.repeat(n)).filter((x) => drops(x) <= 1).length;
+    if (viaDp !== BigInt(viaBrute)) throw new Error(`dna-kth: ตัวนับสายรอยต่อไม่เกินหนึ่งไม่ตรงที่ n = ${n}`);
+    const h: bigint[][] = [0, 1, 2, 3].map(() => [zero, zero]);
+    for (let c = 0; c < 4; c++)
+      for (let e = 0; e < 2; e++)
+        for (let x = 0; x < 4; x++) {
+          const ne = x < c ? e + 1 : e;
+          if (ne < 2) h[x][ne] += g[c][e];
+        }
+    g = h;
+  }
+}
+const ovfN = ovf.n;
+const ovfReach = fmt(Number(ovf.reach));
+
+/* ---------- ค่าใช้จ่าย นับรอบของลูปในสุดตามโค้ดแต่ละวิธี ----------
+   ไล่สร้าง: โหนดภายใน (4^M − 1)/3 ตัว วนตัวอักษรตัวละ 4 รอบ บวกใบ 4^M ใบ ใบละเทียบรอยต่อ M − 1 รอบ
+   นับแล้วเดิน: ลูป x ของตาราง M × 5 × K × 4 รอบ (โค้ดข้าม d = 0) บวกการเดินไม่เกิน 4M รอบ */
+const SUB_M = 10;
+const bruteLoops = (m: number): number => ((Math.pow(4, m) - 1) / 3) * 4 + Math.pow(4, m) * (m - 1);
+const dpLoops = (m: number, k: number): number => m * 5 * k * 4 + 4 * m;
+const bruteSub = fmt(bruteLoops(SUB_M));
+const bruteFullExp = Math.round(MMAX * Math.log10(4));
+const dpSub = fmt(dpLoops(SUB_M, KMAX));
+const dpFull = fmt(dpLoops(MMAX, KMAX));
+const subStrings = fmt(Math.pow(4, SUB_M));
+/* หน่วยความจำใช้ MB = 10^6 ไบต์ทั้งหน้า ให้เทียบกับลิมิต 128 MB ได้ตรง ๆ */
+const subMB = ((Math.pow(4, SUB_M) * 32) / 1e6).toFixed(1);
+const tableMB = (((MMAX + 1) * 5 * (KMAX + 1) * 8) / 1e6).toFixed(1);
+const dpCells = fmt(MMAX * 5 * KMAX);
+const dpTries = fmt(MMAX * 5 * KMAX * 4);
+if (bruteLoops(SUB_M) !== 10835284 || dpLoops(MMAX, KMAX) !== 10200000) {
+  throw new Error('dna-kth: สูตรนับรอบไม่ตรงกับที่คิดมือไว้');
+}
+
+/* ---------- ผลการทดสอบ (วัดจริงด้วย WSL g++ 11.4 -O2 สคริปต์อยู่ใน scratchpad ของรอบแก้ 2026-10-20) ---------- */
+const T_CHAR_PAIRS = fmt(174752);
+const T_SMALL = 500;
+const T_MID = 200;
+const T_FULL_MS = 30;
+const T_FULL_MB = '25.8'; // 25,188 KiB จาก /usr/bin/time -v
+const T_SUB_S = '0.05';
+const T_SUB_MB = '37.3'; // 36,404 KiB, M = 10, N ทั้งสาย, K = 10 (เก็บครบ 4^10 สาย)
+
+/* ---------- ทดสอบตัวเอง ---------- */
+const QUIZ1 = 'CATGA';
+const quiz1Drops = dropAt(QUIZ1).map((i) => `${QUIZ1[i]}→${QUIZ1[i + 1]}`);
+const quiz1Form = drops(QUIZ1) + 1;
+if (quiz1Drops.length !== 3) throw new Error('dna-kth: ข้อทดสอบตัวเอง 1 ต้องมีรอยต่อสามรอย');
+
+/** รอยต่อเขียนเป็นคู่ตัวอักษร (C→A) ไม่ใช้เลขตำแหน่ง จะได้ไม่ชนกับการนับตำแหน่งของตาราง */
+const dropPairs = (x: string): string => dropAt(x).map((i) => `${x[i]}→${x[i + 1]}`).join(', ');
+
+/* N ทั้งสาย M = 50,000 K = 1: ผ่านแค่สายที่เรียงขึ้นล้วน = C(M+3, 3) ยังอยู่ในคำรับประกัน 4 × 10^18 */
+const allNK1 = ((MMAX + 3) * (MMAX + 2) * (MMAX + 1)) / 6;
+if (allNK1 > 4e18 || allNK1 < 2 * 10 ** 12) throw new Error('dna-kth: ชุด N ทั้งสาย K = 1 ต้องเป็นอินพุตที่ถูกต้อง');
+const allNK1Text = `${(allNK1 / 1e13).toFixed(1)} × 10^13`;
+
+/* ช่องตัวอย่างของสูตร เขียนเป็นบรรทัดสำเร็จรูป (เลี่ยงการเทียบค่าในเทมเพลต) */
+const exLines = exTerms.map((t) =>
+  t.why.includes('ข้าม')
+    ? `x = ${t.ch}: ${t.why}`
+    : t.val === 0
+      ? `x = ${t.ch}: ${t.why} = 0 เพราะตำแหน่ง ${EX_I + 1} ต้องเป็น ${exNext} ซึ่งเล็กกว่า ${t.ch} และไม่มีท่อนเหลือ`
+      : `x = ${t.ch}: ${t.why} = ${t.val}`,
+);
+if (!exTerms.some((t) => t.val === 0 && !t.why.includes('ข้าม'))) {
+  throw new Error('dna-kth: ช่องตัวอย่างควรมีพจน์ที่เป็น 0 เพราะตัวถัดไปถูกบังคับ');
+}
+
+const recurText = `f[M][c][d] = 1                     เมื่อ d ≥ 1 (เติมครบแล้ว)
+f[i][c][d] = ผลรวมของ f[i+1][x][nd]  ทุก x ใน A C G T ที่แพตเทิร์นตำแหน่ง i ยอม
+    nd = d − 1   ถ้า c < 4 และ x < c   (เกิดรอยต่อ ขึ้นท่อนใหม่)
+    nd = d       ถ้าไม่ใช่กรณีนั้น
+    ข้าม x ที่ทำให้ nd < 1              (ท่อนหมด)`;
+const walkText = `เริ่ม c = 4, d = K
+ทุกตำแหน่ง i จาก 0 ถึง M − 1:
+    ไล่ x = A, C, G, T ที่แพตเทิร์นยอม (คำนวณ nd แบบเดียวกับข้างบน ข้าม nd < 1)
+        cnt = f[i+1][x][nd]
+        ถ้า R ≤ cnt: เลือก x ตั้ง c = x, d = nd แล้วไปตำแหน่งถัดไป
+        ไม่อย่างนั้น: R = R − cnt แล้วลอง x ตัวถัดไป`;
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
 typedef unsigned long long ull;
-static const ull CAP = 4000000000000000000ULL;   // เพดานกันล้น โจทย์รับประกันคำตอบไม่เกินนี้
+static const ull CAP = 4000000000000000000ULL;   // เพดานกันล้น ช่องที่เดินถึงไม่มีทางเกินนี้ (โจทย์รับประกัน)
 static inline ull addc(ull a, ull b){ ull s=a+b; return (s>CAP||s<a)?CAP:s; }
 const char* AL="ACGT";
 int main(){
@@ -265,23 +478,24 @@ for (int i = 0; i < M; i++) {
     }
 }`;
 /* คำอธิบายรายตำแหน่งของการเดิน สร้างจาก walkRows ตัวเดียวกับตาราง */
+const triedText = (t: Tried, i: number): string =>
+  t.cnt === 0 && t.nd < 1
+    ? `<b>${t.ch}</b> ใช้ไม่ได้ (ท่อนหมด)`
+    : `<b>${t.ch}</b>: f[${i}][${t.ch}][${t.nd}] = <b>${t.cnt}</b>`;
+const skippedSum = (r: Walk): number => r.tried.filter((t) => !t.taken).reduce((s, t) => s + t.cnt, 0);
+const skippedList = (r: Walk): string =>
+  r.tried.filter((t) => !t.taken && t.cnt > 0).map((t) => String(t.cnt)).join(' + ');
 const dnaNotes = walkRows.map((r) => ({
   note:
     `ตำแหน่งที่ <b>${r.i}</b> ` +
-    (r.tried.length === 1
-      ? `แพตเทิร์นล็อกตัวนี้ไว้เป็น <b>${r.pick}</b> ไม่มีอะไรให้เลือก อันดับที่เหลือจึงยังเป็น <b>${r.rest}</b>`
-      : `ไล่ตัวเลือกจากเล็กไปใหญ่ ` +
-        r.tried
-          .map((t) => `<b>${t.ch}</b> มีของตามมาได้ <b>${t.cnt}</b> ตัว`)
-          .join(' แล้ว ') +
-        ` อันดับไปหยุดในก้อนของ <em>${r.pick}</em> เหลืออันดับ <b>${r.rest}</b> ให้เดินต่อ`),
+    (PAT[r.i - 1] !== 'N'
+      ? `แพตเทิร์นกำหนดเป็น <b>${r.pick}</b> ตัวเดียว ` + triedText(r.tried[0], r.i) + ` อันดับที่ยังตามหาคือ <b>${r.rest}</b> เท่าเดิม`
+      : r.tried.length === 1
+      ? `ช่อง N ลอง ` + triedText(r.tried[0], r.i) + ` ตัว ไม่น้อยกว่าอันดับ <b>${r.rest}</b> เลือก <b>${r.pick}</b> โดยไม่หัก`
+      : `ช่อง N ลองจากเล็กไปใหญ่ ` +
+        r.tried.map((t) => triedText(t, r.i)).join(' · ') +
+        ` อันดับ ${r.rest + skippedSum(r)} มากกว่า ${skippedList(r)} จึงหักออก เหลือ <b>${r.rest}</b> คืออันดับในกลุ่มสายที่ใช้ <b>${r.pick}</b> ตรงนี้`),
 }));
-
-/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
-const dnaBill = [
-  { name: 'ไล่สร้างทุกลำดับ', limit: 'M ไม่เกิน 10', work: '1,048,576 ลำดับ' },
-  { name: 'นับก่อนแล้วเดิน', limit: 'M ถึง 50,000', work: '200,000 ครั้ง' },
-];
 
 ---
 <CpProblemLayout href={href}>
@@ -289,6 +503,8 @@ const dnaBill = [
   <p>
     สาย DNA เขียนแทนด้วยตัวอักษรสี่ตัวคือ <code>A C G T</code> ตามชื่อนิวคลีโอไทด์สี่ชนิด
     บางตำแหน่งนักชีววิทยาระบุไม่ได้ว่าเป็นตัวไหน จึงเขียนเป็น <code>N</code> ซึ่งแทนตัวไหนก็ได้ในสี่ตัวนั้น
+  </p>
+  <p>
     เราเรียกลำดับที่มี <code>N</code> ว่า<strong>ลำดับไม่สมบูรณ์</strong> และลำดับที่ไม่มี <code>N</code> เลยว่า
     <strong>ลำดับสมบูรณ์</strong>
   </p>
@@ -297,10 +513,22 @@ const dnaBill = [
     ทุกตัวด้วยนิวคลีโอไทด์สักตัว เช่น <code>ACCCT</code> เข้ากันได้กับ <code>ACNNT</code> แต่ <code>AGGAT</code> ไม่เข้า
   </p>
   <p>
-    ต่อมาโจทย์นิยาม <strong>รูปแบบ</strong> ของลำดับ ลำดับเป็น<strong>รูปแบบ-1</strong> ถ้าตัวอักษรเรียงจากน้อยไปมาก
-    ตลอดสาย (ตัวไหนก็ต้องน้อยกว่าหรือเท่ากับตัวขวามือของมัน) และเป็น<strong>รูปแบบ-j</strong> สำหรับ
-    <code>j &gt; 1</code> ถ้ามันเป็นรูปแบบ-(j−1) อยู่แล้ว หรือเกิดจากเอาลำดับรูปแบบ-(j−1) มาต่อกับลำดับรูปแบบ-1
+    ต่อมาโจทย์นิยาม<strong>รูปแบบ</strong>ของลำดับ โดยถือว่า <code>A</code> มาก่อน <code>C</code> มาก่อน
+    <code>G</code> มาก่อน <code>T</code>
   </p>
+  <ul>
+    <li>
+      <strong>รูปแบบ-1</strong>: ตัวอักษรเรียงจากน้อยไปมากตลอดสาย (ตัวติดกันซ้ำกันได้) เช่น <code>AACCGT</code>
+    </li>
+    <li>
+      <strong>รูปแบบ-2</strong>: เป็นรูปแบบ-1 อยู่แล้ว หรือเอาสายรูปแบบ-1 สองสายมาต่อกัน
+      เช่น <code>ACG</code> ต่อกับ <code>AT</code> ได้ <code>ACGAT</code>
+    </li>
+    <li>
+      <strong>รูปแบบ-j</strong> ทั่วไป: เป็นรูปแบบ-(j−1) อยู่แล้ว
+      หรือเอาสายรูปแบบ-(j−1) มาต่อท้ายด้วยสายรูปแบบ-1 อีกหนึ่งสาย
+    </li>
+  </ul>
   <p>
     งานของเราคือ ให้ลำดับไม่สมบูรณ์ยาว <code>M</code> ตัวมา พร้อมเลข <code>K</code> และ <code>R</code>
     แล้วหาลำดับสมบูรณ์<strong>รูปแบบ-K ตัวที่ R</strong> ตามลำดับพจนานุกรม ที่เข้ากันได้กับลำดับไม่สมบูรณ์นั้น
@@ -311,9 +539,9 @@ const dnaBill = [
     <ul>
       <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>M</code>, <code>K</code>, <code>R</code> บรรทัดที่สองคือลำดับไม่สมบูรณ์ยาว <code>M</code> ตัว</li>
       <li>
-        <strong>ขอบเขต:</strong> <code>M ≤ {fmt(MMAX)}</code>, <code>K ≤ 10</code>, <code>R ≤ {RMAX}</code>
-        โจทย์รับประกันว่าจำนวนลำดับที่เข้ากันได้ไม่เกิน <code>4 × 10^18</code> และ <code>R</code> ไม่เกินจำนวนนั้น
-        เวลา 1 วินาที หน่วยความจำ 128 เมกะไบต์
+        <strong>ขอบเขต:</strong> <code>M ≤ {fmt(MMAX)}</code>, <code>K ≤ {KMAX}</code>, <code>R ≤ {RMAX}</code>
+        โจทย์รับประกันว่าลำดับรูปแบบ-K ที่เข้ากันได้มีไม่เกิน <code>4 × 10^18</code> ตัว และ <code>R</code> ไม่เกินจำนวนนั้น
+        เวลา 1 วินาที หน่วยความจำ 128 MB
       </li>
       <li><strong>เอาต์พุต:</strong> ลำดับรูปแบบ-K ตัวที่ <code>R</code></li>
       <li><strong>ให้คะแนน:</strong> มี 20 คะแนนสำหรับชุดทดสอบที่ <code>M</code> ไม่เกิน 10</li>
@@ -332,77 +560,17 @@ const dnaBill = [
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      นิยามของรูปแบบ-K ฟังดูซับซ้อนเพราะมันนิยามแบบเรียกตัวเอง แต่ลองอ่านอีกรอบว่ามันแปลว่า
-      "ตัดสายออกเป็นท่อนได้ไม่เกิน <code>K</code> ท่อน โดยแต่ละท่อนเรียงจากน้อยไปมาก"
-      แล้วถามต่อว่า <strong>จุดที่ต้องตัด</strong> คือจุดไหนบ้าง
+      นิยามรูปแบบ-K เรียกตัวเอง ลองแทนรูปแบบ-(K−1) ด้วยนิยามของมันเองซ้ำไปเรื่อย ๆ
+      สายรูปแบบ-K หน้าตาเป็นอย่างไร แล้วตัวอักษรคู่ติดกันแบบไหนที่บังคับให้ K ต้องใหญ่ขึ้น
     </p>
     <p>
-      ส่วนคำว่า "ตัวที่ <code>R</code> ตามพจนานุกรม" นั้น เมื่อ <code>R</code> ใหญ่ได้ถึงสองล้านล้านล้าน
-      การไล่เรียงทีละตัวจนถึงตัวที่ <code>R</code> เป็นไปไม่ได้แน่ ๆ แต่ถ้าเรา<strong>นับได้</strong>ว่า
-      "ลำดับที่ขึ้นต้นด้วย <code>ACA</code> มีกี่ตัว" ล่ะ จะช่วยอะไรได้บ้าง
+      ส่วน <code>R</code> ใหญ่ได้ถึงสองล้านล้าน (<code>2 × 10^12</code>)
+      ไล่เรียงทีละตัวจนถึงตัวที่ <code>R</code> ไม่ทันในหนึ่งวินาทีแน่ ๆ
+    </p>
+    <p>
+      ถ้าเรา<strong>นับได้</strong>ว่า "ลำดับที่ขึ้นต้นด้วย <code>ACA</code> มีกี่ตัว" จะช่วยอะไรได้บ้าง
     </p>
   </div>
-
-  <ZoomableDiagram caption={`แพตเทิร์น ${PAT} มีช่องว่างให้เติม ${slotSet.size} ช่อง และเพดานรอยต่อคือ ${KK - 1} รอย แถวบนคือคำตอบอันดับที่ ${RR} ซึ่งมีรอยต่อ ${dropAt(answer).length} รอย จึงผ่าน แถวล่างคือ ${rejected} ที่เข้ากันได้กับแพตเทิร์นเหมือนกันแต่มีรอยต่อ ${dropAt(rejected).length} รอย จึงตกไป รอยต่อคือจุดที่ตัวถัดไปเล็กลงตามลำดับ A น้อยกว่า C น้อยกว่า G น้อยกว่า T (วาดประกอบโดยผู้เขียน)`}>
-    <svg viewBox={dnaVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`สองแถว แถวบนคือลำดับ ${answer} ซึ่งมีรอยต่อที่ตำแหน่ง ${dropAt(answer).join(' และ ')} รวม ${dropAt(answer).length} รอย ผ่านเพดาน ${KK - 1} รอย แถวล่างคือลำดับ ${rejected} ซึ่งมีรอยต่อ ${dropAt(rejected).length} รอย จึงเกินเพดาน ช่องที่ระบายสีคือช่องว่างที่เราเติมเอง ช่องสีจางคือตัวอักษรที่แพตเทิร์นกำหนดมาแล้ว`}>
-      <text x={dx(0)} y="30" fill="#98a3ba" font-size="11.5" text-anchor="start">
-        แพตเทิร์น {PAT} · ช่อง N คือช่องที่เราเติมได้
-      </text>
-      <text x={dx(0)} y={DROW1 - 8} fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
-        อันดับที่ {RR} คือ {answer} · รอยต่อ {dropAt(answer).length} รอย ผ่าน
-      </text>
-      {[...answer].map((ch, i) => (
-        <>
-          <rect
-            x={dx(i)}
-            y={DROW1}
-            width={DC}
-            height={DCH}
-            rx="7"
-            fill={slotSet.has(i) ? '#12291c' : '#141b2b'}
-            stroke={slotSet.has(i) ? '#4ade80' : '#2a3350'}
-            stroke-width={slotSet.has(i) ? '2' : '1.3'}
-          />
-          <text x={dx(i) + DC / 2} y={DROW1 + 28} fill={slotSet.has(i) ? '#d7ffe4' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
-            {ch}
-          </text>
-        </>
-      ))}
-      {dropAt(answer).map((i) => (
-        <text x={gapX(i)} y={DROW1 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
-          &#8250;
-        </text>
-      ))}
-      <text x={dx(0)} y={DROW2 - 8} fill="#e06c75" font-size="12.5" text-anchor="start" font-weight="700">
-        {rejected} · รอยต่อ {dropAt(rejected).length} รอย เกินเพดาน {KK - 1} จึงตก
-      </text>
-      {[...rejected].map((ch, i) => (
-        <>
-          <rect
-            x={dx(i)}
-            y={DROW2}
-            width={DC}
-            height={DCH}
-            rx="7"
-            fill={slotSet.has(i) ? '#3d1f22' : '#141b2b'}
-            stroke={slotSet.has(i) ? '#e06c75' : '#2a3350'}
-            stroke-width={slotSet.has(i) ? '2' : '1.3'}
-          />
-          <text x={dx(i) + DC / 2} y={DROW2 + 28} fill={slotSet.has(i) ? '#ffb3b8' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
-            {ch}
-          </text>
-        </>
-      ))}
-      {dropAt(rejected).map((i) => (
-        <text x={gapX(i)} y={DROW2 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
-          &#8250;
-        </text>
-      ))}
-      <text x={dx(0)} y={DROW2 + DCH + 26} fill="#e0b400" font-size="11.5" text-anchor="start">
-        เครื่องหมายระหว่างช่องคือรอยต่อ จุดที่ตัวถัดไปเล็กลง
-      </text>
-    </svg>
-  </ZoomableDiagram>
 
   <h2>ลองเอง · เติมช่องว่างให้ได้ลำดับอันดับที่ขอ</h2>
   <div class="cpgame dnagame" data-dnagame data-puzzles={dnaJson}>
@@ -430,56 +598,113 @@ const dnaBill = [
       <button type="button" class="cpg-btn main" data-dn-check>ตรวจอันดับ</button>
     </div>
 
-    <p class="cpg-status" data-cpg-status>กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ</p>
-    <p class="cpg-score" data-cpg-score>รอยต่อตอนนี้ <b data-dn-drops>0</b> ตำแหน่ง · เพดานคือ <b data-dn-cap>0</b></p>
-    <p class="cpg-hint">ลำดับรูปแบบ-K คือลำดับที่มีรอยต่อไม่เกิน K ลบหนึ่งตำแหน่ง</p>
+    <p class="cpg-status" data-cpg-status>กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร</p>
+    <p class="cpg-score" data-cpg-score>
+      สายตอนนี้ <b data-dn-pass>{game0Pass ? 'เป็น' : 'ยังไม่เป็น'}</b>รูปแบบ-<span data-dn-k2>{dnaPuzzles[0].k}</span> ตามนิยามของโจทย์
+    </p>
+    <p class="cpg-hint">เกมตรวจสายด้วยนิยามในโจทย์ตรง ๆ และบอกแค่ว่าผ่านหรือไม่</p>
   </div>
   <p class="io-note">
-    ถ้าเดาสุ่มแล้วเหนื่อย ลองคิดแบบนี้ดู ถ้าตรึงตัวอักษรตัวแรกไว้ค่าหนึ่ง จะเหลือลำดับที่ผ่านกี่แบบ แล้วเลขนั้นบอกอะไรกับอันดับที่ขอ
+    ถ้าเดาสุ่มแล้วเหนื่อย ลองตรึงช่อง N ช่องแรกไว้ค่าหนึ่ง แล้วถามว่าจะเหลือสายที่ผ่านกี่แบบ เลขนั้นบอกอะไรกับอันดับที่ขอ
   </p>
 
-  <h2>เฉลย · นิยามที่เรียกตัวเอง แปลเป็นการนับรอยต่อ</h2>
+  <h2>เฉลย · คลี่นิยามที่เรียกตัวเอง</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        จุดยากของข้อนี้อยู่ที่นิยาม ไม่ได้อยู่ที่อัลกอริทึม นิยามรูปแบบ-j <strong>เรียกตัวเอง</strong>
-        ตราบใดที่ยังอ่านมันเป็นการเรียกซ้ำอยู่ ก็ไม่มีทางเขียนตัวนับได้ ผมจึงนั่งแกะมันจนกลายเป็นประโยคที่ไม่เรียกตัวเองแล้ว
-        คือ <strong>นับตำแหน่งที่ตัวถัดไปเล็กลง แล้วต้องไม่เกิน K−1 ตำแหน่ง</strong>
+        นิยามรูปแบบ-j <strong>เรียกตัวเอง</strong> และในรูปนั้นผมมองไม่ออกว่าจะนับมันอย่างไร
+        งานแรกคือคลี่ให้เป็นเงื่อนไขที่ดูจากตัวสายได้ตรง ๆ
       </p>
       <p>
-        ทีนี้ประโยคที่แกะออกมาเองแบบนี้เชื่อไม่ได้ทันที ผมเลยไปหาหลักฐานที่<strong>มีอยู่ในโจทย์อยู่แล้ว</strong>
-        โจทย์ยกเจ็ดตัวแรกของลำดับมาให้ดู ตั้งแต่ <code>ACAAACAAG</code> ถึง <code>ACAAACCTG</code>
-        และยังยกตัวอย่างที่บอกว่าตัวไหนเป็นหรือไม่เป็นรูปแบบ-3 มาอีก ผมเอาการนับรอยต่อไปตรวจกับทั้งสองชุดนั้น ตรงหมด
-        ตรงนี้ถึงยอมเปิดหน้าจอเขียนโค้ด
+        เงื่อนไขข้างล่างผมแกะเอง ก่อนเขียนโค้ดผมเอามันไปเทียบกับสองอย่างที่โจทย์ให้มา
+        คือเจ็ดตัวแรกของแพตเทิร์น <code>{PAT}</code> และตัวอย่างว่าสายไหนเป็นหรือไม่เป็นรูปแบบ-1 กับรูปแบบ-3
+        ตรงทั้งสองชุด
       </p>
-      <p>
-        อยากให้จำนิสัยนี้ไว้ ตัวอย่างที่โจทย์แจกมาไม่ได้มีไว้แค่ทดสอบโปรแกรมตอนจบ
-        มันคือ<strong>หลักฐานฟรี ๆ สำหรับตรวจว่าเราตีความโจทย์ถูกไหม ตั้งแต่ก่อนเขียนโค้ดบรรทัดแรก</strong>
-        และตรวจด้วยมือได้เร็วกว่ารอคอมไพล์เยอะ
-      </p>
-      <p>
-        หลังเขียนเสร็จผมสุ่ม 600 ชุดเทียบกับการไล่สร้างทุกตัวแล้วเรียง ตรงกันหมด
-        สองอย่างที่ต้องระวังตอนออกแบบคือทิศของการเทียบ <code>R ≤ cnt</code> ซึ่งพลาดข้างเดียวก็เลื่อนคำตอบไปหนึ่งตัว
-        กับค่าล้น เพราะจำนวนสายที่เป็นไปได้พุ่งถึงระดับ 4 × 10¹⁸ ได้สบาย
-      </p>
+      <p>ตัวอย่างในโจทย์ใช้ตรวจว่าเราตีความนิยามถูกหรือไม่ได้ ตั้งแต่ก่อนเขียนโค้ดบรรทัดแรก</p>
     </div>
     <p>
-      เริ่มจากแกะนิยามก่อน รูปแบบ-1 คือเรียงจากน้อยไปมากตลอดสาย รูปแบบ-2 คือเอารูปแบบ-1 สองอันมาต่อกัน
-      รูปแบบ-3 คือสามอัน และต่อไปเรื่อย ๆ ดังนั้น<strong>รูปแบบ-K ก็คือสายที่ตัดเป็นท่อนเรียงขึ้นได้ไม่เกิน K ท่อน</strong>
+      คลี่นิยามทีละชั้น: รูปแบบ-2 คือสายรูปแบบ-1 หนึ่งหรือสองสายต่อกัน รูปแบบ-3 คือไม่เกินสามสาย และต่อไปเรื่อย ๆ
     </p>
     <p>
-      แล้วจุดตัดที่<strong>จำเป็น</strong>คือจุดไหน ถ้าตัวถัดไปใหญ่กว่าหรือเท่ากับตัวปัจจุบัน สายยังเรียงขึ้นอยู่ ไม่ต้องตัด
-      แต่ถ้าตัวถัดไป<strong>เล็กลง</strong> ท่อนเดิมต้องจบตรงนั้น เรียกจุดแบบนี้ว่า<strong>รอยต่อ</strong>
-      จำนวนท่อนที่น้อยที่สุดจึงเท่ากับจำนวนรอยต่อบวกหนึ่ง สรุปได้ว่า
+      ดังนั้น<strong>รูปแบบ-K คือสายที่ตัดเป็นท่อนเรียงขึ้นได้ไม่เกิน K ท่อน</strong> คำถามต่อไปคือต้องตัดตรงไหนบ้าง
     </p>
-    <p class="pull">ลำดับเป็นรูปแบบ-K ก็ต่อเมื่อมีตำแหน่งที่ตัวถัดไปเล็กลง ไม่เกิน K − 1 ตำแหน่ง</p>
+    <ul>
+      <li>ถ้าตัวถัดไปใหญ่กว่าหรือเท่ากับตัวปัจจุบัน สายยังเรียงขึ้นอยู่ ไม่ต้องตัด</li>
+      <li>ถ้าตัวถัดไปเล็กลง ท่อนเดิมต้องจบตรงนั้น เรียกจุดแบบนี้ว่า<strong>รอยต่อ</strong></li>
+    </ul>
+    <p>
+      ตัดตรงรอยต่อทุกจุดก็ได้ท่อนที่เรียงขึ้นทุกท่อน และตัดน้อยกว่านั้นไม่ได้
+      จำนวนท่อนที่น้อยที่สุดคือจำนวนรอยต่อบวกหนึ่ง
+    </p>
+    <p class="pull">ลำดับเป็นรูปแบบ-K ก็ต่อเมื่อมีรอยต่อ (ตำแหน่งที่ตัวถัดไปเล็กลง) ไม่เกิน K − 1 ตำแหน่ง</p>
+
+    <ZoomableDiagram caption={`แถวบนคือคำตอบของตัวอย่างแรก ${answer} มีรอยต่อ ${dropAt(answer).length} รอย (${dropPairs(answer)}) แถวล่าง ${rejected} เข้ากันได้กับแพตเทิร์นเดียวกัน แต่มีรอยต่อ ${dropAt(rejected).length} รอย (${dropPairs(rejected)}) ช่องที่ระบายสีคือช่อง N ที่เติมเอง (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={dnaVB} xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;max-width:600px" role="img" aria-label={`สองแถว แถวบนคือลำดับ ${answer} มีรอยต่อ ${dropAt(answer).length} รอย คือ ${dropPairs(answer)} ผ่านเมื่อ K = ${KK} แถวล่างคือลำดับ ${rejected} มีรอยต่อ ${dropAt(rejected).length} รอย คือ ${dropPairs(rejected)} ไม่ผ่าน ช่องที่ระบายสีคือช่องว่างที่เราเติมเอง ช่องสีจางคือตัวอักษรที่แพตเทิร์นกำหนดมาแล้ว`}>
+        <text x={dx(0)} y="30" fill="#98a3ba" font-size="11.5" text-anchor="start">
+          แพตเทิร์น {PAT} · K = {KK} · ช่อง N คือช่องที่เราเติมได้
+        </text>
+        <text x={dx(0)} y={DROW1 - 8} fill="#4ade80" font-size="12.5" text-anchor="start" font-weight="700">
+          อันดับที่ {RR} คือ {answer} · รอยต่อ {dropAt(answer).length} รอย ผ่าน
+        </text>
+        {[...answer].map((ch, i) => (
+          <>
+            <rect
+              x={dx(i)}
+              y={DROW1}
+              width={DC}
+              height={DCH}
+              rx="7"
+              fill={slotSet.has(i) ? '#12291c' : '#141b2b'}
+              stroke={slotSet.has(i) ? '#4ade80' : '#2a3350'}
+              stroke-width={slotSet.has(i) ? '2' : '1.3'}
+            />
+            <text x={dx(i) + DC / 2} y={DROW1 + 28} fill={slotSet.has(i) ? '#d7ffe4' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+              {ch}
+            </text>
+          </>
+        ))}
+        {dropAt(answer).map((i) => (
+          <text x={gapX(i)} y={DROW1 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
+            &#8250;
+          </text>
+        ))}
+        <text x={dx(0)} y={DROW2 - 8} fill="#e06c75" font-size="12.5" text-anchor="start" font-weight="700">
+          {rejected} · รอยต่อ {dropAt(rejected).length} รอย ไม่ผ่าน
+        </text>
+        {[...rejected].map((ch, i) => (
+          <>
+            <rect
+              x={dx(i)}
+              y={DROW2}
+              width={DC}
+              height={DCH}
+              rx="7"
+              fill={slotSet.has(i) ? '#3d1f22' : '#141b2b'}
+              stroke={slotSet.has(i) ? '#e06c75' : '#2a3350'}
+              stroke-width={slotSet.has(i) ? '2' : '1.3'}
+            />
+            <text x={dx(i) + DC / 2} y={DROW2 + 28} fill={slotSet.has(i) ? '#ffb3b8' : '#8f9ab2'} font-size="17" text-anchor="middle" font-weight="700" font-family="monospace">
+              {ch}
+            </text>
+          </>
+        ))}
+        {dropAt(rejected).map((i) => (
+          <text x={gapX(i)} y={DROW2 + 28} fill="#e0b400" font-size="15" text-anchor="middle" font-weight="700">
+            &#8250;
+          </text>
+        ))}
+        <text x={dx(0)} y={DROW2 + DCH + 26} fill="#e0b400" font-size="11.5" text-anchor="start">
+          เครื่องหมายระหว่างช่องคือรอยต่อ จุดที่ตัวถัดไปเล็กลง
+        </text>
+      </svg>
+    </ZoomableDiagram>
 
     <figure class="tbl">
       <table class="rec">
         <caption>ตรวจตัวอย่างที่โจทย์ยกมา</caption>
         <thead>
-          <tr><th>ลำดับ</th><th class="num">รอยต่อ</th><th>รูปแบบต่ำสุดที่เป็นได้</th><th>ตรงกับที่โจทย์บอกไหม</th></tr>
+          <tr><th>ลำดับ</th><th class="num">รอยต่อ</th><th>รูปแบบต่ำสุดที่เป็นได้</th><th>โจทย์บอกว่า</th></tr>
         </thead>
         <tbody>
           {shapeDemo.map((r) => (
@@ -487,50 +712,109 @@ const dnaBill = [
               <td><code>{r.s}</code></td>
               <td class="num">{r.d}</td>
               <td>รูปแบบ-{r.form}</td>
-              <td>{r.form <= 1 ? 'เป็นรูปแบบ-1' : r.form <= 3 ? 'เป็นรูปแบบ-3' : 'ไม่เป็นรูปแบบ-3'}</td>
+              <td>{r.said} ตรง</td>
             </tr>
           ))}
         </tbody>
       </table>
       <figcaption>
-        โจทย์บอกว่า <code>AACCGT</code> เป็นรูปแบบ-1 แต่ <code>AACGTC</code> ไม่เป็น และ
-        <code>AACCC ACACC ACACA</code> เป็นรูปแบบ-3 ส่วน <code>GCACAC ACACACA</code> ไม่เป็น
-        คอลัมน์รอยต่ออธิบายได้ครบทุกบรรทัดโดยไม่ต้องแตะนิยามที่เรียกตัวเองอีกเลย
+        สายจากนิยามในโจทย์ทั้งเจ็ดสาย นับรอยต่อแล้วได้ผลตรงกับที่โจทย์บอกทุกบรรทัด
       </figcaption>
     </figure>
 
     <h3>นับก่อน แล้วค่อยเดิน</h3>
+    <p>ระหว่างเติมจากซ้ายไปขวา ต้องจำแค่สองอย่าง</p>
+    <ul>
+      <li>ตัวอักษรก่อนหน้าคือตัวไหน เพื่อรู้ว่าตัวถัดไปจะเป็นรอยต่อหรือไม่</li>
+      <li>ยังขึ้นท่อนใหม่ได้อีกกี่ท่อน</li>
+    </ul>
+    <div class="callout callout-tip">
+      <p class="callout-label">ตารางนับ f</p>
+      <ul>
+        <li>
+          <code>f[i][c][d]</code> = จำนวนวิธีเติมตำแหน่ง <code>i</code> ถึง <code>M − 1</code> (นับตำแหน่งจาก 0)
+          เมื่อตัวก่อนหน้าคือ <code>c</code> และยังมีสิทธิ์ใช้อีก <code>d</code> ท่อน นับรวมท่อนที่กำลังเดินอยู่
+        </li>
+        <li><code>c</code> = 0 ถึง 3 แทน <code>A C G T</code> ส่วน <code>c</code> = 4 แปลว่ายังไม่มีตัวก่อนหน้า</li>
+        <li>สถานะเริ่มคือ <code>i</code> = 0, <code>c</code> = 4, <code>d</code> = K และจำนวนลำดับที่ผ่านทั้งหมดคือ <code>f[0][4][K]</code></li>
+      </ul>
+    </div>
+    <CodeBlock code={recurText} lang="text" title="สูตรของตาราง f" />
+    <div class="callout callout-note">
+      <p class="callout-label">ลองคิดหนึ่งช่องบนตัวอย่างแรก</p>
+      <p>
+        ตัวอย่างแรกมี <code>M</code> = {PAT.length} แถว <code>f[{PAT.length}]</code> ทุกช่องที่ <code>d ≥ 1</code> เป็น 1
+      </p>
+      <p>
+        ช่อง <code>f[{EX_I}][C][{EX_D}]</code> คือเติมตำแหน่ง {EX_I} ถึง {PAT.length - 1}
+        โดยตัวก่อนหน้าเป็น <code>C</code> และเหลือท่อนเดียว ตำแหน่ง {EX_I} เป็น <code>N</code> ส่วนตำแหน่ง {EX_I + 1} เป็น <code>{exNext}</code>
+      </p>
+      <ul>
+        {exLines.map((l) => <li>{l}</li>)}
+      </ul>
+      <p>รวมได้ <code>f[{EX_I}][C][{EX_D}]</code> = {exSum} คือสาย {exStrings.map((s, j) => <>{j > 0 ? ' กับ ' : ''}<code>{s}</code></>)}</p>
+    </div>
     <p>
-      เมื่อเงื่อนไขกลายเป็นการนับรอยต่อ สถานะที่ต้องจำระหว่างเดินจากซ้ายไปขวาก็เหลือแค่สองอย่างคือ
-      <strong>ตัวอักษรก่อนหน้าคือตัวไหน</strong> (เพื่อรู้ว่าตัวถัดไปจะเป็นรอยต่อหรือไม่) และ
-      <strong>ยังตัดได้อีกกี่ท่อน</strong>
+      ตารางมี <code>(M + 1) × 5 × (K + 1)</code> ช่อง แต่ช่องที่ต้องคำนวณด้วยสูตรคือแถว <code>i</code> = 0 ถึง <code>M − 1</code>
+      ที่ <code>d ≥ 1</code> รวม <code>M × 5 × K</code> ช่อง ที่ขอบเขตเต็มคือ {dpCells} ช่อง
+      ช่องละลองสี่ตัวอักษร รวม {dpTries} ครั้ง
     </p>
+    <div class="callout callout-warn">
+      <p class="callout-label">ช่องที่ใหญ่เกิน 64 บิต</p>
+      <p>
+        โจทย์รับประกันว่าลำดับที่ผ่านมีไม่เกิน <code>4 × 10^18</code> ตัว คำรับประกันนี้ครอบคลุมเฉพาะช่องที่<strong>เดินถึง</strong>
+        คือช่องที่มีคำนำหน้าจริงพาไปถึง แต่ตารางคำนวณทุกช่อง
+      </p>
+      <p>
+        ตัวอย่าง แพตเทิร์น <code>TA</code> ตามด้วย <code>N</code> อีก <code>n</code> ตัว และ <code>K</code> = 2
+        หลัง <code>TA</code> ใช้ไปแล้วสองท่อน ช่อง <code>f[2][A][2]</code> (ยังเหลือสองท่อน) จึงไม่มีคำนำหน้าไหนพาไปถึง
+      </p>
+      <p>
+        ช่องนั้นนับสายยาว <code>n</code> ที่มีรอยต่อไม่เกินหนึ่งรอย และเกินค่ามากที่สุดของ <code>long long</code>
+        (ราว <code>9.22 × 10^18</code>) ตั้งแต่ <code>n</code> = {fmt(ovfN)} ขณะที่ลำดับที่ผ่านจริงตอนนั้นมีแค่ {ovfReach} ตัว
+      </p>
+      <p>
+        ช่องที่เดินถึงอ่านแต่ช่องที่เดินถึง เพราะต่อตัวอักษรที่ใช้ได้อีกหนึ่งตัวท้ายคำนำหน้าที่เดินถึง ก็ยังได้คำนำหน้าที่เดินถึง
+        ค่าที่ล้นไม่มีทางไหลมาถึงคำตอบ
+      </p>
+      <p>
+        ถึงอย่างนั้น <code>long long</code> เป็นจำนวนเต็มแบบมีเครื่องหมาย และการล้นของมันเป็น
+        <i>undefined behavior</i> คือมาตรฐาน C++ ไม่กำหนดว่าผลจะออกมาเป็นอะไร
+      </p>
+      <p>
+        โค้ดเต็มเก็บค่าเป็น <code>unsigned long long</code> (จำนวนเต็ม 64 บิตที่ไม่มีค่าติดลบ) และบวกแบบมีเพดาน
+        ผลรวมที่เกิน <code>4 × 10^18</code> เก็บเป็น <code>4 × 10^18</code>
+      </p>
+      <p>
+        ช่องที่เดินถึงไม่เกินเพดานนี้อยู่แล้ว ส่วน <code>R</code> ไม่เกิน <code>2 × 10^12</code>
+        การเทียบ <code>R</code> กับช่องที่ชนเพดานให้ผลเหมือนใช้ค่าจริง
+      </p>
+    </div>
     <p>
-      คำนวณ <code>f[i][c][d]</code> ถอยหลังจากท้ายมาหน้า แปลว่า ถ้ายืนที่ตำแหน่ง <code>i</code>
-      โดยตัวก่อนหน้าเป็น <code>c</code> และเหลือท่อนได้ <code>d</code> จะเติมส่วนที่เหลือได้กี่แบบ
-      ขนาดตารางคือ <code>M × 5 × (K + 1)</code> ซึ่งเต็มขอบเขตก็แค่ {fmt(MMAX * 5 * 11)} ช่อง
+      ตารางพร้อมแล้วก็เดินหาตัวที่ <code>R</code> ทีละตำแหน่ง ไล่ตัวอักษรตามลำดับพจนานุกรม
+      แล้วถามทีละตัวว่า "ถ้าเลือกตัวนี้ จะมีลำดับตามมาได้กี่แบบ" เรียกจำนวนนั้นว่า <code>cnt</code>
     </p>
-    <p>
-      แล้วเดินหาตัวที่ <code>R</code> ด้วยท่ามาตรฐาน ยืนที่ตำแหน่งแรก ไล่ตัวอักษรตามลำดับพจนานุกรม
-      ถามทีละตัวว่า "ถ้าเลือกตัวนี้จะมีลำดับตามมาได้กี่แบบ" ถ้า <code>R</code> ยัง<strong>มากกว่า</strong>จำนวนนั้น
-      แปลว่าตัวที่ตามหาไม่ได้อยู่ในก้อนนี้ ก็หัก <code>R</code> ลงแล้วข้ามไปตัวถัดไป ถ้าไม่มากกว่า ก็เลือกตัวนี้แล้วเดินต่อ
-    </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <CodeBlock code={walkText} lang="text" title="การเดินหาตัวที่ R" />
+    <CodeBlock code={coreSnippet} lang="cpp" title="เดินหาตัวที่ R (ส่วนเดียวกันในโค้ด C++)" />
   </Spoiler>
 
-  <h2>ไล่การเดินหาตัวที่ {RR} ของตัวอย่างแรก</h2>
+  <h2>ตัวอย่างแรก · ไล่ทีละตำแหน่ง</h2>
   <Spoiler>
     <p>
-      โจทย์ยกเจ็ดตัวแรกมาให้ดูแล้ว ลิสต์ที่โปรแกรมสร้างได้คือ <code>{firstSeven.join(', ')}</code>
-      ตรงกับในโจทย์ทุกตัว ตัวที่ {RR} จึงเป็น <code>{answer}</code>
+      เจ็ดตัวแรกที่โปรแกรมสร้างได้คือ <code>{firstSeven.join(', ')}</code>
+      ตรงกับในโจทย์ทุกตัว ตัวที่ {RR} คือ <code>{answer}</code>
     </p>
-      <CpStepPlayer hook="dnasim" steps={dnaNotes} label="กดถัดไปเพื่อเดินทีละตำแหน่ง">
-    <table class="rec">
+    <p>
+      ตารางข้างล่างนับตำแหน่งจาก 1 เมื่อเลือกตัวที่ตำแหน่ง <code>p</code> แล้ว ส่วนที่ยังต้องเติมคือ index <code>p</code>
+      ถึง <code>M − 1</code> (นับจาก 0) จำนวนที่ตามมาจึงอ่านจาก <code>f[p][x][nd]</code>
+    </p>
+    <CpStepPlayer hook="dnasim" steps={dnaNotes} label="กดถัดไปเพื่อเดินทีละตำแหน่ง">
+      <table class="rec dnaboard">
         <caption>เดินหาตัวที่ {RR} ทีละตำแหน่ง</caption>
         <thead>
           <tr>
             <th class="num">ตำแหน่ง</th><th>R ที่เหลือ</th>
-            <th>ไล่ตัวเลือก (ตัว: จำนวนที่ตามมาได้)</th><th>เลือก</th>
+            <th>ไล่ตัวเลือก (ตัว: จำนวนที่ตามมา)</th><th>เลือก</th>
           </tr>
         </thead>
         <tbody>
@@ -548,21 +832,21 @@ const dnaBill = [
           ))}
         </tbody>
       </table>
-  </CpStepPlayer>
-  <p class="io-note">
-    ตำแหน่งที่โจทย์ไม่ได้ให้เป็น <code>N</code> มีตัวเลือกเดียว จึงไม่มีการหักค่า
-        ส่วนตำแหน่งที่เป็น <code>N</code> จะเห็นว่า R ค่อย ๆ ถูกหักลงทีละก้อน จนไปหยุดในก้อนที่ใช่
-  </p>
-
+    </CpStepPlayer>
+    <p class="io-note">
+      ตำแหน่งที่แพตเทิร์นกำหนดตัวอักษรไว้มีตัวเลือกเดียว จึงไม่มีการหักค่า
+      ส่วนช่อง <code>N</code> ลองจาก <code>A</code> ขึ้นไป และหัก R เฉพาะตัวที่จำนวนตามมาน้อยกว่า R
+    </p>
   </Spoiler>
 
   <h2>อีกมุมหนึ่ง: ไล่สร้างทุกตัวเลย (ชุดทดสอบย่อย M ≤ 10)</h2>
   <Spoiler>
     <p>
-      เมื่อ <code>M</code> ไม่เกิน 10 จำนวนลำดับสมบูรณ์ที่เข้ากันได้มีมากที่สุด <code>4^10</code> คือ
-      {fmt(Math.pow(4, 10))} ตัว ซึ่งสร้างทั้งหมดแล้วหยิบตัวที่ <code>R</code> ได้สบาย ๆ
-      และถ้าเรียกซ้ำโดยไล่ <code>A C G T</code> ตามลำดับ ผลที่ได้ก็<strong>เรียงตามพจนานุกรมมาให้เอง</strong>
-      ไม่ต้องเรียงทีหลัง
+      เมื่อ <code>M</code> ไม่เกิน {SUB_M} ลำดับที่เข้ากันได้มีมากที่สุด <code>4^{SUB_M}</code> = {subStrings} ตัว
+      สร้างทั้งหมดแล้วหยิบตัวที่ <code>R</code> ได้สบาย
+    </p>
+    <p>
+      ถ้าเรียกซ้ำโดยไล่ <code>A C G T</code> ตามลำดับ ผลที่ได้ก็เรียงตามพจนานุกรมมาเอง ไม่ต้องเรียงทีหลัง
     </p>
     <details class="expander">
       <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
@@ -571,78 +855,155 @@ const dnaBill = [
       </div>
     </details>
     <p>
-      ท่านี้ได้ 20 คะแนน และที่สำคัญกว่านั้นคือ มันเป็นตัวตรวจสอบที่ตรงไปตรงมาที่สุดสำหรับเวอร์ชันเต็ม
-      ผมสุ่มแพตเทิร์นสั้น ๆ ที่มี <code>N</code> ปนบ้าง 600 ชุด แล้วสุ่ม <code>R</code> ในช่วงที่ถูกต้อง
-      เทียบสองโปรแกรม ตรงกันหมด
+      วิธีนี้ได้ 20 คะแนน และใช้ตรวจตารางกับการเดินของเวอร์ชันเต็มได้ เพราะมันไม่มีตาราง <code>f</code>
+      แต่มันนับรอยต่อแบบเดียวกัน การนับรอยต่อต้องตรวจกับนิยามเรียกซ้ำแยกอีกชั้น
     </p>
     <p>
-      กับดักที่เจอบ่อยในโจทย์ตระกูล "ตัวที่ R" มีสองอัน อันแรกคือ<strong>เผลอเทียบเป็น <code>R &lt; cnt</code>
-      แทน <code>R ≤ cnt</code></strong> ซึ่งจะเลื่อนคำตอบไปหนึ่งช่องเสมอ อันที่สองคือ<strong>ค่าล้น</strong>
-      เพราะจำนวนลำดับใหญ่ได้ถึง <code>4 × 10^18</code> ซึ่งชนเพดานของจำนวนเต็ม 64 บิตแบบมีเครื่องหมายพอดี
-      โค้ดเต็มจึงบวกแบบมีเพดานกันไว้
+      บั๊กที่ง่ายที่สุดในการเดินคือเขียน <code>R &lt; cnt</code> แทน <code>R ≤ cnt</code>
+      ซึ่งเท่ากับเดินแบบนับอันดับจาก 0 ทั้งที่ <code>R</code> นับจาก 1 ผลคือได้ตัวที่ <code>R + 1</code>
     </p>
+    <p>
+      ตัวอย่างแรกจะตอบ <code>{ltWrong1}</code> ตัวอย่างที่สองตอบ <code>{ltWrong2}</code>
+      และถ้า <code>R</code> เป็นตัวสุดท้ายพอดี โปรแกรมจะพิมพ์ออกมาไม่ครบ <code>M</code> ตัว
+    </p>
+    <p>การ์ดข้างล่างนับรอบของลูปในสุดตามโค้ดของแต่ละวิธี</p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ไล่สร้างทุกลำดับ</h4>
+        <p class="cp-step-cost">(4^M − 1)/3 × 4 + 4^M × (M − 1) รอบ</p>
+        <p>
+          นับกรณี <code>N</code> ทั้งสาย: <code>(4^M − 1)/3</code> คือจุดที่การเรียกซ้ำยังเติมไม่ครบ จุดละวนสี่ตัวอักษร
+          ส่วน <code>4^M</code> คือสายที่เติมครบ สายละเทียบตัวติดกัน <code>M − 1</code> คู่
+        </p>
+        <p>
+          ที่ <code>M</code> = {SUB_M} ได้ {bruteSub} รอบ ถ้า <code>K</code> = 10 ทุกสายผ่าน
+          ต้องเก็บ {subStrings} สาย สายละ 32 ไบต์ รวม {subMB} MB
+        </p>
+        <p>
+          ที่ <code>M</code> = {fmt(MMAX)} <code>N</code> ทั้งสายยังเป็นอินพุตที่ถูกต้องเมื่อ <code>K</code> = 1
+          (สายที่ผ่านมีราว {allNK1Text} สาย) แต่สายที่ต้องสร้างมีราว 10^{String(bruteFullExp)} สาย
+        </p>
+        <p class="cp-step-win">ได้ชุด 20 คะแนน</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>นับก่อนแล้วเดิน</h4>
+        <p class="cp-step-cost">M × 5 × K × 4 + 4M รอบ</p>
+        <p>
+          <code>M × 5 × K</code> คือช่องของตารางที่คำนวณ (ตำแหน่ง × ตัวก่อนหน้า × ท่อนที่เหลือ) ช่องละลองสี่ตัวอักษร
+          ส่วน <code>4M</code> คือการเดิน ตำแหน่งละไม่เกินสี่ตัว
+        </p>
+        <p>
+          ที่ <code>K</code> = {KMAX}: <code>M</code> = {SUB_M} ได้ {dpSub} รอบ และ <code>M</code> = {fmt(MMAX)} ได้ {dpFull} รอบ
+          ตารางใช้ {tableMB} MB จากลิมิต 128 MB
+        </p>
+        <p class="cp-step-win">ได้ทุกชุด</p>
+      </div>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>วิธีไหนได้คะแนนชุดไหน</caption>
+        <thead>
+          <tr><th>วิธี</th><th>ชุด 20 คะแนน (M ≤ {SUB_M})</th><th>ชุดที่เหลือ (M ถึง {fmt(MMAX)})</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ไล่สร้างทุกลำดับ</td><td>ได้</td><td>ไม่ทัน</td></tr>
+          <tr><td>นับก่อนแล้วเดิน</td><td>ได้</td><td>ได้</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        ที่ <code>M</code> = {SUB_M} วิธีแรกใช้ {bruteSub} รอบ ยังทันสบาย แต่มันโตแบบทวีคูณตามจำนวน <code>N</code>
+        ส่วนวิธีเต็มโตแบบเชิงเส้นตาม <code>M</code>
+      </figcaption>
+    </figure>
   </Spoiler>
-
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
-      </thead>
-      <tbody>
-        {dnaBill.map((r) => (
-          <tr>
-            <td>{r.name}</td>
-            <td>{r.limit}</td>
-            <td class="num">{r.work}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>แถวบนต้องสร้างของจริงทุกตัวก่อนจะหยิบตัวที่ต้องการ แถวล่างไม่สร้างของเลยแม้ตัวเดียว มันแตะแค่สี่ตัวเลือกต่อหนึ่งตำแหน่ง ต่างกันตรงที่แถวบนโตแบบทวีคูณตามความยาว ส่วนแถวล่างโตแบบเชิงเส้น นั่นคือเหตุผลเดียวที่ขอบเขตเต็มเป็นไปได้</figcaption>
-  </figure>
 
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
-      ตาราง <code>f</code> เก็บเป็น <code>unsigned long long</code> ขนาด
-      <code>(M + 1) × 5 × (K + 1)</code> เต็มขอบเขตคือราว
-      {(((MMAX + 1) * 5 * 11 * 8) / 1024 / 1024).toFixed(0)} เมกะไบต์ อยู่ในลิมิต 128 เมกะไบต์
+      ตาราง <code>f</code> เก็บเป็น <code>unsigned long long</code> ช่องละ 8 ไบต์ และโค้ดจองช่อง <code>d</code> ไว้ {KMAX + 1} ช่องเสมอ
+      ขนาดคือ <code>(M + 1) × 5 × {KMAX + 1}</code> ช่อง เต็มขอบเขต {tableMB} MB จากลิมิต 128 MB
     </p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="dna.cpp" />
+        <figure class="tbl">
+          <table class="rec prose">
+            <caption>โค้ดส่วนไหนทำขั้นไหน</caption>
+            <thead>
+              <tr><th>ส่วนในโค้ด</th><th>ทำอะไร</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>CAP</code>, <code>addc</code></td><td>บวกแบบมีเพดาน ผลรวมที่เกิน <code>CAP</code> เก็บเป็น <code>CAP</code></td></tr>
+              <tr><td><code>f[M][c][d]</code></td><td>จุดเริ่ม: เติมครบแล้วมีหนึ่งวิธีเมื่อ <code>d ≥ 1</code></td></tr>
+              <tr><td>ลูป <code>i</code> จาก <code>M − 1</code> ลงมา</td><td>เติมตาราง <code>f</code> จากท้ายมาหน้า</td></tr>
+              <tr><td><code>nd = (c&lt;4 &amp;&amp; x&lt;c) ? d-1 : d</code></td><td><code>x</code> เล็กกว่าตัวก่อนหน้า คือรอยต่อ ใช้ท่อนเพิ่มหนึ่งท่อน</td></tr>
+              <tr><td><code>if(nd&lt;1) continue</code></td><td>ท่อนหมดแล้ว ทางนี้ใช้ไม่ได้</td></tr>
+              <tr><td>ลูปท้ายที่สร้าง <code>out</code></td><td>เดินหาตัวที่ <code>R</code>: ไม่เกิน <code>cnt</code> ก็เลือก มากกว่าก็หัก <code>cnt</code></td></tr>
+            </tbody>
+          </table>
+        </figure>
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม แพตเทิร์นยาว {fmt(MMAX)} ตัวที่มี <code>N</code> ปนอยู่ราวหนึ่งในห้า และ
-      <code>K</code> เท่ากับ 10 ใช้เวลา <strong>59 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
-    </p>
-    <p>
-      ท่านับแล้วเดินนี้เป็นท่าประจำ อ่านเวอร์ชันเต็มพร้อมโจทย์ฝึกได้ที่
-      <a href="/cp/count-then-walk/">นับก่อน แล้วค่อยเดินไปหาตัวที่ต้องการ</a>
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>
+          การนับรอยต่อ: เทียบกับนิยามเรียกซ้ำของโจทย์คำต่อคำ และกับการแบ่งท่อนแบบลองทุกจุดตัด
+          ทุกสายยาว 1 ถึง 7 กับ <code>K</code> = 1 ถึง 8 รวม {T_CHAR_PAIRS} คู่ ตรงทุกคู่
+        </li>
+        <li>
+          {T_SMALL} ชุด (ตัวอย่างสองชุดในโจทย์กับชุดสุ่ม <code>M</code> 1 ถึง 8): คำตอบอ้างอิงมาจากไล่ทุกสาย เรียงด้วย
+          <code>sorted</code> แล้วกรองด้วยการแบ่งท่อน โดยไม่ใช้รอยต่อ โค้ดเต็มและโค้ดชุดย่อยตรงทุกชุด
+        </li>
+        <li>{T_MID} ชุดสุ่ม <code>M</code> 9 ถึง 10: โค้ดเต็มตรงกับโค้ดชุดย่อยทุกชุด</li>
+        <li>รุ่น <code>R &lt; cnt</code> บนทั้ง {T_SMALL + T_MID} ชุดข้างบน: ผลตรงกับที่อธิบายในหัวข้อไล่สร้างทุกชุด</li>
+        <li>
+          ขอบเขตเต็ม: วัดบนสามชุดที่ <code>M</code> = {fmt(MMAX)} และอยู่ในเงื่อนไขของโจทย์ (<code>K</code> = {KMAX} มี <code>N</code> 30 ตัว ·
+          <code>N</code> ทั้งสาย <code>K</code> = 1 · <code>TA</code> ตามด้วย <code>N</code> <code>K</code> = 2)
+        </li>
+        <li>เวลาของสามชุดนั้นราว {T_FULL_MS} มิลลิวินาที หน่วยความจำสูงสุด {T_FULL_MB} MB เทียบลิมิต 1 วินาที 128 MB</li>
+        <li>โค้ดชุดย่อยที่ <code>M</code> = {SUB_M} เป็น <code>N</code> ทั้งสาย <code>K</code> = 10: {T_SUB_S} วินาที {T_SUB_MB} MB</li>
+        <li>
+          รุ่นที่ใช้ <code>long long</code> บวกตรง ๆ ไม่มีเพดาน: ตอบตรงกันทั้งสามชุด
+          แต่ <code>-fsanitize=undefined</code> ฟ้องการล้นในชุด <code>TA</code>
+        </li>
+      </ul>
+      <p>
+        การนับรอยต่อมีเหตุผลรองรับในหัวข้อเฉลย ส่วนโค้ดนั้นทดสอบแล้ว ไม่ได้พิสูจน์ และยังไม่ได้ส่งเกรดเดอร์จริง
+      </p>
+    </div>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
-    <p>
-      ท่าของข้อนี้คือ<strong>นับก่อนแล้วค่อยเดิน</strong> ซึ่งใช้กับโจทย์ "ขอตัวที่ R" ได้ทุกข้อที่นับได้
-      และสิ่งที่เรานับคือจำนวน<strong>สตริง</strong> (string แปลว่าสายอักขระ คือลำดับของตัวอักษรที่เรียงต่อกัน)
-      ที่เติมช่องว่างได้ตามเงื่อนไข โดยไม่ต้องสร้างสตริงพวกนั้นขึ้นมาจริงแม้ตัวเดียว
-    </p>
-    <p>
-      มี<a href="/cp/count-then-walk/">บทปูพื้นเรื่องนับก่อนแล้วเดิน</a>อยู่ในคลังนี้ ส่วนโจทย์สตริงที่เหลือในคลัง
-      ใช้ท่าที่ต่างกันคนละเรื่อง คือ<a href="/cp/string-hashing/">การแฮชข้อความ</a>สำหรับเทียบสองช่วงว่าเหมือนกันไหม
-      และ<a href="/cp/trie/">ไทร</a>สำหรับจัดกลุ่มตามคำนำหน้า สามท่านี้ตอบคำถามคนละแบบ
-      คำถามที่ต้องถามก่อนเลือกท่าคือ <strong>เรากำลังนับ เทียบ หรือจัดกลุ่ม</strong>
-    </p>
-
-  <h2>สรุปบรรทัดเดียว</h2>
+  <h2>ทดสอบตัวเองและอ่านต่อ</h2>
+  <details class="expander">
+    <summary>สาย <code>{QUIZ1}</code> เป็นรูปแบบ-K ได้ตั้งแต่ K เท่าไร</summary>
+    <div class="expander-body">
+      <p>
+        รอยต่ออยู่ที่ {quiz1Drops.join(', ')} รวม {quiz1Drops.length} รอย ต้องใช้อย่างน้อย {quiz1Form} ท่อน
+        คือเป็นรูปแบบ-{quiz1Form} ขึ้นไป
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ถ้าเผลอเขียน <code>R &lt; cnt</code> ตัวอย่างแรกจะตอบอะไร</summary>
+    <div class="expander-body">
+      <p><code>{ltWrong1}</code> ซึ่งเป็นตัวที่ {RR + 1} ในเจ็ดตัวแรกที่โจทย์ยกมา</p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>โจทย์รับประกันว่าจำนวนไม่เกิน 4 × 10^18 แล้วทำไมโค้ดยังต้องมีเพดาน</summary>
+    <div class="expander-body">
+      <p>
+        คำรับประกันครอบคลุมแค่ช่องที่เดินถึง ส่วนตารางคำนวณทุกช่อง และช่องที่เดินไม่ถึง
+        (เช่นยังเหลือสองท่อนหลัง <code>TA</code>) เกิน <code>long long</code> ได้
+      </p>
+    </div>
+  </details>
   <p>
-    นิยามที่เรียกตัวเองมักซ่อนเงื่อนไขง่าย ๆ ไว้ข้างใน ที่นี่มันคือการนับตำแหน่งที่ตัวถัดไปเล็กลง
-    และเมื่อเงื่อนไขนับได้ การหาตัวที่ R ก็เป็นแค่การถามทีละตำแหน่งว่าก้อนนี้ใหญ่พอจะกลืน R ไหม
+    การนับก่อนแล้วเดินมีบทเต็มพร้อมโจทย์ฝึกที่ <a href="/cp/count-then-walk/">นับก่อน แล้วค่อยเดินไปหาตัวที่ต้องการ</a>
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -659,12 +1020,17 @@ const dnaBill = [
 </CpProblemLayout>
 
 <style>
-
-  .dim{color:#7b8397;}
+  /* ตารางในตัวเล่นทีละขั้น: !important สู้กับ body .panel .dpsim table.rec{width:100%} ของ CpProblemLayout
+     เพื่อไม่ให้ความกว้างของตารางดันการ์ดให้กว้างตาม */
+  table.rec.dnaboard{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.dnaboard th:nth-child(1),
+  table.rec.dnaboard th:nth-child(2),
+  table.rec.dnaboard th:nth-child(4){width:16%;}
 
   /* ---------- แถบตัวอักษรของมินิเกม DNA ---------- */
   .dn-strip{display:flex;gap:5px;width:max-content;}
   .dn-strip :global(.dn-cell){
+    flex:0 0 auto;
     width:2rem;height:2.4rem;
     display:flex;align-items:center;justify-content:center;
     font-family:var(--dl-mono,monospace);font-size:1rem;
@@ -674,8 +1040,7 @@ const dnaBill = [
   .dn-strip :global(.dn-cell.slot){cursor:pointer;border-color:#3d5a80;color:#9ecbff;}
   .dn-strip :global(.dn-cell.slot:hover){border-color:var(--dl-emerald);}
   .dn-strip :global(.dn-cell.fixed){color:#7b8397;}
-  .dn-strip :global(.dn-cell.drop){border-color:#8a3b3b;background:#351717;color:#f0a6a6;}
-  .cpg-score .over{color:#f0a6a6;}
+  .cpg-score :global(.fail){color:#f0a6a6;}
 </style>
 
 <script>
@@ -694,6 +1059,28 @@ const dnaBill = [
     slots: number[];
   };
 
+  /* นิยามรูปแบบ-k ตามโจทย์คำต่อคำ: รูปแบบ-1 = เรียงไม่ลด
+     รูปแบบ-k = เป็นรูปแบบ-(k-1) อยู่แล้ว หรือ (รูปแบบ-(k-1) ต่อด้วย รูปแบบ-1) */
+  function sortedUp(s: string): boolean {
+    for (let i = 0; i + 1 < s.length; i++) if (s[i] > s[i + 1]) return false;
+    return true;
+  }
+  const memo = new Map<string, boolean>();
+  function isForm(s: string, k: number): boolean {
+    const key = `${s}|${k}`;
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    let ok = sortedUp(s);
+    if (!ok && k > 1) {
+      ok = isForm(s, k - 1);
+      for (let p = 1; !ok && p < s.length; p++) ok = isForm(s.slice(0, p), k - 1) && sortedUp(s.slice(p));
+    }
+    memo.set(key, ok);
+    return ok;
+  }
+
+  const IDLE = 'กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร';
+
   function initDnaGame(): void {
     const maybeUi = cpGameUi('[data-dnagame]');
     if (!maybeUi) return;
@@ -703,18 +1090,18 @@ const dnaBill = [
     if (puzzles.length === 0) return;
 
     const stripEl = ui.root.querySelector<HTMLElement>('[data-dn-strip]');
-    const dropsEl = ui.root.querySelector<HTMLElement>('[data-dn-drops]');
-    const capEl = ui.root.querySelector<HTMLElement>('[data-dn-cap]');
+    const passEl = ui.root.querySelector<HTMLElement>('[data-dn-pass]');
     const patEl = ui.root.querySelector<HTMLElement>('[data-dn-pat]');
     const kEl = ui.root.querySelector<HTMLElement>('[data-dn-k]');
+    const k2El = ui.root.querySelector<HTMLElement>('[data-dn-k2]');
     const rEl = ui.root.querySelector<HTMLElement>('[data-dn-r]');
     const totalEl = ui.root.querySelector<HTMLElement>('[data-dn-total]');
-    if (!stripEl || !dropsEl || !capEl || !patEl || !kEl || !rEl || !totalEl) return;
+    if (!stripEl || !passEl || !patEl || !kEl || !k2El || !rEl || !totalEl) return;
     const strip: HTMLElement = stripEl;
-    const dropsOut: HTMLElement = dropsEl;
-    const capOut: HTMLElement = capEl;
+    const passOut: HTMLElement = passEl;
     const patOut: HTMLElement = patEl;
     const kOut: HTMLElement = kEl;
+    const k2Out: HTMLElement = k2El;
     const rOut: HTMLElement = rEl;
     const totalOut: HTMLElement = totalEl;
 
@@ -723,12 +1110,6 @@ const dnaBill = [
     let cur: string[] = [];
 
     const pz = (): DnPuzzle => puzzles[pi];
-
-    function dropCount(s: string[]): number {
-      let d = 0;
-      for (let i = 0; i + 1 < s.length; i++) if (s[i] > s[i + 1]) d++;
-      return d;
-    }
 
     function buildStrip(): void {
       const p = pz();
@@ -748,18 +1129,16 @@ const dnaBill = [
 
     function render(): void {
       const p = pz();
-      const d = dropCount(cur);
       const cells = Array.from(strip.querySelectorAll<HTMLElement>('.dn-cell'));
       cells.forEach((cell, i) => {
         cell.textContent = cur[i];
-        const isDrop = i + 1 < cur.length && cur[i] > cur[i + 1];
-        cell.classList.toggle('drop', isDrop);
       });
-      dropsOut.textContent = String(d);
-      capOut.textContent = String(p.k - 1);
-      dropsOut.className = d > p.k - 1 ? 'over' : '';
+      const pass = isForm(cur.join(''), p.k);
+      passOut.textContent = pass ? 'เป็น' : 'ยังไม่เป็น';
+      passOut.className = pass ? '' : 'fail';
       patOut.textContent = p.pat;
       kOut.textContent = String(p.k);
+      k2Out.textContent = String(p.k);
       rOut.textContent = String(p.r);
       totalOut.textContent = String(p.total);
     }
@@ -767,9 +1146,8 @@ const dnaBill = [
     function check(): void {
       const p = pz();
       const s = cur.join('');
-      const d = dropCount(cur);
-      if (d > p.k - 1) {
-        ui.setStatus(`ลำดับนี้มีรอยต่อ ${d} ตำแหน่ง เกินเพดาน ${p.k - 1} จึงไม่ใช่ลำดับรูปแบบ-${p.k}`, 'bad');
+      if (!isForm(s, p.k)) {
+        ui.setStatus(`${s} ยังไม่เป็นรูปแบบ-${p.k} ตามนิยาม จึงไม่อยู่ในรายการที่นับอันดับ`, 'bad');
         return;
       }
       if (s === p.answer) {
@@ -777,10 +1155,7 @@ const dnaBill = [
         return;
       }
       const cmp = s < p.answer ? 'มาก่อน' : 'มาหลัง';
-      ui.setStatus(
-        `${s} เป็นลำดับที่ผ่านเงื่อนไขจริง แต่มัน${cmp}อันดับที่ ${p.r} ในพจนานุกรม`,
-        'bad',
-      );
+      ui.setStatus(`${s} เป็นรูปแบบ-${p.k} จริง แต่มัน${cmp}อันดับที่ ${p.r} ในพจนานุกรม`, 'bad');
     }
 
     function selectPuzzle(k: number): void {
@@ -790,7 +1165,7 @@ const dnaBill = [
       ui.selectTab(k);
       ui.setTease(p.tease);
       buildStrip();
-      ui.setStatus('กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ');
+      ui.setStatus(IDLE);
       render();
     }
 
@@ -800,7 +1175,7 @@ const dnaBill = [
       if (!(cell instanceof HTMLElement)) return;
       const i = Number(cell.dataset.i);
       cur[i] = AL[(AL.indexOf(cur[i]) + 1) % AL.length];
-      ui.setStatus('กดที่ช่อง N เพื่อวนเปลี่ยนตัวอักษร ช่องที่ตัวถัดไปเล็กลงจะถูกทำเครื่องหมายว่าเป็นรอยต่อ');
+      ui.setStatus(IDLE);
       render();
     });
 
