@@ -1,6 +1,8 @@
 // หมวด competitive programming: เข้าได้ทางเดียวคือผ่านหน้า /divine-lore/
 // (เหมือน /games/) จึงไม่มีลิงก์จากหน้าไหนในเว็บสาธารณะ และถูกกันออกจาก sitemap
 
+import { assertDatePair } from '../lib/dates';
+
 /** ชุดโจทย์ (คอนเทสต์/คอร์ส/แหล่งที่มา) ใช้จัดกลุ่มการ์ดบนหน้า /cp/ */
 export interface CpSet {
   /** id สั้น ๆ ใช้อ้างจาก CpProblem.setId */
@@ -90,6 +92,8 @@ export interface CpProblem {
   kind?: 'problem' | 'lesson';
   /** วันที่เขียนเฉลย (YYYY-MM-DD) */
   dateISO: string;
+  /** วันที่แก้เนื้อหาครั้งล่าสุด (YYYY-MM-DD) ใส่เมื่อเขียนใหม่หรือเพิ่มเนื้อหาหลังเผยแพร่ ไม่ใส่สำหรับงานกวาด CSS/ลิงก์ */
+  updatedISO?: string;
   readingMinutes: number;
   /** การ์ดตัวอย่างของข้อที่ยังไม่ได้เขียน */
   soon?: boolean;
@@ -119,6 +123,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['prefix sum', 'BIT', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 25,
   },
   {
@@ -130,6 +135,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['bfs', 'state space', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 14,
   },
   {
@@ -141,6 +147,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -152,6 +159,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['hashing', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -163,6 +171,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'interval dp', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-08-27',
+    updatedISO: '2026-09-10',
     readingMinutes: 22,
   },
   {
@@ -174,6 +183,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'state compression', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-10',
     readingMinutes: 17,
   },
   {
@@ -185,6 +195,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'พื้นฐาน'],
     difficulty: 1,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 13,
   },
   {
@@ -196,6 +207,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['trie', 'string', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 10,
   },
   {
@@ -207,6 +219,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 11,
   },
   {
@@ -218,6 +231,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'tree', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 10,
   },
   {
@@ -229,6 +243,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['segment tree', 'binary search', 'พื้นฐาน'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-10',
     readingMinutes: 31,
   },
   {
@@ -294,6 +309,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'stack'],
     difficulty: 3,
     dateISO: '2026-08-26',
+    updatedISO: '2026-09-07',
     readingMinutes: 7,
   },
   {
@@ -305,6 +321,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'state compression'],
     difficulty: 3,
     dateISO: '2026-09-05',
+    updatedISO: '2026-09-08',
     readingMinutes: 9,
   },
   {
@@ -316,6 +333,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['bfs', 'constructive'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-08',
     readingMinutes: 10,
   },
   {
@@ -327,6 +345,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['sweep line', 'BIT', 'prefix sum'],
     difficulty: 4,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-08',
     readingMinutes: 11,
   },
   {
@@ -338,6 +357,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['hashing', 'dp', 'string'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-08',
     readingMinutes: 8,
   },
   {
@@ -349,6 +369,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dfs', 'greedy'],
     difficulty: 3,
     dateISO: '2026-09-06',
+    updatedISO: '2026-09-09',
     readingMinutes: 9,
   },
   {
@@ -360,6 +381,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['simulation', 'invariant', 'binary search', 'ad hoc'],
     difficulty: 5,
     dateISO: '2026-09-06',
+    updatedISO: '2026-10-19',
     readingMinutes: 26,
   },
   {
@@ -371,6 +393,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['two pointers', 'string', 'ad hoc'],
     difficulty: 2,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 8,
   },
   {
@@ -382,6 +405,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['trie', 'dfs', 'greedy'],
     difficulty: 3,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 11,
   },
   {
@@ -393,6 +417,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'state compression'],
     difficulty: 3,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-08',
     readingMinutes: 11,
   },
   {
@@ -404,6 +429,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['greedy', 'BIT', 'binary search'],
     difficulty: 4,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 11,
   },
   {
@@ -415,6 +441,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'counting', 'string'],
     difficulty: 4,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-08',
     readingMinutes: 11,
   },
   {
@@ -426,6 +453,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'greedy', 'parity'],
     difficulty: 4,
     dateISO: '2026-09-07',
+    updatedISO: '2026-09-09',
     readingMinutes: 12,
   },
   {
@@ -437,6 +465,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['functional graph', 'tree', 'dp'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 16,
   },
   {
@@ -448,6 +477,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'state compression', 'parity'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 15,
   },
   {
@@ -459,6 +489,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['counting', 'segment tree', 'greedy'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 14,
   },
   {
@@ -470,6 +501,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['binary search', 'sweep line', 'segment tree'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 17,
   },
   {
@@ -481,6 +513,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['geometry', 'bfs', 'dfs'],
     difficulty: 5,
     dateISO: '2026-09-07',
+    updatedISO: '2026-10-19',
     readingMinutes: 16,
   },
   {
@@ -514,6 +547,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'bfs'],
     difficulty: 5,
     dateISO: '2026-09-09',
+    updatedISO: '2026-10-20',
     readingMinutes: 14,
   },
   {
@@ -536,6 +570,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['greedy', 'binary lifting'],
     difficulty: 5,
     dateISO: '2026-09-09',
+    updatedISO: '2026-10-20',
     readingMinutes: 13,
   },
   {
@@ -657,6 +692,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['dp', 'binary lifting', 'state space'],
     difficulty: 5,
     dateISO: '2026-09-11',
+    updatedISO: '2026-10-20',
     readingMinutes: 16,
   },
   {
@@ -668,6 +704,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['tree', 'dp', 'segment tree', 'counting'],
     difficulty: 5,
     dateISO: '2026-09-11',
+    updatedISO: '2026-10-16',
     readingMinutes: 16,
   },
   {
@@ -679,6 +716,7 @@ export const cpProblems: CpProblem[] = [
     topics: ['offline', 'prefix sum', 'BIT', 'counting'],
     difficulty: 5,
     dateISO: '2026-09-12',
+    updatedISO: '2026-10-15',
     readingMinutes: 16,
   },
 ];
@@ -719,8 +757,7 @@ function assertCpData(): void {
 
     if (p.soon) continue; // การ์ด "เร็วๆ นี้" ยังไม่ต้องมีวันที่กับเวลาอ่าน
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.dateISO) || Number.isNaN(Date.parse(p.dateISO)))
-      throw new Error(`${at}: dateISO "${p.dateISO}" ต้องเป็นวันที่จริงในรูป YYYY-MM-DD`);
+    assertDatePair(at, p.dateISO, p.updatedISO);
     if (!Number.isInteger(p.readingMinutes) || p.readingMinutes <= 0)
       throw new Error(`${at}: readingMinutes ต้องเป็นจำนวนเต็มบวก`);
   }

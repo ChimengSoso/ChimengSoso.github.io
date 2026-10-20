@@ -1,3 +1,5 @@
+import { assertDatePair } from '../lib/dates';
+
 export interface Article {
   /** Directory-style path relative to /knowledge/ (e.g. 'claude-intro/', not '.html'). */
   href: string;
@@ -142,6 +144,13 @@ export const articles: Article[] = [
     soon: false,
   },
 ];
+
+// ตรวจวันที่ตอน build (ไฟล์นี้ถูก import ทุกหน้า /knowledge/ จึงรันทุกครั้งที่ build)
+for (const a of articles) {
+  if (a.soon) continue;
+  if (!a.dateISO) throw new Error(`articles.ts: "${a.href}" เผยแพร่แล้วแต่ไม่มี dateISO`);
+  assertDatePair(`articles.ts: "${a.href}"`, a.dateISO, a.updatedISO);
+}
 
 export interface AdjacentArticles {
   prev: Article | null;

@@ -58,6 +58,7 @@ const sortOptions = [
   { value: 'set', label: 'จัดกลุ่มตามชุด' },
   { value: 'new', label: 'ใหม่สุดก่อน' },
   { value: 'old', label: 'เก่าสุดก่อน' },
+  { value: 'updated', label: 'แก้ล่าสุดก่อน' },
   { value: 'title', label: 'ชื่อ ก ถึง ฮ' },
   { value: 'easy', label: 'ง่ายไปยาก' },
   { value: 'hard', label: 'ยากไปง่าย' },
@@ -187,6 +188,7 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
               data-topics={p.topics.join('|')}
               data-diff={p.difficulty}
               data-date={p.dateISO}
+              data-updated={p.updatedISO ?? p.dateISO}
               data-title={p.title}
               data-minutes={p.readingMinutes}
               data-text={searchBlob(p)}
@@ -199,7 +201,10 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
                 <span class="cp-diff">{'★'.repeat(p.difficulty)}{'☆'.repeat(5 - p.difficulty)}</span>
                 {p.topics.map((t) => <span class="cp-topic">{t}</span>)}
                 <span class="rt">อ่าน {p.readingMinutes} นาที</span>
-                <span class="date">{formatThaiDateShort(p.dateISO)}</span>
+                <span class="dates">
+                  {p.updatedISO && <span class="upd">อัปเดต {formatThaiDateShort(p.updatedISO)}</span>}
+                  <span class="date">{formatThaiDateShort(p.dateISO)}</span>
+                </span>
               </div>
             </a>
           ))}
@@ -228,6 +233,8 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
     topics: string[];
     diff: string;
     date: string;
+    /** วันแก้ล่าสุด ถ้าไม่เคยแก้จะเท่ากับวันเผยแพร่ */
+    updated: string;
     title: string;
     minutes: number;
     text: string;
@@ -272,6 +279,7 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
       topics: (el.dataset.topics ?? '').split('|').filter(Boolean),
       diff: el.dataset.diff ?? '',
       date: el.dataset.date ?? '',
+      updated: el.dataset.updated ?? '',
       title: el.dataset.title ?? '',
       minutes: Number(el.dataset.minutes ?? '0'),
       text: el.dataset.text ?? '',
@@ -316,6 +324,7 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
     const cmp: Record<string, (a: Card, b: Card) => number> = {
       new: (a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title, 'th'),
       old: (a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, 'th'),
+      updated: (a, b) => b.updated.localeCompare(a.updated) || a.title.localeCompare(b.title, 'th'),
       title: (a, b) => a.title.localeCompare(b.title, 'th'),
       easy: (a, b) => Number(a.diff) - Number(b.diff) || a.title.localeCompare(b.title, 'th'),
       hard: (a, b) => Number(b.diff) - Number(a.diff) || a.title.localeCompare(b.title, 'th'),
@@ -793,7 +802,16 @@ const facets: { key: string; legend: string; values: FacetValue[]; extra: number
     padding:0.1rem 0.5rem;
     color:var(--dl-emerald-bright);
   }
-  .meta .date{margin-left:auto;}
+  /* วันเผยแพร่ (และพิลล์ "อัปเดต" ของการ์ดที่เคยแก้) ชิดขวา ตัดบรรทัดไปด้วยกัน */
+  .meta .dates{margin-left:auto;display:inline-flex;align-items:center;gap:0.5rem;white-space:nowrap;}
+  .meta .upd{
+    border:1px solid var(--dl-emerald);
+    border-radius:999px;
+    padding:0.05rem 0.5rem;
+    color:var(--dl-emerald-bright);
+    font-weight:600;
+    white-space:nowrap;
+  }
   @media (prefers-reduced-motion: reduce){
     .item:hover{transform:none;}
     .cp-chip{transition:none;}
