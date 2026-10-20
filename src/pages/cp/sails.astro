@@ -24,9 +24,10 @@ const cost = (cnt: number[]): number => cnt.reduce((a, c) => a + (c * (c - 1)) /
 
 /** เดินตามท่าโลภ: ใส่ใบเรือลงระดับที่ตอนนี้ว่างที่สุด โดยไล่จากเสาเตี้ยไปเสาสูง */
 type GreedyStep = { i: number; mast: Mast; picked: number[]; after: number[]; cost: number };
-function greedy(masts: Mast[]): GreedyStep[] {
-  const sorted = [...masts].sort((a, b) => a.h - b.h);
-  const cnt = new Array<number>(MAXH).fill(0);
+/** sortFirst = false คือไล่ตามลำดับที่ให้มา ใช้โชว์ว่าลำดับเตี้ยไปสูงจำเป็นจริง */
+function greedy(masts: Mast[], sortFirst = true): GreedyStep[] {
+  const sorted = sortFirst ? [...masts].sort((a, b) => a.h - b.h) : [...masts];
+  const cnt = new Array<number>(Math.max(...masts.map((m) => m.h))).fill(0);
   const steps: GreedyStep[] = [];
   sorted.forEach((m, i) => {
     const idx = Array.from({ length: m.h }, (_, j) => j);
@@ -68,7 +69,7 @@ const sailSteps: SailStep[] = steps.map((st, idx) => {
     gain,
     note:
       `เสาต้นที่ <b>${st.i}</b> สูง <b>${st.mast.h}</b> ต้องใส่ใบ <b>${st.mast.k}</b> ใบ ` +
-      `ระดับที่มันเอื้อมถึงคือ 1 ถึง <b>${st.mast.h}</b> และตอนนี้ระดับที่ว่างที่สุดในนั้นมีอยู่ <b>${lowest}</b> ใบ ` +
+      `ระดับที่มันเอื้อมถึงคือ 1 ถึง <b>${st.mast.h}</b> และตอนนี้ระดับที่มีใบน้อยที่สุดในนั้นมีอยู่ <b>${lowest}</b> ใบ ` +
       `จึงหย่อนลงระดับ <b>${st.picked.join(', ')}</b> ` +
       (gain === 0
         ? 'รอบนี้ไม่มีใบไหนไปเจอเพื่อนร่วมระดับ จึงยังไม่เสียแต้มเพิ่ม'
@@ -193,56 +194,74 @@ const gamePuzzles: GamePuzzleData[] = GAME_PUZZLES.map((p) => {
 });
 const gameJson = JSON.stringify(gamePuzzles);
 
-/**
- * เวอร์ชันที่เขียนแบบ "เติมเป็นช่วง" ซึ่งเป็นรูปที่โค้ดจริงใช้
- * headRule = true คือหยิบหัวบล็อกที่ค่าเสมอกัน (ถูก) ส่วน false คือหยิบท้ายบล็อก (ผิด)
- */
-function rangeImpl(masts: Mast[], headRule: boolean): { cost: number; snaps: number[][] } {
-  const a = new Array<number>(MAXH + 1).fill(0);
-  const snaps: number[][] = [];
-  for (const m of [...masts].sort((x, y) => x.h - y.h)) {
-    const v = a[m.h - m.k + 1];
-    let l = 1;
-    while (l <= m.h && a[l] > v) l++;
-    let r = m.h;
-    while (r >= 1 && a[r] < v) r--;
-    const below = m.h - r;
-    for (let i = r + 1; i <= m.h; i++) a[i]++;
-    const k2 = m.k - below;
-    if (k2 > 0) {
-      if (headRule) for (let i = l; i <= l + k2 - 1; i++) a[i]++;
-      else for (let i = r - k2 + 1; i <= r; i++) a[i]++;
-    }
-    snaps.push(a.slice(1));
-  }
-  return { cost: cost(a.slice(1)), snaps };
+/* ---------- ลำดับเตี้ยไปสูงจำเป็นจริง ----------
+   ชุดที่ 3 ของเกมคือเคสที่ถ้าไล่เสาตามลำดับที่ให้มา (เสาสูงก่อน) จะเสียแต้มมากกว่า */
+const G3 = GAME_PUZZLES[2].masts;
+const g3Sorted = greedy(G3)[G3.length - 1].cost;
+const g3TallFirst = greedy(G3, false)[G3.length - 1].cost;
+if (g3TallFirst <= g3Sorted || g3Sorted !== bestByBrute(G3)) {
+  throw new Error(`sails: ชุดที่ 3 ควรลงโทษการไล่เสาสูงก่อน แต่ได้ ${g3TallFirst} เทียบ ${g3Sorted}`);
 }
-const good = rangeImpl(MASTS, true);
-const bad = rangeImpl(MASTS, false);
-const isSorted = (row: number[]): boolean => row.every((v, i) => i === 0 || row[i - 1] >= v);
 
-/* ---------- โค้ดที่ผิดรอบแรก กับเคสที่เล็กที่สุดที่จับมันได้ ----------
-   เหมือน rangeImpl ทุกบรรทัด ต่างแค่รับความสูงสูงสุดเข้ามาเอง จะได้ใช้กับชุดเล็กนอก MASTS ได้ */
-function rangeCost(masts: Mast[], headRule: boolean, maxh: number): { cost: number; after: number[][] } {
-  const a = new Array<number>(maxh + 1).fill(0);
+/**
+ * จำลองโค้ด C++ แบบ "เติมเป็นช่วง" ทีละบรรทัด รวมการค้นแบบไบนารีสองรอบด้วย
+ * headRule = true คือหยิบหัวบล็อกที่ค่าเสมอกัน (โค้ดจริง) ส่วน false คือหยิบท้ายบล็อก (โค้ดรอบแรกที่ผิด)
+ * เรียงเสาแบบเดียวกับ sort ของ pair ใน C++ คือสูงก่อนแล้วค่อย K
+ * ตรวจแล้วว่าตอบตรงกับ sails_wrong.cpp ที่คอมไพล์จริงทุกชุดที่ไล่ครบ
+ */
+type RangeTrace = { v: number; l: number; r: number };
+function rangeRun(
+  masts: Mast[],
+  headRule: boolean,
+): { cost: number; after: number[][]; trace: RangeTrace[]; placed: number } {
+  const maxh = Math.max(...masts.map((m) => m.h));
+  const a = new Array<number>(maxh + 2).fill(0);
   const after: number[][] = [];
-  for (const m of [...masts].sort((x, y) => x.h - y.h)) {
+  const trace: RangeTrace[] = [];
+  for (const m of [...masts].sort((x, y) => x.h - y.h || x.k - y.k)) {
     const v = a[m.h - m.k + 1];
-    let l = 1;
-    while (l <= m.h && a[l] > v) l++;
-    let r = m.h;
-    while (r >= 1 && a[r] < v) r--;
-    const below = m.h - r;
-    for (let i = r + 1; i <= m.h; i++) a[i]++;
-    const k2 = m.k - below;
-    if (k2 > 0) {
-      if (headRule) for (let i = l; i <= l + k2 - 1; i++) a[i]++;
-      else for (let i = r - k2 + 1; i <= r; i++) a[i]++;
+    let lo = 1;
+    let hi = m.h;
+    let l = m.h + 1;
+    while (lo <= hi) {
+      const md = (lo + hi) >> 1;
+      if (a[md] <= v) {
+        l = md;
+        hi = md - 1;
+      } else lo = md + 1;
     }
-    after.push(a.slice(1));
+    lo = 1;
+    hi = m.h;
+    let r = 0;
+    while (lo <= hi) {
+      const md = (lo + hi) >> 1;
+      if (a[md] >= v) {
+        r = md;
+        lo = md + 1;
+      } else hi = md - 1;
+    }
+    for (let i = r + 1; i <= m.h; i++) a[i]++;
+    const k2 = m.k - (m.h - r);
+    if (k2 > 0) {
+      const from = headRule ? l : r - k2 + 1;
+      if (from < 1) throw new Error('sails: rangeRun เติมช่วงที่เริ่มก่อนระดับ 1');
+      for (let i = from; i <= from + k2 - 1; i++) a[i]++;
+    }
+    trace.push({ v, l, r });
+    after.push(a.slice(1, maxh + 1));
   }
-  return { cost: cost(a.slice(1)), after };
+  const fin = after[after.length - 1];
+  return { cost: cost(fin), after, trace, placed: fin.reduce((s, c) => s + c, 0) };
 }
+const good = rangeRun(MASTS, true);
+const bad = rangeRun(MASTS, false);
+const isSorted = (row: number[]): boolean => row.every((v, i) => i === 0 || row[i - 1] >= v);
+if (good.cost !== answer || good.after.some((row, i) => row.join() !== steps[i].after.join())) {
+  throw new Error('sails: โค้ดเติมเป็นช่วงไม่ตรงกับท่าโลภแบบนับตรงบนตัวอย่าง');
+}
+const badFirstBreak = bad.after.findIndex((row) => !isSorted(row));
+if (badFirstBreak < 0) throw new Error('sails: กฎหยิบท้ายบล็อกควรทำให้อาเรย์เลิกเรียงบนตัวอย่าง');
+const badFirstRow = bad.after[badFirstBreak].join(' ');
 const brokenSnippet = `int below = H - r;                     // ระดับที่ค่าน้อยกว่า v อยู่ท้ายสุด ใส่ก่อนทั้งหมด
 range(r + 1, H, 1);
 int k2 = K - below;
@@ -252,21 +271,86 @@ const BROKEN_MASTS: Mast[] = [
   { h: 2, k: 1 },
   { h: 2, k: 1 },
 ];
-const BROKEN_MAXH = Math.max(...BROKEN_MASTS.map((m) => m.h));
 const brokenInput =
   BROKEN_MASTS.length + '\n' + BROKEN_MASTS.map((m) => m.h + ' ' + m.k).join('\n');
 const brokenTrue = bestByBrute(BROKEN_MASTS);
-const brokenRun = rangeCost(BROKEN_MASTS, false, BROKEN_MAXH);
+const brokenRun = rangeRun(BROKEN_MASTS, false);
 const brokenWrong = brokenRun.cost;
 const brokenAfterFirst = brokenRun.after[0].join(' ');
-const goodAfterFirst = rangeCost(BROKEN_MASTS, true, BROKEN_MAXH).after[0].join(' ');
-if (brokenWrong === brokenTrue) {
-  throw new Error('sails: เคสตัวอย่างของบักกฎเสมอไม่ต่างกันแล้ว ต้องหาเคสใหม่');
+const brokenAfterLast = brokenRun.after[brokenRun.after.length - 1].join(' ');
+const brokenSecond = brokenRun.trace[1];
+const brokenNeed = BROKEN_MASTS.reduce((s, m) => s + m.k, 0);
+const goodAfterFirst = rangeRun(BROKEN_MASTS, true).after[0].join(' ');
+/* เรื่องที่หน้าเล่า: ก้าวที่สองค้นไม่เจอระดับที่มีค่า v (r = 0) จึงแขวนทุกระดับ ได้ใบเกินจำนวนจริง */
+if (brokenWrong === brokenTrue || brokenSecond.r !== 0 || brokenRun.placed <= brokenNeed) {
+  throw new Error('sails: เคสตัวอย่างของบักกฎเสมอไม่ได้พังแบบที่หน้าเล่าแล้ว ต้องแก้คำอธิบาย');
 }
 
 const NMAX = 100000;
 const HMAX = 100000;
 const fmt = (n: number): string => n.toLocaleString('en-US');
+
+/* ---------- ตัวเลขที่วัดจากโค้ดที่หน้านี้ส่งจริง (WSL, g++ 11.4 -O2) ----------
+   วัดนอกหน้าเว็บ จึงพิมพ์ไว้เป็นค่าคงที่ ส่วนจำนวนก้าวข้างล่างคิดจากโค้ด */
+const T_BIT_MS = 80; // N = 100,000 H สุ่มถึง 100,000 สามรอบ 70 ถึง 80 ms
+const MEM_BIT_MB = 5; // สูงสุดราว 4.9 MB
+const PQ_SUMK = 25032928; // N = 100,000 H สุ่มถึง 1,000 ผลรวม K
+const T_PQ_S = '1.62';
+const SUB_WAYS = 762048; // เสา 10/5, 10/5, 4/2, 2/1
+const T_SUB_S = '0.02';
+const STRESS_ROUNDS = 500; // สุ่มเสา 2 ถึง 5 ต้น สูงไม่เกิน 5
+const EXH_CASES = 3860; // ทุกชุดเสา 2 ถึง 4 ต้น สูงไม่เกิน 5 (ไม่สนลำดับเสา)
+const EXH_WRONG = 2299;
+/* log2 ของความสูง ปัดขึ้น: จำนวนชั้นที่ BIT กับคิวต้องเดิน */
+const LOG_H = Math.ceil(Math.log2(HMAX + 1));
+/* นับตามที่ sails.cpp ทำ แต่ละ at()/upd เดินไม่เกิน LOG_H ชั้น
+   ต่อเสา: ค้นไบนารี 2 รอบ รอบละ LOG_H ครั้ง ครั้งละ at() 1 ครั้ง = 2 LOG_H^2
+           + at() หา v 1 ครั้ง + range() 2 ครั้ง ครั้งละ upd 2 ครั้ง = 5 LOG_H
+   บวกการเรียงเสา N log N และลูปรวมแต้มท้าย at() ทุกระดับ = H log H
+   ใช้ log2 ของ N กับ H แยกกัน (ที่ขอบเขตเต็มทั้งคู่คือ 17) */
+const LOG_N = Math.ceil(Math.log2(NMAX + 1));
+const BIT_STEPS =
+  NMAX * (2 * LOG_H * LOG_H + 5 * LOG_H) + NMAX * LOG_N + HMAX * LOG_H;
+/* คิว: ใบละ pop หนึ่งครั้ง push หนึ่งครั้ง ครั้งละ LOG_H ชั้น ผลรวม K มากสุดคือ N x H */
+const PQ_STEPS = 2 * NMAX * HMAX * LOG_H;
+const millions = (n: number): string => fmt(Math.round(n / 1e6));
+
+/* ---------- ทดสอบตัวเอง ข้อ 1 ---------- */
+const QUIZ1: Mast[] = [
+  { h: 3, k: 2 },
+  { h: 3, k: 2 },
+  { h: 3, k: 2 },
+];
+const quiz1Cnt = greedy(QUIZ1)[QUIZ1.length - 1].after;
+const quiz1 = cost(quiz1Cnt);
+if (quiz1 !== bestByBrute(QUIZ1) || quiz1Cnt.some((c) => pairCost(c) !== 1)) throw new Error('sails: ข้อทดสอบตัวเอง 1 ไม่ตรงกับการไล่ทุกแบบ');
+
+/* ---------- ตัวอย่างของคำว่า "บล็อก" กับข้อทดสอบตัวเอง 2 ----------
+   ใช้สภาพหลังเสาต้นที่ 5 ของตัวอย่าง (เรียงแล้ว) แล้วสมมติเสาต้นถัดไปสูง 5 ต้องการ 2 ใบ */
+const BLOCK_STEP = 5;
+const blockRow = good.after[BLOCK_STEP - 1];
+const blockV = 2;
+const blockLo = blockRow.indexOf(blockV) + 1;
+const blockHi = blockRow.lastIndexOf(blockV) + 1;
+if (blockRow.join(' ') !== '3 2 2 2 0' || blockLo !== 2 || blockHi !== 4) {
+  throw new Error('sails: ตัวอย่างบล็อก 3 2 2 2 0 ไม่ตรงกับตัวอย่างแล้ว ต้องแก้ข้อความ');
+}
+const QUIZ2_MAST: Mast = { h: 5, k: 2 };
+const quiz2Prefix = [...MASTS].sort((x, y) => x.h - y.h || x.k - y.k).slice(0, BLOCK_STEP);
+const quiz2Run = rangeRun([...quiz2Prefix, QUIZ2_MAST], true);
+const quiz2 = quiz2Run.trace[BLOCK_STEP];
+const quiz2After = quiz2Run.after[BLOCK_STEP];
+const quiz2Greedy = greedy([...quiz2Prefix, QUIZ2_MAST])[BLOCK_STEP].after;
+if (
+  quiz2Run.after[BLOCK_STEP - 1].join() !== blockRow.join() ||
+  quiz2After.join() !== quiz2Greedy.join() ||
+  quiz2.r === QUIZ2_MAST.h ||
+  QUIZ2_MAST.k - (QUIZ2_MAST.h - quiz2.r) < 1
+) {
+  throw new Error('sails: ข้อทดสอบตัวเอง 2 ต้องมีทั้งช่วงท้ายและหัวบล็อก และต้องตรงกับท่าโลภแบบนับตรง');
+}
+const quiz2Below = QUIZ2_MAST.h - quiz2.r;
+const quiz2K2 = QUIZ2_MAST.k - quiz2Below;
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
@@ -339,8 +423,7 @@ range(r + 1, H, 1);
 int k2 = K - below;                     // ที่เหลือหยิบจาก "หัว" ของบล็อก ไม่ใช่ท้าย
 if (k2 > 0) range(l, l + k2 - 1, 1);`;
 /* ---------- ท่าโลภเขียนด้วยคิวลำดับความสำคัญ ----------
-   โค้ดสองชิ้นนี้คอมไพล์แล้วสุ่มเทียบกัน 500 รอบ ตรงกันหมด
-   ตัวตรวจไล่ทุกวิธีจัดจริง จึงตรวจข้ออ้างของท่าโลภได้ ไม่ใช่แค่ตรวจการพิมพ์ */
+   ตัวตรวจไล่ทุกวิธีจัดจริง ไม่ได้ใช้กฎของท่าโลภ จึงตรวจตัวกฎได้ด้วย */
 const pqCode = `// ท่าโลภของโจทย์ใบเรือ เขียนด้วยคิวลำดับความสำคัญ
 // ไล่เสาจากเตี้ยไปสูง แต่ละเสาหย่อนใบลงระดับที่ "ว่างที่สุด" ในระยะที่มันเอื้อมถึง
 // อินพุต: n แล้ว n บรรทัด h k    เอาต์พุต: แต้มที่เสียน้อยที่สุด
@@ -361,17 +444,16 @@ int main() {
     int opened = 0;                           // ระดับที่ปล่อยให้ใช้ได้แล้ว
     for (auto [h, k] : m) {
         while (opened < h) { ++opened; pq.push({cnt[opened], opened}); }
-        // หยิบ k ระดับที่ว่างที่สุดออกมา แล้วใส่กลับพร้อมค่าที่เพิ่มขึ้น
+        // หยิบ k ระดับที่มีใบน้อยที่สุดออกมา ตอนเริ่มเสาแต่ละต้น ทุกระดับที่เปิดแล้วมีในคิวพอดีหนึ่งรายการ ค่าตรงกับ cnt
         vector<int> picked;
         picked.reserve(k);
         for (int t = 0; t < k; t++) {
-            // ค่าในคิวอาจเก่า ถ้าไม่ตรงกับ cnt จริงให้ทิ้งแล้วหยิบใหม่
-            while (!pq.empty() && pq.top().first != cnt[pq.top().second]) pq.pop();
             auto [c, lv] = pq.top();
             pq.pop();
             cnt[lv] = c + 1;
             picked.push_back(lv);
         }
+        // ใส่กลับหลังหยิบครบ k ตัว ถ้าใส่กลับทันที เสาต้นเดียวอาจหยิบระดับเดิมซ้ำ
         for (int lv : picked) pq.push({cnt[lv], lv});
     }
     long long cost = 0;
@@ -426,33 +508,34 @@ int main() {
     return 0;
 }`;
 
-/* ---------- บิลค่าใช้จ่าย เทียบทางย่อยกับทางหลัก ---------- */
-const saBill = [
-  { name: 'ไล่ทุกวิธีจัด', limit: 'จำนวนวิธีรวมไม่เกินหนึ่งล้าน', work: '1,000,000 แบบ' },
-  { name: 'ท่าโลภกับคิวลำดับความสำคัญ', limit: 'N ถึง 100,000', work: '1,700,000 ครั้ง' },
-];
 
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · ใบเรือที่บังลมกันเอง</h2>
   <p>
     เรือโจรสลัดลำใหม่มีเสา <code>N</code> ต้น เรียงจากหัวเรือไปท้ายเรือ เสาต้นที่ <code>i</code> สูง
-    <code>H</code> ช่อง และต้องติดใบเรือ <code>K</code> ใบ โดยหนึ่งช่องติดได้ไม่เกินหนึ่งใบ
-    เราเลือกได้ว่าจะติดใบไหนที่ระดับไหนของเสาต้นนั้น
+    <code>H</code> ช่อง และต้องติดใบเรือ <code>K</code> ใบ หนึ่งช่องติดได้ไม่เกินหนึ่งใบ
+    เราเลือกเองได้ว่าจะติดใบไหนที่ระดับไหนของเสาต้นนั้น
   </p>
   <p>
-    ใบเรือที่อยู่<strong>ข้างหน้า</strong>ใบอื่นที่<strong>ระดับเดียวกัน</strong>จะบังลมให้ใบข้างหลัง
-    โจทย์นิยาม <strong>ความไร้ประสิทธิภาพ</strong> ของใบหนึ่งใบว่าคือจำนวนใบที่อยู่ข้างหลังมันและอยู่ระดับเดียวกัน
-    แล้วบวกของทุกใบเข้าด้วยกัน งานของเราคือจัดใบเรือให้ผลรวมนี้<strong>น้อยที่สุด</strong>
+    ใบเรือที่อยู่ข้างหน้าจะบังลมใบที่อยู่ข้างหลังในระดับเดียวกัน
+    โจทย์นิยาม <strong>ความไร้ประสิทธิภาพ</strong> ของใบหนึ่งใบว่าคือจำนวนใบที่อยู่ข้างหน้ามันในระดับเดียวกัน
+    คือจำนวนใบที่บังลมมัน
   </p>
   <p>
-    สังเกตจุดที่ทำให้โจทย์ง่ายลงเยอะทันที ถ้าระดับหนึ่งมีใบเรืออยู่ <code>c</code> ใบ ผลรวมของระดับนั้นคือ
-    จำนวนคู่ที่จับได้จาก <code>c</code> ใบ นั่นคือ <code>c × (c − 1) / 2</code> โดย<strong>ไม่เกี่ยวกับลำดับหัวท้ายเลย</strong>
-    เพราะทุกคู่ในระดับเดียวกันย่อมมีตัวหนึ่งอยู่หน้าอีกตัวหนึ่งอยู่แล้ว
+    งานของเราคือจัดใบเรือให้ผลรวมความไร้ประสิทธิภาพของทุกใบน้อยที่สุด
   </p>
   <p>
-    คำถามจึงเหลือแค่ ให้แจกใบเรือลงระดับต่าง ๆ โดยเสาต้นที่ <code>i</code> แจกได้เฉพาะระดับ 1 ถึง
-    <code>H</code> และแจกได้ระดับละไม่เกินหนึ่งใบ จะทำยังไงให้ผลรวมของ <code>c × (c − 1) / 2</code> ทุกระดับน้อยที่สุด
+    สังเกตจุดหนึ่งที่ทำให้โจทย์ง่ายลงทันที ถ้าระดับหนึ่งมีใบเรืออยู่ <code>c</code> ใบ ผลรวมของระดับนั้นคือ
+    จำนวนคู่ที่จับได้จาก <code>c</code> ใบ คือ <code>c × (c − 1) / 2</code>
+  </p>
+  <p>
+    สองใบในระดับเดียวกันย่อมมีใบหนึ่งอยู่หน้าอีกใบ จึงนับเป็นหนึ่งคู่พอดี
+    ตัวเลขนี้ขึ้นกับจำนวนใบของระดับอย่างเดียว ลำดับหัวท้ายของเสาหายไปจากโจทย์
+  </p>
+  <p>
+    คำถามจึงเหลือแค่ แจกใบเรือลงระดับต่าง ๆ โดยเสาต้นที่ <code>i</code> แจกได้เฉพาะระดับ 1 ถึง
+    <code>H</code> ระดับละไม่เกินหนึ่งใบ ทำยังไงให้ผลรวมของ <code>c × (c − 1) / 2</code> ทุกระดับน้อยที่สุด
   </p>
 
   <div class="callout callout-note spec">
@@ -489,58 +572,13 @@ const saBill = [
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      ฟังก์ชัน <code>c × (c − 1) / 2</code> มีคุณสมบัติหนึ่งที่ตัดสินทั้งข้อ คือส่วนต่างของมันเวลาเพิ่มขึ้นทีละหนึ่ง
-      เท่ากับ <code>c</code> พอดี พูดง่าย ๆ คือ<strong>ยิ่งกองไหนสูง การเติมใบลงกองนั้นยิ่งแพง</strong>
+      ลองคิดว่าใบที่ <code>c + 1</code> ของระดับหนึ่งทำให้แต้มเพิ่มขึ้นเท่าไร
     </p>
     <p>
-      แล้วถ้าเราจะไล่ใส่เสาทีละต้น ควรไล่จากเสาต้นไหนก่อน และตอนที่หลายระดับมีจำนวนใบเท่ากันเป๊ะ
-      การเลือกระดับล่างกับระดับบนต่างกันไหม
+      ถ้าเราจะไล่ใส่เสาทีละต้น ลำดับของเสามีผลกับแต้มไหม
+      และตอนที่หลายระดับมีจำนวนใบเท่ากันเป๊ะ จะเลือกระดับไหน
     </p>
   </div>
-
-  <ZoomableDiagram caption={`สภาพหลังท่าโลภวางใบเรือครบทุกเสาในตัวอย่าง เสาทั้ง ${MASTS.length} ต้นสูง ${sortedMasts.map((m) => m.h).join(', ')} และต้องการใบเรือ ${sortedMasts.map((m) => m.k).join(', ')} ใบตามลำดับที่ท่าโลภไล่ คือจากเสาเตี้ยไปเสาสูง ช่องในแต่ละแถวคือใบเรือที่ระดับนั้นรับไป ตัวเลขขวามือคือแต้มที่เสียของระดับนั้น ซึ่งคิดจากจำนวนคู่ของใบเรือที่อยู่ระดับเดียวกัน รวมทั้งภาพได้ ${answer} แต้ม สังเกตว่าระดับล่างรับไปมากกว่าเพราะทุกเสาเอื้อมถึง ส่วนระดับบนมีแต่เสาสูงที่เอื้อมถึง (วาดประกอบโดยผู้เขียน)`}>
-    <svg viewBox={sailsVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางแนวนอน ${MAXH} แถว แถวบนสุดคือระดับ ${MAXH} ไล่ลงมาถึงระดับ 1 จำนวนใบเรือของแต่ละระดับจากล่างขึ้นบนคือ ${finalCnt.join(' ')} และแต้มที่เสียของแต่ละระดับคือ ${finalCnt.map((c) => pairCost(c)).join(' ')} รวมได้ ${answer}`}>
-      <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ระดับ</text>
-      <text x={sqX(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ใบเรือที่ระดับนี้รับไป</text>
-      <text x={COSTX} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">แต้มที่เสีย</text>
-      {finalCnt.map((cnt, k) => {
-        const level = k + 1;
-        const y = rowY(level);
-        return (
-          <>
-            <text x="16" y={y + 18} fill="#cdd6ea" font-size="13" text-anchor="start" font-family="monospace">
-              {level}
-            </text>
-            {Array.from({ length: maxCnt }, (_, j) => j).map((j) => (
-              <rect
-                x={sqX(j)}
-                y={y}
-                width={SQ}
-                height={SQ}
-                rx="5"
-                fill={j < cnt ? '#12291c' : '#111726'}
-                stroke={j < cnt ? '#4ade80' : '#232c42'}
-                stroke-width={j < cnt ? '1.8' : '1.2'}
-              />
-            ))}
-            <text
-              x={COSTX}
-              y={y + 18}
-              fill={pairCost(cnt) > 0 ? '#e0b400' : '#7b8397'}
-              font-size="13"
-              text-anchor="start"
-              font-family="monospace"
-            >
-              {cnt} ใบ · {pairCost(cnt)}
-            </text>
-          </>
-        );
-      })}
-      <text x={COSTX} y={rowY(1) + ROW_H + 22} fill="#4ade80" font-size="13" text-anchor="start" font-weight="700" font-family="monospace">
-        รวม {answer}
-      </text>
-    </svg>
-  </ZoomableDiagram>
 
   <h2>ลองเอง · วางใบเรือให้เสียแต้มน้อยที่สุด</h2>
   <div class="cpgame sailgame" data-sailgame data-puzzles={gameJson}>
@@ -568,108 +606,196 @@ const saBill = [
     <p class="cpg-hint">แต้มของหนึ่งระดับคือจำนวนคู่ของใบเรือที่อยู่ระดับนั้น สองใบเสียหนึ่งแต้ม สามใบเสียสามแต้ม</p>
   </div>
   <p class="io-note">
-    ลองสังเกตว่าตอนไหนที่การย้ายใบเรือหนึ่งใบลงไปอีกระดับ ทำให้แต้มลดลง แล้วเงื่อนไขของจังหวะนั้นคืออะไร
+    ลองเทียบสองการจัดที่ต่างกันแค่ใบเดียว แล้วดูว่าแต้มเปลี่ยนไปเท่าไร
   </p>
 
-  <h2>เฉลย · ใส่ลงกองที่ว่างที่สุดเสมอ และไล่จากเสาที่เตี้ยที่สุด</h2>
+  <h2>เฉลย · เริ่มจากกรณีที่ง่ายกว่า</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        ผมเริ่มจากตัดสิ่งที่ดูเหมือนสำคัญแต่ไม่สำคัญออกก่อน โจทย์พูดถึงหัวเรือท้ายเรือเยอะมาก
-        แต่พอเขียนผลรวมออกมาก็เห็นว่าลำดับหัวท้าย<strong>ไม่มีผลกับคำตอบเลย</strong> เหลือแค่จำนวนใบต่อระดับ
-        ตรงนี้ทำให้โจทย์เล็กลงครึ่งหนึ่งทันที
+        ผมถามคำถามที่ง่ายกว่าก่อน ถ้าเสาสูงเท่ากันหมดจะทำยังไง คำตอบคือกระจายใบให้แต่ละระดับมีจำนวนเท่ากันที่สุด
       </p>
       <p>
-        จากนั้นผมถามคำถามที่ง่ายกว่าก่อน คือถ้าเสาสูงเท่ากันหมดจะทำยังไง ซึ่งตอบได้ทันทีว่ากระจายให้เท่ากันที่สุด
-        แล้วค่อยถามว่าอะไรคือสิ่งเดียวที่ทำให้โจทย์จริงยากกว่านั้น คำตอบคือ<strong>เสาแต่ละต้นมีสิทธิ์ไม่เท่ากัน</strong>
-        พอตั้งคำถามได้แบบนี้ กฎ "ให้คนที่มีทางเลือกน้อยที่สุดได้เลือกก่อน" ก็โผล่มาเอง
+        ที่ทำให้โจทย์จริงยากกว่าคือเสาแต่ละต้นเอื้อมได้ไม่เท่ากัน
+        พอเห็นแบบนั้น กฎ "ให้คนที่มีทางเลือกน้อยที่สุดได้เลือกก่อน" ก็ตามมา
       </p>
     </div>
     <p>
-      เริ่มจากคำถามที่ง่ายกว่า สมมติเสาทุกต้นสูงเท่ากันหมด คำตอบชัดเจนว่าต้องกระจายให้<strong>เท่ากันที่สุด</strong>
-      เพราะ <code>c × (c − 1) / 2</code> เป็นฟังก์ชันนูน การย้ายใบจากกองสูงไปกองต่ำลดผลรวมได้เสมอ
+      ทำไมต้องเท่ากันที่สุด: ย้ายหนึ่งใบจากระดับที่มี <code>p</code> ใบไประดับที่มี <code>q</code> ใบ
+      แต้มลด <code>p − 1</code> (ใบนั้นเลิกจับคู่กับอีก <code>p − 1</code> ใบ) และเพิ่ม <code>q</code> (มันจับคู่ใหม่กับ <code>q</code> ใบ)
+      การย้ายคุ้มทุกครั้งที่ <code>q</code> น้อยกว่า <code>p − 1</code>
     </p>
     <p>
-      ความยากจริงอยู่ที่เสาสูงไม่เท่ากัน เสาเตี้ยเลือกได้แค่ระดับล่าง ส่วนเสาสูงเลือกได้ทุกระดับ
-      ดังนั้น<strong>เสาเตี้ยมีสิทธิ์น้อยกว่า ต้องได้เลือกก่อน</strong> เรียงเสาตามความสูงจากน้อยไปมาก
-      แล้วไล่ใส่ทีละต้น ต้นละ <code>K</code> ใบ ลงระดับที่ตอนนี้มีใบน้อยที่สุด
+      เสาเตี้ยเลือกได้แค่ระดับล่าง เสาสูงเลือกได้ทุกระดับ ถ้าให้เสาสูงเลือกก่อน มันอาจหยิบระดับล่างที่เสาเตี้ยต้องใช้
+      ชุดที่ 3 ในเกมไล่ตามลำดับที่ให้มา (เสาสูง 5 ก่อน) เสีย {g3TallFirst} แต้ม ไล่เตี้ยไปสูงเสีย {g3Sorted} แต้ม
     </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ท่าที่ใช้</p>
+      <ul>
+        <li>เรียงเสาตามความสูงจากน้อยไปมาก</li>
+        <li>ไล่ทีละต้น ใส่ <code>K</code> ใบลง <code>K</code> ระดับในช่วง 1 ถึง <code>H</code> ที่ตอนนี้มีใบน้อยที่สุด</li>
+        <li>ถ้าหลายระดับมีใบเท่ากัน หยิบระดับล่างก่อน</li>
+      </ul>
+    </div>
     <p>
-      ท่านี้ทำให้เกิดคุณสมบัติที่สวยมากอย่างหนึ่งคือ <strong>อาเรย์จำนวนใบต่อระดับจะไม่มีทางเพิ่มขึ้นตามระดับ</strong>
-      ระดับล่างมีใบมากกว่าหรือเท่ากับระดับบนเสมอ เพราะเสาทุกต้นที่แตะระดับบนได้ ก็แตะระดับล่างได้อยู่แล้ว
-      คุณสมบัตินี้แหละที่ทำให้เราค้นหาแบบไบนารีบนอาเรย์นี้ได้ และเป็นกุญแจของโค้ดที่เร็ว
+      ภาพข้างล่างคือผลของท่านี้บนตัวอย่าง
+    </p>
+    <ZoomableDiagram caption={`ผลหลังวางใบเรือครบทุกเสาของตัวอย่าง ไล่เสาสูง ${sortedMasts.map((m) => m.h).join(', ')} ที่ต้องการใบ ${sortedMasts.map((m) => m.k).join(', ')} ใบตามลำดับ ช่องเขียวคือใบเรือที่ระดับนั้นรับไป ตัวเลขขวามือคือจำนวนใบกับแต้มที่เสียของระดับนั้น รวม ${answer} แต้ม (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={sailsVB} style="display:block;margin:0 auto;max-width:330px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`ตารางแนวนอน ${MAXH} แถว แถวบนสุดคือระดับ ${MAXH} ไล่ลงมาถึงระดับ 1 จำนวนใบเรือของแต่ละระดับจากล่างขึ้นบนคือ ${finalCnt.join(' ')} และแต้มที่เสียของแต่ละระดับคือ ${finalCnt.map((c) => pairCost(c)).join(' ')} รวมได้ ${answer}`}>
+        <text x="16" y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ระดับ</text>
+        <text x={sqX(0)} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">ใบเรือที่ระดับนี้รับไป</text>
+        <text x={COSTX} y="26" fill="#98a3ba" font-size="11.5" text-anchor="start">แต้มที่เสีย</text>
+        {finalCnt.map((cnt, k) => {
+          const level = k + 1;
+          const y = rowY(level);
+          return (
+            <>
+              <text x="16" y={y + 18} fill="#cdd6ea" font-size="13" text-anchor="start" font-family="monospace">
+                {level}
+              </text>
+              {Array.from({ length: maxCnt }, (_, j) => j).map((j) => (
+                <rect
+                  x={sqX(j)}
+                  y={y}
+                  width={SQ}
+                  height={SQ}
+                  rx="5"
+                  fill={j < cnt ? '#12291c' : '#111726'}
+                  stroke={j < cnt ? '#4ade80' : '#232c42'}
+                  stroke-width={j < cnt ? '1.8' : '1.2'}
+                />
+              ))}
+              <text
+                x={COSTX}
+                y={y + 18}
+                fill={pairCost(cnt) > 0 ? '#e0b400' : '#7b8397'}
+                font-size="13"
+                text-anchor="start"
+                font-family="monospace"
+              >
+                {cnt} ใบ · {pairCost(cnt)}
+              </text>
+            </>
+          );
+        })}
+        <text x={COSTX} y={rowY(1) + ROW_H + 22} fill="#4ade80" font-size="13" text-anchor="start" font-weight="700" font-family="monospace">
+          รวม {answer}
+        </text>
+      </svg>
+    </ZoomableDiagram>
+    <p>
+      จำนวนใบจากระดับ 1 ขึ้นไปคือ <code>{finalCnt.join(' ')}</code> เรียงจากมากไปน้อย
+      ท่านี้รักษารูปนี้ไว้ทุกขั้นตั้งแต่เสาต้นแรก และโค้ดที่เร็วพึ่งรูปนี้ เพราะมันค้นแบบไบนารีบนอาเรย์จำนวนใบ
     </p>
 
-    <h3>กฎตอนค่าเสมอกัน คือจุดที่พลาดกันมากที่สุด</h3>
+    <h3>กฎตอนค่าเสมอกัน</h3>
+    <p>
+      เรียกระดับที่อยู่ติดกันและมีจำนวนใบเท่ากันว่า <strong>บล็อก</strong>
+      เช่นหลังใส่เสาต้นที่ {BLOCK_STEP} ของตัวอย่าง จำนวนใบคือ <code>{blockRow.join(' ')}</code>
+      ระดับ {blockLo} ถึง {blockHi} เป็นบล็อกของค่า {blockV}
+    </p>
+    <ul>
+      <li><strong>หัวบล็อก</strong> คือระดับล่างสุดของบล็อก (ระดับ {blockLo})</li>
+      <li><strong>ท้ายบล็อก</strong> คือระดับบนสุดของบล็อก (ระดับ {blockHi})</li>
+    </ul>
     <div class="callout callout-warn">
       <p class="callout-label">ผมแก้ถูกตั้งแต่แรก แต่เข้าใจเหตุผลผิดอยู่นาน</p>
       <p>
-        โค้ดรอบแรกของผมตอบ 15 แทนที่จะเป็น 10 ผมไล่ดูแล้วเจอว่ามันหยิบท้ายบล็อกที่ค่าเสมอกัน
-        พอเปลี่ยนเป็นหยิบหัวบล็อกก็ได้ 10 ทันที ผมจึงเขียนลงบทความว่า "กฎเสมอผิดทำให้คำตอบผิด"
-        แล้วทำตารางเทียบสองกฎเพื่อโชว์ตัวเลขที่ต่างกัน
+        โค้ดรอบแรกของผมตอบ {bad.cost} แทน {answer} เพราะหยิบท้ายบล็อก พอเปลี่ยนเป็นหัวบล็อกก็ได้ {answer}
+        ตอนนั้นผมสรุปว่ากฎเสมอผิดทำให้คำตอบผิด
       </p>
       <p>
-        ตารางนั้นออกมา <strong>10 เท่ากันทั้งสองฝั่ง</strong> ผมงงอยู่พักหนึ่ง แล้วเขียนสคริปต์สุ่มสองแสนชุด
-        เพื่อหาอินพุตสักชุดที่กฎเสมอทำให้ค่ารวมต่างกัน หาไม่เจอสักชุดเดียว เพราะการหยิบระดับไหนในบล็อกที่ค่าเท่ากัน
-        ได้กองชุดเดิม แค่สลับที่กัน ผลรวมจึงเท่ากันเสมอ
+        ตารางเทียบสองกฎด้วยท่าโลภแบบนับทีละใบออกมา {answer} ทั้งสองฝั่ง
+        สุ่มเพิ่มอีก 200,000 ชุดก็หาชุดที่ค่ารวมต่างกันไม่เจอ
       </p>
       <p>
-        ของจริงคือกฎเสมอไปทำลาย<strong>ความเป็นระเบียบของอาเรย์</strong> ซึ่งเป็นสิ่งที่โค้ดชั้นในพึ่งพา
-        คำตอบที่ผิดในโค้ดรอบแรกจึงไม่ได้มาจากการเลือกใบผิด แต่มาจากการค้นแบบไบนารีที่ตอบมั่วในก้าวถัดมา
-        ถ้าผมไม่ได้ลองทำตารางเทียบ ผมคงเผยแพร่คำอธิบายที่ผิดไปแล้ว
+        เหตุผล: เสาที่มาทีหลังสูงกว่าหรือเท่ากัน จึงเอื้อมถึงทุกระดับในบล็อก
+        หยิบระดับไหนในบล็อกก็ได้จำนวนใบชุดเดียวกัน ต่างแค่ตำแหน่ง
+      </p>
+      <p>
+        ที่พังจริงคือโค้ดเติมเป็นช่วง ซึ่งค้นแบบไบนารีโดยถือว่าอาเรย์เรียงจากมากไปน้อย
+        หยิบท้ายบล็อกทำให้อาเรย์เลิกเรียง และการค้นในก้าวถัดมาชี้ผิดที่
       </p>
     </div>
     <p>
-      สมมติกำลังจะใส่ <code>K</code> ใบลงในช่วง 1 ถึง <code>H</code> ระดับที่ค่าน้อยกว่าค่าอื่นชัดเจนต้องใส่แน่นอน
-      แต่พอมาถึงบล็อกที่ค่าเท่ากันหมด แล้วเราต้องเลือกใส่แค่บางระดับในบล็อกนั้น จะเลือกอันไหน
+      ทำไมหยิบหัวบล็อกแล้วอาเรย์ยังเรียงอยู่ ก่อนใส่ใบของเสาต้นหนึ่ง ช่วง 1 ถึง <code>H</code> แบ่งได้เป็นสามส่วน
+      ระดับที่มีใบมากกว่า <code>v</code> บล็อกของค่า <code>v</code> (ระดับ <code>l</code> ถึง <code>r</code>)
+      และระดับ <code>r + 1</code> ถึง <code>H</code> ที่มีใบน้อยกว่า <code>v</code>
     </p>
-    <p>
-      ถ้ามองแค่ผลรวมอย่างเดียว การหยิบระดับไหนในบล็อกก็ให้ค่าเท่ากัน เพราะกองที่ได้ออกมาเป็นชุดเดิม
-      แค่สลับที่กัน ประเด็นจึงไม่ได้อยู่ที่ค่า แต่อยู่ที่<strong>ความเป็นระเบียบของอาเรย์</strong>
-      หยิบระดับบนเมื่อไร อาเรย์ก็เลิกเป็นแบบไม่เพิ่มขึ้นทันที
-    </p>
-    <p>
-      และเมื่ออาเรย์เลิกเป็นระเบียบ การค้นแบบไบนารีที่ใช้หาขอบบล็อกในก้าวถัดไปก็ตอบมั่ว
-      บักจึงไม่ได้โผล่ตรงที่เราเขียนผิด แต่ไปโผล่ในก้าวหลัง ๆ ซึ่งเป็นบักประเภทที่หายากที่สุด
-    </p>
+    <ul>
+      <li>ระดับ <code>r + 1</code> ถึง <code>H</code> ได้คนละใบ แต่ละระดับยังไม่เกิน <code>v</code></li>
+      <li>ใบที่เหลือลงหัวบล็อก ระดับเหล่านั้นกลายเป็น <code>v + 1</code></li>
+      <li>รอยต่อล่าง: ระดับ <code>l − 1</code> มีอย่างน้อย <code>v + 1</code> อยู่แล้ว จึงไม่น้อยกว่าระดับ <code>l</code></li>
+      <li>ในบล็อก: ส่วนที่ได้ใบ (<code>v + 1</code>) อยู่ล่าง ส่วนที่ไม่ได้ (<code>v</code>) อยู่บน</li>
+      <li>รอยต่อบน: ระดับ <code>r</code> จบที่ <code>v</code> หรือ <code>v + 1</code> ส่วนระดับ <code>r + 1</code> จบที่ไม่เกิน <code>v</code></li>
+      <li>ถ้าหยิบท้ายบล็อกแทน ระดับบนของบล็อกเป็น <code>v + 1</code> ทับระดับล่างที่ยังเป็น <code>v</code> อาเรย์เลิกเรียงทันที</li>
+    </ul>
     <figure class="tbl">
       <table class="rec">
         <caption>ตัวอย่างในโจทย์ · จำนวนใบต่อระดับหลังใส่เสาแต่ละต้น</caption>
         <thead>
           <tr>
-            <th class="num">ลำดับ</th><th>หยิบหัวบล็อก</th><th>เป็นระเบียบ</th>
-            <th>หยิบท้ายบล็อก</th><th>เป็นระเบียบ</th>
+            <th class="num">เสาต้นที่</th><th>หยิบหัวบล็อก</th><th>เรียงอยู่</th>
+            <th>หยิบท้ายบล็อก</th><th>เรียงอยู่</th>
           </tr>
         </thead>
         <tbody>
-          {good.snaps.map((row, i) => (
+          {good.after.map((row, i) => (
             <tr>
               <td class="num">{i + 1}</td>
               <td><code>{row.join(' ')}</code></td>
               <td>{isSorted(row) ? 'ใช่' : 'ไม่'}</td>
-              <td><code>{bad.snaps[i].join(' ')}</code></td>
-              <td>{isSorted(bad.snaps[i]) ? 'ใช่' : 'ไม่'}</td>
+              <td><code>{bad.after[i].join(' ')}</code></td>
+              <td>{isSorted(bad.after[i]) ? 'ใช่' : 'ไม่'}</td>
             </tr>
           ))}
-          <tr>
+          <tr class="tot">
             <td class="num">ค่ารวม</td>
-            <td class="num"><strong>{good.cost}</strong></td><td></td>
+            <td class="num">{good.cost}</td><td></td>
             <td class="num">{bad.cost}</td><td></td>
           </tr>
         </tbody>
       </table>
       <figcaption>
-        ฝั่งขวาพังตั้งแต่เสาต้นแรก อาเรย์ขึ้นต้นด้วย <code>0 1</code> ซึ่งเพิ่มขึ้นตามระดับ
-        พอถึงเสาต้นหลัง ๆ การค้นขอบบล็อกก็เลยผิด และค่ารวมจบที่ {bad.cost} แทนที่จะเป็น {good.cost}
-        ตัวเลขทั้งสองฝั่งคำนวณสดจากโค้ดชุดเดียวกัน ต่างกันแค่บรรทัดเดียว
+        แต่ละช่องคือจำนวนใบของระดับ 1 ถึง {MAXH} จากซ้ายไปขวา "เรียงอยู่" คือเรียงจากมากไปน้อย
+        ฝั่งขวาเลิกเรียงตั้งแต่เสาต้นที่ {badFirstBreak + 1} (<code>{badFirstRow}</code>) และจบที่ {bad.cost}
+        ทั้งสองฝั่งมาจากแบบจำลองของโค้ด C++ ทีละบรรทัด รวมการค้นแบบไบนารี
       </figcaption>
     </figure>
 
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
+    <p>
+      ทีนี้เขียนเป็นโค้ด ให้ <code>a[1..H]</code> คือจำนวนใบต่อระดับ ใบ <code>K</code> ใบของเสาต้นนี้
+      ต้องลง <code>K</code> ระดับที่มีใบน้อยที่สุด ซึ่งในอาเรย์ที่เรียงแล้วคือ <code>K</code> ระดับบนสุดของช่วง
+    </p>
+    <ul>
+      <li><code>v = a[H − K + 1]</code> คือค่าที่มากที่สุดในกลุ่มนั้น</li>
+      <li><code>l</code> คือระดับแรกที่ค่าไม่เกิน <code>v</code> และ <code>r</code> คือระดับสุดท้ายที่ค่าอย่างน้อย <code>v</code> หาด้วยการค้นแบบไบนารีอย่างละครั้ง</li>
+      <li>ระดับ <code>r + 1</code> ถึง <code>H</code> ได้คนละใบ รวม <code>H − r</code> ใบ</li>
+      <li>ที่เหลือ <code>K − (H − r)</code> ใบ ลงระดับ <code>l</code> เป็นต้นไป</li>
+    </ul>
+    <p>
+      ใบของเสาหนึ่งต้นจึงลงเป็นช่วงติดกันไม่เกินสองช่วง
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">บวกทั้งช่วงด้วยต้นไม้เฟนวิก</p>
+      <ul>
+        <li>เก็บอาเรย์ผลต่าง <code>d</code> แทน <code>a</code>: บวก 1 ทั้งช่วง <code>[x, y]</code> คือ <code>d[x] += 1</code> กับ <code>d[y + 1] −= 1</code></li>
+        <li>จำนวนใบที่ระดับ <code>i</code> คือผลรวม <code>d[1]</code> ถึง <code>d[i]</code></li>
+        <li>
+          ต้นไม้เฟนวิก (Fenwick tree หรือ BIT) ทำทั้งสองอย่างได้ครั้งละราว log H ก้าว
+          (log H คือจำนวนครั้งที่หาร <code>H</code> ครึ่งได้จนเหลือ 1 ราว {LOG_H} ที่ <code>H</code> = {fmt(HMAX)})
+        </li>
+      </ul>
+      <p>
+        ในโค้ด <code>range</code> คือบวกทั้งช่วง และ <code>at(i)</code> คืนจำนวนใบที่ระดับ <code>i</code>
+        ถ้ายังไม่คุ้น อ่าน <a href="/cp/prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> ก่อนได้
+      </p>
+    </div>
+    <CodeBlock code={coreSnippet} lang="cpp" title="สองช่วงที่เติมต่อหนึ่งเสา" />
   </Spoiler>
 
-  <h2>ไล่ท่าโลภทีละเสาบนตัวอย่าง</h2>
+  <h2>ไล่ทีละเสาบนตัวอย่าง</h2>
   <Spoiler>
     <CpStepPlayer hook="sailsim" steps={sailSteps} label="กดถัดไปเพื่อใส่ใบของเสาต้นถัดไป หรือกดเล่นให้มันเดินเอง">
       <table class="rec sailtbl">
@@ -694,23 +820,14 @@ const saBill = [
         </tbody>
       </table>
     </CpStepPlayer>
-    <p class="io-note">
-      สังเกตแถวจำนวนใบตอนกดไล่ดู มันไม่เคยเพิ่มขึ้นตามระดับเลยสักขั้น
-      คือระดับล่างมีใบมากกว่าหรือเท่ากับระดับบนตลอด นี่คือคุณสมบัติที่กฎเสมอรักษาไว้ให้
-    </p>
   </Spoiler>
 
   <h2>อีกมุมหนึ่ง: ไล่ทุกวิธีจัด (ชุดทดสอบย่อย 25 คะแนน)</h2>
   <Spoiler>
     <p>
-      ชุดทดสอบย่อยบอกว่าจำนวนวิธีจัดใบเรือทั้งหมดไม่เกินหนึ่งล้านแบบ นั่นคือคำเชิญให้ไล่ทุกแบบตรง ๆ
-      โดยไม่ต้องคิดอะไรเรื่องความโลภเลย เสาต้นที่ <code>i</code> มีวิธีเลือกระดับได้
-      <code>C(H, K)</code> แบบ คูณกันทุกต้นแล้วไม่เกินหนึ่งล้าน
-    </p>
-    <p>
-      ค่าของท่านี้ไม่ได้อยู่ที่คะแนน 25 คะแนน แต่อยู่ที่มันเป็น<strong>ตัวตรวจสอบ</strong>
-      เวลาเราคิดท่าโลภได้แล้วแต่ยังไม่แน่ใจว่ากฎเสมอถูกทางไหม การสุ่มอินพุตเล็ก ๆ มาเทียบกับตัวไล่ทุกแบบ
-      คือวิธีที่เร็วที่สุดในการรู้ว่าเราคิดผิด
+      ชุดทดสอบย่อยจำกัดจำนวนวิธีจัดใบเรือทั้งหมดไว้ที่หนึ่งล้านแบบ จึงไล่ทุกแบบตรง ๆ ได้
+      เสาต้นที่ <code>i</code> เลือกระดับได้ <code>C(H, K)</code> แบบ (จำนวนวิธีเลือก <code>K</code> ระดับจาก <code>H</code> ระดับ)
+      คูณกันทุกต้นแล้วไม่เกินหนึ่งล้าน
     </p>
     <details class="expander">
       <summary>ดูโค้ดของชุดทดสอบย่อย</summary>
@@ -718,167 +835,256 @@ const saBill = [
         <CodeBlock code={subCode} lang="cpp" title="sails_sub.cpp" />
       </div>
     </details>
+
     <p>
-      ผมสุ่มเรือเล็ก ๆ ที่มีเสาไม่เกินสี่ต้น สูงไม่เกินห้าช่อง จำนวน 300 ลำ มาเทียบสองโปรแกรมนี้
-      ตรงกันหมด ส่วนเวอร์ชันที่ใช้กฎเสมอผิดหลุดตั้งแต่ลำแรก ๆ
+      ข้อนี้มีสามวิธีที่ไล่จากช้าไปเร็ว การ์ดข้างล่างนับงานตามที่โค้ดของแต่ละวิธีทำ
+      W คือจำนวนวิธีจัด และผลรวม K คือจำนวนใบเรือทั้งหมดของทุกเสา
     </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ไล่ทุกวิธีจัด</h4>
+        <p class="cp-step-cost">ราว W × (H สูงสุด + 3 × ผลรวม H) ก้าว</p>
+        <p>
+          ทุกวิธีจัดรวมแต้มทุกระดับหนึ่งรอบ (H สูงสุด ก้าว) และระหว่างทางแต่ละเสาวนช่องของมันสามรอบ
+          (เลือกรูปถัดไป เพิ่มจำนวนใบ ถอนจำนวนใบ) วัดได้ {T_SUB_S} วินาทีบนชุดที่มี {fmt(SUB_WAYS)} วิธี (เสาสูงสุด 10)
+        </p>
+        <p class="cp-step-win">ชุดย่อย 25 คะแนน เมื่อเสาไม่สูงมาก</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>ท่าโลภ + คิวลำดับความสำคัญ</h4>
+        <p class="cp-step-cost">ราว 2 × ผลรวม K × log H ก้าว</p>
+        <p>
+          ใบละหยิบออกหนึ่งครั้งใส่กลับหนึ่งครั้ง ผลรวม <code>K</code> มากสุดคือ <code>N × H</code> = 10<sup>10</sup>
+          รวมราว {millions(PQ_STEPS)} ล้านก้าว วัดได้ {T_PQ_S} วินาทีที่ผลรวม <code>K</code> = {fmt(PQ_SUMK)} ซึ่งเกินลิมิตแล้ว
+        </p>
+        <p class="cp-step-win">ใช้ได้เมื่อใบรวมไม่เกินราวสิบล้านใบ</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>ท่าโลภ + เติมเป็นช่วงด้วย BIT</h4>
+        <p class="cp-step-cost">ราว N × (2(log H)<sup>2</sup> + 5 log H) + N log N + H log H ≈ {millions(BIT_STEPS)} ล้านก้าว</p>
+        <p>
+          ต่อเสา: ค้นแบบไบนารีสองรอบ รอบละ log H ครั้ง ครั้งละถาม BIT หนึ่งครั้ง (log H ก้าว)
+          บวกถาม <code>v</code> หนึ่งครั้งกับบวกสองช่วง (สี่ครั้ง) แล้วบวกการเรียงเสากับลูปรวมแต้มท้าย
+        </p>
+        <p>
+          วัดได้ราว {T_BIT_MS} มิลลิวินาที หน่วยความจำราว {MEM_BIT_MB} MB
+        </p>
+        <p class="cp-step-win">ทันที่ขอบเขตเต็ม</p>
+      </div>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>วิธีไหนได้คะแนนชุดไหน</caption>
+        <thead>
+          <tr><th>วิธี</th><th>ชุดย่อย 25 คะแนน</th><th>ขอบเขตเต็ม</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ไล่ทุกวิธีจัด</td><td>ได้ ถ้าเสาไม่สูงมาก</td><td>ไม่ทัน</td></tr>
+          <tr><td>ท่าโลภ + คิว</td><td>ขึ้นกับผลรวม K (ชุดนี้จำกัดแค่จำนวนวิธีจัด)</td><td>ไม่ทัน</td></tr>
+          <tr><td>ท่าโลภ + BIT</td><td>ได้</td><td>ได้</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        เงื่อนไขของชุดย่อยจำกัดแค่จำนวนวิธีจัด เสาที่ <code>K = H</code> มีวิธีเดียวแต่สูงได้ถึง {fmt(HMAX)}
+        สองวิธีแรกจึงอาจช้าในชุดนี้
+      </figcaption>
+    </figure>
   </Spoiler>
-
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย · เทียบสองทางด้วยหน่วยเดียวกัน</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ</th></tr>
-      </thead>
-      <tbody>
-        {saBill.map((r) => (
-          <tr>
-            <td>{r.name}</td>
-            <td>{r.limit}</td>
-            <td class="num">{r.work}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>แถวบนนับจำนวนวิธีจัดที่ต้องกางออกมาดูทั้งหมด แถวล่างนับจำนวนครั้งที่แตะคิว ซึ่งคือจำนวนใบเรือคูณลอการิทึมของความสูง สิ่งที่ทำให้สองแถวนี้ต่างกันไม่ใช่ความเร็วของเครื่อง แต่เป็นข้อโต้แย้งแลกเปลี่ยนในหัวข้อข้างล่าง ที่อนุญาตให้เราไม่ต้องดูวิธีจัดอื่นเลย</figcaption>
-  </figure>
 
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
-      เสามีได้ถึง {fmt(NMAX)} ต้น และแต่ละต้นต้องเติมใบได้ถึง {fmt(HMAX)} ใบ จะไล่เติมทีละระดับไม่ไหว
-      แต่เพราะเราพิสูจน์แล้วว่าเติมเป็น<strong>ช่วงติดกันสองช่วง</strong>เสมอ (ช่วงท้ายที่ค่าน้อยกว่า
-      กับหัวของบล็อกที่ค่าเท่ากัน) จึงใช้ต้นไม้เฟนวิกแบบบวกทั้งช่วงถามทีละจุดได้พอดี
-    </p>
-    <p>
-      การหาขอบซ้ายขอบขวาของบล็อกใช้การค้นแบบไบนารีบนอาเรย์ที่ไม่มีทางเพิ่มขึ้น ซึ่งเป็นคุณสมบัติที่
-      ท่าโลภรักษาไว้ให้เอง ถ้ากฎเสมอเขียนผิด นอกจากคำตอบจะผิดแล้ว การค้นแบบไบนารีก็จะเลิกมีความหมายไปด้วย
-      บักสองชั้นซ้อนกันแบบนี้หายากมากถ้าไม่มีตัวตรวจสอบ
+      เสามีได้ถึง {fmt(NMAX)} ต้น แต่ละต้นเติมได้ถึง {fmt(HMAX)} ใบ ไล่เติมทีละระดับจึงช้าเกิน
+      ใบของเสาหนึ่งต้นลงไม่เกินสองช่วง โค้ดเต็มจึงเติมเป็นช่วงด้วย BIT ตามที่เล่าไว้ในเฉลย
     </p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="sails.cpp" />
+        <figure class="tbl">
+          <table class="rec">
+            <caption>โค้ดส่วนไหนทำขั้นไหน</caption>
+            <thead>
+              <tr><th>ส่วนในโค้ด</th><th>ทำอะไร</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>upd</code>, <code>range</code>, <code>at</code></td><td>BIT เก็บผลต่าง: <code>range</code> บวกทั้งช่วง <code>at(i)</code> คืนจำนวนใบที่ระดับ <code>i</code></td></tr>
+              <tr><td><code>sort(m)</code></td><td>เรียงเสาเตี้ยก่อน</td></tr>
+              <tr><td><code>v = at(H-K+1)</code></td><td>ค่าที่มากที่สุดในกลุ่ม <code>K</code> ระดับที่มีใบน้อยที่สุด</td></tr>
+              <tr><td>ค้นไบนารีรอบแรก</td><td><code>l</code> ระดับแรกที่ค่าไม่เกิน <code>v</code> (หัวบล็อก)</td></tr>
+              <tr><td>ค้นไบนารีรอบสอง</td><td><code>r</code> ระดับสุดท้ายที่ค่าอย่างน้อย <code>v</code> (ท้ายบล็อก)</td></tr>
+              <tr><td><code>range(r+1,H,1)</code></td><td>ระดับที่ค่าน้อยกว่า <code>v</code> ได้ใบทุกระดับ</td></tr>
+              <tr><td><code>range(l,l+k2-1,1)</code></td><td>ใบที่เหลือลงหัวบล็อก (กฎตอนเสมอ)</td></tr>
+              <tr><td>ลูปท้าย</td><td>รวม <code>c × (c − 1) / 2</code> ทุกระดับ</td></tr>
+            </tbody>
+          </table>
+        </figure>
       </div>
     </details>
     <details class="expander">
-      <summary>ดูโค้ดที่ผมเขียนผิดรอบแรก และเคสที่เล็กที่สุดที่มันแตกต่าง</summary>
+      <summary>ดูโค้ดที่ผมเขียนผิดรอบแรก และเคสที่เล็กที่สุดที่มันตอบผิด</summary>
       <div class="expander-body">
         <p>
           ทั้งไฟล์เหมือนโค้ดข้างบนทุกบรรทัด ต่างกันแค่บรรทัดเดียวที่หยิบระดับจากบล็อกค่าเท่ากัน
         </p>
         <CodeBlock code={brokenSnippet} lang="cpp" title="sails_wrong.cpp · เฉพาะท่อนที่เลือกระดับในบล็อก" />
         <p>
-          เคสที่เล็กที่สุดที่สองเวอร์ชันตอบไม่ตรงกันคือเสาสูง 2 สองต้น ต้นละหนึ่งใบ
+          เคสที่เล็กที่สุดที่เวอร์ชันนี้ตอบผิดคือเสาสูง 2 สองต้น ต้นละหนึ่งใบ
         </p>
         <CodeBlock code={brokenInput} lang="text" title="INPUT" />
+        <ul>
+          <li>
+            เสาต้นแรก: ระดับ 1 กับ 2 มีค่าเท่ากัน กฎที่ถูกหยิบระดับล่าง ได้ <code>{goodAfterFirst}</code>
+            กฎที่ผิดหยิบระดับบน ได้ <code>{brokenAfterFirst}</code> ซึ่งเลิกเรียงแล้ว
+          </li>
+          <li>
+            เสาต้นที่สอง: <code>v</code> = {brokenSecond.v} การค้นหาระดับสุดท้ายที่ค่าอย่างน้อย <code>v</code>
+            ดูระดับ 1 ก่อน เจอค่าน้อยกว่า <code>v</code> จึงค้นต่อทางล่างซึ่งไม่มีระดับเหลือ ได้ <code>r</code> = {brokenSecond.r}
+          </li>
+          <li>
+            <code>below = H − r</code> = {BROKEN_MASTS[1].h - brokenSecond.r} โค้ดจึงบวกใบให้ทั้งสองระดับ
+            ส่วน <code>k2 = K − below</code> ติดลบ บรรทัด <code>if (k2 &gt; 0)</code> ข้ามการบวกช่วงที่สองไป
+            (<code>range</code> เองก็คืนทันทีเมื่อ <code>l &gt; r</code>) โปรแกรมจึงทำงานต่อได้ตามปกติ
+          </li>
+          <li>
+            ผลคือ <code>{brokenAfterLast}</code> รวม {brokenRun.placed} ใบ ทั้งที่มีแค่ {brokenNeed} ใบ
+          </li>
+        </ul>
         <p>
-          เสาต้นแรกมีระดับ 1 กับระดับ 2 ให้เลือก ค่าเท่ากันทั้งคู่ กฎที่ถูกหยิบระดับล่าง อาเรย์กลายเป็น
-          <code>{goodAfterFirst}</code> ซึ่งยังไม่เพิ่มขึ้น ส่วนกฎที่ผิดหยิบระดับบน อาเรย์กลายเป็น
-          <code>{brokenAfterFirst}</code> ซึ่งเพิ่มขึ้นแล้ว พอเสาต้นที่สองมาถึง การค้นแบบไบนารีที่หาขอบบล็อก
-          ตั้งอยู่บนข้อสมมติที่พังไปแล้ว มันจึงชี้ไปที่ระดับที่มีใบอยู่ และซ้อนใบที่สองทับลงไปตรงนั้น
-          คำตอบจริงคือ <strong>{brokenTrue}</strong> เวอร์ชันที่ผิดตอบ <strong>{brokenWrong}</strong>
-        </p>
-        <p>
-          ตัวเลข {brokenTrue} มาจากตัวไล่วางทุกแบบข้างบน ไม่ได้มาจากท่าโลภที่กำลังตรวจ
-          และตัวอย่างในโจทย์เองก็จับบักตัวนี้ได้ เวอร์ชันที่ผิดตอบ <strong>{bad.cost}</strong> แทนที่จะเป็น
-          <strong>{answer}</strong> ซึ่งเป็นเลขที่ทำให้ผมรู้ตัวตั้งแต่รอบแรก
-        </p>
-        <p>
-          ไล่ทุกชุดที่มีเสาไม่เกิน 4 ต้นและสูงไม่เกิน 5 ทั้งหมด 3,875 ชุด เวอร์ชันที่ถูกตรงกับตัวไล่ทุกแบบทั้งหมด
-          ส่วนเวอร์ชันที่ผิดหลุด 2,299 ชุด
+          คำตอบจริงคือ {brokenTrue} (จากตัวไล่ทุกวิธีจัด) เวอร์ชันที่ผิดตอบ {brokenWrong}
         </p>
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม เรือ {fmt(NMAX)} ต้น เสาสูงสุ่มถึง {fmt(HMAX)} ใช้เวลา
-      <strong>124 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที
-    </p>
-    <p>
-      เครื่องมือหลักของข้อนี้คือต้นไม้เฟนวิก ถ้ายังไม่คุ้น ไปอ่าน
-      <a href="/cp/prefix-sums/">ผลรวมสะสมกับต้นไม้เฟนวิก</a> ก่อนได้
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>ตัวอย่างในโจทย์: โค้ดเต็ม โค้ดชุดย่อย โค้ดคิว (หัวข้อถัดไป) และตัวไล่ทุกวิธีจัดตอบ {answer} ส่วนโค้ดที่ผิดตอบ {bad.cost}</li>
+        <li>
+          สุ่ม {STRESS_ROUNDS} ชุด เสา 2 ถึง 5 ต้น สูงไม่เกิน 5: โค้ดเต็มและโค้ดคิวตรงกับตัวไล่ทุกวิธีจัดทุกชุด
+        </li>
+        <li>
+          ไล่ครบทุกชุดเสา 2 ถึง 4 ต้น สูงไม่เกิน 5 แบบไม่นับลำดับเสา (ลำดับเสาในอินพุตไม่มีผลกับคำตอบ)
+          รวม {fmt(EXH_CASES)} ชุด: โค้ดเต็มและโค้ดคิวตรงกับตัวไล่ทุกวิธีจัดทุกชุด โค้ดที่ผิดตอบผิด {fmt(EXH_WRONG)} ชุด
+        </li>
+        <li>โค้ดชุดย่อยใช้วิธีเดียวกับตัวไล่ทุกวิธีจัด จึงเทียบกับโค้ดเต็มแทนบนชุดเดียวกันนี้ ตรงทุกชุด</li>
+        <li>
+          เวลาและหน่วยความจำ: <code>N</code> = {fmt(NMAX)} ความสูงสุ่มถึง {fmt(HMAX)} ใช้ราว {T_BIT_MS} มิลลิวินาที
+          สูงสุดราว {MEM_BIT_MB} MB เทียบลิมิต 1 วินาที 64 MB
+        </li>
+      </ul>
+      <p>ทั้งหมดนี้คือการทดสอบ ไม่ได้พิสูจน์ และยังไม่ได้ส่งเกรดเดอร์จริง</p>
+    </div>
   </Spoiler>
 
-  <h2>ทำไมท่าโลภนี้ถูก · ข้อโต้แย้งแลกเปลี่ยน</h2>
+  <h2>ข้อโต้แย้งแลกเปลี่ยน · รูปของคำตอบที่ดีที่สุด</h2>
   <p>
-    หัวข้อก่อนหน้าบอกว่าท่าโลภของข้อนี้ได้คำตอบ แต่ยังไม่ได้บอกว่า<strong>ทำไมมันถึงถูก</strong>
-    ซึ่งเป็นคำถามที่ต้องตอบทุกครั้งที่ใช้ท่าโลภ เพราะท่าโลภส่วนใหญ่ผิด
-    การที่ตัวอย่างในโจทย์ผ่านไม่ได้เป็นหลักฐานอะไรเลย
-  </p>
-  <p>
-    วิธีพิสูจน์ท่าโลภที่ใช้ได้กว้างที่สุดเรียกว่า <strong>ข้อโต้แย้งแลกเปลี่ยน</strong> (exchange argument)
-    รูปของมันคือ <strong>สมมติว่ามีคำตอบที่ดีที่สุดอยู่แล้ว แล้วแสดงว่าเราแก้มันให้กลายเป็นคำตอบของท่าโลภได้
-    โดยไม่ทำให้แย่ลง</strong> ถ้าทำได้ ท่าโลภก็ดีที่สุดด้วย
+    ข้อโต้แย้งแลกเปลี่ยน (exchange argument) คือการดูคำตอบที่ดีที่สุดสักอัน แล้วลองย้ายการตัดสินใจหนึ่งครั้ง
+    ถ้าการย้ายแบบหนึ่งลดแต้มได้เสมอ คำตอบที่ดีที่สุดย่อมไม่มีจุดแบบนั้น และเรารู้รูปของมันมากขึ้น
   </p>
 
   <h3>ใช้กับข้อนี้</h3>
   <p>
-    แต้มที่เสียของระดับหนึ่งคือจำนวนคู่ของใบเรือที่อยู่ระดับเดียวกัน ซึ่งเท่ากับ
-    <code>c(c−1)/2</code> เมื่อระดับนั้นมีใบอยู่ <code>c</code> ใบ สิ่งที่ต้องสังเกตคือ
-    <strong>ต้นทุนของการเพิ่มใบที่ <code>c + 1</code> คือ <code>c</code> พอดี</strong>
-    คือยิ่งระดับนั้นแน่นอยู่แล้ว ใบใหม่ยิ่งแพง เรียกคุณสมบัตินี้ว่า<strong>ต้นทุนส่วนเพิ่มไม่ลด</strong>
+    ใบที่ <code>c + 1</code> ของระดับหนึ่งจับคู่ใหม่กับ <code>c</code> ใบที่อยู่ก่อน แต้มจึงเพิ่ม <code>c</code>
   </p>
   <p>
-    ทีนี้สมมติมีคำตอบที่ดีที่สุดอันหนึ่ง ที่<strong>ไม่</strong>ได้ทำตามท่าโลภ นั่นแปลว่ามีเสาต้นหนึ่ง
-    ที่วางใบลงระดับ <code>p</code> ทั้งที่มีระดับ <code>q</code> ที่มันเอื้อมถึงและว่างกว่า
-    (คือ <code>cnt[q] &lt; cnt[p]</code>) ลองย้ายใบนั้นจาก <code>p</code> ไป <code>q</code>
-    ต้นทุนที่ลดลงคือ <code>cnt[p] − 1</code> และต้นทุนที่เพิ่มขึ้นคือ <code>cnt[q]</code>
-    เพราะ <code>cnt[q] ≤ cnt[p] − 1</code> การย้ายนี้จึง<strong>ไม่ทำให้แย่ลงเลย</strong>
+    ลองย้ายใบหนึ่งจากระดับ <code>p</code> ลงระดับ <code>q</code> ที่อยู่ต่ำกว่า
+    แต้มลด <code>cnt[p] − 1</code> (ใบนั้นเลิกจับคู่กับใบอื่นในระดับ <code>p</code>)
+    และเพิ่ม <code>cnt[q]</code> (มันจับคู่ใหม่กับทุกใบในระดับ <code>q</code>)
   </p>
   <p>
-    ทำซ้ำไปเรื่อย ๆ ทุกครั้งที่เจอคู่ที่ผิดแบบนั้น จนไม่มีคู่ไหนเหลือ สิ่งที่ได้คือคำตอบที่ทำตามท่าโลภพอดี
-    และมันไม่แย่กว่าคำตอบที่ดีที่สุดที่เราเริ่มด้วย ท่าโลภจึงดีที่สุด
-    ส่วนเหตุผลที่ต้อง<strong>ไล่จากเสาเตี้ยไปเสาสูง</strong> อยู่ที่เสาเตี้ยมีตัวเลือกน้อยกว่า
-    ถ้าให้เสาสูงเลือกก่อน มันอาจไปนั่งทับระดับล่างที่เสาเตี้ยจำเป็นต้องใช้ ทั้งที่ตัวมันเองมีทางอื่น
+    แต้มสุทธิเปลี่ยน <code>cnt[q] − (cnt[p] − 1)</code> ค่านี้ติดลบเมื่อ <code>cnt[q] ≤ cnt[p] − 2</code>
+    และเพราะเป็นจำนวนเต็ม แต้มจึงลดอย่างน้อย 1 นี่คือเหตุที่ใช้ <code>cnt[p] − 2</code> เป็นเงื่อนไข
+  </p>
+  <ul>
+    <li>
+      เสาที่มีใบที่ระดับ <code>p</code> มี <code>cnt[p]</code> ต้น ในนั้นมีใบที่ <code>q</code> ด้วยได้ไม่เกิน <code>cnt[q]</code> ต้น
+      จึงมีอย่างน้อยหนึ่งต้นที่มีใบที่ <code>p</code> แต่ระดับ <code>q</code> ยังว่าง
+    </li>
+    <li>เสาต้นนั้นเอื้อมถึง <code>q</code> แน่ เพราะ <code>q</code> อยู่ต่ำกว่า <code>p</code></li>
+  </ul>
+  <p>
+    คำตอบที่ดีที่สุดจึงมีระดับบนมากกว่าระดับล่างได้ไม่เกินหนึ่งใบ ท่าโลภสร้างรูปที่ผ่านเงื่อนไขนี้
+    เพราะระดับบนของมันไม่เคยมากกว่าระดับล่างเลย
+  </p>
+  <p>
+    เงื่อนไขนี้จำเป็น แต่ยังไม่พอบอกว่าท่าโลภได้ค่าที่น้อยที่สุดเสมอ ส่วนนั้นอาศัยการทดสอบในกรอบตรวจของหัวข้อโค้ด
   </p>
 
   <h3>เขียนอีกแบบ · คิวลำดับความสำคัญ</h3>
   <p>
-    พอรู้ว่ากฎคือ "หย่อนลงระดับที่ว่างที่สุดที่เอื้อมถึง" ก็เขียนได้อีกแบบที่ตรงกับประโยคนั้นคำต่อคำ
-    คือเก็บระดับที่เปิดใช้ได้แล้วไว้ใน<strong>คิวลำดับความสำคัญ</strong> ที่เอาระดับที่ว่างที่สุดขึ้นก่อน
-    แล้วหยิบออกมาทีละ <code>k</code> ตัวต่อเสา
+    คิวลำดับความสำคัญ (priority queue) คือที่เก็บของที่หยิบตัวที่ค่าน้อยที่สุดออกได้ครั้งละราว log ก้าว
   </p>
   <p>
-    มีรายละเอียดหนึ่งที่พลาดง่าย ค่าที่อยู่ในคิว<strong>ล้าสมัยได้</strong> เพราะเราแก้จำนวนใบของระดับหนึ่ง
-    หลังจากใส่มันลงคิวไปแล้ว ท่าแก้ที่ง่ายที่สุดคือ<strong>ตรวจตอนหยิบ</strong>
-    ถ้าค่าที่ติดมากับรายการไม่ตรงกับค่าจริงในตอนนี้ ให้ทิ้งรายการนั้นแล้วหยิบใหม่
+    ท่าโลภเขียนตรง ๆ ได้ด้วยมัน เก็บคู่ (จำนวนใบ, ระดับ) ไว้ในคิว จำนวนใบน้อยขึ้นก่อน เท่ากันเอาระดับล่าง
+  </p>
+  <ul>
+    <li><code>opened</code> คือระดับสูงสุดที่ใส่ลงคิวแล้ว เสาที่สูงกว่านั้นเปิดระดับ <code>opened + 1</code> ถึง <code>H</code> เพิ่มด้วยค่า 0</li>
+    <li>แต่ละเสาหยิบออก <code>k</code> คู่ บวกจำนวนใบของระดับนั้น แล้วใส่กลับ</li>
+    <li>ตอนเริ่มเสาแต่ละต้น ทุกระดับที่เปิดแล้วมีในคิวพอดีหนึ่งคู่ และค่าตรงกับ <code>cnt</code></li>
+    <li>
+      จุดที่พลาดง่าย: หยิบครบ <code>k</code> ตัวก่อนแล้วค่อยใส่กลับ
+      ถ้าใส่กลับทันที ระดับเดิมอาจยังมีใบน้อยที่สุด แล้วเสาต้นเดียวได้สองใบในระดับเดียว
+    </li>
+  </ul>
+  <p>
+    โค้ดนี้ทำงานใบละครั้ง จึงช้าเมื่อใบรวมถึงหลายสิบล้าน (ตัวเลขอยู่ในการ์ดเทียบวิธี)
   </p>
 
   <CodeBlock code={pqCode} lang="cpp" title="sails_pq.cpp" />
 
   <details class="expander">
-    <summary>ตัวตรวจที่ทำให้กล้าเชื่อทั้งข้ออ้างและโค้ด</summary>
+    <summary>ตัวตรวจ: ไล่ทุกวิธีจัด</summary>
     <div class="expander-body">
       <p>
-        นี่คือกรณีที่ตัวตรวจตรวจ<strong>ข้ออ้าง</strong> ไม่ใช่แค่ตรวจการพิมพ์
-        เพราะถ้าข้อโต้แย้งแลกเปลี่ยนข้างบนผิด ท่าโลภจะให้คำตอบที่มากกว่าคำตอบจริง
-        โดยไม่มีอะไรฟ้องเลย ตัวตรวจจึง<strong>ไล่ทุกวิธีจัดจริง</strong> คือเลือกทุกชุดของระดับ
-        ให้ทุกเสา แล้วเอาค่าที่น้อยที่สุด ซึ่งไม่รู้จักคำว่า "ว่างที่สุด" หรือลำดับเตี้ยไปสูงเลย
+        ตัวตรวจเลือกทุกชุดของระดับให้ทุกเสา แล้วเอาค่าที่น้อยที่สุด
+        มันใช้แค่นิยามของโจทย์ ส่วนกฎมีใบน้อยที่สุดกับลำดับเตี้ยไปสูงเป็นของท่าโลภล้วน ๆ ถ้ากฎนั้นผิด ตัวตรวจนี้จับได้
       </p>
       <CodeBlock code={pqBrute} lang="cpp" title="brute_all_arrangements.cpp" />
-      <p>
-        สุ่มเสา 1 ถึง 5 ต้น สูงไม่เกิน 4 แล้วเทียบ <strong>500 รอบ ตรงกันทุกรอบ</strong>
-        ชุดเล็กเพราะการไล่ทุกวิธีจัดโตเร็วมาก แต่เล็กพอที่จะครอบกรณีที่กฎเสมอกันมีผลจริง
-        คือตอนที่มีหลายระดับว่างเท่ากันและเลือกผิดตัวจะแพงขึ้น
-      </p>
     </div>
   </details>
 
+  <h2>ทดสอบตัวเองและสรุป</h2>
+  <details class="expander">
+    <summary>เสาสูง 3 สามต้น ต้นละ 2 ใบ คำตอบเท่าไร</summary>
+    <div class="expander-body">
+      <p>
+        ใบรวม 6 ใบ มี 3 ระดับ กระจายให้เท่ากันที่สุดได้ <code>{quiz1Cnt.join(' ')}</code>
+        แต่ละระดับเสีย 1 แต้ม รวม {quiz1}
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>
+      จำนวนใบตอนนี้คือ <code>{blockRow.join(' ')}</code> เสาต้นถัดไปสูง {QUIZ2_MAST.h} ต้องการ {QUIZ2_MAST.k} ใบ
+      ค่า v, l, r คืออะไร และใบลงระดับไหน
+    </summary>
+    <div class="expander-body">
+      <p>
+        <code>v = a[{QUIZ2_MAST.h - QUIZ2_MAST.k + 1}]</code> = {quiz2.v} บล็อกของค่า {quiz2.v} คือระดับ {quiz2.l} ถึง {quiz2.r}
+        ระดับ {quiz2.r + 1} ถึง {QUIZ2_MAST.h} ได้คนละใบ ({quiz2Below} ใบ) ที่เหลือ {quiz2K2} ใบลงหัวบล็อกคือระดับ {quiz2.l}
+        ได้ <code>{quiz2After.join(' ')}</code> ซึ่งยังเรียงจากมากไปน้อย
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>โค้ดคิวลำดับความสำคัญถูก ทำไมไม่ทันที่ขอบเขตเต็ม</summary>
+    <div class="expander-body">
+      <p>
+        มันทำงานใบละครั้ง และใบรวมมีได้ถึง <code>N × H</code> = 10<sup>10</sup> ใบ ส่วนโค้ด BIT ทำงานเสาละครั้ง
+      </p>
+    </div>
+  </details>
+  <ul>
+    <li>แต้มของระดับที่มี <code>c</code> ใบคือ <code>c × (c − 1) / 2</code></li>
+    <li>ไล่เสาจากเตี้ยไปสูง ใส่ใบลงระดับที่มีใบน้อยที่สุด เสมอกันหยิบระดับล่าง</li>
+    <li>ใบของแต่ละเสาลงไม่เกินสองช่วง เติมด้วย BIT</li>
+  </ul>
   <p>
-    บทเรียนที่ยกไปใช้ได้คือ <strong>ท่าโลภที่ไม่มีข้อโต้แย้งแลกเปลี่ยนรองรับ คือท่าที่ยังไม่ได้พิสูจน์</strong>
-    และคำถามที่ใช้เริ่มพิสูจน์ได้เกือบทุกครั้งคือ "ถ้าสลับสองการตัดสินใจในคำตอบที่ดีที่สุด
-    มันแย่ลงหรือไม่" ถ้าตอบได้ว่าไม่แย่ลง ท่าโลภก็ถูก ถ้าหาคู่ที่สลับแล้วดีขึ้นได้ ท่าโลภผิด
-    และคู่นั้นคืออินพุตที่ทำให้มันตก
+    บทเรียนที่ยกไปใช้ได้: กฎตอนเสมอที่ไม่เปลี่ยนคำตอบ อาจยังเป็นสิ่งที่โค้ดชั้นในพึ่งพาอยู่
   </p>
-
-  <h2>สรุปบรรทัดเดียว</h2>
-  <p>
-    เมื่อราคาของกองหนึ่งเป็นฟังก์ชันนูน การกระจายให้เท่ากันที่สุดคือคำตอบเสมอ
-    ที่เหลือคือให้คนที่มีทางเลือกน้อยที่สุดได้เลือกก่อน และตอนเสมอกันให้หยิบฝั่งที่รักษาความเป็นระเบียบของอาเรย์ไว้
-  </p>
-
   <h2>แหล่งที่มา</h2>
   <ol class="references">
     <li>
@@ -933,6 +1139,8 @@ const saBill = [
   /* กระดานของเครื่องเดิน คอลัมน์ต้องกว้างคงที่ เนื้อในเปลี่ยนทุกขั้นแต่ตารางต้องนิ่ง
      ห้ามยิงผ่าน .dpsim เพราะกล่องนั้นเป็นของคอมโพเนนต์ จึงถือ cid คนละตัวกับหน้านี้ กฎจะไม่ตรงกับอะไรเลย
      ยิงที่ตารางของหน้าเองแล้วใช้ !important เพื่อชนะกฎ body .panel .dpsim table.rec{width:100%} ของเลย์เอาต์ */
+  tr.tot td{font-weight:700;}
+
   table.sailtbl{width:auto !important;table-layout:fixed;margin:0;}
   table.sailtbl caption{border-radius:0;}
   /* เซลล์แรกเป็นข้อความไทย ซึ่ง max-content คือทั้งวลีบรรทัดเดียว
