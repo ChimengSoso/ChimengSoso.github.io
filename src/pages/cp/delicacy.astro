@@ -2,6 +2,7 @@
 import CpProblemLayout from '../../layouts/CpProblemLayout.astro';
 import Spoiler from '../../components/Spoiler.astro';
 import CodeBlock from '../../components/CodeBlock.astro';
+import CpStepPlayer from '../../components/CpStepPlayer.astro';
 import ZoomableDiagram from '../../components/ZoomableDiagram.astro';
 
 const href = 'delicacy/';
@@ -135,7 +136,6 @@ if (S2_LAST.run !== 39 || S2_LAST.day !== SAMPLE2.T || S2_LAST.city !== 1)
 
 const S1_PLAN = S1_STOPS.map((s) => s.city).join(' → ');
 const S2_PLAN = S2_STOPS.map((s) => s.city).join(' → ');
-const S1_WALK = S1_STOPS.map((s) => `วันที่ ${s.day} อยู่เมือง ${s.city} ได้ ${s.gain}`).join(' จากนั้น');
 const S1_SUM = S1_STOPS.map((s) => s.gain).join(' + ');
 const S2_FEST_DAYS = SAMPLE2.fest.map((f) => f.t).join(', ');
 const S2_FEST_SORTED = [...SAMPLE2.fest].sort((a, b) => a.t - b.t);
@@ -159,28 +159,6 @@ const S2_GAPS: Gap[] = [];
   S2_GAPS.push({ from: now, to: SAMPLE2.T, len: SAMPLE2.T - now, bits: gapBits(SAMPLE2.T - now) });
 }
 const S2_LONG_GAP = S2_GAPS[S2_GAPS.length - 1];
-
-/* ---------- ขอบเขตกับบิลค่าใช้จ่าย ---------- */
-const N_MAX = 50;
-const M_MAX = 501;
-const T_MAX = 1000000000;
-const K_MAX = 200;
-const C_MAX = 52501;
-const W_MAX = 5;
-const T_SUB = 52501;
-const STATES = N_MAX * W_MAX;
-const MUL_COST = STATES * STATES * STATES;
-const VMUL_COST = STATES * STATES;
-const bitsOf = (T: number): number => Math.floor(Math.log2(T)) + 1;
-const dayOps = (T: number): number => T * M_MAX;
-const matOps = (T: number): number => (bitsOf(T) - 1) * MUL_COST + (K_MAX + 1) * bitsOf(T) * VMUL_COST;
-const MEM_MATRIX = bitsOf(T_MAX) * VMUL_COST * 8;
-const MEM_DAYDP = (T_SUB + 1) * N_MAX * 8;
-const bill = [
-  { name: 'ไล่ทีละวัน ทุกวันผ่อนถนนทุกเส้น', a: dayOps(T_SUB), b: dayOps(T_MAX) },
-  { name: 'หั่นเมืองแล้วคูณเมทริกซ์ ยกกำลังทวิภาค', a: matOps(T_SUB), b: matOps(T_MAX) },
-];
-if (matOps(T_MAX) !== 830000000) throw new Error('delicacy: บิลค่าใช้จ่ายของท่าเมทริกซ์เปลี่ยนไปจากที่หน้านี้อ้าง');
 
 /* ---------- มินิเกม พาเขาเที่ยวเอง ---------- */
 type GamePuzzle = {
@@ -343,6 +321,10 @@ const D1_ROW_Y = S1_STOPS.map((_, i) => 64 + i * 38);
 const D1_COL = { day: D1_LEDGER_X, city: D1_LEDGER_X + 74, gain: D1_LEDGER_X + 168, run: D1_LEDGER_X + 246 };
 const D1_W = D1_COL.run + 34 + 12;
 const D1_H = Math.max(D1_MAP.box.h, D1_ROW_Y[D1_ROW_Y.length - 1] + 10) + 34;
+/* วัดด้วย getBoundingClientRect (นับ transform ของกลุ่มแผนที่ด้วย): เนื้อหาเริ่มที่ x = 8 ขอบขวาเหลือ 12 สมดุลอยู่แล้ว
+   อย่าวัดด้วย getBBox เพราะไม่นับ translate ของกลุ่มเมือง แล้วจะเห็นขอบซ้ายเป็น 65 ทั้งที่ไม่ใช่ */
+const D1_TRIM = 0;
+const D1_VB_W = D1_W - D1_TRIM;
 
 /* ---------- รูปที่สอง ถนนหนึ่งเส้นกลายเป็นการก้าววันละครั้ง ---------- */
 type ChainNode = { label: string; day: number; landed: boolean; x: number; gain: number; road: string };
@@ -383,8 +365,9 @@ const CHAIN_VB_W = CHAIN_LAST.x + CHAIN_W + 12;
 const CHAIN_VB_H = CHAIN_TOP + CHAIN_H + 34;
 
 /* ---------- รูปที่สาม เส้นเวลาของตัวอย่างที่สอง ถูกเทศกาลหั่นเป็นช่วง ---------- */
-const AX_X0 = 26;
-const AX_X1 = 648;
+const AX_X0 = 16;
+const AX_X1 = 644;
+const AX_VB_W = 660;
 const AX_Y = 104;
 const axX = (d: number): number => rn(AX_X0 + ((AX_X1 - AX_X0) * d) / SAMPLE2.T);
 const AX_TICKS = Array.from({ length: SAMPLE2.T + 1 }, (_, d) => ({ d, x: axX(d) }));
@@ -402,6 +385,372 @@ const AX_GAPS = S2_GAPS.map((g, i) => ({
   text: g.bits.length > 1 ? `${g.len} วัน = ${g.bits.join(' + ')}` : `${g.len} วัน`,
 }));
 const AX_H = 158 + 34;
+
+/* ---------- ขอบเขตของโจทย์ ---------- */
+const N_MAX = 50;
+const M_MAX = 501;
+const T_MAX = 1000000000;
+const K_MAX = 200;
+const C_MAX = 52501;
+const W_MAX = 5;
+const T_SUB = 52501;
+const M_SUB = 50;
+const TIME_LIMIT = 2;
+const MEM_LIMIT_MB = 512;
+const STATES = N_MAX * W_MAX;
+const MUL_COST = STATES * STATES * STATES;
+const VMUL_COST = STATES * STATES;
+const bitsOf = (T: number): number => Math.floor(Math.log2(T)) + 1;
+/* นับตามที่โค้ดทำจริง: ตารางรายวันดูถนนทุกเส้นหนึ่งรอบต่อวัน
+   ส่วนโค้ดเต็มยกกำลังสอง (บิต - 1) ครั้ง แล้วคูณเวกเตอร์อย่างมากบิตละครั้งในทุกช่วงระหว่างเทศกาล */
+const dayOps = (T: number, M: number): number => T * M;
+const matOps = (T: number): number => (bitsOf(T) - 1) * MUL_COST + (K_MAX + 1) * bitsOf(T) * VMUL_COST;
+if (matOps(T_MAX) !== 830000000) throw new Error('delicacy: ต้นทุนของท่าเมทริกซ์เปลี่ยนไปจากที่หน้านี้อ้าง');
+const MEM_MATRIX_MB = (bitsOf(T_MAX) * VMUL_COST * 8) / 1000000;
+const MEM_DAY_FULL_MB = ((T_MAX + 1) * N_MAX * 8) / 1000000;
+
+/* ---------- ผลวัดจริงของโค้ดในหน้านี้ (WSL g++ 11.4 -O2, /usr/bin/time -v)
+   โค้ดเต็มรันสองชุด ชุดละสามรอบ ช่วงเวลาคือต่ำสุดถึงสูงสุดของหกรอบ ---------- */
+const RUN_WORST = { lo: 0.45, hi: 0.64, mb: 18.1 };
+const RUN_K0 = { lo: 0.21, hi: 0.27, mb: 18.1 };
+const RUN_BRUTE_SUB1 = { sec: 1.2, mb: 3.2 };
+const RUN_SUB_SUB2 = { n: 20, sec: 0.01, mb: 14.3 };
+const STRESS = { tiny: 3000, mid: 3000, ring: 3000, ringBig: 1382, ringFest: 1315, sameDay: 1500 };
+
+/* ---------- ตอนที่ 1: ไล่ทุกเส้นทาง กับตารางรายวัน ---------- */
+const BRUTE_WORST_WALKS = M_SUB ** 5;
+const NO = -1;
+/** ตารางรายวันแบบดึงค่า: ช่อง (d, v) ถามถนนทุกเส้นที่เข้าเมือง v ว่ามาจากไหนได้บ้าง */
+function dayTable(k: Kingdom): number[][] {
+  const dp: number[][] = Array.from({ length: k.T + 1 }, () => new Array<number>(k.n + 1).fill(NO));
+  dp[0][1] = k.C[1] + festBonus(k, 0, 1);
+  for (let d = 1; d <= k.T; d++) {
+    for (let v = 1; v <= k.n; v++) {
+      let best = NO;
+      for (const r of k.roads) {
+        if (r.v !== v || d < r.w || dp[d - r.w][r.u] === NO) continue;
+        best = Math.max(best, dp[d - r.w][r.u] + k.C[v]);
+      }
+      dp[d][v] = best === NO ? NO : best + festBonus(k, d, v);
+    }
+  }
+  return dp;
+}
+for (const k of [SAMPLE1, SAMPLE2, TRAP, FEST, NONE]) {
+  if (dayTable(k)[k.T][1] !== walkBest(k).best) throw new Error('delicacy: ตารางรายวันไม่ตรงกับการไล่ทุกเส้นทาง');
+}
+const S1_DAY = dayTable(SAMPLE1);
+/* ช่องตัวอย่างของสูตร ต้องมีถนนเข้าสองเส้นที่มาจากช่องที่ไปถึงได้ทั้งคู่ */
+type PullCand = { r: Road; from: number; total: number };
+const pullCands = (dp: number[][], k: Kingdom, d: number, v: number): PullCand[] =>
+  k.roads
+    .filter((r) => r.v === v && d >= r.w && dp[d - r.w][r.u] !== NO)
+    .map((r) => ({ r, from: dp[d - r.w][r.u], total: dp[d - r.w][r.u] + k.C[v] }));
+const DAY_EX = (() => {
+  for (let d = SAMPLE1.T; d >= 1; d--) {
+    for (let v = 1; v <= SAMPLE1.n; v++) {
+      const c = pullCands(S1_DAY, SAMPLE1, d, v);
+      if (c.length >= 2) return { d, v, cands: c };
+    }
+  }
+  throw new Error('delicacy: ตัวอย่างแรกไม่มีช่องที่ถนนสองเส้นแข่งกัน');
+})();
+const DAY_EX_BEST = Math.max(...DAY_EX.cands.map((c) => c.total));
+if (DAY_EX_BEST !== S1_DAY[DAY_EX.d][DAY_EX.v]) throw new Error('delicacy: สูตรดึงค่าไม่ตรงกับตาราง');
+const DAY_EX_TIE = DAY_EX.cands.every((c) => c.total === DAY_EX_BEST);
+
+const SUBTASKS = [
+  { pct: 20, cond: `N ≤ 5, M ≤ ${M_SUB}, T ≤ 5`, brute: true, day: true },
+  { pct: 20, cond: `M ≤ ${M_SUB}, T ≤ ${fmt(T_SUB)}`, brute: false, day: true },
+  { pct: 10, cond: `M ≤ ${M_SUB}, เมืองต่อกันเป็นวงเดียว`, brute: false, day: false },
+  { pct: 15, cond: `M ≤ ${M_SUB}, ไม่มีเทศกาล`, brute: false, day: false },
+  { pct: 10, cond: `M ≤ ${M_SUB}, เทศกาลไม่เกิน 10 งาน`, brute: false, day: false },
+  { pct: 10, cond: `M ≤ ${M_SUB}`, brute: false, day: false },
+  { pct: 15, cond: 'ไม่มีเงื่อนไขเพิ่ม', brute: false, day: false },
+];
+const PCT_BRUTE = SUBTASKS.filter((s) => s.brute).reduce((a, s) => a + s.pct, 0);
+const PCT_DAY = SUBTASKS.filter((s) => s.day).reduce((a, s) => a + s.pct, 0);
+if (SUBTASKS.reduce((a, s) => a + s.pct, 0) !== 100 || PCT_DAY !== 40) throw new Error('delicacy: ตารางคะแนนไม่ครบ 100');
+
+/* ---------- ตอนที่ 2: ระยะห่างจากงบ ---------- */
+/* ความเร็วเครื่องปัดจากผลวัด: โค้ดเต็มบวกเทียบไม่เกิน 8.3 × 10^8 ครั้งในไม่เกิน 0.64 วินาที */
+const OPS_PER_SEC = 1e9;
+const BUDGET_OPS = TIME_LIMIT * OPS_PER_SEC;
+const DAY_FULL = dayOps(T_MAX, M_MAX);
+const DAY_SUB = dayOps(T_SUB, M_MAX);
+const MAT_FULL = matOps(T_MAX);
+const popcount = (x: number): number => x.toString(2).split('').filter((c) => c === '1').length;
+/* เคสหนักสุดที่สร้างไว้วัดเวลา: เทศกาล 200 งานห่างกัน 2^22 - 1 วัน แล้วช่วงสุดท้ายยาวเท่าที่เหลือ */
+const WORST_GAP = 2 ** 22 - 1;
+const WORST_LAST = T_MAX - K_MAX * WORST_GAP;
+const WORST_VMULS = K_MAX * popcount(WORST_GAP) + popcount(WORST_LAST);
+const MAT_WORST = (bitsOf(T_MAX) - 1) * MUL_COST + WORST_VMULS * VMUL_COST;
+if (MAT_WORST >= matOps(T_MAX) || MAT_WORST > BUDGET_OPS) throw new Error('delicacy: เคสหนักสุดต้องอยู่ใต้ขอบบนและใต้งบ');
+const DAY_OVER = Math.round(DAY_FULL / BUDGET_OPS);
+const PER_DAY_BUDGET = BUDGET_OPS / T_MAX;
+const JUMPS = bitsOf(T_MAX);
+const S_CAP = Math.floor(Math.cbrt(BUDGET_OPS / JUMPS));
+if (DAY_SUB > BUDGET_OPS || DAY_FULL < BUDGET_OPS || MAT_FULL > BUDGET_OPS || STATES > S_CAP)
+  throw new Error('delicacy: กราฟงบเวลาไม่ตรงกับเรื่องที่หน้าเล่า');
+const CH_LO = 6;
+const CH_HI = 12;
+const CH_X0 = 250;
+const CH_W = 330;
+const CH_Y0 = 46;
+const CH_ROW = 46;
+const chX = (v: number): number => rn(CH_X0 + ((Math.log10(v) - CH_LO) / (CH_HI - CH_LO)) * CH_W);
+const sci = (v: number): { m: string; e: number } => {
+  const e = Math.floor(Math.log10(v));
+  return { m: (v / 10 ** e).toFixed(1).replace(/\.0$/, ''), e };
+};
+const CH_BARS = [
+  { name: `ตารางรายวัน · T = ${fmt(T_SUB)}`, v: DAY_SUB },
+  { name: `ตารางรายวัน · T = ${fmt(T_MAX)}`, v: DAY_FULL },
+  { name: 'เมทริกซ์ · เคสหนักสุดที่สร้าง', v: MAT_WORST },
+].map((b, k) => ({ ...b, y: CH_Y0 + k * CH_ROW, ok: b.v < BUDGET_OPS, s: sci(b.v), over: Math.round(b.v / BUDGET_OPS) }));
+const CH_BOTTOM = CH_Y0 + CH_BARS.length * CH_ROW;
+const CH_TICKS = Array.from({ length: CH_HI - CH_LO + 1 }, (_, k) => CH_LO + k);
+
+/* ---------- ตอนที่ 3 และ 4: สำเนาเมือง เมทริกซ์ และเครื่องเดิน ---------- */
+const NEG = Number.NEGATIVE_INFINITY;
+type Space = { W: number; S: number; id: (v: number, j: number) => number; v: (p: number) => number; j: (p: number) => number };
+function space(k: Kingdom): Space {
+  const W = Math.max(...k.roads.map((r) => r.w));
+  return {
+    W,
+    S: k.n * W,
+    id: (v, j) => (v - 1) * W + j,
+    v: (p) => Math.floor(p / W) + 1,
+    j: (p) => p % W,
+  };
+}
+const stName = (sp: Space, p: number): string => `(${sp.v(p)},${sp.j(p)})`;
+/** เมทริกซ์ของหนึ่งวัน A[p][q] = ได้กี่หน่วยถ้าวันนี้อยู่สถานะ p แล้วพรุ่งนี้อยู่ q */
+function oneDay(k: Kingdom, sp: Space): number[][] {
+  const A: number[][] = Array.from({ length: sp.S }, () => new Array<number>(sp.S).fill(NEG));
+  for (const r of k.roads) {
+    const p = sp.id(r.u, 0);
+    const q = sp.id(r.v, r.w - 1);
+    A[p][q] = Math.max(A[p][q], k.C[r.v]);
+  }
+  for (let v = 1; v <= k.n; v++) for (let j = 1; j < sp.W; j++) A[sp.id(v, j)][sp.id(v, j - 1)] = 0;
+  return A;
+}
+const mpMul = (A: number[][], B: number[][]): number[][] =>
+  A.map((row) => B[0].map((_, j) => Math.max(...row.map((a, k) => a + B[k][j]))));
+const vecMul = (x: number[], B: number[][]): number[] => B[0].map((_, j) => Math.max(...x.map((a, k) => a + B[k][j])));
+type VecCand = { p: number; base: number; add: number; total: number };
+/** เดินทีละวันพร้อมจดว่าแต่ละช่องรับค่าจากไหนบ้าง */
+function traceDays(k: Kingdom, sp: Space, A: number[][]): { vecs: number[][]; cands: VecCand[][][] } {
+  const v0 = new Array<number>(sp.S).fill(NEG);
+  v0[sp.id(1, 0)] = k.C[1] + festBonus(k, 0, 1);
+  const vecs = [v0];
+  const cands: VecCand[][][] = [v0.map(() => [])];
+  for (let d = 1; d <= k.T; d++) {
+    const prev = vecs[d - 1];
+    const cs: VecCand[][] = [];
+    const next = prev.map((_, q) => {
+      const list: VecCand[] = [];
+      for (let p = 0; p < sp.S; p++) {
+        if (prev[p] === NEG || A[p][q] === NEG) continue;
+        list.push({ p, base: prev[p], add: A[p][q], total: prev[p] + A[p][q] });
+      }
+      cs.push(list);
+      return list.length === 0 ? NEG : Math.max(...list.map((c) => c.total));
+    });
+    vecs.push(next);
+    cands.push(cs);
+  }
+  return { vecs, cands };
+}
+
+const SP1 = space(SAMPLE1);
+const A1 = oneDay(SAMPLE1, SP1);
+const TR1 = traceDays(SAMPLE1, SP1, A1);
+const ID10 = SP1.id(1, 0);
+if (TR1.vecs[SAMPLE1.T][ID10] !== S1_BEST.best) throw new Error('delicacy: เครื่องเดินสำเนาเมืองไม่ได้ 13');
+for (let d = 0; d <= SAMPLE1.T; d++) {
+  for (let v = 1; v <= SAMPLE1.n; v++) {
+    const x = TR1.vecs[d][SP1.id(v, 0)];
+    if ((x === NEG ? NO : x) !== S1_DAY[d][v]) throw new Error(`delicacy: ช่อง (${v},0) วันที่ ${d} ไม่ตรงกับตารางรายวัน`);
+  }
+}
+/* สถานะที่ตัวอย่างแรกไปถึงจริง กับที่ไม่มีถนนไหนส่งค่าเข้าเลย */
+const USED = Array.from({ length: SP1.S }, (_, p) => p).filter((p) => TR1.vecs.some((x) => x[p] !== NEG));
+const UNUSED = Array.from({ length: SP1.S }, (_, p) => p).filter((p) => !USED.includes(p));
+const cellText = (x: number): string => (x === NEG ? '·' : String(x));
+const PLAYER_ROWS = TR1.vecs.map((vec, d) => ({ d, cells: USED.map((p) => ({ t: cellText(vec[p]), land: SP1.j(p) === 0 })) }));
+/* ตารางเมทริกซ์ของตัวอย่างแรก เฉพาะสถานะที่ใช้จริง */
+const MAT_ROWS = USED.map((p) => ({ name: stName(SP1, p), cells: USED.map((q) => cellText(A1[p][q])) }));
+const MAT_FINITE = USED.reduce((a, p) => a + USED.filter((q) => A1[p][q] !== NEG).length, 0);
+/* ช่องตัวอย่างของกฎหนึ่งวัน ต้องมีทั้งพจน์ถนน (u,0) + C[v] และพจน์เลื่อน (v,j+1) + 0 ที่ไปถึงได้ทั้งคู่ และให้ค่าต่างกัน */
+const VEC_EX = (() => {
+  for (const strict of [true, false]) {
+    for (let d = 1; d <= SAMPLE1.T; d++) {
+      for (const q of USED) {
+        const c = TR1.cands[d][q];
+        const road = c.find((x) => SP1.j(x.p) === 0);
+        const shift = c.find((x) => SP1.j(x.p) > 0);
+        if (road && shift && road.add > 0 && shift.base > 0 && (!strict || road.total !== shift.total)) return { d, q, road, shift };
+      }
+    }
+  }
+  throw new Error('delicacy: ไม่มีช่องที่พจน์ถนนกับพจน์เลื่อนแข่งกัน');
+})();
+
+function noteItem(sp: Space, q: number, cs: VecCand[]): string {
+  const one = (c: VecCand): string =>
+    sp.j(c.p) === 0
+      ? `${stName(sp, c.p)} ${c.base} + C[${sp.v(q)}] ${c.add} = ${c.total}`
+      : `${stName(sp, c.p)} ${c.base} เลื่อนเข้ามา = ${c.total}`;
+  if (cs.length === 1) return `${stName(sp, q)} ← ${one(cs[0])}`;
+  const best = Math.max(...cs.map((c) => c.total));
+  const win = cs.filter((c) => c.total === best);
+  const keep = win.length === cs.length ? 'เท่ากันทุกทาง' : `เก็บ ${best} จาก ${stName(sp, win[0].p)}`;
+  return `${stName(sp, q)} ← มากสุดของ ${cs.map(one).join(' กับ ')} · ${keep}`;
+}
+const PLAYER_STEPS = TR1.vecs.map((vec, d) => {
+  if (d === 0) {
+    return {
+      note: `วันที่ 0 เขายืนอยู่เมือง 1 มีช่องเดียวที่มีค่า คือ (1,0) = C[1] = ${vec[ID10]} ช่องอื่นเป็น · เพราะยังไปไม่ถึง`,
+    };
+  }
+  const items = USED.filter((q) => vec[q] !== NEG).map((q) => noteItem(SP1, q, TR1.cands[d][q]));
+  const head =
+    d <= 2
+      ? `วันที่ ${d}: ทุกช่องถามว่าเมื่อวานมีช่องไหนส่งค่ามาให้ได้บ้าง แล้วเอาค่าที่มากที่สุด`
+      : `วันที่ ${d}`;
+  const tail = d === SAMPLE1.T ? `<br>คำตอบอ่านที่ (1,0) = ${vec[ID10]}` : '';
+  return { note: `${head}<br>${items.join('<br>')}${tail}` };
+});
+if (PLAYER_STEPS.length !== PLAYER_ROWS.length) throw new Error('delicacy: จำนวนก้าวไม่เท่าจำนวนแถว');
+
+/* กระโดดตามบิตของ T = 11 แล้วต้องได้แถวเดียวกับการเดินทีละวัน */
+const A1_POW: number[][][] = [A1];
+for (let b = 1; 1 << b <= SAMPLE1.T; b++) A1_POW.push(mpMul(A1_POW[b - 1], A1_POW[b - 1]));
+const JUMP_LOG: { len: number; day: number; val: number }[] = [];
+{
+  let vec = TR1.vecs[0];
+  let day = 0;
+  for (let b = 0; 1 << b <= SAMPLE1.T; b++) {
+    if (!((SAMPLE1.T >> b) & 1)) continue;
+    vec = vecMul(vec, A1_POW[b]);
+    day += 1 << b;
+    if (vec.some((x, p) => x !== TR1.vecs[day][p])) throw new Error(`delicacy: กระโดดถึงวันที่ ${day} ไม่ตรงกับเดินทีละวัน`);
+    JUMP_LOG.push({ len: 1 << b, day, val: vec[ID10] });
+  }
+  if (day !== SAMPLE1.T || vec[ID10] !== S1_BEST.best) throw new Error('delicacy: กระโดดตามบิตไม่ได้ 13');
+}
+/* ช่องหนึ่งของเมทริกซ์สองวัน ใช้เล่าการคูณ: ต้องมีจุดพักกลางทางที่ไปถึงได้ */
+const A2_EX = (() => {
+  const A2 = A1_POW[1];
+  for (const p of USED) {
+    for (const q of USED) {
+      if (p !== ID10) continue;
+      const mids = Array.from({ length: SP1.S }, (_, m) => m).filter((m) => A1[p][m] !== NEG && A1[m][q] !== NEG);
+      if (mids.length === 1 && A1[p][mids[0]] > 0 && A1[mids[0]][q] > 0)
+        return { p, q, mid: mids[0], a: A1[p][mids[0]], b: A1[mids[0]][q], val: A2[p][q] };
+    }
+  }
+  throw new Error('delicacy: ไม่มีช่องตัวอย่างของเมทริกซ์สองวัน');
+})();
+if (A2_EX.a + A2_EX.b !== A2_EX.val) throw new Error('delicacy: ช่องตัวอย่างของเมทริกซ์สองวันมีจุดพักที่ให้ค่ามากกว่า');
+/* ออกจาก (1,0) วันที่ 0 แล้วเดินสองวัน ต้องได้ค่าเดียวกับแถววันที่ 2 ของเครื่องเดิน */
+const A2_DAY2 = TR1.vecs[2][A2_EX.q];
+if (A2_DAY2 !== TR1.vecs[0][ID10] + A2_EX.val) throw new Error('delicacy: เมทริกซ์สองวันไม่ตรงกับเครื่องเดินวันที่ 2');
+
+/* ตอนที่ 6: ค่าที่ค้างอยู่กลางทางในวันสุดท้าย */
+const PENDING_T = USED.filter((p) => SP1.j(p) > 0 && TR1.vecs[SAMPLE1.T][p] !== NEG).map((p) => ({
+  name: stName(SP1, p),
+  j: SP1.j(p),
+  val: TR1.vecs[SAMPLE1.T][p],
+}));
+const PENDING_BIG = PENDING_T.filter((x) => x.val > S1_BEST.best);
+if (PENDING_BIG.length === 0) throw new Error('delicacy: วันสุดท้ายต้องมีช่องกลางทางที่ค่ามากกว่าคำตอบ');
+
+/* ตอนที่ 5: ตัวอย่างที่สอง เดินเป็นช่วงแล้วบวกเทศกาลด้วยมือ ต้องได้ 39 */
+const SP2 = space(SAMPLE2);
+const A2M = oneDay(SAMPLE2, SP2);
+const FEST_LOG: { t: number; x: number; y: number; before: number; after: number }[] = [];
+{
+  let vec = new Array<number>(SP2.S).fill(NEG);
+  vec[SP2.id(1, 0)] = SAMPLE2.C[1];
+  let now = 0;
+  const step = (d: number): void => {
+    for (let i = 0; i < d; i++) vec = vecMul(vec, A2M);
+  };
+  for (const f of S2_FEST_SORTED) {
+    step(f.t - now);
+    now = f.t;
+    const p = SP2.id(f.x, 0);
+    const before = vec[p];
+    if (before !== NEG) vec[p] += f.y;
+    FEST_LOG.push({ t: f.t, x: f.x, y: f.y, before, after: vec[p] });
+  }
+  step(SAMPLE2.T - now);
+  if (vec[SP2.id(1, 0)] !== S2_BEST.best) throw new Error('delicacy: เดินเป็นช่วงบนตัวอย่างที่สองไม่ได้ 39');
+}
+if (!FEST_LOG.some((f) => f.before !== NEG)) throw new Error('delicacy: ต้องมีเทศกาลที่บวกเข้าช่องที่ไปถึงได้');
+
+/* ทดสอบตัวเอง: ชุดที่ทำไม่ได้ในเกม ช่อง (1,0) วันสุดท้ายต้องยังเป็น · */
+const SPN = space(NONE);
+const TRN = traceDays(NONE, SPN, oneDay(NONE, SPN));
+if (TRN.vecs[NONE.T][SPN.id(1, 0)] !== NEG) throw new Error('delicacy: ชุดที่ทำไม่ได้ต้องไปไม่ถึง (1,0)');
+const S1_PLAN_VIA = S1_STOPS[S1_STOPS.length - 2];
+if (!DAY_EX.cands.some((c) => c.r.u === S1_PLAN_VIA.city && DAY_EX.d - c.r.w === S1_PLAN_VIA.day))
+  throw new Error('delicacy: แผนของโจทย์ต้องเป็นหนึ่งในสองทางที่เสมอกัน');
+const CODE_MAP = [
+  { code: 'struct MaxPlus (mul, vmul)', part: 'ตอนที่ 4 · กฎของหนึ่งวัน และการคูณแบบมากสุดบวก' },
+  { code: '// A = one-day transition matrix', part: 'ตอนที่ 3 · กฎสองข้อของสำเนาเมือง' },
+  { code: '// Binary powers of A ... และ advance()', part: 'ตอนที่ 4 · ตารางกระโดด' },
+  { code: 'sort F แล้ว // Apply every festival held on day t', part: 'ตอนที่ 5 · เทศกาลหั่นเส้นเวลา' },
+  { code: 'ans = vec[id(0, 0)] และคืน -1', part: 'ตอนที่ 6 · อ่านคำตอบที่ (1,0) เท่านั้น' },
+  { code: 'NEG กับ HALF', part: 'ย่อหน้าใต้โค้ด' },
+];
+const QUIZ_W = 1000;
+const QUIZ_S = N_MAX * QUIZ_W;
+const QUIZ_MUL = QUIZ_S ** 3;
+
+/* ---------- ตัวเลขเพิ่มเติมหลังรีวิว ---------- */
+const BIG_T_BITS = 29;
+const RATE_LO = (MAT_WORST / RUN_WORST.hi / 1e9).toFixed(1);
+const RATE_HI = (MAT_WORST / RUN_WORST.lo / 1e9).toFixed(1);
+if (Number(RATE_LO) < OPS_PER_SEC / 1e9) throw new Error('delicacy: งบ 10^9 ต้องเป็นตัวเลขแบบระวัง');
+/* ช่องที่เครื่องเดินยกมาเล่า ต้องเป็นช่องแรกที่มีให้เลือกมากกว่าหนึ่งทาง */
+const FIRST_MULTI = TR1.cands.findIndex((cs) => cs.some((c) => c.length >= 2));
+if (FIRST_MULTI !== VEC_EX.d) throw new Error('delicacy: ช่องตัวอย่างของเครื่องเดินไม่ใช่ช่องแรกที่มีสองทาง');
+const PER_LAYER = Math.round(BUDGET_OPS / JUMPS);
+if (S_CAP ** 3 > PER_LAYER || (S_CAP + 1) ** 3 <= PER_LAYER) throw new Error('delicacy: รากที่สามของงบต่อชั้นคำนวณผิด');
+/* เมทริกซ์เต็ม 12 x 12 ของตัวอย่างแรก เทียบกับส่วนที่แสดง */
+const FULL_FINITE = A1.reduce((a, row) => a + row.filter((x) => x !== NEG).length, 0);
+if (FULL_FINITE !== SAMPLE1.roads.length + SAMPLE1.n * (SP1.W - 1)) throw new Error('delicacy: นับช่องของเมทริกซ์ผิด');
+const S1_LONGEST = SAMPLE1.roads.reduce((a, r) => (r.w > a.w ? r : a));
+/* ทำไม 12 สถานะเหลือ 7: สำเนา (v, j) ไปถึงได้ก็ต่อเมื่อมีถนนเข้าเมือง v ที่ยาวกว่า j วัน */
+const UNREACH_WHY = Array.from({ length: SAMPLE1.n }, (_, i) => i + 1)
+  .map((v) => ({
+    v,
+    L: Math.max(...SAMPLE1.roads.filter((r) => r.v === v).map((r) => r.w)),
+    states: UNUSED.filter((p) => SP1.v(p) === v),
+  }))
+  .filter((x) => x.states.length > 0);
+for (const x of UNREACH_WHY) {
+  for (const p of x.states) if (SP1.j(p) < x.L) throw new Error(`delicacy: ${stName(SP1, p)} ควรไปถึงได้`);
+}
+/* สี่วัน = สองวันคูณตัวเอง: ช่อง (1,0) ไป (1,0) ต้องตรงกับวันที่ 4 ของเครื่องเดิน */
+const A4_SELF = A1_POW[2][ID10][ID10];
+if (TR1.vecs[4][ID10] !== TR1.vecs[0][ID10] + A4_SELF) throw new Error('delicacy: เมทริกซ์สี่วันไม่ตรงกับเครื่องเดิน');
+const JUMP_BITS = JUMP_LOG.map((j) => Math.log2(j.len));
+/* ชุดที่ทำไม่ได้: วันคี่ทุกวันช่อง (1,0) ต้องเป็น · */
+for (let d = 1; d <= NONE.T; d += 2) {
+  if (TRN.vecs[d][SPN.id(1, 0)] !== NEG) throw new Error('delicacy: ชุดที่ทำไม่ได้ต้องไปไม่ถึงเมือง 1 ในวันคี่');
+}
+const NONE_ROADS = NONE.roads.map((r) => `${r.u}→${r.v} (${r.w} วัน)`).join(', ');
+/* โค้ดเต็ม: ค่าแทน "ไปไม่ถึง" กับเส้นแบ่ง และผลรวมเทศกาลทั้งหมดที่บวกได้มากที่สุด */
+const CODE_NEG = -1e18;
+const CODE_HALF = -5e17;
+const FEST_TOTAL_MAX = K_MAX * T_MAX;
+if (CODE_NEG !== -(10 ** 18)) throw new Error('delicacy: หน้านี้เขียน NEG เป็น -10^18');
+if (CODE_NEG + FEST_TOTAL_MAX > CODE_HALF) throw new Error('delicacy: ข้อความเรื่อง NEG กับเทศกาลไม่จริง');
 
 /* ---------- โค้ด ยกมาทั้งไฟล์ตามที่คอมไพล์และทดสอบจริง ---------- */
 const caseCode = `// Shared *data* declaration only (no algorithm code) so that the three
@@ -601,9 +950,10 @@ int main() {
 #endif`;
 
 const subCode = `// NOI 2020 "Delicacy" - subtask solver for T <= 52501 (also used as an oracle).
-// Plain forward DP over days.  dp[d][v] = best satisfaction for being on city v
-// on day d, already counting C[v] and any festival bonus of day d.
-// Every edge costs at least 1 day, so day d is complete before it is expanded.
+// Plain DP over days, written in pull form: dp[d][v] = best satisfaction for
+// standing on city v on day d, already counting C[v] and any festival of day d.
+// A cell asks every road u->v of length w where it could have come from:
+//     dp[d][v] = max over roads (u, v, w) with w <= d of dp[d - w][u] + C[v]
 #include "dl_case.h"
 #include <algorithm>
 #include <vector>
@@ -618,9 +968,9 @@ ll solve(const Case &cs) {
     const int n = cs.n;
     const ll T = cs.T;
 
-    // adjacency by source city
-    std::vector<std::vector<std::pair<int, int>>> adj(n);  // (dest, weight)
-    for (const auto &e : cs.E) adj[e[0]].push_back({e[1], e[2]});
+    // roads grouped by destination city: (source, weight)
+    std::vector<std::vector<std::pair<int, int>>> in(n);
+    for (const auto &e : cs.E) in[e[1]].push_back({e[0], e[2]});
 
     // festivals bucketed by day
     std::vector<std::vector<std::pair<int, ll>>> fest((size_t)T + 1);  // (city, bonus)
@@ -632,19 +982,20 @@ ll solve(const Case &cs) {
     dp[0][0] = cs.C[0];
 
     for (ll d = 0; d <= T; d++) {
+        if (d > 0) {
+            for (int v = 0; v < n; v++) {
+                ll best = NONE;
+                for (const auto &pr : in[v]) {
+                    if (pr.second > d) continue;
+                    ll from = dp[(size_t)(d - pr.second)][pr.first];
+                    if (from == NONE) continue;
+                    best = std::max(best, from + cs.C[v]);
+                }
+                dp[(size_t)d][v] = best;
+            }
+        }
         for (const auto &fb : fest[(size_t)d]) {
             if (dp[(size_t)d][fb.first] != NONE) dp[(size_t)d][fb.first] += fb.second;
-        }
-        if (d == T) break;
-        for (int v = 0; v < n; v++) {
-            ll cur = dp[(size_t)d][v];
-            if (cur == NONE) continue;
-            for (const auto &pr : adj[v]) {
-                ll nd = d + pr.second;
-                if (nd > T) continue;
-                ll cand = cur + cs.C[pr.first];
-                if (cand > dp[(size_t)nd][pr.first]) dp[(size_t)nd][pr.first] = cand;
-            }
         }
     }
     return dp[(size_t)T][0];  // NONE == -1, which is exactly the required output
@@ -760,7 +1111,7 @@ for (int v = 0; v < n; v++)
         <strong>ขอบเขต:</strong> <code>1 &le; N &le; {N_MAX}</code>, <code>N &le; M &le; {M_MAX}</code>,
         <code>1 &le; T &le; {fmt(T_MAX)}</code>, <code>0 &le; k &le; {K_MAX}</code>,
         <code>1 &le; C[i] &le; {fmt(C_MAX)}</code>, <code>1 &le; w &le; {W_MAX}</code>,
-        <code>1 &le; t &le; T</code> และ <code>1 &le; y &le; {fmt(T_MAX)}</code>
+        <code>1 &le; t &le; T</code> (แต่ละงานจัดคนละวัน) และ <code>1 &le; y &le; {fmt(T_MAX)}</code>
         เวลา 2 วินาที หน่วยความจำ 512 เมกะไบต์
       </li>
       <li>
@@ -803,33 +1154,9 @@ for (int v = 0; v < n; v++)
     </tbody>
   </table>
 
-  <div class="callout callout-note">
-    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
-    <p>
-      ชุดแรกบรรทัดบนสุดอ่านว่ามี {SAMPLE1.n} เมือง ถนน {SAMPLE1.roads.length} เส้น แข่งกัน {SAMPLE1.T} วัน
-      และไม่มีเทศกาลเลย บรรทัดถัดมาคือความพึงพอใจของเมือง 1 ถึงเมือง {SAMPLE1.n} เรียงตามลำดับ
-      คือ {SAMPLE1.C.slice(1).join(', ')} ส่วนอีก {SAMPLE1.roads.length} บรรทัดคือถนน
-      เลขสามตัวในบรรทัดคือต้นทาง ปลายทาง และจำนวนวัน ระวังว่าถนนเป็น<strong>ทางเดียว</strong>
-      บรรทัด <code>2 1 3</code> แปลว่าไปจากเมือง 2 กลับเมือง 1 ได้ใน 3 วัน แต่ไม่ได้แปลว่าเดินสวนทางได้
-    </p>
-    <p>
-      คำตอบมีหน่วยเป็นความพึงพอใจรวม ไม่ใช่จำนวนวันและไม่ใช่จำนวนเมืองที่แวะ
-      และเป็น <code>-1</code> เมื่อไม่มีทางกลับถึงเมือง 1 ในวันที่ <code>T</code> พอดี
-      สิ่งที่คนอ่านพลาดบ่อยที่สุดคือนับวันที่ 0 กับวันที่ <code>T</code> ยังไง คำตอบคือนับทั้งสองวัน
-      เพราะเขาชิมตั้งแต่วันแรกที่ยืนอยู่เมือง 1 และชิมอีกครั้งตอนกลับถึง
-    </p>
-    <p>
-      แผนที่โจทย์ยกมาคือ {S1_PLAN} เดินแล้วได้แบบนี้: {S1_WALK} รวมทั้งหมด {S1_SUM} เท่ากับ {S1_LAST.run} หน่วย
-      สังเกตว่าเขาเหยียบเมือง 1 สามครั้งและได้ {SAMPLE1.C[1]} หน่วยทุกครั้ง เพราะโจทย์บอกว่าชิมซ้ำก็ได้เท่าเดิม
-      ส่วนชุดที่สองมีเทศกาล {SAMPLE2.fest.length} งาน จัดวันที่ {S2_FEST_DAYS} ตามลำดับที่อินพุตให้มา
-      ซึ่ง<strong>ไม่ได้เรียงตามวัน</strong> แผนที่ชนะคือ {S2_PLAN} และมันไปตรงงานเดียวคือวันที่{' '}
-      {S2_HIT.map((s) => `${s.day} ที่เมือง ${s.city} ได้เพิ่ม ${s.bonus}`).join(' ')} ส่วนอีก {S2_MISS.length} งาน
-      เขายอมทิ้งเพราะแวะไม่คุ้ม รวมแล้วได้ {S2_LAST.run} หน่วย
-    </p>
-  </div>
-
   <ZoomableDiagram caption={`อาณาจักรของตัวอย่างแรก ตัวเลขขาวในวงคือหมายเลขเมือง ตัวเลขทองคือความพึงพอใจของเมืองนั้น ลูกศรคือถนนทางเดียวพร้อมจำนวนวันที่ใช้ ทางขวาคือบัญชีของแผน ${S1_PLAN} ทีละครั้งที่เหยียบเมือง จนได้ ${S1_LAST.run} หน่วยในวันที่ ${SAMPLE1.T}`}>
-    <svg viewBox={`0 0 ${D1_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:740px" role="img" aria-label="แผนที่สามเมืองของตัวอย่างแรก พร้อมบัญชีความพึงพอใจหกบรรทัดตามแผนเดินทางที่โจทย์ยกมา">
+    <svg viewBox={`0 0 ${D1_VB_W} ${D1_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style={`display:block;margin:0 auto;max-width:${Math.round(D1_VB_W * 1.25)}px`} role="img" aria-label="แผนที่สามเมืองของตัวอย่างแรก พร้อมบัญชีความพึงพอใจหกบรรทัดตามแผนเดินทางที่โจทย์ยกมา">
+      <g transform={`translate(${-D1_TRIM}, 0)`}>
       <g transform={`translate(${-D1_MAP.box.x}, ${-D1_MAP.box.y})`}>
         {D1_MAP.arcs.map((a) => (
           <g>
@@ -860,20 +1187,49 @@ for (int v = 0; v < n; v++)
           <text x={D1_COL.run} y={D1_ROW_Y[i]} fill="#a7f3c4" font-size="13" font-family="monospace">{s.run}</text>
         </g>
       ))}
+      </g>
     </svg>
   </ZoomableDiagram>
+
+  <div class="callout callout-note">
+    <p class="callout-label">อ่านตัวอย่างนี้ยังไง</p>
+    <ul>
+      <li>บรรทัดแรกของชุดแรก: {SAMPLE1.n} เมือง ถนน {SAMPLE1.roads.length} เส้น แข่ง {SAMPLE1.T} วัน ไม่มีเทศกาล</li>
+      <li>บรรทัดที่สอง: ความพึงพอใจของเมือง 1 ถึงเมือง {SAMPLE1.n} คือ {SAMPLE1.C.slice(1).join(', ')}</li>
+      <li>
+        อีก {SAMPLE1.roads.length} บรรทัดคือถนน เรียงเป็นต้นทาง ปลายทาง จำนวนวัน ถนนเป็นทางเดียว
+        บรรทัด <code>2 1 3</code> คือไปจากเมือง 2 ถึงเมือง 1 ใน 3 วัน เดินสวนทางไม่ได้
+      </li>
+    </ul>
+    <p>
+      คำตอบมีหน่วยเป็นความพึงพอใจรวม ไม่ใช่จำนวนวันหรือจำนวนเมืองที่แวะ
+      และเป็น <code>-1</code> เมื่อกลับถึงเมือง 1 ในวันที่ <code>T</code> พอดีไม่ได้
+    </p>
+    <p>
+      นับทั้งวันที่ 0 และวันที่ <code>T</code> เพราะเขาชิมตั้งแต่วันแรกที่ยืนอยู่เมือง 1 และชิมอีกครั้งตอนกลับถึง
+      แผนที่โจทย์ยกมาคือ {S1_PLAN} (บัญชีทางขวาของรูปข้างบน) รวม {S1_SUM} = {S1_LAST.run}
+    </p>
+    <p>
+      ชุดที่สองมีเทศกาล {SAMPLE2.fest.length} งาน อินพุตให้มาเป็นวันที่ {S2_FEST_DAYS} ซึ่งไม่ได้เรียงตามวัน
+      แผนที่ชนะคือ {S2_PLAN} ไปตรงงานเดียวคือ{' '}
+      {S2_HIT.map((s) => `วันที่ ${s.day} ที่เมือง ${s.city} ได้เพิ่ม ${s.bonus}`).join(' ')}
+      อีก {S2_MISS.length} งานไม่คุ้มที่จะแวะ รวมได้ {S2_LAST.run}
+    </p>
+  </div>
 
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
       ถ้า <code>T</code> เล็ก ข้อนี้คือตารางธรรมดา ช่องหนึ่งช่องคือ &ldquo;วันที่ <code>d</code> ยืนอยู่เมือง <code>v</code>
-      แล้วได้มากที่สุดเท่าไร&rdquo; ไล่จากวันที่ 0 ไปข้างหน้าจนถึงวันที่ <code>T</code> แล้วอ่านคำตอบที่ช่องของเมือง 1
-      ปัญหาคือ <code>T</code> ใหญ่ได้ถึง {fmt(T_MAX)} ตารางนั้นจึงมีแถวเป็นพันล้านแถว
+      แล้วได้มากที่สุดเท่าไร&rdquo; ไล่จากวันที่ 0 ไปจนถึงวันที่ <code>T</code> แล้วอ่านคำตอบที่ช่องของเมือง 1
     </p>
     <p>
-      ทีนี้ลองสังเกตขอบเขตสองตัวที่ดูเล็กจนน่าสงสัย คือเมืองไม่เกิน {N_MAX} เมือง และถนนยาวไม่เกิน {W_MAX} วัน
-      สองตัวนี้เล็กจนแทบไม่มีเหตุผลอื่นนอกจากผู้ออกโจทย์อยากให้เราเอาไปใช้ ถ้าถนนทุกเส้นยาว 1 วันเท่ากันหมด
-      หนึ่งวันจะเป็นการก้าวแบบเดียวกันเสมอ และของที่ซ้ำเหมือนกันทุกครั้งมักกระโดดข้ามทีละเยอะได้
+      การจดคำตอบย่อยลงตารางแล้วหยิบมาใช้ซ้ำแบบนี้เรียกว่า DP (<i>dynamic programming</i> อ่านว่า &ldquo;ไดนามิก โปรแกรมมิง&rdquo;)
+      ปัญหาคือ <code>T</code> ใหญ่ได้ถึง {fmt(T_MAX)} ตารางนั้นมีแถวเป็นพันล้านแถว
+    </p>
+    <p>
+      ลองดูขอบเขตอีกสองตัว เมืองไม่เกิน {N_MAX} เมือง และถนนยาวไม่เกิน {W_MAX} วัน ทั้งคู่เล็กมากเมื่อเทียบกับ <code>T</code>
+      ถ้าถนนทุกเส้นยาว 1 วัน ทุกวันจะใช้กฎเดียวกัน และอะไรที่ซ้ำเดิมทุกครั้งมักกระโดดข้ามทีละเยอะได้
       แล้วถนนที่ยาวไม่เท่ากันล่ะ จะทำให้มันยาวเท่ากันได้ไหม
     </p>
   </div>
@@ -894,7 +1250,7 @@ for (int v = 0; v < n; v++)
     <div class="cpg-scroll">
       {MAPS.map((m, i) => (
         <div class="dlc-board" data-dlc-board={String(i)} hidden={i !== 0}>
-          <svg class="dlc-map" viewBox={mapVb(m)} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนที่อาณาจักรชุด ${puzzles[i].label} มี ${puzzles[i].n} เมือง เชื่อมกันด้วยถนนทางเดียว ${puzzles[i].roads.length} เส้น`}>
+          <svg class="dlc-map" viewBox={mapVb(m)} style={`max-width:${Math.round(m.box.w * 1.25)}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนที่อาณาจักรชุด ${puzzles[i].label} มี ${puzzles[i].n} เมือง เชื่อมกันด้วยถนนทางเดียว ${puzzles[i].roads.length} เส้น`}>
             {m.arcs.map((a) => (
               <g>
                 <path d={a.d} fill="none" stroke="#37456b" stroke-width="2" />
@@ -944,61 +1300,222 @@ for (int v = 0; v < n; v++)
     </p>
   </div>
   <p class="ns-cue">
-    ลองให้ครบทั้งสี่ชุดนะครับ โดยเฉพาะชุดสุดท้าย ถ้าลองแล้วรู้สึกว่ามันแปลก ๆ ความรู้สึกนั้นถูกแล้ว
+    ลองให้ครบทั้งสี่ชุดก่อนเปิดเฉลย ชุดสุดท้ายมีเรื่องให้สังเกต
   </p>
 
-  <h2>เฉลย ตอนที่ 1 &middot; หั่นเมืองจนถนนทุกเส้นยาวหนึ่งวันเท่ากัน</h2>
+  <h2>เฉลย ตอนที่ 1 &middot; ช้าแต่ถูก: ไล่ทุกเส้นทาง แล้วจดเป็นตารางรายวัน</h2>
+  <Spoiler>
+    <p>
+      ชุด &ldquo;เมืองอร่อยที่สุด&rdquo; ในเกมบอกไว้แล้วว่าเลือกถนนที่คุ้มที่สุดทีละก้าวไม่ได้
+      คนที่เด้งเก็บเมือง 3 จนเพลินจะกลับบ้านไม่ทันวันที่ {TRAP.T} ต้องมองทั้งเส้นทางพร้อมกัน
+    </p>
+    <p>ไล่จากช้าไปเร็วมีสามขั้น ตอนนี้เล่าสองขั้นแรก</p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ไล่ทุกเส้นทาง</h4>
+        <p class="cp-step-cost">ทุกวันที่เพิ่ม งานคูณด้วยจำนวนถนนที่ออกจากเมือง</p>
+        <p>ทุกเมืองลองถนนทุกเส้นที่ออกไป จนครบ T วัน แล้วเก็บเส้นที่จบที่เมือง 1</p>
+        <p class="cp-step-win">{PCT_BRUTE}% (T ไม่เกิน 5)</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>ตารางรายวัน</h4>
+        <p class="cp-step-cost">ดูถนนครบ M เส้นทุกวัน รวม T &times; M ครั้ง</p>
+        <p>จำค่าที่ดีที่สุดของทุกคู่ (วัน, เมือง) ไว้ เส้นทางที่มาถึงจุดเดียวกันไม่ต้องคิดต่อซ้ำ</p>
+        <p class="cp-step-win">{PCT_DAY}% (T ไม่เกิน {fmt(T_SUB)})</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>สำเนาเมือง + คูณเมทริกซ์</h4>
+        <p class="cp-step-cost">ราว {sci(MAT_WORST).m} &times; 10<sup>{sci(MAT_WORST).e}</sup> ครั้งในเคสหนักสุดที่ผมสร้าง</p>
+        <p>ให้ทุกวันใช้กฎชุดเดียวกัน แล้วกระโดดข้ามวันทีละก้อน (ตอนที่ 3 ถึง 5)</p>
+        <p class="cp-step-win">100%</p>
+      </div>
+    </div>
+
+    <p>
+      วิธีที่ 1 แย่ที่สุดในชุด T ไม่เกิน 5 คือถนน {M_SUB} เส้นวนอยู่ที่เมือง 1 ยาววันละเส้น
+      ได้ {M_SUB}<sup>5</sup> = {fmt(BRUTE_WORST_WALKS)} เส้นทาง ผมวัดได้ {RUN_BRUTE_SUB1.sec} วินาที ทันลิมิต {TIME_LIMIT} วินาที
+    </p>
+    <p>
+      วิธีที่ 2 คือ DP ที่ใบ้ไว้ มาจากข้อสังเกตเดียว สองเส้นทางที่มาถึงเมืองเดียวกันในวันเดียวกัน
+      เดินต่อได้ทางเดียวกันทุกทาง เก็บไว้แค่เส้นที่ได้มากกว่าก็พอ
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ช่องของตารางรายวัน</p>
+      <ul>
+        <li><code>dp[d][v]</code> คือความพึงพอใจรวมมากที่สุด ถ้าวันที่ <code>d</code> ยืนอยู่เมือง <code>v</code> โดยนับ <code>C[v]</code> ของวันนั้นแล้ว</li>
+        <li>วันที่ 0 มีช่องเดียวที่ไปถึงได้ คือ <code>dp[0][1] = C[1]</code></li>
+        <li>ช่องอื่นถามถนน <code>u &rarr; v</code> ยาว <code>w</code> วันทุกเส้นที่เข้าเมือง <code>v</code>: <code>dp[d][v] = มากสุดของ dp[d &minus; w][u] + C[v]</code></li>
+        <li>ถ้าวันนั้นมีเทศกาลที่เมือง <code>v</code> ก็บวก <code>y</code> เพิ่มเข้าช่องนั้น</li>
+        <li>คำตอบคือ <code>dp[T][1]</code> และถ้าช่องนั้นไปไม่ถึงก็ตอบ <code>-1</code></li>
+      </ul>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ตารางรายวันของตัวอย่างแรก</caption>
+        <thead>
+          <tr><th>วันที่</th>{[1, 2, 3].map((v) => <th class="num">เมือง {v}</th>)}</tr>
+        </thead>
+        <tbody>
+          {S1_DAY.map((row, d) => (
+            <tr><td>{d}</td>{[1, 2, 3].map((v) => <td class="num">{row[v] === NO ? '·' : row[v]}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>· แปลว่าวันนั้นไปยืนที่เมืองนั้นไม่ได้ แถวสุดท้ายช่องเมือง 1 คือคำตอบ {S1_DAY[SAMPLE1.T][1]}</figcaption>
+    </figure>
+    <div class="callout callout-note">
+      <p class="callout-label">ช่องคำตอบมาจากไหน</p>
+      <p>
+        เมือง {DAY_EX.v} มีถนนเข้า {DAY_EX.cands.length} เส้น คือ {DAY_EX.cands.map((c) => `${c.r.u}→${c.r.v} (${c.r.w} วัน)`).join(' และ ')}
+        ช่อง <code>dp[{DAY_EX.d}][{DAY_EX.v}]</code> เลยเลือกจาก{' '}
+        {DAY_EX.cands.map((c) => `dp[${DAY_EX.d - c.r.w}][${c.r.u}] + ${SAMPLE1.C[DAY_EX.v]} = ${c.from} + ${SAMPLE1.C[DAY_EX.v]} = ${c.total}`).join(' กับ ')}
+        ได้ {DAY_EX_BEST}
+      </p>
+      {DAY_EX_TIE && (
+        <p>
+          สองทางได้เท่ากัน ตัวอย่างนี้มีสองเส้นทางที่ได้ {DAY_EX_BEST} แผนที่โจทย์ยกมาคือเส้นที่ผ่านเมือง {S1_PLAN_VIA.city} ในวันที่ {S1_PLAN_VIA.day}
+          โจทย์ต้องการแค่ตัวเลข เส้นไหนก็ตอบถูก
+        </p>
+      )}
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>ชุดทดสอบ</caption>
+        <thead>
+          <tr><th class="num">คะแนน</th><th>เงื่อนไข</th><th>ไล่ทุกเส้นทาง</th><th>ตารางรายวัน</th></tr>
+        </thead>
+        <tbody>
+          {SUBTASKS.map((s) => (
+            <tr><td class="num">{s.pct}%</td><td>{s.cond}</td><td>{s.brute ? 'ได้' : 'ไม่ทัน'}</td><td>{s.day ? 'ได้' : 'ไม่ทัน'}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>ตารางรายวันตัวเดียวครอบทั้งสองชุดแรกได้ {PCT_DAY}% ชุดที่เหลือปล่อย T ไปถึง {fmt(T_MAX)}</figcaption>
+    </figure>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 2 &middot; T ถึงพันล้าน ขาดไปกี่เท่า</h2>
+  <Spoiler>
+    <p>ตารางรายวันได้ {PCT_DAY}% แล้ว ก่อนหาท่าใหม่ ลองวัดก่อนว่ามันขาดไปเท่าไร งานของมันโตตาม T ตรง ๆ</p>
+    <ZoomableDiagram caption={`จำนวนครั้งที่ต้องบวกแล้วเทียบ สเกลแบบ log (ขีดละสิบเท่า) เส้นทองคืองบ ${TIME_LIMIT} วินาที`}>
+      <svg viewBox={`0 0 726 ${CH_BOTTOM + 50}`} xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block;margin:0 auto;max-width:908px" role="img" aria-label={`กราฟแท่งเทียบงานกับงบเวลา ตารางรายวันทันที่ T = ${fmt(T_SUB)} แต่เกินงบราว ${DAY_OVER} เท่าที่ T พันล้าน ส่วนท่าเมทริกซ์อยู่ใต้งบ`}>
+        {CH_TICKS.map((t) => (
+          <line x1={chX(10 ** t)} y1="30" x2={chX(10 ** t)} y2={CH_BOTTOM - 8} stroke="#26314a" stroke-width="1" />
+        ))}
+        {CH_TICKS.map((t) => (
+          <text x={chX(10 ** t)} y="22" text-anchor="middle" fill="#7b8397" font-size="13">10<tspan baseline-shift="super" font-size="9">{t}</tspan></text>
+        ))}
+        {CH_BARS.map((b) => (
+          <text x="12" y={b.y + 16} fill="#cdd6ea" font-size="14">{b.name}</text>
+        ))}
+        {CH_BARS.map((b) => (
+          <rect x={CH_X0} y={b.y} width={chX(b.v) - CH_X0} height="22" rx="3" fill={b.ok ? '#6ee7a8' : '#e07a7a'} fill-opacity="0.85" />
+        ))}
+        {CH_BARS.map((b) => (
+          <text x={chX(b.v) + 8} y={b.y + 16} fill={b.ok ? '#6ee7a8' : '#e07a7a'} font-size="13">{b.s.m}×10<tspan baseline-shift="super" font-size="9">{b.s.e}</tspan>{b.ok ? ' ทัน' : ` เกินงบราว ${b.over} เท่า`}</text>
+        ))}
+        <line x1={chX(BUDGET_OPS)} y1="30" x2={chX(BUDGET_OPS)} y2={CH_BOTTOM} stroke="#d4af37" stroke-width="2" stroke-dasharray="6 4" />
+        <text x={chX(BUDGET_OPS)} y={CH_BOTTOM + 16} text-anchor="middle" fill="#d4af37" font-size="13">งบ {TIME_LIMIT} วินาที</text>
+      </svg>
+    </ZoomableDiagram>
+    <div class="callout callout-note">
+      <p class="callout-label">คิดเป็นตัวเลข</p>
+      <ul>
+        <li>งบ: {TIME_LIMIT} วินาที &times; 10<sup>9</sup> ครั้งต่อวินาที = {fmt(BUDGET_OPS)} ครั้ง</li>
+        <li>T = {fmt(T_SUB)}: {fmt(T_SUB)} &times; {M_MAX} = {fmt(DAY_SUB)} ครั้ง ทันสบาย</li>
+        <li>T = {fmt(T_MAX)}: ราว {sci(DAY_FULL).m} &times; 10<sup>{sci(DAY_FULL).e}</sup> ครั้ง เกินงบราว {DAY_OVER} เท่า</li>
+      </ul>
+      <p>
+        10<sup>9</sup> ครั้งต่อวินาทีเป็นตัวเลขกะแบบระวังไว้ก่อน โค้ดเต็มของหน้านี้วัดได้ราว {RATE_LO} ถึง {RATE_HI} &times; 10<sup>9</sup> ครั้งต่อวินาที
+      </p>
+      <p>
+        หน่วยความจำแก้ได้ ตารางทั้งใบกิน {fmt(Math.round(MEM_DAY_FULL_MB))} เมกะไบต์ก็จริง
+        แต่ถนนยาวไม่เกิน {W_MAX} วัน เก็บแค่ {W_MAX + 1} แถวล่าสุดก็พอ ส่วนเวลาลดตามไม่ได้
+      </p>
+    </div>
+    <p>
+      ย้อนคิดจากงบ {fmt(BUDGET_OPS)} ครั้งหารด้วย {fmt(T_MAX)} วัน เหลือ {PER_DAY_BUDGET} ครั้งต่อวัน
+      ห่างจากการดูถนนครบ {M_MAX} เส้นในแต่ละวันไปไกล ต้องข้ามวันไปเป็นก้อน โดยไม่แตะทีละวัน
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">เป้าหมายที่ตัวเลขบอก</p>
+      <ul>
+        <li>ถ้ารู้ผลของการเดิน 1 วัน แล้วรวมเป็นผลของ 2, 4, 8, &hellip; วันได้ ไปถึงพันล้านใช้แค่ {JUMPS} ชั้น</li>
+        <li>
+          รวมผลสองช่วงเข้าด้วยกันต้องลองทุกคู่ (จุดเริ่ม, จุดจบ) กับทุกจุดพักตรงกลาง
+          ถ้ามีจุดให้ยืน S แบบ ก็เป็น S &times; S &times; S ครั้งต่อชั้น
+        </li>
+        <li>
+          งบต่อชั้นคือ {fmt(BUDGET_OPS)} &divide; {JUMPS} &asymp; {fmt(PER_LAYER)} ครั้ง
+          รากที่สามของเลขนี้คือราว {S_CAP} S เลยต้องไม่เกิน {S_CAP}
+        </li>
+      </ul>
+    </div>
+    <p>
+      เมือง {N_MAX} เมืองอยู่ใต้ {S_CAP} สบาย ที่ยังติดคือการรวมแบบนี้ต้องการให้ทุกวันใช้กฎชุดเดียวกัน
+      แต่ถนนยาว 1 ถึง {W_MAX} วัน คนที่ออกจากเมืองวันนี้อาจยังไม่ถึงไหนในวันพรุ่งนี้
+    </p>
+  </Spoiler>
+
+  <h2>เฉลย ตอนที่ 3 &middot; หั่นเมืองจนถนนทุกเส้นยาวหนึ่งวัน</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        ผมรู้จักท่ายกกำลังเมทริกซ์อยู่ก่อนแล้ว สิ่งที่ต้องตัดสินใจจริงในข้อนี้จึงไม่ใช่ว่าจะใช้ท่าไหน
-        แต่คือจะทำยังไงให้ &ldquo;หนึ่งวัน&rdquo; เป็นก้าวแบบเดียวกันทุกครั้ง ตัวเลขที่ผลักคือ <code>T</code> ถึง {fmt(T_MAX)}
-        ตารางไล่ทีละวันซึ่งเป็นสิ่งแรกที่ผมเขียน ต้องผ่อนถนนทุกเส้นในทุกวัน คูณออกมาได้ {fmt(dayOps(T_MAX))} ครั้ง
-        และตารางเองก็กินหน่วยความจำระดับหลายแสนเมกะไบต์ ไม่ใช่เรื่องปรับจูนให้เร็วขึ้นอีกนิด แต่ต้องเปลี่ยนหน่วยของการคิด
+        ผมรู้จักท่ายกกำลังเมทริกซ์อยู่ก่อนแล้ว ตัวเลขในตอนที่ 2 บอกว่าต้องใช้ท่าตระกูลนี้
+        ที่ต้องตัดสินใจจริงคือจะทำให้ทุกวันหน้าตาเหมือนกันได้ยังไง
       </p>
       <p>
-        อุปสรรคเดียวที่ขวางอยู่คือถนนยาวไม่เท่ากัน ถ้าทุกเส้นยาว 1 วัน หนึ่งวันก็คือการก้าวหนึ่งครั้งบนกราฟเดิม
-        ซึ่งยกกำลังได้ทันที พอถนนยาว 1 ถึง 5 วัน วันหนึ่งวันจึงไม่ใช่การก้าวที่เหมือนกันอีกต่อไป
         ตัวเลขที่ทำให้กล้าหั่นเมืองเป็นสำเนาคือ <code>w</code> ไม่เกิน {W_MAX} กับ <code>N</code> ไม่เกิน {N_MAX}
-        คูณกันแล้วได้สถานะแค่ {STATES} ตัว ซึ่งยกกำลังสามแล้วยังอยู่ในหลักสิบล้าน คือยังไหว
-        ถ้า <code>w</code> ถึงหลักพันเมื่อไร ท่านี้ตายทันที
-      </p>
-      <p>
-        สิ่งเดียวที่ผมไม่สบายใจตอนเขียนเสร็จคือรางวัลของเมืองถูกจ่ายตั้งแต่ตอนออกเดินทาง ไม่ใช่ตอนไปถึง
-        ซึ่งอ่านดูเหมือนนับเกิน ผมเลยไม่ยอมตัดสินด้วยเหตุผลในหัวอย่างเดียว แต่เอาไปชนกับตัวไล่ทุกเส้นทาง
-        ที่ไม่รู้จักทั้งการหั่นเมืองและเมทริกซ์ (เหตุผลว่าทำไมมันไม่นับเกิน อยู่ในตอนที่ 4)
-        บทเรียนที่เอาไปใช้ข้ออื่นได้คือ ถ้าอยากกระโดดข้ามเวลาเป็นก้อนใหญ่ ต้องทำให้หนึ่งหน่วยเวลาเป็นก้าวเดียวกันเสมอก่อน
-        แล้ววิธีกระโดดจะตามมาเอง
+        คูณกันได้ {STATES} แบบ อยู่ใต้เพดาน {S_CAP} ของตอนที่ 2 ถ้า <code>w</code> ยาวถึงหลักพัน ท่านี้ใช้ไม่ได้
       </p>
     </div>
     <p>
-      ท่าคือ<strong>หั่นเมืองหนึ่งเมืองออกเป็นสำเนา</strong> เมืองละ <code>W</code> ตัว เมื่อ <code>W</code> คือความยาวถนนที่มากที่สุด
-      สำเนาที่ <code>j</code> ของเมือง <code>v</code> เขียนเป็น <code>(v, j)</code> แปลว่า &ldquo;อีก <code>j</code> วันข้างหน้าฉันจะเหยียบเมือง
-      <code>v</code>&rdquo; สำเนา <code>(v, 0)</code> จึงแปลว่ากำลังยืนอยู่ที่เมือง <code>v</code> จริง ๆ ในวันนี้
+      สิ่งที่ต้องรู้เกี่ยวกับตัวเขาในวันหนึ่ง เพื่อจะคิดวันถัดไปต่อได้ เรียกว่า<strong>สถานะ</strong> (<i>state</i>)
+      ในตารางรายวัน สถานะคือเมืองที่ยืนอยู่ แต่คนที่อยู่บนถนนยังไม่ได้ยืนที่เมืองไหน เราต้องเพิ่มสถานะให้เขาด้วย
     </p>
-    <p>
-      เมื่อมองแบบนี้ การเดินทางทั้งอาณาจักรเหลือกฎแค่สองข้อ และทั้งสองข้อใช้เวลาหนึ่งวันเท่ากัน
-      ข้อแรก ถนนจากเมือง <code>u</code> ไปเมือง <code>v</code> ที่ยาว <code>w</code> วัน กลายเป็นการก้าวจาก <code>(u, 0)</code>
-      ไป <code>(v, w - 1)</code> คือตัดสินใจออกเดินทางวันนี้ แล้วเหลืออีก <code>w - 1</code> วันจะถึง
-      ข้อสอง สำเนา <code>(v, j)</code> เมื่อ <code>j</code> มากกว่า 0 ก้าวไป <code>(v, j - 1)</code> ได้อย่างเดียว
-      คืออยู่ระหว่างทางแล้วเวลาผ่านไปหนึ่งวัน
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">นึกภาพ</p>
+      <p>
+        ซื้อตั๋วรถไปเมือง <code>v</code> ตั๋วเขียนว่าอีกกี่วันถึง ทุกคืนตัวเลขบนตั๋วลดลงหนึ่ง พอเหลือ 0 เขาก็ยืนอยู่ที่ <code>v</code>
+        แล้วต้องซื้อตั๋วใบใหม่ในวันนั้นเพราะห้ามพัก
+      </p>
+      <p>สองคนที่ถือตั๋วเหมือนกันทุกตัวอักษร จะมาจากถนนเส้นไหนก็ตาม เก็บไว้แค่คนที่สะสมได้มากกว่าก็พอ</p>
+    </div>
+    <div class="callout callout-tip">
+      <p class="callout-label">สถานะใหม่ (v, j) อ่านว่า &ldquo;เมือง v อีก j วันถึง&rdquo;</p>
+      <ul>
+        <li><code>W</code> คือความยาวถนนที่ยาวที่สุดในอินพุต</li>
+        <li><code>(v, 0)</code> แปลว่าวันนี้ยืนอยู่เมือง <code>v</code></li>
+        <li><code>(v, j)</code> ที่ <code>j</code> ตั้งแต่ 1 ถึง <code>W &minus; 1</code> แปลว่าอยู่บนถนน และอีก <code>j</code> วันจะถึงเมือง <code>v</code></li>
+        <li>ทุกเมืองมีสำเนา <code>W</code> ตัว (j = 0 ถึง W &minus; 1) รวมเป็นสถานะ <code>S = N &times; W</code> ตัว ซึ่งไม่เกิน {N_MAX} &times; {W_MAX} = {STATES}</li>
+      </ul>
+    </div>
+    <p>เมื่อมองแบบนี้ การเดินทางทั้งอาณาจักรเหลือกฎสองข้อ และทั้งสองข้อใช้เวลาหนึ่งวันเท่ากัน</p>
+    <ul>
+      <li>
+        ถนน <code>u &rarr; v</code> ยาว <code>w</code> วัน: ก้าวจาก <code>(u, 0)</code> ไป <code>(v, w &minus; 1)</code> และได้ <code>C[v]</code> ตอนนี้
+        ที่เป็น <code>w &minus; 1</code> เพราะก้าวนี้เองกินไปแล้วหนึ่งวัน ถนนยาว 1 วันจึงพาไปถึง <code>(v, 0)</code> ในพรุ่งนี้พอดี
+      </li>
+      <li>อยู่บนถนน: ก้าวจาก <code>(v, j)</code> ไป <code>(v, j &minus; 1)</code> ได้ 0 และไปทางอื่นไม่ได้</li>
+    </ul>
     <CodeBlock code={buildSnippet} lang="cpp" title="กฎสองข้อของหนึ่งวัน" />
     <p>
-      รางวัล <code>C[v]</code> ถูกบวกที่การก้าวข้อแรก คือตอนออกเดินทาง ไม่ใช่ตอนไปถึง ส่วนการก้าวข้อสองได้ 0
-      จำนวนสถานะทั้งหมดคือ <code>N</code> คูณ <code>W</code> ซึ่งที่ขอบเขตใหญ่สุดคือ {N_MAX} คูณ {W_MAX} เท่ากับ {STATES} ตัว
-      และตอนนี้หนึ่งวันคือการก้าวหนึ่งครั้งบนกราฟที่มีแค่ {STATES} จุด เหมือนกันทุกวัน
+      รางวัล <code>C[v]</code> ถูกจ่ายตั้งแต่ออกเดินทาง ทั้งที่มื้อนั้นยังไม่ได้กิน ตอนที่ 6 อธิบายว่าทำไมไม่นับเกิน
+      รูปข้างล่างกางขาสุดท้ายของแผนในตัวอย่างแรกออกเป็นการก้าววันละครั้ง
     </p>
-    <ZoomableDiagram caption={`ขาสุดท้ายของตัวอย่างแรก กางเป็นการก้าววันละครั้ง กล่องเขียวคือสำเนา j = 0 ซึ่งแปลว่าเหยียบเมืองนั้นจริงในวันนั้น กล่องเทาคือยังอยู่ระหว่างทาง ลูกศรทุกเส้นยาวหนึ่งวันเท่ากัน ถนน 3→1 ที่ยาว 4 วันจึงกลายเป็นการก้าวสี่ครั้ง โดยรางวัล +${SAMPLE1.C[1]} ของเมือง 1 ถูกจ่ายตั้งแต่ก้าวแรกของทั้งสี่ก้าว`}>
-      <svg viewBox={`0 0 ${CHAIN_VB_W} ${CHAIN_VB_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="แผนภาพโซ่สำเนาเมือง แสดงถนนยาวสองวันและสี่วันที่ถูกกางออกเป็นการก้าววันละครั้ง">
+    <ZoomableDiagram caption={`ขาสุดท้ายของตัวอย่างแรก กางเป็นการก้าววันละครั้ง กล่องเขียวคือสำเนา j = 0 ซึ่งแปลว่าเหยียบเมืองนั้นจริงในวันนั้น กล่องเทาคือยังอยู่บนถนน ถนน 3→1 ที่ยาว 4 วันกลายเป็นสี่ก้าว และรางวัล +${SAMPLE1.C[1]} ของเมือง 1 ถูกจ่ายตั้งแต่ก้าวแรก`}>
+      <svg viewBox={`0 0 ${CHAIN_VB_W} ${CHAIN_VB_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style={`display:block;margin:0 auto;max-width:${Math.round(CHAIN_VB_W * 1.25)}px`} role="img" aria-label="โซ่ของสำเนาเมืองเจ็ดกล่องเรียงจากซ้ายไปขวา เริ่มที่ (2,0) วันที่ 5 ผ่าน (3,1) ถึง (3,0) วันที่ 7 แล้วผ่าน (1,3) (1,2) (1,1) ถึง (1,0) วันที่ 11 ลูกศรระหว่างกล่องยาวหนึ่งวันเท่ากัน รางวัล +4 และ +1 อยู่เหนือก้าวแรกของถนนแต่ละเส้น">
         {chain.map((nd, i) => (
           <g>
             <rect x={nd.x} y={CHAIN_TOP} width={CHAIN_W} height={CHAIN_H} rx="8" fill={nd.landed ? '#163a2a' : '#141b2b'} stroke={nd.landed ? '#2f9e5c' : '#2a3350'} stroke-width="1.5" />
             <text x={nd.x + CHAIN_W / 2} y={CHAIN_TOP + 21} fill="#eaf2ff" font-size="13" text-anchor="middle" font-family="monospace">{nd.label}</text>
             <text x={nd.x + CHAIN_W / 2} y={CHAIN_TOP + 38} fill="#9aa7bd" font-size="11" text-anchor="middle">วันที่ {nd.day}</text>
             {i > 0 && (
-              <line x1={nd.x - CHAIN_STEP + CHAIN_W + 3} y1={CHAIN_TOP + CHAIN_H / 2} x2={nd.x - 7} y2={CHAIN_TOP + CHAIN_H / 2} stroke="#37456b" stroke-width="2" marker-end="" />
+              <line x1={nd.x - CHAIN_STEP + CHAIN_W + 3} y1={CHAIN_TOP + CHAIN_H / 2} x2={nd.x - 7} y2={CHAIN_TOP + CHAIN_H / 2} stroke="#37456b" stroke-width="2" />
             )}
             {i > 0 && (
               <path d={`M ${nd.x - 2} ${CHAIN_TOP + CHAIN_H / 2} L ${nd.x - 9} ${CHAIN_TOP + CHAIN_H / 2 - 4.5} L ${nd.x - 9} ${CHAIN_TOP + CHAIN_H / 2 + 4.5} Z`} fill="#37456b" />
@@ -1013,80 +1530,142 @@ for (int v = 0; v < n; v++)
         ))}
       </svg>
     </ZoomableDiagram>
+    <div class="callout callout-note">
+      <p class="callout-label">ตัวอย่างแรกมีกี่สถานะ</p>
+      <ul>
+        <li>ถนนที่ยาวที่สุดคือ {S1_LONGEST.u}→{S1_LONGEST.v} ยาว {S1_LONGEST.w} วัน ได้ W = {SP1.W}</li>
+        <li>แต่ละเมืองมีสำเนา j = 0 ถึง {SP1.W - 1} รวม {SP1.W} ตัว</li>
+        <li>{SAMPLE1.n} เมือง &times; {SP1.W} = {SP1.S} สถานะ ตอนที่ 4 ใช้ชุดนี้ต่อ</li>
+      </ul>
+    </div>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 2 &middot; หนึ่งวันคือการคูณเมทริกซ์หนึ่งครั้ง</h2>
+  <h2>เฉลย ตอนที่ 4 &middot; หนึ่งวันคือการคูณเมทริกซ์หนึ่งครั้ง</h2>
   <Spoiler>
     <p>
-      พอหนึ่งวันเป็นก้าวเดียวกันเสมอ เราเขียนกฎของหนึ่งวันลงเป็นตารางตัวเลขสี่เหลี่ยมที่เรียกว่า<strong>เมทริกซ์</strong>
-      (<i>matrix</i> อ่านว่า &ldquo;เมทริกซ์&rdquo; คำนี้มาจากภาษาละติน <i>mātrix</i> ที่แปลว่าแม่พันธุ์หรือครรภ์
-      คือที่ที่อะไรบางอย่างงอกออกมา ก่อนจะถูกยืมมาใช้เรียกตารางตัวเลขในคณิตศาสตร์) ได้ตารางขนาด {STATES} คูณ {STATES}
-      ช่องแถว <code>p</code> หลัก <code>q</code> เก็บว่าก้าวจากสถานะ <code>p</code> ไป <code>q</code> ในหนึ่งวันแล้วได้กี่หน่วย
-      ถ้าก้าวไม่ได้ก็ใส่ค่าลบมหาศาลไว้แทนคำว่าไปไม่ได้
+      ค่าที่ดีที่สุดของทุกสถานะในวันหนึ่ง เก็บเป็นแถวตัวเลขแถวเดียวได้ ช่องละสถานะ แถวแบบนี้เรียกว่า<strong>เวกเตอร์</strong> (<i>vector</i>)
+      งานของตอนนี้คือหาเวกเตอร์ของวันพรุ่งนี้จากเวกเตอร์ของวันนี้
     </p>
     <p>
-      ทีนี้คำถามว่า &ldquo;เดิน <code>a + b</code> วันแล้วได้มากที่สุดเท่าไร&rdquo; ตอบได้จากคำตอบของ <code>a</code> วัน
-      กับ <code>b</code> วัน โดยไล่ดูว่าจุดพักตรงกลางอยู่ที่สถานะไหน แล้วเอาสองท่อนมาบวกกัน เลือกอันที่มากที่สุด
-      รูปแบบนี้หน้าตาเหมือนการคูณเมทริกซ์เป๊ะ ๆ ต่างกันแค่เปลี่ยนเครื่องหมาย: ที่เดิมต้องบวกให้เปลี่ยนเป็นเอามากสุด
-      และที่เดิมต้องคูณให้เปลี่ยนเป็นบวก ระบบตัวเลขที่สลับเครื่องหมายแบบนี้เรียกว่า<strong>พีชคณิตมากสุดบวก</strong>
-      (<i>max-plus algebra</i> อ่านว่า &ldquo;แม็กซ์-พลัส&rdquo; บางตำราเรียกพีชคณิตเขตร้อน เพราะคนที่ศึกษาเรื่องนี้ยุคแรกเป็นชาวบราซิล)
-    </p>
-    <CodeBlock code={mulSnippet} lang="cpp" title="คูณเมทริกซ์แบบมากสุดบวก" />
-    <p>
-      ของดีของการเขียนหนึ่งวันเป็นเมทริกซ์คือมันยกกำลังได้ เมทริกซ์ของ 2 วันคือเมทริกซ์ของ 1 วันคูณตัวเอง
-      ของ 4 วันคือของ 2 วันคูณตัวเอง ไล่ไปเรื่อย ๆ เก็บไว้เป็นตารางกระโดดสองยกกำลัง ซึ่งเป็นท่าเดียวกับที่
-      <a href="/cp/convention-centre/">ข้อศูนย์ประชุม</a>ใช้กระโดดข้ามงานทีละก้อน ที่ <code>T</code> ถึง {fmt(T_MAX)}
-      เราต้องการกำลังถึง {bitsOf(T_MAX)} ชั้น คือยกกำลังสองซ้ำ {bitsOf(T_MAX) - 1} ครั้ง
-      แต่ละครั้งเป็นการคูณเมทริกซ์ {STATES} คูณ {STATES} หนึ่งที ราคา {fmt(MUL_COST)} ครั้ง
-      ชั้นทั้งหมดกินหน่วยความจำ {fmt(MEM_MATRIX / 1000000)} เมกะไบต์ ซึ่งเทียบกับลิมิต 512 แล้วเหลือเฟือ
-    </p>
-    <p>
-      พอมีตารางชั้นแล้ว การเดินหน้าไป <code>d</code> วันก็แค่ดูว่า <code>d</code> เขียนเป็นเลขฐานสองแล้วมีบิตไหนติดบ้าง
-      แล้วเอาเวกเตอร์คำตอบปัจจุบันคูณกับชั้นนั้น ๆ ตามลำดับ ตรงนี้เป็นการคูณเวกเตอร์กับเมทริกซ์
-      ซึ่งราคาแค่ {fmt(VMUL_COST)} ครั้ง ถูกกว่าการคูณเมทริกซ์เต็ม ๆ อยู่ {STATES} เท่า
+      กฎสองข้อของตอนที่ 3 เขียนลงตารางสี่เหลี่ยมได้ ช่องแถว <code>p</code> หลัก <code>q</code> บอกว่าวันนี้อยู่ <code>p</code>
+      แล้วพรุ่งนี้อยู่ <code>q</code> ได้กี่หน่วย ตารางตัวเลขแบบนี้เรียกว่า<strong>เมทริกซ์</strong> (<i>matrix</i>) ตั้งชื่อว่า <code>A</code>
     </p>
     <figure class="tbl">
       <table class="rec">
-        <caption>COST</caption>
+        <caption>เมทริกซ์ของหนึ่งวัน (ตัวอย่างแรก)</caption>
         <thead>
-          <tr><th>ทาง</th><th class="num">ที่ T = {fmt(T_SUB)}</th><th class="num">ที่ T = {fmt(T_MAX)}</th></tr>
+          <tr><th>จาก \ ไป</th>{USED.map((q) => <th class="num">{stName(SP1, q)}</th>)}</tr>
         </thead>
         <tbody>
-          {bill.map((r) => (
-            <tr><td>{r.name}</td><td class="num">{fmt(r.a)}</td><td class="num">{fmt(r.b)}</td></tr>
+          {MAT_ROWS.map((r) => (
+            <tr><td>{r.name}</td>{r.cells.map((c) => <td class="num">{c}</td>)}</tr>
           ))}
         </tbody>
       </table>
       <figcaption>
-        สองแถวนับด้วยหน่วยเดียวกัน คือจำนวนครั้งที่ต้องบวกเลขหนึ่งครั้งแล้วเทียบว่ามากกว่าค่าเดิมไหม
-        คิดที่ขอบเขตใหญ่สุดของโจทย์คือถนน {M_MAX} เส้น เมือง {N_MAX} เมือง และเทศกาล {K_MAX} งาน
-        สังเกตว่าที่ T เท่ากับ {fmt(T_SUB)} ทางไล่ทีละวันถูกกว่าเกือบยี่สิบเท่า นั่นคือเหตุผลที่ชุดทดสอบชุดนั้นมีอยู่
-        แต่พอ T โตเป็นพันล้าน ทางแรกโตตามไปตรง ๆ ส่วนทางที่สองโตตามจำนวนบิตของ T ซึ่งเพิ่มจาก {bitsOf(T_SUB)} เป็น {bitsOf(T_MAX)} เท่านั้น
+        แถวคือวันนี้ หลักคือพรุ่งนี้ · คือก้าวไม่ได้ เลข 0 คือการเลื่อนบนถนน เลขอื่นคือ <code>C[v]</code> ของเมืองปลายทาง
+        ตารางเต็ม {SP1.S} &times; {SP1.S} มีช่องที่ก้าวได้ {FULL_FINITE} ช่อง ({SAMPLE1.roads.length} จากถนน และ {FULL_FINITE - SAMPLE1.roads.length} จากการเลื่อน)
+        ที่เห็นนี้คือ {MAT_FINITE} ช่องในบรรดา {USED.length} สถานะที่ไปถึงจากเมือง 1
       </figcaption>
     </figure>
+    <p>
+      อีก {UNUSED.length} สถานะไม่มีทางไปถึงจาก (1,0) เพราะสำเนา (v, j) ต้องเริ่มจากถนนที่เข้าเมือง v และยาวกว่า j วัน
+      {UNREACH_WHY.map((x) => ` ถนนเข้าเมือง ${x.v} ยาวสุด ${x.L} วัน ${x.states.map((p) => stName(SP1, p)).join(' ')} เลยไม่มีใครเข้าถึง`).join('')}
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">กฎของหนึ่งวัน</p>
+      <p><code>ใหม่[q] = มากสุดของ เก่า[p] + A[p][q]</code> เมื่อไล่ <code>p</code> ทุกสถานะ (ข้ามช่องที่เป็น ·)</p>
+    </div>
+    <p>
+      เครื่องเดินข้างล่างทำกฎนี้กับตัวอย่างแรกทีละวัน ในคำอธิบาย อ่าน ← ว่า &ldquo;รับค่ามาจาก&rdquo;
+      ช่อง {stName(SP1, VEC_EX.q)} วันที่ {VEC_EX.d} เป็นช่องแรกที่มีให้เลือกสองทาง คือถนนจาก {stName(SP1, VEC_EX.road.p)}
+      ({VEC_EX.road.base} + {VEC_EX.road.add}) หรือเลื่อนจาก {stName(SP1, VEC_EX.shift.p)} ({VEC_EX.shift.base} + 0) แล้วเลือกค่าที่มากกว่า
+    </p>
+    <p>คอลัมน์สีเขียวคือสำเนา j = 0 ตรงกับตารางรายวันของตอนที่ 1 ทุกช่อง</p>
+    <CpStepPlayer hook="dlcvec" steps={PLAYER_STEPS} label={`ตัวอย่างแรก ${USED.length} สถานะ เดินทีละวัน`}>
+      <table class="rec dlcvec">
+        <thead>
+          <tr><th>วันที่</th>{USED.map((q) => <th class={SP1.j(q) === 0 ? 'num land' : 'num'}>{stName(SP1, q)}</th>)}</tr>
+        </thead>
+        <tbody>
+          {PLAYER_ROWS.map((r) => (
+            <tr><td>{r.d}</td>{r.cells.map((c) => <td class={c.land ? 'num land' : 'num'}>{c.t}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </CpStepPlayer>
+    <p>
+      ทีนี้ถ้ารู้เมทริกซ์ของ 1 วัน จะได้เมทริกซ์ของ 2 วันไหม ลองทำมือหนึ่งช่องก่อน
+      จาก {stName(SP1, A2_EX.p)} ไป {stName(SP1, A2_EX.q)} ในสองวัน จุดพักที่ก้าวได้ทั้งสองท่อนมีตัวเดียวคือ {stName(SP1, A2_EX.mid)}
+      (ไปเมือง {SP1.v(A2_EX.mid)} แล้วออกต่อไปเมือง {SP1.v(A2_EX.q)})
+    </p>
+    <p>
+      ได้ {A2_EX.a} + {A2_EX.b} = {A2_EX.val} และเครื่องเดินวันที่ 2 ช่อง {stName(SP1, A2_EX.q)} ก็เป็น {TR1.vecs[0][ID10]} + {A2_EX.val} = {A2_DAY2}
+      ถ้ามีจุดพักหลายตัว ก็บวกสองท่อนของแต่ละตัว แล้วเลือกค่ามากสุด
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">คูณเมทริกซ์แบบมากสุดบวก</p>
+      <p><code>(A&middot;B)[p][q] = มากสุดของ A[p][m] + B[m][q]</code> เมื่อไล่จุดพัก <code>m</code> ทุกตัว</p>
+      <p>หน้าตาเหมือนการคูณเมทริกซ์ที่เรียนกันในคณิตศาสตร์ เปลี่ยนแค่ &ldquo;บวก&rdquo; เป็น &ldquo;มากสุด&rdquo; และ &ldquo;คูณ&rdquo; เป็น &ldquo;บวก&rdquo;</p>
+    </div>
+    <p>
+      ระบบตัวเลขแบบนี้เรียกว่า<strong>พีชคณิตมากสุดบวก</strong> (<i>max-plus algebra</i> อ่านว่า &ldquo;แม็กซ์-พลัส&rdquo;)
+      บางตำราเรียกพีชคณิตเขตร้อน (<i>tropical</i>) ที่มาของชื่อที่เล่ากันบ่อยคือนักวิจัยฝรั่งเศสตั้งให้เป็นเกียรติแก่ Imre Simon
+      นักวิทยาการคอมพิวเตอร์ชาวบราซิลที่เกิดในฮังการี
+    </p>
+    <CodeBlock code={mulSnippet} lang="cpp" title="คูณเมทริกซ์แบบมากสุดบวก" />
+    <p>
+      การคูณนี้จะใส่วงเล็บตรงไหนก็ได้ผลเท่ากัน เดิน a วัน ต่อ b วัน ต่อ c วัน คือการต่อสามท่อนเป็นทางเดียว
+      จะต่อสองท่อนแรกก่อนหรือสองท่อนหลังก่อน ก็ได้ทางเดินชุดเดียวกันมาเลือก
+    </p>
+    <p>
+      ความจริงข้อนี้ทำให้ยกกำลังได้ เมทริกซ์ของ 4 วันคือเมทริกซ์ของ 2 วันคูณตัวเอง
+      เช่นช่อง (1,0) ไป (1,0) ของ 4 วันได้ {A4_SELF} ตรงกับเครื่องเดินวันที่ 4 ที่ช่อง (1,0) เป็น {TR1.vecs[0][ID10]} + {A4_SELF} = {TR1.vecs[4][ID10]}
+    </p>
+    <p>
+      เก็บเมทริกซ์ของ 1, 2, 4, 8, &hellip; วันไว้ทุกชั้น ตารางแบบนี้เรียกว่า<strong>ตารางกระโดด</strong> (<i>binary lifting</i>)
+      เป็นท่าเดียวกับที่<a href="/cp/convention-centre/">ข้อห้องประชุม</a>ใช้กระโดดข้ามงาน
+    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">เดิน {SAMPLE1.T} วันด้วยการกระโดด</p>
+      <ul>
+        <li>{SAMPLE1.T} = {JUMP_LOG.map((j) => j.len).join(' + ')} คือบิตที่ {JUMP_BITS.join(', ')} ของเลขฐานสองติดอยู่</li>
+        <li>เอาเวกเตอร์วันที่ 0 คูณกับชั้น {JUMP_LOG.map((j) => `${j.len} วัน`).join(', ')} ตามลำดับ</li>
+        <li>หลังคูณแต่ละชั้นได้แถววันที่ {JUMP_LOG.map((j) => j.day).join(', ')} ของเครื่องเดินครบทุกช่อง และช่อง (1,0) จบที่ {S1_BEST.best}</li>
+      </ul>
+      <p>
+        ทุกชั้นเป็นกำลังของ <code>A</code> ตัวเดียวกัน คูณสลับลำดับกันได้ จะเริ่มจากบิตต่ำหรือบิตสูงก็ได้เมทริกซ์ของ {SAMPLE1.T} วันเหมือนกัน
+      </p>
+    </div>
+    <p>
+      การคูณเวกเตอร์กับเมทริกซ์ใช้ S &times; S ครั้ง ถูกกว่าคูณเมทริกซ์สองใบ S เท่า
+      โค้ดเลยคูณเมทริกซ์แค่ตอนสร้างชั้น ส่วนการเดินหน้าใช้เวกเตอร์ล้วน
+    </p>
+    <p>
+      ที่ขอบเขตใหญ่สุด S = {STATES} สร้างชั้นด้วยการยกกำลังสองซ้ำ {bitsOf(T_MAX) - 1} ครั้ง ครั้งละ {fmt(MUL_COST)} การบวกเทียบ
+      ทั้ง {bitsOf(T_MAX)} ชั้นกินหน่วยความจำ {MEM_MATRIX_MB} เมกะไบต์ จากลิมิต {MEM_LIMIT_MB}
+    </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 3 &middot; เทศกาลหั่นเส้นเวลาออกเป็นช่วง</h2>
+  <h2>เฉลย ตอนที่ 5 &middot; เทศกาลหั่นเส้นเวลาออกเป็นช่วง</h2>
   <Spoiler>
     <p>
-      ถ้าไม่มีเทศกาลเลย ทั้งข้อจบตรงนี้ คือยกเวกเตอร์เริ่มต้นไป <code>T</code> วันรวดเดียวแล้วอ่านคำตอบ
-      เทศกาลทำให้ทำแบบนั้นไม่ได้ เพราะรางวัล <code>y</code> ผูกกับวันที่แน่นอนวันเดียว การกระโดดข้ามวันนั้นไปเลย
-      จะทำให้ไม่มีจังหวะใส่รางวัลเข้าไป
+      ถึงตรงนี้ถ้าไม่มีเทศกาล ทั้งข้อจบแล้ว คือกระโดดรวดเดียว <code>T</code> วันแล้วอ่านช่อง (1,0)
+      แต่รางวัลของเทศกาลผูกกับวันเดียว ถ้ากระโดดข้ามวันนั้นไปก็ไม่มีจังหวะใส่รางวัล
     </p>
     <p>
-      แต่เทศกาลมีไม่เกิน {K_MAX} งาน มันจึงหั่นเส้นเวลาออกเป็นช่วงได้ไม่เกิน {K_MAX + 1} ช่วงเท่านั้น
-      วิธีทำคือเรียงเทศกาลตามวัน (อินพุตไม่ได้เรียงมาให้ อย่างตัวอย่างที่สองให้มาเป็นวันที่ {S2_FEST_DAYS})
-      แล้วเดินหน้าทีละช่วงด้วยตารางกระโดด พอถึงวันที่มีงาน ก็เอา <code>y</code> บวกเข้าช่องของสถานะ <code>(x, 0)</code>
-      ตรง ๆ ซึ่งแปลว่ายืนอยู่เมือง <code>x</code> พอดีวันนั้น แล้วเดินหน้าต่อ
+      ตัวอย่างที่สองมี {SAMPLE2.n} เมือง ถนน {SAMPLE2.roads.length} เส้น T = {SAMPLE2.T} และเทศกาลตามลำดับในอินพุตคือ
+      {' '}{SAMPLE2.fest.map((f) => `วันที่ ${f.t} เมือง ${f.x} +${f.y}`).join(', ')}
     </p>
-    <p>
-      สามอย่างที่ต้องระวังตอนบวก อย่างแรกคือถ้าช่องนั้นยังเป็นค่าลบมหาศาลอยู่ แปลว่าวันนั้นไปยืนที่เมืองนั้นไม่ได้เลย
-      ห้ามบวกเข้าไป ไม่งั้นค่าขยะจะกลายเป็นค่าที่ดูใช้ได้ อย่างที่สองคืองานหลายงานอาจจัดวันเดียวกัน
-      ต้องบวกให้ครบทุกงานก่อนจะเดินหน้าต่อ ถ้าสองงานอยู่เมืองเดียวกันวันเดียวกันก็ทบกันไป ซึ่งถูกแล้วตามโจทย์
-      อย่างที่สามคือช่วงยาวศูนย์วัน (สองงานติดกันในวันเดียวกัน) ต้องไม่ทำให้โค้ดเดินหน้าผิด
-    </p>
-    <ZoomableDiagram caption={`เส้นเวลาของตัวอย่างที่สอง งาน ${SAMPLE2.fest.length} งานหั่น ${SAMPLE2.T} วันออกเป็น ${S2_GAPS.length} ช่วง แต่ละช่วงข้ามด้วยตารางกระโดดตามบิตของความยาวช่วง ช่วงสุดท้ายยาว ${S2_LONG_GAP.len} วัน จึงกระโดด ${S2_LONG_GAP.bits.length} ครั้งคือ ${S2_LONG_GAP.bits.join(' แล้ว ')} ที่ T เป็นพันล้าน ช่วงหนึ่งช่วงก็ยังใช้การกระโดดไม่เกิน ${bitsOf(T_MAX)} ครั้งเท่านั้น`}>
-      <svg viewBox={`0 0 660 ${AX_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-label="เส้นเวลาสิบหกวันของตัวอย่างที่สอง มีเทศกาลสามงานคั่น แบ่งเส้นเวลาเป็นสี่ช่วง พร้อมการแตกความยาวช่วงเป็นเลขฐานสอง">
+    <p>เทศกาลมีไม่เกิน {K_MAX} งาน เส้นเวลาถูกหั่นเป็นช่วงได้ไม่เกิน {K_MAX + 1} ช่วง ทำแบบนี้</p>
+    <ol>
+      <li>เรียงเทศกาลตามวัน</li>
+      <li>กระโดดจากวันปัจจุบันไปถึงวันของงานถัดไป</li>
+      <li>บวก <code>y</code> เข้าช่อง <code>(x, 0)</code> ซึ่งแปลว่ายืนอยู่เมือง <code>x</code> พอดีวันนั้น</li>
+      <li>ทำซ้ำจนหมดงาน แล้วกระโดดช่วงสุดท้ายไปถึงวันที่ <code>T</code></li>
+    </ol>
+    <ZoomableDiagram caption={`เส้นเวลาของตัวอย่างที่สอง งาน ${SAMPLE2.fest.length} งานหั่น ${SAMPLE2.T} วันออกเป็น ${S2_GAPS.length} ช่วง แต่ละช่วงกระโดดตามบิตของความยาวช่วง ช่วงสุดท้ายยาว ${S2_LONG_GAP.len} วัน เลยกระโดด ${S2_LONG_GAP.bits.length} ครั้งคือ ${S2_LONG_GAP.bits.join(' แล้ว ')}`}>
+      <svg viewBox={`0 0 ${AX_VB_W} ${AX_H}`} xmlns="http://www.w3.org/2000/svg" width="100%" style={`display:block;margin:0 auto;max-width:${Math.round(AX_VB_W * 1.25)}px`} role="img" aria-label="เส้นเวลาสิบหกวันของตัวอย่างที่สอง มีจุดทองของเทศกาลสามงานที่วันที่ 1, 3 และ 5 แบ่งเส้นเวลาเป็นสี่ช่วง ใต้แต่ละช่วงเขียนความยาวและการแตกเป็นเลขฐานสอง ช่วงสุดท้ายยาว 11 วันเท่ากับ 8 + 2 + 1">
         <line x1={AX_X0} y1={AX_Y} x2={AX_X1} y2={AX_Y} stroke="#37456b" stroke-width="2" />
         {AX_TICKS.map((t) => (
           <g>
@@ -1111,58 +1690,93 @@ for (int v = 0; v < n; v++)
         ))}
       </svg>
     </ZoomableDiagram>
+    <p>ช่อง (x,0) ของแต่ละงานก่อนและหลังบวก เมื่อเดินตัวอย่างที่สองแบบนี้</p>
+    <ul>
+      {FEST_LOG.map((f) => (
+        <li>
+          {f.before === NEG
+            ? `วันที่ ${f.t} ช่อง (${f.x},0) ยังเป็น · ไม่บวก`
+            : `วันที่ ${f.t} ช่อง (${f.x},0): ${f.before} เป็น ${f.after}`}
+        </li>
+      ))}
+      <li>ช่วงสุดท้ายพาไปถึงวันที่ {SAMPLE2.T} ช่อง (1,0) ได้ {S2_BEST.best}</li>
+    </ul>
+    <p>
+      ทุกงานได้บวกเข้าช่องของตัวเอง แต่เส้นทางที่ชนะผ่านแค่งานวันที่ {S2_HIT.map((s) => s.day).join(', ')}
+      ค่าในช่องอื่นแพ้ไปเองตอนเลือกค่ามากสุดในวันถัด ๆ ไป
+    </p>
+    <ul>
+      <li>
+        โค้ดบวกเฉพาะช่องที่ไปถึงได้ ช่อง · เก็บค่าลบมหาศาล &minus;10<sup>18</sup> ไว้
+        ต่อให้บวกเทศกาลทุกงานรวมกันไม่เกิน {sci(FEST_TOTAL_MAX).m} &times; 10<sup>{sci(FEST_TOTAL_MAX).e}</sup> มันก็ยังต่ำกว่าเส้นแบ่ง &minus;5 &times; 10<sup>17</sup> อยู่ดี
+        การเช็กก่อนบวกทำให้ความถูกต้องไม่ต้องพึ่งเลขชุดนี้
+      </li>
+      <li>โจทย์สัญญาว่าแต่ละงานจัดคนละวัน โค้ดก็ยังบวกทุกงานของวันเดียวกันให้ครบก่อนกระโดดต่อ เผื่อไว้</li>
+    </ul>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 4 &middot; จ่ายรางวัลตั้งแต่ออกเดินทาง ทำไมถึงไม่นับเกิน</h2>
+  <h2>เฉลย ตอนที่ 6 &middot; จ่ายรางวัลตั้งแต่ออกเดินทาง ทำไมไม่นับเกิน</h2>
   <Spoiler>
     <p>
-      จุดที่ดูน่าสงสัยที่สุดของท่านี้คือ เราบวก <code>C[v]</code> ตอนก้าวจาก <code>(u, 0)</code> ไป <code>(v, w - 1)</code>
-      ซึ่งคือวันที่เขา<strong>ออกเดินทาง</strong> ไม่ใช่วันที่ไปถึง ถ้า <code>T</code> มาถึงก่อนที่เขาจะเดินทางถึงเมือง <code>v</code>
-      เท่ากับเราแจกความพึงพอใจของมื้อที่เขายังไม่ได้กินไปแล้ว
+      ค้างไว้ตั้งแต่ตอนที่ 3 คือกฎข้อแรกบวก <code>C[v]</code> ตอนก้าวจาก <code>(u, 0)</code> ไป <code>(v, w &minus; 1)</code>
+      ถ้าวันที่ T มาถึงก่อนเขาไปถึงเมือง <code>v</code> ก็เท่ากับแจกรางวัลของมื้อที่ยังไม่ได้กิน
     </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ข้อที่ค้ำทั้งหมด</p>
+      <p>
+        ทางเดินใดก็ตามที่จบที่ (1,0) ในวันที่ T ประกอบด้วยถนนครบเส้นต่อกัน
+        เพราะเมื่อก้าวเข้า <code>(v, w &minus; 1)</code> แล้ว ทางออกเดียวคือเลื่อนลงทีละหนึ่งจนถึง <code>(v, 0)</code>
+        รางวัลทุกก้อนที่จ่ายล่วงหน้าในวัน <code>d</code> เลยได้ลงจอดในวัน <code>d + w</code> ซึ่งไม่เกิน T
+      </p>
+    </div>
+    <p>ดูของจริงจากเครื่องเดินในวันที่ {SAMPLE1.T}</p>
+    <ul>
+      <li>ช่อง {PENDING_BIG[0].name} = {PENDING_BIG[0].val} รวม <code>C[1]</code> ที่จ่ายล่วงหน้าไว้แล้ว</li>
+      <li>ช่องนั้นต้องเลื่อนอีก {PENDING_BIG[0].j} วันถึงจะเป็น (1,0) คือวันที่ {SAMPLE1.T + PENDING_BIG[0].j} เลยวันที่ {SAMPLE1.T} ไปแล้ว</li>
+      <li>คำตอบอ่านจาก (1,0) = {S1_BEST.best} เท่านั้น ค่า {PENDING_BIG[0].val} ไม่มีทางไหลเข้ามา</li>
+    </ul>
     <p>
-      เหตุผลที่มันไม่พังอยู่ที่จุดเดียว คือเราอ่านคำตอบจากช่องของสถานะ <code>(1, 0)</code> เท่านั้น
-      และจากสถานะ <code>(v, j)</code> ที่ <code>j</code> มากกว่า 0 ทางออกมีทางเดียวคือ <code>(v, j - 1)</code>
-      ไม่มีถนนเส้นไหนออกจากสำเนาที่ยังค้างอยู่ระหว่างทางได้เลย แปลว่าค่าที่ค้างอยู่ในสถานะกลางทางในวันสุดท้าย
-      ไม่มีทางไหลมาถึงช่อง <code>(1, 0)</code> ได้ มันถูกทิ้งไปพร้อมกับช่องของตัวเอง
-    </p>
-    <p>
-      พูดอีกแบบคือการยืนอยู่ที่ <code>(1, 0)</code> ในวันที่ <code>T</code> เป็นหลักฐานในตัวมันเองว่า
-      ทุกการเดินทางที่เคยตัดสินใจไว้ได้ลงจอดครบแล้ว เพราะถ้ามีสักเส้นที่ยังค้าง เขาจะยังติดอยู่ในสำเนา <code>(v, j)</code> บางตัว
-      ไม่ใช่ที่ <code>(1, 0)</code> การจ่ายล่วงหน้าจึงเป็นแค่เรื่องของจังหวะการบันทึกบัญชี ไม่ใช่การแจกของฟรี
-    </p>
-    <p>
-      ผมชอบให้ข้ออ้างแบบนี้มีตัวตรวจคอยยืนยัน มากกว่าจะเชื่อเหตุผลที่เขียนไว้เฉย ๆ ตัวไล่ทุกเส้นทางที่ใช้เทียบ
-      จึงไม่รู้จักทั้งสำเนาเมืองและเมทริกซ์ มันเดินจริงทีละเส้นทาง บวกความพึงพอใจตอนไปถึงจริง ๆ
-      แล้วเก็บค่ามากที่สุดของเส้นทางที่จบที่เมือง 1 ในวันที่ <code>T</code> พอดี
-      ถ้าการจ่ายล่วงหน้านับเกินจริง ตัวเลขสองฝั่งจะแยกกันทันทีในเทสเล็ก ๆ ไม่กี่รอบ
+      ตัวไล่ทุกเส้นทางที่ใช้เทียบเป็นอีกชั้นของความมั่นใจ มันบวกความพึงพอใจตอนไปถึงจริง และไม่รู้จักสำเนาเมือง
+      ถ้าการจ่ายล่วงหน้านับเกิน ตัวเลขสองฝั่งจะแยกกันในเทสเล็ก ๆ ทันที
     </p>
   </Spoiler>
 
-  <h2>โค้ด</h2>
+  <h2>เฉลย ตอนที่ 7 &middot; โค้ดเต็มและการตรวจ</h2>
   <Spoiler>
     <details class="expander">
       <summary>ดูโค้ดเต็มขอบเขต</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="dl_full.cpp" />
         <p>
-          ค่ามากที่สุดที่เป็นไปได้คือความพึงพอใจ {fmt(C_MAX)} ต่อวัน คูณ {fmt(T_MAX)} วัน บวกเทศกาลอีก {K_MAX} งาน งานละถึง {fmt(T_MAX)}
-          รวมแล้วเกินขอบเขตของ <code>int</code> ไปไกลมาก ทุกอย่างจึงเป็น <code>long long</code>
-          ส่วนค่าที่แทนคำว่าไปไม่ได้ต้องเป็นลบมากพอที่บวกกันหลายทอดแล้วยังไม่มีทางแซงค่าจริงได้
-          และต้องดึงกลับมาที่ค่าเดิมทุกครั้งหลังคูณ ไม่งั้นมันจะค่อย ๆ ไต่ขึ้นทีละนิดตลอด 35 ทอดที่เราคูณต่อกัน
+          ค่าที่มากที่สุดที่เป็นไปได้คือ {fmt(C_MAX)} ต่อวัน คูณ {fmt(T_MAX)} วัน บวกเทศกาลอีก {K_MAX} งาน งานละถึง {fmt(T_MAX)}
+          เกิน <code>int</code> ไปไกล ทุกอย่างเป็น <code>long long</code>
+        </p>
+        <p>
+          <code>NEG</code> คือเลขลบมหาศาลที่แทน · (ไปไม่ถึง) ส่วน <code>HALF</code> คือเส้นแบ่งครึ่งทาง ค่าไหนต่ำกว่าเส้นนี้ถือว่าไปไม่ถึง
+          หลังคูณแต่ละครั้งโค้ดดึงค่าพวกนั้นกลับเป็น <code>NEG</code> พอดี มันจะได้ไม่ค่อย ๆ ไต่ขึ้นตลอด {bitsOf(T_MAX)} ทอดที่คูณต่อกัน
         </p>
       </div>
     </details>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>แผนที่ของโค้ดเต็ม</caption>
+        <thead>
+          <tr><th>ส่วนในโค้ด</th><th>อธิบายอยู่ที่</th></tr>
+        </thead>
+        <tbody>
+          {CODE_MAP.map((r) => (
+            <tr><td>{r.code}</td><td>{r.part}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </figure>
     <details class="expander">
-      <summary>ดูโค้ดของชุดที่ T ไม่เกิน {fmt(T_SUB)}</summary>
+      <summary>ดูโค้ดตารางรายวัน (ชุดที่ T ไม่เกิน {fmt(T_SUB)})</summary>
       <div class="expander-body">
         <CodeBlock code={subCode} lang="cpp" title="dl_sub.cpp" />
         <p>
-          นี่คือตารางไล่ทีละวันตรง ๆ ซึ่งเป็นท่าแรกที่ควรเขียน ที่ <code>T</code> ไม่เกิน {fmt(T_SUB)} และถนนไม่เกิน 50 เส้น
-          มันทำงาน {fmt(T_SUB * 50)} ครั้ง และตารางกิน {fmt(Math.round(MEM_DAYDP / 1000000))} เมกะไบต์ ซึ่งอยู่ในลิมิตสบาย
-          ตามเงื่อนไขของชุดทดสอบ โค้ดนี้ครอบชุด 20% ที่ <code>T</code> ไม่เกิน 5 และชุด 20% ที่ <code>T</code> ไม่เกิน {fmt(T_SUB)}
-          รวมเป็น 40% ส่วนชุดที่เหลือปลด <code>T</code> ไว้ถึงพันล้าน ตารางนี้จึงจองหน่วยความจำไม่ไหวตั้งแต่แรก
-          ผมใช้มันเป็นตัวตรวจของชุดใหญ่ด้วย เพราะมันคิดคนละทางกับเมทริกซ์แต่รับอินพุตชุดเดียวกัน
+          นี่คือวิธีที่ 2 ของตอนที่ 1 เขียนแบบดึงค่าเหมือนในตาราง ได้ {PCT_DAY}% และใช้เป็นตัวตรวจของโค้ดเต็มด้วย
+          เพราะคิดคนละทางกับสำเนาเมืองและเมทริกซ์
         </p>
       </div>
     </details>
@@ -1171,10 +1785,8 @@ for (int v = 0; v < n; v++)
       <div class="expander-body">
         <CodeBlock code={bruteCode} lang="cpp" title="dl_brute.cpp" />
         <p>
-          ตัวนี้ไม่มีตาราง ไม่มีการจำค่าที่เคยคิดแล้ว และไม่มีสำเนาเมือง มันเลือกถนนออกจากเมืองปัจจุบันทีละเส้น
-          เรียกตัวเองต่อไปเรื่อย ๆ จนวันครบ <code>T</code> แล้วค่อยดูว่าจบที่เมือง 1 ไหม
-          ที่สำคัญคือมันบวกความพึงพอใจ<strong>ตอนไปถึงจริง</strong> ไม่ใช่ตอนออกเดินทาง
-          มันจึงไม่ได้ใช้ข้ออ้างในตอนที่ 4 ร่วมกับเฉลยเลย ซึ่งเป็นเงื่อนไขที่ทำให้มันเป็นตัวตรวจที่มีความหมาย
+          ตัวนี้ไม่มีตาราง ไม่จำค่าที่เคยคิด และไม่มีสำเนาเมือง มันบวกความพึงพอใจตอนไปถึงจริง
+          เป็นตัวตรวจที่อิสระจากเหตุผลของตอนที่ 6
         </p>
       </div>
     </details>
@@ -1183,52 +1795,85 @@ for (int v = 0; v < n; v++)
       <div class="expander-body">
         <CodeBlock code={caseCode} lang="cpp" title="dl_case.h" />
         <p>
-          ไฟล์นี้มีแต่โครงสร้างข้อมูลกับตัวอ่านอินพุต ไม่มีอัลกอริทึมสักบรรทัด
-          ที่แยกออกมาเพราะตอน stress test ผมลิงก์ทั้งสามโปรแกรมเข้าเป็นไบนารีเดียว
-          จะได้ไม่ต้องเปิดกระบวนการใหม่ทีละเทส ซึ่งช้ากว่ากันหลายสิบเท่า
-          และทั้งสามตัวต้องอ่านเคสเดียวกันแบบเดียวกันเป๊ะ ๆ ถึงจะเทียบผลกันได้อย่างมีความหมาย
+          ไฟล์นี้มีแต่โครงสร้างข้อมูลกับตัวอ่านอินพุต ที่แยกออกมาเพราะตอนสุ่มทดสอบ ผมลิงก์ทั้งสามโปรแกรมเป็นไบนารีเดียว
+          ทั้งสามตัวอ่านเคสเดียวกันแบบเดียวกัน ผลเลยเทียบกันได้ตรง ๆ
         </p>
       </div>
     </details>
-    <p class="io-note">
-      คอมไพล์ทั้งสามโปรแกรมแล้วรันกับตัวอย่างสองชุดในโจทย์ ได้ {S1_BEST.best} กับ {S2_BEST.best} ตรงกันทั้งสามตัว
-      ตัวเฉลยผ่านการสุ่มทดสอบ 57,000 รอบโดยไม่มีรอบไหนไม่ตรง และผมรันซ้ำด้วยเมล็ดสุ่มของตัวเองอีก 6,000 รอบ
-      ก็ไม่ต่างกันสักรอบ ในจำนวนนั้น 3,493 รอบเทียบกับตัวไล่ทุกเส้นทาง นอกจากนี้ยังมีอีก 600 รอบที่เทียบกับสูตรปิด
-      บนอาณาจักรที่บังคับให้เดินได้ทางเดียว โดยดัน T ถึงพันล้านจนได้ใช้บิตกระโดดครบทั้ง {bitsOf(T_MAX)} บิต
-      อีก 60 รอบที่ขนาดเต็มคือ N = {N_MAX}, M = {M_MAX}, k = {K_MAX} เทียบกับตารางไล่ทีละวัน
-      และเคสขอบอีกแปดเคสที่คำนวณด้วยมือ เช่น เมืองเดียวที่มีถนนวนกลับตัวเองยาว 1 วันแล้ว T เป็นพันล้าน
-      T คี่กับถนนวนกลับตัวเองยาว 2 วันซึ่งต้องตอบ -1 เทศกาลที่จัดตรงวันที่ T พอดี และเมืองที่ไม่มีถนนออกเลย
-      ทั้งหมดตรงกันหมด เวลาที่แย่ที่สุดที่วัดได้คือ <strong>0.55 วินาที</strong> จากลิมิต 2 วินาที
-      บนเคสที่จงใจสร้างให้หนักที่สุด (N = {N_MAX}, M = {M_MAX}, T = {fmt(T_MAX)}, k = {K_MAX} และจัดวันเทศกาลให้ห่างกัน
-      2 ยกกำลัง 22 ลบหนึ่งวัน เพื่อให้ต้องคูณเวกเตอร์กับเมทริกซ์มากที่สุด) หน่วยความจำสูงสุด 18 เมกะไบต์จาก 512
-      ทั้งหมดนี้เทียบกับตัวตรวจของเราเองกับตัวอย่างสองชุดในโจทย์ ไม่ใช่ข้อมูลทดสอบจริงของผู้จัด
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <p>
+        ทั้งสามโปรแกรมตอบตัวอย่างได้ {S1_BEST.best} กับ {S2_BEST.best} และตรงกันใน {fmt(STRESS.tiny)} เคสสุ่มจิ๋ว (เมืองไม่เกิน 4, T ไม่เกิน 9)
+        กับอีก {fmt(STRESS.sameDay)} เคสจิ๋วที่ปล่อยให้เทศกาลซ้ำวัน โค้ดเต็มตรงกับตารางรายวันใน {fmt(STRESS.mid)} เคสขนาดกลาง (T ไม่เกิน 3,000)
+      </p>
+      <p>
+        T ใหญ่ตรวจบนอาณาจักรที่เมืองต่อกันเป็นวงเดียว ซึ่งนับคำตอบได้ด้วยสูตรตรง {fmt(STRESS.ring)} เคส T สุ่มถึง {fmt(T_MAX)}
+        มี {fmt(STRESS.ringBig)} เคสที่ T ตั้งแต่ 2<sup>{BIG_T_BITS}</sup> ขึ้นไป คือใช้ชั้นกระโดดครบทั้ง {BIG_T_BITS + 1} ชั้น
+        และ {fmt(STRESS.ringFest)} เคสเก็บเทศกาลได้จริง
+      </p>
+      <p>
+        ขอบเขตของการตรวจนี้คือกราฟหลายรูปแบบที่ T เล็ก กับ T ใหญ่บนวงเดียว ส่วนที่ครอบทุกขนาดคือเหตุผลในตอนที่ 3 ถึง 6
+      </p>
+    </div>
+    <figure class="tbl">
+      <table class="rec">
+        <caption>เวลาและหน่วยความจำ</caption>
+        <thead>
+          <tr><th>โปรแกรม · เคส</th><th class="num">วินาที</th><th class="num">เมกะไบต์</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>เต็ม · N = {N_MAX}, M = {M_MAX}, T = {fmt(T_MAX)}, เทศกาล {K_MAX} งานห่างกัน 2<sup>22</sup> &minus; 1 วัน</td><td class="num">{RUN_WORST.lo} ถึง {RUN_WORST.hi}</td><td class="num">{RUN_WORST.mb}</td></tr>
+          <tr><td>เต็ม · ขนาดเดียวกัน ไม่มีเทศกาล</td><td class="num">{RUN_K0.lo} ถึง {RUN_K0.hi}</td><td class="num">{RUN_K0.mb}</td></tr>
+          <tr><td>ตารางรายวัน · N = {RUN_SUB_SUB2.n}, M = {M_SUB}, T = {fmt(T_SUB)}</td><td class="num">{RUN_SUB_SUB2.sec}</td><td class="num">{RUN_SUB_SUB2.mb}</td></tr>
+          <tr><td>ไล่ทุกเส้นทาง · ถนน {M_SUB} เส้นวนที่เมือง 1, T = 5</td><td class="num">{RUN_BRUTE_SUB1.sec}</td><td class="num">{RUN_BRUTE_SUB1.mb}</td></tr>
+        </tbody>
+      </table>
+      <figcaption>
+        วัดบนเครื่องผม (WSL, g++ -O2) ด้วยโค้ดที่ดึงออกมาจากหน้านี้ โค้ดเต็มรันเคสละหกรอบ ตัวอื่นรอบเดียว หน่วยความจำคือค่าสูงสุดที่ระบบรายงาน
+        ลิมิตคือ {TIME_LIMIT} วินาทีและ {MEM_LIMIT_MB} เมกะไบต์ ในเคสแรก {K_MAX} จาก {K_MAX + 1} ช่วงยาว 2<sup>22</sup> &minus; 1 วัน
+        ต้องคูณเวกเตอร์ช่วงละ 22 ครั้ง ช่วงสุดท้ายยาว {fmt(WORST_LAST)} วันใช้ {popcount(WORST_LAST)} ครั้ง
+        รวม {fmt(WORST_VMULS)} ครั้ง งานทั้งหมดราว {sci(MAT_WORST).m} &times; 10<sup>{sci(MAT_WORST).e}</sup> การบวกเทียบ
+        ส่วน {sci(MAT_FULL).m} &times; 10<sup>{sci(MAT_FULL).e}</sup> เป็นขอบบนแบบหลวมที่ถือว่าทุกช่วงมี {bitsOf(T_MAX)} บิต
+      </figcaption>
+    </figure>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
-  <p>
-    ท่าแรกคือ<strong>ทำให้หนึ่งหน่วยเวลาเป็นก้าวเดียวกันเสมอ ด้วยการเพิ่มสถานะ</strong>
-    เวลาเจอโจทย์ที่เวลาใหญ่มากแต่โครงสร้างเล็ก สิ่งที่ขวางการกระโดดข้ามเวลามักไม่ใช่ขนาด แต่เป็นความไม่สม่ำเสมอ
-    ถนนยาวไม่เท่ากันคือความไม่สม่ำเสมอแบบหนึ่ง และมันซื้อกลับมาได้ด้วยสำเนาของเมืองตามจำนวนวันที่ค้างอยู่
-    ราคาคือจำนวนสถานะคูณขึ้นตามความยาวมากสุด ซึ่งจ่ายไหวก็ต่อเมื่อความยาวมากสุดเล็ก อย่างข้อนี้ที่ให้มาแค่ {W_MAX}
-  </p>
-  <p>
-    ท่าที่สองคือ<strong>เปลี่ยนเครื่องหมายแล้วใช้ท่าเดิม</strong> คำถามหาเส้นทางที่ดีที่สุดในจำนวนก้าวที่กำหนดพอดี
-    มีหน้าตาเหมือนการคูณเมทริกซ์ทุกประการ ต่างแค่บวกกลายเป็นมากสุดและคูณกลายเป็นบวก
-    พอมันเป็นการคูณ มันก็ยกกำลังได้ และท่ายกกำลังเร็วที่เคยใช้กับเลขธรรมดาก็ย้ายมาใช้ได้ทั้งดุ้น
-    (ข้อ <a href="/cp/rolling-state-dp/">ยุบสถานะให้เหลือแถวเดียว</a> ทิ้งท้ายไว้ว่าถ้า <code>n</code> ใหญ่กว่านั้นต้องใช้ท่านี้ ข้อนี้คือท่านั้น)
-  </p>
-  <p>
-    ท่าที่สามคือ<strong>เหตุการณ์เฉพาะจุดหั่นเส้นเวลาเป็นช่วง</strong> อะไรที่ผูกกับเวลาจุดเดียวและมีจำนวนน้อย
-    ไม่ได้ทำลายท่ากระโดด มันแค่บังคับให้เราหยุดที่จุดนั้นแล้วจัดการด้วยมือ ก่อนจะกระโดดต่อ
-    ค่าใช้จ่ายรวมจึงเป็นจำนวนเหตุการณ์คูณราคาการกระโดดหนึ่งครั้ง
-  </p>
+  <h2>ทดสอบตัวเอง</h2>
+  <details class="expander">
+    <summary>ถ้าถนนยาวได้ถึง {fmt(QUIZ_W)} วัน สถานะจะมีกี่ตัว และยังใช้ท่านี้ได้ไหม</summary>
+    <div class="expander-body">
+      <p>
+        {N_MAX} &times; {fmt(QUIZ_W)} = {fmt(QUIZ_S)} สถานะ คูณเมทริกซ์หนึ่งครั้งก็ราว {sci(QUIZ_MUL).m} &times; 10<sup>{sci(QUIZ_MUL).e}</sup> ครั้งแล้ว
+        เกินเพดาน {S_CAP} ของตอนที่ 2 ไปมาก ท่านี้ใช้ได้เพราะถนนยาวไม่เกิน {W_MAX} วันเท่านั้น
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>
+      ชุด &ldquo;ชุดสุดท้าย&rdquo; ในเกมมีถนน {NONE_ROADS} และ T = {NONE.T}
+      ถ้าเอาเข้าเครื่องเดิน ช่อง (1,0) ของวันที่ {NONE.T} จะเป็นอะไร
+    </summary>
+    <div class="expander-body">
+      <p>
+        เป็น · ให้เมือง 1 กับ 3 เป็นฝั่งคู่ และเมือง 2 เป็นฝั่งคี่ ถนน 1 วันทุกเส้นพาข้ามฝั่ง ถนน 2 วันทุกเส้นพากลับฝั่งเดิม
+        วันที่ยืนอยู่เมือง 1 จึงเป็นวันคู่เสมอ ส่วน {NONE.T} เป็นเลขคี่ โค้ดเห็นช่องนั้นเป็น <code>NEG</code> แล้วตอบ <code>-1</code>
+      </p>
+    </div>
+  </details>
+  <details class="expander">
+    <summary>ทำไมโค้ดเต็มคูณเวกเตอร์ตอนเดินแต่ละช่วง แทนที่จะคูณเมทริกซ์ทั้งใบ</summary>
+    <div class="expander-body">
+      <p>
+        ต้องการแค่ค่าที่เริ่มจากเมือง 1 วันที่ 0 ซึ่งเป็นแถวเดียว คูณเวกเตอร์ราคา {fmt(VMUL_COST)} ต่อครั้ง
+        ส่วนคูณเมทริกซ์สองใบราคา {fmt(MUL_COST)} ถ้าทำแบบหลังทุกช่วงของ {K_MAX + 1} ช่วง จะแพงขึ้น {STATES} เท่า
+      </p>
+    </div>
+  </details>
 
-  <h2>สรุปบรรทัดเดียว</h2>
+  <h2>ปิดท้าย</h2>
   <p>
-    หั่นเมืองเป็นสำเนาตามจำนวนวันที่ยังต้องเดินอีก จนถนนทุกเส้นยาวหนึ่งวันเท่ากัน
-    แล้วหนึ่งวันจะกลายเป็นการคูณเมทริกซ์แบบมากสุดบวกหนึ่งครั้ง ที่เหลือคือยกกำลังข้ามช่วงที่ไม่มีเทศกาล
-    แล้วหยุดใส่รางวัลด้วยมือทีละงาน
+    ท่าที่ยกไปใช้ข้ออื่นได้คือ ถ้าอยากกระโดดข้ามเวลาเป็นก้อน ให้เพิ่มสถานะจนทุกหน่วยเวลาใช้กฎชุดเดียวกัน
+    (ข้อ<a href="/cp/rolling-state-dp/">ยุบสถานะให้เหลือแถวเดียว</a>ทิ้งท้ายไว้ว่าถ้า <code>n</code> ใหญ่กว่านั้นต้องยกกำลังเมทริกซ์ ข้อนี้คือท่านั้น)
   </p>
 
   <h2>แหล่งที่มา</h2>
@@ -1253,6 +1898,14 @@ for (int v = 0; v < n; v++)
   /* ต่างจากตารางกลางใน CpProblemLayout */
   table.rec td{white-space:nowrap;}
 
+  /* เครื่องเดินของตอนที่ 4: แถวโผล่ทีละวัน ตารางต้องไม่ส่งความกว้างของตัวเองเข้าไปคิด
+     !important เพราะต้องชนะ body .panel .dpsim table.rec{width:100%} ของ CpProblemLayout */
+  table.rec.dlcvec{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.dlcvec th,
+  table.rec.dlcvec td{white-space:normal;text-align:center;}
+  table.rec.dlcvec th.land,
+  table.rec.dlcvec td.land{color:#a7f3c4;}
+
   /* ---------- กระดานของมินิเกม ---------- */
   /* ข้อความไทยในการ์ดที่หดตามเนื้อหา ต้องไม่ส่งความกว้างของตัวเองเข้าไปคิด */
   .dlc-day{width:0;min-width:100%;margin:0 0 0.6rem;font-size:0.95rem;color:#e6edfb;}
@@ -1260,12 +1913,9 @@ for (int v = 0; v < n; v++)
   .dlc-fest{width:0;min-width:100%;margin:0.3rem 0 0;text-align:center;font-size:0.82rem;color:var(--dl-gold);}
   .dlc-board{display:block;}
   .dlc-board[hidden]{display:none;}
-  /* viewBox ของกระดานกว้างราว 340 ถ้าปล่อยเต็มการ์ด 52rem ตัวอักษรจะโป่งเกือบสามเท่า */
-  .dlc-map{display:block;margin:0 auto;width:100%;max-width:460px;}
-  @media (max-width:640px){
-    /* บนมือถือห้ามให้กระดานหดจนป้ายอ่านไม่ออก ให้ล้นแล้ว .cpg-scroll เลื่อนแทน */
-    .dlc-map{min-width:340px;}
-  }
+  /* ความกว้างสูงสุดตั้งเป็น inline style ที่ 1.25 เท่าของ viewBox ไม่งั้นป้ายจะโป่ง
+     viewBox ของกระดานแคบอยู่แล้ว บนมือถือหดตามการ์ดได้โดยป้ายยังอ่านออก */
+  .dlc-map{display:block;margin:0 auto;width:100%;}
   .dlc-node.is-home circle{stroke:#e7b455;}
   .dlc-map .dlc-node.is-here circle{fill:#163a2a;stroke:#2f9e5c;stroke-width:3;}
 
@@ -1296,6 +1946,7 @@ for (int v = 0; v < n; v++)
 
 <script>
   import { cpGameUi, readPuzzles } from '../../lib/cpGame';
+  import { initCpRowPlayers } from '../../lib/cpPlayer';
   import type { CpGameUi } from '../../lib/cpGame';
 
   type DlRoad = { u: number; v: number; w: number };
@@ -1465,5 +2116,8 @@ for (int v = 0; v < n; v++)
     selectPuzzle(0);
   }
 
-  document.addEventListener('astro:page-load', initDelicacyGame);
+  document.addEventListener('astro:page-load', () => {
+    initDelicacyGame();
+    initCpRowPlayers('[data-dlcvec]');
+  });
 </script>
