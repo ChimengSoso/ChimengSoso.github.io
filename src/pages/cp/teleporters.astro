@@ -86,6 +86,7 @@ const ans2 = best(a2.base, a2.cycles, EX2M);
    ภาพจึงวาดจากลูกศรชุดเดียวกับที่ analyse() เดิน ไม่มีเลขไหนพิมพ์มือ */
 interface TpShape {
   intervals: number;
+  pts: number[];
   path: number[];
   loops: number[][];
 }
@@ -124,22 +125,30 @@ function shape(ps: Pair[]): TpShape {
       }
       loops.push(one);
     }
-  return { intervals: P2 + 1, path, loops };
+  return { intervals: P2 + 1, pts, path, loops };
 }
 const sh1 = shape(EX1);
+
+/* ตัวอย่างที่ 1 หลังวางเครื่องใหม่ที่ 0.5 กับ 1.5 ตามรูปในโจทย์ ภาพที่สองวาดจากลูกศรชุดนี้ */
+const ADD1: Pair = [0.5, 1.5];
+const sh1b = shape([...EX1, ADD1]);
+const a1b = analyse([...EX1, ADD1]);
+/* ภาพต้องเล่าเรื่องเดียวกับสูตร: วงขนาด 2 ถูกดูดเข้ามา เส้นทางได้ช่วงเพิ่ม 2 + 2 คะแนนกลายเป็นคำตอบของตัวอย่าง */
+if (a1b.base !== ans1 || a1b.base - a1.base !== a1.cycles[0] + 2 || sh1b.path.length - sh1.path.length !== a1.cycles[0] + 2)
+  throw new Error(`teleporters: ภาพหลังเพิ่มเครื่องควรได้ ${ans1} คะแนน แต่ได้ ${a1b.base}`);
 
 /* พิกัดของภาพ กว้างเท่าเนื้อภาพพอดี บวกที่ว่างให้ปุ่มขยายที่มุมล่างขวา */
 const IW = 66;
 const IGAP = 10;
-const ix = (i: number): number => 18 + i * (IW + IGAP);
+const ix = (i: number): number => 12 + i * (IW + IGAP);
 const icx = (i: number): number => ix(i) + IW / 2;
-const shVB = `0 0 ${ix(sh1.intervals - 1) + IW + 12} 236`;
 /** โค้งเชื่อมช่วงสองช่วง ขึ้นด้านบนเมื่ออยู่บนเส้นทางหลัก ลงด้านล่างเมื่อเป็นวง */
 const arc = (a: number, b: number, up: boolean): string => {
   const x1 = icx(a);
   const x2 = icx(b);
   const y = up ? 70 : 114;
-  const lift = up ? y - Math.min(36, 14 + Math.abs(x2 - x1) / 7) : y + Math.min(36, 14 + Math.abs(x2 - x1) / 7);
+  const bend = Math.min(36, 14 + Math.abs(x2 - x1) / 7);
+  const lift = up ? y - bend : y + bend;
   return `M${x1} ${y} C ${x1} ${lift}, ${x2} ${lift}, ${x2} ${y}`;
 };
 /** ห่วงของช่วงที่ชี้กลับตัวเอง ต้องมีความกว้าง ไม่งั้นเส้นโค้งยุบเป็นขีดตรง */
@@ -153,55 +162,86 @@ const head = (x: number, up: boolean): string => {
   const d = up ? 8 : -8;
   return `${x - 4.5},${y - d} ${x + 4.5},${y - d} ${x},${y}`;
 };
-const inPath = (i: number): boolean => sh1.path.indexOf(i) !== -1;
-
-/* ---------- มินิเกม แจกเครื่องเคลื่อนย้าย M ตัวให้ได้แต้มมากที่สุด ----------
-   แต้มของทุกการกระทำมาจากฟังก์ชันเดียวกับที่บทความใช้ และแต้มที่ดีที่สุดของแต่ละชุด
-   ถูกตรวจซ้ำด้วยการไล่ทุกวิธีแจกตอนบิลด์ ถ้าท่าโลภกับการไล่ทุกวิธีไม่ตรงกัน บิลด์จะพัง */
-type TpPuzzle = { id: string; label: string; tease: string; pairs: Pair[]; m: number };
-
-/** ไล่ทุกวิธีแจกเครื่อง เพื่อยืนยันว่าท่าโลภได้แต้มสูงสุดจริง ใช้กับชุดเล็กในเกมเท่านั้น */
-function bestByBruteTp(base: number, cycles: number[], m: number): number {
-  let top = 0;
-  const walk = (i: number, left: number, score: number): void => {
-    if (i === cycles.length) {
-      top = Math.max(top, score + Math.floor(left / 2) * 4 + (left % 2));
-      return;
-    }
-    walk(i + 1, left, score);
-    if (left >= 1) walk(i + 1, left - 1, score + cycles[i] + 2);
-  };
-  walk(0, m, base);
-  return top;
+const posLabel = (p: number): string => String(p);
+interface ShapeDraw {
+  named: boolean;
+  vb: string;
+  maxW: number;
+  arcs: { d: string; up: boolean }[];
+  heads: { points: string; up: boolean }[];
+  boxes: { x: number; cx: number; on: boolean; name: string; span: string }[];
 }
+/** แปลงโครงของกราฟเป็นชิ้นที่ต้องวาด ทุกพิกัดมาจากตรงนี้ */
+function drawShape(sh: TpShape, named: boolean, loopLabel = false): ShapeDraw {
+  const on = (i: number): boolean => sh.path.indexOf(i) !== -1;
+  const arcs: ShapeDraw['arcs'] = [];
+  const heads: ShapeDraw['heads'] = [];
+  sh.path.slice(0, -1).forEach((from, k) => {
+    arcs.push({ d: arc(from, sh.path[k + 1], true), up: true });
+    heads.push({ points: head(icx(sh.path[k + 1]), true), up: true });
+  });
+  for (const loop of sh.loops) {
+    if (loop.length === 1) {
+      arcs.push({ d: selfArc(loop[0]), up: false });
+      heads.push({ points: head(icx(loop[0]) + 13, false), up: false });
+    } else {
+      loop.forEach((from, k) => {
+        const to = loop[(k + 1) % loop.length];
+        arcs.push({ d: arc(from, to, false), up: false });
+        heads.push({ points: head(icx(to), false), up: false });
+      });
+    }
+  }
+  const P = sh.pts.length;
+  const boxes = Array.from({ length: sh.intervals }, (_, i) => ({
+    x: ix(i),
+    cx: icx(i),
+    on: on(i),
+    name: `I${i}`,
+    span: `${i === 0 ? '0' : posLabel(sh.pts[i - 1])}–${i === P ? 'ชัย' : posLabel(sh.pts[i])}`,
+  }));
+  const w = ix(sh.intervals - 1) + IW + 12;
+  /* ความสูงตามของที่อยู่ใต้แถวช่วง: ไม่มีวงก็จบที่ขอบกล่อง (114) ห่วงตัวเองลงไปถึงราว 143
+     วงหลายช่วงหรือป้าย "วงที่ลอยอยู่" (y 196) ลงไปถึงราว 200 แล้วเผื่อ 34 ไว้ให้ปุ่ม "ขยาย" */
+  const bottom = loopLabel || sh.loops.some((l) => l.length > 1) ? 200 : sh.loops.length > 0 ? 143 : 114;
+  return { named, vb: `0 0 ${w} ${bottom + 34}`, maxW: Math.round(w * 1.25), arcs, heads, boxes };
+}
+const dr1 = drawShape(sh1, true, true);
+const dr1b = drawShape(sh1b, false, true);
+/* วงที่ใหญ่ที่สุดของตัวอย่างที่ 1 ซึ่งเครื่องใหม่ดูดเข้ามา บอกเป็นตำแหน่งให้เทียบกับภาพที่สองได้ */
+const bigLoop = sh1.loops.find((l) => l.length === a1.cycles[0]) ?? [];
+const bigLoopSpans = bigLoop.map((i) => dr1.boxes[i].span).join(' กับ ');
+const loopCells = (sh: TpShape): number => sh.loops.reduce((t, l) => t + l.length, 0);
+
+/* ---------- มินิเกม วางเครื่องเพิ่มให้ได้แต้มมากที่สุด ----------
+   ผู้เล่นแตะช่วงบนเส้นเพื่อวางจุดปลาย แต้มในหน้าเว็บคิดด้วยการเดินตามกฎของโจทย์ตรง ๆ ไม่ใช้สูตร
+   แต้มเป้าหมายของแต่ละชุดมาจากตัวไล่ทุกแบบ (bruteExact ข้างล่าง) และต้องตรงกับสูตร ไม่งั้นบิลด์พัง */
+type TpPuzzle = { id: string; label: string; tease: string; pairs: Pair[]; m: number };
 
 const TP_PUZZLES: TpPuzzle[] = [
   {
     id: 't1',
     label: 'ชุดที่ 1 · ตัวอย่างในโจทย์',
-    tease: 'ชุดแรกของโจทย์ มีเครื่องให้เพิ่มตัวเดียว',
+    tease: 'ชุดแรกของโจทย์ เพิ่มได้หนึ่งเครื่อง',
     pairs: EX1,
     m: EX1M,
   },
   {
     id: 't2',
     label: 'ชุดที่ 2 · ตัวอย่างที่สอง',
-    tease: 'สามเครื่อง และมีวงให้เลือกต่อมากกว่าหนึ่งวง',
+    tease: 'ชุดที่สองของโจทย์ เพิ่มได้สามเครื่อง',
     pairs: EX2,
     m: EX2M,
   },
   {
     id: 't3',
-    label: 'ชุดที่ 3 · เครื่องเหลือ',
-    tease: 'ชุดนี้มีเครื่องเหลือหลังต่อวงหมดแล้ว ลองดูว่าเครื่องที่เหลือควรใช้ยังไง',
+    label: 'ชุดที่ 3 · สองเครื่องไขว้กัน',
+    tease: 'เครื่องตั้งต้นสองเครื่องที่ปลายไขว้กัน เพิ่มได้สามเครื่อง',
     pairs: [
-      [10, 11],
-      [1, 4],
-      [2, 3],
-      [20, 23],
-      [21, 22],
+      [1, 3],
+      [2, 4],
     ],
-    m: 5,
+    m: 3,
   },
 ];
 
@@ -210,30 +250,31 @@ type TpPuzzleData = {
   label: string;
   tease: string;
   m: number;
-  base: number;
-  cycles: number[];
+  pts: number[];
+  oldPartner: number[];
+  start: number;
   best: number;
 };
 const tpPuzzles: TpPuzzleData[] = TP_PUZZLES.map((p) => {
-  const a = analyse(p.pairs);
-  const greedyBest = best(a.base, a.cycles, p.m);
-  const bruteBest = bestByBruteTp(a.base, a.cycles, p.m);
-  if (greedyBest !== bruteBest) {
-    throw new Error(
-      `มินิเกมของ teleporters: ชุด ${p.id} ท่าโลภได้ ${greedyBest} แต่การไล่ทุกวิธีได้ ${bruteBest}`,
-    );
+  const pts = p.pairs.flat().sort((x, y) => x - y);
+  const oldPartner: number[] = new Array<number>(pts.length).fill(-1);
+  for (const [x, y] of p.pairs) {
+    oldPartner[pts.indexOf(x)] = pts.indexOf(y);
+    oldPartner[pts.indexOf(y)] = pts.indexOf(x);
   }
-  return {
-    id: p.id,
-    label: p.label,
-    tease: p.tease,
-    m: p.m,
-    base: a.base,
-    cycles: a.cycles,
-    best: greedyBest,
-  };
+  const start = bruteExact(p.pairs, 0);
+  const top = bruteExact(p.pairs, p.m);
+  const a = analyse(p.pairs);
+  if (start !== a.base || top !== best(a.base, a.cycles, p.m)) {
+    throw new Error(`มินิเกมของ teleporters: ชุด ${p.id} ตัวไล่ทุกแบบได้ ${start}/${top} ไม่ตรงกับสูตร`);
+  }
+  return { id: p.id, label: p.label, tease: p.tease, m: p.m, pts, oldPartner, start, best: top };
 });
 const tpJson = JSON.stringify(tpPuzzles);
+/** ป้ายของช่วงที่ i บนกระดาน (ตำแหน่งต้นถึงปลาย) */
+const tpSpan = (pts: number[], i: number): string =>
+  `${i === 0 ? '0' : pts[i - 1]}–${i === pts.length ? 'ชัย' : pts[i]}`;
+const tpFirstSpans = Array.from({ length: tpPuzzles[0].pts.length + 1 }, (_, i) => tpSpan(tpPuzzles[0].pts, i));
 
 /* ตารางแสดงว่าเครื่องแต่ละตัวถูกใช้ทำอะไร ในตัวอย่างที่สอง */
 type Spend = { i: number; act: string; gain: number; total: number };
@@ -267,40 +308,40 @@ const fmt = (n: number): string => n.toLocaleString('en-US');
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
-// อ่านเลขเองทีละไบต์ อินพุตมีสองล้านตัวเลข scanf ช้าเกินไปสำหรับลิมิตหนึ่งวินาที
-static char ibuf[1<<25]; static size_t ipos=0, ilen=0;
+// อ่านเลขเองจากบัฟเฟอร์ก้อนละ 64 KB อินพุตมีราวสองล้านตัวเลข scanf ทีละตัวกินเวลาไปเปล่า ๆ
+static char ibuf[1<<16]; static size_t ipos=0, ilen=0;
+static inline int gc(){
+    if(ipos==ilen){ ilen=fread(ibuf,1,sizeof(ibuf),stdin); ipos=0; if(ilen==0) return -1; }
+    return ibuf[ipos++];
+}
 static inline int rd(){
-    while(ipos<ilen && (ibuf[ipos]<'0'||ibuf[ipos]>'9')) ipos++;
-    int v=0; while(ipos<ilen && ibuf[ipos]>='0' && ibuf[ipos]<='9') v=v*10+(ibuf[ipos++]-'0');
+    int c=gc(); while(c!=-1 && (c<'0'||c>'9')) c=gc();
+    int v=0; while(c>='0' && c<='9'){ v=v*10+(c-'0'); c=gc(); }
     return v;
 }
 int main(){
-    ilen=fread(ibuf,1,sizeof(ibuf),stdin);
     int n=rd(), m=rd();
-    vector<int> W(n),E(n); int hi=0;
-    for(int i=0;i<n;i++){ W[i]=rd(); E[i]=rd(); hi=max(hi,E[i]); }
-    const int LIM=hi+2;                            // ใช้แค่ถึงปลายที่ไกลสุด ตำแหน่งจุดจบไม่มีผลกับคำตอบ
-    vector<int> partnerAt(LIM,-1);                 // partnerAt[p] = ตำแหน่งปลายอีกข้าง
-    for(int i=0;i<n;i++){ partnerAt[W[i]]=E[i]; partnerAt[E[i]]=W[i]; }
-    // เรียงตำแหน่งปลายทั้งหมด แล้วให้เลข 1..2n  ช่วง I_j อยู่ทางตะวันออกของปลายที่ j (I_0 คือจากจุดเริ่ม)
-    vector<int> pts; pts.reserve(2*n);
-    for(int i=0;i<n;i++){ pts.push_back(W[i]); pts.push_back(E[i]); }
-    sort(pts.begin(),pts.end());
-    int P=(int)pts.size();
-    vector<int> id(LIM,0);
-    for(int i=0;i<P;i++) id[pts[i]]=i+1;           // ปลายตัวที่ i+1
-    // nxt[j] = ช่วงถัดไปหลังจากเดินจบช่วง j   (j = 0..P-1)
+    const int MAXPOS=2000000;
+    vector<int> partnerAt(MAXPOS+1,0);             // partnerAt[p] = ตำแหน่งปลายอีกข้าง (0 = ไม่มีปลายที่ p)
+    int hi=0;
+    for(int i=0;i<n;i++){ int w=rd(), e=rd(); partnerAt[w]=e; partnerAt[e]=w; hi=max(hi,e); }
+    // ไล่ตำแหน่งจากตะวันตกไปตะวันออก ให้เลขปลาย 1..2n ตามลำดับที่เจอ (ไม่ต้องเรียง)
+    // ช่วง I_j อยู่ทางตะวันออกของปลายที่ j (I_0 คือช่วงจากจุดเริ่ม)
+    vector<int> id(hi+1,0);
+    int P=0;
+    for(int p=1;p<=hi;p++) if(partnerAt[p]) id[p]=++P;
+    // nxt[j] = ช่วงถัดไปหลังจากเดินจบช่วง j  (j = 0..P-1)  เดินจบ I_j คือเหยียบปลายที่ j+1
     vector<int> nxt(P+1,-1);
-    for(int j=0;j<P;j++) nxt[j]=id[ partnerAt[ pts[j] ] ];
-    // เดินจาก I_0 ไปจนถึง I_P นับจำนวนช่วง
+    for(int p=1;p<=hi;p++) if(partnerAt[p]) nxt[id[p]-1]=id[partnerAt[p]];
+    // เดินจาก I_0 ไปจนถึง I_P นับจำนวนครั้งที่ถูกย้าย
     vector<char> vis(P+1,0);
     long long base=0; int cur=0;
     while(cur!=P){ vis[cur]=1; cur=nxt[cur]; base++; }
     vis[P]=1;
-    // วงที่เหลือ
-    vector<long long> cyc;
-    for(int j=0;j<P;j++) if(!vis[j]){ long long len=0; int u=j; while(!vis[u]){ vis[u]=1; u=nxt[u]; len++; } cyc.push_back(len); }
-    sort(cyc.rbegin(),cyc.rend());
+    // วงที่เหลือ เก็บแค่ขนาด
+    vector<int> cyc;
+    for(int j=0;j<P;j++) if(!vis[j]){ int len=0, u=j; while(!vis[u]){ vis[u]=1; u=nxt[u]; len++; } cyc.push_back(len); }
+    sort(cyc.rbegin(),cyc.rend());                 // วงใหญ่ก่อน
     long long ans=base;                            // base = จำนวนครั้งที่ถูกย้ายก่อนเพิ่มเครื่อง
     int used=0;
     for(size_t i=0;i<cyc.size() && used<m; i++,used++) ans+=cyc[i]+2;   // ดูดวงเข้ามาต่อในเส้นทาง
@@ -382,6 +423,236 @@ const teleNotes = spend2.map((r) => ({
   note: `เครื่องที่ <b>${r.i}</b> ${r.act} ได้เพิ่ม <em>${r.gain}</em> คะแนน รวมเป็น <b>${r.total}</b>`,
 }));
 
+
+/* ---------- ตัวไล่ทุกแบบ เขียนแยกจากสูตร ----------
+   จุดปลายใหม่วางตรงไหนก็ได้ (ไม่ต้องเป็นจำนวนเต็ม) สิ่งเดียวที่มีผลจึงเป็นลำดับของมันเทียบกับจุดปลายเดิม
+   ตัวนี้ไล่ทุกจำนวนเครื่อง k = 0..m ทุกลำดับของจุดปลายใหม่ 2k จุด และทุกวิธีจับคู่ แล้วเดินตามกฎของโจทย์ตรง ๆ
+   ไม่ใช้เรื่องช่วง วง หรือสูตรคะแนนเลย */
+function matchings(pts: number[]): Pair[][] {
+  if (pts.length === 0) return [[]];
+  const [a, ...rest] = pts;
+  const out: Pair[][] = [];
+  rest.forEach((b, i) => {
+    for (const mt of matchings(rest.filter((_, k) => k !== i))) out.push([[a, b], ...mt]);
+  });
+  return out;
+}
+function bruteExact(pairs: Pair[], m: number): number {
+  const n = pairs.length;
+  const rank = new Map<number, number>();
+  pairs
+    .flat()
+    .sort((x, y) => x - y)
+    .forEach((p, i) => rank.set(p, i));
+  const oldPartner: number[] = new Array<number>(2 * n).fill(-1);
+  for (const [x, y] of pairs) {
+    const rx = rank.get(x) as number;
+    const ry = rank.get(y) as number;
+    oldPartner[rx] = ry;
+    oldPartner[ry] = rx;
+  }
+  let top = 0;
+  for (let k = 0; k <= m; k++) {
+    const T = 2 * n + 2 * k;
+    const newPairings = matchings(Array.from({ length: 2 * k }, (_, i) => i));
+    const chosen: number[] = [];
+    const walkAll = (): void => {
+      const isNew = new Array<boolean>(T).fill(false);
+      for (const c of chosen) isNew[c] = true;
+      const oldAt: number[] = [];
+      const newAt: number[] = [];
+      for (let s = 0; s < T; s++) (isNew[s] ? newAt : oldAt).push(s);
+      for (const mt of newPairings) {
+        const partner = new Array<number>(T).fill(-1);
+        for (let r = 0; r < 2 * n; r++) partner[oldAt[r]] = oldAt[oldPartner[r]];
+        for (const [x, y] of mt) {
+          partner[newAt[x]] = newAt[y];
+          partner[newAt[y]] = newAt[x];
+        }
+        /* pos คือจุดปลายที่เพิ่งโผล่ เดินไปทางตะวันออกก็เหยียบจุดปลายถัดไปเสมอ */
+        let pos = -1;
+        let score = 0;
+        while (pos + 1 < T) {
+          pos = partner[pos + 1];
+          score++;
+          if (score > 4 * T) throw new Error('teleporters: ตัวไล่ทุกแบบเดินวนไม่จบ');
+        }
+        top = Math.max(top, score);
+      }
+    };
+    const pick = (start: number, left: number): void => {
+      if (left === 0) {
+        walkAll();
+        return;
+      }
+      for (let s = start; s + left <= T; s++) {
+        chosen.push(s);
+        pick(s + 1, left - 1);
+        chosen.pop();
+      }
+    };
+    pick(0, 2 * k);
+  }
+  return top;
+}
+
+/* ---------- ไล่ครบทุกกรณีเล็กตอนบิลด์ เทียบสูตรกับตัวไล่ทุกแบบ ---------- */
+const SWEEP_MAX = 3;
+type SweepHit = { n: number; m: number; pairs: Pair[]; good: number; bad: number; base: number; cycles: number[] };
+let sweepCases = 0;
+const sweepHits: SweepHit[] = [];
+for (let n = 1; n <= SWEEP_MAX; n++)
+  for (const pairs of matchings(Array.from({ length: 2 * n }, (_, i) => i + 1)))
+    for (let m = 1; m <= SWEEP_MAX; m++) {
+      sweepCases++;
+      const a = analyse(pairs);
+      const good = best(a.base, a.cycles, m);
+      const truth = bruteExact(pairs, m);
+      if (good !== truth)
+        throw new Error(`teleporters: กรณี N=${n} M=${m} ${JSON.stringify(pairs)} สูตรได้ ${good} แต่ตัวไล่ทุกแบบได้ ${truth}`);
+      const bad = bestWrong(a.base, a.cycles, m);
+      if (bad !== truth) sweepHits.push({ n, m, pairs, good, bad, base: a.base, cycles: a.cycles });
+    }
+/* ตัวอย่างในโจทย์ทั้งสองชุด ทุก M ตั้งแต่ 1 ถึง 3 (รวมขั้นที่ 2 ของตัวเล่น และคำถามข้อ 3) เทียบกับตัวไล่ทุกแบบด้วย */
+const QUIZ3: Pair[] = [[1, 2]];
+let directChecks = 0;
+for (const ps of [EX1, EX2, QUIZ3])
+  for (let m = 1; m <= SWEEP_MAX; m++) {
+    const a = analyse(ps);
+    if (best(a.base, a.cycles, m) !== bruteExact(ps, m))
+      throw new Error(`teleporters: ${JSON.stringify(ps)} M=${m} สูตรไม่ตรงกับตัวไล่ทุกแบบ`);
+    directChecks++;
+  }
+const sweepMinSize = Math.min(...sweepHits.map((h) => h.n + h.m));
+const sweepSmallest = sweepHits.filter((h) => h.n + h.m === sweepMinSize);
+const isBroken = (h: SweepHit): boolean =>
+  h.m === BROKEN_M && JSON.stringify(h.pairs) === JSON.stringify(BROKEN);
+const sweepOther = sweepSmallest.find((h) => !isBroken(h));
+if (sweepSmallest.length !== 2 || !sweepSmallest.some(isBroken) || !sweepOther)
+  throw new Error('teleporters: กรณีเล็กที่สุดที่สูตรผิดพังควรมีสองกรณี และหนึ่งในนั้นคือกรณีที่หน้านี้แสดง');
+const sweepOtherPairs = sweepOther.pairs.map((p) => `(${p[0]}, ${p[1]})`).join(' กับ ');
+/* เครื่องที่เหลือในตัวอย่างของโจทย์ ทั้งสองชุดเป็นจำนวนคู่ สูตรที่ผิดจึงตอบตรง */
+const left1 = EX1M - Math.min(EX1M, a1.cycles.length);
+const left2 = EX2M - Math.min(EX2M, a2.cycles.length);
+if (left1 % 2 !== 0 || left2 % 2 !== 0 || bestWrong(a1.base, a1.cycles, EX1M) !== ans1 || bestWrong(a2.base, a2.cycles, EX2M) !== ans2)
+  throw new Error('teleporters: ข้ออ้างว่าสูตรที่ผิดตอบตัวอย่างในโจทย์ถูกทั้งสองชุดไม่จริงแล้ว');
+
+/* ---------- การให้เลขช่วงของตัวอย่างที่ 1 พร้อมตัวเลขจริงหนึ่งก้าว ---------- */
+const ex1Pts = sh1.pts;
+const ex1Partner = new Map<number, number>();
+for (const [x, y] of EX1) {
+  ex1Partner.set(x, y);
+  ex1Partner.set(y, x);
+}
+const ex1HitPos = ex1Pts[0];
+const ex1LandPos = ex1Partner.get(ex1HitPos) as number;
+const ex1LandK = ex1Pts.indexOf(ex1LandPos) + 1;
+if (ex1LandK !== sh1.path[1]) throw new Error('teleporters: ตัวอย่างก้าวแรกไม่ตรงกับเส้นทางในภาพ');
+
+/* ---------- เครื่องที่เหลือ: แตกวงขนาด 1 แล้วดูดกลับ วาดจากโมเดลทีละเครื่อง ----------
+   เริ่มจากชุดที่เส้นทางหลักผ่านครบทุกช่วงแล้ว ไม่มีวงให้ดูด */
+const LEFT0: Pair[] = [
+  [1, 3],
+  [2, 4],
+];
+const LEFT_M1: Pair = [3.2, 3.6];
+const LEFT_M2: Pair = [0.5, 3.4];
+const aL0 = analyse(LEFT0);
+const aL1 = analyse([...LEFT0, LEFT_M1]);
+const aL2 = analyse([...LEFT0, LEFT_M1, LEFT_M2]);
+const shL0 = shape(LEFT0);
+const shL1 = shape([...LEFT0, LEFT_M1]);
+const shL2 = shape([...LEFT0, LEFT_M1, LEFT_M2]);
+if (
+  aL0.cycles.length !== 0 ||
+  aL1.base !== aL0.base + 1 ||
+  aL1.cycles.length !== 1 ||
+  aL1.cycles[0] !== 1 ||
+  aL2.cycles.length !== 0 ||
+  aL2.base !== aL1.base + 3 ||
+  aL2.base !== best(aL0.base, aL0.cycles, 2)
+)
+  throw new Error('teleporters: ภาพเครื่องที่เหลือไม่ได้ +1 แล้ว +3 ตามที่หน้าเล่า');
+const leftLoopSpan = (() => {
+  const i = shL1.loops[0][0];
+  return `${shL1.pts[i - 1]}–${shL1.pts[i]}`;
+})();
+const leftDraws = [
+  {
+    dr: drawShape(shL1, false),
+    title: 'หลังเครื่องที่ 1',
+    cap: `เริ่มจากเครื่อง (1, 3) กับ (2, 4) ที่เส้นทางหลักผ่านครบทั้ง ${shL0.intervals} ช่วง ได้ ${aL0.base} คะแนน เครื่องที่ 1 วางจุดปลายที่ ${LEFT_M1[0]} กับ ${LEFT_M1[1]} ในช่วง 3–4 ช่วงเดียวกัน ท่อน ${leftLoopSpan} ตรงกลางชี้กลับหาตัวเอง กลายเป็นวงขนาด 1 ส่วนเส้นทางได้เพิ่มหนึ่งช่วง เป็น ${aL1.base} คะแนน (วาดประกอบโดยผู้เขียน)`,
+  },
+  {
+    dr: drawShape(shL2, false),
+    title: 'หลังเครื่องที่ 2',
+    cap: `เครื่องที่ 2 วางจุดหนึ่งที่ ${LEFT_M2[0]} บนเส้นทางหลัก อีกจุดที่ ${LEFT_M2[1]} ในวงขนาด 1 นั้น วงถูกดูดเข้ามาได้ 1 + 2 = 3 คะแนน รวมเป็น ${aL2.base} สองเครื่องได้ ${aL2.base - aL0.base} คะแนน (วาดประกอบโดยผู้เขียน)`,
+  },
+];
+
+/* ---------- เทียบสามวิธี นับเป็น "ก้าว" หน่วยเดียวกันหมด ----------
+   หนึ่งก้าว = อ่านหนึ่งตำแหน่ง เดินตามลูกศรหนึ่งเส้น หรือเทียบหนึ่งครั้งตอนเรียง
+   วิธีที่ 1 คือตัวตรวจ: นับแค่จำนวนรอบจำลอง รอบละอย่างน้อยหนึ่งก้าว จึงเป็นค่าต่ำสุดของงานจริง
+   วิธีที่ 2 ตัดสินใจทีละเครื่องแบบเดียวกับท่าโลภ แต่ทุกรอบให้เลขจุดปลายใหม่ด้วยการเรียง แล้วเดินทุกช่วงใหม่
+   วิธีเต็ม ไล่ตำแหน่งสองรอบ เดินทุกช่วงครั้งเดียว แล้วเรียงขนาดวง ซึ่งมีไม่เกิน N วง */
+const POS_MAX = 2000000;
+const OPS_PER_SEC = 1e8;
+const SUB_N = 500;
+const nCr = (n: number, r: number): number => {
+  let v = 1;
+  for (let i = 1; i <= r; i++) v = (v * (n - r + i)) / i;
+  return Math.round(v);
+};
+const factorial = (k: number): number => (k <= 1 ? 1 : k * factorial(k - 1));
+const clog2 = (x: number): number => Math.ceil(Math.log2(x));
+const STRESS_N = 3;
+const STRESS_M = 2;
+/* ตอนทดสอบ จุดปลายเดิมวางที่ตำแหน่ง g, 2g, ..., 2N·g โดย g = 2M + 1 และ LIM = (2N + 1)g
+   ทุกช่องว่าง รวมช่องก่อนจุดแรกและหลังจุดสุดท้าย จึงมีที่ว่างอย่างน้อย 2M ตำแหน่ง */
+const STRESS_GAP = 2 * STRESS_M + 1;
+const stressLim = (2 * STRESS_N + 1) * STRESS_GAP;
+const stressFree = stressLim - 2 * STRESS_N;
+if (STRESS_GAP - 1 < 2 * STRESS_M || stressLim - 2 * STRESS_N * STRESS_GAP < 2 * STRESS_M)
+  throw new Error('teleporters: ระยะห่างในการทดสอบไม่พอให้ตัวตรวจไล่ครบทุกลำดับ');
+const bruteWalks = nCr(stressFree, 2 * STRESS_M) * factorial(2 * STRESS_M);
+/* แต่ละการวางถูกนับซ้ำ 2^M · M! ครั้ง (สลับปลายในเครื่อง และสลับลำดับเครื่อง) */
+const bruteDup = 2 ** STRESS_M * factorial(STRESS_M);
+const bruteDistinct = bruteWalks / bruteDup;
+let bruteSubLog10 = 0;
+for (let k = 2; k <= 2 * SUB_N; k++) bruteSubLog10 += Math.log10(k);
+const bruteSubExp = Math.floor(bruteSubLog10);
+const roundsCost = (n: number, m: number): number => {
+  const e = 2 * (n + m);
+  return m * (e * clog2(e) + e + 1);
+};
+const fullCost = (n: number): number => 2 * POS_MAX + (2 * n + 1) + n * clog2(n);
+type LadderCell = { text: string; ok: boolean; exp?: number };
+const cell = (v: number): LadderCell => ({ text: fmt(v), ok: v <= OPS_PER_SEC });
+const ladderRows: { name: string; sub: LadderCell; full: LadderCell }[] = [
+  { name: 'วิธีที่ 1 ไล่วางทุกแบบ', sub: { text: 'มากกว่า 10', exp: bruteSubExp, ok: false }, full: { text: 'มากกว่านั้นอีก', ok: false } },
+  { name: 'วิธีที่ 2 นับใหม่ทุกเครื่อง', sub: cell(roundsCost(SUB_N, SUB_N)), full: cell(roundsCost(NMAX, NMAX)) },
+  { name: 'วิธีเต็ม แยกเส้นทางกับวงครั้งเดียว', sub: cell(fullCost(SUB_N)), full: cell(fullCost(NMAX)) },
+];
+if (!ladderRows[1].sub.ok || ladderRows[1].full.ok || !ladderRows[2].full.ok)
+  throw new Error('teleporters: ตารางเทียบวิธีไม่ตรงกับคำบรรยายในการ์ด');
+
+/* ---------- ตัวเลขที่วัดจากไบนารีจริง (WSL, g++ 11.4 -O2, วัดสามรอบต่ออินพุต) ---------- */
+const MEASURED = {
+  fullMax: '0.44',
+  scanfMax: '0.63',
+  peakKB: 33032,
+  oldPeakKB: 67236,
+  limitKB: 64 * 1024,
+};
+const STRESS = { small: 300, smallWrong: 90, medium: 200, mediumN: 2000, mediumM: 3000 };
+
+/* ---------- ทดสอบตัวเอง ---------- */
+const quiz1 = best(a1.base, a1.cycles, 2);
+const aQ3 = analyse(QUIZ3);
+const quiz3 = best(aQ3.base, aQ3.cycles, 3);
+if (quiz1 !== a1.base + a1.cycles[0] + 2 + a1.cycles[1] + 2 || quiz3 !== aQ3.base + aQ3.cycles[0] + 2 + 4)
+  throw new Error('teleporters: คำเฉลยของคำถามทดสอบตัวเองไม่ตรงกับสูตร');
+
 ---
 <CpProblemLayout href={href}>
   <h2>โจทย์ · เดินไปทางตะวันออกเสมอ แต่โดนโยนกลับได้</h2>
@@ -391,11 +662,14 @@ const teleNotes = spend2.map((r) => ({
   </p>
   <p>
     บนเส้นนี้มี<strong>เครื่องเคลื่อนย้ายมวลสาร</strong> (teleporter) อยู่ <code>N</code> เครื่อง
-    เครื่องหนึ่งมีจุดปลายสองจุด พอเราเดินไปเหยียบจุดปลายข้างหนึ่ง เราจะถูกโยนไปโผล่ที่จุดปลายอีกข้างทันที
-    แล้วเดินต่อไปทางตะวันออกจากจุดที่โผล่ เราหลบจุดปลายที่ขวางอยู่ไม่ได้ และทุกครั้งที่ถูกโยน<strong>ได้หนึ่งคะแนน</strong>
+    เครื่องหนึ่งมีจุดปลายสองจุด
+  </p>
+  <p>
+    พอเราเดินไปเหยียบจุดปลายข้างหนึ่ง เราจะถูกโยนไปโผล่ที่จุดปลายอีกข้างทันที แล้วเดินต่อไปทางตะวันออกจากจุดที่โผล่
+    เราหลบจุดปลายที่ขวางอยู่ไม่ได้ และทุกครั้งที่ถูกโยนได้หนึ่งคะแนน
   </p>
   <div class="callout callout-note">
-    <p class="callout-label">แกะคำศัพท์</p>
+    <p class="callout-label">คำนี้มาจากไหน</p>
     <p>
       <i>teleporter</i> อ่านว่า <strong>"เทเลพอร์เตอร์"</strong> แปลว่า<strong>เครื่องย้ายตัวข้ามที่</strong>
       ประกอบจาก <i>tele-</i> ที่แปลว่าไกล (ตัวเดียวกับใน <i>telephone</i> และ <i>television</i>) กับ
@@ -404,7 +678,7 @@ const teleNotes = spend2.map((r) => ({
   </div>
   <p>
     ก่อนออกเดินทาง เราวางเครื่องเพิ่มได้อีกไม่เกิน <code>M</code> เครื่อง จะวางจุดปลายไว้ที่ไหนก็ได้
-    (ตำแหน่งไม่ต้องเป็นจำนวนเต็มก็ได้) ขอแค่ไม่ซ้ำกับจุดปลายที่มีอยู่แล้ว งานของเราคือ<strong>ทำคะแนนให้ได้มากที่สุด</strong>
+    (ตำแหน่งไม่ต้องเป็นจำนวนเต็มก็ได้) ขอแค่ไม่ซ้ำกับจุดปลายที่มีอยู่แล้ว งานของเราคือทำคะแนนให้ได้มากที่สุด
   </p>
 
   <div class="callout callout-note spec">
@@ -415,10 +689,10 @@ const teleNotes = spend2.map((r) => ({
         <code>N</code> บรรทัด แต่ละบรรทัดคือตำแหน่งปลายด้านตะวันตกและด้านตะวันออกของเครื่องนั้น
       </li>
       <li>
-        <strong>ขอบเขต:</strong> <code>N, M ≤ {fmt(NMAX)}</code> และทุกตำแหน่งอยู่ระหว่าง 1 ถึง 2,000,000
-        โดยไม่มีจุดปลายไหนซ้ำกัน เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
+        <strong>ขอบเขต:</strong> <code>1 ≤ N, M ≤ {fmt(NMAX)}</code> ทุกตำแหน่งอยู่ระหว่าง 1 ถึง 2,000,000
+        และไม่มีจุดปลายไหนซ้ำกัน เวลา 1 วินาที หน่วยความจำ 64 เมกะไบต์
       </li>
-      <li><strong>เอาต์พุต:</strong> คะแนนมากที่สุดที่ทำได้</li>
+      <li><strong>เอาต์พุต:</strong> คะแนนมากที่สุดที่ทำได้ คือจำนวนครั้งที่ถูกโยน</li>
       <li><strong>ให้คะแนน:</strong> มี 30 คะแนนสำหรับชุดทดสอบที่ <code>N ≤ 500</code> และ <code>M ≤ 500</code></li>
     </ul>
   </div>
@@ -435,17 +709,17 @@ const teleNotes = spend2.map((r) => ({
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      จุดปลายทั้งหมด <code>2N</code> จุดตัดเส้นตรงออกเป็น<strong>ช่วง</strong> <code>2N + 1</code> ช่วง
-      พอเดินจบช่วงหนึ่ง เราจะไปโผล่ที่ต้นของช่วงใดช่วงหนึ่งเสมอ และช่วงปลายทางนั้นถูกกำหนดไว้แน่นอนแล้ว
-      ไม่ขึ้นกับว่าเรามาจากไหน
+      จุดปลายทั้งหมด <code>2N</code> จุดตัดเส้นตรงออกเป็นช่วง <code>2N + 1</code> ช่วง
+      พอเดินจบช่วงหนึ่ง (ยกเว้นช่วงสุดท้ายที่พาไปถึงเส้นชัย) เราไปโผล่ที่ต้นของช่วงไหน
+      และคำตอบนั้นขึ้นกับว่าเรามาจากไหนไหม
     </p>
     <p>
-      แปลว่าเรากำลังเดินอยู่บน<strong>ฟังก์ชันที่แต่ละช่วงชี้ไปช่วงเดียว</strong> ลองวาดลูกศรจากช่วงไปช่วงดู
-      แล้วถามว่ารูปที่ได้หน้าตาเป็นยังไง และ "ช่วงที่เราไม่เคยเหยียบเลย" ไปอยู่ตรงไหนของรูปนั้น
+      ลองวาดลูกศรจากแต่ละช่วงไปช่วงที่เราจะเดินต่อ รูปที่ได้หน้าตาเป็นยังไง
+      และช่วงที่เราไม่เคยเหยียบเลยไปอยู่ตรงไหนของรูปนั้น
     </p>
   </div>
 
-  <h2>ลองเอง · แจกเครื่องที่เพิ่มได้ให้คุ้มที่สุด</h2>
+  <h2>ลองเอง · วางเครื่องเพิ่มให้ได้แต้มมากที่สุด</h2>
   <div class="cpgame tpgame" data-tpgame data-puzzles={tpJson}>
     <div class="cpg-tabs" role="tablist" aria-label="เลือกชุดโจทย์">
       {tpPuzzles.map((p, k) => (
@@ -457,115 +731,108 @@ const teleNotes = spend2.map((r) => ({
 
     <p class="cpg-tease" data-cpg-tease>{tpPuzzles[0].tease}</p>
 
-    <p class="gg2-goal">
-      เส้นทางหลักตอนนี้ยาว <b data-tp-base>{tpPuzzles[0].base}</b> ก้าว และคุณเพิ่มเครื่องได้อีก
-      <b data-tp-m>{tpPuzzles[0].m}</b> ตัว
-    </p>
-
     <div class="cpg-scroll">
-      <table class="tp-acts" data-tp-acts></table>
+      <div class="tp-line" data-tp-line>
+        {tpFirstSpans.map((s, i) => (
+          <button type="button" class="tp-iv" data-iv={String(i)}><span class="tp-span">{s}</span><span class="tp-marks"></span></button>
+        ))}
+      </div>
     </div>
 
     <div class="cpg-controls">
       <button type="button" class="cpg-btn" data-tp-reset>เริ่มใหม่</button>
+      <button type="button" class="cpg-btn" data-tp-undo>ย้อนหนึ่งจุด</button>
       <button type="button" class="cpg-btn main" data-tp-check>ตรวจแต้ม</button>
     </div>
 
-    <p class="cpg-status" data-cpg-status>เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด</p>
-    <p class="cpg-score" data-cpg-score>แต้มตอนนี้ <b data-tp-score>0</b> · เครื่องเหลือ <b data-tp-left>0</b> ตัว</p>
-    <p class="cpg-hint">ต่อวงที่ยาว c ใช้เครื่องหนึ่งตัวแล้วได้เพิ่ม c บวกสอง ส่วนการสร้างวงใหม่ใช้สองตัวได้เพิ่มสี่ และเครื่องเดี่ยว ๆ ได้เพิ่มหนึ่ง</p>
+    <p class="cpg-status" data-cpg-status>แตะช่วงบนเส้นเพื่อวางจุดปลาย สองแตะเป็นหนึ่งเครื่อง จะแตะช่วงเดิมซ้ำก็ได้</p>
+    <p class="cpg-score" data-cpg-score>
+      แต้มตอนนี้ <b data-tp-score>{tpPuzzles[0].start}</b> · วางแล้ว <b data-tp-used>0</b> จาก <b data-tp-m>{tpPuzzles[0].m}</b> เครื่อง
+    </p>
+    <p class="cpg-hint" data-tp-target hidden>แต้มสูงสุดของชุดนี้คือ <b data-tp-best>{tpPuzzles[0].best}</b></p>
   </div>
   <p class="io-note">
-    ถ้ามีวงให้เลือกหลายวง ลองคิดก่อนว่าเรียงลำดับยังไงถึงจะคุ้มที่สุด แล้วเครื่องที่เหลือหลังต่อวงหมดแล้วควรทำอะไร
+    แต้มคิดจากการเดินตามกฎของโจทย์จริง ในช่วงเดียวกัน จุดที่แตะทีหลังอยู่ทางตะวันออก ลองหลายแบบในแต่ละชุดก่อนไปอ่านเฉลย
   </p>
 
-  <h2>เฉลย · เส้นทางหลักหนึ่งเส้น กับวงที่ลอยอยู่เฉย ๆ</h2>
+  <h2>เฉลย · มองการเดินเป็นลูกศร</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        คำถามที่ทำให้ทุกอย่างคลี่ออกมีข้อเดียว คือ <strong>พอเดินจบช่วงหนึ่ง เราไปโผล่ที่ช่วงไหน
-        และคำตอบขึ้นกับว่าเรามาจากไหนไหม</strong> พอคิดสักพักก็เห็นว่าไม่ขึ้นเลย มันขึ้นกับจุดปลายที่เราไปเหยียบอย่างเดียว
+        คำถามที่ทำให้ทุกอย่างคลี่ออกคือ พอเดินจบช่วงหนึ่ง เราไปโผล่ที่ช่วงไหน และคำตอบขึ้นกับว่าเรามาจากไหนไหม
+        ลองไล่ดูไม่กี่ก้าวก็เห็นว่ามันขึ้นกับจุดปลายที่เราเหยียบอย่างเดียว
       </p>
       <p>
-        พอปลายทางถูกกำหนดไว้แน่นอนแล้ว สิ่งที่เรามีอยู่ในมือคือฟังก์ชันจากช่วงไปช่วง ซึ่งกราฟที่ทุกปม
-        มีลูกศรออกเส้นเดียวแบบนี้เรียกว่า<strong>กราฟฟังก์ชัน</strong> (functional graph) และเพราะการจับคู่จุดปลาย
-        เป็นแบบหนึ่งต่อหนึ่ง ฟังก์ชันนั้นจึงเป็นการสลับที่ ซึ่งมีรูปร่างที่รู้กันอยู่แล้วว่าต้องเป็น
-        <strong>เส้นทางกับวงปิด</strong> ไม่มีอย่างอื่น ที่เหลือคือนับ
-      </p>
-      <p>
-        คำถามแบบเดียวกันนี้ใช้ซ้ำได้กับ <a href="/cp/islands/">โจทย์เกาะกับสะพาน</a> ด้วย
-        ถ้าปลายทางของแต่ละก้าวถูกกำหนดตายตัวเมื่อไร รูปของกราฟก็ถูกล็อกเมื่อนั้น
+        แปลว่าแต่ละช่วงมีลูกศรชี้ไปช่วงถัดไปได้เส้นเดียว กราฟที่ทุกปมมีลูกศรออกเส้นเดียวแบบนี้เรียกว่า
+        <strong>กราฟฟังก์ชัน</strong> (functional graph) เพราะมันคือฟังก์ชันที่รับช่วงหนึ่งแล้วคืนอีกช่วงหนึ่ง
       </p>
     </div>
     <p>
-      เรียงจุดปลายทั้ง <code>2N</code> จุดตามตำแหน่ง แล้วตั้งชื่อช่วงว่า <code>I₀</code> ถึง <code>I₂ₙ</code>
-      โดย <code>I₀</code> คือช่วงจากจุดเริ่มถึงจุดปลายตัวแรก และ <code>I₂ₙ</code> คือช่วงจากจุดปลายตัวสุดท้ายถึงเส้นชัย
+      เรียงจุดปลายทั้ง <code>2N</code> จุดตามตำแหน่ง แล้วให้เลข 1 ถึง <code>2N</code> ตามลำดับนั้น
+      จุดปลายตัดเส้นออกเป็นช่วง <code>2N + 1</code> ช่วง ตั้งชื่อว่า <code>I₀</code> ถึง <code>I₂ₙ</code>
     </p>
-    <p>
-      เดินจบช่วง <code>Iⱼ</code> แปลว่าไปเหยียบจุดปลายตัวที่ <code>j+1</code> แล้วถูกโยนไปที่คู่ของมัน
-      จากนั้นเดินต่อในช่วงที่อยู่<strong>ทางตะวันออกของคู่นั้นทันที</strong> การจับคู่จุดปลายเป็นการสลับที่แบบหนึ่งต่อหนึ่ง
-      ลูกศรที่ได้จึงเป็น<strong>การสลับที่</strong>ของช่วง ซึ่งแตกออกเป็น<strong>เส้นทางเดียวจาก <code>I₀</code> ไป
-      <code>I₂ₙ</code> บวกกับวงปิดอีกจำนวนหนึ่ง</strong>
-    </p>
-    <p>
-      คะแนนก่อนเพิ่มเครื่องคือ<strong>จำนวนช่วงบนเส้นทางหลัก ลบหนึ่ง</strong> ส่วนวงปิดที่เหลือคือช่วงที่เราไม่มีวันไปถึง
-      เพราะไม่มีลูกศรจากเส้นทางหลักชี้เข้าไปเลย
-    </p>
-
-    <div class="callout callout-note">
-      <p class="callout-label">ปูพื้นไว้ให้แล้ว</p>
+    <ul>
+      <li><code>I₀</code> คือช่วงจากจุดเริ่มถึงจุดปลายตัวที่ 1</li>
+      <li><code>Iⱼ</code> คือช่วงระหว่างจุดปลายตัวที่ <code>j</code> กับตัวที่ <code>j + 1</code></li>
+      <li><code>I₂ₙ</code> คือช่วงจากจุดปลายตัวสุดท้ายถึงเส้นชัย</li>
+    </ul>
+    <div class="callout callout-tip">
+      <p class="callout-label">ลูกศรของแต่ละช่วง</p>
       <p>
-        กราฟฟังก์ชันคือกราฟที่ทุกปมมีลูกศรออก<strong>เส้นเดียว</strong> ห้ามมากกว่านั้นและห้ามไม่มี
-        ข้อจำกัดข้อเดียวนี้บังคับรูปร่างของมันไว้หมด คือทุกส่วนต้องเป็น<strong>วงปิดหนึ่งวง ที่มีต้นไม้ห้อยเข้าหาวง</strong>
-        เท่านั้น ในข้อนี้ลูกศรยังเป็นการจับคู่หนึ่งต่อหนึ่งอีกชั้น รูปจึงยุบลงเหลือเส้นทางกับวงล้วน ๆ ไม่มีต้นไม้ห้อย
+        เดินจบ <code>Iⱼ</code> คือเหยียบจุดปลายตัวที่ <code>j + 1</code> แล้วถูกโยนไปที่คู่ของมัน
+        ถ้าคู่นั้นคือจุดปลายตัวที่ <code>k</code> เราเดินต่อใน <code>Iₖ</code> ซึ่งอยู่ทางตะวันออกของมันทันที
+        ลูกศรของ <code>Iⱼ</code> จึงชี้ไปที่ <code>Iₖ</code>
       </p>
       <p>
-        ถ้าอ่านเรื่องนี้ครั้งแรก มี<a href="/cp/functional-graph/">บทปูพื้นเรื่องกราฟฟังก์ชัน</a>อยู่ในคลังนี้แล้ว
-        มันสอนสองท่าที่ใช้ซ้ำได้ทุกข้อ คือปอกใบทิ้งเพื่อหาว่าใครอยู่บนวง และเดิน <code>k</code> ก้าวโดยไม่เดินจริง
+        ช่วงเดียวที่ไม่มีลูกศรออกคือ <code>I₂ₙ</code> เพราะเดินจบมันคือถึงเส้นชัย
       </p>
     </div>
+    <p>
+      ตัวอย่างที่ 1 มีจุดปลายที่ตำแหน่ง {ex1Pts.join(', ')} จึงมี {sh1.intervals} ช่วง ตั้งแต่ <code>I₀</code> ถึง <code>I{sh1.intervals - 1}</code>
+    </p>
+    <p>
+      เดินจบ <code>I₀</code> คือเหยียบจุดปลายตัวที่ 1 (ตำแหน่ง {ex1HitPos}) แล้วถูกโยนไปตำแหน่ง {ex1LandPos}
+      ซึ่งเป็นจุดปลายตัวที่ {ex1LandK} เราจึงเดินต่อใน <code>I{ex1LandK}</code> ภาพข้างล่างวาดลูกศรของทุกช่วง
+    </p>
 
-    <ZoomableDiagram caption={`ตัวอย่างที่ 1 วาดจากลูกศรจริง จุดปลาย ${EX1.length * 2} จุดตัดเส้นออกเป็น ${sh1.intervals} ช่วง ลูกศรเขียวด้านบนคือเส้นทางหลักที่เดินได้จริงจาก I0 ถึง I${sh1.intervals - 1} ผ่าน ${sh1.path.length} ช่วง จึงได้ ${a1.base} คะแนน ส่วนลูกศรทองด้านล่างคือวงที่ลอยอยู่ ${sh1.loops.length} วง รวม ${sh1.loops.reduce((t, l) => t + l.length, 0)} ช่วง ที่ไม่มีลูกศรจากเส้นทางหลักชี้เข้าไปเลย (วาดประกอบโดยผู้เขียน)`}>
-      <svg viewBox={shVB} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แถวช่วง ${sh1.intervals} ช่อง เรียงจาก I0 ถึง I${sh1.intervals - 1} ช่วงบนเส้นทางหลักคือ ${sh1.path.map((i) => 'I' + i).join(' ไป ')} มีลูกศรโค้งด้านบนเชื่อมต่อกันตามลำดับ ส่วนช่วงที่เหลือรวมกันเป็นวงปิด ${sh1.loops.map((l) => l.map((i) => 'I' + i).join(' กับ ')).join(' และอีกวงคือ ')} มีลูกศรโค้งด้านล่างวนกลับเข้าหาตัวเอง`}>
-        <text x={icx(sh1.path[0])} y="26" fill="#4ade80" font-size="12" text-anchor="start" font-weight="700">เส้นทางหลัก เดินได้จริง</text>
-        {sh1.path.slice(0, -1).map((from, k) => (
+    <ZoomableDiagram caption={`ตัวอย่างที่ 1 วาดจากลูกศรจริง ใต้ชื่อช่วงคือตำแหน่งต้นถึงปลายของช่วงนั้น ลูกศรเขียวด้านบนคือเส้นทางหลักจาก I0 ถึง I${sh1.intervals - 1} ผ่าน ${sh1.path.length} ช่วง ได้ ${a1.base} คะแนน ลูกศรทองด้านล่างคือวงที่ลอยอยู่ ${sh1.loops.length} วง รวม ${loopCells(sh1)} ช่วง (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={dr1.vb} xmlns="http://www.w3.org/2000/svg" role="img" style={`display:block;margin:0 auto;max-width:${dr1.maxW}px`} aria-label={`แถวช่วง ${sh1.intervals} ช่อง เรียงจาก I0 ถึง I${sh1.intervals - 1} ช่วงบนเส้นทางหลักคือ ${sh1.path.map((i) => 'I' + i).join(' ไป ')} ส่วนช่วงที่เหลือรวมกันเป็นวงปิด ${sh1.loops.map((l) => l.map((i) => 'I' + i).join(' กับ ')).join(' และอีกวงคือ ')}`}>
+        <text x={dr1.boxes[0].x} y="26" fill="#4ade80" font-size="12" text-anchor="start" font-weight="700">เส้นทางหลัก เดินได้จริง</text>
+        {dr1.arcs.map((a) => <path d={a.d} fill="none" stroke={a.up ? '#4ade80' : '#e0b400'} stroke-width="1.8" />)}
+        {dr1.heads.map((h) => <polygon points={h.points} fill={h.up ? '#4ade80' : '#e0b400'} />)}
+        {dr1.boxes.map((b) => (
           <>
-            <path d={arc(from, sh1.path[k + 1], true)} fill="none" stroke="#4ade80" stroke-width="1.8" />
-            <polygon points={head(icx(sh1.path[k + 1]), true)} fill="#4ade80" />
+            <rect x={b.x} y="70" width={IW} height="44" rx="7" fill={b.on ? '#12291c' : '#2e2510'} stroke={b.on ? '#4ade80' : '#e0b400'} stroke-width="1.8" />
+            <text x={b.cx} y="93" fill={b.on ? '#d7ffe4' : '#ffe58a'} font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">{b.name}</text>
+            <text x={b.cx} y="108" fill="#cdd6ea" font-size="10" text-anchor="middle" font-family="monospace">{b.span}</text>
           </>
         ))}
-        {Array.from({ length: sh1.intervals }, (_, i) => i).map((i) => (
-          <>
-            <rect
-              x={ix(i)}
-              y="70"
-              width={IW}
-              height="44"
-              rx="7"
-              fill={inPath(i) ? '#12291c' : '#2e2510'}
-              stroke={inPath(i) ? '#4ade80' : '#e0b400'}
-              stroke-width="1.8"
-            />
-            <text x={icx(i)} y="98" fill={inPath(i) ? '#d7ffe4' : '#ffe58a'} font-size="15" text-anchor="middle" font-weight="700" font-family="monospace">I{i}</text>
-          </>
-        ))}
-        {sh1.loops.map((loop) => (loop.length === 1 ? (
-          <>
-            <path d={selfArc(loop[0])} fill="none" stroke="#e0b400" stroke-width="1.8" />
-            <polygon points={head(icx(loop[0]) + 13, false)} fill="#e0b400" />
-          </>
-        ) : (
-          loop.map((from, k) => (
-            <>
-              <path d={arc(from, loop[(k + 1) % loop.length], false)} fill="none" stroke="#e0b400" stroke-width="1.8" />
-              <polygon points={head(icx(loop[(k + 1) % loop.length]), false)} fill="#e0b400" />
-            </>
-          ))
-        )))}
-        <text x={icx(0)} y="196" fill="#e0b400" font-size="12" text-anchor="start" font-weight="700">วงที่ลอยอยู่ ไปไม่ถึง</text>
+        <text x={dr1.boxes[0].x} y="196" fill="#e0b400" font-size="12" text-anchor="start" font-weight="700">วงที่ลอยอยู่ ไปไม่ถึง</text>
       </svg>
     </ZoomableDiagram>
+
+    <p>
+      ทำไมรูปออกมาเป็นเส้นทางหนึ่งเส้นกับวงเสมอ ทุกช่วงยกเว้น <code>I₂ₙ</code> มีลูกศรออกหนึ่งเส้น
+      และทุกช่วงยกเว้น <code>I₀</code> มีลูกศรเข้าหนึ่งเส้น (ทางตะวันตกของ <code>I₀</code> ไม่มีจุดปลาย)
+    </p>
+    <ul>
+      <li>
+        เริ่มที่ <code>I₀</code> แล้วตามลูกศรไปเรื่อย ๆ เรากลับมาช่วงเดิมซ้ำไม่ได้ เพราะทุกช่วงที่ผ่านมามีลูกศรเข้าครบหนึ่งเส้นแล้ว
+        ทางเดินนี้ต้องไปจบที่ <code>I₂ₙ</code> นี่คือ<strong>เส้นทางหลัก</strong>
+      </li>
+      <li>
+        ช่วงที่เหลือแต่ละช่วงมีลูกศรเข้าหนึ่งออกหนึ่ง ตามลูกศรไปก็ต้องวนกลับมาที่เดิม กลายเป็น<strong>วงปิด</strong>
+        ที่เข้าจากเส้นทางหลักไม่ได้
+      </li>
+    </ul>
+    <div class="callout callout-tip">
+      <p class="callout-label">คะแนนตั้งต้น</p>
+      <p>
+        คะแนนก่อนเพิ่มเครื่อง = จำนวนช่วงบนเส้นทางหลัก ลบหนึ่ง
+        (เข้าช่วงใหม่หนึ่งครั้งคือถูกโยนหนึ่งครั้ง ส่วน <code>I₀</code> เราอยู่ตั้งแต่เริ่ม)
+      </p>
+    </div>
 
     <figure class="tbl">
       <table class="rec">
@@ -589,66 +856,170 @@ const teleNotes = spend2.map((r) => ({
         </tbody>
       </table>
       <figcaption>
-        ตัวเลขทุกตัวมาจากการสร้างการสลับที่จริงแล้วเดินตามลูกศร ไม่ได้พิมพ์มือ
-        ตัวอย่างที่ 1 ยังไม่เพิ่มเครื่องเลยก็ได้ {a1.base} คะแนน แต่โจทย์ตอบ {ans1} เพราะเพิ่มได้อีกหนึ่งเครื่อง
+        ตัวเลขทุกตัวมาจากการสร้างลูกศรจริงแล้วเดินตาม
+        ตัวอย่างที่ 1 ยังไม่เพิ่มเครื่องก็ได้ {a1.base} คะแนน โจทย์ตอบ {ans1} เพราะเพิ่มได้อีกหนึ่งเครื่อง
       </figcaption>
     </figure>
+    <p>
+      กราฟที่ทุกปมมีลูกศรออกเส้นเดียวมีท่าประจำอีกหลายท่า อ่านต่อได้ที่<a href="/cp/functional-graph/">บทปูพื้นเรื่องกราฟฟังก์ชัน</a>
+    </p>
 
     <h3>เพิ่มเครื่องหนึ่งตัวแล้วเกิดอะไรขึ้น</h3>
     <p>
-      วางจุดปลายใหม่สองจุด จุดหนึ่งอยู่ในช่วง <code>A</code> อีกจุดอยู่ในช่วง <code>B</code>
-      ช่วงทั้งสองถูกผ่าออกเป็นสองท่อน และลูกศรถูกต่อใหม่ให้ท่อนหน้าของ <code>A</code> พาไปท่อนหลังของ <code>B</code>
-      และท่อนหน้าของ <code>B</code> พาไปท่อนหลังของ <code>A</code>
+      เครื่องใหม่มีจุดปลายสองจุด เรียกช่วงที่จุดแรกตกลงไปว่า <code>A</code> และช่วงที่จุดที่สองตกลงไปว่า <code>B</code>
+      จุดปลายผ่าแต่ละช่วงเป็นสองท่อน ท่อนหน้าคือส่วนทางตะวันตกของจุด ท่อนหลังคือส่วนทางตะวันออก
     </p>
     <p>
-      กรณีที่คุ้มที่สุดคือวางจุดหนึ่งไว้บน<strong>เส้นทางหลัก</strong> อีกจุดไว้ใน<strong>วงที่ลอยอยู่</strong>
-      เมื่อนั้นวงทั้งวงจะถูกดูดเข้ามาต่อในเส้นทางหลัก เส้นทางได้ช่วงเพิ่ม 1 ช่อง (จากการผ่า <code>A</code>)
-      บวกกับ <code>s + 1</code> ช่อง (จากวงขนาด <code>s</code> ที่ถูกผ่าอีกที) รวมเป็น <code>s + 2</code> คะแนน
+      เดินจบท่อนหน้าของ <code>A</code> เราเหยียบจุดใหม่ ถูกโยนไปอีกจุด แล้วเดินต่อในท่อนหลังของ <code>B</code>
+      ในทางกลับกัน ท่อนหน้าของ <code>B</code> พาไปท่อนหลังของ <code>A</code> ลูกศรอื่นอยู่เหมือนเดิม
     </p>
-    <div class="callout callout-warn">
-      <p class="callout-label">ระวัง</p>
-      <p>
-        พอวงหมดแล้วยังเหลือเครื่องอยู่ อย่าเผลอคิดว่าเครื่องละ 2 คะแนน ถ้าวางจุดปลายทั้งสองไว้บนเส้นทางหลักทั้งคู่
-        เส้นทางจะ<strong>ขาดตรงกลาง</strong> ท่อนที่ขาดกลายเป็นวงใหม่ที่เข้าไม่ถึง ท่าที่ดีที่สุดคือยอมให้ขาดน้อยที่สุด
-        คือแตกวงขนาด 1 ออกมา ได้แค่ <strong>+1</strong> แล้วเครื่องถัดไปค่อยดูดวงขนาด 1 นั้นกลับเข้ามา ได้ <strong>+3</strong>
-      </p>
-      <p>
-        สรุปคือสองเครื่องได้ 4 คะแนน แต่เครื่องเดี่ยว ๆ ที่เหลือค้างได้แค่ 1 คะแนน
-        ตรงนี้คือจุดที่โค้ดผมพลาดรอบแรก แล้วตัวตรวจสอบจับได้
-      </p>
+    <figure class="tbl">
+      <table class="rec prose">
+        <caption>เครื่องใหม่หนึ่งเครื่อง วางได้สามแบบ</caption>
+        <thead>
+          <tr><th>A และ B อยู่ที่ไหน</th><th>เส้นทางหลักเปลี่ยนยังไง</th><th class="num">คะแนนเพิ่ม</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ทั้งคู่อยู่ในวง</td><td>เส้นทางหลักเหมือนเดิม วงถูกตัดต่อกันเอง</td><td class="num">0</td></tr>
+          <tr><td>ทั้งคู่อยู่บนเส้นทางหลัก</td><td>ทุกช่วงระหว่างสองจุดหลุดออกไปเป็นวง ถ้าสองจุดอยู่ช่วงเดียวกันจะหลุดแค่ท่อนกลาง และได้ท่อนเพิ่มหนึ่งท่อน</td><td class="num">ไม่เกิน 1</td></tr>
+          <tr><td>จุดหนึ่งบนเส้นทาง อีกจุดในวงขนาด s</td><td>เส้นทางวิ่งเข้าวง วนครบ แล้วกลับมาเดินต่อ</td><td class="num">s + 2</td></tr>
+        </tbody>
+      </table>
+    </figure>
+    <div class="callout callout-tip">
+      <p class="callout-label">ดูดวงขนาด s ได้ s + 2 คะแนน</p>
+      <ul>
+        <li>ช่วงในวงเดิม <code>s</code> ช่วงเข้ามาอยู่บนเส้นทาง</li>
+        <li>การผ่า <code>A</code> บนเส้นทางเพิ่มหนึ่งท่อน</li>
+        <li>การผ่าช่วงในวงเพิ่มอีกหนึ่งท่อน</li>
+      </ul>
     </div>
+
+    <ZoomableDiagram caption={`ตัวอย่างที่ 1 หลังวางเครื่องใหม่ที่ ${ADD1[0]} กับ ${ADD1[1]} ตามรูปในโจทย์ ภาพนี้ใช้ตำแหน่งแทนชื่อช่วง เพราะเลขช่วงเปลี่ยนหมดหลังเพิ่มจุดปลาย วงขนาด ${a1.cycles[0]} (ช่วง ${bigLoopSpans} ในภาพก่อน) ถูกดูดเข้ามา เส้นทางหลักยาวขึ้นจาก ${sh1.path.length} เป็น ${sh1b.path.length} ช่วง คะแนนจาก ${a1.base} เป็น ${a1b.base} ตรงกับคำตอบของโจทย์ (วาดประกอบโดยผู้เขียน)`}>
+      <svg viewBox={dr1b.vb} xmlns="http://www.w3.org/2000/svg" role="img" style={`display:block;margin:0 auto;max-width:${dr1b.maxW}px`} aria-label={`แถวช่วง ${sh1b.intervals} ช่อง ระบุด้วยตำแหน่ง ช่วงบนเส้นทางหลักคือ ${sh1b.path.map((i) => dr1b.boxes[i].span).join(' ไป ')} ส่วนช่วง ${sh1b.loops.map((l) => l.map((i) => dr1b.boxes[i].span).join(' กับ ')).join(' และ ')} เป็นวงปิด`}>
+        <text x={dr1b.boxes[0].x} y="26" fill="#4ade80" font-size="12" text-anchor="start" font-weight="700">เส้นทางหลัก หลังเพิ่มหนึ่งเครื่อง</text>
+        {dr1b.arcs.map((a) => <path d={a.d} fill="none" stroke={a.up ? '#4ade80' : '#e0b400'} stroke-width="1.8" />)}
+        {dr1b.heads.map((h) => <polygon points={h.points} fill={h.up ? '#4ade80' : '#e0b400'} />)}
+        {dr1b.boxes.map((b) => (
+          <>
+            <rect x={b.x} y="70" width={IW} height="44" rx="7" fill={b.on ? '#12291c' : '#2e2510'} stroke={b.on ? '#4ade80' : '#e0b400'} stroke-width="1.8" />
+            <text x={b.cx} y="97" fill={b.on ? '#d7ffe4' : '#ffe58a'} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">{b.span}</text>
+          </>
+        ))}
+        <text x={dr1b.boxes[0].x} y="196" fill="#e0b400" font-size="12" text-anchor="start" font-weight="700">วงที่ยังลอยอยู่</text>
+      </svg>
+    </ZoomableDiagram>
+
+    <h3>เมื่อไม่มีวงเหลือให้ดูด</h3>
     <p>
-      พอค่าตอบแทนมาเป็นคู่แบบนี้ สิ่งเดียวที่ต้องรู้เกี่ยวกับเครื่องที่เหลือคือมัน<strong>เป็นจำนวนคู่หรือคี่</strong>
-      ซึ่งการมองปัญหาด้วยคำถามคู่หรือคี่แบบนี้เรียกว่าการดู<strong>คู่คี่</strong> (parity) เหลือเป็นคู่ก็จับคู่กันได้หมด
-      ได้เครื่องละ 2 คะแนนถ้วน เหลือเศษหนึ่งเครื่องก็หาคู่ไม่ได้ ต้องยอมรับ 1 คะแนน
-      บรรทัด <code>(r / 2) * 4 + (r % 2) * 1</code> ในโค้ดคือประโยคนี้เขียนเป็นเลขตรง ๆ
+      ตามตารางข้างบน เครื่องที่วางบนเส้นทางหลักทั้งสองจุดได้มากสุด 1 คะแนน โดยวางสองจุดไว้ติดกันในช่วงเดียว
+      ท่อนกลางชี้กลับหาตัวเองเป็นวงขนาด 1 แล้วเครื่องถัดไปดูดวงนั้นกลับเข้ามา สองภาพข้างล่างวาดทีละเครื่อง
     </p>
-    <div class="callout callout-note">
-      <p class="callout-label">ทบทวนพื้นฐาน · คู่คี่</p>
-      <p>
-        <strong>คู่คี่</strong> (parity) คือการสนใจแค่ว่าจำนวนหนึ่ง<strong>หารสองลงตัวหรือไม่</strong> โดยทิ้งค่าจริงไปเลย
-        ฟังดูหยาบ แต่มันมีคุณสมบัติที่ใช้งานได้จริงคือ ทุกครั้งที่เราทำอะไรที่<strong>เปลี่ยนจำนวนไปทีละสอง</strong>
-        คู่คี่จะไม่เปลี่ยน สิ่งที่ไม่เปลี่ยนแม้เราจะทำอะไรกับมันตั้งเท่าไร เรียกว่า<strong>ค่าไม่แปรผัน</strong> (invariant)
-        และมันตอบคำถามประเภท "ทำแบบนี้ไปเรื่อย ๆ จะไปถึงสภาพนั้นได้ไหม" ได้โดยไม่ต้องลองเลย
-      </p>
-      <p>
-        ในข้อนี้คู่คี่ตอบเรื่องเล็ก คือเครื่องที่เหลือจับคู่ได้ครบไหม แต่ท่าเดียวกันตัดสินเรื่องใหญ่ได้ด้วย
-        เช่นใน<a href="/cp/fifteen-puzzle/">ปริศนาสิบห้าช่อง</a> คู่คี่ของการสลับที่บอกได้ว่ากระดานที่ได้มา
-        แก้ได้หรือแก้ไม่ได้เลย และใน<a href="/cp/training-route/">โจทย์ตัดถนน</a> คู่คี่ของความยาวเส้นทาง
-        คือเงื่อนไขทั้งข้อ เจอโจทย์ที่ถามว่า "เป็นไปได้ไหม" ให้ลองถามหาคู่คี่ก่อนเสมอ
-      </p>
+    {leftDraws.map((d) => (
+      <ZoomableDiagram caption={d.cap}>
+        <svg viewBox={d.dr.vb} xmlns="http://www.w3.org/2000/svg" role="img" style={`display:block;margin:0 auto;max-width:${d.dr.maxW}px`} aria-label={`${d.title} ช่วงบนเส้นทางหลักคือ ${d.dr.boxes.filter((b) => b.on).map((b) => b.span).join(' ')} ช่วงที่เป็นวงคือ ${d.dr.boxes.filter((b) => !b.on).map((b) => b.span).join(' ') || 'ไม่มี'}`}>
+          <text x={d.dr.boxes[0].x} y="26" fill="#4ade80" font-size="12" text-anchor="start" font-weight="700">{d.title}</text>
+          {d.dr.arcs.map((a) => <path d={a.d} fill="none" stroke={a.up ? '#4ade80' : '#e0b400'} stroke-width="1.8" />)}
+          {d.dr.heads.map((h) => <polygon points={h.points} fill={h.up ? '#4ade80' : '#e0b400'} />)}
+          {d.dr.boxes.map((b) => (
+            <>
+              <rect x={b.x} y="70" width={IW} height="44" rx="7" fill={b.on ? '#12291c' : '#2e2510'} stroke={b.on ? '#4ade80' : '#e0b400'} stroke-width="1.8" />
+              <text x={b.cx} y="97" fill={b.on ? '#d7ffe4' : '#ffe58a'} font-size="13" text-anchor="middle" font-weight="700" font-family="monospace">{b.span}</text>
+            </>
+          ))}
+        </svg>
+      </ZoomableDiagram>
+    ))}
+    <p>
+      สองเครื่องจึงได้ 4 คะแนน ส่วนเครื่องเศษตัวสุดท้ายได้ 1 คะแนน
+      เรื่องเดียวที่ต้องรู้เกี่ยวกับเครื่องที่เหลือ <code>r</code> ตัวคือ <code>r</code> เป็นจำนวนคู่หรือคี่ (เรียกว่าดู<strong>คู่คี่</strong> หรือ parity)
+    </p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="ส่วนที่คิดคะแนน" />
+    <p>
+      ลำดับการใช้เครื่องมาจากการเทียบคะแนนต่อเครื่อง ดูดวงได้อย่างน้อย 3 (วงเล็กสุดมีขนาด 1)
+      ส่วนแตกแล้วดูดกลับได้เฉลี่ย 2 ผมจึงดูดวงให้หมดก่อน โดยเริ่มจากวงใหญ่
+    </p>
+    <p>
+      ตารางสามแบบข้างบนคิดทีละเครื่อง ส่วนข้อที่ว่าลำดับนี้ดีที่สุดเมื่อใช้หลายเครื่องรวมกัน ผมตรวจด้วยตัวไล่ทุกแบบในกรณีเล็ก
+      (รายละเอียดอยู่ท้ายส่วนโค้ด)
+    </p>
+
+    <h3>เทียบสามวิธี</h3>
+    <p>
+      การ์ดกับตารางข้างล่างนับงานเป็นก้าว หนึ่งก้าวคืออ่านหนึ่งตำแหน่ง เดินตามลูกศรหนึ่งเส้น หรือเทียบหนึ่งครั้งตอนเรียง
+      และถือว่าเครื่องตรวจทำได้ราว {fmt(OPS_PER_SEC)} ก้าวต่อวินาที
+    </p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>ไล่วางทุกแบบแล้วจำลอง</h4>
+        <p class="cp-step-cost">C(F, 2M) × (2M)! รอบจำลอง</p>
+        <ul>
+          <li>C(F, 2M): เลือกตำแหน่งว่าง 2M ตำแหน่งจาก F ตำแหน่ง</li>
+          <li>(2M)!: ทุกลำดับของตำแหน่งที่เลือก แล้วจับคู่ติดกันเป็นเครื่อง</li>
+        </ul>
+        <p>
+          ที่ <code>N = {STRESS_N}</code>, <code>M = {STRESS_M}</code> กับ F = {stressFree} ได้ {fmt(bruteWalks)} รอบ
+          แต่ละการวางถูกนับซ้ำ {bruteDup} ครั้ง (สลับปลายในเครื่อง และสลับลำดับเครื่อง) การวางที่ต่างกันจริงมี {fmt(bruteDistinct)} แบบ
+          ตารางนับรอบละหนึ่งก้าว จึงเป็นค่าต่ำสุดของงานจริง
+        </p>
+        <p class="cp-step-win">ใช้เป็นตัวตรวจในกรณีเล็กเท่านั้น</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>เพิ่มทีละเครื่อง แล้วนับวงใหม่</h4>
+        <p class="cp-step-cost">M × (E⌈log₂ E⌉ + E + 1) ก้าว เมื่อ E = 2(N + M)</p>
+        <ul>
+          <li>M: หนึ่งรอบต่อเครื่อง</li>
+          <li>E⌈log₂ E⌉: เรียงจุดปลายไม่เกิน E จุดเพื่อให้เลขใหม่</li>
+          <li>E + 1: เดินทุกช่วงหนึ่งรอบ</li>
+        </ul>
+        <p class="cp-step-win">ทันชุด 30 คะแนน ({ladderRows[1].sub.text} ก้าว)</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีเต็ม</p>
+        <h4>แยกเส้นทางกับวงครั้งเดียว</h4>
+        <p class="cp-step-cost">2 × 2,000,000 + (2N + 1) + N⌈log₂ N⌉ ก้าว</p>
+        <ul>
+          <li>2 × 2,000,000: ไล่ตำแหน่งสองรอบเพื่อให้เลขจุดปลายกับลูกศร</li>
+          <li>2N + 1: เดินทุกช่วงครั้งเดียว</li>
+          <li>N⌈log₂ N⌉: เรียงขนาดวง ซึ่งมีไม่เกิน N วง</li>
+        </ul>
+        <p class="cp-step-win">ทันทุกชุด ({ladderRows[2].full.text} ก้าวที่ N = {fmt(NMAX)})</p>
+      </div>
     </div>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
-    <p>
-      และเพราะการดูดวงให้ <code>s + 2</code> ซึ่งอย่างน้อยคือ 3 ต่อหนึ่งเครื่อง ในขณะที่การแตกแล้วดูดกลับให้เฉลี่ย 2
-      ต่อหนึ่งเครื่อง จึงต้อง<strong>ดูดวงให้หมดก่อนเสมอ</strong> และดูดวงใหญ่ก่อนวงเล็ก
-    </p>
+    <figure class="tbl">
+      <table class="rec tp-ladder">
+        <caption>จำนวนก้าวตามชุดทดสอบ</caption>
+        <thead>
+          <tr><th>วิธี</th><th class="num">N, M ≤ {SUB_N} (30 คะแนน)</th><th class="num">N, M ≤ {fmt(NMAX)}</th></tr>
+        </thead>
+        <tbody>
+          {ladderRows.map((r) => (
+            <tr>
+              <td>{r.name}</td>
+              <td class={r.sub.ok ? 'num ok' : 'num over'}>{r.sub.text}{r.sub.exp !== undefined && <sup>{r.sub.exp}</sup>}</td>
+              <td class={r.full.ok ? 'num ok' : 'num over'}>{r.full.text}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        สีเขียวคือไม่เกิน {fmt(OPS_PER_SEC)} ก้าว ตัวเลขของวิธีที่ 1 นับแค่ลำดับของจุดปลายใหม่ {2 * SUB_N} จุด
+        ซึ่งน้อยกว่างานจริงของมันมาก
+      </figcaption>
+    </figure>
   </Spoiler>
 
-  <h2>ตัวอย่างที่ 2 · เครื่องสามตัวถูกใช้ต่างกัน</h2>
+  <h2>ตัวอย่างที่ 2 · ใช้เครื่องทีละตัว</h2>
   <Spoiler>
-      <CpStepPlayer hook="telesim" steps={teleNotes} label="กดถัดไปเพื่อใช้เครื่องทีละตัว">
-    <table class="rec">
+    <p>
+      ก่อนเพิ่มเครื่อง เส้นทางหลักของตัวอย่างที่ 2 มี {a2.base + 1} ช่วง ได้ {a2.base} คะแนน
+      และมีวงขนาด {a2.cycles.join(', ')} อยู่ {a2.cycles.length} วง ตัวเล่นข้างล่างใช้เครื่องทีละตัว ขั้นที่ k คือเครื่องที่ k
+    </p>
+    <CpStepPlayer hook="telesim" steps={teleNotes} label="กดถัดไปเพื่อใช้เครื่องทีละตัว">
+      <table class="rec tpsim">
+        <colgroup><col class="tps-n" /><col /><col class="tps-n" /><col class="tps-n" /></colgroup>
         <caption>เริ่มที่ {a2.base} คะแนน แล้วใช้เครื่องทีละตัว</caption>
         <thead>
           <tr><th class="num">เครื่องที่</th><th>เอาไปทำอะไร</th><th class="num">ได้เพิ่ม</th><th class="num">รวม</th></tr>
@@ -664,110 +1035,192 @@ const teleNotes = spend2.map((r) => ({
           ))}
         </tbody>
       </table>
-  </CpStepPlayer>
-  <p class="io-note">
-    สังเกตเครื่องที่ 2 ที่ได้แค่ 1 คะแนน มันดูเหมือนขาดทุน แต่มันคือค่าเปิดทางให้เครื่องที่ 3 ได้ 3 คะแนน
-        ถ้ามีเครื่องแค่สองตัว คำตอบจะเป็น {best(a2.base, a2.cycles, 2)} ไม่ใช่ {best(a2.base, a2.cycles, 3)}
-  </p>
-
+    </CpStepPlayer>
+    <p class="io-note">
+      เครื่องที่ 2 ได้แค่ 1 คะแนน มันเปิดทางให้เครื่องที่ 3 ได้ 3 คะแนน
+      ถ้ามีเครื่องแค่สองตัว คำตอบจะเป็น {best(a2.base, a2.cycles, 2)} พอมีตัวที่สามก็ขึ้นเป็น {best(a2.base, a2.cycles, 3)}
+    </p>
   </Spoiler>
 
-  <h2>ตัวตรวจสอบที่ทำให้รู้ว่าคิดผิด</h2>
+  <h2>ตัวตรวจสอบที่ไล่วางทุกแบบ</h2>
   <Spoiler>
     <div class="callout callout-warn">
       <p class="callout-label">เรื่องจริงที่เกิดขึ้นตามลำดับ</p>
       <p>
-        ผมนับได้ว่าการดูดวงขนาด <code>s</code> ให้ <code>s + 2</code> โดยนับช่วงตรง ๆ ตรงนั้นมั่นใจ
-        แต่กรณีที่ไม่มีวงเหลือแล้ว ผมไม่ได้นับ ผม<strong>เดาว่าน่าจะ 2 ต่อเครื่อง</strong>ด้วยความสมมาตร
-        มันตอบตัวอย่างทั้งสองชุดถูก ผมเลยเดินหน้าต่อ
+        ผมนับช่วงตรง ๆ จนได้ว่าการดูดวงขนาด <code>s</code> ให้ <code>s + 2</code>
+        ส่วนกรณีที่ไม่มีวงเหลือ ผมเดาไปว่าเครื่องละ 2 คะแนน สูตรนั้นตอบตัวอย่างทั้งสองชุดถูก ผมเลยเดินหน้าต่อ
       </p>
       <p>
-        ตัวตรวจสอบตัวแรกที่ผมเขียนเป็นสคริปต์สั้น ๆ และมัน<strong>โกหกผม</strong> เพราะผมตั้งพื้นที่ค้นหาไว้แคบเกินไป
-        มันวางเครื่องได้ไม่ครบทุกความเป็นไปได้ ตัวเลขที่ได้จึงมั่วเป็นบางเคส ผมเสียเวลาไล่หาสาเหตุจากตัวเลขที่ผิดอยู่พักหนึ่ง
-        ก่อนจะยอมเขียนตัวไล่วางทุกแบบใหม่เป็น C++ ซึ่งช้ากว่ามากแต่ครบจริง
+        ตัวตรวจสอบตัวแรกของผมเป็นสคริปต์สั้น ๆ ที่ค้นหาแคบเกินไป ให้ตัวเลขผิดเป็นบางเคส
+        ผมไล่หาสาเหตุอยู่พักหนึ่ง ก่อนจะเขียนตัวไล่วางทุกแบบใหม่เป็น C++ ซึ่งช้ากว่ามากแต่ครบจริง
       </p>
       <p>
-        พอได้ตัวเลขที่เชื่อได้ ผมถึงกล้าไล่ตารางทดลอง คือตรึงชุดเครื่องตั้งต้นไว้แล้วเพิ่มเครื่องทีละตัว
-        ดูว่าคะแนนขยับเท่าไร ตัวเลขที่โผล่มาคือ 1 แล้ว 3 ไม่ใช่ 2 แล้ว 2 จากตรงนั้นค่อยย้อนกลับไปหาเหตุผลว่า
-        ทำไมเครื่องที่ไม่มีวงให้ดูดถึงต้องเสียตัวหนึ่งไปกับการแตกวงก่อน
+        พอได้ตัวตรวจที่เชื่อได้ ผมตรึงชุดเครื่องตั้งต้นไว้แล้วเพิ่มเครื่องทีละตัว คะแนนขยับทีละ 1 แล้ว 3 ส่วนสูตรของผมขยับ 2 แล้ว 2
       </p>
       <p>
-        ลำดับที่ถูกคือ<strong>วัดให้ได้ก่อน แล้วค่อยอธิบาย</strong> รอบนี้ผมทำสลับ คือเดาแล้วเชื่อ
-        เพราะตัวอย่างในโจทย์ผ่าน
+        ผมจึงย้อนไปหาเหตุผลทีหลัง ได้เป็นเรื่องวงขนาด 1 ในส่วนเฉลย บทเรียนของผมคือวัดค่าจริงก่อน แล้วค่อยหาเหตุผล
       </p>
     </div>
     <p>
-      รอบแรกผมเขียนว่าเครื่องที่เหลือได้ตัวละ 2 คะแนน ซึ่งฟังดูสมเหตุสมผลมาก และมัน<strong>ตอบตัวอย่างในโจทย์ถูกทั้งสองชุด</strong>
-      สิ่งที่จับได้คือโปรแกรมที่<strong>ไล่วางเครื่องทุกความเป็นไปได้แล้วจำลองการเดินจริง</strong>
-    </p>
-    <p>
-      มันช้ามาก ใช้ได้แค่กับเครื่องไม่กี่ตัวและเส้นตรงสั้น ๆ แต่มันไม่เชื่อทฤษฎีอะไรของผมเลย
-      พอสุ่มเทียบ 200 ชุด มันชี้ทันทีว่าเคสที่มีวงเดียวแล้วเหลือเครื่องอีกตัว ผมตอบเกินจริงไปหนึ่ง
+      ตัวตรวจนี้วางเครื่องทุกแบบแล้วเดินตามกฎของโจทย์ตรง ๆ มันรู้แค่กฎ ส่วนเรื่องช่วง วง และคู่คี่อยู่ในโค้ดเต็มเท่านั้น
+      การเทียบสองตัวนี้จึงทดสอบทฤษฎีได้จริง
     </p>
     <details class="expander">
       <summary>ดูโค้ดตัวตรวจสอบ (ไล่วางทุกแบบแล้วจำลอง)</summary>
       <div class="expander-body">
         <CodeBlock code={checkCode} lang="cpp" title="brute_tele.cpp" />
+        <p>
+          บรรทัดแรกของอินพุตตัวตรวจคือ <code>N M LIM</code> โดย <code>LIM</code> คือตำแหน่งขวาสุดที่ยอมให้วาง
+          มันวางจุดปลายใหม่ได้เฉพาะตำแหน่งจำนวนเต็มที่ยังว่าง ตั้งแต่ 1 ถึง <code>LIM</code>
+        </p>
+        <p>
+          ถ้าทุกช่องว่าง รวมช่องก่อนจุดปลายแรกและช่องหลังจุดปลายสุดท้าย มีที่ว่างอย่างน้อย <code>2M</code> ตำแหน่ง
+          มันจะไล่ได้ครบทุกลำดับการวาง
+        </p>
+        <p>
+          ตอนทดสอบผมวางจุดปลายเดิมที่ <code>g, 2g, …, 2N·g</code> โดย <code>g = 2M + 1</code>
+          และ <code>LIM = (2N + 1)g</code> ช่องว่างทุกช่องจึงมีที่ว่างอย่างน้อย <code>2M</code>
+        </p>
       </div>
     </details>
-    <p>
-      ข้อคิดที่อยากฝากไว้คือ <strong>การตอบตัวอย่างในโจทย์ถูกไม่ใช่หลักฐานอะไรเลย</strong>
-      โดยเฉพาะกับข้อที่คำตอบเป็นสูตรโลภสั้น ๆ เพราะตัวอย่างในโจทย์มักถูกออกแบบมาให้เห็นภาพ ไม่ได้ออกแบบมาให้จับบัก
-    </p>
   </Spoiler>
 
   <h2>โค้ด C++</h2>
   <Spoiler>
     <p>
-      อินพุตมีเลขได้ถึงสี่ล้านตัว การอ่านด้วย <code>scanf</code> ทีละตัวช้าเกินลิมิตหนึ่งวินาที
-      โค้ดนี้จึงอ่านทั้งไฟล์เข้ามาก้อนเดียวแล้วแยกเลขเอง เวลาที่วัดได้ลดจาก 744 มิลลิวินาทีเหลือ
-      <strong>258 มิลลิวินาที</strong>
+      อินพุตมีตัวเลขราวสองล้านตัว (<code>2N + 2</code>) โค้ดอ่านไฟล์ทีละก้อน 64 KB แล้วแยกตัวเลขเอง
+      ที่ <code>N = M = {fmt(NMAX)}</code> ใช้เวลาไม่เกิน {MEASURED.fullMax} วินาที
     </p>
     <p>
-      ส่วนการแปลงตำแหน่งเป็นหมายเลขจุดปลาย ใช้อาเรย์ขนาดเท่าตำแหน่งที่ไกลที่สุด เพราะพิกัดไม่เกินสองล้าน
-      ตำแหน่งจุดจบจริง ๆ ที่โจทย์บอกว่าเป็น 2,000,001 ไม่มีผลกับคำตอบเลย มีผลแค่ว่าช่วงสุดท้ายชื่ออะไร
+      ส่วนรุ่นที่อ่านด้วย <code>scanf</code> ทีละตัวใช้ {MEASURED.scanfMax} วินาที ทันเหมือนกันแต่เหลือที่ว่างน้อยกว่า
+    </p>
+    <p>
+      พิกัดไม่เกินสองล้าน โค้ดให้เลขจุดปลายด้วยการไล่ตำแหน่ง 1 ถึง <code>hi</code> (ปลายที่ไกลที่สุด) ตามลำดับที่เจอ
+      ตำแหน่งเส้นชัย 2,000,001 มีผลแค่ว่าช่วงสุดท้ายชื่ออะไร
+    </p>
+    <p>
+      หน่วยความจำสูงสุดวัดได้ {fmt(MEASURED.peakKB)} KB จากลิมิต {fmt(MEASURED.limitKB)} KB
+      โค้ดรุ่นก่อนของหน้านี้อ่านทั้งไฟล์เข้าบัฟเฟอร์และเก็บตำแหน่งซ้ำหลายชุด
+      วัดได้ {fmt(MEASURED.oldPeakKB)} KB เกินลิมิตในเคสที่มีวงขนาด 1 เกือบล้านวง
     </p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="tele.cpp" />
+        <figure class="tbl">
+          <table class="rec prose">
+            <caption>โค้ดส่วนไหนทำขั้นไหน</caption>
+            <thead>
+              <tr><th>ส่วนในโค้ด</th><th>ของที่เก็บ</th><th>อธิบายไว้ที่</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>gc, rd</td><td>ibuf (ก้อนอินพุต 64 KB)</td><td>ย่อหน้าแรกของส่วนนี้</td></tr>
+              <tr><td>ลูปอ่านเครื่อง</td><td>partnerAt[p] = ตำแหน่งปลายอีกข้างของจุดปลายที่ p, hi = ตำแหน่งปลายที่ไกลที่สุด (ขอบของการไล่ตำแหน่ง)</td><td>โจทย์</td></tr>
+              <tr><td>ลูปไล่ตำแหน่งรอบแรก (1 ถึง hi)</td><td>id[p] = เลขของจุดปลายที่ตำแหน่ง p (1 ถึง 2N), P = 2N</td><td>เฉลย การตั้งชื่อช่วง</td></tr>
+              <tr><td>ลูปไล่ตำแหน่งรอบสอง (1 ถึง hi)</td><td>nxt[j] = k คือลูกศรของ Iⱼ ชี้ไป Iₖ</td><td>เฉลย กล่องลูกศรของแต่ละช่วง</td></tr>
+              <tr><td>while (cur != P)</td><td>vis, base (คะแนนตั้งต้น)</td><td>เฉลย กล่องคะแนนตั้งต้น</td></tr>
+              <tr><td>ลูปหาวง แล้ว sort</td><td>cyc (ขนาดวง เรียงใหญ่ก่อน)</td><td>เฉลย ดูดวงขนาด s</td></tr>
+              <tr><td>ans, used, r</td><td>คำตอบ</td><td>เฉลย เมื่อไม่มีวงเหลือให้ดูด</td></tr>
+            </tbody>
+          </table>
+        </figure>
       </div>
     </details>
     <details class="expander">
-      <summary>ดูโค้ดที่ผมเขียนผิดรอบแรก และเคสที่เล็กที่สุดที่มันแตกต่าง</summary>
+      <summary>ดูโค้ดที่ผมเขียนผิดรอบแรก และเคสที่เล็กที่สุดที่มันพัง</summary>
       <div class="expander-body">
         <p>
-          ทั้งไฟล์เหมือนโค้ดข้างบนทุกบรรทัด ต่างกันแค่บรรทัดสุดท้ายที่คิดแต้มของเครื่องที่เหลือ
+          นี่คือโค้ดของเรื่องในส่วนตัวตรวจสอบ ทั้งไฟล์เหมือนโค้ดข้างบน ต่างกันแค่บรรทัดที่คิดแต้มของเครื่องที่เหลือ
         </p>
         <CodeBlock code={brokenSnippet} lang="cpp" title="tele_wrong.cpp · เฉพาะท่อนที่คิดแต้มเครื่องที่เหลือ" />
         <p>
-          เคสที่เล็กที่สุดที่สองเวอร์ชันตอบไม่ตรงกันคือเครื่องตั้งต้นเครื่องเดียว แล้วให้เพิ่มได้อีกสองเครื่อง
+          สองบรรทัดนี้ให้ <code>2r</code> กับ <code>(r / 2) × 4 + (r % 2)</code> ต่างกันอยู่ <code>r % 2</code> พอดี
+          โค้ดที่ผิดจึงตอบเกินหนึ่งคะแนนทุกครั้งที่เครื่องที่เหลือเป็นจำนวนคี่ ข้อนี้มาจากพีชคณิตของสองบรรทัดนั้นเอง
+        </p>
+        <p>
+          ในกรณีเล็กที่ตรวจตอนสร้างหน้า (ดูท้ายส่วนนี้) โค้ดที่ผิดพัง {sweepHits.length} จาก {sweepCases} กรณี
+          ที่ <code>N + M</code> น้อยที่สุดคือ {sweepMinSize} มี {sweepSmallest.length} กรณี กรณีแรกคือ
         </p>
         <CodeBlock code={brokenInput} lang="text" title="INPUT" />
         <p>
-          เครื่องตั้งต้นตัวเดียวตัดเส้นออกเป็นสามช่วง เดินได้ <code>1</code> คะแนน และเหลือวงขนาด 1 อยู่หนึ่งวง
-          เครื่องที่เพิ่มตัวแรกดูดวงนั้นเข้ามาได้ <code>1 + 2 = 3</code> รวมเป็น 4 จากนั้นไม่มีวงเหลือแล้ว
-          เครื่องตัวที่สองจึงได้แค่ 1 คะแนน คำตอบจริงคือ <strong>{brokenTrue}</strong> แต่โค้ดที่คิดว่าเครื่องละ 2
-          ตอบ <strong>{brokenWrong}</strong>
+          เครื่องตั้งต้นตัวเดียวตัดเส้นออกเป็นสามช่วง เดินได้ {aBroken.base} คะแนน และเหลือวงขนาด 1 อยู่หนึ่งวง
+          เครื่องที่เพิ่มตัวแรกดูดวงนั้นเข้ามาได้ <code>1 + 2 = 3</code> รวมเป็น {aBroken.base + 3}
         </p>
         <p>
-          ตัวเลข {brokenTrue} นี้ยืนยันด้วยตัวไล่วางทุกแบบข้างบนด้วย ไม่ได้มาจากสูตรเดียวกับที่กำลังตรวจ
-          ส่วนตัวอย่างในโจทย์ทั้งสองชุดใช้เครื่องหมดไปกับการดูดวงพอดี เครื่องที่เหลือจึงเป็นศูนย์ทั้งคู่
-          ทั้งสองเวอร์ชันเลยตอบ {ans1} กับ {ans2} เท่ากัน และผมไม่มีทางรู้จากตรงนั้นเลยว่าพลาด
+          เครื่องตัวที่สองเหลือเศษ ได้ 1 คะแนน คำตอบจริงคือ {brokenTrue} โค้ดที่ผิดตอบ {brokenWrong}
+        </p>
+        <p>
+          อีกกรณีคือเครื่องตั้งต้น {sweepOther.n} เครื่อง {sweepOtherPairs} กับ <code>M = {sweepOther.m}</code>
+          เส้นทางหลักผ่านครบทุกช่วงตั้งแต่ต้น ได้ {sweepOther.base} คะแนน คำตอบจริงคือ {sweepOther.good} โค้ดที่ผิดตอบ {sweepOther.bad}
+        </p>
+        <p>
+          ตัวอย่างในโจทย์ ชุดแรกมีเครื่องเหลือ {left1} ชุดที่สองเหลือ {left2} เป็นจำนวนคู่ทั้งคู่
+          สองเวอร์ชันจึงตอบ {ans1} กับ {ans2} เท่ากัน
         </p>
       </div>
     </details>
-    <p>
-      โครงสร้าง "แต่ละปมชี้ไปปมเดียว" ที่ข้อนี้ใช้มีชื่อเรียกและมีท่าประจำของมัน อ่านได้ที่บทปูพื้นฐาน
-      <a href="/cp/functional-graph/">กราฟที่ทุกปมมีทางออกทางเดียว</a>
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>ตัวอย่างในโจทย์: {ans1} และ {ans2} ตรง</li>
+        <li>
+          ตอนสร้างหน้า: ตัวไล่ทุกลำดับในหน้านี้ (เขียนแยกจากสูตร เดินตามกฎตรง ๆ) ครบ {sweepCases} กรณีที่ <code>N, M ≤ {SWEEP_MAX}</code>
+          บวกตัวอย่างทั้งสองชุดกับคำถามข้อ 3 ที่ <code>M</code> = 1 ถึง 3 อีก {directChecks} กรณี: ตรงกับสูตรทุกกรณี
+        </li>
+        <li>
+          brute_tele.cpp: สุ่ม {STRESS.small} เคส <code>N ≤ {STRESS_N}</code>, <code>M ≤ {STRESS_M}</code> เทียบกับ tele.cpp: ตรงทุกเคส
+        </li>
+        <li>
+          รุ่นก่อนของ tele.cpp: สุ่ม {STRESS.medium} เคส <code>N ≤ {fmt(STRESS.mediumN)}</code>: ตรงทุกเคส (วิธีเดียวกัน ตรวจแค่การให้เลขจุดปลายแบบใหม่)
+        </li>
+        <li>
+          <code>N = M = {fmt(NMAX)}</code> สามแบบ (สุ่ม, วงขนาด 1 เกือบล้านวง, เส้นทางเส้นเดียว): ไม่เกิน {MEASURED.fullMax} วินาที {fmt(MEASURED.peakKB)} KB
+        </li>
+      </ul>
+      <p>
+        เวลาวัดบน WSL ด้วย <code>g++ -O2</code> สามรอบต่ออินพุต รวมเวลาอ่านอินพุต
+        ท่าโลภในหน้านี้ทดสอบแล้ว ไม่ได้พิสูจน์ ตามขนาดข้างบน และยังรอส่งเกรดเดอร์จริง
+      </p>
+    </div>
   </Spoiler>
 
-  <h2>สรุปบรรทัดเดียว</h2>
-  <p>
-    เมื่อการเดินถูกบังคับให้ไปทางเดียว ช่วงระหว่างจุดปลายจะกลายเป็นการสลับที่ คำตอบตั้งต้นคือความยาวของวงที่มีจุดเริ่ม
-    และการเพิ่มเครื่องคือการดูดวงอื่นเข้ามาต่อ ยกเว้นตอนไม่มีวงเหลือ ที่เราต้องยอมจ่ายหนึ่งเครื่องแตกวงขึ้นมาเอง
-  </p>
+  <h2>สรุป และทดสอบตัวเอง</h2>
+  <Spoiler>
+    <p>
+      เมื่อการเดินถูกบังคับให้ไปทางเดียว ลูกศรระหว่างช่วงแตกเป็นเส้นทางหลักหนึ่งเส้นกับวงปิด
+      คำตอบตั้งต้นคือจำนวนครั้งที่ถูกโยนบนเส้นทางหลัก
+    </p>
+    <p>
+      เครื่องที่เพิ่มแต่ละตัวดูดวงที่ใหญ่ที่สุดที่เหลือเข้ามา พอวงหมด สองเครื่องได้ 4 คะแนน และเครื่องเศษได้ 1
+    </p>
+    <details class="expander">
+      <summary>ตัวอย่างที่ 1 ถ้าให้เพิ่มได้ 2 เครื่อง จะได้กี่คะแนน</summary>
+      <div class="expander-body">
+        <p>
+          เริ่มที่ {a1.base} คะแนน วงที่เหลือมีขนาด {a1.cycles.join(', ')} ดูดสองวงที่ใหญ่ที่สุด
+          ได้ {a1.base} + ({a1.cycles[0]} + 2) + ({a1.cycles[1]} + 2) = {quiz1} คะแนน
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ทำไมดูดวงขนาด s ได้ s + 2 คะแนน</summary>
+      <div class="expander-body">
+        <p>
+          วง <code>s</code> ช่วงเข้ามาอยู่บนเส้นทาง และจุดปลายใหม่สองจุดผ่าช่วงอีกสองช่วง ช่วงละหนึ่งท่อนเพิ่ม
+          รวมเป็น <code>s + 2</code> ช่วงใหม่บนเส้นทาง ทุกช่วงที่เพิ่มคือการถูกโยนหนึ่งครั้ง
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>เครื่องตั้งต้นตัวเดียวที่ (1, 2) และ M = 3 ได้กี่คะแนน</summary>
+      <div class="expander-body">
+        <p>
+          เริ่มที่ {aQ3.base} คะแนน มีวงขนาด {aQ3.cycles[0]} หนึ่งวง เครื่องแรกดูดวงนั้นได้ {aQ3.cycles[0] + 2}
+          อีกสองเครื่องแตกวงขนาด 1 แล้วดูดกลับ ได้ 1 + 3 = 4 รวมเป็น {quiz3} คะแนน
+        </p>
+      </div>
+    </details>
+  </Spoiler>
 
   <h2>แหล่งที่มา</h2>
   <ol class="references">
@@ -788,13 +1241,26 @@ const teleNotes = spend2.map((r) => ({
 
   .dim{color:#7b8397;}
 
-  /* ---------- ตารางการกระทำของมินิเกมเครื่องเคลื่อนย้าย ---------- */
-  .tp-acts{border-collapse:collapse;font-size:0.85rem;}
-  .tp-acts :global(th), .tp-acts :global(td){
-    border:1px solid #2a3350;padding:0.3rem 0.7rem;text-align:center;color:#cdd6ea;
+  /* ---------- กระดานของมินิเกม แต่ละปุ่มคือหนึ่งช่วงบนเส้น ปุ่มสร้างใหม่ด้วย JS จึงใช้ :global ---------- */
+  .tp-line{display:flex;gap:0.4rem;padding:0.2rem 0;}
+  .tp-line :global(.tp-iv){
+    flex:0 0 auto;min-width:4.2rem;display:flex;flex-direction:column;align-items:center;gap:0.25rem;
+    padding:0.45rem 0.6rem;border:1px solid #2a3350;border-radius:7px;background:#111a2e;
+    color:#cdd6ea;font:inherit;font-size:0.82rem;cursor:pointer;
   }
-  .tp-acts :global(th){color:#9aa7bd;font-weight:600;white-space:nowrap;}
-  .tp-acts :global(tr.done td){background:#14351f;color:#4ade80;}
+  .tp-line :global(.tp-iv:hover){border-color:#4ade80;}
+  .tp-line :global(.tp-span){font-family:monospace;white-space:nowrap;}
+  .tp-line :global(.tp-marks){min-height:1.2em;color:#ffe58a;font-weight:700;font-family:monospace;}
+
+  /* ตารางของตัวเล่นตัวอย่างที่ 2 แถวโผล่ทีละแถว ห้ามให้ข้อความไทยในแถวมากำหนดความกว้างของการ์ด
+     !important เพราะต้องชนะ body .panel .dpsim table.rec{width:100%} ของ CpProblemLayout */
+  table.rec.tpsim{width:0 !important;min-width:100%;table-layout:fixed;}
+  table.rec.tpsim col.tps-n{width:5.5rem;}
+  table.rec.tpsim td, table.rec.tpsim th{white-space:normal;}
+
+  /* ตารางเทียบสามวิธี เขียวคือทัน แดงคือไม่ทัน */
+  table.rec.tp-ladder td.ok{color:#a7f3c4;}
+  table.rec.tp-ladder td.over{color:#f0a6a6;}
 </style>
 
 <script>
@@ -806,10 +1272,43 @@ const teleNotes = spend2.map((r) => ({
     label: string;
     tease: string;
     m: number;
-    base: number;
-    cycles: number[];
+    pts: number[];
+    oldPartner: number[];
+    start: number;
     best: number;
   };
+  /** จุดปลายใหม่หนึ่งจุด: อยู่ในช่วงที่ iv และ seq บอกลำดับการแตะ (แตะทีหลังอยู่ทางตะวันออก) */
+  type Placed = { iv: number; seq: number };
+
+  const START_MSG = 'แตะช่วงบนเส้นเพื่อวางจุดปลาย สองแตะเป็นหนึ่งเครื่อง จะแตะช่วงเดิมซ้ำก็ได้';
+
+  /** เดินตามกฎของโจทย์ตรง ๆ แล้วนับจำนวนครั้งที่ถูกโยน ใช้เฉพาะเครื่องที่วางครบสองปลายแล้ว */
+  function walkScore(p: TpPuzzle, placed: Placed[]): number {
+    const used = placed.length - (placed.length % 2);
+    type Key = { iv: number; ord: number; who: number };
+    const keys: Key[] = [];
+    /* จุดปลายเดิมตัวที่ j เป็นขอบตะวันออกของช่วง j จึงมาหลังจุดใหม่ทุกจุดในช่วงนั้น */
+    p.pts.forEach((_, j) => keys.push({ iv: j, ord: Infinity, who: j }));
+    for (let t = 0; t < used; t++) keys.push({ iv: placed[t].iv, ord: placed[t].seq, who: p.pts.length + t });
+    keys.sort((a, b) => a.iv - b.iv || a.ord - b.ord);
+    const at = new Array<number>(keys.length).fill(-1);
+    keys.forEach((k, i) => {
+      at[k.who] = i;
+    });
+    const partner = new Array<number>(keys.length).fill(-1);
+    p.pts.forEach((_, j) => {
+      partner[at[j]] = at[p.oldPartner[j]];
+    });
+    for (let t = 0; t < used; t++) partner[at[p.pts.length + t]] = at[p.pts.length + (t ^ 1)];
+    let pos = -1;
+    let score = 0;
+    while (pos + 1 < keys.length) {
+      pos = partner[pos + 1];
+      score++;
+      if (score > 4 * keys.length + 4) break;
+    }
+    return score;
+  }
 
   function initTpGame(): void {
     const maybeUi = cpGameUi('[data-tpgame]');
@@ -819,161 +1318,121 @@ const teleNotes = spend2.map((r) => ({
     const puzzles = readPuzzles(ui.root) as TpPuzzle[];
     if (puzzles.length === 0) return;
 
-    const actsEl = ui.root.querySelector<HTMLElement>('[data-tp-acts]');
+    const lineEl = ui.root.querySelector<HTMLElement>('[data-tp-line]');
     const scoreEl = ui.root.querySelector<HTMLElement>('[data-tp-score]');
-    const leftEl = ui.root.querySelector<HTMLElement>('[data-tp-left]');
-    const baseEl = ui.root.querySelector<HTMLElement>('[data-tp-base]');
+    const usedEl = ui.root.querySelector<HTMLElement>('[data-tp-used]');
     const mEl = ui.root.querySelector<HTMLElement>('[data-tp-m]');
-    if (!actsEl || !scoreEl || !leftEl || !baseEl || !mEl) return;
-    const acts: HTMLElement = actsEl;
+    const targetEl = ui.root.querySelector<HTMLElement>('[data-tp-target]');
+    const bestEl = ui.root.querySelector<HTMLElement>('[data-tp-best]');
+    if (!lineEl || !scoreEl || !usedEl || !mEl || !targetEl || !bestEl) return;
+    const line: HTMLElement = lineEl;
     const scoreOut: HTMLElement = scoreEl;
-    const leftOut: HTMLElement = leftEl;
-    const baseOut: HTMLElement = baseEl;
+    const usedOut: HTMLElement = usedEl;
     const mOut: HTMLElement = mEl;
+    const target: HTMLElement = targetEl;
+    const bestOut: HTMLElement = bestEl;
 
     let pi = 0;
-    let used: boolean[] = [];
-    let pairs = 0;
-    let singles = 0;
+    let placed: Placed[] = [];
+    let seq = 0;
+    let tried = false;
 
     const pz = (): TpPuzzle => puzzles[pi];
-    const spent = (): number => used.filter(Boolean).length + pairs * 2 + singles;
-    const left = (): number => pz().m - spent();
-    const score = (): number => {
-      const p = pz();
-      let s = p.base;
-      p.cycles.forEach((c, i) => {
-        if (used[i]) s += c + 2;
-      });
-      return s + pairs * 4 + singles;
+    const span = (i: number): string => {
+      const pts = pz().pts;
+      return `${i === 0 ? '0' : pts[i - 1]}–${i === pts.length ? 'ชัย' : pts[i]}`;
     };
 
-    function buildActs(): void {
-      const p = pz();
-      acts.textContent = '';
-      const head = document.createElement('tr');
-      for (const label of ['สิ่งที่ทำได้', 'ใช้เครื่อง', 'ได้เพิ่ม', '']) {
-        const th = document.createElement('th');
-        th.textContent = label;
-        head.appendChild(th);
-      }
-      acts.appendChild(head);
-
-      p.cycles.forEach((c, i) => {
-        const tr = document.createElement('tr');
-        tr.dataset.cycle = String(i);
-        for (const text of [`ต่อวงยาว ${c} ก้าว`, '1', `${c + 2}`]) {
-          const td = document.createElement('td');
-          td.textContent = text;
-          tr.appendChild(td);
-        }
-        const td = document.createElement('td');
+    function buildLine(): void {
+      line.textContent = '';
+      for (let i = 0; i <= pz().pts.length; i++) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'cpg-btn';
-        b.dataset.act = 'cycle';
-        b.dataset.i = String(i);
-        b.textContent = 'ต่อวงนี้';
-        td.appendChild(b);
-        tr.appendChild(td);
-        acts.appendChild(tr);
-      });
-
-      const mk = (label: string, cost: string, gain: string, act: string, text: string): void => {
-        const tr = document.createElement('tr');
-        for (const t of [label, cost, gain]) {
-          const td = document.createElement('td');
-          td.textContent = t;
-          tr.appendChild(td);
-        }
-        const td = document.createElement('td');
-        const plus = document.createElement('button');
-        plus.type = 'button';
-        plus.className = 'cpg-btn';
-        plus.dataset.act = act;
-        plus.textContent = text;
-        td.appendChild(plus);
-        tr.appendChild(td);
-        acts.appendChild(tr);
-      };
-      mk('สร้างวงใหม่หนึ่งวง', '2', '4', 'pair', 'เพิ่มหนึ่งวง');
-      mk('วางเครื่องเดี่ยว ๆ', '1', '1', 'single', 'วางเดี่ยว');
+        b.className = 'tp-iv';
+        b.dataset.iv = String(i);
+        const s = document.createElement('span');
+        s.className = 'tp-span';
+        s.textContent = span(i);
+        const marks = document.createElement('span');
+        marks.className = 'tp-marks';
+        b.append(s, marks);
+        line.appendChild(b);
+      }
     }
 
     function render(): void {
       const p = pz();
-      for (const tr of Array.from(acts.querySelectorAll<HTMLElement>('[data-cycle]'))) {
-        tr.classList.toggle('done', used[Number(tr.dataset.cycle)]);
+      for (const b of Array.from(line.querySelectorAll<HTMLElement>('[data-iv]'))) {
+        const iv = Number(b.dataset.iv);
+        const marks = b.querySelector<HTMLElement>('.tp-marks');
+        if (!marks) continue;
+        /* แสดงเลขเครื่องของแต่ละจุดในช่วงนี้ เรียงจากตะวันตกไปตะวันออก */
+        marks.textContent = placed
+          .map((q, t) => ({ q, t }))
+          .filter((x) => x.q.iv === iv)
+          .sort((x, y) => x.q.seq - y.q.seq)
+          .map((x) => String(Math.floor(x.t / 2) + 1))
+          .join(' ');
       }
-      for (const b of Array.from(acts.querySelectorAll<HTMLElement>('[data-act="cycle"]'))) {
-        const i = Number(b.dataset.i);
-        b.textContent = used[i] ? 'ถอนออก' : 'ต่อวงนี้';
-      }
-      scoreOut.textContent = String(score());
-      leftOut.textContent = String(left());
-      baseOut.textContent = String(p.base);
+      scoreOut.textContent = String(walkScore(p, placed));
+      usedOut.textContent = String(Math.floor(placed.length / 2));
       mOut.textContent = String(p.m);
+      bestOut.textContent = String(p.best);
+      target.hidden = !tried;
     }
 
-    function act(kind: string, i: number): void {
-      if (kind === 'cycle') {
-        if (used[i]) used[i] = false;
-        else if (left() >= 1) used[i] = true;
-        else {
-          ui.setStatus('เครื่องหมดแล้วครับ ถอนของเดิมออกก่อนถ้าอยากสลับ', 'bad');
-          return;
-        }
-      } else if (kind === 'pair') {
-        if (left() >= 2) pairs++;
-        else {
-          ui.setStatus('เหลือเครื่องไม่พอสำหรับวงใหม่ ซึ่งต้องใช้สองตัว', 'bad');
-          return;
-        }
-      } else if (kind === 'single') {
-        if (left() >= 1) singles++;
-        else {
-          ui.setStatus('เครื่องหมดแล้วครับ', 'bad');
-          return;
-        }
+    function place(iv: number): void {
+      if (placed.length >= 2 * pz().m) {
+        ui.setStatus(`วางครบ ${pz().m} เครื่องแล้ว กดตรวจแต้ม หรือย้อนเพื่อลองแบบอื่น`, 'bad');
+        return;
       }
-      ui.setStatus('เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด');
+      placed.push({ iv, seq: seq++ });
+      ui.setStatus(
+        placed.length % 2 === 1
+          ? `วางปลายแรกของเครื่องที่ ${Math.floor(placed.length / 2) + 1} แล้ว แตะอีกช่วงเพื่อวางปลายที่สอง`
+          : START_MSG,
+      );
       render();
     }
 
     function check(): void {
       const p = pz();
-      if (left() > 0) {
-        ui.setStatus(`ยังเหลือเครื่องอีก ${left()} ตัว ใช้ให้หมดก่อนครับ เพราะเครื่องที่ไม่ได้ใช้ก็ไม่ได้แต้ม`, 'bad');
+      if (placed.length % 2 === 1) {
+        ui.setStatus('เครื่องสุดท้ายยังมีปลายเดียว วางปลายที่สองก่อนครับ', 'bad');
         return;
       }
-      const s = score();
-      if (s === p.best) {
-        ui.setStatus(`ดีที่สุดแล้วครับ ${s} ก้าว ไม่มีวิธีแจกไหนได้มากกว่านี้`, 'good');
-      } else {
-        ui.setStatus(`ได้ ${s} ก้าว ยังมีวิธีที่ได้ ${p.best} ก้าว ลองเทียบดูว่าวงยาวกับวงสั้นให้แต้มต่างกันแค่ไหน`, 'bad');
-      }
+      tried = true;
+      const s = walkScore(p, placed);
+      if (s === p.best) ui.setStatus(`ได้ ${s} แต้ม เท่ากับแต้มสูงสุดของชุดนี้แล้วครับ`, 'good');
+      else ui.setStatus(`ได้ ${s} แต้ม ชุดนี้ทำได้ถึง ${p.best} ลองวางแบบอื่นดู`, 'bad');
+      render();
     }
 
     function selectPuzzle(k: number): void {
       pi = k;
-      used = new Array<boolean>(pz().cycles.length).fill(false);
-      pairs = 0;
-      singles = 0;
+      placed = [];
+      seq = 0;
+      tried = false;
       ui.selectTab(k);
       ui.setTease(pz().tease);
-      buildActs();
-      ui.setStatus('เลือกว่าจะเอาเครื่องไปต่อวงไหน หรือเอาไปสร้างวงใหม่ จนกว่าเครื่องจะหมด');
+      buildLine();
+      ui.setStatus(START_MSG);
       render();
     }
 
-    acts.addEventListener('click', (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return;
-      const b = e.target.closest('[data-act]');
+    line.addEventListener('click', (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      const b = e.target.closest('[data-iv]');
       if (!(b instanceof HTMLElement)) return;
-      act(b.dataset.act ?? '', Number(b.dataset.i ?? '0'));
+      place(Number(b.dataset.iv ?? '0'));
     });
 
     ui.onClick('data-tp-reset', () => selectPuzzle(pi));
+    ui.onClick('data-tp-undo', () => {
+      placed.pop();
+      ui.setStatus(START_MSG);
+      render();
+    });
     ui.onClick('data-tp-check', check);
     ui.onTab(selectPuzzle);
     selectPuzzle(0);
