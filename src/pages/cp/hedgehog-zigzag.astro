@@ -9,8 +9,13 @@ const href = 'hedgehog-zigzag/';
 
 /* ---------- โมเดลของโจทย์ ทุกตัวเลขในหน้านี้งอกจากตรงนี้ ---------- */
 
-/** ช่องสีเทา คือช่องที่เลขแถวกับเลขคอลัมน์ไม่มีบิต 1 ตรงตำแหน่งเดียวกันเลย */
+/** ช่องสีเทา คือช่องที่เลขแถวกับเลขคอลัมน์ไม่มีบิต 1 ตรงตำแหน่งเดียวกันเลย (นิยามของโจทย์) */
 const isGrey = (r: number, c: number): boolean => (r & c) === 0;
+
+/** จำนวนบิต 1 ของ v */
+function popcountOf(v: number): number {
+  return v.toString(2).split('').filter((ch) => ch === '1').length;
+}
 
 /** ลำดับที่เม่นเดิน แนวทแยงคี่เดินลงล่าง แนวทแยงคู่เดินขึ้นบน */
 function walk(R: number, C: number, K: number): { r: number; c: number }[] {
@@ -27,11 +32,44 @@ function walk(R: number, C: number, K: number): { r: number; c: number }[] {
   return out;
 }
 
-/** นับตรง ๆ ด้วยการเดินจริง ใช้เป็นตัวเทียบ ไม่ใช่ตัวที่บทความสอน */
+/** ตัวเดินอีกตัว ขยับทีละก้าวแล้วเด้งเมื่อชนขอบ ไม่ใช้สูตร lo/hi ของแนวทแยง (แบบเดียวกับ brute_sim.cpp) */
+function walkBounce(R: number, C: number, K: number): { r: number; c: number }[] {
+  const out: { r: number; c: number }[] = [];
+  let r = 0;
+  let c = 0;
+  let upRight = true;
+  while (out.length < K) {
+    out.push({ r, c });
+    if (upRight) {
+      if (r - 1 >= 0 && c + 1 < C) {
+        r--;
+        c++;
+      } else {
+        if (c + 1 < C) c++;
+        else r++;
+        upRight = false;
+      }
+    } else if (r + 1 < R && c - 1 >= 0) {
+      r++;
+      c--;
+    } else {
+      if (r + 1 < R) r++;
+      else c++;
+      upRight = true;
+    }
+  }
+  return out;
+}
+
+/** นับตรง ๆ ด้วยตัวเดินแบบเด้งขอบกับนิยามของสี ใช้เป็นตัวเทียบของทุกตัวเลขในหน้า */
 const slowCount = (R: number, C: number, K: number): number =>
-  walk(R, C, K).filter((p) => isGrey(p.r, p.c)).length;
+  walkBounce(R, C, K).filter((p) => isGrey(p.r, p.c)).length;
 
 const BITS = 21;
+const N_MAX = 1000000;
+const K_MAX = N_MAX * N_MAX;
+const D_MAX = 2 * N_MAX - 2;
+if (N_MAX >= 2 ** BITS || D_MAX >= 2 ** BITS) throw new Error('hedgehog-zigzag: 21 บิตไม่พอ');
 
 /** จำนวนคู่ (r, c) ที่ r < R, c < C, บิตไม่ชนกัน และ r + c < D */
 function countBelow(R: number, C: number, D: number): number {
@@ -89,7 +127,7 @@ function subLE(D: number, x: number): number {
   return res + (tight ? 1 : 0);
 }
 
-/** ท่าที่บทความสอน สองท่อน คือแนวทแยงที่เต็มแล้ว บวกส่วนที่ค้างบนแนวทแยงสุดท้าย */
+/** ท่าที่โค้ดใช้ สองท่อน คือแนวทแยงที่เต็มแล้ว บวกส่วนที่เดินบนแนวทแยงสุดท้าย */
 function fastCount(R: number, C: number, K: number): { ans: number; D: number; seen: number; a: number; b: number } {
   let seen = 0;
   let D = 0;
@@ -111,53 +149,132 @@ function fastCount(R: number, C: number, K: number): { ans: number; D: number; s
 }
 
 /* ด่านตรวจตอนบิลด์ ท่าที่สอนต้องตรงกับการเดินจริงทุกกระดานเล็ก ไม่งั้นหน้านี้ไม่ขึ้น */
-{
-  let checked = 0;
-  for (let R = 1; R <= 12; R++)
-    for (let C = 1; C <= 12; C++)
-      for (let K = 1; K <= R * C; K++) {
-        checked++;
-        if (fastCount(R, C, K).ans !== slowCount(R, C, K))
-          throw new Error(`hedgehog-zigzag: สูตรนับไม่ตรงกับการเดินจริงที่ R=${R} C=${C} K=${K}`);
-      }
-  if (checked < 5000) throw new Error('hedgehog-zigzag: ด่านตรวจรันน้อยเกินไป');
-}
-
-const SWEEP_CASES = (() => {
-  let n = 0;
-  for (let R = 1; R <= 12; R++) for (let C = 1; C <= 12; C++) n += R * C;
-  return n;
-})();
+let SWEEP_CASES = 0;
+for (let R = 1; R <= 12; R++)
+  for (let C = 1; C <= 12; C++)
+    for (let K = 1; K <= R * C; K++) {
+      SWEEP_CASES++;
+      if (fastCount(R, C, K).ans !== slowCount(R, C, K))
+        throw new Error(`hedgehog-zigzag: สูตรนับไม่ตรงกับการเดินจริงที่ R=${R} C=${C} K=${K}`);
+    }
+if (SWEEP_CASES !== 6084) throw new Error('hedgehog-zigzag: ด่านตรวจรันไม่ครบ');
+/* ลำดับของ walk (ใช้วาดภาพและสร้างเกม) ต้องตรงกับตัวเดินแบบเด้งขอบทุกก้าว */
+for (let R = 1; R <= 12; R++)
+  for (let C = 1; C <= 12; C++)
+    if (JSON.stringify(walk(R, C, R * C)) !== JSON.stringify(walkBounce(R, C, R * C)))
+      throw new Error(`hedgehog-zigzag: ลำดับการเดินสองแบบไม่ตรงกันที่ R=${R} C=${C}`);
 
 /* ตัวเลขที่เอาไปพูดในเนื้อความ */
 const fmt = (n: number): string => n.toLocaleString('en-US');
-const FULL_1M = countBelow(1000000, 1000000, 2000000);
 const SAMPLES = [
   { R: 10, C: 10, K: 6 },
   { R: 3, C: 5, K: 11 },
   { R: 10, C: 10, K: 100 },
 ].map((s) => ({ ...s, out: slowCount(s.R, s.C, s.K) }));
+const SAMPLE_OUTS = [5, 8, 51];
+SAMPLES.forEach((s, i) => {
+  if (s.out !== SAMPLE_OUTS[i]) throw new Error(`hedgehog-zigzag: ตัวอย่างที่ ${i + 1} ไม่ตรงกับโจทย์`);
+});
+
+/* ---------- ตัวอย่างตัวทด สำหรับตอนที่ 1 ---------- */
+const CARRY = [
+  { r: 5, c: 2 },
+  { r: 5, c: 3 },
+].map((p) => ({ ...p, sum: p.r + p.c, or: p.r | p.c, clash: (p.r & p.c) !== 0 }));
+if (CARRY[0].clash || CARRY[0].sum !== CARRY[0].or || !CARRY[1].clash || CARRY[1].sum === CARRY[1].or)
+  throw new Error('hedgehog-zigzag: ตัวอย่างตัวทดไม่ได้แสดงสิ่งที่ข้อความพูด');
+
+/* ---------- ไล่ subLE(D, lim) ทีละบิต สำหรับตอนที่ 3 ---------- */
+const TR_D = 6;
+const TR_LIM = 5;
+const TR_W = 3;
+const trSteps: string[] = [];
+let trTotal = 0;
+{
+  let below = popcountOf(TR_D);
+  let tight = true;
+  for (let i = TR_W - 1; i >= 0; i--) {
+    const di = (TR_D >> i) & 1;
+    const li = (TR_LIM >> i) & 1;
+    if (di === 1) below--;
+    if (li === 0) {
+      trSteps.push(`บิต ${i}: lim เป็น 0 ให้ r เป็น 0 ด้วย แล้วไปต่อ (ข้อ 1)`);
+      continue;
+    }
+    trTotal += 2 ** below;
+    const head = `บิต ${i}: lim เป็น 1 ถ้า r เป็น 0 ตรงนี้ บิตที่ต่ำกว่าเลือกตามบิต 1 ของ D ได้ ${below} ตัว บวก ${2 ** below} (ข้อ 2)`;
+    if (di === 0) {
+      tight = false;
+      trSteps.push(`${head} แต่ D ตรงนี้เป็น 0 r เป็น 1 ตาม lim ไม่ได้ หยุด (ข้อ 3)`);
+      break;
+    }
+    trSteps.push(`${head} และ D ตรงนี้เป็น 1 r เป็น 1 ตาม lim ได้ ไปต่อ`);
+  }
+  if (tight) {
+    trTotal += 1;
+    trSteps.push('เดินครบโดยไม่หยุด lim เองเป็นสับเซตของ D บวก 1 (ข้อ 4)');
+  }
+}
+const trBrute = Array.from({ length: TR_LIM + 1 }, (_, r) => r).filter((r) => (r & ~TR_D) === 0);
+if (trTotal !== trBrute.length || trTotal !== subLE(TR_D, TR_LIM) || TR_D >= 2 ** TR_W || TR_LIM >= 2 ** TR_W)
+  throw new Error('hedgehog-zigzag: ตัวอย่าง subLE ไม่ตรงกับการไล่ตรง ๆ');
+
+/* ค่าที่วัดจากโปรแกรมจริงบน WSL (g++ -O2, /usr/bin/time) */
+const MEASURED = {
+  fullOut: 3441847383, // ผลของ hedgehog.cpp ที่ R = C = 1,000,000, K = 10^12
+  solPeakKiB: 3768, // ค่าสูงสุดจากหกอินพุตขนาดเต็ม
+  midSec: 0.13, // ทางนับสับเซตทีละแนวทแยง ที่ R = C = 1,000,000, K = 10^12
+  bruteSteps: 2000000000, // brute_hedgehog.cpp ที่ K = 2,000 ล้าน
+  bruteSec: 1.05,
+  midCases: 499, // mid.cpp เทียบกับ brute_sim.cpp (อินพุตที่ K ไม่เกิน R x C)
+};
+const FULL_ANS = fastCount(N_MAX, N_MAX, K_MAX).ans;
+if (FULL_ANS !== MEASURED.fullOut) throw new Error('hedgehog-zigzag: โมเดลกับโปรแกรมจริงตอบเคสใหญ่ไม่ตรงกัน');
+const SOL_PEAK_MB = ((MEASURED.solPeakKiB * 1024) / 1e6).toFixed(1);
+const BRUTE_RATE_M = Math.round(MEASURED.bruteSteps / MEASURED.bruteSec / 1e6);
+const BRUTE_FULL_MIN = Math.round(((K_MAX / MEASURED.bruteSteps) * MEASURED.bruteSec) / 60);
 
 /* ---------- กระดานตัวอย่างสิบคูณสิบ สำหรับแผนภาพ ---------- */
 const BOARD = 10;
 const CELL = 26;
-const boardCells: { r: number; c: number; grey: boolean; ord: number }[] = [];
-{
-  const order = walk(BOARD, BOARD, BOARD * BOARD);
-  order.forEach((p, i) => boardCells.push({ r: p.r, c: p.c, grey: isGrey(p.r, p.c), ord: i + 1 }));
-  boardCells.sort((x, y) => x.r * BOARD + x.c - (y.r * BOARD + y.c));
-}
-const pathPts = walk(BOARD, BOARD, 21)
+const boardCells: { r: number; c: number; grey: boolean }[] = [];
+for (let r = 0; r < BOARD; r++) for (let c = 0; c < BOARD; c++) boardCells.push({ r, c, grey: isGrey(r, c) });
+const PATH_STEPS = 21;
+const pathPts = walk(BOARD, BOARD, PATH_STEPS)
   .map((p) => `${p.c * CELL + CELL / 2 + 22},${p.r * CELL + CELL / 2 + 20}`)
   .join(' ');
-const BOARD_W = BOARD * CELL + 22 + 12;
-const BOARD_H = BOARD * CELL + 20 + 34;
+const BOARD_W = (BOARD - 1) * CELL + 22 + (CELL - 2) + 12;
+const BOARD_H = (BOARD - 1) * CELL + 20 + (CELL - 2) + 34;
 
 /* ---------- แนวทแยงหนึ่งเส้น สำหรับแผนภาพสับเซต ---------- */
 const DEMO_D = 6;
+const popcount = popcountOf;
 const demoSub: { r: number; c: number }[] = [];
-for (let r = 0; r <= DEMO_D; r++) if ((r & (DEMO_D - r)) === 0 && r + (DEMO_D - r) === DEMO_D) demoSub.push({ r, c: DEMO_D - r });
+const demoOther: { r: number; c: number }[] = [];
+for (let r = 0; r <= DEMO_D; r++) (isGrey(r, DEMO_D - r) ? demoSub : demoOther).push({ r, c: DEMO_D - r });
+if (demoSub.length !== 2 ** popcount(DEMO_D)) throw new Error('hedgehog-zigzag: แผนภาพ d = 6 ไม่ตรงกับ 2 ยกกำลังจำนวนบิต');
 const bin = (v: number, w = 3): string => v.toString(2).padStart(w, '0');
+const DEMO_H = 66 + (demoSub.length - 1) * 32 + 26 + 34;
+
+/* แนวทแยงที่โดนขอบกระดาน 10 x 10 ตัด จำนวนช่องสีเทาจึงน้อยกว่า 2 ยกกำลังจำนวนบิต */
+const CLIP_D = 12;
+const clipAll = Array.from({ length: CLIP_D + 1 }, (_, r) => ({ r, c: CLIP_D - r })).filter((p) => isGrey(p.r, p.c));
+const clipOn = clipAll.filter((p) => p.r < BOARD && p.c < BOARD);
+if (clipAll.length !== 2 ** popcount(CLIP_D) || clipOn.length >= clipAll.length)
+  throw new Error('hedgehog-zigzag: ตัวอย่างแนวทแยงโดนตัดไม่ได้แสดงสิ่งที่ข้อความพูด');
+const pairList = (ps: { r: number; c: number }[]): string => ps.map((p) => `(${p.r}, ${p.c})`).join(' ');
+
+/* ---------- ตัวอย่างแรกของโจทย์ เดินผ่านสองท่อน ---------- */
+const EX = SAMPLES[0];
+const exFast = fastCount(EX.R, EX.C, EX.K);
+const exLens = Array.from({ length: exFast.D + 1 }, (_, d) => Math.min(EX.R - 1, d) - Math.max(0, d - EX.C + 1) + 1);
+const exT = EX.K - exFast.seen;
+const exPart1Cells = walk(EX.R, EX.C, exFast.seen);
+const exPart1 = exPart1Cells.filter((p) => isGrey(p.r, p.c)).length;
+const exPart2Rs = Array.from({ length: exFast.b - exFast.a + 1 }, (_, i) => exFast.a + i).filter((r) => isGrey(r, exFast.D - r));
+const exPart2 = exPart2Rs.length;
+if (exPart1 === 0 || exPart2 === 0 || exPart1 + exPart2 !== EX.out || exPart1 !== countBelow(EX.R, EX.C, exFast.D))
+  throw new Error('hedgehog-zigzag: ตัวอย่างสองท่อนไม่ตรงกับการนับตรง ๆ');
 
 /* ---------- มินิเกม ทายว่าช่องไหนเป็นสีเทาใน K ช่องแรก ---------- */
 type GameCell = { r: number; c: number; ord: number; grey: boolean };
@@ -173,20 +290,34 @@ function makePuzzle(id: string, label: string, tease: string, R: number, C: numb
 }
 
 const puzzles: GamePuzzle[] = [
-  makePuzzle('a', 'กระดาน 4 x 4', 'เดินครบทั้งกระดาน ถ้ายังจับกฎของสีไม่ได้ ให้เริ่มจากแถว 0 ก่อน มันง่ายที่สุด', 4, 4, 16),
+  makePuzzle('a', 'กระดาน 4 x 4', 'เดินครบทั้งกระดาน 16 ช่อง', 4, 4, 16),
   makePuzzle('b', 'กระดาน 6 x 6 หยุดที่ 21', 'คราวนี้เม่นหลับก่อนเดินครบ ช่องที่ยังไม่ได้ไปไม่นับ แม้มันจะเป็นสีเทาก็ตาม', 6, 6, 21),
   makePuzzle('c', 'กระดาน 5 x 8 หยุดที่ 24', 'กระดานไม่เป็นสี่เหลี่ยมจัตุรัส แนวทแยงบางเส้นจึงสั้นกว่าที่คิด', 5, 8, 24),
 ];
 const puzzlesJson = JSON.stringify(puzzles);
+const GAME_STATUS0 = 'ตัวเลขในช่องคือลำดับก้าวของเม่น ช่องที่เป็นจุดคือช่องที่เม่นหลับก่อนจะไปถึง';
+const gameScore0 = `เลือกไว้ 0 ช่อง จากที่เม่นเหยียบทั้งหมด ${puzzles[0].cells.length} ช่อง`;
 
 /* ---------- ตัวเล่นทีละขั้น เดินบิตของ R, C, D ---------- */
+/* D = 12 คือสิบสองแนวทแยงแรกของกระดาน 10 x 10 ขอบของ R และ C จึงมีผลด้วย */
 const PLAY_R = 10;
 const PLAY_C = 10;
-const PLAY_D = 7;
+const PLAY_D = 12;
 const PLAY_BITS = 4;
 type StateRow = { key: string; label: string; vals: number[] };
 const stateKeys: { a: number; b: number; s: number }[] = [];
 for (let a = 1; a >= 0; a--) for (let b = 1; b >= 0; b--) for (let s = 1; s >= 0; s--) stateKeys.push({ a, b, s });
+const stLabel = (k: number): string =>
+  `${flags(k)} (${k & 4 ? 'ติด' : 'หลุด'} R, ${k & 2 ? 'ติด' : 'หลุด'} C, ${k & 1 ? 'ติด' : 'หลุด'} ผลรวม)`;
+const flags = (k: number): string => `${(k >> 2) & 1}${(k >> 1) & 1}${k & 1}`;
+const liveList = (vals: number[]): string =>
+  vals
+    .map((v, k) => ({ v, k }))
+    .filter((x) => x.v > 0)
+    .map((x) => `${flags(x.k)} = ${x.v}`)
+    .join(', ');
+/* บิต 20 ถึง PLAY_BITS ของ R, C, D เป็น 0 หมด สถานะจึงค้างที่ 111 และตัวเล่นข้ามบิตพวกนั้น */
+if ((PLAY_R | PLAY_C | PLAY_D) >= 2 ** PLAY_BITS) throw new Error('hedgehog-zigzag: ตัวเล่นต้องการบิตมากกว่า 4');
 
 const playSteps: { bit: number; say: string; vals: number[] }[] = [];
 {
@@ -196,8 +327,8 @@ const playSteps: { bit: number; say: string; vals: number[] }[] = [];
   playSteps.push({
     bit: PLAY_BITS,
     say:
-      `เริ่มจากยังไม่เดินบิตไหนเลย ตอนนี้ค่าที่เป็นไปได้มีทางเดียว คือทั้ง r ทั้ง c และทั้งผลรวม ` +
-      `ยังเท่ากับขอบของตัวเองอยู่ทุกตัว จึงมีน้ำหนัก 1 อยู่ที่ช่อง <b>ติดทั้งสาม</b>`,
+      `ธงเรียงเป็น R C ผลรวม (1 = ติดขอบ, 0 = หลุด) บิต 20 ถึง ${PLAY_BITS} ของทั้งสามเลขเป็น 0 หมด ` +
+      `ทางเดียวที่ไม่เกินขอบคือเลือก 00 ทุกบิต สถานะจึงยังเป็น 111 = 1 แล้วเริ่มดูที่บิต ${PLAY_BITS - 1}`,
     vals: Array.from(dp),
   });
   for (let i = PLAY_BITS - 1; i >= 0; i--) {
@@ -205,11 +336,13 @@ const playSteps: { bit: number; say: string; vals: number[] }[] = [];
     const rb = (PLAY_R >> i) & 1;
     const cb = (PLAY_C >> i) & 1;
     const db = (PLAY_D >> i) & 1;
-    for (let a = 0; a < 2; a++)
-      for (let b = 0; b < 2; b++)
-        for (let s = 0; s < 2; s++) {
+    const moves: string[] = [];
+    for (let a = 1; a >= 0; a--)
+      for (let b = 1; b >= 0; b--)
+        for (let s = 1; s >= 0; s--) {
           const v = dp[at(a, b, s)];
           if (v === 0) continue;
+          const outs: string[] = [];
           for (let x = 0; x < 2; x++)
             for (let y = 0; y < 2; y++) {
               if (x === 1 && y === 1) continue;
@@ -217,30 +350,30 @@ const playSteps: { bit: number; say: string; vals: number[] }[] = [];
               if (a === 1 && x > rb) continue;
               if (b === 1 && y > cb) continue;
               if (s === 1 && so > db) continue;
-              nx[at(a === 1 && x === rb ? 1 : 0, b === 1 && y === cb ? 1 : 0, s === 1 && so === db ? 1 : 0)] += v;
+              const k = at(a === 1 && x === rb ? 1 : 0, b === 1 && y === cb ? 1 : 0, s === 1 && so === db ? 1 : 0);
+              nx[k] += v;
+              outs.push(`${x}${y}→${flags(k)}`);
             }
+          moves.push(`${flags(at(a, b, s))}×${v}: ${outs.join(' ')}`);
         }
     dp = nx;
     playSteps.push({
       bit: i,
-      say:
-        `บิตที่ ${i} ของ R คือ <b>${rb}</b> ของ C คือ <b>${cb}</b> และของ D คือ <b>${db}</b> ` +
-        `แต่ละสถานะแตกออกได้สามทาง คือ (0,0) (0,1) และ (1,0) ทางที่ทำให้เกินขอบที่ยังติดอยู่จะถูกทิ้ง ` +
-        `ส่วนทางที่ทำให้เลขน้อยกว่าขอบจริง ๆ จะย้ายไป<b>แถวที่หลุดขอบนั้น</b> และหลังจากนั้นมันอิสระตลอด`,
+      say: `บิตของ R C D = ${rb} ${cb} ${db} · ${moves.join(' | ')} · รวมได้ ${liveList(Array.from(dp))}`,
       vals: Array.from(dp),
     });
   }
   playSteps.push({
     bit: -1,
     say:
-      `เดินครบทุกบิตแล้ว คำตอบคือช่องที่<b>หลุดขอบครบทั้งสามตัว</b> ซึ่งได้ <b>${dp[at(0, 0, 0)]}</b> ` +
-      `ช่องที่ยังติดขอบอยู่แปลว่าค่ามันเท่ากับขอบพอดี ซึ่งเราต้องการน้อยกว่าเท่านั้น จึงไม่นับ`,
+      `ครบทุกบิต คำตอบคือสถานะ 000 = ${dp[at(0, 0, 0)]} ` +
+      `สถานะที่ยังมีธง 1 แปลว่าเลขตัวนั้นเท่ากับขอบพอดี โจทย์ต้องการน้อยกว่าขอบเท่านั้น จึงไม่นับ`,
     vals: Array.from(dp),
   });
 }
 const playRows: StateRow[] = stateKeys.map(({ a, b, s }) => ({
   key: `${a}${b}${s}`,
-  label: `${a ? 'ติด' : 'หลุด'} R · ${b ? 'ติด' : 'หลุด'} C · ${s ? 'ติด' : 'หลุด'} D`,
+  label: stLabel(a * 4 + b * 2 + s),
   vals: playSteps.map((st) => st.vals[a * 4 + b * 2 + s]),
 }));
 const playerSteps = playSteps.map((st, i) => ({
@@ -251,12 +384,42 @@ const playerSteps = playSteps.map((st, i) => ({
   col: i,
 }));
 const PLAY_ANSWER = countBelow(PLAY_R, PLAY_C, PLAY_D);
+const PLAY_K = walk(PLAY_R, PLAY_C, PLAY_R * PLAY_C).filter((p) => p.r + p.c < PLAY_D).length;
+const PLAY_SLOW = slowCount(PLAY_R, PLAY_C, PLAY_K);
+const PLAY_LENS = Array.from({ length: PLAY_D }, (_, d) => Math.min(PLAY_R - 1, d) - Math.max(0, d - PLAY_C + 1) + 1);
+if (PLAY_LENS.reduce((x, y) => x + y, 0) !== PLAY_K) throw new Error('hedgehog-zigzag: ความยาวแนวทแยงของตัวเล่นรวมไม่ตรง');
+if (PLAY_ANSWER !== PLAY_SLOW || walk(PLAY_R, PLAY_C, PLAY_K).some((p) => p.r + p.c >= PLAY_D))
+  throw new Error('hedgehog-zigzag: ตัวเล่นไม่ตรงกับการนับตรง ๆ');
 
-/* ---------- บิลค่าใช้จ่าย ---------- */
-const bill = [
-  { name: 'เดินทีละช่องตามที่โจทย์เล่า', limit: 'K ไม่เกินหนึ่งล้าน', work: `${fmt(1000000)} ก้าว` },
-  { name: 'นับด้วยการเดินบิต', limit: 'K ถึงหนึ่งล้านล้าน', work: '21 บิต คูณ 8 สถานะ' },
+/* ---------- งานต่อหนึ่งอินพุต นับเป็นก้าว (หนึ่งรอบของลูปในสุด) ---------- */
+const SUBLE_LOOP = BITS + 1; // subLE วนบิต 21..0 คือ 22 บิต (countBelow วนแค่ 20..0)
+const SUBLE_STEPS = 2 * 2 * SUBLE_LOOP; // เรียก 2 ครั้ง x 2 ลูป (นับบิต 1 ของ D ก่อน แล้วค่อยเดินจริง) x 22
+const DP_STEPS = BITS * 8 * 4; // 21 บิต x 8 สถานะ x 4 คู่ (x, y) นับคู่ (1,1) ที่ถูกทิ้งและสถานะที่เป็น 0 ด้วย จึงเป็นขอบบน
+const DIAG_FULL = D_MAX + 1; // D + 1 ไม่เกิน R + C - 1
+const DIAG_HALF = 999999; // D + 1 ไม่เกิน K และ K น้อยกว่าหนึ่งล้าน
+const SUBS = [
+  { label: 'ชุด 50%', head: 'K < 1,000,000', diag: DIAG_HALF, k: 999999 },
+  { label: 'ชุดเต็ม', head: 'K ≤ 10¹²', diag: DIAG_FULL, k: K_MAX },
 ];
+const ladderRows = [
+  { name: 'วิธีที่ 1', time: `ราว ${BRUTE_FULL_MIN} นาที (ประมาณ)`, cells: SUBS.map((s, i) => ({ steps: s.k, ok: i === 0 })) },
+  { name: 'วิธีที่ 2', time: `${MEASURED.midSec} วินาที`, cells: SUBS.map((s) => ({ steps: s.diag * SUBLE_STEPS, ok: true })) },
+  { name: 'วิธีที่ 3', time: 'ไม่ถึง 10 มิลลิวินาที', cells: SUBS.map((s) => ({ steps: s.diag + DP_STEPS + SUBLE_STEPS, ok: true })) },
+];
+
+/* ---------- ทดสอบตัวเอง ---------- */
+const QUIZ1_D = 5;
+const QUIZ1_RS = Array.from({ length: QUIZ1_D + 1 }, (_, r) => r).filter((r) => isGrey(r, QUIZ1_D - r));
+const QUIZ2 = SAMPLES[1];
+const quiz2Fast = fastCount(QUIZ2.R, QUIZ2.C, QUIZ2.K);
+const quiz2T = QUIZ2.K - quiz2Fast.seen;
+const quiz2Cells = walk(QUIZ2.R, QUIZ2.C, QUIZ2.K).slice(quiz2Fast.seen);
+const quiz2Part2 = quiz2Cells.filter((p) => isGrey(p.r, p.c)).length;
+const QUIZ3_BITS = 3;
+let QUIZ3 = 0;
+for (let r = 0; r < 2 ** QUIZ3_BITS; r++) for (let c = 0; c < 2 ** QUIZ3_BITS; c++) if (isGrey(r, c)) QUIZ3++;
+if (QUIZ1_RS.length !== 4 || quiz2Fast.D !== 4 || quiz2T !== 2 || quiz2Part2 !== 0 || QUIZ3 !== 3 ** QUIZ3_BITS)
+  throw new Error('hedgehog-zigzag: คำเฉลยทดสอบตัวเองไม่ตรง');
 
 const solution = `#include <bits/stdc++.h>
 using namespace std;
@@ -307,7 +470,7 @@ ll subLE(ll D, ll x){
 
 int main(){
     if(scanf("%lld %lld %lld", &R, &C, &K) != 3) return 0;
-    ll seen = 0, D = 0;                                   // หาว่าเม่นหลับกลางแนวทแยงเส้นไหน
+    ll seen = 0, D = 0;                                   // หาเส้น D ที่ก้าวที่ K ตกอยู่ (อาจเป็นช่องสุดท้ายของเส้น)
     for(ll d = 0; d < R + C - 1; d++){
         ll len = min(R - 1, d) - max(0LL, d - C + 1) + 1;
         if(seen + len >= K){ D = d; break; }
@@ -340,7 +503,7 @@ int main(){
 
 const coreSnippet = `// ช่องสีเทาคือช่องที่บิตของแถวกับของคอลัมน์ไม่ชนกัน
 // พอบิตไม่ชนกัน r + c จึงเท่ากับ r | c พอดี
-// แปลว่าบนแนวทแยง r + c = d ช่องสีเทาคือคู่ที่ r เป็นสับเซตของบิต d เท่านั้น
+// แปลว่าบนแนวทแยง r + c = d ช่องสีเทาคือคู่ที่ r เป็นสับเซตของบิต d (และช่องนั้นอยู่บนกระดาน)
 bool grey(int r, int c){ return (r & c) == 0; }`;
 ---
 <CpProblemLayout href={href}>
@@ -350,11 +513,18 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
     แถวนับ 0 ถึง <code>R</code> ลบหนึ่งจากบนลงล่าง คอลัมน์นับ 0 ถึง <code>C</code> ลบหนึ่งจากซ้ายไปขวา
   </p>
   <p>
-    ที่แปลกคือวิธีระบายสี ช่องหนึ่ง ๆ จะเป็น<strong>สีขาว</strong> ถ้าเลขแถวกับเลขคอลัมน์
-    เขียนเป็นเลขฐานสองแล้ว<strong>มีเลข 1 ตรงตำแหน่งเดียวกันอย่างน้อยหนึ่งตำแหน่ง</strong>
-    เช่นช่อง (4, 5) เพราะ 4 คือ <code>100</code> และ 5 คือ <code>101</code> ซึ่งชนกันที่ตำแหน่งซ้ายสุด
-    นอกนั้นเป็น<strong>สีเทา</strong> เช่นช่อง (2, 5) เพราะ 2 คือ <code>010</code> ส่วน 5 คือ <code>101</code> ไม่ชนกันเลยสักตำแหน่ง
+    ที่แปลกคือวิธีระบายสี ให้เขียนเลขแถวกับเลขคอลัมน์เป็นเลขฐานสอง แล้วเทียบทีละหลัก
+    (แต่ละหลักของเลขฐานสองเรียกว่า<strong>บิต</strong>)
   </p>
+  <ul>
+    <li>
+      <strong>สีขาว:</strong> มีตำแหน่งที่เป็น 1 ทั้งคู่อย่างน้อยหนึ่งตำแหน่ง เรียกว่าบิตชนกัน
+      เช่นช่อง (4, 5) เพราะ 4 = <code>100</code> กับ 5 = <code>101</code> ชนกันที่ตำแหน่งซ้ายสุด
+    </li>
+    <li>
+      <strong>สีเทา:</strong> บิตไม่ชนกันเลยสักตำแหน่ง เช่นช่อง (2, 5) เพราะ 2 = <code>010</code> กับ 5 = <code>101</code>
+    </li>
+  </ul>
   <p>
     เม่นของลูก้าเริ่มเดินที่ช่อง (0, 0) แล้วเดิน<strong>ซิกแซกไปตามแนวทแยง</strong> ตามภาพข้างล่าง
     ลูก้านั่งนับว่าเม่นเหยียบช่องสีเทาไปกี่ช่อง พอเหยียบครบ <code>K</code> ช่องเม่นก็หลับ
@@ -366,9 +536,10 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
     <ul>
       <li><strong>อินพุต:</strong> บรรทัดแรกคือ <code>R</code> กับ <code>C</code> บรรทัดที่สองคือ <code>K</code></li>
       <li>
-        <strong>ขอบเขต:</strong> <code>1 &le; R, C &le; {fmt(1000000)}</code> และ <code>1 &le; K &le; R &times; C</code>
-        โจทย์เตือนเองว่า <code>K</code> อาจไม่พอใส่จำนวนเต็ม 32 บิต เวลา 1 วินาที หน่วยความจำ 32 เมกะไบต์
+        <strong>ขอบเขต:</strong> <code>1 &le; R, C &le; {fmt(N_MAX)}</code> และ <code>1 &le; K &le; R &times; C</code>
+        โจทย์เตือนเองว่า <code>K</code> อาจไม่พอใส่จำนวนเต็ม 32 บิต
       </li>
+      <li><strong>ลิมิต:</strong> เวลา 1 วินาที หน่วยความจำ 32 MB</li>
       <li><strong>เอาต์พุต:</strong> จำนวนช่องสีเทาที่เม่นเหยียบ</li>
       <li><strong>ให้คะแนน:</strong> ชุดทดสอบมูลค่า 50% มี <code>K</code> น้อยกว่าหนึ่งล้าน</li>
     </ul>
@@ -390,18 +561,17 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
   <div class="callout callout-tip">
     <p class="callout-label">ใบ้</p>
     <p>
-      ชุดทดสอบครึ่งหนึ่งให้ <code>K</code> ไม่เกินหนึ่งล้าน ซึ่งเดินจริงทีละช่องได้สบาย
-      แต่ชุดเต็มให้ <code>K</code> ได้ถึง <strong>หนึ่งล้านล้าน</strong> เดินไม่ไหวแน่นอน
-      คำถามจึงกลายเป็นว่า<strong>นับโดยไม่เดิน</strong>ได้ไหม
+      ชุดทดสอบครึ่งหนึ่งให้ <code>K</code> น้อยกว่าหนึ่งล้าน ซึ่งเดินตามเม่นทีละช่องได้ทัน
+      แต่ชุดเต็มให้ <code>K</code> ได้ถึง<strong>หนึ่งล้านล้าน</strong>
     </p>
     <p>
-      ลองอ่านประโยคว่า "ไม่มีเลข 1 ตรงตำแหน่งเดียวกัน" ใหม่ ถ้าบิตของสองตัวนี้ไม่เคยชนกันเลย
-      แล้ว <code>r + c</code> กับ <code>r | c</code> ต่างกันตรงไหน
+      ภาพกระดาน {BOARD} x {BOARD} ข้างล่างระบายสีไว้ให้แล้ว ลองไล่ดูทีละแนวทแยง
+      (ช่องที่เลขแถวบวกเลขคอลัมน์ได้เท่ากัน) แต่ละเส้นมีช่องสีเทากี่ช่อง?
     </p>
   </div>
 
-  <ZoomableDiagram caption={`กระดาน ${BOARD} x ${BOARD} จริง ๆ ช่องเขียวคือสีเทาตามนิยามของโจทย์ ช่องทึบคือสีขาว เส้นทองคือ 21 ก้าวแรกของเม่น สังเกตว่าแถว 0 กับคอลัมน์ 0 เป็นสีเทาทั้งแถบ เพราะเลข 0 ไม่มีบิต 1 ให้ชนกับใคร (วาดจากโมเดลในหน้านี้)`}>
-    <svg viewBox={`0 0 ${BOARD_W} ${BOARD_H}`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กระดานสิบคูณสิบ ช่องที่เลขแถวกับเลขคอลัมน์ไม่มีบิตหนึ่งตรงกันถูกระบายเป็นสีเขียวอ่อน ช่องที่เหลือเป็นสีเข้ม มีเส้นสีทองลากซิกแซกจากมุมบนซ้ายไปตามแนวทแยงแสดงลำดับการเดินยี่สิบเอ็ดก้าวแรก`}>
+  <ZoomableDiagram caption={`กระดาน ${BOARD} x ${BOARD} ช่องเขียวคือสีเทาตามนิยามของโจทย์ ช่องทึบคือสีขาว เส้นทองคือ ${PATH_STEPS} ก้าวแรกของเม่น แถว 0 กับคอลัมน์ 0 เป็นสีเทาทั้งแถบ เพราะเลข 0 ไม่มีบิต 1 ให้ชนกับใคร`}>
+    <svg viewBox={`0 0 ${BOARD_W} ${BOARD_H}`} style={`display:block;margin:0 auto;max-width:${Math.round(BOARD_W * 1.25)}px`} xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`กระดานสิบคูณสิบ ช่องที่เลขแถวกับเลขคอลัมน์ไม่มีบิตหนึ่งตรงกันถูกระบายเป็นสีเขียวอ่อน ช่องที่เหลือเป็นสีเข้ม มีเส้นสีทองลากซิกแซกจากมุมบนซ้ายไปตามแนวทแยงแสดงลำดับการเดินยี่สิบเอ็ดก้าวแรก`}>
       {boardCells.map((cell) => (
         <rect
           x={cell.c * CELL + 22}
@@ -458,118 +628,241 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
       <button type="button" class="cpg-btn main" data-hz-check>ตรวจคำทาย</button>
     </div>
 
-    <p class="cpg-status" data-cpg-status>ตัวเลขในช่องคือลำดับก้าวของเม่น ช่องที่เป็นจุดคือช่องที่เม่นหลับก่อนจะไปถึง</p>
-    <p class="cpg-score" data-cpg-score>เลือกไว้ 0 ช่อง</p>
+    <p class="cpg-status" data-cpg-status data-status0={GAME_STATUS0}>{GAME_STATUS0}</p>
+    <p class="cpg-score" data-cpg-score>{gameScore0}</p>
     <p class="cpg-hint">เขียนเลขแถวกับเลขคอลัมน์เป็นฐานสองในใจ ถ้าไม่มีตำแหน่งไหนเป็น 1 พร้อมกัน ช่องนั้นคือสีเทา</p>
   </div>
-  <p class="io-note">
-    ถ้าทายพลาดบ่อยที่ช่องแถวสูง ๆ ลองสังเกตว่าช่อง (r, c) กับช่อง (c, r) ให้ผลเหมือนกันเสมอ
-    เพราะเงื่อนไขมันสมมาตร กระดานทั้งกระดานจึงพับทับกันได้ตามแนวทแยง
-  </p>
 
   <h2>เฉลย ตอนที่ 1 &middot; แปลคำว่าสีเทาเป็นภาษาที่นับได้</h2>
   <Spoiler>
     <div class="callout callout-note">
       <p class="callout-label">ที่มาของแนวคิดนี้</p>
       <p>
-        ข้อนี้ไม่มีบั๊กให้เล่า เพราะทางที่ผมเดินตั้งแต่แรกมันถูกอยู่แล้ว สิ่งที่มีคือ<strong>แรงกดดันที่บังคับให้เดินทางนั้น</strong>
-        ผมเริ่มจากเขียนตัวเดินจริงก่อน เพราะมันเขียนเสร็จในสองนาทีและตอบตัวอย่างในโจทย์ถูกทั้งสามชุด
-        แล้วค่อยเอา <code>K</code> เท่าที่โจทย์ให้ได้จริงไปแทน คือ {fmt(1000000)} คูณ {fmt(1000000)}
-        ซึ่งเป็นหนึ่งล้านล้านก้าว ตัวเดินตัวนั้นจะใช้เวลาเป็นชั่วโมง
+        ตัวเดินจริงตอบตัวอย่างในโจทย์ถูกทั้งสามชุด แต่ชุดเต็มให้ <code>K</code> ได้ถึง {fmt(K_MAX)} ก้าว ซึ่งเดินตามไม่ทัน
       </p>
       <p>
-        จุดที่ทำให้เห็นทาง คือผมกลับไปอ่านนิยามของสีอีกรอบแล้วถามว่ามันพูดถึงอะไรกันแน่
-        มันไม่ได้พูดถึงตำแหน่งบนกระดาน มันพูดถึง<strong>บิตของเลขสองตัว</strong> และประโยคว่าบิตไม่ชนกัน
-        คือประโยคเดียวกับ <code>r + c = r | c</code> ซึ่งแปลว่าเลขแนวทแยงกับสีของช่อง
-        เป็นเรื่องเดียวกันมาตลอด ผมแค่ยังไม่ได้เขียนมันด้วยคำเดียวกัน
-      </p>
-      <p>
-        บทเรียนที่ยกไปข้ออื่นได้คือ เวลาโจทย์นิยามอะไรด้วยเลขฐานสอง ให้ลองเขียนนิยามนั้นใหม่
-        เป็น<strong>ความสัมพันธ์ระหว่างการบวกกับการหรือ</strong> ดูสักครั้ง มันเปลี่ยนโจทย์เรขาคณิตเป็นโจทย์นับได้บ่อยกว่าที่คิด
+        ผมกลับไปอ่านนิยามของสีอีกรอบ นิยามพูดถึงบิตของเลขแถว <code>r</code> กับเลขคอลัมน์ <code>c</code>
+        ส่วนแนวทแยงพูดถึงผลบวก <code>r + c</code> เลยลองหาว่าสองอย่างนี้เกี่ยวกันยังไง
       </p>
     </div>
     <p>
-      นิยามของโจทย์บอกว่าช่อง <code>(r, c)</code> เป็นสีเทาก็ต่อเมื่อ <code>r</code> กับ <code>c</code>
-      ไม่มีบิต 1 ตรงตำแหน่งเดียวกันเลย ซึ่งเขียนสั้น ๆ ได้ว่า <code>r &amp; c = 0</code>
+      ในหน้านี้ <code>d</code> ตัวเล็กคือเลขของแนวทแยงเส้นไหนก็ได้ (ช่องที่ <code>r + c = d</code>)
+      ส่วน <code>D</code> ตัวใหญ่ใช้เฉพาะเส้นที่เม่นหยุด ซึ่งจะนิยามในตอนที่ 2
     </p>
-    <CodeBlock code={coreSnippet} lang="cpp" title="หัวใจของทั้งข้อ" />
     <p>
-      พอบิตไม่ชนกัน การบวกก็<strong>ไม่มีตัวทด</strong> เลยสักตำแหน่ง ผลลัพธ์ของ <code>r + c</code>
-      จึงเท่ากับ <code>r | c</code> พอดี แปลว่าบนแนวทแยงเส้นที่ <code>r + c = d</code>
-      ช่องสีเทาคือคู่ที่ <strong>บิตของ <code>r</code> เป็นสับเซตของบิตของ <code>d</code></strong>
-      และ <code>c</code> คือบิตที่เหลือของ <code>d</code> พอดี
+      นิยามของโจทย์เขียนเป็นโค้ดได้ว่า <code>r &amp; c = 0</code>
+      เครื่องหมาย <code>&amp;</code> คือ AND ทีละบิต (อ่านว่า แอนด์) ได้ 1 เฉพาะตำแหน่งที่ทั้งสองตัวเป็น 1
     </p>
-    <p class="pull">แนวทแยงเส้นหนึ่งไม่ได้มีช่องสีเทากระจัดกระจาย มันมีเท่ากับจำนวนวิธีแบ่งบิตของเลขประจำเส้นออกเป็นสองกอง</p>
+    <p>อีกตัวที่จะใช้คือ <code>|</code> หรือ OR ทีละบิต (อ่านว่า ออร์) ได้ 1 เมื่อตัวใดตัวหนึ่งเป็น 1</p>
+    <CodeBlock code={coreSnippet} lang="cpp" title="นิยามของสีในโค้ด" />
+    <p>บวกเลขฐานสองแบบตั้งหลักเหมือนฐานสิบ ลองดูสองคู่นี้</p>
+    <ul>
+      <li>
+        {CARRY[0].r} + {CARRY[0].c}: <code>{bin(CARRY[0].r)} + {bin(CARRY[0].c)} = {bin(CARRY[0].sum)}</code>
+        บิตไม่ชนกัน ไม่มีตัวทด ผลบวกเท่ากับ OR พอดี
+      </li>
+      <li>
+        {CARRY[1].r} + {CARRY[1].c}: <code>{bin(CARRY[1].r)} + {bin(CARRY[1].c)} = {bin(CARRY[1].sum, 4)}</code>
+        มีตำแหน่งที่เป็น 1 ทั้งคู่ เกิดตัวทด ผลบวกต่างจาก OR ซึ่งได้ <code>{bin(CARRY[1].or)}</code>
+      </li>
+    </ul>
+    <p>
+      ตัวทดตัวแรกเกิดได้เฉพาะตำแหน่งที่ทั้งสองตัวเป็น 1 ถ้าบิตไม่ชนกันเลย ก็ไม่มีตัวทดตั้งแต่ต้น
+      และ <code>r + c</code> เท่ากับ <code>r | c</code> ทุกครั้ง
+    </p>
+    <div class="callout callout-tip">
+      <p class="callout-label">ช่องสีเทาบนแนวทแยงเส้นที่ d</p>
+      <p>
+        คำว่า<strong>บิตของ r อยู่ในบิตของ d</strong> (เรียกอีกแบบว่า r เป็นสับเซตของ d)
+        แปลว่าทุกตำแหน่งที่ <code>r</code> เป็น 1 ตัว <code>d</code> ก็เป็น 1 ด้วย
+      </p>
+      <ul>
+        <li>
+          ถ้าช่อง <code>(r, c)</code> บนเส้น d เป็นสีเทา: ไม่มีตัวทด <code>d</code> จึงเท่ากับ <code>r | c</code>
+          บิตของ <code>r</code> ต้องอยู่ในบิตของ <code>d</code> และ <code>c</code> คือตำแหน่งที่ <code>d</code> เป็น 1 แต่ <code>r</code> เป็น 0
+        </li>
+        <li>
+          กลับกัน ถ้าบิตของ <code>r</code> อยู่ในบิตของ <code>d</code>: <code>c = d - r</code> คือ <code>d</code>
+          ที่ลบบิตของ <code>r</code> ออก ไม่มีบิตไหนตรงกับ <code>r</code> ช่องนั้นเป็นสีเทา
+        </li>
+      </ul>
+    </div>
+    <p>
+      ภาพข้างล่างคือเส้น d = {DEMO_D} ซึ่งเป็น <code>{bin(DEMO_D)}</code> มีบิต 1 อยู่ {popcount(DEMO_D)} ตัว
+      แต่ละตัวเลือกได้ว่าจะไปอยู่กับ <code>r</code> หรือกับ <code>c</code> ได้ {demoSub.length} แบบ ตรงกับ {demoSub.length} แถวในภาพ
+    </p>
 
-    <ZoomableDiagram caption={`แนวทแยงเส้นที่ d = ${DEMO_D} ซึ่งเขียนเป็นฐานสองได้ ${bin(DEMO_D)} มีบิต 1 อยู่สองตำแหน่ง ช่องสีเทาบนเส้นนี้จึงมีสี่ช่อง คือจำนวนวิธีแจกบิตสองตัวนั้นให้แถวหรือให้คอลัมน์ ส่วนช่องอื่นบนเส้นเดียวกันต้องยืมตัวทด บิตจึงชนกันเสมอ`}>
-      <svg viewBox="0 0 424 214" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนภาพแสดงเลขหกในฐานสองคือหนึ่งหนึ่งศูนย์ ด้านล่างมีสี่แถวแสดงการแจกบิตสองตัวให้แถวและคอลัมน์ ได้คู่ศูนย์กับหก สองกับสี่ สี่กับสอง และหกกับศูนย์`}>
-        <text x="16" y="24" fill="#9aa7bd" font-size="12">แนวทแยงเส้นที่</text>
-        <text x="120" y="24" fill="#d8b25a" font-size="13" font-family="monospace" font-weight="700">d = {DEMO_D}</text>
-        <text x="176" y="24" fill="#9aa7bd" font-size="12">ฐานสองคือ</text>
-        <text x="252" y="24" fill="#d8b25a" font-size="13" font-family="monospace" font-weight="700">{bin(DEMO_D)}</text>
-        <line x1="16" y1="36" x2="396" y2="36" stroke="#2a3350" />
-        <text x="16" y="56" fill="#9aa7bd" font-size="11">แถว r</text>
-        <text x="132" y="56" fill="#9aa7bd" font-size="11">คอลัมน์ c</text>
-        <text x="266" y="56" fill="#9aa7bd" font-size="11">บิตชนกันไหม</text>
+    <ZoomableDiagram caption={`แนวทแยง d = ${DEMO_D} มีช่องสีเทา ${demoSub.length} ช่อง ช่องที่เหลือบนเส้นเดียวกัน ${pairList(demoOther)} บิตชนกันจึงเป็นสีขาว`}>
+      <svg viewBox={`0 0 404 ${DEMO_H}`} style="display:block;margin:0 auto;max-width:505px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={`แผนภาพแสดงเลขหกในฐานสองคือหนึ่งหนึ่งศูนย์ ด้านล่างมีสี่แถวแสดงการแจกบิตสองตัวให้แถวและคอลัมน์ ได้คู่ศูนย์กับหก สองกับสี่ สี่กับสอง และหกกับศูนย์`}>
+        <text x="12" y="24" fill="#9aa7bd" font-size="12">แนวทแยงเส้นที่</text>
+        <text x="116" y="24" fill="#d8b25a" font-size="13" font-family="monospace" font-weight="700">d = {DEMO_D}</text>
+        <text x="172" y="24" fill="#9aa7bd" font-size="12">ฐานสองคือ</text>
+        <text x="248" y="24" fill="#d8b25a" font-size="13" font-family="monospace" font-weight="700">{bin(DEMO_D)}</text>
+        <line x1="12" y1="36" x2="392" y2="36" stroke="#2a3350" />
+        <text x="12" y="56" fill="#9aa7bd" font-size="11">แถว r</text>
+        <text x="128" y="56" fill="#9aa7bd" font-size="11">คอลัมน์ c</text>
+        <text x="262" y="56" fill="#9aa7bd" font-size="11">บิตชนกันไหม</text>
         {demoSub.map((p, i) => (
           <>
-            <rect x="16" y={66 + i * 32} width="100" height="26" rx="4" fill="#163a2a" stroke="#2f9e5c" />
-            <text x="66" y={84 + i * 32} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{p.r} = {bin(p.r)}</text>
-            <rect x="132" y={66 + i * 32} width="100" height="26" rx="4" fill="#163a2a" stroke="#2f9e5c" />
-            <text x="182" y={84 + i * 32} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{p.c} = {bin(p.c)}</text>
-            <text x="266" y={84 + i * 32} fill="#4ade80" font-size="12">ไม่ชน จึงเป็นสีเทา</text>
+            <rect x="12" y={66 + i * 32} width="100" height="26" rx="4" fill="#163a2a" stroke="#2f9e5c" />
+            <text x="62" y={84 + i * 32} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{`${p.r} = ${bin(p.r)}`}</text>
+            <rect x="128" y={66 + i * 32} width="100" height="26" rx="4" fill="#163a2a" stroke="#2f9e5c" />
+            <text x="178" y={84 + i * 32} fill="#cdd6ea" font-size="12" text-anchor="middle" font-family="monospace">{`${p.c} = ${bin(p.c)}`}</text>
+            <text x="262" y={84 + i * 32} fill="#4ade80" font-size="12">ไม่ชน เป็นสีเทา</text>
           </>
         ))}
       </svg>
     </ZoomableDiagram>
+    <p>
+      เป็นกฎทั่วไปได้ว่า ถ้าเส้นไม่โดนขอบกระดานตัด ช่องสีเทาบนเส้น d มี 2 ยกกำลังจำนวนบิต 1 ของ d ช่อง
+    </p>
+    <p>
+      บนกระดานจริง แนวทแยงบางเส้นโดนขอบตัด เช่นเส้น d = {CLIP_D} (<code>{bin(CLIP_D, 4)}</code>) มีคู่ที่บิตไม่ชนกัน {clipAll.length} คู่
+      คือ {pairList(clipAll)}
+    </p>
+    <p>
+      แต่บนกระดาน {BOARD} x {BOARD} เหลือแค่ {pairList(clipOn)}
+      การนับจึงต้องใส่เงื่อนไข <code>r &lt; R</code> และ <code>c &lt; C</code> ไว้ด้วยเสมอ
+    </p>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 2 &middot; ตัดคำถามเป็นสองท่อน แล้วท่อนแรกไม่สนใจการเดินเลย</h2>
+  <h2>เฉลย ตอนที่ 2 &middot; เม่นไปถึงเส้นไหน</h2>
   <Spoiler>
     <p>
-      เม่นเดินตามแนวทแยงทีละเส้น เส้นที่ <code>d</code> มีช่องอยู่ตายตัว
-      ดังนั้นถ้าเดินไป <code>K</code> ช่อง เม่นจะ<strong>เดินจบไปเต็ม ๆ หลายเส้น</strong>
-      แล้วหลับกลางเส้นสุดท้ายเส้นเดียว
+      เม่นเดินจบแนวทแยงทีละเส้น และเส้นที่ <code>d</code> มีจำนวนช่องตายตัว
+      บวกความยาวของแต่ละเส้นสะสมไปจนเจอเส้นแรกที่ยอดรวมถึง <code>K</code> เรียกเส้นนั้นว่า <code>D</code>
     </p>
     <ul>
-      <li>ท่อนแรกคือทุกแนวทแยงที่เดินจบแล้ว ซึ่งคือทุกช่องที่ <code>r + c &lt; D</code> ทั้งหมด</li>
-      <li>ท่อนที่สองคือช่วงต่อเนื่องช่วงเดียวบนเส้น <code>D</code></li>
+      <li>
+        <strong>ท่อนแรก:</strong> เส้น 0 ถึง <code>D - 1</code> ที่เดินครบแล้ว
+        คือทุกช่องที่ <code>r + c &lt; D</code> (ถ้า <code>D = 0</code> ท่อนนี้ว่าง)
+      </li>
+      <li>
+        <strong>ท่อนสอง:</strong> <code>t</code> ช่องแรกที่เดินบนเส้น <code>D</code>
+        โดย <code>t</code> อยู่ระหว่าง 1 ถึงความยาวของเส้นนั้น
+      </li>
     </ul>
     <p>
-      ประเด็นที่ทำให้ข้อนี้ง่ายลงมาก คือ<strong>ลำดับซิกแซกมีผลแค่ในท่อนที่สอง</strong>
-      ท่อนแรกเป็นเซตของช่อง ไม่ใช่ลำดับของช่อง เม่นจะเดินขึ้นหรือลงก็ได้เซตเดียวกัน
-      ทิศทางของแนวทแยงจึงเหลือหน้าที่เดียว คือบอกว่าช่วงที่ค้างอยู่บนเส้นสุดท้าย
-      เริ่มจาก <code>r</code> น้อยไปมาก หรือจากมากไปน้อย
+      ถ้าก้าวที่ <code>K</code> เป็นช่องสุดท้ายของเส้นพอดี เส้นนั้นยังนับเป็น <code>D</code>
+      และ <code>t</code> เท่ากับความยาวเส้น ตัวอย่างแรกของโจทย์เป็นแบบนี้
+    </p>
+    <p>
+      ทิศที่เดินในแต่ละเส้นไม่เปลี่ยนว่าท่อนแรกมีช่องไหนบ้าง ลำดับซิกแซกมีผลแค่ในท่อนสอง
+      คือบอกว่า <code>t</code> ช่องนั้นอยู่ปลายไหนของเส้น
+    </p>
+    <p>
+      ทั้งสองท่อนนับด้วยกฎจากตอนที่ 1 ได้ ส่วนวิธีนับให้ทันบนกระดานล้านคูณล้านอยู่ในตอนที่ 3
     </p>
     <div class="callout callout-note">
-      <p class="callout-label">โน้ต &middot; ทิศของแต่ละแนวทแยง</p>
-      <p>
-        จากภาพกระดานข้างบน เส้นที่ <code>d</code> เป็นเลขคี่เดิน<strong>ลงล่าง</strong> คือ <code>r</code> เพิ่มขึ้น
-        ส่วนเส้นที่ <code>d</code> เป็นเลขคู่เดิน<strong>ขึ้นบน</strong> คือ <code>r</code> ลดลง
-        ตรวจได้จากสามก้าวแรกคือ (0,0) แล้ว (0,1) แล้ว (1,0)
-      </p>
+      <p class="callout-label">ช่วงที่เดินบนเส้น D</p>
+      <ul>
+        <li>เส้น <code>d</code> มีแถว <code>r</code> ตั้งแต่ <code>lo = max(0, d - C + 1)</code> ถึง <code>hi = min(R - 1, d)</code></li>
+        <li><code>D</code> เป็นเลขคี่: เดินลงล่าง (<code>r</code> เพิ่มขึ้น) ช่วงที่เดินคือ <code>a = lo</code> ถึง <code>b = lo + t - 1</code></li>
+        <li><code>D</code> เป็นเลขคู่: เดินขึ้นบน (<code>r</code> ลดลง) ช่วงที่เดินคือ <code>a = hi - t + 1</code> ถึง <code>b = hi</code></li>
+      </ul>
+      <p>ตรวจทิศได้จากภาพกระดาน สามก้าวแรกคือ (0, 0) แล้ว (0, 1) แล้ว (1, 0)</p>
+    </div>
+    <div class="callout callout-tip">
+      <p class="callout-label">ลองกับตัวอย่างแรก ({EX.R} {EX.C}, K = {EX.K})</p>
+      <ul>
+        <li>
+          ความยาวเส้น {exLens.map((_, d) => d).join(', ')} คือ {exLens.join(', ')} ช่อง
+          ครบ {EX.K} ที่เส้น <code>D = {exFast.D}</code> ท่อนแรกมี {exFast.seen} ช่อง และ <code>t = {exT}</code>
+        </li>
+        <li>ท่อนแรก: {pairList(exPart1Cells)} เป็นสีเทา {exPart1} ช่อง</li>
+        <li>
+          ท่อนสอง: <code>D = {exFast.D}</code> เป็นเลขคู่ ช่วงคือ <code>r</code> = {exFast.a} ถึง {exFast.b}
+          ตัว {exFast.D} = <code>{bin(exFast.D, 2)}</code> และ r ที่บิตอยู่ในบิตของ {exFast.D} คือ {exPart2Rs.join(' กับ ')} ได้ {exPart2} ช่อง
+        </li>
+        <li>รวม {exPart1} + {exPart2} = {EX.out} ตรงกับคำตอบในตัวอย่าง</li>
+      </ul>
     </div>
   </Spoiler>
 
-  <h2>เฉลย ตอนที่ 3 &middot; นับทั้งท่อนแรกด้วยการเดินทีละบิต</h2>
+  <h2>เฉลย ตอนที่ 3 &middot; ลงมือนับ</h2>
   <Spoiler>
     <p>
-      ท่อนแรกคือการนับคู่ <code>(r, c)</code> ที่ผ่านเงื่อนไขสามข้อพร้อมกัน คือ <code>r &lt; R</code>,
-      <code>c &lt; C</code> และ <code>r | c &lt; D</code> โดยที่บิตของสองตัวห้ามชนกัน
+      ท่อนสองต้องนับ <code>r</code> ในช่วง <code>[a, b]</code> ที่บิตอยู่ในบิตของ <code>D</code>
+      ให้ <code>subLE(D, lim)</code> คือจำนวน <code>r</code> ตั้งแต่ 0 ถึง <code>lim</code> ที่บิตอยู่ในบิตของ <code>D</code>
+    </p>
+    <p>คำตอบของท่อนสองคือ <code>subLE(D, b) - subLE(D, a - 1)</code></p>
+    <div class="callout callout-note">
+      <p class="callout-label">subLE(D, lim) ไล่จากบิตซ้ายสุดมาขวาสุด</p>
+      <p>ระหว่างไล่ เราดูเฉพาะ r ที่บิตซ้าย ๆ ที่ผ่านมาเท่ากับของ lim ทุกบิต แล้วตัดสินบิตถัดไป</p>
+      <ol>
+        <li>บิตนี้ของ <code>lim</code> เป็น 0: <code>r</code> ต้องเป็น 0 ด้วย ไปบิตถัดไป</li>
+        <li>
+          บิตนี้ของ <code>lim</code> เป็น 1: ถ้า <code>r</code> เป็น 0 ตรงนี้ <code>r</code> น้อยกว่า <code>lim</code> แล้ว
+          บิตที่ต่ำกว่าเลือกได้ตามบิต 1 ของ <code>D</code> ที่ต่ำกว่า จึงบวก 2 ยกกำลังจำนวนบิตพวกนั้น
+        </li>
+        <li>
+          ต่อจากข้อ 2 ลองให้ <code>r</code> เป็น 1 ตาม <code>lim</code> ถ้าบิตนี้ของ <code>D</code> เป็น 0 ก็ทำไม่ได้
+          ไม่มี r ไหนตาม lim ต่อได้อีก และทางที่ r เป็น 0 ถูกนับไปแล้วในข้อ 2 หยุดได้เลย
+        </li>
+        <li>ไล่ครบโดยไม่หยุด แปลว่า <code>lim</code> เองมีบิตอยู่ในบิตของ <code>D</code> บวกอีก 1</li>
+      </ol>
+      <p>
+        ตัวอย่าง subLE({TR_D}, {TR_LIM}) โดย {TR_D} = <code>{bin(TR_D)}</code> และ {TR_LIM} = <code>{bin(TR_LIM)}</code>
+        (บิตที่สูงกว่านี้เป็น 0 ทั้งคู่ ผ่านไปตามข้อ 1)
+      </p>
+      <ul>
+        {trSteps.map((s) => <li>{s}</li>)}
+      </ul>
+      <p>รวม {trTotal} ตรงกับการไล่ตรง ๆ ซึ่งได้ r = {trBrute.join(', ')}</p>
+    </div>
+    <p>
+      ใช้ subLE กับทุกเส้นของท่อนแรกทีละเส้นก็ได้ (วิธีที่ 2 ในตารางท้ายหน้า)
+      โค้ดในหน้านี้นับท่อนแรกทั้งก้อนในครั้งเดียวแทน
     </p>
     <p>
-      ท่าที่ใช้คือสร้างเลขทั้งคู่<strong>ทีละบิตจากบิตสูงลงมาบิตต่ำ</strong> แต่ละตำแหน่งเลือกได้แค่สามแบบ
-      คือ <code>(0,0)</code>, <code>(0,1)</code> และ <code>(1,0)</code> ส่วน <code>(1,1)</code> ถูกห้ามตั้งแต่ต้น
-      เพราะจะทำให้บิตชนกัน
+      เริ่มจากโจทย์ที่ง่ายกว่า: นับ <code>r</code> ที่น้อยกว่า <code>R</code> โดยเลือกบิตของ <code>r</code> ทีละตำแหน่งจากซ้ายไปขวา
+      ระหว่างทางจำแค่ธงเดียว
+    </p>
+    <ul>
+      <li>
+        <strong>ติดขอบ:</strong> บิตของ <code>r</code> ที่เลือกมาเท่ากับของ <code>R</code> ทุกบิต
+        ถ้าบิตต่อไปของ <code>R</code> เป็น 0 ตัว <code>r</code> ต้องเป็น 0 ด้วย ถ้าเป็น 1 เลือก 1 ก็ยังติด เลือก 0 ก็หลุด
+      </li>
+      <li>
+        <strong>หลุดขอบ:</strong> มีตำแหน่งที่ <code>r</code> เป็น 0 แต่ <code>R</code> เป็น 1 ไปแล้ว
+        <code>r</code> น้อยกว่า <code>R</code> แน่นอน บิตที่เหลือเลือกอะไรก็ได้ และไม่กลับมาติดอีก
+      </li>
+    </ul>
+    <p>
+      ก่อนเลือกบิตแรก <code>r</code> กับ <code>R</code> ยังไม่ต่างกันเลย จึงเริ่มที่ติดขอบ
+      ตอนจบ ตัวที่ยังติดขอบคือ <code>r = R</code> พอดี เราต้องการน้อยกว่าแท้ (ไม่รวมเท่ากับ) จึงนับเฉพาะที่หลุดขอบ
     </p>
     <p>
-      สิ่งที่ต้องจำระหว่างทางมีแค่สามอย่าง คือตอนนี้ <code>r</code> ยัง<strong>เท่ากับ</strong> <code>R</code>
-      ในบิตที่ผ่านมาทั้งหมดหรือยัง <code>c</code> เท่ากับ <code>C</code> หรือยัง และผลรวมเท่ากับ <code>D</code> หรือยัง
-      ถ้าตัวไหน<strong>เล็กกว่าขอบไปแล้ว</strong> ตัวนั้นจะอิสระตลอดที่เหลือ เพราะบิตที่ต่ำลงไปเปลี่ยนผลไม่ได้อีก
-      สถานะทั้งหมดจึงมีแค่ 2 คูณ 2 คูณ 2 เท่ากับ 8 สถานะ
+      ท่อนแรกต้องการสามเงื่อนไขพร้อมกัน คือ <code>r &lt; R</code>, <code>c &lt; C</code> และ <code>r + c &lt; D</code> โดยบิตไม่ชนกัน
+      เลยใช้ธงสามอันแบบเดียวกัน ธงของ <code>r</code> ธงของ <code>c</code> และธงของผลรวม
     </p>
-    <p class="pull">เลขที่ใหญ่ถึงล้านล้าน ไม่ได้แปลว่าต้องนับทีละตัว มันแปลว่าให้เปลี่ยนหน่วยการนับจากตัวเลขเป็นบิต ซึ่งมีแค่ยี่สิบเอ็ดตัว</p>
-
+    <ul>
+      <li>แต่ละตำแหน่งเลือกคู่ <code>(x, y)</code> = (บิตของ r, บิตของ c) ได้สามแบบ คือ (0,0) (0,1) (1,0) ส่วน (1,1) ห้ามเพราะบิตจะชน</li>
+      <li>ไม่มีตัวทด บิตของ <code>r + c</code> ตรงนั้นคือ <code>x | y</code> พอดี เทียบกับบิตของ <code>D</code> ได้ทันที</li>
+    </ul>
+    <p>การนับแบบนี้มีชื่อว่า <i>digit DP</i> (อ่านว่า ดิจิตดีพี) คือนับเลขโดยเลือกทีละหลักแล้วจำแค่ธง</p>
+    <div class="callout callout-tip">
+      <p class="callout-label">สิ่งที่ countBelow เก็บ</p>
+      <ul>
+        <li><code>dp[a][b][s]</code> = จำนวนวิธีเลือกบิตของ r และ c ตั้งแต่บิต 20 ถึงบิตปัจจุบัน ที่ได้ธงชุดนี้</li>
+        <li>
+          <code>a</code> คือธงของ r เทียบ R, <code>b</code> คือธงของ c เทียบ C, <code>s</code> คือธงของผลรวมเทียบ D (1 = ติด, 0 = หลุด)
+          ในโค้ดธงของผลรวมชื่อ <code>c</code> ซึ่งไม่เกี่ยวกับเลขคอลัมน์
+        </li>
+        <li>เริ่มที่ <code>dp[1][1][1] = 1</code> เพราะยังไม่เลือกบิต ทั้งสามตัวยังเท่าขอบ</li>
+        <li>ธงที่ยังติดใช้กติกาเดียวกับข้างบน ธงที่หลุดแล้วไม่ต้องตรวจอีก</li>
+        <li>ตอบ <code>dp[0][0][0]</code> คือน้อยกว่าขอบแท้ทั้งสามตัว</li>
+      </ul>
+    </div>
+    <p>
+      ตัวเล่นข้างล่างใช้ R = C = {PLAY_R} (<code>{bin(PLAY_R, PLAY_BITS)}</code>) และ D = {PLAY_D} (<code>{bin(PLAY_D, PLAY_BITS)}</code>)
+      คือนับช่องสีเทาบนเส้น 0 ถึง {PLAY_D - 1} ของภาพกระดาน
+    </p>
+    <p>
+      เส้นพวกนั้นยาว {PLAY_LENS.join(', ')} ช่อง รวม {PLAY_K} ช่อง
+      บิต 20 ถึง {PLAY_BITS} ของทั้งสามเลขเป็น 0 สถานะจึงค้างที่ 111 ตลอดช่วงนั้น ตัวเล่นจึงเริ่มที่บิต {PLAY_BITS - 1}
+    </p>
+    <p>แต่ละขั้นเขียนเป็น สถานะ×น้ำหนัก: บิตที่เลือก→สถานะใหม่ โดยธงเรียงเป็น R C ผลรวม</p>
     <CpStepPlayer hook="hzsim" steps={playerSteps} label={`เดินบิตของ R = ${PLAY_R}, C = ${PLAY_C}, D = ${PLAY_D}`}>
       <table class="rec hzrec">
         <caption>ตารางน้ำหนักของทั้งแปดสถานะ</caption>
@@ -594,29 +887,50 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
       </table>
     </CpStepPlayer>
     <p class="io-note">
-      แถวล่างสุดคือแถวที่หลุดขอบครบทั้งสามตัว ซึ่งเป็นแถวเดียวที่นับเป็นคำตอบ
-      ที่ <code>R = {PLAY_R}</code>, <code>C = {PLAY_C}</code> และ <code>D = {PLAY_D}</code> ได้ <strong>{PLAY_ANSWER}</strong> ช่อง
-      ตัวเลขทุกช่องในตารางนี้คำนวณตอนสร้างหน้า ไม่ได้พิมพ์มือ
-    </p>
-
-    <p>
-      ส่วนท่อนที่สองบนเส้นสุดท้าย เราต้องนับ <code>r</code> ที่บิตเป็นสับเซตของ <code>D</code>
-      และอยู่ในช่วง <code>[a, b]</code> ซึ่งทำได้ด้วยการนับ <code>r</code> ที่ไม่เกิน <code>b</code>
-      แล้วลบด้วยที่ไม่เกิน <code>a</code> ลบหนึ่ง การนับสับเซตที่ไม่เกินค่าหนึ่ง
-      ก็เดินทีละบิตเหมือนกัน ต่างแค่คราวนี้มีขอบตัวเดียว
+      แถวล่างสุดคือสถานะ 000 ได้ {PLAY_ANSWER} ช่อง
+      ตรงกับการเดิน {PLAY_K} ก้าวแรกแล้วนับสีเทาตรง ๆ ({PLAY_SLOW} ช่อง)
     </p>
   </Spoiler>
 
   <h2>โค้ด</h2>
   <Spoiler>
+    <p>หน่วยงานในหน้านี้คือก้าว หนึ่งก้าวคือหนึ่งรอบของลูปในสุด รวมรอบที่ถูกทิ้งด้วย ตัวเลขจึงเป็นขอบบน</p>
+    <ul>
+      <li>ลูปหาเส้น <code>D</code>: ไม่เกิน <code>R + C - 1</code> = {fmt(DIAG_FULL)} รอบ</li>
+      <li>
+        <code>countBelow</code>: {BITS} บิต (20 ถึง 0) &times; 8 สถานะ &times; 4 คู่ <code>(x, y)</code>
+        รวมคู่ (1,1) ที่ถูกทิ้ง = {DP_STEPS} ก้าว
+      </li>
+      <li>
+        <code>subLE</code>: ไล่บิต 21 ถึง 0 ({SUBLE_LOOP} บิต) มีสองลูป (นับบิต 1 ของ D ก่อน แล้วไล่จริง)
+        เรียกสองครั้ง รวม 2 &times; 2 &times; {SUBLE_LOOP} = {SUBLE_STEPS} ก้าว
+      </li>
+    </ul>
+    <p>ไม่มีอาร์เรย์ที่โตตามอินพุต</p>
     <p>
-      ทั้งโปรแกรมไม่มีลูปไหนยาวเกิน <code>R + C</code> คือใช้หาว่าเม่นหลับที่แนวทแยงเส้นไหน
-      ส่วนการนับใช้ 21 บิตคูณ 8 สถานะ ซึ่งคงที่ ไม่โตตามอินพุตเลย
+      เคส <code>R = C = {fmt(N_MAX)}</code> กับ <code>K = {fmt(K_MAX)}</code> ตอบ {fmt(FULL_ANS)} ซึ่งคือจำนวนช่องสีเทาทั้งกระดาน
     </p>
     <details class="expander">
       <summary>ดูโค้ดเต็ม</summary>
       <div class="expander-body">
         <CodeBlock code={solution} lang="cpp" title="hedgehog.cpp" />
+        <figure class="tbl">
+          <table class="rec prose">
+            <caption>โค้ดส่วนไหนทำขั้นไหน</caption>
+            <thead>
+              <tr><th>ส่วนในโค้ด</th><th>ของที่เก็บหรือทำ</th><th>อธิบายไว้ที่</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>B = 21</td><td>countBelow ไล่บิต 20 ถึง 0 (D ไม่เกิน {fmt(D_MAX)} ซึ่งน้อยกว่า 2²¹) ส่วน subLE ไล่บิต 21 ถึง 0</td><td>ตอนที่ 3</td></tr>
+              <tr><td>ลูป d ใน main, seen</td><td>หาเส้น D ที่ก้าวที่ K ตกอยู่ และจำนวนช่องของท่อนแรก</td><td>ตอนที่ 2</td></tr>
+              <tr><td>t, lo, hi, a, b</td><td>ช่วงที่เดินบนเส้น D ตามทิศของเส้น</td><td>ตอนที่ 2 กล่องช่วงที่เดิน</td></tr>
+              <tr><td>countBelow, dp[a][b][c]</td><td>น้ำหนักของแปดสถานะ (ตัว c ตัวที่สามคือธงของผลรวม)</td><td>ตอนที่ 3 กล่องสิ่งที่ countBelow เก็บ</td></tr>
+              <tr><td>ลูป x, y</td><td>สามทางเลือกต่อบิต ทิ้ง (1,1)</td><td>ตอนที่ 3</td></tr>
+              <tr><td>subLE, below, tight</td><td>นับ r ตั้งแต่ 0 ถึง lim ที่บิตอยู่ในบิตของ D (โค้ดเรียก lim ว่า x)</td><td>ตอนที่ 3 กล่อง subLE</td></tr>
+              <tr><td>ans</td><td>ท่อนแรก บวกท่อนสอง</td><td>ตอนที่ 2</td></tr>
+            </tbody>
+          </table>
+        </figure>
       </div>
     </details>
     <details class="expander">
@@ -624,65 +938,138 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
       <div class="expander-body">
         <CodeBlock code={bruteCode} lang="cpp" title="brute_hedgehog.cpp" />
         <p>
-          ตัวตรวจนี้เดินจริงตามที่โจทย์เล่า ไม่มีทฤษฎีเรื่องบิตอยู่ในนั้นเลยนอกจากนิยามของสี
-          ผมกวาดเทียบสองโปรแกรม<strong>ทุกกระดานที่ R และ C ไม่เกิน 40 และทุกค่าของ K</strong>
-          รวม 672,400 เคส บวกกระดานสุ่มขนาดถึง 300 อีก 3,000 เคส ตรงกันทั้งหมด
-          หน้าเว็บนี้ก็รันด่านตรวจเดียวกันตอนบิลด์ ที่ R และ C ไม่เกิน 12 รวม {fmt(SWEEP_CASES)} เคส
-          ถ้าไม่ตรงเมื่อไรหน้านี้จะไม่ขึ้นเลย
+          ตัวตรวจนี้เดินจริงตามที่โจทย์เล่า และใช้แค่นิยามของสี
+          แต่มันไล่แนวทแยงด้วยสูตร <code>lo</code>, <code>hi</code> ชุดเดียวกับที่โค้ดหลักใช้หาเส้น <code>D</code>
+        </p>
+        <p>
+          ถ้าสูตรนั้นผิด ทั้งสองโปรแกรมก็ผิดเหมือนกัน จึงเทียบทั้งคู่กับตัวเดินอีกตัวชื่อ brute_sim.cpp
+          ซึ่งขยับทีละก้าวแล้วเด้งเมื่อชนขอบ และเทียบบิตทีละหลักด้วยการหารสอง
         </p>
       </div>
     </details>
-    <p>
-      เวลาที่วัดได้บนเครื่องผม กระดาน {fmt(1000000)} คูณ {fmt(1000000)} และ <code>K</code> เท่ากับหนึ่งล้านล้าน
-      ใช้เวลา<strong>ไม่ถึง 30 มิลลิวินาที</strong> จากลิมิตหนึ่งวินาที คำตอบของเคสนั้นคือ {fmt(FULL_1M)} ช่อง
-      ซึ่งเป็นจำนวนช่องสีเทาทั้งกระดาน
-    </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ตรวจอะไรไปแล้วบ้าง</p>
+      <ul>
+        <li>ตัวอย่างทั้งสามชุดในโจทย์ได้ {SAMPLES.map((s) => s.out).join(', ')} ตรงกับโจทย์</li>
+        <li>
+          ตอนสร้างหน้า โมเดลถูกเทียบกับตัวเดินแบบเด้งขอบ (ไม่ใช้สูตร lo/hi) บนทุกกระดานที่ R, C ไม่เกิน 12 ทุกค่า K
+          รวม {fmt(SWEEP_CASES)} เคส ทุกเคสได้ผลตรงกัน
+        </li>
+        <li>ลำดับการเดินที่ใช้วาดภาพและสร้างเกมตรงกับตัวเดินแบบเด้งขอบทุกก้าวบนกระดานชุดเดียวกัน</li>
+        <li>
+          hedgehog.cpp และ brute_hedgehog.cpp ถูกเทียบกับ brute_sim.cpp บนกระดานชุดเดียวกันนั้น
+          บวก 600 กระดานสุ่ม (R, C ไม่เกิน 300) และ 20 กระดานด้านยาวถึงหนึ่งล้าน (K ไม่เกิน 20 ล้าน) ทุกเคสได้ผลตรงกัน
+        </li>
+        <li>
+          วิธีที่ 2 ในตารางสรุปใช้สูตร lo/hi และ subLE ชุดเดียวกับโค้ดหลัก จึงเทียบกับ brute_sim.cpp
+          บน {MEASURED.midCases} อินพุต (ด้าน 1 ถึง 300 หลายค่า K) ทุกอินพุตได้ผลตรงกัน
+        </li>
+        <li>
+          อินพุตขนาดเต็มหกชุด (ด้านหนึ่งยาวหนึ่งล้าน K ถึงหนึ่งล้านล้าน) hedgehog.cpp ใช้หน่วยความจำไม่เกิน {SOL_PEAK_MB} ล้านไบต์
+          ({fmt(MEASURED.solPeakKiB)} KiB รวมตัวโปรแกรม) จากลิมิต 32 MB
+        </li>
+      </ul>
+      <p>วัดบน WSL ด้วย <code>g++ -O2</code> รวมเวลาอ่านอินพุต โค้ดทดสอบแล้ว ไม่ได้พิสูจน์ ตามขนาดข้างบน</p>
+    </div>
   </Spoiler>
 
-  <h2>ท่าที่ติดมือกลับไป</h2>
-  <p>
-    ท่าหลักของข้อนี้เรียกว่า<strong>การนับทีละหลัก</strong> (digit DP) คือแทนที่จะไล่ค่าทีละค่า
-    เราสร้างค่านั้นทีละหลักแล้วจำแค่ว่า "ตอนนี้ยังติดขอบบนอยู่ไหม" ท่านี้ใช้ได้ทุกครั้งที่โจทย์ถามว่า
-    <strong>มีเลขกี่ตัวในช่วงหนึ่งที่หน้าตาของหลักเป็นแบบนี้</strong> ไม่ว่าจะฐานสองหรือฐานสิบ
-  </p>
-  <div class="callout callout-note">
-    <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมต้องมีธงว่าติดขอบ</p>
+  <h2>สรุป เทียบสามทาง และทดสอบตัวเอง</h2>
+  <Spoiler>
     <p>
-      ถ้าไม่มีขอบบน การนับเลข <code>n</code> บิตที่บิตไม่ชนกันคือ <code>3</code> ยกกำลัง <code>n</code> ตรง ๆ
-      เพราะแต่ละบิตเลือกได้สามแบบอิสระกัน ความยากทั้งหมดมาจากคำว่า<strong>น้อยกว่า</strong> ที่ผูกอยู่กับขอบ
+      บทเรียนของข้อนี้: ถ้าเงื่อนไขพูดถึงหลักของตัวเลข ให้นับด้วยการเลือกทีละหลักแทนการไล่ทีละค่า
+      ใช้ได้ทั้งฐานสองและฐานสิบ
     </p>
-    <p>
-      ธงติดขอบคือวิธีจัดการคำว่าน้อยกว่าให้เป็นเรื่องเฉพาะที่ ตราบใดที่บิตที่ผ่านมาเท่ากับขอบทุกตัว
-      บิตถัดไปยัง<strong>ห้ามเกินขอบ</strong> แต่วินาทีที่มีบิตไหนน้อยกว่าขอบ ทุกบิตที่เหลือก็อิสระทันที
-      เพราะต่อให้เติม 1 ทั้งหมดก็ยังไม่มีวันไล่ทันขอบได้
-    </p>
-    <p>
-      ถ้าอยากเห็นท่าเดียวกันในบริบทที่ต่างออกไป ลองอ่าน
-      <a href="/cp/count-then-walk/">นับก่อน แล้วค่อยเดิน</a> ซึ่งใช้การนับเพื่อเลี่ยงการสร้างของจริงเหมือนกัน
-    </p>
-  </div>
-
-  <figure class="tbl">
-    <table class="rec">
-      <caption>บิลค่าใช้จ่าย</caption>
-      <thead>
-        <tr><th>ทาง</th><th>ขอบเขตที่มันไหว</th><th class="num">งานคร่าว ๆ ต่อหนึ่งเคส</th></tr>
-      </thead>
-      <tbody>
-        {bill.map((r) => (
-          <tr><td>{r.name}</td><td>{r.limit}</td><td class="num">{r.work}</td></tr>
-        ))}
-      </tbody>
-    </table>
-    <figcaption>สองแถวนี้นับคนละหน่วยโดยตั้งใจ แถวบนนับก้าวของเม่น ซึ่งโตตาม K ตรง ๆ แถวล่างนับบิต ซึ่งเป็นลอการิทึมของ K จึงหยุดโตไปแล้วตั้งแต่ K หลักล้าน นี่คือเหตุผลเดียวที่ชุดทดสอบเต็มผ่านได้</figcaption>
-  </figure>
-
-  <h2>สรุปบรรทัดเดียว</h2>
-  <p>
-    ประโยคว่าบิตไม่ชนกัน คือประโยคเดียวกับว่าบวกแล้วไม่มีตัวทด พอเขียนแบบนั้นได้
-    ช่องสีเทาบนแนวทแยงก็กลายเป็นสับเซตของเลขประจำเส้น และการนับทั้งกระดาน
-    ก็ยุบเหลือการเดิน 21 บิตพร้อมธงสามอันว่ายังติดขอบไหน
-  </p>
+    <div class="callout callout-note">
+      <p class="callout-label">ทบทวนพื้นฐาน &middot; ทำไมต้องมีธงติดขอบ</p>
+      <p>
+        ถ้าไม่มีขอบบน จำนวนคู่เลข <code>n</code> บิตที่บิตไม่ชนกันคือ 3 ยกกำลัง <code>n</code> ตรง ๆ
+        เพราะแต่ละบิตเลือกได้สามแบบอิสระกัน ธงมีไว้จัดการคำว่าน้อยกว่าขอบทีละบิต
+      </p>
+      <p>
+        ถ้าอยากเห็นการนับแทนการสร้างของจริงในบริบทอื่น ลองอ่าน
+        <a href="/cp/count-then-walk/">นับก่อน แล้วค่อยเดิน</a>
+      </p>
+    </div>
+    <p>การ์ดกับตารางนับงานเป็นก้าวแบบเดียวกับหัวข้อโค้ด</p>
+    <div class="cp-ladder">
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 1</p>
+        <h4>เดินตามเม่น</h4>
+        <p class="cp-step-cost">K ก้าว</p>
+        <p>ทำตามที่โจทย์เล่าตรง ๆ</p>
+        <p class="cp-step-win">ผ่านชุด 50%</p>
+      </div>
+      <div class="cp-step">
+        <p class="cp-step-no">วิธีที่ 2</p>
+        <h4>นับทีละแนวทแยง</h4>
+        <p class="cp-step-cost">(D + 1) &times; {SUBLE_STEPS} ก้าว</p>
+        <p>ใช้ subLE กับทุกเส้นของท่อนแรก และกับช่วงบนเส้น D</p>
+        <p class="cp-step-win">ผ่านทั้งหมด</p>
+      </div>
+      <div class="cp-step is-goal">
+        <p class="cp-step-no">วิธีที่ 3</p>
+        <h4>โค้ดในหน้านี้</h4>
+        <p class="cp-step-cost">(D + 1) + {DP_STEPS} + {SUBLE_STEPS} ก้าว</p>
+        <p>digit DP กับท่อนแรก ลูปที่โตตามอินพุตเหลือแค่การหาเส้น D</p>
+        <p class="cp-step-win">ผ่านทั้งหมด</p>
+      </div>
+    </div>
+    <figure class="tbl">
+      <table class="rec hz-ladder">
+        <caption>ก้าวในกรณีแย่สุด และเวลาที่วัดได้</caption>
+        <thead>
+          <tr>
+            <th>วิธี</th>
+            {SUBS.map((s) => <th class="num">{s.label} ({s.head})</th>)}
+            <th class="num">เวลา ชุดเต็ม</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ladderRows.map((r) => (
+            <tr>
+              <td>{r.name}</td>
+              {r.cells.map((c) => (
+                <td class={c.ok ? 'num ok' : 'num over'}>{fmt(c.steps)}</td>
+              ))}
+              <td class={r.cells[1].ok ? 'num ok' : 'num over'}>{r.time}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <figcaption>
+        D + 1 ไม่เกิน K และไม่เกิน R + C - 1 เวลาของวิธีที่ 1 ประมาณจาก brute_hedgehog.cpp
+        ซึ่งเดิน {fmt(MEASURED.bruteSteps)} ก้าวใน {MEASURED.bruteSec} วินาที (ราว {fmt(BRUTE_RATE_M)} ล้านก้าวต่อวินาที)
+        วิธีที่ 2 และ 3 วัดที่ R = C = {fmt(N_MAX)} กับ K = 10¹² สีเขียวคือทันลิมิตหนึ่งวินาที สีแดงคือไม่ทัน
+      </figcaption>
+    </figure>
+    <details class="expander">
+      <summary>แนวทแยงเส้น d = {QUIZ1_D} บนกระดานที่ใหญ่พอ มีช่องสีเทากี่ช่อง</summary>
+      <div class="expander-body">
+        <p>
+          {QUIZ1_RS.length} ช่อง {QUIZ1_D} = <code>{bin(QUIZ1_D)}</code> มีบิต 1 อยู่ {popcount(QUIZ1_D)} ตัว แจกได้ {QUIZ1_RS.length} แบบ
+          คือ r = {QUIZ1_RS.join(', ')}
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>กระดาน {QUIZ2.R} x {QUIZ2.C} กับ K = {QUIZ2.K} (ตัวอย่างที่สอง) เม่นไปถึงเส้นไหน และเดินบนเส้นนั้นกี่ช่อง</summary>
+      <div class="expander-body">
+        <p>
+          เส้น D = {quiz2Fast.D} เดินไป t = {quiz2T} ช่อง เส้น 0 ถึง {quiz2Fast.D - 1} รวมกัน {quiz2Fast.seen} ช่อง
+        </p>
+        <p>
+          เส้น {quiz2Fast.D} เป็นเลขคู่ เดินขึ้น ได้ {pairList(quiz2Cells)} ซึ่งเป็นสีขาวทั้งคู่
+          คำตอบ {QUIZ2.out} มาจากท่อนแรกทั้งหมด
+        </p>
+      </div>
+    </details>
+    <details class="expander">
+      <summary>ถ้าไม่มีขอบเลย คู่ (r, c) ที่ทั้งสองตัวน้อยกว่า {2 ** QUIZ3_BITS} และบิตไม่ชนกัน มีกี่คู่</summary>
+      <div class="expander-body">
+        <p>{QUIZ3} คู่ ทั้งสองตัวมี {QUIZ3_BITS} บิต แต่ละบิตเลือกได้สามแบบ คือ 3 ยกกำลัง {QUIZ3_BITS}</p>
+      </div>
+    </details>
+  </Spoiler>
 
   <h2>แหล่งที่มา</h2>
   <ol class="references">
@@ -709,6 +1096,9 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
   .hz-lbl{display:block;width:0;min-width:100%;}
   table.rec.hzrec td.num.hz-goal{color:#4ade80;font-weight:700;}
   table.rec.hzrec td.num.is-live{background:#163a2a;color:#eaf2ff;font-weight:700;}
+
+  table.rec.hz-ladder td.ok{color:#a7f3c4;}
+  table.rec.hz-ladder td.over{color:#f0a6a6;}
 
   /* ---------- กระดานของมินิเกม ---------- */
   .hz-board{display:grid;gap:0.25rem;justify-content:center;margin:0.2rem auto 0.6rem;}
@@ -754,6 +1144,7 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
 
     const pz = (): HzPuzzle => puzzles[pi];
     const boards = Array.from(ui.root.querySelectorAll<HTMLElement>('[data-hz-board]'));
+    const status0 = ui.root.querySelector<HTMLElement>('[data-cpg-status]')?.dataset.status0 ?? '';
 
     function render(): void {
       const p = pz();
@@ -785,7 +1176,7 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
         ui.setStatus(`ถูกทั้ง ${p.cells.length} ช่องครับ ช่องสีเทามี ${p.greyCount} ช่อง ซึ่งคือคำตอบของกระดานนี้`, 'good');
       } else {
         ui.setStatus(
-          `ถูก ${right} จาก ${p.cells.length} ช่อง ช่องที่ผิดถูกตีกรอบแดงไว้แล้ว ลองเขียนเลขแถวกับเลขคอลัมน์ของช่องพวกนั้นเป็นฐานสองดู`,
+          `ถูก ${right} จาก ${p.cells.length} ช่อง (ช่องสีเทาจริงมี ${p.greyCount} ช่อง) ช่องที่ผิดถูกตีกรอบแดงไว้แล้ว ลองเขียนเลขแถวกับเลขคอลัมน์ของช่องพวกนั้นเป็นฐานสองดู`,
           'bad',
         );
       }
@@ -797,7 +1188,7 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
       revealed = false;
       ui.selectTab(k);
       ui.setTease(pz().tease);
-      ui.setStatus('ตัวเลขในช่องคือลำดับก้าวของเม่น ช่องที่เป็นจุดคือช่องที่เม่นหลับก่อนจะไปถึง');
+      ui.setStatus(status0);
       render();
     }
 
@@ -809,7 +1200,7 @@ bool grey(int r, int c){ return (r & c) == 0; }`;
       if (guess.has(key)) guess.delete(key);
       else guess.add(key);
       revealed = false;
-      ui.setStatus('ตัวเลขในช่องคือลำดับก้าวของเม่น ช่องที่เป็นจุดคือช่องที่เม่นหลับก่อนจะไปถึง');
+      ui.setStatus(status0);
       render();
     });
 
